@@ -1,0 +1,1694 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<!-- CodeMirror CSS -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/monokai.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/scroll/simplescrollbars.css">
+
+<style>
+    /* ===== COMPACT HEADER STYLING ===== */
+    .compact-header {
+        background: linear-gradient(135deg, #2980b9 0%, #34495e 100%);
+        color: white;
+        padding: 0.5rem 1rem;
+        margin-bottom: 1rem;
+        border-radius: 0.5rem;
+    }
+    
+    /* ===== LAYOUT ADJUSTMENTS FOR MORE CODE SPACE ===== */
+    .main-container {
+        height: calc(100vh - 100px);
+        overflow: hidden;
+    }
+    
+    .left-panel {
+        height: 100%;
+        overflow-y: auto;
+        padding-right: 0.5rem;
+    }
+    
+    .right-panel {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    /* ===== COMPACT CARD STYLING ===== */
+    .card {
+        margin-bottom: 0.5rem;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        border-radius: 0.5rem;
+    }
+    
+    .card-header {
+        padding: 0.4rem 0.75rem;
+        font-size: 0.85rem;
+        font-weight: 600;
+        background-color: var(--bg-elevated, #f8f9fa);
+        border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+    }
+    
+    .card-body {
+        padding: 0.5rem;
+    }
+    
+    .card-title {
+        font-size: 0.9rem;
+        margin-bottom: 0;
+    }
+    
+    /* ===== COMPACT FORM CONTROLS ===== */
+    .form-control, .custom-select {
+        font-size: 0.85rem;
+        padding: 0.25rem 0.5rem;
+        height: calc(1.5em + 0.5rem + 2px);
+    }
+    
+    .form-control-sm {
+        font-size: 0.8rem;
+        padding: 0.2rem 0.4rem;
+    }
+    
+    .form-group {
+        margin-bottom: 0.5rem;
+    }
+    
+    .form-group label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin-bottom: 0.2rem;
+        color: #495057;
+    }
+    
+    /* ===== BUTTONS ===== */
+    .btn {
+        font-size: 0.85rem;
+        padding: 0.25rem 0.5rem;
+    }
+    
+    .btn-sm {
+        padding: 0.2rem 0.4rem;
+        font-size: 0.8rem;
+    }
+    
+    .btn-group-vertical .btn {
+        margin-bottom: 0.25rem;
+    }
+    
+    /* ===== CODEMIRROR CUSTOMIZATION ===== */
+    .code-editor-container {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 400px;
+    }
+    
+    .CodeMirror {
+        flex: 1;
+        height: auto;
+        border: 1px solid #343a40;
+        border-radius: 0.25rem;
+        font-size: 0.9rem;
+        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    }
+    
+    .CodeMirror-scroll {
+        min-height: 400px;
+    }
+    
+    /* ===== LISTS AND ITEMS ===== */
+    .item-list {
+        max-height: 120px;
+        overflow-y: auto;
+        font-size: 0.85rem;
+        border: 1px solid var(--border-subtle, #dee2e6);
+        border-radius: 0.25rem;
+        padding: 0.25rem;
+    }
+    
+    .list-group-item {
+        padding: 0.3rem 0.5rem;
+        font-size: 0.85rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border: none;
+        border-bottom: 1px solid var(--border-subtle, #e9ecef);
+        background: transparent;
+    }
+    
+    .list-group-item:last-child {
+        border-bottom: none;
+    }
+    
+    /* ===== BADGES ===== */
+    .badge {
+        font-size: 0.7rem;
+        padding: 0.2em 0.4em;
+        margin: 0 0.2rem;
+    }
+    
+    .badge-optional {
+        background-color: #6c757d;
+    }
+    
+    /* ===== INPUT GROUPS ===== */
+    .input-group-sm .form-control {
+        font-size: 0.8rem;
+        padding: 0.2rem 0.4rem;
+    }
+    
+    .input-group-text {
+        font-size: 0.85rem;
+        padding: 0.25rem 0.5rem;
+    }
+    
+    /* ===== ALERT STYLING ===== */
+    .alert {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.85rem;
+    }
+    
+    /* ===== FEEDBACK CONTAINER ===== */
+    .feedback-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1050;
+    }
+    
+    .feedback-alert {
+        display: flex;
+        align-items: center;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        min-width: 200px;
+        font-size: 0.85rem;
+        padding: 0.5rem 0.75rem;
+    }
+    
+    .feedback-alert i {
+        margin-right: 8px;
+        font-size: 0.9rem;
+    }
+    
+    /* ===== COLLAPSIBLE SECTIONS ===== */
+    .collapse-header {
+        cursor: pointer;
+        user-select: none;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .collapse-header:hover {
+        background-color: var(--border-subtle, #e9ecef);
+    }
+    
+    .collapse-indicator {
+        transition: transform 0.2s;
+    }
+    
+    .collapsed .collapse-indicator {
+        transform: rotate(-90deg);
+    }
+    
+    /* ===== RESPONSIVE ADJUSTMENTS ===== */
+    @media (max-width: 992px) {
+        .main-container {
+            height: auto;
+        }
+        
+        .left-panel, .right-panel {
+            height: auto;
+            margin-bottom: 1rem;
+        }
+        
+        .CodeMirror {
+            height: 400px;
+        }
+    }
+    
+    /* ===== SCROLLBAR STYLING ===== */
+    .item-list::-webkit-scrollbar,
+    .left-panel::-webkit-scrollbar {
+        width: 6px;
+    }
+    
+    .item-list::-webkit-scrollbar-track,
+    .left-panel::-webkit-scrollbar-track {
+        background: var(--bg-elevated, #f1f1f1);
+        border-radius: 3px;
+    }
+    
+    .item-list::-webkit-scrollbar-thumb,
+    .left-panel::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 3px;
+    }
+    
+    .item-list::-webkit-scrollbar-thumb:hover,
+    .left-panel::-webkit-scrollbar-thumb:hover {
+        background: #555;
+    }
+    
+    /* ===== ACTION BUTTONS BAR ===== */
+    .action-bar {
+        background: var(--bg-elevated, #f8f9fa);
+        padding: 0.5rem;
+        border-radius: 0.25rem;
+        margin-bottom: 0.5rem;
+    }
+    
+    .code-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.5rem;
+        background: #2c3e50;
+        color: white;
+        border-radius: 0.25rem 0.25rem 0 0;
+    }
+    
+    .code-header h6 {
+        margin: 0;
+        font-size: 0.9rem;
+    }
+    
+    .output-type-selector {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    
+    .output-type-selector label {
+        color: white;
+        font-size: 0.8rem;
+        margin: 0;
+    }
+    
+    .output-type-selector select {
+        font-size: 0.8rem;
+        padding: 0.15rem 0.4rem;
+    }
+
+
+    .is-invalid {
+        border-color: #dc3545 !important;
+    }
+
+    .invalid-feedback {
+        display: block;
+        margin-top: 0.25rem;
+        font-size: 0.75rem;
+        color: #dc3545;
+    }
+
+    /* Helper button to auto-fix names */
+    .auto-fix-btn {
+        position: absolute;
+        right: 5px;
+        top: 50%;
+        transform: translateY(-50%);
+        padding: 0.1rem 0.3rem;
+        font-size: 0.7rem;
+        z-index: 10;
+    }
+
+       .import-step {
+        min-height: 200px;
+    }
+    
+    .custom-file-label::after {
+        content: "Browse";
+    }
+    
+    .analysis-summary table td:first-child {
+        width: 40%;
+        font-weight: 600;
+    }
+    
+    .import-summary .alert h4 {
+        margin-bottom: 5px;
+        font-weight: bold;
+    }
+    
+    .import-summary .alert small {
+        text-transform: uppercase;
+        font-weight: 600;
+        opacity: 0.8;
+    }
+    
+    #importToolModal .modal-dialog {
+        max-width: 700px;
+    }
+    
+    .list-group-item-success {
+        background-color: #d4edda;
+        border-color: #c3e6cb;
+    }
+    
+    .list-group-item-info {
+        background-color: #d1ecf1;
+        border-color: #bee5eb;
+    }
+    
+    .list-group-item-warning {
+        background-color: rgba(251, 191, 36, 0.15);
+        border-color: #ffeeba;
+    }
+    
+    .list-group-item-danger {
+        background-color: rgba(251, 113, 133, 0.15);
+        border-color: #f5c6cb;
+    }
+</style>
+
+<div class="container-fluid px-3 py-2">
+    <!-- Compact Header Bar -->
+    <div class="doc-page-header">
+        <h4 class="mb-0"><i class="fas fa-wrench mr-2"></i>Tool Builder</h4>
+        <div>
+            <button type="button" class="btn btn-sm btn-light" onclick="createNewPackage()">
+                <i class="fas fa-plus"></i> New Package
+            </button>
+        </div>
+    </div>
+    
+    {% if current_user.is_authenticated %}
+        {% if current_user.role in [2, 3] %}
+            <form id="toolForm" method="post" action="/custom">
+                <div class="main-container">
+                    <div class="row h-100">
+                        <!-- Left Panel - Configuration -->
+                        <div class="col-lg-4 col-md-5 left-panel">
+                            <!-- Package Selection -->
+                            <div class="card">
+                                <div class="card-body">
+                                    <div class="form-group mb-2">
+                                        <label for="packageSelect">Package:</label>
+                                        <select id="packageSelect" class="form-control form-control-sm" onchange="loadPackage()">
+                                            <option value="">New Package</option>
+                                            {% for package in packages %}
+                                                <option value="{{ package }}">{{ package }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Package Details -->
+                            <div class="card">
+                                <div class="card-header collapse-header" data-toggle="collapse" data-target="#detailsCollapse">
+                                    <h6 class="mb-0">Package Details</h6>
+                                    <i class="fas fa-chevron-down collapse-indicator"></i>
+                                </div>
+                                <div class="collapse show" id="detailsCollapse">
+                                    <div class="card-body">
+                                        <div class="form-group">
+                                            <label for="name">Name:</label>
+                                            <input type="text" id="name" name="name" class="form-control form-control-sm">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="description">Description:</label>
+                                            <input type="text" id="description" name="description" class="form-control form-control-sm">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Python Modules -->
+                            <div class="card">
+                                <div class="card-header collapse-header" data-toggle="collapse" data-target="#modulesCollapse">
+                                    <h6 class="mb-0">Python Modules</h6>
+                                    <i class="fas fa-chevron-down collapse-indicator"></i>
+                                </div>
+                                <div class="collapse show" id="modulesCollapse">
+                                    <div class="card-body">
+                                        <div class="input-group input-group-sm mb-2">
+                                            <input type="text" id="item" name="item" class="form-control" placeholder="Module name">
+                                            <div class="input-group-append">
+                                                <button type="button" onclick="addModule()" class="btn btn-sm btn-primary">
+                                                    <i class="fas fa-plus"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <ul id="itemsList" name="itemsList" class="list-group item-list"></ul>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Parameters -->
+                            <div class="card">
+                                <div class="card-header collapse-header" data-toggle="collapse" data-target="#paramsCollapse">
+                                    <h6 class="mb-0">Parameters</h6>
+                                    <i class="fas fa-chevron-down collapse-indicator"></i>
+                                </div>
+                                <div class="collapse show" id="paramsCollapse">
+                                    <div class="card-body">
+                                        <div class="row mb-2">
+                                            <div class="col-6">
+                                                <input type="text" id="param" name="param" class="form-control form-control-sm" placeholder="Parameter">
+                                            </div>
+                                            <div class="col-6">
+                                                <select name="paramtype" id="paramtype" class="form-control form-control-sm">
+                                                    <option value="str">String</option>
+                                                    <option value="int">Integer</option>
+                                                    <option value="float">Float</option>
+                                                    <option value="bool">Bool</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div class="row mb-2">
+                                            <div class="col-12">
+                                                <div class="d-flex align-items-center">
+                                                    <input type="text" id="paramDefault" name="paramDefault" class="form-control form-control-sm" placeholder="Default value (optional)">
+                                                    <i class="fas fa-info-circle ml-2 text-muted" title="If specified, this parameter becomes optional with this default value when the function is called"></i>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <div class="form-check form-check-sm">
+                                                <input type="checkbox" class="form-check-input" id="paramOptional">
+                                                <label class="form-check-label" for="paramOptional" style="font-size: 0.8rem;">Optional</label>
+                                            </div>
+                                            <button type="button" onclick="addParam()" class="btn btn-sm btn-primary">
+                                                <i class="fas fa-plus"></i> Add
+                                            </button>
+                                        </div>
+                                        <ul id="paramsList" name="paramsList" class="list-group item-list"></ul>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Action Buttons -->
+                            <div class="action-bar">
+                                <div class="btn-group btn-group-sm d-flex" role="group">
+                                    <button name="save" type="button" class="btn btn-success" onclick="savePackage()">
+                                        <i class="fas fa-save"></i> Save
+                                    </button>
+                                    <button id="btnExport" name="btnExport" type="button" class="btn btn-info" onclick="exportPackage()" style="display: none;">
+                                        <i class="fas fa-download"></i> Export
+                                    </button>
+                                    <button id="btnImport" name="btnImport" type="button" class="btn btn-warning" onclick="showImportDialog()">
+                                        <i class="fas fa-upload"></i> Import
+                                    </button>
+                                    <button type="button" class="btn btn-danger confirm-action" onclick="confirmDeletePackage()">
+                                        <i class="fas fa-trash"></i> Delete
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Right Panel - Code Editor -->
+                        <div class="col-lg-8 col-md-7 right-panel">
+                            <div class="code-editor-container">
+                                <div class="code-header">
+                                    <h6><i class="fas fa-code mr-2"></i>Function Code</h6>
+                                    <div class="output-type-selector">
+                                        <label for="output">Output Type:</label>
+                                        <select name="output" id="output" class="form-control form-control-sm">
+                                            <option value="str">String</option>
+                                            <option value="int">Integer</option>
+                                            <option value="float">Float</option>
+                                            <option value="bool">Bool</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <textarea id="code" name="code" placeholder="# Start typing Python function code here...">{{ request.form.code }}</textarea>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        {% else %}
+            <div class="alert alert-danger">
+                <i class="fas fa-exclamation-circle mr-2"></i> You are not authorized to view this content
+            </div>
+        {% endif %}
+    {% else %}
+        <div class="alert alert-warning">
+            <i class="fas fa-sign-in-alt mr-2"></i> Please log in to view this content
+        </div>
+    {% endif %}
+</div>
+
+<div class="feedback-container" id="feedbackContainer"></div>
+
+<div class="modal fade" id="importToolModal" tabindex="-1" role="dialog" aria-labelledby="importToolModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="importToolModalLabel">
+                    <i class="fas fa-upload mr-2"></i>Import Custom Tools
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <!-- Step 1: File Selection -->
+                <div id="importStep1" class="import-step">
+                    <h6 class="text-primary mb-3">Step 1: Select Package File</h6>
+                    <div class="custom-file mb-3">
+                        <input type="file" class="custom-file-input" id="importFile" 
+                               accept=".zip" onchange="handleImportFileSelect(this)">
+                        <label class="custom-file-label" for="importFile" id="importFileName">
+                            Choose ZIP file...
+                        </label>
+                    </div>
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle mr-2"></i>
+                        <strong>Supported formats:</strong>
+                        <ul class="mb-0 mt-2">
+                            <li>Single tool package (exported from a single tool)</li>
+                            <li>Multiple tools package (collection of tools)</li>
+                            <li>Agent export package (will extract only custom tools)</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <!-- Step 2: Package Analysis -->
+                <div id="importStep2" class="import-step" style="display: none;">
+                    <h6 class="text-primary mb-3">Step 2: Package Analysis</h6>
+                    <div id="analysisResults">
+                        <!-- Analysis results will be displayed here -->
+                    </div>
+                </div>
+                
+                <!-- Step 3: Import Progress -->
+                <div id="importStep3" class="import-step" style="display: none;">
+                    <h6 class="text-primary mb-3">Step 3: Importing Tools</h6>
+                    <div id="importProgress">
+                        <!-- Progress will be shown here -->
+                    </div>
+                </div>
+                
+                <!-- Step 4: Import Results -->
+                <div id="importStep4" class="import-step" style="display: none;">
+                    <h6 class="text-success mb-3">Import Complete!</h6>
+                    <div id="importResults">
+                        <!-- Results will be shown here -->
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal" onclick="resetImportDialog()">
+                    <i class="fas fa-times mr-1"></i>Close
+                </button>
+                <button type="button" id="importAnalyzeBtn" class="btn btn-primary" 
+                        onclick="analyzeImportPackage()" style="display: none;">
+                    <i class="fas fa-search mr-1"></i>Analyze Package
+                </button>
+                <button type="button" id="importProceedBtn" class="btn btn-success" 
+                        onclick="proceedWithImport()" style="display: none;">
+                    <i class="fas fa-file-import mr-1"></i>Proceed with Import
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- CodeMirror JavaScript -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/closebrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/matchbrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/comment/comment.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/fold/foldcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/fold/foldgutter.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/fold/indent-fold.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/scroll/simplescrollbars.min.js"></script>
+
+<script>
+    let modules = [];
+    let params = [];
+    let paramTypes = [];
+    let paramOptional = [];
+    let paramDefaults = [];
+    let editor;
+
+    let currentImportFile = null;
+    let analysisData = null;
+
+    // Initialize CodeMirror with Monokai theme
+    document.addEventListener('DOMContentLoaded', function() {
+        editor = CodeMirror.fromTextArea(document.getElementById('code'), {
+            mode: 'python',
+            theme: 'monokai',
+            lineNumbers: true,
+            indentUnit: 4,
+            lineWrapping: true,
+            autofocus: true,
+            autoCloseBrackets: true,
+            matchBrackets: true,
+            foldGutter: true,
+            gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter"],
+            extraKeys: {
+                "Tab": "indentMore",
+                "Shift-Tab": "indentLess",
+                "Ctrl-/": "toggleComment",
+                "Cmd-/": "toggleComment"
+            },
+            scrollbarStyle: "simple"
+        });
+
+        // Set window for AI assistant
+        window.codeEditor = editor;
+        
+        // Set initial height
+        editor.setSize(null, "100%");
+        
+        // Initial load of packages
+        reloadPackages();
+
+        // Add real-time validation for package name
+        document.getElementById('name').addEventListener('input', function(e) {
+            const value = e.target.value.trim();
+            if (value) {
+                const validation = isValidPythonIdentifier(value);
+                if (!validation.valid) {
+                    showValidationError('name', validation.error);
+                } else {
+                    clearValidationError('name');
+                }
+            } else {
+                clearValidationError('name');
+            }
+        });
+
+        // Add real-time validation for parameter name
+        document.getElementById('param').addEventListener('input', function(e) {
+            const value = e.target.value.trim();
+            if (value) {
+                const validation = isValidPythonIdentifier(value);
+                if (!validation.valid) {
+                    showValidationError('param', validation.error);
+                } else {
+                    clearValidationError('param');
+                }
+            } else {
+                clearValidationError('param');
+            }
+        });
+
+        // Optional: Auto-convert spaces to underscores
+        document.getElementById('name').addEventListener('keyup', function(e) {
+            if (e.key === ' ') {
+                e.target.value = e.target.value.replace(/ /g, '_');
+            }
+        });
+
+        document.getElementById('param').addEventListener('keyup', function(e) {
+            if (e.key === ' ') {
+                e.target.value = e.target.value.replace(/ /g, '_');
+            }
+        });
+
+        addAutoFixButton('name');
+        addAutoFixButton('param');
+    });
+
+    function addModule() {
+        let itemInput = document.getElementById('item');
+        let item = itemInput.value.trim();
+        if (item) {
+            modules.push(item);
+            let listItem = document.createElement('li');
+            listItem.className = 'list-group-item';
+            listItem.innerHTML = `
+                ${item}
+                <input type="hidden" name="moduleItems" value="${item}">
+                <button type="button" class="btn btn-sm btn-link text-danger p-0" onclick="removeModule(this, '${item}')">
+                    <i class="fas fa-times"></i>
+                </button>
+            `;
+            document.getElementById('itemsList').appendChild(listItem);
+            itemInput.value = '';
+        }
+    }
+
+    function removeModule(button, moduleName) {
+        const index = modules.indexOf(moduleName);
+        if (index > -1) {
+            modules.splice(index, 1);
+        }
+        button.closest('li').remove();
+    }
+
+    function addParam() {
+        let itemInput = document.getElementById('param');
+        let typeInput = document.getElementById('paramtype');
+        let optionalInput = document.getElementById('paramOptional');
+        let defaultInput = document.getElementById('paramDefault');
+        
+        let item = itemInput.value.trim();
+        
+        // Validate parameter name
+        const paramValidation = isValidPythonIdentifier(item);
+        if (!paramValidation.valid) {
+            showValidationError('param', paramValidation.error);
+            showFeedback(`Invalid parameter name: ${paramValidation.error}`, false);
+            return;
+        }
+        clearValidationError('param');
+        
+        let type = typeInput.options[typeInput.selectedIndex].value;
+        let isOptional = optionalInput.checked;
+        let defaultValue = defaultInput.value.trim();
+        
+        if (item) {
+            // Check for duplicate parameter names
+            if (params.includes(item)) {
+                showValidationError('param', 'Parameter with this name already exists');
+                showFeedback('Parameter with this name already exists', false);
+                return;
+            }
+            
+            params.push(item);
+            paramTypes.push(type);
+            paramOptional.push(isOptional);
+            paramDefaults.push(defaultValue);
+            
+            let listItem = document.createElement('li');
+            listItem.className = 'list-group-item';
+            
+            let typeText = typeInput.options[typeInput.selectedIndex].text;
+            let optionalBadge = isOptional ? '<span class="badge badge-secondary badge-optional">Opt</span>' : '';
+            let defaultBadge = defaultValue ? `<span class="badge badge-info" title="Default: ${defaultValue}">=${defaultValue}</span>` : '';
+            
+            listItem.innerHTML = `
+                <span>${item} <span class="badge badge-primary">${typeText}</span>${optionalBadge}${defaultBadge}</span>
+                <input type="hidden" name="paramItems" value="${item}(${type})(${isOptional})(${defaultValue})">
+                <button type="button" class="btn btn-sm btn-link text-danger p-0" onclick="removeParam(this, '${item}')">
+                    <i class="fas fa-times"></i>
+                </button>
+            `;
+            document.getElementById('paramsList').appendChild(listItem);
+            itemInput.value = '';
+            optionalInput.checked = false;
+            defaultInput.value = '';
+        }
+    }
+
+    function addParam_legacy() {
+        let itemInput = document.getElementById('param');
+        let typeInput = document.getElementById('paramtype');
+        let optionalInput = document.getElementById('paramOptional');
+        let defaultInput = document.getElementById('paramDefault');
+        
+        let item = itemInput.value.trim();
+        let type = typeInput.options[typeInput.selectedIndex].value;
+        let isOptional = optionalInput.checked;
+        let defaultValue = defaultInput.value.trim();
+        
+        if (item) {
+            params.push(item);
+            paramTypes.push(type);
+            paramOptional.push(isOptional);
+            paramDefaults.push(defaultValue);
+            
+            let listItem = document.createElement('li');
+            listItem.className = 'list-group-item';
+            
+            let typeText = typeInput.options[typeInput.selectedIndex].text;
+            let optionalBadge = isOptional ? '<span class="badge badge-secondary badge-optional">Opt</span>' : '';
+            let defaultBadge = defaultValue ? `<span class="badge badge-info" title="Default: ${defaultValue}">=${defaultValue}</span>` : '';
+            
+            listItem.innerHTML = `
+                <span>${item} <span class="badge badge-primary">${typeText}</span>${optionalBadge}${defaultBadge}</span>
+                <input type="hidden" name="paramItems" value="${item}(${type})(${isOptional})(${defaultValue})">
+                <button type="button" class="btn btn-sm btn-link text-danger p-0" onclick="removeParam(this, '${item}')">
+                    <i class="fas fa-times"></i>
+                </button>
+            `;
+            document.getElementById('paramsList').appendChild(listItem);
+            itemInput.value = '';
+            optionalInput.checked = false;
+            defaultInput.value = '';
+        }
+    }
+
+    function removeParam(button, paramName) {
+        const index = params.indexOf(paramName);
+        if (index > -1) {
+            params.splice(index, 1);
+            paramTypes.splice(index, 1);
+            paramOptional.splice(index, 1);
+            paramDefaults.splice(index, 1);
+        }
+        button.closest('li').remove();
+    }
+
+    function loadPackage() {
+        let packageName = document.getElementById('packageSelect').value;
+        let nameInput = document.getElementById('name');
+        if (packageName) {
+            fetch(`/load_package/${packageName}`)
+            .then(response => response.json())
+            .then(data => {
+                nameInput.value = packageName;
+                nameInput.readOnly = true;
+                document.getElementById('description').value = data.description;
+                document.getElementById('output').value = data.output_type;
+                
+                modules = data.modules || [];
+                params = data.parameters || [];
+                paramTypes = data.parameter_types || [];
+                paramOptional = data.parameter_optional || Array(params.length).fill(false);
+                paramDefaults = data.parameter_defaults || Array(params.length).fill('');
+                
+                // Update code editor
+                editor.setValue(data.code || '');
+                
+                // Update modules list
+                let itemsList = document.getElementById('itemsList');
+                itemsList.innerHTML = '';
+                
+                modules.forEach(module => {
+                    let listItem = document.createElement('li');
+                    listItem.className = 'list-group-item';
+                    listItem.innerHTML = `
+                        ${module}
+                        <input type="hidden" name="moduleItems" value="${module}">
+                        <button type="button" class="btn btn-sm btn-link text-danger p-0" onclick="removeModule(this, '${module}')">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    `;
+                    itemsList.appendChild(listItem);
+                });
+
+                // Update params list
+                let paramsList = document.getElementById('paramsList');
+                paramsList.innerHTML = '';
+                params.forEach((param, index) => {
+                    let listItem = document.createElement('li');
+                    listItem.className = 'list-group-item';
+                    let typeText = paramTypes[index];
+                    let displayType = typeText;
+                    if (typeText === 'str') displayType = 'String';
+                    else if (typeText === 'int') displayType = 'Integer';
+                    else if (typeText === 'float') displayType = 'Float';
+                    else if (typeText === 'bool') displayType = 'Bool';
+                    
+                    let isOptional = paramOptional[index];
+                    let defaultValue = paramDefaults[index] || '';
+                    let optionalBadge = isOptional ? '<span class="badge badge-secondary badge-optional">Opt</span>' : '';
+                    let defaultBadge = defaultValue ? `<span class="badge badge-info" title="Default: ${defaultValue}">=${defaultValue}</span>` : '';
+                    
+                    listItem.innerHTML = `
+                        <span>${param} <span class="badge badge-primary">${displayType}</span>${optionalBadge}${defaultBadge}</span>
+                        <input type="hidden" name="paramItems" value="${param}(${typeText})(${isOptional})(${defaultValue})">
+                        <button type="button" class="btn btn-sm btn-link text-danger p-0" onclick="removeParam(this, '${param}')">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    `;
+                    paramsList.appendChild(listItem);
+                });
+
+                showExportButton();
+            })
+            .catch(error => console.error('Error:', error));
+        } else {
+            createNewPackage();
+        }
+    }
+
+    function savePackage() {
+        let nameInput = document.getElementById('name');
+        let name = nameInput.value.trim();
+        
+        // Validate package name
+        const nameValidation = isValidPythonIdentifier(name);
+        if (!nameValidation.valid) {
+            showValidationError('name', nameValidation.error);
+            showFeedback(`Invalid package name: ${nameValidation.error}`, false);
+            return;
+        }
+        clearValidationError('name');
+        
+        // Rest of your existing savePackage code...
+        let descriptionInput = document.getElementById('description');
+        let description = descriptionInput.value.trim();
+        var code = editor.getValue();
+        let outputInput = document.getElementById('output');
+        let output = outputInput.options[outputInput.selectedIndex].value;
+
+        const listItems = document.querySelectorAll('#itemsList li');
+        const itemList = Array.from(listItems).map(item => {
+            return item.textContent.trim().replace(/×/g, '').trim();
+        });
+
+        const listParams = document.querySelectorAll('#paramsList li');
+        const paramList = Array.from(listParams).map(item => {
+            const text = item.textContent.trim().replace(/×/g, '').trim();
+            return text.split(' ')[0];
+        });
+
+        fetch('/save_package', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+                name: name, 
+                description: description, 
+                code: code, 
+                output_type: output, 
+                modules: itemList, 
+                parameters: paramList, 
+                parameter_types: paramTypes,
+                parameter_optional: paramOptional,
+                parameter_defaults: paramDefaults
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showFeedback('Package saved successfully.', true);
+                reloadPackages(name);
+            } else {
+                showFeedback('Error saving package.', false);
+            }
+        })
+        .catch(error => console.error('Error:', error));
+    }
+
+    function savePackage_legacy() {
+        let nameInput = document.getElementById('name');
+        let name = nameInput.value.trim();
+        let descriptionInput = document.getElementById('description');
+        let description = descriptionInput.value.trim();
+        var code = editor.getValue();
+        let outputInput = document.getElementById('output');
+        let output = outputInput.options[outputInput.selectedIndex].value;
+
+        const listItems = document.querySelectorAll('#itemsList li');
+        const itemList = Array.from(listItems).map(item => {
+            return item.textContent.trim().replace(/×/g, '').trim();
+        });
+
+        const listParams = document.querySelectorAll('#paramsList li');
+        const paramList = Array.from(listParams).map(item => {
+            const text = item.textContent.trim().replace(/×/g, '').trim();
+            return text.split(' ')[0];
+        });
+
+        fetch('/save_package', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+                name: name, 
+                description: description, 
+                code: code, 
+                output_type: output, 
+                modules: itemList, 
+                parameters: paramList, 
+                parameter_types: paramTypes,
+                parameter_optional: paramOptional,
+                parameter_defaults: paramDefaults
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showFeedback('Package saved successfully.', true);
+                reloadPackages(name);
+            } else {
+                showFeedback('Error saving package.', false);
+            }
+        })
+        .catch(error => console.error('Error:', error));
+    }
+
+    function confirmDeletePackage() {
+        if (confirm("Are you sure you want to delete this package?")) {
+            deletePackage();
+        }
+    }
+
+    function deletePackage() {
+        let packageName = document.getElementById('packageSelect').value;
+        if (packageName) {
+            fetch(`/delete_package/${packageName}`, { method: 'DELETE' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showFeedback('Package deleted successfully.', true);
+                    createNewPackage();
+                    reloadPackages();
+                } else {
+                    showFeedback('Error deleting package: ' + data.message, false);
+                }
+            })
+            .catch(error => console.error('Error:', error));
+        } else {
+            showFeedback('Please select a package to delete.', false);
+        }
+    }
+
+    function createNewPackage() {
+        document.getElementById('packageSelect').value = '';
+        document.getElementById('name').value = '';
+        document.getElementById('name').readOnly = false;
+        document.getElementById('description').value = '';
+        document.getElementById('output').value = 'str';
+        
+        modules = [];
+        params = [];
+        paramTypes = [];
+        paramOptional = [];
+        paramDefaults = [];
+        
+        document.getElementById('itemsList').innerHTML = '';
+        document.getElementById('paramsList').innerHTML = '';
+        
+        if (editor) {
+            editor.setValue('');
+        }
+        
+        hideExportButton();
+    }
+
+    function exportPackage() {
+        let nameInput = document.getElementById('name');
+        if (nameInput.value.trim()) {
+            fetch('/export_package', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    name: nameInput.value.trim(),
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.blob();
+            })
+            .then(blob => {
+                const url = window.URL.createObjectURL(new Blob([blob]));
+                const link = document.createElement('a');
+                link.href = url;
+                link.setAttribute('download', `${nameInput.value.trim()}.zip`);
+                document.body.appendChild(link);
+                link.click();
+                link.parentNode.removeChild(link);
+            })
+            .catch(error => {
+                console.error('There was a problem with the fetch operation:', error);
+                showFeedback('Error exporting package.', false);
+            });
+        }
+    }
+
+    function showFeedback(message, isSuccess) {
+        const feedbackContainer = document.getElementById('feedbackContainer');
+        const feedback = document.createElement('div');
+        feedback.className = `alert ${isSuccess ? 'alert-success' : 'alert-danger'} feedback-alert`;
+        feedback.role = 'alert';
+
+        const icon = document.createElement('i');
+        icon.className = isSuccess ? 'fas fa-check-circle' : 'fas fa-times-circle';
+        feedback.appendChild(icon);
+
+        const textNode = document.createTextNode(` ${message}`);
+        feedback.appendChild(textNode);
+
+        feedbackContainer.appendChild(feedback);
+
+        setTimeout(() => {
+            feedback.remove();
+        }, 3000);
+    }
+
+    function reloadPackages(selectedPackage = '') {
+        fetch('/get_packages')
+            .then(response => response.json())
+            .then(data => {
+                const packageSelect = document.getElementById('packageSelect');
+                packageSelect.innerHTML = '<option value="">New Package</option>';
+                data.packages.forEach(package => {
+                    const option = document.createElement('option');
+                    option.value = package;
+                    option.textContent = package;
+                    if (package === selectedPackage) {
+                        option.selected = true;
+                    }
+                    packageSelect.appendChild(option);
+                });
+                if (selectedPackage) {
+                    loadPackage();
+                }
+            })
+            .catch(error => console.error('Error:', error));
+    }
+
+    function showExportButton() {
+        const button = document.getElementById('btnExport');
+        button.style.display = 'inline-block';
+    }
+
+    function hideExportButton() {
+        const button = document.getElementById('btnExport');
+        button.style.display = 'none';
+    }
+
+    // Handle collapse indicators
+    document.querySelectorAll('.collapse-header').forEach(header => {
+        header.addEventListener('click', function() {
+            const icon = this.querySelector('.collapse-indicator');
+            const target = document.querySelector(this.dataset.target);
+            if (target.classList.contains('show')) {
+                this.parentElement.classList.add('collapsed');
+            } else {
+                this.parentElement.classList.remove('collapsed');
+            }
+        });
+    });
+
+
+    // Python keywords that cannot be used as names
+    const PYTHON_KEYWORDS = [
+        'False', 'None', 'True', 'and', 'as', 'assert', 'async', 'await',
+        'break', 'class', 'continue', 'def', 'del', 'elif', 'else', 'except',
+        'finally', 'for', 'from', 'global', 'if', 'import', 'in', 'is',
+        'lambda', 'nonlocal', 'not', 'or', 'pass', 'raise', 'return',
+        'try', 'while', 'with', 'yield'
+    ];
+
+    // Validate Python identifier
+    function isValidPythonIdentifier(name) {
+        // Check if empty
+        if (!name || name.length === 0) {
+            return { valid: false, error: "Name cannot be empty" };
+        }
+        
+        // Check if it's a Python keyword
+        if (PYTHON_KEYWORDS.includes(name)) {
+            return { valid: false, error: `"${name}" is a Python keyword and cannot be used` };
+        }
+        
+        // Check if starts with letter or underscore
+        if (!/^[a-zA-Z_]/.test(name)) {
+            return { valid: false, error: "Must start with a letter or underscore" };
+        }
+        
+        // Check if contains only valid characters
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+            return { valid: false, error: "Can only contain letters, numbers, and underscores" };
+        }
+        
+        return { valid: true };
+    }
+
+    // Convert to valid Python identifier (snake_case)
+    function toPythonIdentifier(str) {
+        // Remove invalid characters and convert to snake_case
+        return str
+            .toLowerCase()
+            .replace(/[^a-z0-9_]/g, '_')
+            .replace(/^[0-9]/, '_$&')  // Prefix number with underscore
+            .replace(/_+/g, '_')        // Replace multiple underscores with single
+            .replace(/^_+|_+$/g, '');   // Trim underscores from ends
+    }
+
+    // Show validation feedback
+    function showValidationError(inputId, message) {
+        const input = document.getElementById(inputId);
+        input.classList.add('is-invalid');
+        
+        // Remove existing feedback if any
+        const existingFeedback = input.parentElement.querySelector('.invalid-feedback');
+        if (existingFeedback) {
+            existingFeedback.remove();
+        }
+        
+        // Add new feedback
+        const feedback = document.createElement('div');
+        feedback.className = 'invalid-feedback';
+        feedback.textContent = message;
+        input.parentElement.appendChild(feedback);
+    }
+
+    // Clear validation feedback
+    function clearValidationError(inputId) {
+        const input = document.getElementById(inputId);
+        input.classList.remove('is-invalid');
+        const feedback = input.parentElement.querySelector('.invalid-feedback');
+        if (feedback) {
+            feedback.remove();
+        }
+    }
+
+
+    // Better implementation - button appears below the input when needed
+    function addAutoFixButton(inputId) {
+        const input = document.getElementById(inputId);
+        
+        // Create helper container that appears below input
+        const helperDiv = document.createElement('div');
+        helperDiv.className = 'auto-fix-helper';
+        helperDiv.style.display = 'none';
+        helperDiv.innerHTML = `
+            <small class="text-muted">
+                Invalid name detected. 
+                <button type="button" class="btn btn-link btn-sm p-0 text-primary">
+                    <i class="fas fa-magic"></i> Auto-fix
+                </button>
+            </small>
+        `;
+        
+        // Insert after the input's parent div
+        input.parentElement.insertAdjacentElement('afterend', helperDiv);
+        
+        const autoFixBtn = helperDiv.querySelector('button');
+        autoFixBtn.onclick = function() {
+            const fixed = toPythonIdentifier(input.value);
+            input.value = fixed;
+            input.dispatchEvent(new Event('input'));
+            helperDiv.style.display = 'none';
+        };
+        
+        // Show/hide helper based on validity
+        input.addEventListener('input', function() {
+            const validation = isValidPythonIdentifier(input.value);
+            if (!validation.valid && input.value) {
+                // Show suggested fix
+                const suggested = toPythonIdentifier(input.value);
+                if (suggested && suggested !== input.value) {
+                    helperDiv.querySelector('small').innerHTML = `
+                        Invalid name. Suggestion: <code>${suggested}</code>
+                        <button type="button" class="btn btn-link btn-sm p-0 text-primary">
+                            <i class="fas fa-magic"></i> Use this
+                        </button>
+                    `;
+                    helperDiv.style.display = 'block';
+                    
+                    // Re-attach click handler
+                    helperDiv.querySelector('button').onclick = function() {
+                        input.value = suggested;
+                        input.dispatchEvent(new Event('input'));
+                    };
+                } else {
+                    helperDiv.style.display = 'none';
+                }
+            } else {
+                helperDiv.style.display = 'none';
+            }
+        });
+    }
+
+
+// JavaScript functions for custom tool import functionality
+
+function showImportDialog() {
+    // Reset the dialog
+    resetImportDialog();
+    $('#importToolModal').modal('show');
+}
+
+function resetImportDialog() {
+    // Reset file input
+    document.getElementById('importFile').value = '';
+    document.getElementById('importFileName').textContent = 'No file selected';
+    
+    // Hide all steps except the first
+    document.getElementById('importStep1').style.display = 'block';
+    document.getElementById('importStep2').style.display = 'none';
+    document.getElementById('importStep3').style.display = 'none';
+    document.getElementById('importStep4').style.display = 'none';
+    
+    // Reset buttons
+    document.getElementById('importAnalyzeBtn').style.display = 'none';
+    document.getElementById('importProceedBtn').style.display = 'none';
+    
+    // Clear any previous data
+    currentImportFile = null;
+    analysisData = null;
+    
+    // Clear results
+    document.getElementById('analysisResults').innerHTML = '';
+    document.getElementById('importProgress').innerHTML = '';
+    document.getElementById('importResults').innerHTML = '';
+}
+
+function handleImportFileSelect(input) {
+    const file = input.files[0];
+    if (file) {
+        currentImportFile = file;
+        document.getElementById('importFileName').textContent = file.name;
+        document.getElementById('importAnalyzeBtn').style.display = 'inline-block';
+        
+        // Check file type
+        if (!file.name.toLowerCase().endsWith('.zip')) {
+            showFeedback('Please select a ZIP file', false);
+            currentImportFile = null;
+            document.getElementById('importAnalyzeBtn').style.display = 'none';
+        }
+    }
+}
+
+function analyzeImportPackage() {
+    if (!currentImportFile) {
+        showFeedback('Please select a file first', false);
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('file', currentImportFile);
+    
+    // Show loading state
+    document.getElementById('importAnalyzeBtn').disabled = true;
+    document.getElementById('importAnalyzeBtn').innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Analyzing...';
+    
+    fetch('/api/tool/analyze_package', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            analysisData = data;
+            displayAnalysisResults(data);
+            
+            // Show step 2
+            document.getElementById('importStep1').style.display = 'none';
+            document.getElementById('importStep2').style.display = 'block';
+            document.getElementById('importAnalyzeBtn').style.display = 'none';
+            document.getElementById('importProceedBtn').style.display = 'inline-block';
+        } else {
+            showFeedback('Analysis failed: ' + data.message, false);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showFeedback('Failed to analyze package', false);
+    })
+    .finally(() => {
+        document.getElementById('importAnalyzeBtn').disabled = false;
+        document.getElementById('importAnalyzeBtn').innerHTML = '<i class="fas fa-search mr-1"></i>Analyze Package';
+    });
+}
+
+function displayAnalysisResults(data) {
+    let html = '<div class="analysis-summary">';
+    
+    // Package info
+    html += '<h6 class="text-primary mb-3">Package Information</h6>';
+    html += '<table class="table table-sm">';
+    html += `<tr><td><strong>Type:</strong></td><td>${data.package_info.type}</td></tr>`;
+    html += `<tr><td><strong>File:</strong></td><td>${data.package_info.filename}</td></tr>`;
+    
+    if (data.package_info.type === 'single_tool') {
+        html += `<tr><td><strong>Tool Name:</strong></td><td>${data.package_info.name}</td></tr>`;
+    } else {
+        html += `<tr><td><strong>Tools Count:</strong></td><td>${data.package_info.count}</td></tr>`;
+    }
+    html += '</table>';
+    
+    // Tools list
+    html += '<h6 class="text-primary mb-3 mt-4">Tools Found</h6>';
+    html += '<div class="list-group">';
+    data.tools.forEach(tool => {
+        const conflictBadge = data.conflicts.existing_tools.includes(tool.name) 
+            ? '<span class="badge badge-warning ml-2">Already Exists</span>' 
+            : '';
+        
+        html += `
+            <div class="list-group-item">
+                <div class="d-flex w-100 justify-content-between">
+                    <h6 class="mb-1">${tool.name}${conflictBadge}</h6>
+                </div>
+                <p class="mb-1 small">${tool.description || 'No description'}</p>
+                <small class="text-muted">
+                    Parameters: ${tool.parameters.length} | 
+                    Output: ${tool.output_type}
+                </small>
+            </div>
+        `;
+    });
+    html += '</div>';
+    
+    // Conflicts
+    if (data.conflicts.existing_tools.length > 0) {
+        html += '<div class="alert alert-warning mt-4">';
+        html += '<h6 class="alert-heading">⚠️ Conflicts Detected</h6>';
+        html += '<p class="mb-2">The following tools already exist:</p>';
+        html += '<ul class="mb-2">';
+        data.conflicts.existing_tools.forEach(tool => {
+            html += `<li>${tool}</li>`;
+        });
+        html += '</ul>';
+        html += '<div class="form-check">';
+        html += '<input class="form-check-input" type="checkbox" id="overwriteExisting">';
+        html += '<label class="form-check-label" for="overwriteExisting">';
+        html += 'Overwrite existing tools';
+        html += '</label>';
+        html += '</div>';
+        html += '<div class="form-check">';
+        html += '<input class="form-check-input" type="checkbox" id="renameConflicts" checked>';
+        html += '<label class="form-check-label" for="renameConflicts">';
+        html += 'Rename conflicting tools (adds timestamp)';
+        html += '</label>';
+        html += '</div>';
+        html += '</div>';
+    }
+    
+    html += '</div>';
+    document.getElementById('analysisResults').innerHTML = html;
+}
+
+function proceedWithImport() {
+    if (!currentImportFile || !analysisData) {
+        showFeedback('Analysis data missing', false);
+        return;
+    }
+    
+    // Get import options
+    const overwriteExisting = document.getElementById('overwriteExisting')?.checked || false;
+    const renameConflicts = document.getElementById('renameConflicts')?.checked || true;
+    
+    // Prepare form data
+    const formData = new FormData();
+    formData.append('file', currentImportFile);
+    formData.append('overwrite_existing', overwriteExisting);
+    formData.append('rename_conflicts', renameConflicts);
+    
+    // Show progress step
+    document.getElementById('importStep2').style.display = 'none';
+    document.getElementById('importStep3').style.display = 'block';
+    document.getElementById('importProceedBtn').style.display = 'none';
+    
+    // Show progress message
+    document.getElementById('importProgress').innerHTML = `
+        <div class="text-center">
+            <i class="fas fa-spinner fa-spin fa-3x text-primary mb-3"></i>
+            <h6>Importing Tools...</h6>
+            <p class="text-muted">Please wait while we import your custom tools</p>
+        </div>
+    `;
+    
+    // Perform import
+    fetch('/api/tool/import', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            displayImportResults(data);
+            
+            // Show success step
+            document.getElementById('importStep3').style.display = 'none';
+            document.getElementById('importStep4').style.display = 'block';
+            
+            // Reload the packages list in the main UI
+            if (typeof reloadPackages === 'function') {
+                reloadPackages();
+            }
+        } else {
+            showFeedback('Import failed: ' + data.message, false);
+            // Go back to step 2
+            document.getElementById('importStep3').style.display = 'none';
+            document.getElementById('importStep2').style.display = 'block';
+            document.getElementById('importProceedBtn').style.display = 'inline-block';
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showFeedback('Failed to import tools', false);
+        // Go back to step 2
+        document.getElementById('importStep3').style.display = 'none';
+        document.getElementById('importStep2').style.display = 'block';
+        document.getElementById('importProceedBtn').style.display = 'inline-block';
+    });
+}
+
+function displayImportResults(data) {
+    let html = '<div class="import-summary">';
+    
+    // Summary statistics
+    html += '<div class="alert alert-success">';
+    html += '<h5 class="alert-heading">✅ Import Complete!</h5>';
+    html += '<hr>';
+    html += '<div class="row">';
+    html += `<div class="col-md-3 text-center">
+                <h4>${data.summary.imported}</h4>
+                <small>Imported</small>
+             </div>`;
+    html += `<div class="col-md-3 text-center">
+                <h4>${data.summary.renamed}</h4>
+                <small>Renamed</small>
+             </div>`;
+    html += `<div class="col-md-3 text-center">
+                <h4>${data.summary.skipped}</h4>
+                <small>Skipped</small>
+             </div>`;
+    html += `<div class="col-md-3 text-center">
+                <h4>${data.summary.failed}</h4>
+                <small>Failed</small>
+             </div>`;
+    html += '</div>';
+    html += '</div>';
+    
+    // Detailed results
+    if (data.imported.length > 0) {
+        html += '<h6 class="text-success mt-4">✅ Successfully Imported</h6>';
+        html += '<ul class="list-group mb-3">';
+        data.imported.forEach(tool => {
+            html += `<li class="list-group-item list-group-item-success">
+                        <i class="fas fa-check-circle mr-2"></i>${tool.name}
+                     </li>`;
+        });
+        html += '</ul>';
+    }
+    
+    if (data.renamed.length > 0) {
+        html += '<h6 class="text-info mt-4">🔄 Renamed Tools</h6>';
+        html += '<ul class="list-group mb-3">';
+        data.renamed.forEach(tool => {
+            html += `<li class="list-group-item list-group-item-info">
+                        <i class="fas fa-sync-alt mr-2"></i>
+                        ${tool.original_name} → ${tool.name}
+                     </li>`;
+        });
+        html += '</ul>';
+    }
+    
+    if (data.skipped.length > 0) {
+        html += '<h6 class="text-warning mt-4">⏭️ Skipped Tools</h6>';
+        html += '<ul class="list-group mb-3">';
+        data.skipped.forEach(tool => {
+            html += `<li class="list-group-item list-group-item-warning">
+                        <i class="fas fa-forward mr-2"></i>${tool.name}
+                        <small class="text-muted ml-2">${tool.message}</small>
+                     </li>`;
+        });
+        html += '</ul>';
+    }
+    
+    if (data.failed.length > 0) {
+        html += '<h6 class="text-danger mt-4">❌ Failed Tools</h6>';
+        html += '<ul class="list-group mb-3">';
+        data.failed.forEach(tool => {
+            html += `<li class="list-group-item list-group-item-danger">
+                        <i class="fas fa-times-circle mr-2"></i>${tool.name}
+                        <small class="text-muted ml-2">${tool.message}</small>
+                     </li>`;
+        });
+        html += '</ul>';
+    }
+    
+    html += '</div>';
+    document.getElementById('importResults').innerHTML = html;
+}
+
+function closeImportDialog() {
+    $('#importToolModal').modal('hide');
+    resetImportDialog();
+}
+
+// Export functions for multiple tools
+function exportSelectedTools() {
+    const selectedTools = [];
+    document.querySelectorAll('input[name="toolSelect"]:checked').forEach(checkbox => {
+        selectedTools.push(checkbox.value);
+    });
+    
+    if (selectedTools.length === 0) {
+        showFeedback('Please select at least one tool to export', false);
+        return;
+    }
+    
+    fetch('/api/tool/export_multiple', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ tools: selectedTools })
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Export failed');
+        }
+        return response.blob();
+    })
+    .then(blob => {
+        // Create download link
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `custom_tools_${new Date().getTime()}.zip`);
+        document.body.appendChild(link);
+        link.click();
+        link.parentNode.removeChild(link);
+        
+        showFeedback(`Successfully exported ${selectedTools.length} tool(s)`, true);
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showFeedback('Failed to export tools', false);
+    });
+}
+</script>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/fold/foldgutter.css">
+<script src="/static/js/custom_tool_context.js"></script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}

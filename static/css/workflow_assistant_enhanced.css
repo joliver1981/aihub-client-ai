@@ -1,0 +1,376 @@
+/**
+ * Workflow Building Assistant Styles
+ * 
+ * Enhanced UI styles for workflow building features
+ */
+
+/* Building response container */
+.building-response {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 12px;
+    padding: 2px;
+    margin: 10px 0;
+}
+
+.building-response .message-content {
+    background: white;
+    border-radius: 10px;
+    padding: 15px;
+}
+
+/* Command summary */
+.command-summary {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 12px;
+    margin: 12px 0;
+}
+
+.command-summary .summary-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    color: #495057;
+}
+
+.command-summary .summary-header i {
+    font-size: 1.2em;
+    color: #007bff;
+}
+
+.command-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.command-list li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid #e9ecef;
+    font-size: 0.9em;
+}
+
+.command-list li:last-child {
+    border-bottom: none;
+}
+
+.command-list li i {
+    color: #28a745;
+    font-size: 1.1em;
+}
+
+/* Message actions */
+.message-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 15px;
+    padding-top: 12px;
+    border-top: 1px solid #e9ecef;
+}
+
+.message-actions .btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    font-size: 0.9em;
+    transition: all 0.2s ease;
+}
+
+.message-actions .btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.message-actions .btn i {
+    font-size: 1.1em;
+}
+
+/* Execution status */
+.execution-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    background: #e7f3ff;
+    border-radius: 6px;
+    color: #004085;
+}
+
+.execution-status .spinner-border {
+    width: 1rem;
+    height: 1rem;
+    border-width: 2px;
+}
+
+/* Execution result */
+.execution-result {
+    margin-top: 12px;
+    animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.execution-result .alert {
+    display: flex;
+    align-items: start;
+    gap: 10px;
+    font-size: 0.9em;
+}
+
+.execution-result .alert i {
+    font-size: 1.3em;
+    margin-top: 2px;
+}
+
+.execution-result .alert ul {
+    padding-left: 20px;
+    margin-top: 8px;
+}
+
+/* Quick prompts for building */
+.quick-prompts-building {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 8px;
+    margin: 10px 0;
+}
+
+.quick-prompts-building .quick-prompt {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 0.85em;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.quick-prompts-building .quick-prompt:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.quick-prompts-building .quick-prompt i {
+    font-size: 1.2em;
+}
+
+/* Building mode indicator */
+.building-mode-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 12px;
+    font-size: 0.75em;
+    font-weight: 600;
+    margin-left: 8px;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}
+
+.building-mode-indicator i {
+    font-size: 1.1em;
+}
+
+/* Node configuration badge enhancements */
+.workflow-node.configured {
+    border: 2px solid #28a745;
+    box-shadow: 0 2px 8px rgba(40, 167, 69, 0.2);
+}
+
+.workflow-node.configured.paused {
+    box-shadow: 0 0 20px rgba(255, 193, 7, 0.9) !important;
+    border: 3px solid #ffc107 !important;
+    animation: paused-pulse 1.5s infinite;
+}
+
+@keyframes paused-pulse {
+    0%, 100% { 
+        box-shadow: 0 0 15px rgba(255, 193, 7, 0.7);
+    }
+    50% { 
+        box-shadow: 0 0 25px rgba(255, 193, 7, 1);
+    }
+}
+
+.config-badge {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    background: #28a745;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.7em;
+    font-weight: bold;
+    z-index: 10;
+}
+
+/* Command execution animation */
+@keyframes commandExecute {
+    0% {
+        transform: scale(1);
+        opacity: 1;
+    }
+    50% {
+        transform: scale(1.1);
+        opacity: 0.8;
+    }
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+.workflow-node.being-added {
+    animation: commandExecute 0.5s ease;
+}
+
+/* Connection creation animation */
+@keyframes connectionDraw {
+    from {
+        stroke-dashoffset: 1000;
+    }
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+
+.jtk-connector.being-created {
+    stroke-dasharray: 10;
+    animation: connectionDraw 0.5s ease;
+}
+
+/* Assistant panel enhancements for building mode */
+.assistant-panel.building-active {
+    border: 2px solid #667eea;
+    box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
+}
+
+.assistant-panel.building-active .assistant-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+/* Workflow command preview */
+.command-preview {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 12px;
+    margin: 10px 0;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85em;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.command-preview pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Building tips */
+.building-tips {
+    background: #e7f3ff;
+    border-left: 4px solid #007bff;
+    padding: 12px;
+    margin: 10px 0;
+    border-radius: 4px;
+    font-size: 0.85em;
+}
+
+.building-tips .tip-title {
+    font-weight: 600;
+    color: #004085;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.building-tips .tip-title i {
+    font-size: 1.2em;
+}
+
+.building-tips ul {
+    margin: 6px 0 0 20px;
+    color: #004085;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+    .command-summary {
+        font-size: 0.9em;
+    }
+    
+    .message-actions {
+        flex-direction: column;
+    }
+    
+    .message-actions .btn {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .quick-prompts-building {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .building-response .message-content {
+        background: #2d3748;
+        color: #e2e8f0;
+    }
+    
+    .command-summary {
+        background: #1a202c;
+        border-color: #4a5568;
+    }
+    
+    .command-list li {
+        border-bottom-color: #4a5568;
+    }
+    
+    .execution-status {
+        background: #2c5282;
+        color: #bee3f8;
+    }
+    
+    .building-tips {
+        background: #2c5282;
+        border-left-color: #4299e1;
+    }
+}

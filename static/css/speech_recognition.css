@@ -1,0 +1,227 @@
+/* Speech Recognition Styles */
+
+/* Microphone button base styles */
+.mic-button {
+    position: relative;
+    transition: all 0.3s ease;
+    border: none;
+    background-color: #007bff;
+    color: white;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+.mic-button:hover:not(:disabled) {
+    background-color: #0056b3;
+    transform: scale(1.05);
+    box-shadow: 0 3px 8px rgba(0,0,0,0.3);
+}
+
+.mic-button:active:not(:disabled) {
+    transform: scale(0.95);
+}
+
+.mic-button:disabled {
+    background-color: #6c757d;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* Listening state - user is speaking */
+.mic-button.listening {
+    background-color: #dc3545;
+    animation: pulse 1.5s infinite;
+}
+
+.mic-button.listening:hover {
+    background-color: #c82333;
+}
+
+/* Processing state - transcribing audio */
+.mic-button.processing {
+    background-color: #17a2b8;
+    cursor: wait;
+    pointer-events: none;
+}
+
+.mic-button.processing i {
+    animation: spin 1s linear infinite;
+}
+
+/* Error state - something went wrong */
+.mic-button.error {
+    background-color: #ffc107;
+    animation: shake 0.5s;
+}
+
+.mic-button.error:hover {
+    background-color: #e0a800;
+}
+
+/* Pulse animation for listening state */
+@keyframes pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7);
+    }
+    50% {
+        box-shadow: 0 0 0 10px rgba(220, 53, 69, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(220, 53, 69, 0);
+    }
+}
+
+/* Shake animation for error state */
+@keyframes shake {
+    0%, 100% {
+        transform: translateX(0);
+    }
+    10%, 30%, 50%, 70%, 90% {
+        transform: translateX(-5px);
+    }
+    20%, 40%, 60%, 80% {
+        transform: translateX(5px);
+    }
+}
+
+/* Spin animation for processing state */
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* Input group styling when used with text input */
+.input-group .mic-button {
+    border-radius: 0 0.25rem 0.25rem 0;
+    width: 45px;
+    height: 38px;
+}
+
+/* Listening indicator text (optional) */
+.listening-indicator {
+    display: none;
+    color: #dc3545;
+    font-size: 0.875rem;
+    margin-top: 0.25rem;
+    animation: blink 1s infinite;
+}
+
+.listening-indicator.active {
+    display: block;
+}
+
+@keyframes blink {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+/* Interim results styling */
+.speech-interim {
+    color: #6c757d;
+    font-style: italic;
+}
+
+/* Toast container positioning (if not using Bootstrap default) */
+.toast-container {
+    z-index: 9999;
+}
+
+/* Microphone permission prompt styling */
+.mic-permission-prompt {
+    padding: 1rem;
+    background-color: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 0.25rem;
+    margin-bottom: 1rem;
+}
+
+.mic-permission-prompt .alert-heading {
+    color: #856404;
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+/* Browser not supported message */
+.browser-not-supported {
+    padding: 1rem;
+    background-color: #f8d7da;
+    border: 1px solid #f5c6cb;
+    border-radius: 0.25rem;
+    color: #721c24;
+    margin-bottom: 1rem;
+}
+
+/* Accessibility improvements */
+.mic-button:focus {
+    outline: 2px solid #007bff;
+    outline-offset: 2px;
+}
+
+.mic-button.listening:focus {
+    outline-color: #dc3545;
+}
+
+/* Responsive adjustments */
+@media (max-width: 576px) {
+    .mic-button {
+        width: 36px;
+        height: 36px;
+    }
+    
+    .input-group .mic-button {
+        width: 40px;
+        height: 36px;
+    }
+}
+
+/* Dark mode support (optional) */
+@media (prefers-color-scheme: dark) {
+    .mic-permission-prompt {
+        background-color: #664d03;
+        border-color: #f1c40f;
+        color: #fff3cd;
+    }
+    
+    .browser-not-supported {
+        background-color: #842029;
+        border-color: #b02a37;
+        color: #f8d7da;
+    }
+}
+
+/* Loading/processing state */
+.mic-button.processing {
+    background-color: #17a2b8;
+    cursor: wait;
+}
+
+.mic-button.processing::after {
+    content: '';
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    border-top-color: white;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}

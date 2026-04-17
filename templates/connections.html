@@ -1,0 +1,2752 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<style>
+    /* ===== EXISTING STYLES (keeping your compact design) ===== */
+    .compact-header {
+        background: linear-gradient(135deg, rgba(6, 182, 212, 0.15) 0%, rgba(167, 139, 250, 0.15) 100%);
+        border: 1px solid var(--border-subtle, #27272a);
+        color: var(--text-primary, #fff);
+        padding: 0.5rem 1rem;
+        margin-bottom: 1rem;
+        border-radius: 0.75rem;
+    }
+    
+    .card {
+        margin-bottom: 0.75rem;
+        background: var(--bg-card, #0a0a0a);
+        border: 1px solid var(--border-subtle, #27272a);
+        border-radius: 0.75rem;
+    }
+    
+    .card-header {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.9rem;
+        font-weight: 600;
+        background-color: var(--bg-elevated, #111);
+        border-bottom: 1px solid var(--border-subtle, #27272a);
+        color: var(--text-primary, #fff);
+    }
+    
+    .card-body {
+        padding: 0.75rem;
+    }
+    
+    .card-title {
+        font-size: 1rem;
+        margin-bottom: 0;
+    }
+    
+    .form-control, .custom-select {
+        font-size: 0.9rem;
+        padding: 0.25rem 0.75rem;
+    }
+    
+    textarea.form-control {
+        font-size: 0.9rem;
+    }
+    
+    .form-group {
+        margin-bottom: 0.75rem;
+    }
+    
+    .form-group label {
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+    }
+    
+    .form-text {
+        font-size: 0.8rem;
+        margin-top: 0.25rem;
+    }
+    
+    .btn {
+        font-size: 0.9rem;
+        padding: 0.375rem 0.75rem;
+    }
+    
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+    }
+    
+    .alert {
+        padding: 0.75rem;
+        font-size: 0.9rem;
+    }
+    
+    .small {
+        font-size: 0.8rem;
+    }
+    
+    .modal-header {
+        background-color: var(--bg-elevated, #f8f9fa);
+        padding: 0.75rem 1rem;
+    }
+    
+    .modal-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+    }
+    
+    .modal-body .form-control {
+        font-size: 0.9rem;
+        padding: 0.375rem 0.75rem;
+    }
+    
+    .modal-footer {
+        padding: 0.75rem;
+    }
+    
+    .custom-control-label {
+        font-size: 0.9rem;
+    }
+    
+    .custom-control {
+        padding-left: 2.5rem;
+    }
+
+    /* ===== NEW STYLES FOR CONNECTION TYPE SELECTOR ===== */
+    .connection-type-selector {
+        margin-bottom: 20px;
+    }
+    
+    .connection-tabs {
+        display: flex;
+        gap: 5px;
+        margin-bottom: 15px;
+        border-bottom: 2px solid var(--border-subtle, #dee2e6);
+        flex-wrap: wrap;
+    }
+    
+    .connection-tab {
+        padding: 8px 15px;
+        background: var(--bg-elevated, #f8f9fa);
+        border: 1px solid var(--border-subtle, #dee2e6);
+        border-bottom: none;
+        border-radius: 5px 5px 0 0;
+        cursor: pointer;
+        transition: all 0.3s;
+        font-size: 0.85rem;
+    }
+    
+    .connection-tab.active {
+        background: var(--bg-card, white);
+        border-bottom: 2px solid white;
+        margin-bottom: -2px;
+        color: #007bff;
+    }
+    
+    .connection-tab:hover {
+        background: var(--border-subtle, #e9ecef);
+    }
+    
+    .connection-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+        gap: 10px;
+        padding: 15px 0;
+        max-height: 350px;
+        overflow-y: auto;
+    }
+    
+    .connection-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 12px 8px;
+        background: var(--bg-card, white);
+        border: 2px solid var(--border-subtle, #e9ecef);
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.3s;
+        position: relative;
+    }
+    
+    .connection-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        border-color: #007bff;
+    }
+    
+    .connection-card.selected {
+        border-color: #28a745;
+        background: rgba(52, 211, 153, 0.15);
+    }
+    
+    .connection-icon {
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 8px;
+        font-size: 24px;
+    }
+    
+    .connection-icon img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+    }
+    
+    .connection-icon .icon-fallback {
+        width: 40px;
+        height: 40px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: bold;
+        font-size: 14px;
+    }
+    
+    .connection-name {
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-align: center;
+        color: var(--text-primary, #333);
+        line-height: 1.2;
+    }
+    
+    .connection-badge {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        background: #ffc107;
+        color: #000;
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 9px;
+        font-weight: bold;
+    }
+
+    /* Dynamic form fields based on connection type */
+    .connection-config-section {
+        display: none;
+    }
+    
+    .connection-config-section.active {
+        display: block;
+    }
+
+    /* Feedback container */
+    .feedback-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1050;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+    }
+
+    .feedback-alert {
+        margin-top: 10px;
+        display: flex;
+        align-items: center;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        min-width: 280px;
+        font-size: 0.95rem;
+        padding: 0.75rem 1rem;
+        border-radius: 6px;
+        font-weight: 500;
+    }
+
+    /* Dark mode toast overrides */
+    .theme-dark .feedback-alert.alert-success {
+        background: #064e3b;
+        color: #6ee7b7;
+        border-color: #065f46;
+    }
+
+    .theme-dark .feedback-alert.alert-danger {
+        background: #7f1d1d;
+        color: #fca5a5;
+        border-color: #991b1b;
+    }
+
+    .feedback-alert i {
+        margin-right: 8px;
+        font-size: 1rem;
+    }
+
+
+    .connection-card.driver-unavailable {
+        opacity: 0.7;
+    }
+    
+    .driver-indicator {
+        position: absolute;
+        top: 5px;
+        right: 5px;
+        color: #ffc107;
+        font-size: 14px;
+    }
+    
+    .connection-icon img {
+        max-width: 40px;
+        max-height: 40px;
+        object-fit: contain;
+    }
+    
+    .connection-type-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        background: #007bff;
+        color: white;
+        border-radius: 3px;
+        font-size: 0.75rem;
+        margin-left: 10px;
+    }
+    
+    #connection-string-display {
+        background-color: var(--bg-elevated, #f8f9fa);
+        padding: 10px;
+        border-radius: 5px;
+        margin-bottom: 10px;
+        font-family: monospace;
+        font-size: 0.85rem;
+        word-break: break-all;
+    }
+
+
+    /* Local password indicator */
+    .password-local-indicator {
+        position: absolute;
+        right: 40px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #28a745;
+        font-size: 0.75rem;
+        display: none;
+    }
+
+    .password-local-indicator.show {
+        display: inline-block;
+    }
+
+    .password-field-wrapper {
+        position: relative;
+    }
+
+    .password-local-badge {
+        display: inline-block;
+        background: #d4edda;
+        color: #34d399;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 0.7rem;
+        margin-left: 5px;
+        vertical-align: middle;
+    }
+
+    /* Local Password Storage Notice */
+    .password-security-notice {
+        background: rgba(52, 211, 153, 0.1);
+        border: 1px solid rgba(52, 211, 153, 0.3);
+        border-radius: 10px;
+        padding: 12px 15px;
+        margin-bottom: 15px;
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .password-security-notice .notice-icon {
+        color: #34d399;
+        font-size: 1.2rem;
+        margin-top: 2px;
+    }
+
+    .password-security-notice .notice-content {
+        flex: 1;
+    }
+
+    .password-security-notice .notice-title {
+        font-weight: 600;
+        color: #34d399;
+        font-size: 0.9rem;
+        margin-bottom: 4px;
+    }
+
+    .password-security-notice .notice-text {
+        color: var(--text-secondary, #a1a1aa);
+        font-size: 0.8rem;
+        margin: 0;
+        line-height: 1.4;
+    }
+
+    .password-security-notice .notice-text ul {
+        margin: 5px 0 0 0;
+        padding-left: 18px;
+    }
+
+    .password-security-notice .notice-text li {
+        margin-bottom: 2px;
+    }
+
+    /* Compact version for modal */
+    .password-security-notice.compact {
+        padding: 8px 12px;
+        margin-bottom: 10px;
+    }
+
+    .password-security-notice.compact .notice-icon {
+        font-size: 1rem;
+    }
+
+    .password-security-notice.compact .notice-title {
+        font-size: 0.85rem;
+    }
+
+    .password-security-notice.compact .notice-text {
+        font-size: 0.75rem;
+    }
+</style>
+
+<div class="container-fluid px-3 py-2">
+    <!-- Compact Header Bar -->
+    <div class="doc-page-header">
+        <h4 class="mb-0"><i class="fas fa-server mr-2"></i>Database Connections</h4>
+        <button type="button" class="btn btn-sm btn-light" onclick="showPopupForm()">
+            <i class="fas fa-plus mr-1"></i> Add Connection
+        </button>
+    </div>
+    
+    <div class="doc-processor">
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">Connection Details</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label for="existing-connections"><strong>Existing Connections:</strong></label>
+                            <select class="form-control form-control-sm" id="existing-connections" required>
+                                <!-- Connection options will be populated here -->
+                            </select>
+                        </div>
+                        
+                        <div class="custom-control custom-switch mb-3">
+                            <input type="checkbox" class="custom-control-input" id="toggle-connection-input-method" onchange="toggleInputMethod()">
+                            <label class="custom-control-label" for="toggle-connection-input-method">View/Edit Connection String Directly</label>
+                        </div>
+                        
+                        <form id="connection-form">
+                            <input type="hidden" name="connection_id" id="connection_id">
+                            <input type="hidden" name="connection_metadata" id="connection_metadata">
+                            <input type="hidden" name="connection_type_key" id="connection_type_key">
+
+                            <!-- Password Security Notice -->
+                            <div class="password-security-notice">
+                                <i class="fas fa-shield-alt notice-icon"></i>
+                                <div class="notice-content">
+                                    <div class="notice-title">🔐 Your Passwords Stay Local</div>
+                                    <div class="notice-text">
+                                        Connection passwords are encrypted and stored only on your local machine.
+                                        <ul>
+                                            <li>Never transmitted to AI Hub cloud servers</li>
+                                            <li>Never visible to AI Hub team</li>
+                                            <li>Only used when your agents connect to databases</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Connection Type Info Display -->
+                            <div id="connection-type-info" class="alert alert-info alert-sm" style="display: none;">
+                                <i class="fas fa-info-circle"></i> Connection Type: <span id="connection-type-display"></span>
+                            </div>
+
+                            <div id="detailed-fields">
+                                <!-- Dynamic fields will be loaded here based on connection type -->
+                            </div>
+
+                            <div class="form-group" id="connection-string-field" style="display: none;">
+                                <label for="connection-string-input"><strong>Connection String:</strong></label>
+                                <textarea class="form-control form-control-sm" id="connection-string-input" name="connection-string-input" rows="3"></textarea>
+                                <small class="form-text text-muted">Edit the connection string directly. Changes here will override field values.</small>
+                            </div>
+
+                            <!-- ODBC Driver selection - always present -->
+                            <div class="form-group" id="odbc-driver-group">
+                                <label for="odbc_driver"><strong>ODBC Driver:</strong></label>
+                                <select class="form-control form-control-sm" id="odbc_driver" name="odbc_driver">
+                                    <!-- Will be populated via JavaScript -->
+                                </select>
+                                <small class="form-text text-muted">Select an ODBC driver or leave blank to use the default.</small>
+                            </div>
+
+                            <!-- Additional Parameters -->
+                            <div class="form-group" id="parameters-group">
+                                <label for="parameters"><strong>Additional Parameters:</strong></label>
+                                <input type="text" class="form-control form-control-sm" id="parameters" name="parameters" placeholder="param1=value1;param2=value2">
+                                <small class="form-text text-muted">Enter additional parameters as key-value pairs separated by semicolons</small>
+                            </div>
+
+                            <div class="card mb-3">
+                                <div class="card-header doc-card-header">
+                                    <h6 class="mb-0">Connection String</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="form-group mb-2">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" id="generate-connection-string">
+                                            <i class="fas fa-sync-alt mr-1"></i> Generate Connection String
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-primary" id="test-connection-button" onclick="testConnection()">
+                                            <i class="fas fa-plug mr-1"></i> Test Connection
+                                        </button>
+                                    </div>
+                                    <div class="form-group mb-0">
+                                        <label for="connection-string-output">Generated Connection String:</label>
+                                        <textarea class="form-control form-control-sm" id="connection-string-output" name="connection-string-output" rows="2" readonly></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="d-flex justify-content-between">
+                                <button type="button" class="btn btn-sm btn-primary" onclick="saveConnection()">
+                                    <i class="fas fa-save mr-1"></i> Save Connection
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-danger confirm-action" id="delete-button" onclick="deleteConnection()" data-confirm-message="Are you sure you want to delete this connection?">
+                                    <i class="fas fa-trash mr-1"></i> Delete Connection
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Popup Form Modal -->
+<div class="modal fade" id="popupFormModal" tabindex="-1" aria-labelledby="popupFormModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="popupFormModalLabel">Add New Connection</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <!-- Connection Type Selector (NEW) -->
+                <div class="connection-type-selector" id="connectionTypeSelector">
+                    <h6>Select Connection Type</h6>
+                    
+                    <!-- Category Tabs -->
+                    <div class="connection-tabs">
+                        <div class="connection-tab active" onclick="showCategory('all')">All</div>
+                        <div class="connection-tab" onclick="showCategory('database')">Databases</div>
+                        <div class="connection-tab" onclick="showCategory('erp')">ERP</div>
+                        <div class="connection-tab" onclick="showCategory('crm')">CRM</div>
+                        <div class="connection-tab" onclick="showCategory('cloud')">Cloud</div>
+                        <div class="connection-tab" onclick="showCategory('api')">APIs</div>
+                    </div>
+                    
+                    <!-- Connection Type Grid -->
+                    <div class="connection-grid" id="connectionGrid"></div>
+                </div>
+
+                <!-- Connection Configuration Form -->
+                <form id="new-connection-form" style="display: none;">
+                    <input type="hidden" id="selected-connection-type" value="">
+
+                    <!-- Password Security Notice (Compact) -->
+                    <div class="password-security-notice compact">
+                        <i class="fas fa-shield-alt notice-icon"></i>
+                        <div class="notice-content">
+                            <div class="notice-title">🔐 Passwords Stored Locally</div>
+                            <div class="notice-text">
+                                Your password will be encrypted and stored only on this machine — never sent to the cloud.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="new_name"><strong>Connection Name:</strong></label>
+                        <input type="text" class="form-control form-control-sm" id="new_name" name="new_name" required>
+                    </div>
+
+                    <!-- Dynamic configuration fields will be inserted here -->
+                    <div id="dynamic-config-fields"></div>
+
+                    <!-- ODBC Driver selection - ALWAYS PRESENT -->
+                    <div class="form-group">
+                        <label for="new_odbc_driver"><strong>ODBC Driver:</strong></label>
+                        <select class="form-control form-control-sm" id="new_odbc_driver" name="new_odbc_driver">
+                            <!-- Will be populated via JavaScript -->
+                        </select>
+                        <small class="form-text text-muted">Select an ODBC driver or leave blank to use the default for the selected connection type.</small>
+                    </div>
+
+                    <!-- Additional Parameters -->
+                    <div class="form-group">
+                        <label for="new_parameters"><strong>Additional Parameters:</strong></label>
+                        <input type="text" class="form-control form-control-sm" id="new_parameters" name="new_parameters" placeholder="param1=value1;param2=value2">
+                        <small class="form-text text-muted">Enter additional connection parameters as key-value pairs separated by semicolons</small>
+                    </div>
+
+                    <div class="card mb-3">
+                        <div class="card-header doc-card-header">
+                            <h6 class="mb-0">Connection String</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group mb-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="new-generate-connection-string">
+                                    <i class="fas fa-sync-alt mr-1"></i> Generate Connection String
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-primary" id="new-test-connection-button" onclick="testNewConnection()">
+                                    <i class="fas fa-plug mr-1"></i> Test Connection
+                                </button>
+                            </div>
+                            <div class="form-group mb-0">
+                                <label for="new-connection-string-output">Generated Connection String:</label>
+                                <textarea class="form-control form-control-sm" id="new-connection-string-output" name="new-connection-string-output" rows="2" readonly></textarea>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-secondary" onclick="backToTypeSelection()" id="backButton" style="display: none;">
+                    <i class="fas fa-arrow-left mr-1"></i> Back
+                </button>
+                <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-sm btn-primary" onclick="saveNewConnection()" id="saveButton" style="display: none;">
+                    <i class="fas fa-save mr-1"></i> Save Connection
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="feedback-container" id="feedbackContainer"></div>
+
+<script>
+// Field configurations for different connection types - moved to top for accessibility
+const fieldConfigs = {
+    "standard_db": `
+        <div class="row">
+            <div class="col-md-6">
+                <div class="form-group">
+                    <label><strong>Server:</strong></label>
+                    <input type="text" class="form-control form-control-sm" id="server" required>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="form-group">
+                    <label><strong>Port:</strong></label>
+                    <input type="text" class="form-control form-control-sm" id="port" required>
+                </div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-6">
+                <div class="form-group">
+                    <label><strong>Database:</strong></label>
+                    <input type="text" class="form-control form-control-sm" id="database_name" required>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="form-group">
+                    <label><strong>Database Type:</strong></label>
+                    <select class="form-control form-control-sm" id="database_type" onchange="setDefaultPort()">
+                        <option value="SQL Server">SQL Server</option>
+                        <option value="Oracle">Oracle</option>
+                        <option value="Postgres">Postgres</option>
+                        <option value="MySQL">MySQL</option>
+                        <option value="Snowflake">Snowflake</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-6">
+                <div class="form-group">
+                    <label><strong>Username:</strong></label>
+                    <input type="text" class="form-control form-control-sm" id="username" required>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="form-group">
+                    <label><strong>Password:</strong></label>
+                    <input type="password" class="form-control form-control-sm" id="password">
+                </div>
+            </div>
+        </div>
+    `,
+    
+    "netsuite": `
+        <div class="alert alert-info alert-sm">
+            <i class="fas fa-info-circle"></i> NetSuite uses OAuth authentication. Get these from Setup > Integration > Manage Integrations
+        </div>
+        <div class="form-group">
+            <label><strong>Account ID:</strong></label>
+            <input type="text" class="form-control form-control-sm" id="account_id" placeholder="1234567" required>
+            <small class="form-text text-muted">Found in Setup > Company > Company Information</small>
+        </div>
+        <div class="form-group">
+            <label><strong>Consumer Key:</strong></label>
+            <input type="text" class="form-control form-control-sm" id="consumer_key" required>
+        </div>
+        <div class="form-group">
+            <label><strong>Consumer Secret:</strong></label>
+            <input type="password" class="form-control form-control-sm" id="consumer_secret" required>
+        </div>
+        <div class="form-group">
+            <label><strong>Token ID:</strong></label>
+            <input type="text" class="form-control form-control-sm" id="token_id" required>
+        </div>
+        <div class="form-group">
+            <label><strong>Token Secret:</strong></label>
+            <input type="password" class="form-control form-control-sm" id="token_secret" required>
+        </div>
+        <div class="custom-control custom-checkbox">
+            <input type="checkbox" class="custom-control-input" id="is_sandbox">
+            <label class="custom-control-label" for="is_sandbox">Sandbox Environment</label>
+        </div>
+    `,
+    
+    "salesforce": `
+        <div class="alert alert-info alert-sm">
+            <i class="fas fa-info-circle"></i> Using CData Salesforce Driver
+        </div>
+        <div class="form-group">
+            <label><strong>Username:</strong></label>
+            <input type="text" class="form-control form-control-sm" id="sf_username" placeholder="user@company.com" required>
+        </div>
+        <div class="form-group">
+            <label><strong>Password:</strong></label>
+            <input type="password" class="form-control form-control-sm" id="sf_password" required>
+        </div>
+        <div class="form-group">
+            <label><strong>Security Token (Optional):</strong></label>
+            <input type="password" class="form-control form-control-sm" id="sf_token">
+            <small class="form-text text-muted">Leave blank if connecting from whitelisted IP</small>
+        </div>
+        <div class="form-group">
+            <label><strong>Instance URL (Optional):</strong></label>
+            <input type="text" class="form-control form-control-sm" id="sf_instance_url" placeholder="https://yourcompany.my.salesforce.com">
+            <small class="form-text text-muted">Usually auto-detected by driver</small>
+        </div>
+        <div class="custom-control custom-checkbox">
+            <input type="checkbox" class="custom-control-input" id="sf_sandbox">
+            <label class="custom-control-label" for="sf_sandbox">Sandbox Environment</label>
+        </div>
+    `,
+    
+    "rest_api": `
+        <div class="form-group">
+            <label><strong>API URL:</strong></label>
+            <input type="text" class="form-control form-control-sm" id="api_url" placeholder="https://api.example.com/endpoint" required>
+        </div>
+        <div class="form-group">
+            <label><strong>Authentication Type:</strong></label>
+            <select class="form-control form-control-sm" id="auth_type" onchange="updateAuthFields()">
+                <option value="None">None</option>
+                <option value="APIKey">API Key</option>
+                <option value="Bearer">Bearer Token</option>
+                <option value="Basic">Basic Auth</option>
+                <option value="OAuth">OAuth 2.0</option>
+            </select>
+        </div>
+        <div id="auth-fields">
+            <!-- Dynamic auth fields based on selection -->
+        </div>
+        <div class="form-group">
+            <label><strong>Data Format:</strong></label>
+            <select class="form-control form-control-sm" id="data_format">
+                <option value="JSON">JSON</option>
+                <option value="XML">XML</option>
+                <option value="CSV">CSV</option>
+            </select>
+        </div>
+    `,
+    
+    "excel": `
+        <div class="form-group">
+            <label><strong>File Path or Directory:</strong></label>
+            <input type="text" class="form-control form-control-sm" id="file_path" placeholder="C:\\Data\\Files\\myfile.xlsx" required>
+            <small class="form-text text-muted">Enter the full path to the Excel file or directory containing Excel files</small>
+        </div>
+    `,
+    
+    "csv": `
+        <div class="form-group">
+            <label><strong>Directory Path:</strong></label>
+            <input type="text" class="form-control form-control-sm" id="directory_path" placeholder="C:\\Data\\CSVFiles\\" required>
+            <small class="form-text text-muted">Enter the directory path containing CSV files</small>
+        </div>
+    `
+};
+
+// For new connection form - add 'new_' prefix
+const newFieldConfigs = {};
+for (const [key, value] of Object.entries(fieldConfigs)) {
+    newFieldConfigs[key] = value.replace(/id="([^"]+)"/g, 'id="new_$1"');
+}
+
+let connData = [];
+let selectedConnectionType = null;
+// Global variable to store connection types
+let connectionTypes = {};
+let currentConnectionIsNew = false; // Track if current connection is new-style
+
+document.addEventListener('DOMContentLoaded', async function () {
+    // Load connection types from API first
+    await loadConnectionTypes();
+    
+    loadConnections();
+    loadOdbcDrivers();
+    renderConnectionGrid('all');
+
+    document.getElementById('existing-connections').addEventListener('change', function () {
+        const selectedConnId = this.value;
+        const selectedConn = connData.find(conn => conn.id == selectedConnId);
+        if (selectedConn) {
+            updateFormFields(selectedConn);
+        }
+    });
+    
+    document.getElementById('generate-connection-string').addEventListener('click', () => {
+        const connectionString = generateConnectionStringMain();
+        console.log('Generated Connection String:', connectionString);
+        document.getElementById('connection-string-output').value = connectionString;
+    });
+
+    document.getElementById('new-generate-connection-string').addEventListener('click', () => {
+        const connectionString = generateConnectionString(true);
+        console.log('Generated Connection String:', connectionString);
+        document.getElementById('new-connection-string-output').value = connectionString;
+    });
+    
+    // Make delete button use confirmation dialog
+    document.getElementById('delete-button').addEventListener('click', function(e) {
+        if (!confirm('Are you sure you want to delete this connection?')) {
+            e.preventDefault();
+            return false;
+        }
+        return true;
+    });
+
+    const passwordFields = ['password', 'new_password', 'sf_password', 'new_sf_password'];
+    
+    passwordFields.forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        if (field) {
+            field.addEventListener('input', function() {
+                // If user types anything, mark as changed
+                if (this.value !== '••••••••') {
+                    this.dataset.unchanged = 'false';
+                }
+            });
+            
+            field.addEventListener('focus', function() {
+                // Clear masked value when user focuses to type new password
+                if (this.value === '••••••••') {
+                    this.value = '';
+                    this.dataset.unchanged = 'false';
+                }
+            });
+        }
+    });
+});
+
+// Detect connection type from metadata or connection string
+function detectConnectionType(conn) {
+    // First check if there's metadata with type info
+    if (conn.parameters) {
+        try {
+            const metadata = JSON.parse(conn.parameters);
+            if (metadata.type) {
+                return metadata.type;
+            }
+        } catch (e) {
+            // Not JSON, continue checking
+        }
+    }
+    
+    // Check database type for CData connections
+    if (conn.database_type === 'CData') {
+        // Try to infer from connection string
+        if (conn.connection_string) {
+            if (conn.connection_string.includes('NetSuite') || conn.connection_string.includes('suitetalk')) {
+                return 'netsuite';
+            }
+            if (conn.connection_string.includes('Salesforce')) {
+                return 'salesforce';
+            }
+            if (conn.connection_string.includes('REST')) {
+                return 'rest_api';
+            }
+            if (conn.connection_string.includes('Excel')) {
+                return 'excel';
+            }
+            if (conn.connection_string.includes('CSV') || conn.connection_string.includes('Text')) {
+                return 'csv';
+            }
+        }
+        return 'unknown';
+    }
+    
+    // Traditional database connections
+    switch(conn.database_type) {
+        case 'SQL Server': return 'sql_server';
+        case 'Oracle': return 'oracle';
+        case 'Postgres': return 'postgresql';
+        case 'MySQL': return 'mysql';
+        case 'Snowflake': return 'snowflake';
+        default: return 'standard_db';
+    }
+}
+
+// Parse connection string to extract field values
+function parseConnectionString(connectionString, connectionType) {
+    const params = {};
+    
+    if (!connectionString) return params;
+    
+    // Parse connection string into key-value pairs
+    const parts = connectionString.split(';');
+    parts.forEach(part => {
+        const [key, ...valueParts] = part.split('=');
+        if (key && valueParts.length > 0) {
+            params[key.trim()] = valueParts.join('=').trim();
+        }
+    });
+    
+    return params;
+}
+
+// Update form fields - MAIN FUNCTION THAT HANDLES BOTH OLD AND NEW
+function updateFormFields(conn) {
+    document.getElementById('connection_id').value = conn.id;
+    
+    // Detect connection type
+    const connectionType = detectConnectionType(conn);
+    const type = connectionTypes[connectionType];
+    
+    // Store connection type for later use
+    document.getElementById('connection_type_key').value = connectionType;
+    
+    // Clear existing fields
+    const detailedFields = document.getElementById('detailed-fields');
+    detailedFields.innerHTML = '';
+    
+    // IMPORTANT: Reset ODBC driver dropdown first
+    const driverSelect = document.getElementById('odbc_driver');
+    driverSelect.value = ''; // Reset to default/empty option
+    
+    // Handle based on connection type
+    if (type && type.fields !== 'standard_db') {
+        // New-style connection (CData)
+        currentConnectionIsNew = true;
+        
+        // Show connection type info
+        document.getElementById('connection-type-info').style.display = 'block';
+        document.getElementById('connection-type-display').textContent = type.name;
+        
+        // Load appropriate fields
+        detailedFields.innerHTML = fieldConfigs[type.fields] || '';
+        
+        // Set the appropriate CData driver
+        if (conn.odbc_driver) {
+            setDriverValue(driverSelect, conn.odbc_driver);
+        } else if (type.defaultDriver) {
+            setDriverValue(driverSelect, type.defaultDriver);
+        }
+        
+        // Try to populate fields from connection string if possible
+        const params = parseConnectionString(conn.connection_string, connectionType);
+        
+        // Populate based on connection type
+        if (type.fields === 'netsuite') {
+            // Parse NetSuite specific parameters
+            if (params['OAuthClientId']) document.getElementById('consumer_key').value = params['OAuthClientId'];
+            if (params['OAuthClientSecret']) document.getElementById('consumer_secret').value = params['OAuthClientSecret'];
+            if (params['OAuthAccessToken']) document.getElementById('token_id').value = params['OAuthAccessToken'];
+            if (params['OAuthAccessTokenSecret']) document.getElementById('token_secret').value = params['OAuthAccessTokenSecret'];
+            
+            // Extract account ID from URI if present
+            if (params['URI']) {
+                const match = params['URI'].match(/https:\/\/([^\.]+)/);
+                if (match) {
+                    const accountId = match[1].replace('-sb1', '');
+                    document.getElementById('account_id').value = accountId;
+                    document.getElementById('is_sandbox').checked = match[1].includes('-sb1');
+                }
+            }
+        } else if (type.fields === 'salesforce') {
+            // Parse Salesforce-specific parameters
+            if (params['User']) {
+                document.getElementById('sf_username').value = params['User'];
+            }
+            
+            // Password is stored separately in your database
+            if (conn.password) {
+                document.getElementById('sf_password').value = conn.password;
+            }
+            
+            // SecurityToken from connection string or database
+            if (params['SecurityToken']) {
+                document.getElementById('sf_token').value = params['SecurityToken'];
+            } else if (conn.token) {
+                document.getElementById('sf_token').value = conn.token;
+            }
+            
+            // LoginURL
+            if (params['LoginURL']) {
+                document.getElementById('sf_instance_url').value = params['LoginURL'];
+            } else if (conn.instance_url) {
+                document.getElementById('sf_instance_url').value = conn.instance_url;
+            }
+            
+            // UseSandbox
+            if (params['UseSandbox']) {
+                document.getElementById('sf_sandbox').checked = (params['UseSandbox'].toLowerCase() === 'true');
+            }
+        } else if (type.fields === 'rest_api') {
+            if (params['URI']) document.getElementById('api_url').value = params['URI'];
+            if (params['Format']) document.getElementById('data_format').value = params['Format'];
+            if (params['AuthScheme']) document.getElementById('auth_type').value = params['AuthScheme'];
+            
+            // Update auth fields based on type
+            if (params['AuthScheme']) {
+                updateAuthFields();
+                // Populate auth-specific fields
+                if (params['APIKey']) document.getElementById('api_key').value = params['APIKey'];
+                if (params['OAuthAccessToken']) document.getElementById('bearer_token').value = params['OAuthAccessToken'];
+                if (params['User']) document.getElementById('basic_username').value = params['User'];
+                if (params['Password']) document.getElementById('basic_password').value = params['Password'];
+            }
+        } else if (type.fields === 'excel') {
+            if (params['DBQ']) document.getElementById('file_path').value = params['DBQ'];
+        } else if (type.fields === 'csv') {
+            if (params['DBQ']) document.getElementById('directory_path').value = params['DBQ'];
+        }
+        
+    } else {
+        // Traditional database connection
+        currentConnectionIsNew = false;
+        
+        // Hide connection type info
+        document.getElementById('connection-type-info').style.display = 'none';
+        
+        // Load standard database fields
+        detailedFields.innerHTML = fieldConfigs['standard_db'];
+        
+        // Set the appropriate database driver
+        if (conn.odbc_driver) {
+            setDriverValue(driverSelect, conn.odbc_driver);
+        } else {
+            // Set default driver based on database type
+            const defaultDriver = getDefaultDriverForDatabase(conn.database_type);
+            if (defaultDriver) {
+                setDriverValue(driverSelect, defaultDriver);
+            }
+        }
+        
+        // Populate standard fields
+        if (document.getElementById('username')) document.getElementById('username').value = conn.user_name || '';
+
+        //if (document.getElementById('password')) document.getElementById('password').value = conn.password || '';
+        if (document.getElementById('password')) {
+            const passwordField = document.getElementById('password');
+            const passwordValue = conn.password || '';
+            
+            // Check if password is stored locally (masked indicator)
+            if (passwordValue === '••••••••') {
+                passwordField.value = passwordValue;
+                passwordField.placeholder = 'Password stored locally (leave blank to keep)';
+                passwordField.dataset.unchanged = 'true';
+                
+                // Show local storage indicator if available
+                const indicator = document.getElementById('password-local-indicator');
+                if (indicator) indicator.classList.add('show');
+            } else {
+                passwordField.value = passwordValue;
+                passwordField.placeholder = 'Enter password';
+                passwordField.dataset.unchanged = 'false';
+            }
+        }
+
+        if (document.getElementById('server')) document.getElementById('server').value = conn.server || '';
+        if (document.getElementById('port')) document.getElementById('port').value = conn.port || '';
+        if (document.getElementById('database_name')) document.getElementById('database_name').value = conn.database_name || '';
+        if (document.getElementById('database_type')) document.getElementById('database_type').value = conn.database_type || 'SQL Server';
+    }
+    
+    // Always update these fields
+    document.getElementById('parameters').value = (conn.parameters && conn.parameters !== '{}' && !conn.parameters.includes('"type"')) ? conn.parameters : '';
+    document.getElementById('connection-string-output').value = conn.connection_string || '';
+    
+    setDefaultPort();
+}
+
+// Helper function to set driver value in dropdown
+function setDriverValue(driverSelect, driverName) {
+    // First try to find existing option
+    let driverExists = false;
+    for (let i = 0; i < driverSelect.options.length; i++) {
+        if (driverSelect.options[i].value === driverName) {
+            driverSelect.selectedIndex = i;
+            driverExists = true;
+            break;
+        }
+    }
+    
+    // If driver doesn't exist in dropdown, add it
+    if (!driverExists && driverName) {
+        const option = document.createElement('option');
+        option.value = driverName;
+        option.textContent = driverName;
+        driverSelect.appendChild(option);
+        driverSelect.value = driverName;
+    }
+}
+
+// Helper function to get default driver for database type
+function getDefaultDriverForDatabase(databaseType) {
+    switch (databaseType) {
+        case 'SQL Server':
+            return 'ODBC Driver 17 for SQL Server';
+        case 'Oracle':
+            return 'Oracle in OraClient12Home1';
+        case 'Postgres':
+        case 'PostgreSQL':
+            return 'PostgreSQL UNICODE';
+        case 'MySQL':
+            return 'MySQL ODBC 8.0 Driver';
+        case 'Snowflake':
+            return 'SnowflakeDSIIDriver';
+        default:
+            return '';
+    }
+}
+
+function updateFormFields_rollback(conn) {
+    document.getElementById('connection_id').value = conn.id;
+    
+    // Detect connection type
+    const connectionType = detectConnectionType(conn);
+    const type = connectionTypes[connectionType];
+    
+    // Store connection type for later use
+    document.getElementById('connection_type_key').value = connectionType;
+    
+    // Clear existing fields
+    const detailedFields = document.getElementById('detailed-fields');
+    detailedFields.innerHTML = '';
+    
+    // Handle based on connection type
+    if (type && type.fields !== 'standard_db') {
+        // New-style connection
+        currentConnectionIsNew = true;
+        
+        // Show connection type info
+        document.getElementById('connection-type-info').style.display = 'block';
+        document.getElementById('connection-type-display').textContent = type.name;
+        
+        // Load appropriate fields
+        detailedFields.innerHTML = fieldConfigs[type.fields] || '';
+        
+        // Try to populate fields from connection string if possible
+        const params = parseConnectionString(conn.connection_string, connectionType);
+        
+        // Populate based on connection type
+        if (type.fields === 'netsuite') {
+            // Parse NetSuite specific parameters
+            if (params['OAuthClientId']) document.getElementById('consumer_key').value = params['OAuthClientId'];
+            if (params['OAuthClientSecret']) document.getElementById('consumer_secret').value = params['OAuthClientSecret'];
+            if (params['OAuthAccessToken']) document.getElementById('token_id').value = params['OAuthAccessToken'];
+            if (params['OAuthAccessTokenSecret']) document.getElementById('token_secret').value = params['OAuthAccessTokenSecret'];
+            
+            // Extract account ID from URI if present
+            if (params['URI']) {
+                const match = params['URI'].match(/https:\/\/([^\.]+)/);
+                if (match) {
+                    const accountId = match[1].replace('-sb1', '');
+                    document.getElementById('account_id').value = accountId;
+                    document.getElementById('is_sandbox').checked = match[1].includes('-sb1');
+                }
+            }
+        } // In the updateFormFields function, find the salesforce case and update it:
+            else if (type.fields === 'salesforce') {
+            // Parse Salesforce-specific parameters
+            if (params['User']) {
+                document.getElementById('sf_username').value = params['User'];
+            }
+            
+            // Password is stored separately in your database
+            if (conn.password) {
+                document.getElementById('sf_password').value = conn.password;
+            }
+            
+            // SecurityToken from connection string or database
+            if (params['SecurityToken']) {
+                document.getElementById('sf_token').value = params['SecurityToken'];
+            } else if (conn.token) {
+                document.getElementById('sf_token').value = conn.token;
+            }
+            
+            // LoginURL
+            if (params['LoginURL']) {
+                document.getElementById('sf_instance_url').value = params['LoginURL'];
+            } else if (conn.instance_url) {
+                document.getElementById('sf_instance_url').value = conn.instance_url;
+            }
+            
+            // UseSandbox
+            if (params['UseSandbox']) {
+                document.getElementById('sf_sandbox').checked = (params['UseSandbox'].toLowerCase() === 'true');
+            }
+        } else if (type.fields === 'rest_api') {
+            if (params['URI']) document.getElementById('api_url').value = params['URI'];
+            if (params['Format']) document.getElementById('data_format').value = params['Format'];
+            if (params['AuthScheme']) document.getElementById('auth_type').value = params['AuthScheme'];
+            
+            // Update auth fields based on type
+            if (params['AuthScheme']) {
+                updateAuthFields();
+                // Populate auth-specific fields
+                if (params['APIKey']) document.getElementById('api_key').value = params['APIKey'];
+                if (params['OAuthAccessToken']) document.getElementById('bearer_token').value = params['OAuthAccessToken'];
+                if (params['User']) document.getElementById('basic_username').value = params['User'];
+                if (params['Password']) document.getElementById('basic_password').value = params['Password'];
+            }
+        } else if (type.fields === 'excel') {
+            if (params['DBQ']) document.getElementById('file_path').value = params['DBQ'];
+        } else if (type.fields === 'csv') {
+            if (params['DBQ']) document.getElementById('directory_path').value = params['DBQ'];
+        }
+        
+    } else {
+        // Traditional database connection
+        currentConnectionIsNew = false;
+        
+        // Hide connection type info
+        document.getElementById('connection-type-info').style.display = 'none';
+        
+        // Load standard database fields
+        detailedFields.innerHTML = fieldConfigs['standard_db'];
+        
+        // Populate standard fields
+        if (document.getElementById('username')) document.getElementById('username').value = conn.user_name || '';
+        if (document.getElementById('password')) document.getElementById('password').value = conn.password || '';
+        if (document.getElementById('server')) document.getElementById('server').value = conn.server || '';
+        if (document.getElementById('port')) document.getElementById('port').value = conn.port || '';
+        if (document.getElementById('database_name')) document.getElementById('database_name').value = conn.database_name || '';
+        if (document.getElementById('database_type')) document.getElementById('database_type').value = conn.database_type || 'SQL Server';
+    }
+    
+    // Always update these fields
+    document.getElementById('parameters').value = (conn.parameters && conn.parameters !== '{}' && !conn.parameters.includes('"type"')) ? conn.parameters : '';
+    document.getElementById('connection-string-output').value = conn.connection_string || '';
+    
+    // Set ODBC driver if it exists
+    if (conn.odbc_driver) {
+        const driverSelect = document.getElementById('odbc_driver');
+        let driverExists = false;
+        for (let i = 0; i < driverSelect.options.length; i++) {
+            if (driverSelect.options[i].value === conn.odbc_driver) {
+                driverSelect.selectedIndex = i;
+                driverExists = true;
+                break;
+            }
+        }
+        
+        if (!driverExists && conn.odbc_driver) {
+            const option = document.createElement('option');
+            option.value = conn.odbc_driver;
+            option.textContent = conn.odbc_driver;
+            driverSelect.appendChild(option);
+            driverSelect.value = conn.odbc_driver;
+        }
+    }
+    
+    setDefaultPort();
+}
+
+// Generate connection string for main form
+function generateConnectionStringMain() {
+    const connectionType = document.getElementById('connection_type_key').value;
+    const type = connectionTypes[connectionType];
+    const odbcDriver = document.getElementById('odbc_driver').value;
+    
+    let connectionString = '';
+    
+    if (type && type.fields !== 'standard_db') {
+        // Generate based on specific type
+        const driver = odbcDriver || type.defaultDriver;
+        
+        if (type.fields === 'netsuite') {
+            const accountId = document.getElementById('account_id').value;
+            const consumerKey = document.getElementById('consumer_key').value;
+            const consumerSecret = document.getElementById('consumer_secret').value;
+            const tokenId = document.getElementById('token_id').value;
+            const tokenSecret = document.getElementById('token_secret').value;
+            const isSandbox = document.getElementById('is_sandbox').checked;
+            
+            if (!accountId || !consumerKey || !consumerSecret || !tokenSecret) {
+                showFeedback('Please fill all required NetSuite fields', false);
+                return '';
+            }
+            
+            const domain = isSandbox ? `${accountId}-sb1` : accountId;
+            
+            connectionString = `DRIVER={${driver}};` +
+                `DataModel=Document;` +
+                `URI=https://${domain}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql;` +
+                `Format=JSON;` +
+                `AuthScheme=OAuth;` +
+                `OAuthVersion=1.0;` +
+                `OAuthClientId=${consumerKey};` +
+                `OAuthClientSecret=${consumerSecret};` +
+                `OAuthAccessToken=${tokenId};` +
+                `OAuthAccessTokenSecret=${tokenSecret};`;
+                
+        } // In generateConnectionStringMain function
+        else if (type.fields === 'salesforce') {
+            const username = document.getElementById('sf_username').value;
+            const password = document.getElementById('sf_password').value;
+            const token = document.getElementById('sf_token').value || '';
+            const instanceUrl = document.getElementById('sf_instance_url').value || '';
+            const isSandbox = document.getElementById('sf_sandbox').checked;
+            
+            if (!username || !password) {
+                showFeedback('Please fill username and password', false);
+                return '';
+            }
+            
+            connectionString = `DRIVER={${odbcDriver}};User=${username};Password=${password};`;
+            
+            if (token) {
+                connectionString += `SecurityToken=${token};`;
+            }
+            
+            if (instanceUrl) {
+                if (!instanceUrl.startsWith('http')) {
+                    instanceUrl = 'https://' + instanceUrl;
+                }
+                connectionString += `LoginURL=${instanceUrl};`;
+            }
+            
+            connectionString += `UseSandbox=${isSandbox ? 'True' : 'False'};AuthScheme=Basic;`;
+        } else if (type.fields === 'rest_api') {
+            const apiUrl = document.getElementById('api_url').value;
+            const authType = document.getElementById('auth_type').value;
+            const dataFormat = document.getElementById('data_format').value;
+            
+            if (!apiUrl) {
+                showFeedback('Please provide API URL', false);
+                return '';
+            }
+            
+            connectionString = `DRIVER={${driver}};` +
+                `DataModel=Document;` +
+                `URI=${apiUrl};` +
+                `Format=${dataFormat};` +
+                `AuthScheme=${authType};`;
+            
+            // Add auth-specific parameters
+            if (authType === 'APIKey') {
+                const apiKey = document.getElementById('api_key')?.value;
+                if (apiKey) connectionString += `APIKey=${apiKey};`;
+            } else if (authType === 'Bearer') {
+                const token = document.getElementById('bearer_token')?.value;
+                if (token) connectionString += `OAuthAccessToken=${token};`;
+            } else if (authType === 'Basic') {
+                const username = document.getElementById('basic_username')?.value;
+                const password = document.getElementById('basic_password')?.value;
+                if (username && password) {
+                    connectionString += `User=${username};Password=${password};`;
+                }
+            }
+            
+        } else if (type.fields === 'excel') {
+            const filePath = document.getElementById('file_path').value;
+            if (!filePath) {
+                showFeedback('Please provide file path', false);
+                return '';
+            }
+            connectionString = `DRIVER={${driver}};DBQ=${filePath};`;
+            
+        } else if (type.fields === 'csv') {
+            const directoryPath = document.getElementById('directory_path').value;
+            if (!directoryPath) {
+                showFeedback('Please provide directory path', false);
+                return '';
+            }
+            connectionString = `DRIVER={${driver}};DBQ=${directoryPath};Extensions=csv,txt;`;
+        }
+        
+    } else {
+        // Standard database connection
+        const username = document.getElementById('username').value;
+        const password = document.getElementById('password').value;
+        const server = document.getElementById('server').value;
+        const port = document.getElementById('port').value;
+        const databaseType = document.getElementById('database_type').value;
+        const databaseName = document.getElementById('database_name').value;
+        
+        let driver = odbcDriver;
+        if (!driver) {
+            switch (databaseType) {
+                case 'SQL Server':
+                    driver = 'ODBC Driver 17 for SQL Server';
+                    break;
+                case 'Oracle':
+                    driver = 'Oracle in OraClient12Home1';
+                    break;
+                case 'Postgres':
+                    driver = 'PostgreSQL UNICODE';
+                    break;
+                case 'MySQL':
+                    driver = 'MySQL ODBC 8.0 Driver';
+                    break;
+                case 'Snowflake':
+                    driver = 'SnowflakeDSIIDriver';
+                    break;
+                default:
+                    driver = 'SQL Server';
+                    break;
+            }
+        }
+        
+        switch (databaseType) {
+            case 'SQL Server':
+                if (server.includes('\\')) {
+                    connectionString = `DRIVER={${driver}};Server=${server};Database=${databaseName};Uid=${username};Pwd=${password};`;
+                } else {
+                    connectionString = `DRIVER={${driver}};Server=${server},${port};Database=${databaseName};Uid=${username};Pwd=${password};`;
+                }
+                break;
+            case 'Oracle':
+                connectionString = `DRIVER={${driver}};DBQ=${server}:${port}/${databaseName};Uid=${username};Pwd=${password};`;
+                break;
+            case 'Postgres':
+            case 'MySQL':
+                connectionString = `DRIVER={${driver}};Server=${server};Port=${port};Database=${databaseName};Uid=${username};Pwd=${password};`;
+                break;
+            case 'Snowflake':
+                connectionString = `DRIVER={${driver}};Server=${server};Port=${port};Database=${databaseName};Uid=${username};Pwd=${password};`;
+                break;
+            default:
+                connectionString = `DRIVER={${driver}};Server=${server};Port=${port};Database=${databaseName};Uid=${username};Pwd=${password};`;
+                break;
+        }
+    }
+    
+    // Add additional parameters if specified
+    const additionalParams = document.getElementById('parameters').value;
+    if (additionalParams && !additionalParams.includes('"type"')) {
+        connectionString += additionalParams;
+        if (!additionalParams.endsWith(';')) {
+            connectionString += ';';
+        }
+    }
+    
+    return connectionString;
+}
+
+// Save connection - updated to handle both types
+function saveConnection() {
+    const connId = document.getElementById('connection_id').value;
+    const connNameDropdown = document.getElementById('existing-connections');
+    const connName = connNameDropdown.options[connNameDropdown.selectedIndex].text;
+    const connectionType = document.getElementById('connection_type_key').value;
+    const odbcDriver = document.getElementById('odbc_driver').value;
+    
+    let connectionData = {
+        connection_id: connId,
+        connection_name: connName,
+        odbc_driver: odbcDriver
+    };
+    
+    // Check if we're in manual connection string mode
+    const isManual = document.getElementById('toggle-connection-input-method').checked;
+    
+    if (isManual) {
+        // Use the manually entered connection string
+        connectionData.connection_string = document.getElementById('connection-string-input').value;
+        // Set dummy values for required fields
+        connectionData.server = '';
+        connectionData.port = '';
+        connectionData.database_name = '';
+        connectionData.user_name = '';
+        connectionData.password = '';
+        connectionData.database_type = 'CData';
+        connectionData.parameters = '';
+    } else {
+        // Generate or use existing connection string
+        const connectionString = generateConnectionStringMain();
+        if (!connectionString) {
+            showFeedback('Please fill out all required fields.', false);
+            return;
+        }
+        connectionData.connection_string = connectionString;
+        
+        const type = connectionTypes[connectionType];
+        
+        if (type && type.fields === 'salesforce') {
+            // Store metadata including sensitive fields
+            const metadata = {
+                type: connectionType,
+                driver: odbcDriver || type.defaultDriver,
+                sf_token: document.getElementById('sf_token').value,
+                sf_instance_url: document.getElementById('sf_instance_url').value
+            };
+            connectionData.parameters = JSON.stringify(metadata);
+            connectionData.instance_url = document.getElementById('sf_instance_url').value;
+            connectionData.token = document.getElementById('sf_token').value;
+            connectionData.odbc_driver = odbcDriver || type.defaultDriver;
+            connectionData.user_name = document.getElementById('sf_username').value;
+            connectionData.password = document.getElementById('sf_password').value;
+        } else if (type && type.fields !== 'standard_db') {
+            // New-style connection - store metadata
+            const metadata = {
+                type: connectionType,
+                driver: odbcDriver || type.defaultDriver
+            };
+            connectionData.parameters = JSON.stringify(metadata);
+            connectionData.database_type = 'CData';
+            // Set dummy values for required fields
+            connectionData.server = '';
+            connectionData.port = '';
+            connectionData.database_name = '';
+            connectionData.user_name = '';
+            connectionData.password = '';
+        }  else {
+            // Traditional database connection
+            connectionData.server = document.getElementById('server').value;
+            connectionData.port = document.getElementById('port').value;
+            connectionData.database_name = document.getElementById('database_name').value;
+            connectionData.user_name = document.getElementById('username').value;
+
+            //connectionData.password = document.getElementById('password').value;
+            const passwordField = document.getElementById('password');
+            const passwordValue = passwordField.value;
+
+            // Only send password if it was actually changed
+            if (passwordValue && passwordValue !== '••••••••' && passwordField.dataset.unchanged !== 'true') {
+                connectionData.password = passwordValue;
+            } else if (passwordValue === '••••••••' || passwordField.dataset.unchanged === 'true') {
+                // Password unchanged - send special marker
+                connectionData.password = '••••••••';
+            } else {
+                connectionData.password = '';
+            }
+
+            connectionData.database_type = document.getElementById('database_type').value;
+            connectionData.parameters = document.getElementById('parameters').value;
+        }
+    }
+
+    $.ajax({
+        url: '/add/connection',
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(connectionData),
+        success: function(response) {
+            showFeedback('Connection updated successfully', true);
+            // Update local data
+            const existingConn = connData.find(conn => conn.id == connId);
+            if (existingConn) {
+                Object.assign(existingConn, connectionData);
+            }
+
+            // Mark checklist step complete
+            if (typeof markDataAssistantStep === 'function') {
+                markDataAssistantStep('connection');
+            }
+        },
+        error: function(jqXHR, textStatus, errorThrown) {
+            console.error('Error: ', textStatus, errorThrown);
+            showFeedback('Failed to update connection', false);
+        }
+    });
+}
+
+// Render connection type grid
+function renderConnectionGrid(category) {
+    const grid = document.getElementById('connectionGrid');
+    if (!grid) return;
+    
+    grid.innerHTML = '';
+    
+    // Get unique categories for display
+    const categories = new Set();
+    Object.values(connectionTypes).forEach(type => categories.add(type.category));
+    
+    // Update category tabs if they don't exist
+    updateCategoryTabs(Array.from(categories));
+    
+    Object.entries(connectionTypes).forEach(([key, type]) => {
+        if (category === 'all' || type.category === category) {
+            const card = document.createElement('div');
+            card.className = 'connection-card';
+            
+            // Add unavailable class if driver not available
+            if (type.driver_available === false) {
+                card.className += ' driver-unavailable';
+            }
+            
+            card.onclick = () => selectConnectionType(key);
+            
+            // Create icon container
+            const iconDiv = document.createElement('div');
+            iconDiv.className = 'connection-icon';
+            iconDiv.innerHTML = createIconHTML(type);
+            card.appendChild(iconDiv);
+            
+            // Create name
+            const nameDiv = document.createElement('div');
+            nameDiv.className = 'connection-name';
+            nameDiv.textContent = type.name;
+            card.appendChild(nameDiv);
+            
+            // Add badge if specified
+            if (type.badge) {
+                const badge = document.createElement('div');
+                badge.className = 'connection-badge';
+                badge.textContent = type.badge;
+                card.appendChild(badge);
+            }
+            
+            // Add driver status indicator if driver not available
+            if (type.driver_available === false) {
+                const indicator = document.createElement('div');
+                indicator.className = 'driver-indicator';
+                indicator.title = `Driver not installed: ${type.defaultDriver}`;
+                indicator.innerHTML = '<i class="fas fa-exclamation-triangle"></i>';
+                card.appendChild(indicator);
+            }
+            
+            grid.appendChild(card);
+        }
+    });
+}
+
+// Function to update category tabs dynamically
+function updateCategoryTabs(categories) {
+    const tabsContainer = document.querySelector('.connection-tabs');
+    if (!tabsContainer) return;
+    
+    // Keep the "All" tab
+    const existingTabs = tabsContainer.querySelectorAll('.connection-tab');
+    const existingCategories = new Set();
+    existingTabs.forEach(tab => {
+        const category = tab.getAttribute('data-category');
+        if (category) existingCategories.add(category.toLowerCase());
+    });
+
+    const excluded = ["all", "file", "erp", "cloud", "crm", "database", "api"];
+
+    // Add new categories if they don't exist
+    categories.forEach(category => {
+        if (!excluded.includes(category.toLowerCase()) && !existingCategories.has(category.toLowerCase())) {
+            const tab = document.createElement('div');
+            tab.className = 'connection-tab';
+            tab.setAttribute('data-category', category);
+            tab.onclick = () => showCategory(category);
+            tab.textContent = category.charAt(0).toUpperCase() + category.slice(1);
+            tabsContainer.appendChild(tab);
+        }
+    });
+}
+
+// Show category function
+function showCategory(category) {
+    document.querySelectorAll('.connection-tab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    
+    // Find and activate the clicked tab
+    const clickedTab = event.target.closest('.connection-tab');
+    if (clickedTab) {
+        clickedTab.classList.add('active');
+    }
+    
+    renderConnectionGrid(category);
+}
+
+// Select connection type
+function selectConnectionType(typeKey) {
+    selectedConnectionType = typeKey;
+    const type = connectionTypes[typeKey];
+    
+    // Store the selected type
+    document.getElementById('selected-connection-type').value = typeKey;
+    
+    // Hide type selector, show form
+    document.getElementById('connectionTypeSelector').style.display = 'none';
+    document.getElementById('new-connection-form').style.display = 'block';
+    document.getElementById('backButton').style.display = 'inline-block';
+    document.getElementById('saveButton').style.display = 'inline-block';
+    
+    // Load appropriate fields
+    const fieldsContainer = document.getElementById('dynamic-config-fields');
+    fieldsContainer.innerHTML = newFieldConfigs[type.fields] || newFieldConfigs['standard_db'];
+    
+    // Set default port if applicable
+    if (type.defaultPort && document.getElementById('new_port')) {
+        document.getElementById('new_port').value = type.defaultPort;
+    }
+    
+    // Try to select the default driver if it exists
+    const driverSelect = document.getElementById('new_odbc_driver');
+    if (type.defaultDriver && driverSelect) {
+        // Check if the default driver exists in the dropdown
+        for (let i = 0; i < driverSelect.options.length; i++) {
+            if (driverSelect.options[i].value === type.defaultDriver) {
+                driverSelect.selectedIndex = i;
+                break;
+            }
+        }
+    }
+    
+    // Update modal title
+    document.querySelector('#popupFormModal .modal-title').textContent = `Add ${type.name} Connection`;
+}
+
+// Back to type selection
+function backToTypeSelection() {
+    document.getElementById('connectionTypeSelector').style.display = 'block';
+    document.getElementById('new-connection-form').style.display = 'none';
+    document.getElementById('backButton').style.display = 'none';
+    document.getElementById('saveButton').style.display = 'none';
+    document.querySelector('#popupFormModal .modal-title').textContent = 'Add New Connection';
+    selectedConnectionType = null;
+}
+
+// Load connections
+function loadConnections() {
+    fetch('/get/connections')
+        .then(response => {
+            console.log('Response received:', response);
+            if (!response.ok) {
+                throw new Error('Network response was not ok ' + response.statusText);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Fetched connections:', data);
+            data = JSON.parse(data);
+            connData = data;
+            populateForm(data);
+        })
+        .catch(error => {
+            console.error('Error fetching connections:', error);
+            showFeedback('Error loading connections', false);
+        });
+}
+
+// Populate form
+function populateForm(data) {
+    const connSelect = document.getElementById('existing-connections');
+    connSelect.innerHTML = '';
+
+    data.forEach(conn => { 
+        const option = document.createElement('option');
+        option.value = conn.id;
+        option.textContent = conn.connection_name;
+        connSelect.appendChild(option);
+    });
+
+    if (data.length > 0) {
+        connSelect.selectedIndex = 0;
+        updateFormFields(data[0]);
+    }
+
+    console.log('Form populated with connection data');
+}
+
+// Save New Connection
+function saveNewConnection() {
+    const connName = document.getElementById('new_name').value;
+    const connType = document.getElementById('selected-connection-type').value;
+    const odbcDriver = document.getElementById('new_odbc_driver').value;
+    const additionalParams = document.getElementById('new_parameters').value;
+    
+    if (!connName) {
+        showFeedback('Please enter a connection name', false);
+        return;
+    }
+    
+    // Generate connection string first
+    const connectionString = generateConnectionString(true);
+    if (!connectionString) {
+        showFeedback('Please fill out all required fields', false);
+        return;
+    }
+    
+    // Prepare data based on connection type
+    const connectionData = {
+        connection_id: 0,
+        connection_name: connName,
+        connection_string: connectionString,
+        odbc_driver: odbcDriver,
+        parameters: additionalParams
+    };
+    
+    // Add type-specific fields
+    const type = connectionTypes[connType];
+    
+    if (type.fields === 'standard_db') {
+        connectionData.server = document.getElementById('new_server').value;
+        connectionData.port = document.getElementById('new_port').value;
+        connectionData.database_name = document.getElementById('new_database_name').value;
+        connectionData.user_name = document.getElementById('new_username').value;
+        connectionData.password = document.getElementById('new_password').value;
+        connectionData.database_type = type.name;
+        
+    } else if (type.fields === 'salesforce') {
+        // For Salesforce, extract and store the fields in database columns
+        connectionData.user_name = document.getElementById('new_sf_username')?.value || '';
+        connectionData.password = document.getElementById('new_sf_password')?.value || '';
+        connectionData.token = document.getElementById('new_sf_token')?.value || '';
+        connectionData.instance_url = document.getElementById('new_sf_instance_url')?.value || '';
+        
+        // Store metadata including sandbox setting
+        const isSandbox = document.getElementById('new_sf_sandbox')?.checked || false;
+        const metadata = {
+            type: connType,
+            driver: odbcDriver || type.defaultDriver,
+            is_sandbox: isSandbox
+        };
+        connectionData.parameters = JSON.stringify(metadata);
+        connectionData.database_type = 'CData';
+        
+        // Set dummy values for unused required fields
+        connectionData.server = '';
+        connectionData.port = '';
+        connectionData.database_name = '';
+        
+    } else if (type.fields === 'netsuite') {
+        // For NetSuite connections
+        connectionData.user_name = document.getElementById('new_account_id')?.value || '';
+        connectionData.api_key = document.getElementById('new_consumer_key')?.value || '';
+        // Store sensitive data in parameters as encrypted JSON
+        const metadata = {
+            type: connType,
+            driver: odbcDriver || type.defaultDriver,
+            consumer_secret: document.getElementById('new_consumer_secret')?.value || '',
+            token_id: document.getElementById('new_token_id')?.value || '',
+            token_secret: document.getElementById('new_token_secret')?.value || '',
+            is_sandbox: document.getElementById('new_is_sandbox')?.checked || false
+        };
+        connectionData.parameters = JSON.stringify(metadata);
+        connectionData.database_type = 'CData';
+        connectionData.password = '';
+        connectionData.server = '';
+        connectionData.port = '';
+        connectionData.database_name = '';
+        
+    } else if (type.fields === 'rest_api') {
+        // For REST API connections
+        connectionData.instance_url = document.getElementById('new_api_url')?.value || '';
+        connectionData.api_key = document.getElementById('new_api_key')?.value || '';
+        
+        const metadata = {
+            type: connType,
+            driver: odbcDriver || type.defaultDriver,
+            auth_type: document.getElementById('new_auth_type')?.value || 'None',
+            data_format: document.getElementById('new_data_format')?.value || 'JSON'
+        };
+        connectionData.parameters = JSON.stringify(metadata);
+        connectionData.database_type = 'CData';
+        connectionData.user_name = '';
+        connectionData.password = '';
+        connectionData.server = '';
+        connectionData.port = '';
+        connectionData.database_name = '';
+        
+    } else {
+        // For other CData connections
+        const metadata = {
+            type: connType,
+            driver: odbcDriver || type.defaultDriver
+        };
+        connectionData.parameters = JSON.stringify(metadata);
+        connectionData.database_type = 'CData';
+        connectionData.server = '';
+        connectionData.port = '';
+        connectionData.database_name = '';
+        connectionData.user_name = '';
+        connectionData.password = '';
+    }
+
+    fetch('/add/connection', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(connectionData)
+    })
+    .then(response => {
+        console.log('Add response received:', response);
+        return response.json();
+    })
+    .then(data => {
+        showFeedback(data.status === 'success' ? 'Connection added successfully' : 'Failed to add connection', data.status === 'success');
+        if (data.status === 'success') {
+            $('#popupFormModal').modal('hide');
+            loadConnections();
+        }
+
+        // Mark checklist step complete
+        if (typeof markDataAssistantStep === 'function') {
+            markDataAssistantStep('connection');
+        }
+    })
+    .catch(error => showFeedback('Failed to add connection', false));
+}
+
+// Delete connection
+function deleteConnection() {
+    var connectionId = document.getElementById('connection_id').value;
+    if (connectionId) {
+        fetch(`delete/connection/${connectionId}`, { method: 'POST' })
+            .then(response => {
+                if (response.ok) {
+                    showFeedback('Connection deleted successfully', true);
+                    loadConnections();
+                } else {
+                    showFeedback('Failed to delete connection', false);
+                }
+            })
+            .catch(error => {
+                console.error('Error deleting connection:', error);
+                showFeedback('Error deleting connection', false);
+            });
+    } else {
+        showFeedback('No connection selected to delete.', false);
+    }
+}
+
+function generateConnectionString(is_new = false) {
+    if (is_new) {
+        const connType = document.getElementById('selected-connection-type').value;
+        if (!connType) {
+            showFeedback('Please select a connection type', false);
+            return '';
+        }
+        
+        const type = connectionTypes[connType];
+        const odbcDriver = document.getElementById('new_odbc_driver').value || type.defaultDriver;
+        
+        let connectionString = '';
+        
+        if (type.fields === 'standard_db') {
+            // Standard database connection
+            const server = document.getElementById('new_server').value;
+            const port = document.getElementById('new_port').value;
+            const database = document.getElementById('new_database_name').value;
+            const username = document.getElementById('new_username').value;
+            const password = document.getElementById('new_password').value;
+            const dbType = document.getElementById('new_database_type')?.value || type.name;
+            
+            if (!server || !database || !username) {
+                return '';
+            }
+            
+            switch (dbType) {
+                case 'SQL Server':
+                    if (server.includes('\\')) {
+                        connectionString = `DRIVER={${odbcDriver}};Server=${server};Database=${database};Uid=${username};Pwd=${password};`;
+                    } else {
+                        connectionString = `DRIVER={${odbcDriver}};Server=${server},${port};Database=${database};Uid=${username};Pwd=${password};`;
+                    }
+                    break;
+                case 'Oracle':
+                    connectionString = `DRIVER={${odbcDriver}};DBQ=${server}:${port}/${database};Uid=${username};Pwd=${password};`;
+                    break;
+                case 'Postgres':
+                case 'PostgreSQL':
+                    connectionString = `DRIVER={${odbcDriver}};Server=${server};Port=${port};Database=${database};Uid=${username};Pwd=${password};`;
+                    break;
+                case 'MySQL':
+                    connectionString = `DRIVER={${odbcDriver}};Server=${server};Port=${port};Database=${database};Uid=${username};Pwd=${password};`;
+                    break;
+                case 'Snowflake':
+                    connectionString = `DRIVER={${odbcDriver}};Server=${server};Port=${port};Database=${database};Uid=${username};Pwd=${password};`;
+                    break;
+                default:
+                    connectionString = `DRIVER={${odbcDriver}};Server=${server};Port=${port};Database=${database};Uid=${username};Pwd=${password};`;
+                    break;
+            }
+            
+        } else if (type.fields === 'netsuite') {
+            const accountId = document.getElementById('new_account_id').value;
+            const consumerKey = document.getElementById('new_consumer_key').value;
+            const consumerSecret = document.getElementById('new_consumer_secret').value;
+            const tokenId = document.getElementById('new_token_id').value;
+            const tokenSecret = document.getElementById('new_token_secret').value;
+            const isSandbox = document.getElementById('new_is_sandbox').checked;
+            
+            if (!accountId || !consumerKey || !consumerSecret || !tokenId || !tokenSecret) {
+                return '';
+            }
+            
+            const domain = isSandbox ? `${accountId}-sb1` : accountId;
+            
+            connectionString = `DRIVER={${odbcDriver}};` +
+                `DataModel=Document;` +
+                `URI=https://${domain}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql;` +
+                `Format=JSON;` +
+                `AuthScheme=OAuth;` +
+                `OAuthVersion=1.0;` +
+                `OAuthClientId=${consumerKey};` +
+                `OAuthClientSecret=${consumerSecret};` +
+                `OAuthAccessToken=${tokenId};` +
+                `OAuthAccessTokenSecret=${tokenSecret};`;
+                
+        } else if (type.fields === 'salesforce') {
+            // FIXED: Added 'new_' prefix to all field IDs
+            const username = document.getElementById('new_sf_username').value;
+            const password = document.getElementById('new_sf_password').value;
+            const token = document.getElementById('new_sf_token').value || '';
+            let instanceUrl = document.getElementById('new_sf_instance_url').value || '';
+            const isSandbox = document.getElementById('new_sf_sandbox').checked;
+            
+            if (!username || !password) {
+                showFeedback('Please fill username and password', false);
+                return '';
+            }
+            
+            // Build connection string with correct parameter names (no spaces)
+            connectionString = `DRIVER={${odbcDriver}};User=${username};Password=${password};`;
+            
+            // Add SecurityToken as separate parameter (no space in parameter name)
+            if (token) {
+                connectionString += `SecurityToken=${token};`;
+            }
+            
+            // Add LoginURL if provided (no space in parameter name)
+            if (instanceUrl) {
+                // Ensure https:// is included
+                if (!instanceUrl.startsWith('http')) {
+                    instanceUrl = 'https://' + instanceUrl;
+                }
+                connectionString += `LoginURL=${instanceUrl};`;
+            }
+            
+            // Add UseSandbox parameter (no space)
+            connectionString += `UseSandbox=${isSandbox ? 'True' : 'False'};`;
+            
+            // Add AuthScheme
+            connectionString += `AuthScheme=Basic;`;
+            
+        } else if (type.fields === 'rest_api') {
+            const apiUrl = document.getElementById('new_api_url').value;
+            const authType = document.getElementById('new_auth_type').value;
+            const dataFormat = document.getElementById('new_data_format').value;
+            
+            if (!apiUrl) {
+                return '';
+            }
+            
+            connectionString = `DRIVER={${odbcDriver}};` +
+                `DataModel=Document;` +
+                `URI=${apiUrl};` +
+                `Format=${dataFormat};` +
+                `AuthScheme=${authType};`;
+            
+            // Add auth-specific parameters
+            if (authType === 'APIKey') {
+                const apiKey = document.getElementById('new_api_key')?.value;
+                if (apiKey) {
+                    connectionString += `APIKey=${apiKey};`;
+                }
+            } else if (authType === 'Bearer') {
+                const token = document.getElementById('new_bearer_token')?.value;
+                if (token) {
+                    connectionString += `OAuthAccessToken=${token};`;
+                }
+            } else if (authType === 'Basic') {
+                const username = document.getElementById('new_basic_username')?.value;
+                const password = document.getElementById('new_basic_password')?.value;
+                if (username && password) {
+                    connectionString += `User=${username};Password=${password};`;
+                }
+            }
+            
+        } else if (type.fields === 'excel') {
+            const filePath = document.getElementById('new_file_path').value;
+            
+            if (!filePath) {
+                return '';
+            }
+            
+            // Excel ODBC connection string
+            connectionString = `DRIVER={${odbcDriver}};` +
+                `DBQ=${filePath};`;
+                
+        } else if (type.fields === 'csv') {
+            const directoryPath = document.getElementById('new_directory_path').value;
+            
+            if (!directoryPath) {
+                return '';
+            }
+            
+            // CSV/Text ODBC connection string
+            connectionString = `DRIVER={${odbcDriver}};` +
+                `DBQ=${directoryPath};` +
+                `Extensions=csv,txt;`;
+        }
+        
+        // Add additional parameters if specified
+        const additionalParams = document.getElementById('new_parameters').value;
+        if (additionalParams) {
+            connectionString += additionalParams;
+            if (!additionalParams.endsWith(';')) {
+                connectionString += ';';
+            }
+        }
+        
+        document.getElementById('new-connection-string-output').value = connectionString;
+        return connectionString;
+        
+    } else {
+        // Use the main form generation
+        return generateConnectionStringMain();
+    }
+}
+
+
+// Update auth fields for REST API
+function updateAuthFields() {
+    const authType = document.getElementById('new_auth_type')?.value || document.getElementById('auth_type')?.value;
+    const container = document.getElementById('auth-fields');
+    const isNew = document.getElementById('new_auth_type') ? true : false;
+    const prefix = isNew ? 'new_' : '';
+    
+    let html = '';
+    switch(authType) {
+        case 'APIKey':
+            html = `
+                <div class="form-group">
+                    <label><strong>API Key:</strong></label>
+                    <input type="password" class="form-control form-control-sm" id="${prefix}api_key" required>
+                </div>
+                <div class="form-group">
+                    <label><strong>API Key Header (optional):</strong></label>
+                    <input type="text" class="form-control form-control-sm" id="${prefix}api_key_header" placeholder="X-API-Key">
+                </div>
+            `;
+            break;
+        case 'Bearer':
+            html = `
+                <div class="form-group">
+                    <label><strong>Bearer Token:</strong></label>
+                    <input type="password" class="form-control form-control-sm" id="${prefix}bearer_token" required>
+                </div>
+            `;
+            break;
+        case 'Basic':
+            html = `
+                <div class="form-group">
+                    <label><strong>Username:</strong></label>
+                    <input type="text" class="form-control form-control-sm" id="${prefix}basic_username" required>
+                </div>
+                <div class="form-group">
+                    <label><strong>Password:</strong></label>
+                    <input type="password" class="form-control form-control-sm" id="${prefix}basic_password" required>
+                </div>
+            `;
+            break;
+        case 'OAuth':
+            html = `
+                <div class="form-group">
+                    <label><strong>Client ID:</strong></label>
+                    <input type="text" class="form-control form-control-sm" id="${prefix}oauth_client_id" required>
+                </div>
+                <div class="form-group">
+                    <label><strong>Client Secret:</strong></label>
+                    <input type="password" class="form-control form-control-sm" id="${prefix}oauth_client_secret" required>
+                </div>
+                <div class="form-group">
+                    <label><strong>Access Token (if available):</strong></label>
+                    <input type="text" class="form-control form-control-sm" id="${prefix}oauth_token">
+                </div>
+            `;
+            break;
+    }
+    container.innerHTML = html;
+}
+
+// Show popup form
+function showPopupForm() {
+    // Reset everything
+    document.getElementById('new-connection-form').reset();
+    document.getElementById('connectionTypeSelector').style.display = 'block';
+    document.getElementById('new-connection-form').style.display = 'none';
+    document.getElementById('backButton').style.display = 'none';
+    document.getElementById('saveButton').style.display = 'none';
+    document.querySelector('#popupFormModal .modal-title').textContent = 'Add New Connection';
+    selectedConnectionType = null;
+    
+    // Show the modal
+    $('#popupFormModal').modal('show');
+}
+
+// Show feedback
+function showFeedback(message, isSuccess) {
+    const feedbackContainer = document.getElementById('feedbackContainer');
+    const feedback = document.createElement('div');
+    feedback.className = `alert ${isSuccess ? 'alert-success' : 'alert-danger'} feedback-alert`;
+    feedback.role = 'alert';
+
+    const icon = document.createElement('i');
+    icon.className = isSuccess ? 'fas fa-check-circle' : 'fas fa-times-circle';
+    feedback.appendChild(icon);
+
+    const textNode = document.createTextNode(` ${message}`);
+    feedback.appendChild(textNode);
+
+    feedbackContainer.appendChild(feedback);
+
+    // Add animation for a smoother appearance
+    feedback.style.opacity = '0';
+    feedback.style.transform = 'translateX(20px)';
+    feedback.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+    
+    // Trigger animation
+    setTimeout(() => {
+        feedback.style.opacity = '1';
+        feedback.style.transform = 'translateX(0)';
+    }, 10);
+
+    // Remove after delay (5 seconds for visibility)
+    setTimeout(() => {
+        // Exit animation
+        feedback.style.opacity = '0';
+        feedback.style.transform = 'translateX(20px)';
+        
+        // Remove from DOM after animation completes
+        setTimeout(() => {
+            feedback.remove();
+        }, 300);
+    }, 5000);
+}
+
+// Set default port
+function setDefaultPort(is_new=false) {
+    const dbType = is_new ? document.getElementById('new_database_type')?.value : document.getElementById('database_type')?.value;
+    const portField = is_new ? document.getElementById('new_port') : document.getElementById('port');
+    
+    if (!portField) return;
+
+    switch (dbType) {
+        case 'SQL Server':
+            portField.value = '1433';
+            break;
+        case 'Oracle':
+            portField.value = '1521';
+            break;
+        case 'Postgres':
+        case 'PostgreSQL':
+            portField.value = '5432';
+            break;
+        case 'MySQL':
+            portField.value = '3306';
+            break;
+        case 'Snowflake':
+            portField.value = '443';
+            break;
+        default:
+            portField.value = '';
+            break;
+    }
+}
+
+// Toggle input method
+function toggleInputMethod() {
+    const isManual = document.getElementById('toggle-connection-input-method').checked;
+    document.getElementById('detailed-fields').style.display = isManual ? 'none' : 'block';
+    document.getElementById('connection-string-field').style.display = isManual ? 'block' : 'none';
+    document.getElementById('odbc-driver-group').style.display = isManual ? 'none' : 'block';
+    document.getElementById('parameters-group').style.display = isManual ? 'none' : 'block';
+    
+    if (isManual) {
+        // Copy generated string to editable field if it exists
+        const generatedString = document.getElementById('connection-string-output').value;
+        if (generatedString) {
+            document.getElementById('connection-string-input').value = generatedString;
+        }
+    }
+}
+
+// Test connection
+function testConnection_legacy() {
+    // Show loading state
+    const button = document.getElementById('test-connection-button');
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Testing...';
+    button.disabled = true;
+    
+    // Check if we're in manual mode
+    const isManual = document.getElementById('toggle-connection-input-method').checked;
+    let connectionString = '';
+    
+    if (isManual) {
+        connectionString = document.getElementById('connection-string-input').value;
+    } else {
+        connectionString = generateConnectionStringMain();
+        if (!connectionString) {
+            showFeedback('Please fill required fields or enter a connection string', false);
+            button.innerHTML = originalText;
+            button.disabled = false;
+            return;
+        }
+    }
+    
+    // Gather connection data
+    const connectionData = {
+        connection_string: connectionString,
+        database_type: currentConnectionIsNew ? 'CData' : (document.getElementById('database_type')?.value || 'SQL Server'),
+        odbc_driver: document.getElementById('odbc_driver').value
+    };
+    
+    // Send request to test the connection
+    fetch('/test/connection', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(connectionData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Reset button state
+        button.innerHTML = originalText;
+        button.disabled = false;
+        
+        // Show feedback based on the test result
+        if (data.status === 'success') {
+            showFeedback('Connection test successful!', true);
+        } else {
+            showFeedback('Connection test failed: ' + data.message, false);
+        }
+    })
+    .catch(error => {
+        // Reset button state
+        button.innerHTML = originalText;
+        button.disabled = false;
+        
+        // Show error feedback
+        console.error('Error:', error);
+        showFeedback('An error occurred while testing the connection', false);
+    });
+}
+
+// Test connection
+function testConnection() {
+    const button = document.getElementById('test-connection-button');
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Testing...';
+    button.disabled = true;
+    
+    const isManual = document.getElementById('toggle-connection-input-method').checked;
+    let connectionString = '';
+    
+    if (isManual) {
+        connectionString = document.getElementById('connection-string-input').value;
+    } else {
+        connectionString = generateConnectionStringMain();
+        if (!connectionString) {
+            showFeedback('Please fill required fields or enter a connection string', false);
+            button.innerHTML = originalText;
+            button.disabled = false;
+            return;
+        }
+    }
+    
+    // Get connection ID for existing connections
+    const connectionId = document.getElementById('connection_id').value;
+    
+    const connectionData = {
+        connection_string: connectionString,
+        connection_id: connectionId || null,  // ADD THIS
+        database_type: currentConnectionIsNew ? 'CData' : (document.getElementById('database_type')?.value || 'SQL Server'),
+        odbc_driver: document.getElementById('odbc_driver').value
+    };
+    
+    fetch('/test/connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(connectionData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        button.innerHTML = originalText;
+        button.disabled = false;
+        
+        if (data.status === 'success') {
+            showFeedback('Connection test successful!', true);
+        } else {
+            showFeedback('Connection test failed: ' + data.message, false);
+        }
+    })
+    .catch(error => {
+        button.innerHTML = originalText;
+        button.disabled = false;
+        console.error('Error:', error);
+        showFeedback('An error occurred while testing the connection', false);
+    });
+}
+
+// Test new connection
+function testNewConnection_legacy() {
+    // Show loading state
+    const button = document.getElementById('new-test-connection-button');
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Testing...';
+    button.disabled = true;
+    
+    const connType = document.getElementById('selected-connection-type').value;
+    let connectionString = document.getElementById('new-connection-string-output').value;
+    
+    if (!connectionString) {
+        connectionString = generateConnectionString(true);
+        if (!connectionString) {
+            showFeedback('Please fill all required fields', false);
+            button.innerHTML = originalText;
+            button.disabled = false;
+            return;
+        }
+    }
+    
+    // Prepare test data
+    const connectionData = {
+        connection_string: connectionString,
+        database_type: connectionTypes[connType]?.name || 'CData',
+        odbc_driver: document.getElementById('new_odbc_driver').value
+    };
+    
+    // Send request to test the connection
+    fetch('/test/connection', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(connectionData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Reset button state
+        button.innerHTML = originalText;
+        button.disabled = false;
+        
+        // Show feedback based on the test result
+        if (data.status === 'success') {
+            showFeedback('Connection test successful!', true);
+        } else {
+            showFeedback('Connection test failed: ' + data.message, false);
+        }
+    })
+    .catch(error => {
+        // Reset button state
+        button.innerHTML = originalText;
+        button.disabled = false;
+        
+        // Show error feedback
+        console.error('Error:', error);
+        showFeedback('An error occurred while testing the connection', false);
+    });
+}
+
+// Test new connection
+function testNewConnection() {
+    // Show loading state
+    const button = document.getElementById('new-test-connection-button');
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Testing...';
+    button.disabled = true;
+    
+    const connType = document.getElementById('selected-connection-type').value;
+    let connectionString = document.getElementById('new-connection-string-output').value;
+    
+    if (!connectionString) {
+        connectionString = generateConnectionString(true);
+        if (!connectionString) {
+            showFeedback('Please fill all required fields', false);
+            button.innerHTML = originalText;
+            button.disabled = false;
+            return;
+        }
+    }
+    
+    // For new connections, ensure we're using the actual password from the form
+    // (not a masked value - though new connections shouldn't have masked values)
+    const type = connectionTypes[connType];
+    let actualPassword = '';
+    
+    if (type) {
+        if (type.fields === 'standard_db') {
+            actualPassword = document.getElementById('new_password')?.value || '';
+        } else if (type.fields === 'salesforce') {
+            actualPassword = document.getElementById('new_sf_password')?.value || '';
+        } else if (type.fields === 'rest_api') {
+            // REST API might use basic auth password
+            actualPassword = document.getElementById('new_basic_password')?.value || '';
+        }
+        
+        // If the connection string has a masked password (shouldn't happen for new, but just in case)
+        if (connectionString.includes('Pwd=••••••••') && actualPassword) {
+            connectionString = connectionString.replace('Pwd=••••••••', `Pwd=${actualPassword}`);
+        }
+        if (connectionString.includes('Password=••••••••') && actualPassword) {
+            connectionString = connectionString.replace('Password=••••••••', `Password=${actualPassword}`);
+        }
+    }
+    
+    // Prepare test data
+    const connectionData = {
+        connection_string: connectionString,
+        connection_id: null,  // New connection - no ID yet
+        database_type: connectionTypes[connType]?.name || 'CData',
+        odbc_driver: document.getElementById('new_odbc_driver').value
+    };
+    
+    console.log('Testing new connection:', {
+        type: connType,
+        hasPassword: actualPassword ? 'yes' : 'no',
+        connectionStringLength: connectionString.length
+    });
+    
+    // Send request to test the connection
+    fetch('/test/connection', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(connectionData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Reset button state
+        button.innerHTML = originalText;
+        button.disabled = false;
+        
+        // Show feedback based on the test result
+        if (data.status === 'success') {
+            showFeedback('Connection test successful!', true);
+        } else {
+            showFeedback('Connection test failed: ' + data.message, false);
+        }
+    })
+    .catch(error => {
+        // Reset button state
+        button.innerHTML = originalText;
+        button.disabled = false;
+        
+        // Show error feedback
+        console.error('Error:', error);
+        showFeedback('An error occurred while testing the connection', false);
+    });
+}
+
+// Load available ODBC drivers for both forms
+function loadOdbcDrivers() {
+    fetch('/get/odbc_drivers')
+        .then(response => response.json())
+        .then(drivers => {
+            // Update the main form driver dropdown
+            populateDriverDropdown('odbc_driver', drivers);
+            
+            // Update the popup form driver dropdown
+            populateDriverDropdown('new_odbc_driver', drivers);
+        })
+        .catch(error => {
+            console.error('Error loading ODBC drivers:', error);
+            // Still populate with some defaults if the endpoint fails
+            const defaultDrivers = [
+                'ODBC Driver 17 for SQL Server',
+                'PostgreSQL UNICODE',
+                'MySQL ODBC 8.0 Driver',
+                'CData ODBC Driver for REST'
+            ];
+            populateDriverDropdown('odbc_driver', defaultDrivers);
+            populateDriverDropdown('new_odbc_driver', defaultDrivers);
+        });
+}
+
+// Helper function to populate a driver dropdown
+function populateDriverDropdown(elementId, drivers) {
+    const driverSelect = document.getElementById(elementId);
+    if (!driverSelect) return;
+    
+    driverSelect.innerHTML = '';
+    
+    // Add default option
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = 'Use default driver';
+    driverSelect.appendChild(defaultOption);
+    
+    // Add available drivers
+    drivers.forEach(driver => {
+        const option = document.createElement('option');
+        option.value = driver;
+        option.textContent = driver;
+        driverSelect.appendChild(option);
+    });
+}
+
+// Function to load connection types from the API
+async function loadConnectionTypes() {
+    try {
+        const response = await fetch('/api/connection-types');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        connectionTypes = await response.json();
+        console.log('Connection types loaded:', connectionTypes);
+        
+        // After loading, render the grid with default category
+        if (document.getElementById('connectionGrid')) {
+            renderConnectionGrid('all');
+        }
+        
+        return connectionTypes;
+    } catch (error) {
+        console.error('Failed to load connection types from API:', error);
+        
+        // Fallback to minimal hardcoded types if API fails
+        connectionTypes = {
+            "sql_server": {
+                name: "SQL Server",
+                category: "database",
+                icon_class: "fa-database",
+                icon_color: "#CC2927",
+                defaultDriver: "ODBC Driver 17 for SQL Server",
+                defaultPort: "1433",
+                fields: "standard_db"
+            },
+            "postgresql": {
+                name: "PostgreSQL",
+                category: "database",
+                icon_class: "fa-database",
+                icon_color: "#336791",
+                defaultDriver: "PostgreSQL UNICODE",
+                defaultPort: "5432",
+                fields: "standard_db"
+            },
+            "mysql": {
+                name: "MySQL",
+                category: "database",
+                icon_class: "fa-database",
+                icon_color: "#4479A1",
+                defaultDriver: "MySQL ODBC 8.0 Driver",
+                defaultPort: "3306",
+                fields: "standard_db"
+            },
+            "rest_api": {
+                name: "REST API",
+                category: "api",
+                icon_class: "fa-plug",
+                icon_color: "#6C757D",
+                defaultDriver: "CData ODBC Driver for REST",
+                fields: "rest_api"
+            }
+        };
+        
+        console.log('Using fallback connection types');
+        if (document.getElementById('connectionGrid')) {
+            renderConnectionGrid('all');
+        }
+        
+        return connectionTypes;
+    }
+}
+
+// Function to create icon HTML with proper priority
+function createIconHTML(type) {
+    const iconColor = type.icon_color || type.color || '#6C757D';
+    
+    // Priority 1: Check for actual icon file
+    if (type.icon_path && type.icon_type === 'image') {
+        // icon_path already contains the full filename with extension
+        return `
+            <img src="/static/icons/${type.icon_path}" 
+                 alt="${type.name}" 
+                 style="max-width: 40px; max-height: 40px; object-fit: contain;"
+                 onerror="this.onerror=null; this.parentElement.innerHTML=createFallbackIcon('${type.name}', '${iconColor}', '${type.iconText || ''}');">
+        `;
+    }
+    
+    // Priority 2: Use Font Awesome icon if specified
+    if (type.icon_class || type.icon) {
+        const iconClass = type.icon_class || type.icon;
+        return `<i class="fas ${iconClass}" style="color: ${iconColor}; font-size: 24px;"></i>`;
+    }
+    
+    // Priority 3: Text fallback
+    return createFallbackIcon(type.name, iconColor, type.iconText);
+}
+
+// Function to create fallback icon
+function createFallbackIcon(name, color, iconText) {
+    const text = iconText || name.substring(0, 2).toUpperCase();
+    return `
+        <div class="icon-fallback" style="
+            background: ${color};
+            width: 40px;
+            height: 40px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+        ">${text}</div>
+    `;
+}
+
+// Make createFallbackIcon available globally for onerror handlers
+window.createFallbackIcon = createFallbackIcon;
+
+</script>
+<script src="/static/js/connections_context.js"></script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}

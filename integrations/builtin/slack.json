@@ -1,0 +1,222 @@
+{
+  "template_key": "slack",
+  "platform_name": "Slack",
+  "platform_category": "Communication",
+  "description": "Connect to Slack for sending messages, managing channels, and team communication.",
+  "logo_url": "https://cdn.worldvectorlogo.com/logos/slack-new-logo.svg",
+  "documentation_url": "https://api.slack.com/methods",
+  
+  "auth_type": "oauth2",
+  "auth_config": {
+    "authorization_url": "https://slack.com/oauth/v2/authorize",
+    "token_url": "https://slack.com/api/oauth.v2.access",
+    "scopes": [
+      "chat:write",
+      "channels:read",
+      "users:read"
+    ]
+  },
+  
+  "base_url": "https://slack.com/api",
+  
+  "default_headers": {
+    "Content-Type": "application/json"
+  },
+  
+  "setup_instructions": "## Slack Setup\n\n1. Go to [Slack API Apps](https://api.slack.com/apps)\n2. Create a new app → From scratch\n3. Add OAuth scopes:\n   - `chat:write` (send messages)\n   - `channels:read` (list channels)\n   - `users:read` (list users)\n4. Install the app to your workspace\n5. Copy the Bot User OAuth Token (`xoxb-...`)\n\n**Or use OAuth:**\n1. Add redirect URI: `{callback_url}`\n2. Store Client ID and Secret in Local Secrets:\n   - `OAUTH_SLACK_CLIENT_ID`\n   - `OAUTH_SLACK_CLIENT_SECRET`",
+  
+  "operations": [
+    {
+      "key": "send_message",
+      "name": "Send Message",
+      "description": "Send a message to a channel or user",
+      "method": "POST",
+      "endpoint": "/chat.postMessage",
+      "parameters": [
+        {
+          "name": "channel",
+          "label": "Channel",
+          "type": "text",
+          "required": true,
+          "description": "Channel ID (C...) or user ID (U...) or #channel-name"
+        },
+        {
+          "name": "text",
+          "label": "Message Text",
+          "type": "textarea",
+          "required": true
+        },
+        {
+          "name": "thread_ts",
+          "label": "Thread Timestamp",
+          "type": "text",
+          "description": "Reply to a specific thread (optional)"
+        },
+        {
+          "name": "unfurl_links",
+          "label": "Unfurl Links",
+          "type": "checkbox",
+          "default": true
+        }
+      ],
+      "body_template": {
+        "channel": "{channel}",
+        "text": "{text}",
+        "thread_ts": "{thread_ts}",
+        "unfurl_links": "{unfurl_links}"
+      },
+      "output_mapping": {
+        "ok": "$.ok",
+        "message": "$.message",
+        "ts": "$.ts",
+        "channel": "$.channel"
+      },
+      "category": "write"
+    },
+    {
+      "key": "get_channels",
+      "name": "Get Channels",
+      "description": "List channels in the workspace",
+      "method": "GET",
+      "endpoint": "/conversations.list",
+      "parameters": [
+        {
+          "name": "types",
+          "label": "Channel Types",
+          "type": "text",
+          "default": "public_channel,private_channel",
+          "description": "Comma-separated: public_channel, private_channel, mpim, im"
+        },
+        {
+          "name": "exclude_archived",
+          "label": "Exclude Archived",
+          "type": "checkbox",
+          "default": true
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100
+        }
+      ],
+      "output_mapping": {
+        "channels": "$.channels",
+        "ok": "$.ok"
+      },
+      "category": "read"
+    },
+    {
+      "key": "get_users",
+      "name": "Get Users",
+      "description": "List users in the workspace",
+      "method": "GET",
+      "endpoint": "/users.list",
+      "parameters": [
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100
+        }
+      ],
+      "output_mapping": {
+        "members": "$.members",
+        "ok": "$.ok"
+      },
+      "category": "read"
+    },
+    {
+      "key": "get_channel_history",
+      "name": "Get Channel History",
+      "description": "Retrieve messages from a channel",
+      "method": "GET",
+      "endpoint": "/conversations.history",
+      "parameters": [
+        {
+          "name": "channel",
+          "label": "Channel ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100
+        },
+        {
+          "name": "oldest",
+          "label": "Oldest (Unix timestamp)",
+          "type": "text",
+          "description": "Start of time range"
+        },
+        {
+          "name": "latest",
+          "label": "Latest (Unix timestamp)",
+          "type": "text",
+          "description": "End of time range"
+        }
+      ],
+      "output_mapping": {
+        "messages": "$.messages",
+        "has_more": "$.has_more",
+        "ok": "$.ok"
+      },
+      "category": "read"
+    },
+    {
+      "key": "upload_file",
+      "name": "Upload File",
+      "description": "Upload a file to Slack",
+      "method": "POST",
+      "endpoint": "/files.upload",
+      "parameters": [
+        {
+          "name": "channels",
+          "label": "Channels",
+          "type": "text",
+          "required": true,
+          "description": "Comma-separated channel IDs to share to"
+        },
+        {
+          "name": "content",
+          "label": "File Content",
+          "type": "textarea",
+          "description": "Text content of the file"
+        },
+        {
+          "name": "filename",
+          "label": "Filename",
+          "type": "text",
+          "default": "file.txt"
+        },
+        {
+          "name": "title",
+          "label": "Title",
+          "type": "text"
+        },
+        {
+          "name": "initial_comment",
+          "label": "Initial Comment",
+          "type": "text"
+        }
+      ],
+      "body_template": {
+        "channels": "{channels}",
+        "content": "{content}",
+        "filename": "{filename}",
+        "title": "{title}",
+        "initial_comment": "{initial_comment}"
+      },
+      "output_mapping": {
+        "ok": "$.ok",
+        "file": "$.file"
+      },
+      "category": "write"
+    }
+  ],
+  
+  "supports_webhooks": true,
+  "webhook_events": ["message", "reaction_added", "channel_created", "member_joined_channel"]
+}

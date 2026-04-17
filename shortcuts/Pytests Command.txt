@@ -1,0 +1,1 @@
+python -m pytest tests/e2e tests/unit/ tests/security/ builder_agent/tests/ builder_mcp/tests/ tests/unit/test_auth_providers.py tests/unit/test_identity_routes_and_ldap_mock.py --headed --slowmo 500

@@ -1,0 +1,1727 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    /* ===== OPTIMIZED LAYOUT STYLES (FROM PREFERRED VERSION) ===== */
+    .compact-header {
+        /*background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);*/
+        background: linear-gradient(135deg, #2980b9 0%, #34495e 100%);
+        color: white;
+        padding: 0.5rem 1rem;
+        margin-bottom: 1rem;
+        border-radius: 0.5rem;
+    }
+    
+    .main-container {
+        height: calc(100vh - 10px);
+            display: flex;  
+    flex-direction: column;  
+    }
+
+    .main-container .row {
+    flex: 1;  
+    min-height: 0;  /* Critical for flexbox */
+}
+    
+    .chat-wrapper {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+            min-height: 0;  /* Critical */
+    overflow: hidden; 
+    }
+    
+    .optimized-chat-box {
+        flex: 1 1 auto;  /* CHANGE from just "1" */
+        overflow-y: auto;
+        background: var(--bg-elevated, #f8f9fa);
+        padding: 1rem;
+        border: 1px solid var(--border-subtle, #dee2e6);
+        border-radius: 0.5rem 0.5rem 0 0;
+            min-height: 0;  /* Critical for Firefox */
+    max-height: 100%; 
+    }
+
+    .col-lg-9, .col-md-8 {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+    
+    .optimized-input-area {
+        background: var(--bg-card, white);
+        border: 1px solid var(--border-subtle, #dee2e6);
+        border-top: none;
+        border-radius: 0 0 0.5rem 0.5rem;
+        padding: 0.75rem;
+    }
+    
+    .sidebar-compact {
+        height: 100%;
+        overflow-y: auto;
+    }
+    
+    .compact-card {
+        margin-bottom: 0.75rem;
+    }
+    
+    .compact-card .card-header {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.9rem;
+        font-weight: 600;
+    }
+    
+    .compact-card .card-body {
+        padding: 0.75rem;
+    }
+    
+    .compact-form-group {
+        margin-bottom: 0.5rem;
+    }
+    
+    .compact-label {
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+    }
+    
+    .compact-btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.85rem;
+    }
+    
+    /* Collapsible sections */
+    .collapsible-header {
+        cursor: pointer;
+        user-select: none;
+        padding: 0.5rem 0.75rem;
+        background: var(--bg-elevated, #f8f9fa);
+        border: 1px solid var(--border-subtle, #dee2e6);
+        border-radius: 0.25rem;
+        margin-bottom: 0.5rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.9rem;
+        font-weight: 600;
+    }
+    
+    .collapsible-header:hover {
+        background: var(--border-subtle, #e9ecef);
+    }
+    
+    .collapsible-content {
+        display: none;
+    }
+    
+    .collapsible-content.show {
+        display: block;
+    }
+    
+    /* ===== ORIGINAL STYLES (PRESERVED FOR FUNCTIONALITY) ===== */
+    .message-bubble {
+        padding: 10px 15px;
+        border-radius: 20px;
+        max-width: 90%;
+        word-wrap: break-word;
+        margin: 3px 0;
+        font-size: 14px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        font-family: inherit;
+    }
+
+    .message-bubble.monospace-font {
+        font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Source Code Pro', monospace;
+    }
+
+    .user-bubble {
+        background-color: #007bff;
+        color: #fff;
+    }
+
+    .agent-bubble {
+        background-color: var(--border-subtle, #e9ecef);
+        color: var(--text-primary, #333);
+    }
+
+    .user-message {
+        justify-content: flex-end;
+        margin-bottom: 8px;
+    }
+
+    .agent-message {
+        justify-content: flex-start;
+        margin-bottom: 8px;
+    }
+
+    .chat-container {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .file-link {
+        display: inline-block;
+        font-family: monospace;
+        background-color: rgba(0, 0, 0, 0.03);
+        padding: 1px 4px;
+        border-radius: 3px;
+        border: 1px solid var(--border-subtle, #ddd);
+        text-decoration: underline;
+    }
+    
+    .file-link:hover {
+        background-color: rgba(0, 0, 0, 0.08);
+        text-decoration: underline;
+    }
+
+    .typing-indicator {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 60px;
+    }
+
+    .typing-indicator .dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        margin: 0 2px;
+        background-color: #666;
+        border-radius: 50%;
+        animation: typingAnimation 1.4s infinite ease-in-out;
+    }
+
+    .typing-indicator .dot:nth-child(1) {
+        animation-delay: 0s;
+    }
+
+    .typing-indicator .dot:nth-child(2) {
+        animation-delay: 0.2s;
+    }
+
+    .typing-indicator .dot:nth-child(3) {
+        animation-delay: 0.4s;
+    }
+
+    @keyframes typingAnimation {
+        0%, 60%, 100% {
+            transform: translateY(0);
+            opacity: 0.4;
+        }
+        30% {
+            transform: translateY(-4px);
+            opacity: 1;
+        }
+    }
+
+    /* Document Context - Original Styles */
+    .document-upload-zone {
+        border: 2px dashed var(--border-subtle, #dee2e6);
+        border-radius: 8px;
+        padding: 30px;
+        text-align: center;
+        background: var(--bg-elevated, #f8f9fa);
+        transition: all 0.3s ease;
+        cursor: pointer;
+    }
+
+    .document-upload-zone:hover {
+        border-color: #007bff;
+        background: #e7f3ff;
+    }
+
+    .document-upload-zone.dragover {
+        border-color: #28a745;
+        background: #d4edda;
+        transform: scale(1.02);
+    }
+
+    .queue-items-container {
+        max-height: 200px;
+        overflow-y: auto;
+        border: 1px solid var(--border-subtle, #dee2e6);
+        border-radius: 4px;
+        padding: 10px;
+        background: var(--bg-elevated, #f8f9fa);
+    }
+
+    .queue-item {
+        display: flex;
+        align-items: center;
+        padding: 8px;
+        margin-bottom: 5px;
+        background: var(--bg-card, #fff);
+        border: 1px solid var(--border-subtle, #e9ecef);
+        border-radius: 4px;
+    }
+
+    .queue-item .file-icon {
+        font-size: 20px;
+        margin-right: 10px;
+        width: 25px;
+        text-align: center;
+    }
+
+    .queue-item .file-info {
+        flex-grow: 1;
+    }
+
+    .queue-item .file-name {
+        font-size: 14px;
+        font-weight: 500;
+    }
+
+    .queue-item .file-size {
+        font-size: 11px;
+        color: var(--text-muted, #6c757d);
+    }
+
+    .queue-item .remove-btn {
+        cursor: pointer;
+        color: #dc3545;
+        margin-left: 10px;
+    }
+
+    .results-container {
+        max-height: 200px;
+        overflow-y: auto;
+        border: 1px solid var(--border-subtle, #dee2e6);
+        border-radius: 4px;
+        padding: 10px;
+    }
+
+    .result-item {
+        padding: 5px 10px;
+        margin-bottom: 5px;
+        border-radius: 4px;
+        font-size: 14px;
+    }
+
+    .result-success {
+        background: #d4edda;
+        color: #34d399;
+        border: 1px solid #c3e6cb;
+    }
+
+    .result-error {
+        background: rgba(251, 113, 133, 0.15);
+        color: #fb7185;
+        border: 1px solid #f5c6cb;
+    }
+
+    .existing-doc-item {
+        padding: 10px;
+        margin-bottom: 8px;
+        border-radius: 4px;
+        background: var(--bg-elevated, #f8f9fa);
+        border: 1px solid var(--border-subtle, #dee2e6);
+        transition: all 0.2s;
+    }
+
+    .existing-doc-item:hover {
+        background: var(--border-subtle, #e9ecef);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .doc-info-existing {
+        display: flex;
+        align-items: center;
+        flex-grow: 1;
+    }
+
+    .doc-info-existing i {
+        font-size: 18px;
+    }
+
+    .doc-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .doc-actions .btn-outline-danger {
+        padding: 2px 8px;
+        font-size: 12px;
+    }
+
+    .doc-actions .btn-outline-danger:hover {
+        background-color: #dc3545;
+        color: white;
+    }
+
+    .btn-danger.btn-sm {
+        padding: 4px 10px;
+        font-size: 13px;
+    }
+
+    .btn-danger.btn-sm:hover {
+        background-color: #c82333;
+        border-color: #bd2130;
+    }
+
+    .agent-response-wrapper {
+        max-width: 80%;
+        background: transparent;
+    }
+
+    .agent-message .rich-content-container {
+        background: transparent;
+    }
+
+    .error-bubble {
+        background-color: rgba(251, 113, 133, 0.15) !important;
+        color: #991b1b !important;
+        border-left: 3px solid #ef4444;
+    }
+
+    .chat-box .rich-content-block {
+        max-width: 100%;
+        overflow-x: auto;
+    }
+
+    @media (max-width: 768px) {
+        .agent-response-wrapper {
+            max-width: 95%;
+        }
+        
+        .main-container {
+            height: calc(100vh - 10px);
+        }
+        
+        .content-table {
+            font-size: 12px;
+        }
+        
+        .metric-card {
+            padding: 15px;
+        }
+        
+        .metric-value {
+            font-size: 24px;
+        }
+    }
+</style>
+
+<!-- OPTIMIZED LAYOUT STRUCTURE -->
+<div class="container-fluid px-3 py-2">
+    <!-- Compact Header Bar -->
+    <div class="compact-header d-flex justify-content-between align-items-center">
+        <h4 class="mb-0"><i class="fas fa-robot mr-2"></i>Agent Chat</h4>
+        <button type="button" class="btn btn-sm btn-light" id="reset-conversation-btn">
+            <i class="fas fa-sync-alt mr-1"></i> Reset
+        </button>
+    </div>
+    
+    <div class="row main-container">
+        <!-- EXPANDED CHAT AREA (75% width) -->
+        <div class="col-lg-9 col-md-8">
+            <div class="card shadow-sm chat-wrapper">
+                <div id="chat-window" class="optimized-chat-box">
+                    <div id="chat-content" class="chat-container"></div>
+                </div>
+                <div class="optimized-input-area">
+                    <div class="input-group">
+                        <input type="text" id="user-input" name="user-input" 
+                               class="form-control" 
+                               placeholder="Type your message here..."
+                               autocomplete="off">
+                        <div class="input-group-append">
+                            <button type="button" class="btn btn-primary" onclick="sendMessage()">
+                                <i class="fas fa-paper-plane mr-1"></i> Send
+                            </button>
+                        </div>
+                        <!-- Mic for STT -->
+                        <div class="input-group-append">
+                            <button 
+                                class="btn mic-button" 
+                                id="mic-button" 
+                                type="button"
+                                title="Voice input"
+                            >
+                                <i class="fas fa-microphone"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- COMPACT SIDEBAR (25% width) -->
+        <div class="col-lg-3 col-md-4">
+            <div class="sidebar-compact">
+                <!-- Agent Selection (Always Visible) -->
+                <div class="card compact-card shadow-sm">
+                    <div class="card-header">
+                        <i class="fas fa-user-cog mr-1"></i> Agent Selection
+                    </div>
+                    <div class="card-body">
+                        <div class="compact-form-group">
+                            <label for="agent-dropdown" class="compact-label">Select Agent:</label>
+                            <select id="agent-dropdown" name="agent-dropdown" class="form-control form-control-sm">
+                                <option value="">Select an agent</option>
+                            </select>
+                            <input type="hidden" id="agent_id" name="agent_id" value="">
+                            <input type="hidden" id="user_id" name="user_id" value="{{ current_user.id }}">
+
+                            <div class="compact-form-group mb-0">
+                                <label for="objective" class="compact-label">Objective:</label>
+                                <textarea readonly id="objective" name="objective" 
+                                          class="form-control form-control-sm bg-light" 
+                                          rows="3" 
+                                          placeholder="Agent objective will appear here"></textarea>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Document Context (Collapsible, Hidden Initially) -->
+                <div id="documentUploadCard" style="display: none;">
+                    <div class="collapsible-header" onclick="toggleCollapse('documentUpload')">
+                        <span><i class="fas fa-file-upload mr-1"></i> Document Context</span>
+                        <i class="fas fa-chevron-down" id="documentUploadIcon"></i>
+                    </div>
+                    <div id="documentUploadContent" class="collapsible-content show">
+                        <div class="card compact-card">
+                            <div class="card-body">
+                                <!-- Original Document Upload Structure -->
+                                <div class="document-upload-zone" id="documentUploadZone">
+                                    <i class="fas fa-cloud-upload-alt fa-2x text-muted mb-2"></i>
+                                    <p class="mb-1">Drag & Drop Documents Here</p>
+                                    <small class="text-muted">or click to browse (multiple files supported)</small>
+                                    <input type="file" id="contextFileInput" multiple 
+                                        accept=".pdf,.docx,.doc,.xlsx,.xls,.txt,.csv,.jpg,.jpeg,.png" 
+                                        style="display: none;">
+                                    <div class="mt-2">
+                                        <button class="btn btn-sm btn-outline-primary" onclick="document.getElementById('contextFileInput').click()">
+                                            <i class="fas fa-folder-open"></i> Browse Files
+                                        </button>
+                                    </div>
+                                    <small class="form-text text-muted mt-2">
+                                        Supported: PDF, Word, Excel, Text, Images
+                                    </small>
+                                </div>
+
+                                <!-- Upload Queue -->
+                                <div class="upload-queue mt-3" id="uploadQueue" style="display: none;">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <h6 class="mb-0">Upload Queue (<span id="queueCount">0</span>)</h6>
+                                        <div>
+                                            <button class="btn btn-sm btn-success" onclick="processUploadQueue()">
+                                                <i class="fas fa-upload"></i> Upload All
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger" onclick="clearUploadQueue()">
+                                                <i class="fas fa-trash"></i> Clear
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div id="queueItems" class="queue-items-container"></div>
+                                </div>
+
+                                <!-- Upload Progress -->
+                                <div class="upload-progress mt-3" id="uploadProgress" style="display: none;">
+                                    <div class="alert alert-info">
+                                        <i class="fas fa-spinner fa-spin"></i> 
+                                        Uploading: <span id="currentUpload"></span>
+                                        <div class="progress mt-2">
+                                            <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                                id="uploadProgressBar" role="progressbar" style="width: 0%"></div>
+                                        </div>
+                                        <small class="text-muted">
+                                            Processed: <span id="processedCount">0</span> / <span id="totalCount">0</span>
+                                        </small>
+                                    </div>
+                                </div>
+
+                                <!-- Upload Results -->
+                                <div class="upload-results mt-3" id="uploadResults" style="display: none;">
+                                    <h6>Upload Results</h6>
+                                    <div id="resultsList" class="results-container"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<link rel="stylesheet" href="/static/css/richContent.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<!-- Speech Recognition CSS -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/speech_recognition.css') }}">
+<!-- Speech Recognition JS -->
+<script src="{{ url_for('static', filename='js/speech_recognition.js') }}"></script>
+
+<script>
+// ===== LAYOUT-ONLY FUNCTION (Added for collapsible sections) =====
+function toggleCollapse(section) {
+    const content = document.getElementById(section + 'Content');
+    const icon = document.getElementById(section + 'Icon');
+    
+    if (content.classList.contains('show')) {
+        content.classList.remove('show');
+        icon.className = 'fas fa-chevron-right';
+    } else {
+        content.classList.add('show');
+        icon.className = 'fas fa-chevron-down';
+    }
+}
+
+// ===== BELOW IS THE EXACT ORIGINAL JAVASCRIPT FROM assistants_rollback_to_original.html =====
+// ===== NO MODIFICATIONS WHATSOEVER TO PRESERVE FUNCTIONALITY =====
+
+    let agentData = [];
+    let chatHistory = [];
+
+    // Global variables for document upload
+    let uploadQueue = [];
+    let currentUserId = null;
+    let currentAgentId = null;
+    let existingDocuments = [];  // Store existing documents
+
+    document.addEventListener('DOMContentLoaded', function () {
+        userId = document.getElementById('user_id').value;
+        currentUserId = userId;
+
+        // Get the agent parameter from URL
+        const preselectedAgentId = getUrlParameter('agent');
+        console.log('Preselected agent ID from URL:', preselectedAgentId);
+
+        fetch('/get/user_agents/' + userId)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok ' + response.statusText);
+                }
+                return response.json();
+            })
+            .then(data => {
+                agentData = data['data'];
+                //populateForm(agentData);
+                populateForm(agentData, preselectedAgentId);
+            })
+            .catch(error => {
+                console.error('Error fetching agents:', error);
+            });
+
+        document.getElementById('agent-dropdown').addEventListener('change', function () {
+            const selectedAgentId = this.value;
+            const selectedAgent = agentData.find(agent => agent.agent_id == selectedAgentId);
+            if (selectedAgent) {
+                updateFormFields(selectedAgent);
+                initializeDocumentUpload(selectedAgentId);
+            } else {
+                $('#documentUploadCard').hide();
+            }
+        });
+
+        document.getElementById('user-input').addEventListener('keydown', function (event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                sendMessage();
+            }
+        });
+
+        document.getElementById('reset-conversation-btn').addEventListener('click', function() {
+            resetConversation();
+        });
+
+        // Initialize Speech Recognition
+        const speechRecognition = new SpeechRecognitionManager({
+            inputElementId: 'user-input',
+            buttonElementId: 'mic-button',
+            language: 'en-US',
+            forceWhisper: true,
+            whisperMaxDuration: 30000,
+            whisperEndpoint: '/api/transcribe',
+        });
+
+        // Hide button if microphone API not supported
+        if (!speechRecognition.isMicrophoneSupported()) {
+            $('#mic-button').hide();
+        }
+
+        if (speechRecognition.getStatus().mode === 'none') $('#mic-button').hide();
+
+        // Handle mic button clicks
+        $('#mic-button').on('click', function() {
+            speechRecognition.toggle();
+        });
+
+        // Disable button if not supported
+        if (!speechRecognition.isSupported) {
+            $('#mic-button').prop('disabled', true);
+            $('#mic-button').attr('title', 'Speech not supported in this browser');
+        }
+    });
+
+// Function to get URL parameters
+function getUrlParameter(name) {
+    name = name.replace(/[\[]/, '\\[').replace(/[\]]/, '\\]');
+    var regex = new RegExp('[\\?&]' + name + '=([^&#]*)');
+    var results = regex.exec(location.search);
+    return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));
+}
+
+    function populateForm(data, preselectedAgentId = null) {
+        const agentSelect = document.getElementById('agent-dropdown');
+        agentSelect.innerHTML = '<option value="">Select an agent</option>';
+        
+        let agentToSelect = null;
+        
+        data.forEach(agent => {
+            const option = document.createElement('option');
+            option.value = agent.agent_id;
+            option.textContent = agent.agent_description;
+            agentSelect.appendChild(option);
+            
+            // Check if this is the preselected agent
+            if (preselectedAgentId && agent.agent_id == preselectedAgentId) {
+                agentToSelect = agent;
+            }
+        });
+
+        // If we have a preselected agent, select it
+        if (agentToSelect) {
+            agentSelect.value = agentToSelect.agent_id;
+            updateFormFields(agentToSelect);
+            console.log('Preselected agent:', agentToSelect.agent_description);
+        } else if (data.length > 0) {
+            // Fallback: select first agent if no preselection
+            agentSelect.selectedIndex = 1; // Select first agent (after the placeholder)
+            updateFormFields(data[0]);
+        }
+
+        // Initialize document upload for the selected agent
+        if (agentToSelect) {
+            initializeDocumentUpload(agentToSelect.agent_id);
+        } else if (data.length > 0) {
+            initializeDocumentUpload(data[0].agent_id);
+        }
+    }
+
+    function updateFormFields(agent) {
+        document.getElementById('objective').value = agent.agent_objective;
+        document.getElementById('agent_id').value = agent.agent_id;
+        currentAgentId = agent.agent_id;
+    }
+
+    function getDataframeDisplayMode() {
+        // If UserPreferences is loaded, use the preference
+        if (typeof UserPreferences !== 'undefined') {
+            return UserPreferences.getPreference('dataframe_display_mode', 'expanded');
+        }
+        // Otherwise default to expanded
+        return 'expanded';
+    }
+
+    function sendMessage() {
+        const userMessage = document.getElementById('user-input').value;
+        if (userMessage.trim() === '') return;
+
+        const chatWindow = document.getElementById('chat-window');
+        const chatContent = document.getElementById('chat-content');
+        const userMessageElement = document.createElement('div');
+        userMessageElement.className = 'user-message mb-2 d-flex align-items-center justify-content-end';
+        userMessageElement.innerHTML = `<div class="message-bubble user-bubble">${userMessage}</div><i class="fas fa-user ml-2"></i>`;
+        chatContent.appendChild(userMessageElement);
+
+        chatHistory.push({ role: 'user', content: userMessage });
+
+        document.getElementById('user-input').value = '';
+
+        const typingIndicator = document.createElement('div');
+        typingIndicator.id = 'typing-indicator';
+        typingIndicator.className = 'agent-message mb-2 d-flex align-items-center justify-content-start';
+        typingIndicator.innerHTML = `<i class="fas fa-robot mr-2"></i><div class="message-bubble agent-bubble typing-indicator"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>`;
+        chatContent.appendChild(typingIndicator);
+
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+
+        fetch('/chat/general', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                agent_id: document.getElementById('agent_id').value,
+                prompt: userMessage,
+                hist: chatHistory,
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            const agentMessageElement = document.createElement('div');
+            agentMessageElement.className = 'agent-message mb-2 d-flex align-items-center justify-content-start';
+
+            // Check the type of response we received
+            let responseContent = data.response;
+            let isRichContent = false;
+            
+            // Determine if this is rich content or plain text
+            if (responseContent && typeof responseContent === 'object') {
+                // Check if it's a rich content structure
+                if (responseContent.type === 'rich_content' || responseContent.blocks) {
+                    isRichContent = true;
+                }
+            }
+            
+            // Also check for response_type flag if backend sends it
+            if (data.response_type === 'rich_content') {
+                isRichContent = true;
+            }
+
+            if (isRichContent) {
+                // Handle rich content using the richContentRenderer
+                try {
+                    // Make sure richContentRenderer exists
+                    if (window.richContentRenderer) {
+                        const richContent = window.richContentRenderer.render(responseContent);
+                        agentMessageElement.innerHTML = `
+                            <i class="fas fa-robot mr-2"></i>
+                            <div class="agent-response-wrapper">${richContent}</div>
+                        `;
+                    } else {
+                        // Fallback if richContentRenderer not loaded
+                        console.warn('Rich content renderer not loaded, falling back to text');
+                        const textContent = JSON.stringify(responseContent);
+                        agentMessageElement.innerHTML = `
+                            <i class="fas fa-robot mr-2"></i>
+                            <div class="message-bubble agent-bubble">
+                                <pre>${escapeHtml(textContent)}</pre>
+                            </div>
+                        `;
+                    }
+                } catch (renderError) {
+                    console.error('Error rendering rich content:', renderError);
+                    // Fallback to showing raw content
+                    const textContent = JSON.stringify(responseContent);
+                    agentMessageElement.innerHTML = `
+                        <i class="fas fa-robot mr-2"></i>
+                        <div class="message-bubble agent-bubble">
+                            <pre>${escapeHtml(textContent)}</pre>
+                        </div>
+                    `;
+                }
+            } else {
+                // Handle plain text response
+                let textResponse = '';
+                
+                // Extract text from various possible response formats
+                if (typeof responseContent === 'string') {
+                    textResponse = responseContent;
+                } else if (responseContent && typeof responseContent === 'object') {
+                    // Try to extract text from object
+                    textResponse = responseContent.content || responseContent.text || JSON.stringify(responseContent);
+                } else {
+                    textResponse = String(responseContent || 'No response received');
+                }
+
+                // Convert links and file paths in the response text
+                const formattedText = convertLinksAndPaths(textResponse);
+
+                // Check for table formatting
+                const formatted = smartFormatText(formattedText);
+                const fontClass = formatted.hasTable ? 'monospace-font' : '';
+                
+                // Use innerHTML to render HTML content properly
+                agentMessageElement.innerHTML = `
+                    <i class="fas fa-robot mr-2"></i>
+                    <div class="message-bubble agent-bubble ${fontClass}">${formatted.text}</div>
+                `;
+            }
+
+            chatContent.removeChild(typingIndicator);
+            chatContent.appendChild(agentMessageElement);
+
+            // Store in chat history
+            if (isRichContent) {
+                // Store the full rich content structure
+                chatHistory.push({ role: 'assistant', content: JSON.stringify(responseContent) });
+            } else {
+                // Store the text content
+                chatHistory.push({ role: 'assistant', content: data.response });
+            }
+
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            
+            // Remove typing indicator if it exists
+            const typingIndicator = document.getElementById('typing-indicator');
+            if (typingIndicator) {
+                typingIndicator.remove();
+            }
+            
+            // Show error message
+            const errorElement = document.createElement('div');
+            errorElement.className = 'agent-message mb-2 d-flex align-items-center justify-content-start';
+            errorElement.innerHTML = `
+                <i class="fas fa-robot mr-2"></i>
+                <div class="message-bubble agent-bubble error-bubble">
+                    <i class="fas fa-exclamation-triangle"></i> 
+                    Sorry, an error occurred: ${error.message || 'Unknown error'}
+                </div>
+            `;
+            chatContent.appendChild(errorElement);
+        });
+    }
+
+    function smartFormatText(text) {
+        // Check if the original smartFormatText function exists
+        if (typeof window.smartFormatText === 'function') {
+            return window.smartFormatText(text);
+        }
+        
+        // Fallback implementation
+        return {
+            text: text,
+            hasTable: false
+        };
+    }
+
+    // Add escapeHtml if it doesn't exist
+    if (typeof escapeHtml === 'undefined') {
+        function escapeHtml(unsafe) {
+            if (typeof unsafe !== 'string') {
+                unsafe = String(unsafe);
+            }
+            return unsafe
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+    }
+
+    // Function to convert text with URLs and file paths to clickable links
+    function convertLinksAndPaths(text) {
+        if (!text) return '';
+        
+        // First, handle markdown links [text](url) to prevent double processing
+        const markdownLinkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
+        
+        // Replace markdown links with a placeholder to protect them
+        let protectedLinks = [];
+        let result = text.replace(markdownLinkRegex, function(match, linkText, linkUrl) {
+            const placeholder = `__PROTECTED_LINK_${protectedLinks.length}__`;
+            protectedLinks.push({
+                text: linkText,
+                url: linkUrl
+            });
+            return placeholder;
+        });
+        
+        // Now escape HTML to prevent XSS
+        result = result.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        
+        // Process other URLs and paths
+        // Regular expression for URLs (http, https, ftp)
+        const urlRegex = /(https?:\/\/|ftp:\/\/)(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi;
+        
+        // Regular expression for Windows network paths (UNC paths)
+        const uncPathRegex = /(\\\\[a-zA-Z0-9_.-]+\\[a-zA-Z0-9_.\-\\]+(?:\\[a-zA-Z0-9_.\-\\]+)*)/gi;
+        
+        // Regular expression for /document/serve/ paths
+        const docServeRegex = /(\/document\/serve\/[^\s<>"]+)/gi;
+        
+        // Replace URLs with clickable links
+        result = result.replace(urlRegex, function(url) {
+            return `<a href="${url}" target="_blank" class="text-primary">${url}</a>`;
+        });
+        
+        // Replace document serve paths
+        result = result.replace(docServeRegex, function(path) {
+            // Extract the path after /document/serve/
+            const pathPart = path.substring('/document/serve/'.length);
+            
+            // Convert forward slashes to backslashes
+            let windowsPath = pathPart.replace(/\//g, '\\');
+            
+            // Ensure it starts with double backslash for UNC path
+            if (!windowsPath.startsWith('\\\\')) {
+                windowsPath = '\\\\' + windowsPath;
+            }
+            
+            // URL encode the path (this will convert \ to %5C)
+            const encodedPath = encodeURIComponent(windowsPath);
+            
+            // Construct the proper URL
+            const properUrl = `/document/serve?path=${encodedPath}`;
+            
+            return `<a href="${properUrl}" target="_blank" class="text-primary file-link">${path}</a>`;
+        });
+        
+        // Replace UNC paths (backslash style)
+        result = result.replace(uncPathRegex, function(path) {
+            return `<a href="#" class="text-primary file-link" data-path="${path}" onclick="handleFileClick(this); return false;">${path}</a>`;
+        });
+        
+        // Now restore the protected markdown links as proper HTML links
+        protectedLinks.forEach((link, index) => {
+            const placeholder = `__PROTECTED_LINK_${index}__`;
+            
+            // Check if this is a /document/serve/ link that needs encoding
+            if (link.url.startsWith('/document/serve/')) {
+                // Extract the path after /document/serve/
+                const pathPart = link.url.substring('/document/serve/'.length);
+                
+                // Convert forward slashes to backslashes
+                let windowsPath = pathPart.replace(/\//g, '\\');
+                
+                // Ensure it starts with double backslash for UNC path
+                if (!windowsPath.startsWith('\\\\')) {
+                    windowsPath = '\\\\' + windowsPath;
+                }
+                
+                // URL encode the path (this will convert \ to %5C)
+                const encodedPath = encodeURIComponent(windowsPath);
+                
+                // Construct the proper URL
+                const properUrl = `/document/serve?path=${encodedPath}`;
+                
+                const htmlLink = `<a href="${properUrl}" target="_blank" class="text-primary file-link">${link.text}</a>`;
+                result = result.replace(placeholder, htmlLink);
+            } else {
+                // For non-document links, just create a normal link
+                const htmlLink = `<a href="${link.url}" target="_blank" class="text-primary file-link">${link.text}</a>`;
+                result = result.replace(placeholder, htmlLink);
+            }
+        });
+        
+        return result;
+    }
+
+    function handleFileClick(el) {
+        const rawPath = el.dataset.path;
+        handleFilePath(rawPath);
+    }
+    
+    // Handle file path clicks - uses the document/serve endpoint
+    function handleFilePath(encodedPath) {
+        console.log('Variable input path:', encodedPath);
+
+        // Decode the URI component
+        let path = decodeURIComponent(encodedPath);
+        console.log('Decoded file path clicked:', path);
+
+        // Replace all forward slashes with double backslashes (\\)
+        path = path.replace(/\//g, '\\\\');
+
+        // Ensure it starts with four backslashes total (i.e., \\\\)
+        if (!path.startsWith('\\\\\\\\')) {
+            // Remove any existing leading slashes
+            path = path.replace(/^\\+/, '');
+            path = '\\\\\\\\' + path;
+        }
+
+        // Now, encode each backslash (each `\`) â€" but since we've doubled them, we encode each `\` separately
+        const formattedPath = path.replace(/\\/g, '%5C');
+
+        console.log('Formatted path:', formattedPath);
+
+        // Open the file using the formatted path
+        const serviceUrl = `/document/serve?path=${formattedPath}`;
+        window.open(serviceUrl, '_blank');
+    }
+
+    function resetConversation() {
+        // Clear the chat history array
+        chatHistory = [];
+        
+        // Clear the visual chat content
+        const chatContent = document.getElementById('chat-content');
+        chatContent.innerHTML = '';
+        
+        // Optional: Add a system message indicating conversation was reset
+        const resetMessage = document.createElement('div');
+        resetMessage.className = 'text-center text-muted my-3';
+        resetMessage.innerHTML = '<small><em>Conversation reset</em></small>';
+        chatContent.appendChild(resetMessage);
+        
+        // Scroll to top of chat window
+        const chatWindow = document.getElementById('chat-window');
+        chatWindow.scrollTop = 0;
+    }
+
+    // Smart formatting that uses monospace only for tables
+    function smartFormatText(text) {
+        // Split text into lines and process for special formatting
+        const lines = text.split('\n');
+        let processedLines = [];
+        
+        for (let line of lines) {
+            // Check if line contains a clickable path pattern like "ðŸ"„ /document/serve/..."
+            const docLinkPattern = /ðŸ"„\s*(\/document\/serve\/[^\s]+)/g;
+            let processedLine = line.replace(docLinkPattern, function(match, path) {
+                return `ðŸ"„ <a href="${path}" target="_blank" class="text-primary file-link">${path}</a>`;
+            });
+            
+            processedLines.push(processedLine);
+        }
+        
+        const processedText = processedLines.join('\n');
+        
+        // Count table indicators
+        const tableLines = processedLines.filter(line => line.includes('|')).length;
+        
+        // Return both the text and whether it contains a table
+        return {
+            text: processedText,
+            hasTable: tableLines >= 2
+        };
+    }
+
+
+
+    // Initialize document upload when agent is selected
+function initializeDocumentUpload(agentId) {
+    // Show the upload card
+    $('#documentUploadCard').show();
+    
+    // Get current user ID
+    //getCurrentUserId();  // Already handled in inital loading of DOM
+    
+    // Initialize drag and drop
+    setupDocumentUploadZone();
+    
+    // Clear any previous queue
+    uploadQueue = [];
+    updateUploadQueue();
+
+    loadExistingDocuments(agentId);
+}
+
+// Get current user ID
+function getCurrentUserId() {
+    fetch('/api/current_user')
+        .then(response => response.json())
+        .then(data => {
+            currentUserId = data.user_id;
+        })
+        .catch(error => {
+            console.log('Could not get user ID');
+            currentUserId = null;
+        });
+}
+
+// Setup drag and drop for upload zone
+function setupDocumentUploadZone() {
+    const uploadZone = document.getElementById('documentUploadZone');
+    const fileInput = document.getElementById('contextFileInput');
+    
+    if (!uploadZone || !fileInput) return;
+    
+    // Remove any existing listeners
+    uploadZone.replaceWith(uploadZone.cloneNode(true));
+    const newUploadZone = document.getElementById('documentUploadZone');
+    
+    // Click to browse
+    newUploadZone.addEventListener('click', function(e) {
+        if (e.target === newUploadZone || e.target.parentElement === newUploadZone) {
+            fileInput.click();
+        }
+    });
+    
+    // Drag events
+    newUploadZone.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.classList.add('dragover');
+    });
+    
+    newUploadZone.addEventListener('dragleave', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.classList.remove('dragover');
+    });
+    
+    newUploadZone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.classList.remove('dragover');
+        
+        const files = e.dataTransfer.files;
+        addFilesToQueue(files);
+    });
+    
+    // File input change
+    fileInput.addEventListener('change', function(e) {
+        addFilesToQueue(e.target.files);
+        // Clear the input so the same file can be selected again
+        this.value = '';
+    });
+}
+
+// Add files to upload queue
+function addFilesToQueue(files) {
+    //const agentId = $('#agent-select').val();
+    const agentId = currentAgentId;
+    
+    if (!agentId) {
+        showToast('Please select an agent first', 'warning');
+        return;
+    }
+    
+    let addedCount = 0;
+    
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        
+        if (isFileSupported(file)) {
+            // Check if file already in queue
+            if (!uploadQueue.some(item => item.file.name === file.name)) {
+                uploadQueue.push({
+                    id: 'file_' + Date.now() + '_' + i,
+                    file: file,
+                    status: 'pending'
+                });
+                addedCount++;
+            }
+        } else {
+            showToast(`Unsupported file type: ${file.name}`, 'warning');
+        }
+    }
+    
+    if (addedCount > 0) {
+        // Option A: auto-upload on drop/browse (remove the confusing second manual step)
+        showToast(`Uploading ${addedCount} file(s)...`, 'info');
+        updateUploadQueue();
+
+        // Kick off upload immediately if not already uploading
+        const uploadButton = document.querySelector('button[onclick="processUploadQueue()"]');
+        const alreadyUploading = uploadButton && uploadButton.disabled;
+        if (!alreadyUploading) {
+            // Fire and forget; UI updates/progress are handled inside processUploadQueue()
+            processUploadQueue();
+        }
+    }
+}
+
+// Check if file is supported
+function isFileSupported(file) {
+    const supportedExtensions = ['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.txt', '.csv', '.jpg', '.jpeg', '.png'];
+    const fileName = file.name.toLowerCase();
+    return supportedExtensions.some(ext => fileName.endsWith(ext));
+}
+
+// Update upload queue display
+function updateUploadQueue() {
+    const queueContainer = document.getElementById('uploadQueue');
+    const queueItems = document.getElementById('queueItems');
+    const queueCount = document.getElementById('queueCount');
+    
+    if (uploadQueue.length === 0) {
+        queueContainer.style.display = 'none';
+        return;
+    }
+    
+    queueContainer.style.display = 'block';
+    queueCount.textContent = uploadQueue.length;
+    
+    queueItems.innerHTML = '';
+    
+    uploadQueue.forEach((item, index) => {
+        const queueItem = document.createElement('div');
+        queueItem.className = 'queue-item';
+        queueItem.innerHTML = `
+            <div class="file-icon">${getFileIcon(item.file.name)}</div>
+            <div class="file-info">
+                <div class="file-name">${item.file.name}</div>
+                <div class="file-size">${formatFileSize(item.file.size)}</div>
+            </div>
+            <div class="remove-btn" onclick="removeFromQueue(${index})">
+                <i class="fas fa-times"></i>
+            </div>
+        `;
+        queueItems.appendChild(queueItem);
+    });
+}
+
+// Remove file from queue
+function removeFromQueue(index) {
+    uploadQueue.splice(index, 1);
+    updateUploadQueue();
+}
+
+// Clear upload queue
+function clearUploadQueue() {
+    uploadQueue = [];
+    updateUploadQueue();
+    document.getElementById('uploadResults').style.display = 'none';
+}
+
+// Process upload queue
+async function processUploadQueue() {
+    //const agentId = $('#agent-select').val();
+    const agentId = currentAgentId;
+    
+    if (!agentId) {
+        showToast('Please select an agent first', 'warning');
+        return;
+    }
+    
+    if (uploadQueue.length === 0) {
+        showToast('No files to upload', 'warning');
+        return;
+    }
+    
+    // Disable upload button to prevent multiple simultaneous uploads
+    const uploadButton = document.querySelector('button[onclick="processUploadQueue()"]');
+    if (uploadButton) {
+        uploadButton.disabled = true;
+        uploadButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+    }
+    
+    // Show progress
+    const progressDiv = document.getElementById('uploadProgress');
+    const progressBar = document.getElementById('uploadProgressBar');
+    const currentUpload = document.getElementById('currentUpload');
+    const processedCount = document.getElementById('processedCount');
+    const totalCount = document.getElementById('totalCount');
+    
+    progressDiv.style.display = 'block';
+    totalCount.textContent = uploadQueue.length;
+    
+    const results = [];
+    
+    // Process documents SEQUENTIALLY (one at a time)
+    for (let i = 0; i < uploadQueue.length; i++) {
+        const item = uploadQueue[i];
+        
+        // Update progress
+        currentUpload.textContent = item.file.name;
+        processedCount.textContent = i;
+        progressBar.style.width = ((i / uploadQueue.length) * 100) + '%';
+        
+        try {
+            // Upload file and WAIT for it to complete before proceeding
+            const result = await uploadSingleDocumentWithRetry(item.file, agentId);
+            results.push({
+                filename: item.file.name,
+                success: result.success,
+                message: result.message
+            });
+            
+            // Add a small delay between uploads to prevent server overload
+            if (i < uploadQueue.length - 1) {
+                await delay(1000); // 1 second delay between files
+            }
+            
+        } catch (error) {
+            console.error(`Error processing ${item.file.name}:`, error);
+            results.push({
+                filename: item.file.name,
+                success: false,
+                message: 'Upload failed: ' + error.message
+            });
+        }
+    }
+    
+    // Update final progress
+    processedCount.textContent = uploadQueue.length;
+    progressBar.style.width = '100%';
+    
+    // Re-enable upload button
+    if (uploadButton) {
+        uploadButton.disabled = false;
+        uploadButton.innerHTML = '<i class="fas fa-upload"></i> Upload All';
+    }
+    
+    // Hide progress and show results after a moment
+    setTimeout(() => {
+        progressDiv.style.display = 'none';
+        
+        // Clear queue
+        uploadQueue = [];
+        updateUploadQueue();
+        
+        // Show summary
+        const successCount = results.filter(r => r.success).length;
+        const failCount = results.filter(r => !r.success).length;
+        
+        if (successCount > 0 && failCount === 0) {
+            showToast(`Successfully uploaded ${successCount} document(s)`, 'success');
+        } else if (successCount > 0 && failCount > 0) {
+            showToast(`Uploaded ${successCount} document(s), ${failCount} failed`, 'warning');
+        } else {
+            showToast(`Failed to upload documents`, 'danger');
+        }
+        
+        // Show detailed results if there were failures
+        if (failCount > 0) {
+            showUploadResults(results);
+        }
+        
+        // Reload existing documents if any were successful
+        if (successCount > 0) {
+            setTimeout(() => {
+                loadExistingDocuments(agentId);
+            }, 500);
+        }
+        
+    }, 1000);
+}
+
+// Enhanced upload function with retry logic
+async function uploadSingleDocumentWithRetry(file, agentId, maxRetries = 2) {
+    let lastError = null;
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        if (attempt > 0) {
+            console.log(`Retry attempt ${attempt} for ${file.name}`);
+            await delay(2000 * attempt); // Exponential backoff
+        }
+        
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('agent_id', agentId);
+            formData.append('description', `${file.name}`);
+            
+            // Add user_id if available
+            if (currentUserId) {
+                formData.append('user_id', currentUserId);
+            }
+            
+            const response = await fetch('/add/agent_knowledge', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                return {
+                    success: true,
+                    message: 'Uploaded successfully'
+                };
+            } else {
+                lastError = result.message || 'Upload failed';
+                
+                // Don't retry if it's not a database conflict error
+                if (!result.message || !result.message.includes('duplicate key')) {
+                    return {
+                        success: false,
+                        message: lastError
+                    };
+                }
+            }
+        } catch (error) {
+            console.error(`Attempt ${attempt + 1} failed for ${file.name}:`, error);
+            lastError = error.message;
+        }
+    }
+    
+    // All retries failed
+    return {
+        success: false,
+        message: lastError || 'Upload failed after retries'
+    };
+}
+
+// Helper function to add delays
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Helper function to truncate text with ellipsis
+function truncateText(text, maxLength = 40) {
+    if (!text) return '';
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + '...';
+}
+
+// Function to show detailed upload results (especially for failures)
+function showUploadResults(results) {
+    const resultsDiv = document.getElementById('uploadResults');
+    const resultsList = document.getElementById('resultsList');
+    
+    // Temporarily show upload results at the top
+    const tempResultsHtml = `
+        <div class="alert alert-warning alert-dismissible fade show" role="alert">
+            <h6>Upload Results:</h6>
+            <ul class="mb-0">
+                ${results.filter(r => !r.success).map(r => 
+                    `<li>${r.filename}: ${r.message}</li>`
+                ).join('')}
+            </ul>
+            <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                <span aria-hidden="true">&times;</span>
+            </button>
+        </div>
+    `;
+    
+    // Insert at the beginning of the upload body
+    const uploadBody = document.getElementById('documentUploadBody');
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = tempResultsHtml;
+    uploadBody.insertBefore(tempDiv.firstChild, uploadBody.firstChild);
+}
+
+// Upload single document
+async function uploadSingleDocument(file, agentId) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('agent_id', agentId);
+    formData.append('description', `${file.name}`);
+    
+    // Add user_id if available
+    if (currentUserId) {
+        formData.append('user_id', currentUserId);
+    }
+    
+    try {
+        const response = await fetch('/add/agent_knowledge', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+            return {
+                success: true,
+                message: 'Uploaded successfully'
+            };
+        } else {
+            return {
+                success: false,
+                message: result.message || 'Upload failed'
+            };
+        }
+    } catch (error) {
+        console.error('Error uploading document:', error);
+        return {
+            success: false,
+            message: 'Network error'
+        };
+    }
+}
+
+// Toggle upload section visibility
+function toggleDocumentUpload() {
+    const body = document.getElementById('documentUploadBody');
+    const icon = document.getElementById('uploadToggleIcon');
+    
+    if (body.style.display === 'none') {
+        body.style.display = 'block';
+        icon.className = 'fas fa-chevron-down';
+    } else {
+        body.style.display = 'none';
+        icon.className = 'fas fa-chevron-up';
+    }
+}
+
+// Helper functions
+function getFileIcon(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    const iconMap = {
+        'pdf': '<i class="fas fa-file-pdf text-danger"></i>',
+        'doc': '<i class="fas fa-file-word text-primary"></i>',
+        'docx': '<i class="fas fa-file-word text-primary"></i>',
+        'xls': '<i class="fas fa-file-excel text-success"></i>',
+        'xlsx': '<i class="fas fa-file-excel text-success"></i>',
+        'txt': '<i class="fas fa-file-alt text-secondary"></i>',
+        'csv': '<i class="fas fa-file-csv text-info"></i>',
+        'jpg': '<i class="fas fa-file-image text-warning"></i>',
+        'jpeg': '<i class="fas fa-file-image text-warning"></i>',
+        'png': '<i class="fas fa-file-image text-warning"></i>'
+    };
+    return iconMap[ext] || '<i class="fas fa-file text-secondary"></i>';
+}
+
+function formatFileSize(bytes) {
+    if (!bytes || bytes === 0) return '0 B';
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
+}
+
+function showToast(message, type = 'info') {
+    // Simple toast notification
+    const toast = document.createElement('div');
+    toast.className = `alert alert-${type} position-fixed`;
+    toast.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 250px;';
+    toast.innerHTML = message;
+    
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.remove();
+    }, 3000);
+}
+
+
+// Load existing documents for the agent
+async function loadExistingDocuments(agentId) {
+    try {
+        const response = await fetch(`/get/agent_knowledge_user/${agentId}`);
+        const knowledgeItems = await response.json();
+        
+        existingDocuments = knowledgeItems;
+        displayExistingDocuments();
+        
+    } catch (error) {
+        console.error('Error loading existing documents:', error);
+        existingDocuments = [];
+    }
+}
+
+// Display existing documents
+function displayExistingDocuments() {
+    const resultsDiv = document.getElementById('uploadResults');
+    const resultsList = document.getElementById('resultsList');
+    
+    if (existingDocuments.length === 0) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    resultsDiv.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h6 class="mb-0">Existing Document Context (${existingDocuments.length})</h6>
+            <button class="btn btn-sm btn-danger" onclick="deleteAllDocuments()">
+                <i class="fas fa-trash-alt"></i> Delete All
+            </button>
+        </div>
+        <div id="resultsList" class="results-container"></div>
+    `;
+    
+    const newResultsList = document.getElementById('resultsList');
+    resultsDiv.style.display = 'block';
+    newResultsList.innerHTML = '';
+    
+    existingDocuments.forEach(doc => {
+        const docItem = document.createElement('div');
+        docItem.className = 'existing-doc-item';
+
+        // MODIFIED: Truncate filename and description
+        const truncatedFilename = truncateText(doc.filename, 40);
+        const truncatedDescription = truncateText(doc.description, 38);
+
+        docItem.innerHTML = `
+            <div class="d-flex align-items-center justify-content-between">
+                <div class="doc-info-existing">
+                    ${getFileIcon(doc.filename)}
+                    <!-- <span class="ml-2">${doc.filename}</span> -->
+                    ${doc.description ? `<small class="text-muted ml-2" title="${doc.description}">${truncatedDescription}</small>` : ''}
+                </div>
+                <div class="doc-actions">
+                    <small class="text-muted mr-2">${doc.page_count || 0} pages</small>
+                    <!-- <small class="text-muted mr-2">${formatDate(doc.added_date)}</small> -->
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteDocument(${doc.knowledge_id}, '${doc.filename}')">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+        newResultsList.appendChild(docItem);
+    });
+}
+
+// Delete a document
+async function deleteDocument(knowledgeId, filename) {
+    if (!confirm(`Are you sure you want to remove "${filename}" from the agent's context?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/delete/agent_knowledge/${knowledgeId}`, {
+            method: 'POST'
+        });
+        
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+            showToast(`Removed ${filename} from context`, 'success');
+            
+            // Remove from existing documents array
+            existingDocuments = existingDocuments.filter(doc => doc.knowledge_id !== knowledgeId);
+            
+            // Refresh display
+            displayExistingDocuments();
+            
+        } else {
+            showToast(`Failed to remove ${filename}`, 'danger');
+        }
+    } catch (error) {
+        console.error('Error deleting document:', error);
+        showToast('Error deleting document', 'danger');
+    }
+}
+
+// Delete all documents for the current agent
+async function deleteAllDocuments() {
+    const agentId = currentAgentId;
+    const docCount = existingDocuments.length;
+    
+    if (docCount === 0) {
+        showToast('No documents to delete', 'info');
+        return;
+    }
+    
+    if (!confirm(`Are you sure you want to remove ALL ${docCount} document(s) from this agent's context? This action cannot be undone.`)) {
+        return;
+    }
+    
+    // Show progress
+    showToast('Deleting all documents...', 'info');
+    
+    let successCount = 0;
+    let failCount = 0;
+    
+    // Delete each document
+    for (const doc of existingDocuments) {
+        try {
+            const response = await fetch(`/delete/agent_knowledge/${doc.knowledge_id}`, {
+                method: 'POST'
+            });
+            
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                successCount++;
+            } else {
+                failCount++;
+            }
+        } catch (error) {
+            console.error(`Error deleting document ${doc.filename}:`, error);
+            failCount++;
+        }
+    }
+    
+    // Show results
+    if (successCount > 0 && failCount === 0) {
+        showToast(`Successfully deleted all ${successCount} document(s)`, 'success');
+    } else if (successCount > 0 && failCount > 0) {
+        showToast(`Deleted ${successCount} document(s), ${failCount} failed`, 'warning');
+    } else {
+        showToast('Failed to delete documents', 'danger');
+    }
+    
+    // Reload the documents list
+    loadExistingDocuments(agentId);
+}
+
+// Helper function to format dates
+function formatDate(dateString) {
+    if (!dateString) return '';
+    try {
+        const date = new Date(dateString);
+        return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    } catch {
+        return dateString;
+    }
+}
+</script>
+
+<script src="/static/js/richContentRenderer.js"></script>
+
+{% endblock %}

@@ -1,0 +1,177 @@
+/* static/css/doc_processor.css */
+/* Specific styles for Document Processor functionality - Bootstrap 4 compatible */
+
+/* Add a namespace class to prevent conflicts with existing styles */
+.doc-processor .card {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    border-radius: 0.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.doc-processor .card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+    padding: 0.75rem 1.25rem;
+}
+
+/* Directory picker specific styles */
+.doc-processor .directory-picker {
+    height: 300px;
+    overflow-y: auto;
+    border: 1px solid #ced4da;
+    border-radius: 0.25rem;
+    padding: 10px;
+    background-color: #fff;
+}
+
+.doc-processor .directory-item {
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    margin-bottom: 0.25rem;
+    transition: all 0.2s ease;
+}
+
+.doc-processor .directory-item:hover {
+    background-color: #f0f7ff;
+}
+
+.doc-processor .directory-item.selected {
+    background-color: #e0f0ff;
+    font-weight: 500;
+}
+
+/* Breadcrumb styling */
+.doc-processor .breadcrumb-item a {
+    text-decoration: none;
+}
+
+/* Status indicators */
+.doc-processor .status-indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 5px;
+}
+
+.doc-processor .status-active {
+    background-color: #28a745;
+}
+
+.doc-processor .status-inactive {
+    background-color: #6c757d;
+}
+
+.doc-processor .status-error {
+    background-color: #dc3545;
+}
+
+/* Job status badges */
+.doc-processor .badge {
+    font-weight: 500;
+    padding: 0.35em 0.65em;
+}
+
+/* Table styling for document processor */
+.doc-processor .table th.sortable {
+    cursor: pointer;
+    position: relative;
+}
+
+.doc-processor .table th.sortable:after {
+    content: "\f0dc";
+    font-family: "Font Awesome 5 Free";
+    font-weight: 900;
+    position: absolute;
+    right: 8px;
+    color: #ccc;
+}
+
+.doc-processor .table th.sorted-asc:after {
+    content: "\f0de";
+    color: #007bff;
+}
+
+.doc-processor .table th.sorted-desc:after {
+    content: "\f0dd";
+    color: #007bff;
+}
+
+.doc-processor .table-hover tbody tr:hover {
+    background-color: rgba(0, 123, 255, 0.05);
+}
+
+/* Form section styling */
+.doc-processor .form-section {
+    margin-bottom: 2rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.doc-processor .form-section:last-child {
+    border-bottom: none;
+}
+
+/* Toast container for notifications */
+.doc-processor-toast-container {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 1050;
+}
+
+.doc-processor-toast-container .toast {
+    min-width: 250px;
+}
+
+/* Loading spinner */
+.doc-processor .loading-spinner {
+    position: relative;
+    min-height: 100px;
+}
+
+.doc-processor .loading-spinner:before {
+    content: '';
+    box-sizing: border-box;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 30px;
+    height: 30px;
+    margin-top: -15px;
+    margin-left: -15px;
+    border-radius: 50%;
+    border: 3px solid #ccc;
+    border-top-color: #007bff;
+    animation: doc-processor-spinner 0.6s linear infinite;
+}
+
+@keyframes doc-processor-spinner {
+    to {transform: rotate(360deg);}
+}
+
+/* Bootstrap 4 specific adjustments */
+.doc-processor .mr-2 {
+    margin-right: 0.5rem !important;
+}
+
+.doc-processor .ml-auto {
+    margin-left: auto !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .doc-processor .card-header h5 {
+        font-size: 1rem;
+    }
+    
+    .doc-processor .btn-group .btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+    }
+    
+    .doc-processor .directory-picker {
+        height: 200px;
+    }
+}

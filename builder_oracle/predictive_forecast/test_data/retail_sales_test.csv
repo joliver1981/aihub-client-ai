@@ -1,0 +1,201 @@
+DivId,DeptId,ItmClsId,Brand,Fabric,Season,Tier,Treatment,Color,Silhouette,WeekNum,StoreCnt,BasePrice,PromoDiscount,SlsUnitsCnt
+30,200,1003,BrandC,Cotton,Winter,Value,Washed,Blue,Relaxed,46,270,83.65,0.1,13.53
+20,200,1002,BrandC,Polyester,Spring,Value,Distressed,Green,Regular,35,449,55.3,0.0,12.08
+30,100,3001,BrandD,Cotton,Spring,Value,Distressed,White,Oversized,45,84,104.12,0.15,13.97
+10,400,1003,BrandB,Cotton,Fall,Value,Distressed,Grey,Slim,44,242,119.17,0.3,17.48
+10,300,2001,BrandC,Denim,Winter,Mid,Distressed,White,Relaxed,1,184,15.25,0.3,16.01
+10,300,2002,BrandD,Cotton,Fall,Value,Garment Dyed,Navy,Oversized,51,130,42.37,0.0,16.66
+20,300,2002,BrandC,Cotton,Winter,Mid,Garment Dyed,Green,Relaxed,45,425,18.92,0.0,12.6
+10,100,3001,BrandC,Polyester,Summer,Premium,Washed,Black,Slim,49,489,29.79,0.2,12.97
+20,200,1003,BrandA,Polyester,Winter,Value,Distressed,Blue,Relaxed,47,87,108.85,0.25,14.64
+30,400,2002,BrandD,Linen,Fall,Premium,Raw,Navy,Slim,26,260,108.99,0.0,9.52
+20,300,2002,BrandB,Denim,Fall,Mid,Distressed,Grey,Slim,49,426,58.13,0.0,14.27
+30,100,2002,BrandC,Denim,Fall,Mid,Washed,Grey,Slim,35,110,98.18,0.15,13.88
+30,100,3001,BrandB,Linen,Winter,Value,Raw,Blue,Slim,2,436,37.0,0.1,17.42
+10,200,1002,BrandB,Denim,Spring,Premium,Raw,Black,Relaxed,52,353,101.21,0.0,7.16
+30,300,1002,BrandA,Silk,Spring,Premium,Garment Dyed,White,Oversized,8,499,99.34,0.2,10.95
+20,300,1003,BrandD,Silk,Summer,Premium,Washed,Red,Relaxed,46,211,101.75,0.15,8.59
+10,400,3001,BrandC,Silk,Summer,Value,Raw,Black,Slim,25,496,104.36,0.0,13.89
+20,300,2001,BrandC,Cotton,Spring,Mid,Raw,Blue,Relaxed,51,82,25.58,0.25,14.23
+30,300,1001,BrandD,Silk,Fall,Mid,Washed,White,Slim,32,368,87.78,0.15,10.0
+10,100,3001,BrandD,Silk,Winter,Mid,Distressed,White,Slim,37,489,16.56,0.0,12.3
+30,100,1001,BrandD,Polyester,Fall,Mid,Distressed,Blue,Slim,26,115,87.02,0.25,13.37
+30,200,1002,BrandA,Cotton,Fall,Value,Washed,Red,Slim,50,341,108.76,0.1,12.34
+30,100,3001,BrandB,Silk,Summer,Mid,Washed,Red,Regular,29,311,29.12,0.3,15.3
+10,400,1003,BrandB,Polyester,Winter,Mid,Washed,White,Oversized,28,443,35.85,0.0,9.13
+20,200,2002,BrandB,Polyester,Winter,Mid,Distressed,Blue,Slim,46,327,49.76,0.0,8.79
+20,100,1002,BrandC,Linen,Spring,Value,Distressed,Black,Oversized,25,496,15.03,0.15,19.29
+30,200,1001,BrandA,Silk,Fall,Mid,Washed,Red,Regular,38,54,64.91,0.1,8.67
+10,100,2002,BrandB,Denim,Summer,Mid,Washed,Blue,Slim,51,315,54.26,0.0,13.72
+10,200,3001,BrandC,Denim,Winter,Value,Distressed,Grey,Slim,51,483,101.5,0.3,18.36
+20,400,3001,BrandC,Denim,Spring,Value,Raw,Black,Relaxed,49,346,113.46,0.2,19.15
+30,200,1003,BrandB,Denim,Spring,Value,Washed,Red,Oversized,18,331,66.07,0.25,19.43
+10,400,1001,BrandC,Denim,Spring,Premium,Distressed,Grey,Oversized,43,132,38.5,0.0,9.9
+10,400,1001,BrandA,Linen,Summer,Mid,Distressed,Red,Regular,17,355,50.18,0.2,14.56
+10,100,1003,BrandD,Denim,Fall,Premium,Raw,Green,Slim,10,278,95.96,0.0,7.18
+10,300,1001,BrandB,Polyester,Winter,Value,Garment Dyed,Green,Slim,12,450,53.53,0.0,10.9
+10,200,2002,BrandB,Linen,Summer,Mid,Distressed,Green,Relaxed,15,498,32.67,0.0,14.73
+20,300,1003,BrandC,Denim,Summer,Value,Garment Dyed,Green,Relaxed,29,305,25.18,0.3,22.32
+20,400,3001,BrandB,Denim,Spring,Mid,Raw,Blue,Slim,15,246,52.79,0.15,13.57
+10,300,1003,BrandD,Silk,Winter,Mid,Raw,Blue,Oversized,36,466,119.59,0.3,13.65
+20,300,1003,BrandB,Silk,Winter,Value,Garment Dyed,White,Relaxed,10,216,78.5,0.15,13.21
+10,300,2001,BrandB,Polyester,Summer,Value,Distressed,Green,Regular,29,378,83.17,0.0,10.34
+10,100,1001,BrandB,Linen,Winter,Premium,Distressed,White,Relaxed,6,163,98.67,0.15,8.91
+10,200,1002,BrandA,Silk,Fall,Premium,Raw,Red,Regular,36,141,24.8,0.15,10.58
+30,100,3001,BrandB,Polyester,Spring,Premium,Distressed,Blue,Slim,22,96,28.09,0.0,8.83
+20,200,1003,BrandC,Denim,Fall,Value,Raw,White,Regular,26,190,105.33,0.0,10.92
+30,100,1003,BrandB,Silk,Fall,Value,Garment Dyed,Grey,Slim,24,121,72.07,0.15,11.97
+20,100,1003,BrandA,Silk,Spring,Value,Distressed,Navy,Regular,6,118,99.32,0.15,8.87
+30,100,1002,BrandA,Cotton,Summer,Value,Garment Dyed,Red,Slim,27,296,16.3,0.0,18.94
+30,400,3001,BrandD,Polyester,Winter,Premium,Raw,White,Oversized,9,123,72.58,0.1,7.24
+10,100,2002,BrandB,Denim,Spring,Premium,Garment Dyed,Black,Oversized,52,129,62.6,0.15,12.54
+20,400,3001,BrandA,Silk,Spring,Mid,Distressed,Navy,Relaxed,1,270,60.89,0.2,12.74
+20,200,1002,BrandB,Denim,Fall,Value,Distressed,White,Regular,13,94,76.65,0.25,20.86
+10,200,2001,BrandB,Silk,Winter,Premium,Washed,Red,Relaxed,46,184,95.5,0.3,10.08
+20,400,1003,BrandA,Linen,Spring,Mid,Raw,Grey,Slim,26,63,62.72,0.1,12.18
+20,300,2002,BrandA,Polyester,Fall,Mid,Distressed,Black,Oversized,51,349,51.78,0.25,14.44
+30,400,1001,BrandC,Linen,Winter,Mid,Garment Dyed,Blue,Relaxed,6,172,97.25,0.3,13.81
+30,300,2002,BrandA,Cotton,Spring,Value,Raw,White,Slim,8,458,105.56,0.3,16.17
+30,300,2001,BrandC,Denim,Spring,Premium,Washed,Red,Slim,42,238,76.71,0.0,8.38
+20,200,3001,BrandA,Polyester,Fall,Value,Garment Dyed,Black,Relaxed,51,104,111.39,0.3,16.24
+30,400,1001,BrandD,Linen,Fall,Premium,Distressed,Black,Regular,14,236,115.1,0.15,7.86
+30,300,1003,BrandC,Denim,Summer,Value,Washed,Red,Regular,16,61,20.5,0.3,21.27
+20,200,1001,BrandB,Linen,Fall,Value,Washed,Navy,Slim,13,58,59.05,0.1,15.37
+10,300,2001,BrandA,Linen,Spring,Mid,Raw,Red,Oversized,52,110,29.18,0.3,13.52
+10,100,1001,BrandA,Denim,Winter,Value,Distressed,Grey,Regular,16,295,31.1,0.0,13.19
+20,100,1001,BrandA,Silk,Summer,Premium,Washed,Green,Relaxed,50,188,89.82,0.0,5.99
+30,400,2002,BrandA,Denim,Winter,Mid,Distressed,Green,Slim,6,75,66.2,0.3,10.5
+10,300,2001,BrandA,Linen,Winter,Premium,Distressed,Grey,Slim,35,482,57.69,0.15,8.28
+10,200,2001,BrandA,Silk,Summer,Premium,Garment Dyed,Red,Slim,38,335,105.23,0.3,12.21
+30,400,3001,BrandD,Silk,Fall,Mid,Distressed,Red,Slim,44,289,111.03,0.15,9.01
+30,200,1002,BrandD,Polyester,Fall,Value,Distressed,Green,Slim,52,368,116.37,0.0,12.07
+30,300,2002,BrandB,Silk,Spring,Premium,Distressed,Grey,Slim,28,385,61.62,0.2,8.57
+30,200,2002,BrandB,Denim,Spring,Mid,Garment Dyed,Green,Slim,20,205,43.35,0.0,10.34
+30,100,2001,BrandD,Cotton,Spring,Value,Distressed,Grey,Regular,41,154,68.87,0.25,15.72
+20,400,2002,BrandC,Linen,Fall,Value,Washed,Black,Slim,17,423,57.28,0.25,17.79
+20,100,1002,BrandC,Polyester,Winter,Premium,Garment Dyed,Navy,Relaxed,41,233,82.23,0.1,6.01
+10,100,1002,BrandB,Denim,Summer,Mid,Garment Dyed,Navy,Oversized,26,76,68.71,0.2,13.14
+10,100,1001,BrandD,Denim,Winter,Premium,Distressed,White,Regular,52,109,78.47,0.15,8.05
+30,200,1002,BrandB,Linen,Spring,Mid,Garment Dyed,Green,Regular,35,156,73.35,0.0,8.17
+20,300,1003,BrandC,Polyester,Fall,Premium,Garment Dyed,Green,Oversized,13,490,67.12,0.3,12.64
+20,400,2002,BrandC,Silk,Fall,Mid,Garment Dyed,Red,Regular,34,211,61.28,0.1,10.03
+30,200,1002,BrandA,Polyester,Fall,Value,Raw,White,Relaxed,52,292,73.19,0.0,13.13
+30,400,1002,BrandB,Silk,Fall,Mid,Distressed,Grey,Relaxed,16,80,30.09,0.1,10.54
+10,400,1003,BrandA,Silk,Spring,Premium,Distressed,White,Oversized,15,450,50.38,0.1,11.95
+30,100,1002,BrandA,Silk,Summer,Premium,Garment Dyed,Blue,Relaxed,28,123,15.62,0.0,7.12
+30,300,2001,BrandD,Silk,Winter,Value,Washed,Red,Slim,10,135,48.91,0.0,12.61
+10,300,3001,BrandB,Denim,Winter,Premium,Raw,Red,Oversized,34,299,102.46,0.0,9.06
+20,300,1001,BrandD,Linen,Winter,Premium,Garment Dyed,Black,Oversized,17,393,94.13,0.25,11.39
+30,100,1001,BrandD,Polyester,Winter,Value,Washed,White,Oversized,10,305,68.58,0.1,14.07
+10,300,3001,BrandD,Polyester,Spring,Value,Garment Dyed,Green,Slim,47,340,58.97,0.2,17.59
+10,400,2001,BrandC,Linen,Fall,Premium,Distressed,White,Regular,44,497,41.4,0.2,12.22
+30,200,1002,BrandC,Silk,Summer,Value,Washed,Navy,Oversized,39,96,26.92,0.2,17.59
+20,300,3001,BrandA,Cotton,Spring,Premium,Washed,Navy,Slim,17,96,41.75,0.25,12.56
+30,200,3001,BrandD,Linen,Winter,Mid,Washed,Black,Regular,40,319,50.59,0.0,9.52
+10,100,2002,BrandC,Linen,Summer,Value,Distressed,Green,Relaxed,32,235,109.06,0.0,14.69
+20,200,2001,BrandD,Polyester,Winter,Value,Raw,Black,Regular,29,270,95.18,0.3,14.62
+20,200,2001,BrandB,Linen,Spring,Mid,Garment Dyed,Green,Relaxed,16,120,103.8,0.2,10.66
+10,100,2001,BrandD,Linen,Fall,Value,Garment Dyed,White,Relaxed,29,73,119.24,0.3,15.22
+10,100,3001,BrandD,Cotton,Spring,Value,Garment Dyed,White,Regular,18,432,85.0,0.3,17.02
+30,100,2002,BrandD,Linen,Spring,Premium,Garment Dyed,Green,Regular,36,174,107.01,0.3,10.67
+20,200,3001,BrandA,Linen,Summer,Premium,Washed,Navy,Slim,17,314,111.63,0.2,11.17
+20,400,2002,BrandC,Silk,Summer,Premium,Raw,Grey,Relaxed,26,281,97.31,0.1,10.83
+10,100,1002,BrandC,Linen,Winter,Value,Raw,Green,Relaxed,11,299,26.81,0.0,11.06
+30,200,2002,BrandB,Cotton,Spring,Mid,Washed,Black,Slim,15,65,52.4,0.3,16.17
+30,400,2001,BrandB,Polyester,Fall,Value,Garment Dyed,Red,Relaxed,52,58,67.8,0.3,18.37
+20,100,2002,BrandC,Silk,Spring,Mid,Washed,Navy,Relaxed,4,133,53.17,0.3,14.76
+10,200,1002,BrandB,Polyester,Fall,Mid,Raw,Blue,Oversized,40,303,65.7,0.0,12.55
+10,400,2001,BrandA,Linen,Fall,Premium,Distressed,White,Slim,25,321,67.74,0.0,11.31
+20,100,3001,BrandD,Denim,Winter,Premium,Garment Dyed,Grey,Regular,6,112,36.64,0.0,11.41
+20,400,2002,BrandD,Cotton,Summer,Value,Garment Dyed,Red,Slim,35,479,112.57,0.3,18.24
+10,300,2002,BrandD,Polyester,Winter,Premium,Garment Dyed,Navy,Slim,23,329,95.0,0.2,8.74
+10,100,2001,BrandB,Polyester,Summer,Premium,Garment Dyed,Blue,Regular,23,301,35.16,0.0,10.04
+10,100,2002,BrandA,Linen,Spring,Value,Garment Dyed,Navy,Regular,43,392,27.23,0.15,17.15
+30,100,3001,BrandB,Linen,Winter,Premium,Washed,Red,Oversized,22,126,82.6,0.1,9.26
+20,300,2001,BrandD,Denim,Winter,Mid,Washed,Black,Relaxed,1,462,36.39,0.15,13.77
+30,400,2001,BrandA,Linen,Spring,Premium,Garment Dyed,Green,Oversized,32,470,19.33,0.1,11.35
+20,200,1001,BrandD,Cotton,Spring,Premium,Distressed,Green,Relaxed,33,151,112.39,0.0,9.4
+10,300,1001,BrandA,Linen,Summer,Value,Raw,White,Regular,33,399,19.08,0.25,22.01
+30,400,2001,BrandC,Polyester,Fall,Premium,Raw,Red,Oversized,38,111,119.68,0.15,9.17
+30,200,2001,BrandB,Polyester,Summer,Value,Washed,Green,Oversized,42,286,56.14,0.2,18.46
+20,100,3001,BrandD,Linen,Summer,Mid,Raw,Red,Slim,3,359,56.71,0.2,16.44
+20,200,1002,BrandD,Denim,Summer,Mid,Raw,Grey,Relaxed,17,294,105.21,0.2,13.29
+30,300,2002,BrandD,Silk,Winter,Value,Raw,Blue,Regular,13,157,18.2,0.0,13.31
+30,200,1001,BrandC,Linen,Spring,Value,Raw,White,Oversized,24,339,97.34,0.25,17.86
+10,200,1003,BrandA,Polyester,Spring,Premium,Washed,Green,Regular,5,493,38.72,0.15,13.34
+20,100,3001,BrandB,Linen,Spring,Premium,Distressed,Grey,Regular,4,211,75.52,0.1,8.3
+10,100,1001,BrandB,Linen,Spring,Premium,Garment Dyed,Grey,Regular,29,317,71.7,0.0,6.59
+10,300,3001,BrandD,Denim,Fall,Value,Garment Dyed,Grey,Regular,30,418,107.43,0.3,19.54
+20,400,1003,BrandB,Silk,Spring,Premium,Garment Dyed,Green,Oversized,23,479,43.2,0.2,10.94
+10,300,1002,BrandC,Polyester,Winter,Premium,Distressed,Blue,Oversized,10,299,77.57,0.0,9.78
+30,400,3001,BrandA,Linen,Spring,Mid,Raw,Grey,Slim,42,285,81.6,0.1,11.4
+10,400,2002,BrandD,Denim,Spring,Mid,Distressed,Green,Slim,49,173,57.19,0.0,9.47
+30,100,1002,BrandA,Denim,Fall,Premium,Washed,Green,Oversized,7,438,18.18,0.2,14.15
+30,100,2002,BrandD,Denim,Spring,Mid,Distressed,White,Oversized,8,446,15.61,0.0,13.08
+20,100,1002,BrandA,Denim,Spring,Premium,Washed,Green,Slim,25,96,64.33,0.25,11.66
+20,400,1001,BrandB,Denim,Winter,Mid,Garment Dyed,White,Regular,33,123,114.29,0.25,8.62
+20,200,1003,BrandB,Denim,Fall,Mid,Washed,Blue,Slim,33,446,15.4,0.0,14.76
+30,400,3001,BrandD,Denim,Fall,Mid,Garment Dyed,Navy,Slim,44,239,70.93,0.1,10.49
+20,300,1003,BrandC,Silk,Fall,Mid,Garment Dyed,Red,Relaxed,41,458,64.97,0.0,10.2
+30,400,1003,BrandB,Denim,Winter,Mid,Garment Dyed,White,Oversized,27,326,58.52,0.0,13.01
+20,400,2002,BrandB,Polyester,Fall,Premium,Raw,Green,Slim,14,396,19.45,0.1,13.51
+30,300,2001,BrandA,Denim,Summer,Mid,Distressed,White,Slim,40,421,62.64,0.25,14.66
+10,400,1003,BrandC,Linen,Spring,Mid,Raw,Blue,Regular,8,118,94.63,0.3,11.96
+30,200,2002,BrandD,Cotton,Winter,Premium,Distressed,Red,Regular,16,398,68.9,0.15,10.49
+20,100,2001,BrandA,Silk,Winter,Mid,Distressed,Red,Regular,45,446,72.63,0.0,8.92
+10,100,3001,BrandA,Linen,Spring,Mid,Raw,White,Oversized,12,466,42.84,0.25,14.37
+10,200,1002,BrandB,Silk,Summer,Premium,Distressed,White,Oversized,37,343,89.84,0.0,5.67
+10,200,2001,BrandD,Linen,Fall,Value,Washed,White,Slim,27,357,37.01,0.2,18.42
+30,300,3001,BrandA,Denim,Fall,Mid,Raw,Navy,Oversized,15,160,54.6,0.0,11.66
+30,300,2002,BrandD,Cotton,Spring,Premium,Washed,Red,Slim,6,435,88.0,0.0,9.74
+10,100,1003,BrandB,Denim,Fall,Premium,Washed,Green,Regular,16,100,26.8,0.0,13.15
+30,300,1001,BrandB,Silk,Spring,Mid,Washed,Red,Relaxed,44,199,104.71,0.0,6.65
+10,200,2002,BrandD,Silk,Winter,Value,Raw,Grey,Regular,14,102,98.09,0.3,13.41
+30,400,1002,BrandC,Linen,Winter,Value,Raw,Red,Relaxed,51,159,111.88,0.15,14.0
+10,300,1002,BrandC,Silk,Fall,Value,Washed,Blue,Regular,7,262,114.66,0.15,10.05
+30,300,1001,BrandC,Cotton,Summer,Value,Raw,Black,Oversized,24,200,17.37,0.0,17.04
+30,100,1002,BrandA,Cotton,Spring,Premium,Distressed,Navy,Oversized,25,359,85.45,0.0,8.2
+10,200,2002,BrandD,Linen,Spring,Value,Raw,Navy,Regular,6,350,15.86,0.3,22.89
+10,100,3001,BrandA,Linen,Winter,Value,Washed,Red,Oversized,20,467,43.7,0.1,17.78
+30,300,1001,BrandA,Denim,Summer,Premium,Garment Dyed,Green,Regular,37,389,39.13,0.2,15.05
+20,200,3001,BrandD,Silk,Spring,Value,Garment Dyed,Black,Oversized,26,291,48.94,0.1,11.74
+10,400,3001,BrandB,Denim,Winter,Premium,Garment Dyed,Blue,Slim,31,70,47.01,0.0,10.37
+10,400,1001,BrandD,Silk,Summer,Premium,Washed,Navy,Relaxed,45,53,44.65,0.15,8.01
+30,400,3001,BrandA,Cotton,Fall,Mid,Distressed,Green,Oversized,7,100,23.17,0.0,13.05
+10,400,1003,BrandB,Cotton,Summer,Value,Garment Dyed,Green,Oversized,36,325,19.56,0.15,17.02
+10,200,2001,BrandC,Linen,Spring,Value,Raw,Blue,Relaxed,39,167,37.55,0.15,15.81
+20,200,3001,BrandB,Cotton,Summer,Value,Washed,Red,Relaxed,43,126,29.9,0.0,16.3
+30,100,1001,BrandA,Denim,Winter,Mid,Washed,Blue,Slim,52,318,79.09,0.25,13.68
+20,400,2002,BrandD,Silk,Winter,Mid,Washed,Black,Slim,34,107,113.01,0.15,9.11
+10,300,1003,BrandD,Cotton,Fall,Value,Washed,Navy,Relaxed,9,353,77.28,0.0,13.43
+20,200,2001,BrandC,Linen,Fall,Value,Raw,Blue,Regular,12,345,25.29,0.0,13.86
+30,300,1002,BrandB,Polyester,Spring,Premium,Washed,Blue,Oversized,30,155,88.19,0.15,6.6
+20,200,1003,BrandD,Polyester,Spring,Mid,Raw,Red,Oversized,1,236,47.69,0.0,10.99
+30,300,1002,BrandA,Silk,Winter,Mid,Raw,Blue,Regular,47,258,41.49,0.0,7.46
+20,300,1001,BrandC,Linen,Spring,Mid,Raw,Navy,Oversized,24,76,57.69,0.2,11.11
+10,200,1002,BrandD,Polyester,Spring,Mid,Washed,Grey,Regular,30,427,21.76,0.0,11.14
+10,400,2002,BrandB,Polyester,Fall,Premium,Washed,Green,Relaxed,50,437,66.82,0.0,7.04
+30,200,1001,BrandA,Linen,Winter,Value,Distressed,White,Slim,34,386,89.17,0.2,15.73
+30,400,2002,BrandB,Denim,Winter,Premium,Washed,Green,Relaxed,32,212,99.31,0.3,12.42
+20,100,1003,BrandD,Linen,Winter,Value,Garment Dyed,Green,Regular,15,115,84.8,0.25,16.37
+20,100,1002,BrandC,Polyester,Fall,Premium,Garment Dyed,Blue,Regular,44,456,54.52,0.15,10.93
+30,400,1003,BrandA,Linen,Fall,Premium,Washed,Green,Relaxed,33,441,115.21,0.3,12.71
+20,300,1002,BrandA,Silk,Fall,Mid,Distressed,Blue,Regular,21,122,41.78,0.0,6.55
+30,100,3001,BrandA,Polyester,Spring,Value,Washed,Red,Regular,29,388,69.08,0.0,11.72
+10,400,1002,BrandC,Silk,Summer,Value,Distressed,Red,Regular,31,328,90.77,0.1,13.37
+10,200,2001,BrandD,Linen,Fall,Mid,Raw,Blue,Oversized,14,224,55.23,0.0,9.93
+30,100,1002,BrandB,Linen,Summer,Value,Distressed,Red,Oversized,51,284,57.09,0.25,18.28
+10,300,2002,BrandD,Silk,Winter,Value,Distressed,Green,Regular,22,95,113.87,0.2,12.68
+20,200,1001,BrandA,Polyester,Spring,Mid,Washed,Navy,Slim,51,85,22.73,0.0,7.22
+30,400,3001,BrandA,Linen,Summer,Mid,Garment Dyed,Green,Oversized,46,246,116.45,0.3,17.68
+30,300,2001,BrandD,Linen,Summer,Value,Raw,Grey,Relaxed,37,378,47.74,0.2,21.04
+30,400,3001,BrandD,Silk,Winter,Value,Washed,Green,Oversized,42,369,98.21,0.25,15.03
+10,200,2001,BrandB,Denim,Summer,Value,Garment Dyed,Navy,Oversized,19,367,119.13,0.3,19.55
+10,100,2002,BrandA,Denim,Fall,Premium,Garment Dyed,Grey,Slim,15,371,52.32,0.3,17.23
+30,300,1002,BrandA,Denim,Summer,Premium,Washed,White,Oversized,19,376,63.81,0.3,16.97
+20,300,2001,BrandA,Silk,Fall,Premium,Washed,Red,Slim,20,158,20.49,0.0,7.33
+30,400,1001,BrandA,Cotton,Spring,Premium,Garment Dyed,Blue,Oversized,45,314,68.97,0.2,12.23
+10,400,1001,BrandA,Denim,Winter,Premium,Raw,Black,Regular,24,181,63.97,0.0,10.61
+30,300,1002,BrandA,Silk,Summer,Value,Washed,Red,Oversized,14,259,41.44,0.0,13.99
+20,100,2001,BrandA,Denim,Summer,Mid,Garment Dyed,Grey,Oversized,29,379,105.6,0.2,15.18
+30,200,1002,BrandD,Cotton,Winter,Premium,Garment Dyed,Blue,Oversized,15,152,90.47,0.15,7.16

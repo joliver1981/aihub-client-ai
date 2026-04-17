@@ -1,0 +1,369 @@
+<!-- Developer Quick Start Modal -->
+<div class="modal fade" id="welcomeModal" tabindex="-1" role="dialog" data-backdrop="static" data-keyboard="false" aria-labelledby="welcomeModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+        <div class="modal-content welcome-modal-content">
+            <div class="modal-header border-0 pb-0">
+                <button type="button" class="close text-muted" id="btnCloseWelcome" aria-label="Close" style="opacity: 0.5;">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            
+            <div class="modal-body px-4 pt-2 pb-4">
+                <!-- Step 1: Developer Welcome -->
+                <div class="welcome-step" data-step="1">
+                    <div class="text-center mb-4">
+                        <div class="welcome-icon-container mb-3">
+                            <div class="welcome-icon-bg developer-icon">
+                                <i class="fas fa-code fa-3x text-primary"></i>
+                            </div>
+                        </div>
+                        <h2 class="welcome-title">Welcome to AI Hub!</h2>
+                        <p class="welcome-subtitle text-muted mb-0">
+                            Build, package, and deploy AI agents that connect to real business systems.
+                        </p>
+                    </div>
+                    
+                    <div class="platform-highlights mb-4">
+                        <div class="row">
+                            <div class="col-md-3 col-6 text-center mb-3">
+                                <div class="highlight-stat">
+                                    <i class="fas fa-wrench text-primary"></i>
+                                    <span>Custom Tools</span>
+                                </div>
+                            </div>
+                            <div class="col-md-3 col-6 text-center mb-3">
+                                <div class="highlight-stat">
+                                    <i class="fas fa-box text-success"></i>
+                                    <span>Portable Agents</span>
+                                </div>
+                            </div>
+                            <div class="col-md-3 col-6 text-center mb-3">
+                                <div class="highlight-stat">
+                                    <i class="fas fa-database text-info"></i>
+                                    <span>Data Connections</span>
+                                </div>
+                            </div>
+                            <div class="col-md-3 col-6 text-center mb-3">
+                                <div class="highlight-stat">
+                                    <i class="fas fa-project-diagram text-warning"></i>
+                                    <span>Workflows</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Step 2: Choose Build Path -->
+                <div class="welcome-step d-none" data-step="2">
+                    <div class="text-center mb-4">
+                        <h3>What do you want to build?</h3>
+                        <p class="text-muted">Choose a starting point—you can always explore other features later.</p>
+                    </div>
+                    
+                    <div class="build-paths">
+                        <div class="row">
+                            <!-- Custom Agent Path -->
+                            <div class="col-md-6 mb-3">
+                                <div class="build-path-card" data-path="custom-agent">
+                                    <div class="build-path-icon bg-primary">
+                                        <i class="fas fa-robot"></i>
+                                    </div>
+                                    <div class="build-path-content">
+                                        <h5>Custom Agent + Tools</h5>
+                                        <p class="text-muted small mb-2">Build an agent with custom Python tools that call APIs, run logic, or integrate with systems.</p>
+                                        <span class="badge badge-light"><i class="fas fa-clock mr-1"></i>10 min</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Data Agent Path -->
+                            <div class="col-md-6 mb-3">
+                                <div class="build-path-card" data-path="data-agent">
+                                    <div class="build-path-icon bg-success">
+                                        <i class="fas fa-database"></i>
+                                    </div>
+                                    <div class="build-path-content">
+                                        <h5>Data Assistant</h5>
+                                        <p class="text-muted small mb-2">Connect to a database and query it with natural language. See how NLQ generates SQL.</p>
+                                        <span class="badge badge-light"><i class="fas fa-clock mr-1"></i>5 min</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Workflow Path -->
+                            <div class="col-md-6 mb-3">
+                                <div class="build-path-card" data-path="workflow">
+                                    <div class="build-path-icon bg-warning">
+                                        <i class="fas fa-project-diagram"></i>
+                                    </div>
+                                    <div class="build-path-content">
+                                        <h5>Workflow Automation</h5>
+                                        <p class="text-muted small mb-2">Chain agents and tools into automated pipelines. Visual builder, no code required.</p>
+                                        <span class="badge badge-light"><i class="fas fa-clock mr-1"></i>10 min</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Import Path -->
+                            <div class="col-md-6 mb-3">
+                                <div class="build-path-card" data-path="import">
+                                    <div class="build-path-icon bg-info">
+                                        <i class="fas fa-file-import"></i>
+                                    </div>
+                                    <div class="build-path-content">
+                                        <h5>Import Agent Package</h5>
+                                        <p class="text-muted small mb-2">Already have an agent package? Import it with all tools and dependencies included.</p>
+                                        <span class="badge badge-light"><i class="fas fa-clock mr-1"></i>2 min</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Explore Option -->
+                        <div class="text-center mt-2">
+                            <button class="btn btn-link text-muted" id="btnJustExplore">
+                                <i class="fas fa-compass mr-1"></i> Just show me around first
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Step 3: Path-Specific Quick Start -->
+                <div class="welcome-step d-none" data-step="3">
+                    <!-- Custom Agent Quick Start -->
+                    <div class="path-quickstart" data-path="custom-agent">
+                        <div class="text-center mb-4">
+                            <div class="path-icon-sm bg-primary text-white rounded-circle mx-auto mb-3">
+                                <i class="fas fa-robot"></i>
+                            </div>
+                            <h4>Build Your First Custom Agent</h4>
+                            <p class="text-muted">Here's what you'll do:</p>
+                        </div>
+                        <div class="quickstart-steps">
+                            <div class="quickstart-step">
+                                <div class="step-number">1</div>
+                                <div class="step-content">
+                                    <strong>Create an Agent</strong>
+                                    <span class="text-muted">Define what it does and how it behaves</span>
+                                </div>
+                            </div>
+                            <div class="quickstart-step">
+                                <div class="step-number">2</div>
+                                <div class="step-content">
+                                    <strong>Attach Tools</strong>
+                                    <span class="text-muted">Give it capabilities—built-in or custom Python</span>
+                                </div>
+                            </div>
+                            <div class="quickstart-step">
+                                <div class="step-number">3</div>
+                                <div class="step-content">
+                                    <strong>Test & Export</strong>
+                                    <span class="text-muted">Chat with it, then package it for deployment</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="quickstart-sample mt-4 p-3 bg-light rounded">
+                            <div class="d-flex align-items-center">
+                                <i class="fas fa-lightbulb text-warning mr-3 fa-lg"></i>
+                                <div>
+                                    <strong>Sample included:</strong> 
+                                    <span class="text-muted">Check out the sample tools in Custom Tools to see how they're built.</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Data Agent Quick Start -->
+                    <div class="path-quickstart d-none" data-path="data-agent">
+                        <div class="text-center mb-4">
+                            <div class="path-icon-sm bg-success text-white rounded-circle mx-auto mb-3">
+                                <i class="fas fa-database"></i>
+                            </div>
+                            <h4>Query Data with Natural Language</h4>
+                            <p class="text-muted">Here's what you'll do:</p>
+                        </div>
+                        <div class="quickstart-steps">
+                            <div class="quickstart-step">
+                                <div class="step-number">1</div>
+                                <div class="step-content">
+                                    <strong>Connect a Database</strong>
+                                    <span class="text-muted">Or use our sample database to try it out</span>
+                                </div>
+                            </div>
+                            <div class="quickstart-step">
+                                <div class="step-number">2</div>
+                                <div class="step-content">
+                                    <strong>Ask Questions</strong>
+                                    <span class="text-muted">"What were total sales last month?"</span>
+                                </div>
+                            </div>
+                            <div class="quickstart-step">
+                                <div class="step-number">3</div>
+                                <div class="step-content">
+                                    <strong>See SQL Generated</strong>
+                                    <span class="text-muted">Understand how NLQ translates to queries</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="quickstart-sample mt-4 p-3 bg-light rounded">
+                            <div class="d-flex align-items-center">
+                                <i class="fas fa-database text-success mr-3 fa-lg"></i>
+                                <div>
+                                    <strong>Try it out:</strong> 
+                                    <span class="text-muted">Connect to any database you have access to and start asking questions.</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Workflow Quick Start -->
+                    <div class="path-quickstart d-none" data-path="workflow">
+                        <div class="text-center mb-4">
+                            <div class="path-icon-sm bg-warning text-white rounded-circle mx-auto mb-3">
+                                <i class="fas fa-project-diagram"></i>
+                            </div>
+                            <h4>Automate with Workflows</h4>
+                            <p class="text-muted">Here's what you'll do:</p>
+                        </div>
+                        <div class="quickstart-steps">
+                            <div class="quickstart-step">
+                                <div class="step-number">1</div>
+                                <div class="step-content">
+                                    <strong>Open Workflow Builder</strong>
+                                    <span class="text-muted">Visual canvas for designing automations</span>
+                                </div>
+                            </div>
+                            <div class="quickstart-step">
+                                <div class="step-number">2</div>
+                                <div class="step-content">
+                                    <strong>Add Nodes</strong>
+                                    <span class="text-muted">Triggers, agents, tools, conditions</span>
+                                </div>
+                            </div>
+                            <div class="quickstart-step">
+                                <div class="step-number">3</div>
+                                <div class="step-content">
+                                    <strong>Connect & Run</strong>
+                                    <span class="text-muted">Wire them together and execute</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="quickstart-sample mt-4 p-3 bg-light rounded">
+                            <div class="d-flex align-items-center">
+                                <i class="fas fa-play-circle text-warning mr-3 fa-lg"></i>
+                                <div>
+                                    <strong>Visual builder:</strong> 
+                                    <span class="text-muted">Drag and drop nodes to create powerful automation pipelines.</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Import Quick Start -->
+                    <div class="path-quickstart d-none" data-path="import">
+                        <div class="text-center mb-4">
+                            <div class="path-icon-sm bg-info text-white rounded-circle mx-auto mb-3">
+                                <i class="fas fa-file-import"></i>
+                            </div>
+                            <h4>Import an Agent Package</h4>
+                            <p class="text-muted">Agent packages include everything:</p>
+                        </div>
+                        <div class="import-includes">
+                            <div class="row text-center">
+                                <div class="col-4">
+                                    <div class="import-item">
+                                        <i class="fas fa-robot text-primary mb-2 fa-2x"></i>
+                                        <small class="d-block">Agent Config</small>
+                                    </div>
+                                </div>
+                                <div class="col-4">
+                                    <div class="import-item">
+                                        <i class="fas fa-wrench text-success mb-2 fa-2x"></i>
+                                        <small class="d-block">Custom Tools</small>
+                                    </div>
+                                </div>
+                                <div class="col-4">
+                                    <div class="import-item">
+                                        <i class="fas fa-box text-warning mb-2 fa-2x"></i>
+                                        <small class="d-block">Environment</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="quickstart-sample mt-4 p-3 bg-light rounded">
+                            <div class="d-flex align-items-center">
+                                <i class="fas fa-info-circle text-info mr-3 fa-lg"></i>
+                                <div>
+                                    <strong>Portable format:</strong> 
+                                    <span class="text-muted">Agents export as JSON with all dependencies. Share with clients or deploy to other instances.</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Explore Quick Start -->
+                    <div class="path-quickstart d-none" data-path="explore">
+                        <div class="text-center mb-4">
+                            <div class="path-icon-sm bg-secondary text-white rounded-circle mx-auto mb-3">
+                                <i class="fas fa-compass"></i>
+                            </div>
+                            <h4>Explore AI Hub</h4>
+                            <p class="text-muted">Take a quick tour of the platform:</p>
+                        </div>
+                        <div class="explore-features">
+                            <div class="explore-item">
+                                <i class="fas fa-check text-success mr-2"></i>
+                                <span>Dashboard overview and navigation</span>
+                            </div>
+                            <div class="explore-item">
+                                <i class="fas fa-check text-success mr-2"></i>
+                                <span>Agent Builder walkthrough</span>
+                            </div>
+                            <div class="explore-item">
+                                <i class="fas fa-check text-success mr-2"></i>
+                                <span>Tool and environment management</span>
+                            </div>
+                            <div class="explore-item">
+                                <i class="fas fa-check text-success mr-2"></i>
+                                <span>Export and import capabilities</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="modal-footer border-0 pt-0 justify-content-between">
+                <button type="button" class="btn btn-link text-muted" id="btnWelcomePrev" style="visibility: hidden;">
+                    <i class="fas fa-arrow-left mr-1"></i> Back
+                </button>
+                <div>
+                    <button type="button" class="btn btn-outline-secondary mr-2 d-none" id="btnSkipOnboarding">
+                        Skip
+                    </button>
+                    <button type="button" class="btn btn-primary px-4" id="btnWelcomeNext">
+                        Get Started <i class="fas fa-arrow-right ml-1"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Page Tour Prompt (for page-specific tours) -->
+<div id="pageTourPrompt" class="page-tour-prompt d-none">
+    <div class="tour-prompt-content">
+        <button type="button" class="tour-prompt-close" onclick="dismissPageTourPrompt()">
+            <i class="fas fa-times"></i>
+        </button>
+        <div class="tour-prompt-icon">
+            <i class="fas fa-lightbulb"></i>
+        </div>
+        <div class="tour-prompt-text">
+            <strong>First time here?</strong>
+            <span id="tourPromptMessage">Take a quick tour of this page.</span>
+        </div>
+        <button class="btn btn-sm btn-primary" id="btnStartPageTour">
+            <i class="fas fa-play mr-1"></i> Start Tour
+        </button>
+    </div>
+</div>

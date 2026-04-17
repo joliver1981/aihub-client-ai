@@ -1,0 +1,219 @@
+{
+  "template_key": "shopify",
+  "platform_name": "Shopify",
+  "platform_category": "E-Commerce",
+  "description": "Connect to Shopify for orders, products, customers, and inventory management.",
+  "logo_url": "https://cdn.worldvectorlogo.com/logos/shopify.svg",
+  "documentation_url": "https://shopify.dev/docs/api/admin-rest",
+  
+  "auth_type": "api_key",
+  "auth_config": {
+    "api_key_location": "header",
+    "api_key_header": "X-Shopify-Access-Token",
+    "requires_instance_id": true,
+    "instance_id_field": "shop_domain",
+    "instance_id_label": "Shop Domain",
+    "instance_id_help": "Your Shopify store domain (e.g., my-store.myshopify.com)"
+  },
+  
+  "base_url": "https://{shop_domain}/admin/api/2025-01",
+  
+  "default_headers": {
+    "Accept": "application/json",
+    "Content-Type": "application/json"
+  },
+  
+  "setup_instructions": "## Shopify Setup\n\n1. Go to your Shopify Admin → Settings → Apps and sales channels\n2. Click 'Develop apps' → Create an app\n3. Configure Admin API scopes (read_orders, read_products, etc.)\n4. Install the app and copy the Admin API access token\n5. Enter your shop domain and access token below",
+  
+  "operations": [
+    {
+      "key": "get_orders",
+      "name": "Get Orders",
+      "description": "Retrieve orders with optional filters",
+      "method": "GET",
+      "endpoint": "/orders.json",
+      "parameters": [
+        {
+          "name": "status",
+          "label": "Status",
+          "type": "select",
+          "options": [
+            {"value": "any", "label": "Any"},
+            {"value": "open", "label": "Open"},
+            {"value": "closed", "label": "Closed"},
+            {"value": "cancelled", "label": "Cancelled"}
+          ],
+          "default": "any"
+        },
+        {
+          "name": "financial_status",
+          "label": "Financial Status",
+          "type": "select",
+          "options": [
+            {"value": "", "label": "Any"},
+            {"value": "paid", "label": "Paid"},
+            {"value": "pending", "label": "Pending"},
+            {"value": "refunded", "label": "Refunded"}
+          ]
+        },
+        {
+          "name": "created_at_min",
+          "label": "Created After",
+          "type": "datetime"
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50
+        }
+      ],
+      "output_mapping": {
+        "orders": "$.orders"
+      },
+      "category": "read"
+    },
+    {
+      "key": "get_order_by_id",
+      "name": "Get Order by ID",
+      "description": "Retrieve a specific order",
+      "method": "GET",
+      "endpoint": "/orders/{order_id}.json",
+      "parameters": [
+        {
+          "name": "order_id",
+          "label": "Order ID",
+          "type": "text",
+          "required": true
+        }
+      ],
+      "output_mapping": {
+        "order": "$.order"
+      },
+      "category": "read"
+    },
+    {
+      "key": "get_products",
+      "name": "Get Products",
+      "description": "Retrieve products from the store",
+      "method": "GET",
+      "endpoint": "/products.json",
+      "parameters": [
+        {
+          "name": "status",
+          "label": "Status",
+          "type": "select",
+          "options": [
+            {"value": "", "label": "All"},
+            {"value": "active", "label": "Active"},
+            {"value": "draft", "label": "Draft"},
+            {"value": "archived", "label": "Archived"}
+          ]
+        },
+        {
+          "name": "collection_id",
+          "label": "Collection ID",
+          "type": "text"
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50
+        }
+      ],
+      "output_mapping": {
+        "products": "$.products"
+      },
+      "category": "read"
+    },
+    {
+      "key": "get_customers",
+      "name": "Get Customers",
+      "description": "Retrieve customer records",
+      "method": "GET",
+      "endpoint": "/customers.json",
+      "parameters": [
+        {
+          "name": "created_at_min",
+          "label": "Created After",
+          "type": "datetime"
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50
+        }
+      ],
+      "output_mapping": {
+        "customers": "$.customers"
+      },
+      "category": "read"
+    },
+    {
+      "key": "get_inventory_levels",
+      "name": "Get Inventory Levels",
+      "description": "Retrieve inventory levels for items",
+      "method": "GET",
+      "endpoint": "/inventory_levels.json",
+      "parameters": [
+        {
+          "name": "inventory_item_ids",
+          "label": "Inventory Item IDs",
+          "type": "text",
+          "description": "Comma-separated list of inventory item IDs"
+        },
+        {
+          "name": "location_ids",
+          "label": "Location IDs",
+          "type": "text",
+          "description": "Comma-separated list of location IDs"
+        }
+      ],
+      "output_mapping": {
+        "inventory_levels": "$.inventory_levels"
+      },
+      "category": "read"
+    },
+    {
+      "key": "update_inventory",
+      "name": "Update Inventory Level",
+      "description": "Set inventory level for an item at a location",
+      "method": "POST",
+      "endpoint": "/inventory_levels/set.json",
+      "parameters": [
+        {
+          "name": "inventory_item_id",
+          "label": "Inventory Item ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "location_id",
+          "label": "Location ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "available",
+          "label": "Available Quantity",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "body_template": {
+        "inventory_item_id": "{inventory_item_id}",
+        "location_id": "{location_id}",
+        "available": "{available}"
+      },
+      "output_mapping": {
+        "inventory_level": "$.inventory_level"
+      },
+      "category": "write"
+    }
+  ],
+  
+  "supports_webhooks": true,
+  "webhook_events": ["orders/create", "orders/updated", "products/create", "products/update", "inventory_levels/update"]
+}

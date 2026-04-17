@@ -1,0 +1,151 @@
+SquareFeet,Bedrooms,Bathrooms,YearBuilt,LotSize,Neighborhood,HouseType,Condition,GarageType,HasPool,Stories,Price
+1607,2,3.0,1955,0.52,Downtown,Condo,Good,None,0,2,448000.0
+3198,4,3.0,2014,0.28,University,Duplex,Good,None,0,2,649000.0
+3091,4,2.5,1990,1.09,Midtown,Duplex,Good,None,0,1,660000.0
+3642,2,2.5,1966,0.5,Lakeside,Townhouse,Good,None,0,2,707000.0
+2435,1,2.5,1994,1.19,Suburbs,Townhouse,Poor,Detached,1,2,539000.0
+3023,4,2.5,1993,0.38,Downtown,Condo,Good,Attached,0,2,695000.0
+2232,2,3.0,2003,1.66,Downtown,Duplex,Good,None,0,2,589000.0
+1895,4,3.5,1989,1.89,Suburbs,Duplex,Good,Detached,0,1,542000.0
+770,4,3.0,2000,1.32,Midtown,Duplex,Good,Detached,1,2,507000.0
+1193,5,2.5,1965,0.9,University,Condo,Good,Attached,0,3,382000.0
+1794,5,2.5,2017,0.61,Industrial,Townhouse,Fair,None,0,2,428000.0
+1031,3,1.5,1973,1.01,University,Duplex,Excellent,None,0,1,386000.0
+3992,4,1.0,2003,0.81,Suburbs,Condo,Good,Attached,0,2,702000.0
+2080,5,2.0,2019,0.88,Midtown,Condo,Good,Attached,0,3,627000.0
+4788,4,1.0,1974,1.62,Lakeside,Condo,Good,Detached,1,2,907000.0
+3723,3,2.0,1964,1.61,Suburbs,Condo,Poor,Attached,0,1,641000.0
+839,1,3.0,2008,0.45,University,Condo,Fair,Attached,0,2,290000.0
+1255,2,2.5,1981,1.52,University,Single Family,Good,None,0,2,489000.0
+2313,4,2.5,1968,1.73,Lakeside,Townhouse,Fair,None,0,2,644000.0
+4875,5,2.0,1952,0.93,Suburbs,Townhouse,Good,Attached,0,1,859000.0
+4557,4,3.5,2012,1.4,Industrial,Duplex,Fair,Attached,0,1,822000.0
+3234,2,2.5,1995,1.78,Industrial,Duplex,Good,None,0,1,638000.0
+3092,4,3.0,1961,1.21,Downtown,Townhouse,Good,Attached,0,2,728000.0
+2899,4,3.5,1970,0.25,Lakeside,Duplex,Fair,Attached,1,1,660000.0
+4663,3,3.0,1953,0.51,Midtown,Townhouse,Excellent,Attached,0,2,864000.0
+3205,4,3.0,1989,1.78,Downtown,Condo,Poor,Attached,0,2,692000.0
+1968,4,3.5,1966,1.67,Suburbs,Condo,Good,Attached,0,2,565000.0
+4018,4,1.0,1968,0.23,Lakeside,Townhouse,Fair,Detached,1,2,769000.0
+2790,2,2.0,1961,1.98,Midtown,Duplex,Good,None,0,1,638000.0
+4510,2,2.5,1991,1.28,Downtown,Duplex,Fair,Detached,0,2,859000.0
+4236,4,2.0,2021,1.21,Industrial,Condo,Poor,Attached,0,3,721000.0
+3831,5,1.5,1954,1.92,University,Townhouse,Fair,Attached,0,2,764000.0
+1761,3,2.5,1975,0.61,Lakeside,Duplex,Fair,Detached,0,1,466000.0
+2626,3,2.5,1986,1.49,Lakeside,Condo,Good,Attached,0,1,651000.0
+2469,2,2.0,2020,1.77,Suburbs,Duplex,Good,Attached,1,2,630000.0
+3292,3,3.0,1984,1.36,Suburbs,Duplex,Fair,Attached,0,2,678000.0
+2570,3,3.0,1981,1.06,Industrial,Townhouse,Excellent,None,0,2,577000.0
+1959,2,1.5,2002,0.11,Suburbs,Condo,Good,None,1,1,429000.0
+2426,2,1.0,1977,1.71,Suburbs,Townhouse,Good,Attached,0,2,519000.0
+2619,3,2.0,1990,0.67,Midtown,Single Family,Good,Attached,1,2,703000.0
+853,5,2.0,1953,1.52,Lakeside,Townhouse,Good,Attached,0,1,458000.0
+780,4,2.5,2023,1.14,Lakeside,Condo,Good,None,0,2,479000.0
+2162,2,3.5,2018,1.09,Midtown,Townhouse,Fair,Attached,0,2,591000.0
+3267,3,1.5,1979,0.49,Downtown,Duplex,Good,Attached,0,3,724000.0
+2815,3,1.0,1993,1.38,Downtown,Duplex,Excellent,None,0,2,669000.0
+4011,1,3.0,1954,1.66,Midtown,Duplex,Good,Attached,0,3,811000.0
+3105,5,2.5,2013,1.61,University,Single Family,Good,None,0,2,717000.0
+4468,1,3.0,1980,0.64,Lakeside,Townhouse,Fair,None,1,2,866000.0
+2353,4,2.5,1992,1.34,Lakeside,Single Family,Excellent,Attached,0,1,718000.0
+3595,4,2.0,1983,1.44,Midtown,Townhouse,Good,None,1,1,742000.0
+3061,3,1.5,1971,1.43,Industrial,Single Family,Fair,Detached,1,2,654000.0
+2348,3,1.5,1971,1.19,Lakeside,Townhouse,Good,None,0,1,604000.0
+1394,3,2.5,2020,0.23,Industrial,Duplex,Excellent,None,0,1,399000.0
+1786,4,2.0,1976,0.92,Midtown,Townhouse,Good,Attached,0,2,505000.0
+650,3,3.0,1951,0.47,University,Duplex,Good,Attached,1,2,343000.0
+2095,2,1.0,1985,0.97,Suburbs,Townhouse,Good,Attached,0,1,470000.0
+1078,4,1.5,1967,0.9,Lakeside,Duplex,Excellent,Detached,0,2,505000.0
+740,3,1.5,1956,1.53,Midtown,Condo,Excellent,None,0,2,381000.0
+1667,3,3.5,2015,0.42,Industrial,Townhouse,Excellent,None,0,3,497000.0
+4802,4,1.0,1965,1.36,University,Townhouse,Fair,Detached,0,1,814000.0
+3189,3,2.5,1988,1.58,Midtown,Single Family,Poor,Attached,0,2,725000.0
+1154,2,1.5,2012,1.54,Lakeside,Duplex,Fair,Attached,1,1,470000.0
+2622,2,2.0,1965,1.04,Midtown,Duplex,Good,Attached,0,2,639000.0
+4036,4,2.5,1955,0.78,Lakeside,Condo,Fair,Attached,0,2,782000.0
+4114,3,3.5,2021,0.95,Suburbs,Condo,Good,None,0,2,765000.0
+2852,3,2.0,1964,1.48,Lakeside,Condo,Good,Attached,1,2,712000.0
+637,3,2.5,1956,1.89,Lakeside,Townhouse,Good,Detached,0,2,453000.0
+4276,3,1.0,2018,0.16,University,Duplex,Poor,Detached,0,2,701000.0
+1711,4,2.5,1965,1.46,Lakeside,Townhouse,Poor,Attached,0,1,556000.0
+2185,3,2.5,1993,0.93,Midtown,Single Family,Good,Detached,0,2,615000.0
+1675,2,2.0,1955,0.63,Midtown,Single Family,Excellent,None,0,2,467000.0
+2578,1,2.5,1967,1.65,Industrial,Condo,Good,None,0,2,446000.0
+2221,2,2.5,2015,0.77,Downtown,Townhouse,Fair,Attached,1,1,628000.0
+2890,3,3.5,1951,0.93,Lakeside,Condo,Good,None,0,2,647000.0
+2223,3,1.0,2011,1.03,Lakeside,Duplex,Good,Attached,0,1,620000.0
+1038,5,2.0,1985,0.36,Suburbs,Duplex,Poor,Attached,0,1,367000.0
+1120,4,1.0,1968,1.85,Suburbs,Single Family,Good,Attached,0,2,497000.0
+1770,5,2.0,1967,1.01,Suburbs,Duplex,Excellent,Detached,0,2,478000.0
+4494,2,2.0,1989,1.61,Suburbs,Single Family,Poor,Attached,0,2,794000.0
+4679,2,1.5,1989,0.82,Industrial,Condo,Good,None,0,1,695000.0
+4519,3,2.0,2021,0.48,Suburbs,Single Family,Good,Attached,0,2,847000.0
+1912,5,2.0,1965,1.1,Downtown,Single Family,Poor,None,0,3,571000.0
+4181,1,2.0,1972,1.01,University,Single Family,Good,Attached,1,1,833000.0
+4367,3,2.0,1990,0.29,Industrial,Duplex,Good,Attached,0,2,756000.0
+1082,5,2.0,1995,1.23,University,Duplex,Fair,Attached,0,2,495000.0
+1554,2,2.5,2011,1.87,Downtown,Duplex,Excellent,None,1,2,603000.0
+807,3,1.5,1971,1.99,Industrial,Condo,Fair,None,0,3,235000.0
+733,3,2.0,2001,1.56,Industrial,Condo,Fair,Detached,0,2,330000.0
+1628,5,2.0,2001,1.24,Lakeside,Single Family,Fair,Detached,1,3,643000.0
+3066,2,2.0,1959,0.21,Downtown,Condo,Good,Attached,1,3,639000.0
+4060,3,2.5,1956,0.79,University,Duplex,Good,None,0,1,726000.0
+4081,3,3.0,1985,1.58,Midtown,Single Family,Fair,Attached,1,1,891000.0
+2192,3,3.5,1960,0.94,Midtown,Single Family,Good,None,0,2,543000.0
+1202,5,1.5,2019,1.9,Industrial,Condo,Good,Attached,0,2,391000.0
+3964,2,2.0,2022,1.32,Suburbs,Townhouse,Excellent,Attached,0,2,810000.0
+4551,3,2.0,1951,1.72,Midtown,Duplex,Fair,Attached,1,2,830000.0
+688,3,3.0,1982,1.19,Downtown,Condo,Excellent,Attached,0,1,415000.0
+4336,2,2.0,2006,0.39,Downtown,Duplex,Fair,Detached,1,2,842000.0
+2059,3,2.5,1979,1.75,Suburbs,Condo,Good,None,0,1,511000.0
+1963,5,2.5,1989,1.57,Suburbs,Duplex,Good,None,0,1,527000.0
+3902,5,2.5,1980,0.39,Suburbs,Single Family,Good,Attached,1,2,815000.0
+3116,4,1.5,1956,1.5,Downtown,Townhouse,Good,Attached,0,2,688000.0
+3952,4,2.0,2015,1.81,Downtown,Duplex,Good,None,0,3,857000.0
+2180,2,2.0,1982,0.44,Downtown,Condo,Good,Detached,0,2,514000.0
+1835,3,2.0,1977,1.42,University,Condo,Excellent,None,1,2,499000.0
+3475,3,2.5,2019,0.67,Industrial,Single Family,Good,Attached,0,1,707000.0
+2915,4,2.5,1968,1.04,Lakeside,Condo,Good,None,0,1,702000.0
+2379,5,2.5,1955,0.12,Suburbs,Single Family,Fair,Attached,0,2,512000.0
+1617,3,3.0,1996,0.43,Downtown,Single Family,Good,None,0,3,530000.0
+2619,3,3.5,1997,1.15,Midtown,Condo,Fair,Attached,0,2,611000.0
+801,2,2.5,1961,1.83,Downtown,Duplex,Poor,Attached,0,1,429000.0
+4964,4,2.5,2000,0.51,Downtown,Townhouse,Good,Detached,0,1,909000.0
+3301,3,1.5,2006,0.92,Industrial,Duplex,Fair,Attached,1,2,597000.0
+1199,4,2.5,2020,0.98,Lakeside,Duplex,Poor,Detached,0,2,479000.0
+2182,3,3.0,1968,0.22,Industrial,Single Family,Fair,Attached,0,2,442000.0
+1437,2,1.5,2022,0.14,Midtown,Single Family,Fair,None,1,3,482000.0
+4695,2,2.0,2019,1.84,Midtown,Condo,Good,Attached,0,1,904000.0
+3462,4,1.5,1983,1.3,Suburbs,Townhouse,Excellent,Attached,1,1,763000.0
+3321,3,2.0,1974,0.91,Industrial,Single Family,Good,Attached,0,2,629000.0
+1207,4,1.0,1984,1.17,Downtown,Townhouse,Good,None,0,1,425000.0
+3672,4,3.0,1975,1.1,University,Duplex,Excellent,Detached,1,2,783000.0
+1217,3,2.5,1968,0.68,Downtown,Townhouse,Good,Attached,0,2,470000.0
+824,4,2.5,1953,1.78,Downtown,Single Family,Good,None,0,3,419000.0
+2651,4,3.0,2023,0.19,Midtown,Townhouse,Excellent,None,0,1,627000.0
+3911,4,3.0,1999,0.19,Suburbs,Duplex,Fair,Attached,0,1,702000.0
+1986,3,3.0,1960,1.44,Suburbs,Duplex,Fair,None,0,1,458000.0
+4023,4,2.5,1970,0.11,Midtown,Single Family,Poor,Attached,1,2,776000.0
+3861,3,2.0,2002,0.15,University,Single Family,Good,None,0,3,709000.0
+4976,3,2.0,2007,1.92,Midtown,Townhouse,Fair,Attached,1,2,985000.0
+1363,3,2.0,2009,0.17,University,Townhouse,Fair,None,0,2,438000.0
+4241,3,3.5,2011,1.84,Midtown,Condo,Good,None,1,3,870000.0
+2262,4,1.0,2016,0.91,Industrial,Townhouse,Good,Attached,1,3,644000.0
+4687,4,2.5,1997,0.78,Lakeside,Single Family,Poor,Detached,0,2,915000.0
+3332,4,2.0,2012,1.88,Lakeside,Duplex,Good,None,0,2,794000.0
+2540,2,3.5,1997,0.34,Industrial,Duplex,Good,Detached,0,3,527000.0
+3014,3,3.0,1967,1.28,Suburbs,Duplex,Good,Attached,0,2,624000.0
+1322,4,3.5,2015,0.28,University,Townhouse,Poor,None,1,3,409000.0
+3635,3,1.5,1969,1.64,Suburbs,Duplex,Fair,None,0,2,702000.0
+2975,4,3.0,1979,1.8,Suburbs,Condo,Good,None,0,1,659000.0
+3687,3,1.5,1979,1.49,Industrial,Single Family,Good,Attached,0,2,688000.0
+4593,4,2.0,1978,1.51,Industrial,Condo,Fair,Attached,1,2,787000.0
+4479,2,2.0,1955,0.26,University,Duplex,Poor,Attached,0,2,683000.0
+3453,4,3.5,1996,0.5,Midtown,Duplex,Good,Attached,0,2,746000.0
+1976,2,2.5,1978,1.56,Industrial,Townhouse,Fair,Attached,1,2,470000.0
+2129,4,2.0,1990,0.71,Downtown,Single Family,Fair,Detached,1,1,659000.0
+3748,1,1.5,2020,0.29,University,Townhouse,Good,Detached,1,3,753000.0
+4143,2,2.5,1978,1.57,Lakeside,Single Family,Good,None,1,1,855000.0
+2708,3,1.5,1962,0.77,Midtown,Duplex,Good,Attached,1,3,671000.0
+3209,4,1.0,2004,0.22,Midtown,Condo,Good,None,0,2,658000.0
+1507,3,2.5,2020,1.99,Downtown,Townhouse,Poor,Detached,1,2,543000.0

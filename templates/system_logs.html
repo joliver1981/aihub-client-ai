@@ -1,0 +1,593 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<div style="position:fixed;bottom:20px;right:20px;z-index:100;">
+    <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+        <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+    </button>
+</div>
+<div class="container-fluid py-4">
+    <!-- Header with Database Logging Toggle -->
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap">
+        <h2 class="mb-0">
+            <i class="fas fa-clipboard-list text-primary mr-2"></i>
+            Log Viewer
+        </h2>
+        
+        <!-- Database Logging Toggle -->
+        <div class="card border-0 shadow-sm">
+            <div class="card-body py-2 px-3">
+                <div class="d-flex align-items-center">
+                    <i class="fas fa-database text-secondary mr-2"></i>
+                    <span class="mr-3">Database Logging</span>
+                    <div class="custom-control custom-switch">
+                        <input type="checkbox" class="custom-control-input" id="db-logging-toggle">
+                        <label class="custom-control-label" for="db-logging-toggle"></label>
+                    </div>
+                </div>
+                <small class="text-muted" id="db-logging-status">Loading...</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters Row -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-body py-3">
+            <div class="row align-items-end">
+                <div class="col-md-2 mb-2 mb-md-0">
+                    <label class="small font-weight-bold">Date</label>
+                    <input type="date" id="log-date" class="form-control">
+                </div>
+                <div class="col-md-2 mb-2 mb-md-0">
+                    <label class="small font-weight-bold">Level</label>
+                    <select id="filter-level" class="form-control">
+                        <option value="">All Levels</option>
+                        <option value="DEBUG">Debug</option>
+                        <option value="INFO">Info</option>
+                        <option value="WARNING">Warning</option>
+                        <option value="ERROR">Error</option>
+                        <option value="CRITICAL">Critical</option>
+                    </select>
+                </div>
+                <div class="col-md-2 mb-2 mb-md-0">
+                    <label class="small font-weight-bold">Module</label>
+                    <select id="filter-module" class="form-control">
+                        <option value="">All Modules</option>
+                    </select>
+                </div>
+                <div class="col-md-3 mb-2 mb-md-0">
+                    <label class="small font-weight-bold">Search Message</label>
+                    <input type="text" id="filter-search" class="form-control" placeholder="Search...">
+                </div>
+                <div class="col-md-3">
+                    <button id="search-btn" class="btn btn-primary mr-2">
+                        <i class="fas fa-search mr-1"></i> Search
+                    </button>
+                    <button id="reset-btn" class="btn btn-outline-secondary">
+                        <i class="fas fa-undo mr-1"></i> Reset
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Card -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+            <span>
+                <i class="fas fa-list mr-2"></i>
+                Log Entries
+                <span class="badge badge-secondary ml-2" id="log-count">0</span>
+            </span>
+            <div>
+                <button id="export-btn" class="btn btn-sm btn-outline-secondary" title="Export to CSV">
+                    <i class="fas fa-download mr-1"></i> Export
+                </button>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover table-striped mb-0" id="log-table">
+                    <thead class="thead-light">
+                        <tr>
+                            <th class="sortable" data-column="date" style="width: 140px;">
+                                Date <i class="fas fa-sort ml-1 text-muted"></i>
+                            </th>
+                            <th class="sortable" data-column="level_name" style="width: 90px;">
+                                Level <i class="fas fa-sort ml-1 text-muted"></i>
+                            </th>
+                            <th class="sortable" data-column="message">
+                                Message <i class="fas fa-sort ml-1 text-muted"></i>
+                            </th>
+                            <th class="sortable" data-column="module" style="width: 120px;">
+                                Module <i class="fas fa-sort ml-1 text-muted"></i>
+                            </th>
+                            <th style="width: 100px;">Function</th>
+                            <th style="width: 70px;">Line</th>
+                            <th style="width: 80px;">Job ID</th>
+                        </tr>
+                    </thead>
+                    <tbody id="log-tbody">
+                        <tr>
+                            <td colspan="7" class="text-center py-4 text-muted">
+                                Select a date and click Search to load logs
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <!-- Pagination -->
+        <div class="card-footer bg-white d-flex justify-content-between align-items-center">
+            <div class="text-muted small" id="pagination-info">Showing 0 entries</div>
+            <nav>
+                <ul class="pagination pagination-sm mb-0" id="pagination"></ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+<style>
+    .sortable {
+        cursor: pointer;
+        user-select: none;
+    }
+    .sortable:hover {
+        background-color: var(--bg-hover, #1c1c1f);
+    }
+    .badge-DEBUG { background-color: rgba(113, 113, 122, 0.2); color: #a1a1aa; }
+    .badge-INFO { background-color: rgba(6, 182, 212, 0.2); color: #06b6d4; }
+    .badge-WARNING { background-color: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+    .badge-ERROR { background-color: rgba(251, 113, 133, 0.2); color: #fb7185; }
+    .badge-CRITICAL { background-color: rgba(251, 113, 133, 0.3); color: #fb7185; }
+    
+    #log-table tbody tr {
+        cursor: pointer;
+    }
+    #log-table tbody tr:hover {
+        background-color: var(--bg-hover, #1c1c1f) !important;
+    }
+    .message-cell {
+        max-width: 400px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .message-cell.expanded {
+        white-space: normal;
+        word-break: break-word;
+    }
+</style>
+
+<script>
+$(document).ready(function() {
+    // State
+    let allLogs = [];
+    let filteredLogs = [];
+    let currentPage = 1;
+    const pageSize = 50;
+    let sortColumn = 'date';
+    let sortDirection = 'desc';
+
+    // Set default date to today
+    var today = new Date().toISOString().split('T')[0];
+    $('#log-date').val(today);
+
+    // Load database logging setting
+    loadDbLoggingSetting();
+
+    // Database logging toggle handler
+    $('#db-logging-toggle').on('change', function() {
+        setDbLoggingSetting(this.checked);
+    });
+
+    // Search button click
+    $('#search-btn').click(function() {
+        loadLogs();
+    });
+
+    // Reset button
+    $('#reset-btn').click(function() {
+        $('#filter-level').val('');
+        $('#filter-module').val('');
+        $('#filter-search').val('');
+        applyFilters();
+    });
+
+    // Filter changes
+    $('#filter-level, #filter-module').on('change', function() {
+        applyFilters();
+    });
+
+    // Search input with debounce
+    let searchTimeout;
+    $('#filter-search').on('keyup', function() {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(applyFilters, 300);
+    });
+
+    // Sortable headers
+    $('.sortable').on('click', function() {
+        const column = $(this).data('column');
+        if (sortColumn === column) {
+            sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            sortColumn = column;
+            sortDirection = 'asc';
+        }
+        
+        // Update sort icons
+        $('.sortable i').removeClass('fa-sort-up fa-sort-down').addClass('fa-sort text-muted');
+        $(this).find('i').removeClass('fa-sort text-muted')
+            .addClass(sortDirection === 'asc' ? 'fa-sort-up' : 'fa-sort-down');
+        
+        applyFilters();
+    });
+
+    // Export button
+    $('#export-btn').on('click', exportToCSV);
+
+    // =====================
+    // Database Logging Setting
+    // =====================
+    function loadDbLoggingSetting() {
+        $.ajax({
+            url: '/api/settings/db-logging',
+            method: 'GET',
+            success: function(data) {
+                $('#db-logging-toggle').prop('disabled', false);
+                if (data.status === 'success') {
+                    $('#db-logging-toggle').prop('checked', data.enabled);
+                    updateDbLoggingStatus(data.enabled);
+                } else {
+                    $('#db-logging-status').text('Error loading setting').removeClass('text-success text-muted').addClass('text-danger');
+                }
+            },
+            error: function() {
+                $('#db-logging-status').text('Not configured').removeClass('text-success').addClass('text-muted');
+                $('#db-logging-toggle').prop('disabled', true);
+            }
+        });
+    }
+
+    function setDbLoggingSetting(enabled) {
+        $('#db-logging-toggle').prop('disabled', true);
+        $('#db-logging-status').text('Saving...');
+        
+        $.ajax({
+            url: '/api/settings/db-logging',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ enabled: enabled }),
+            success: function(data) {
+                $('#db-logging-toggle').prop('disabled', false);
+                if (data.status === 'success') {
+                    $('#db-logging-toggle').prop('checked', data.enabled);
+                    updateDbLoggingStatus(data.enabled);
+                    showToast(data.enabled ? 'Database logging enabled' : 'Database logging disabled', 'success');
+                } else {
+                    showToast('Error: ' + data.message, 'danger');
+                }
+            },
+            error: function() {
+                $('#db-logging-toggle').prop('disabled', false);
+                showToast('Error saving setting', 'danger');
+            }
+        });
+    }
+
+    function updateDbLoggingStatus(enabled) {
+        if (enabled) {
+            $('#db-logging-status').text('Logs are being saved to database').removeClass('text-muted text-danger').addClass('text-success');
+        } else {
+            $('#db-logging-status').text('Only file logging is active').removeClass('text-success text-danger').addClass('text-muted');
+        }
+    }
+
+    // =====================
+    // Load Logs
+    // =====================
+    function loadLogs() {
+        var date = $('#log-date').val();
+        if (!date) {
+            alert("Please select a date.");
+            return;
+        }
+
+        $('#log-tbody').html(`
+            <tr>
+                <td colspan="7" class="text-center py-4">
+                    <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                    <span class="ml-2">Loading logs...</span>
+                </td>
+            </tr>
+        `);
+
+        $.ajax({
+            url: '/get/log',
+            method: 'GET',
+            data: { date: date },
+            success: function(data) {
+                try {
+                    allLogs = typeof data === 'string' ? JSON.parse(data) : data;
+                } catch (e) {
+                    allLogs = [];
+                }
+                
+                // Populate module filter
+                populateModuleFilter();
+                
+                // Apply filters and render
+                applyFilters();
+            },
+            error: function(error) {
+                $('#log-tbody').html(`
+                    <tr>
+                        <td colspan="7" class="text-center py-4 text-danger">
+                            <i class="fas fa-exclamation-circle mr-2"></i>
+                            An error occurred while fetching logs.
+                        </td>
+                    </tr>
+                `);
+                console.log(error);
+            }
+        });
+    }
+
+    // =====================
+    // Filtering & Sorting
+    // =====================
+    function populateModuleFilter() {
+        const modules = [...new Set(allLogs.map(log => log.module).filter(Boolean))].sort();
+        const select = $('#filter-module');
+        select.find('option:not(:first)').remove();
+        modules.forEach(mod => {
+            select.append(`<option value="${mod}">${mod}</option>`);
+        });
+    }
+
+    function applyFilters() {
+        const levelFilter = $('#filter-level').val().toUpperCase();
+        const moduleFilter = $('#filter-module').val();
+        const searchFilter = $('#filter-search').val().toLowerCase();
+
+        // Filter
+        filteredLogs = allLogs.filter(log => {
+            if (levelFilter && log.level_name?.toUpperCase() !== levelFilter) return false;
+            if (moduleFilter && log.module !== moduleFilter) return false;
+            if (searchFilter && !log.message?.toLowerCase().includes(searchFilter)) return false;
+            return true;
+        });
+
+        // Sort
+        filteredLogs.sort((a, b) => {
+            let valA = a[sortColumn] || '';
+            let valB = b[sortColumn] || '';
+            
+            if (sortColumn === 'date') {
+                valA = new Date(valA);
+                valB = new Date(valB);
+            } else if (typeof valA === 'string') {
+                valA = valA.toLowerCase();
+                valB = valB.toLowerCase();
+            }
+            
+            if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
+            if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
+            return 0;
+        });
+
+        currentPage = 1;
+        renderLogs();
+    }
+
+    // =====================
+    // Rendering
+    // =====================
+    function renderLogs() {
+        const tbody = $('#log-tbody');
+        tbody.empty();
+
+        if (filteredLogs.length === 0) {
+            tbody.html(`
+                <tr>
+                    <td colspan="7" class="text-center py-4 text-muted">
+                        <i class="fas fa-inbox fa-2x mb-2 d-block"></i>
+                        No logs found for the selected criteria.
+                    </td>
+                </tr>
+            `);
+            $('#log-count').text('0');
+            $('#pagination-info').text('Showing 0 entries');
+            $('#pagination').empty();
+            return;
+        }
+
+        // Pagination
+        const totalPages = Math.ceil(filteredLogs.length / pageSize);
+        const start = (currentPage - 1) * pageSize;
+        const end = Math.min(start + pageSize, filteredLogs.length);
+        const pageLogs = filteredLogs.slice(start, end);
+
+        // Render rows
+        pageLogs.forEach((log, index) => {
+            const dateTime = new Date(log.date);
+            const formattedDate = dateTime.toLocaleDateString();
+            const formattedTime = dateTime.toLocaleTimeString();
+            const levelClass = `badge-${(log.level_name || 'INFO').toUpperCase()}`;
+            
+            const row = `
+                <tr data-index="${start + index}">
+                    <td class="small">${formattedDate}<br><span class="text-muted">${formattedTime}</span></td>
+                    <td><span class="badge ${levelClass}">${log.level_name || '-'}</span></td>
+                    <td class="message-cell small" title="${escapeHtml(log.message || '')}">${escapeHtml(log.message || '-')}</td>
+                    <td class="small">${escapeHtml(log.module || '-')}</td>
+                    <td class="small">${escapeHtml(log.func_name || '-')}</td>
+                    <td class="small">${log.line_no || '-'}</td>
+                    <td class="small">${log.job_id || '-'}</td>
+                </tr>
+            `;
+            tbody.append(row);
+        });
+
+        // Click to expand message
+        tbody.find('tr').on('click', function() {
+            $(this).find('.message-cell').toggleClass('expanded');
+        });
+
+        // Update counts
+        $('#log-count').text(filteredLogs.length);
+        $('#pagination-info').text(`Showing ${start + 1}-${end} of ${filteredLogs.length} entries`);
+
+        // Render pagination
+        renderPagination(totalPages);
+    }
+
+    function renderPagination(totalPages) {
+        const pagination = $('#pagination');
+        pagination.empty();
+
+        if (totalPages <= 1) return;
+
+        // Previous
+        pagination.append(`
+            <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
+                <a class="page-link" href="#" data-page="${currentPage - 1}">&laquo;</a>
+            </li>
+        `);
+
+        // Page numbers
+        const maxVisible = 5;
+        let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+        let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+        
+        if (endPage - startPage + 1 < maxVisible) {
+            startPage = Math.max(1, endPage - maxVisible + 1);
+        }
+
+        if (startPage > 1) {
+            pagination.append(`<li class="page-item"><a class="page-link" href="#" data-page="1">1</a></li>`);
+            if (startPage > 2) {
+                pagination.append(`<li class="page-item disabled"><span class="page-link">...</span></li>`);
+            }
+        }
+
+        for (let i = startPage; i <= endPage; i++) {
+            pagination.append(`
+                <li class="page-item ${i === currentPage ? 'active' : ''}">
+                    <a class="page-link" href="#" data-page="${i}">${i}</a>
+                </li>
+            `);
+        }
+
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) {
+                pagination.append(`<li class="page-item disabled"><span class="page-link">...</span></li>`);
+            }
+            pagination.append(`<li class="page-item"><a class="page-link" href="#" data-page="${totalPages}">${totalPages}</a></li>`);
+        }
+
+        // Next
+        pagination.append(`
+            <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
+                <a class="page-link" href="#" data-page="${currentPage + 1}">&raquo;</a>
+            </li>
+        `);
+
+        // Click handlers
+        pagination.find('a').on('click', function(e) {
+            e.preventDefault();
+            const page = parseInt($(this).data('page'));
+            if (page >= 1 && page <= totalPages && page !== currentPage) {
+                currentPage = page;
+                renderLogs();
+            }
+        });
+    }
+
+    // =====================
+    // Export
+    // =====================
+    function exportToCSV() {
+        if (filteredLogs.length === 0) {
+            alert('No logs to export');
+            return;
+        }
+
+        const headers = ['Date', 'Level', 'Message', 'Module', 'Function', 'Line', 'Job ID'];
+        const rows = filteredLogs.map(log => [
+            log.date,
+            log.level_name,
+            `"${(log.message || '').replace(/"/g, '""')}"`,
+            log.module,
+            log.func_name,
+            log.line_no,
+            log.job_id
+        ]);
+
+        const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `logs_${$('#log-date').val()}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    // =====================
+    // Utilities
+    // =====================
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function showToast(message, type) {
+        const toast = $(`
+            <div class="alert alert-${type} alert-dismissible fade show position-fixed" 
+                 style="top: 20px; right: 20px; z-index: 9999; min-width: 250px;">
+                ${message}
+                <button type="button" class="close" data-dismiss="alert">&times;</button>
+            </div>
+        `);
+        $('body').append(toast);
+        setTimeout(() => toast.alert('close'), 3000);
+    }
+});
+</script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}

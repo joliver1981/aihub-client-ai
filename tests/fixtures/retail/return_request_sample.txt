@@ -1,0 +1,47 @@
+RETURN MERCHANDISE AUTHORIZATION
+==================================
+RMA Number:       R-2026-0892
+Request Date:     2026-03-03
+Original Order:   ORD-2026-11847
+Customer:         Sunrise Home & Garden LLC
+
+RETURN REASON: Defective Product — Items arrived with manufacturing defects
+
+ITEMS TO RETURN:
++------+-------------+------------------------------------+------+------------+-------------+
+| Line | SKU         | Description                        | Qty  | Unit Cost  | Line Total  |
++------+-------------+------------------------------------+------+------------+-------------+
+|  1   | WF-HM-2031  | Silicone Kitchen Utensil Set 8pc   |   12 |   $11.49   |    $137.88  |
+|  2   | WF-BT-5001  | Natural Lip Balm Variety 6pk       |   25 |    $3.99   |     $99.75  |
++------+-------------+------------------------------------+------+------------+-------------+
+                                                    Return Total:     $237.63
+
+CONDITION OF ITEMS:
+  Line 1: Spatula handles cracked on 12 of 48 sets (25% defect rate)
+          Photos attached: IMG_4521.jpg, IMG_4522.jpg
+  Line 2: Labeling error — ingredient list missing allergen warnings
+          All 25 units affected — cannot be resold
+
+REQUESTED RESOLUTION:
+  [X] Full refund to original payment method
+  [ ] Replacement shipment
+  [ ] Store credit
+  [ ] Exchange for different product
+
+RETURN SHIPPING:
+  Prepaid Label Requested: Yes
+  Carrier Preference:      UPS Ground
+  Pickup Address:          7800 Warehouse Row, Bldg C
+                           Round Rock, TX 78681
+
+CUSTOMER NOTES:
+  This is the second defective shipment of the Utensil Sets this quarter.
+  Please escalate to your quality team. We may need to pause orders on
+  this SKU until the issue is resolved.
+
+INTERNAL PROCESSING:
+  Approved By:      _______________
+  Approval Date:    _______________
+  Credit Memo #:    _______________
+  Restock?          [ ] Yes  [ ] No (defective — dispose)
+  QA Notification:  [ ] Sent to vendor

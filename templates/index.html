@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% if current_user.is_authenticated %}
+<h1>Welcome to your AI Hub, {{ current_user.name }}</h1>
+{% else %}
+<h1>Welcome to your AI Hub</h1>
+{% endif %}
+<h2>{{ app_version }}</h2>
+<div class="text-wrapper-2 title-margin"></div>
+<div style="min-height: 100px;">Discover the power of AI with our cutting-edge chatbots designed to streamline your data
+    analysis and server
+    management tasks. Engage with our AI for real-time data queries, environment monitoring, and much more.
+</div>
+
+<div class="flex-grid">
+    <div class="col">
+        <div>
+            <img class="heading-img" src="static/images/warehouse.png">
+        </div>
+        <div class="heading">Data Warehouse Queries</div>
+        <div class="detail">Interact directly with the BI data warehouse. Our AI chatbot can fetch and analyze data on
+            your command,
+            providing insights instantly.
+        </div>
+    </div>
+    <div class="col">
+        <div>
+            <img class="heading-img" src="static/images/monitoring.png">
+        </div>
+        <div class="heading">Monitoring & Alerts</div>
+        <div class="detail">Stay informed with the monitoring chatbot or create AI-based monitoring jobs using natural
+            language. Track
+            the status of database jobs, file processing, and SFTP folders.
+        </div>
+    </div>
+    <div class="col">
+        <div>
+            <img class="heading-img" src="static/images/infrastructure.png">
+        </div>
+        <div class="heading">Infrastructure Management</div>
+        <div class="detail">Ensure server infrastructure runs smoothly. The monitoring chatbot can monitor and restart
+            Windows
+            services, preventing and correcting issues before they impact operations.
+        </div>
+    </div>
+</div>
+
+<style>
+    .photo-container{
+    height: 15%;
+    width: 100%;
+    text-align: center;
+    background-color: #ecf3f8;
+}
+.photo{
+    background-size: cover;
+    background-position: center;
+    height: 100%;
+    width: 70%;
+    display: inline-block;
+}
+.flex-grid {
+    display: flex;
+  }
+  .col {
+    text-align: center;
+    flex: 1;
+    border-radius: 7px;
+    box-shadow: 1px 1px rgba(88, 88, 88, 0.0980392157), 3px 4px 4px 4px rgba(0, 0, 0, 0.1843137255);
+    padding: 35px 20px 25px 35px;
+    margin-right: 30px;
+}
+
+  .heading{
+    font-weight: 600;
+    font-size: 20px;
+    padding: 9px;
+  }
+  .heading-img{
+    height: 80px;
+    width: 80px;
+    padding: 9px;
+
+  }
+
+  .detail{
+    font-size: 14px;
+    padding: 9px;
+  }
+</style>
+{% endblock %}

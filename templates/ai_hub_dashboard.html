@@ -1,0 +1,1079 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - AI Hub{% endblock %}
+
+{% block content %}
+<!-- Dashboard Dark Theme -->
+<link rel="stylesheet" href="/static/css/dashboard-theme.css">
+
+<div class="dashboard-page" id="dashboardPage">
+
+<style>
+    /* Minimal page-specific overrides only */
+    .dashboard-container {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 24px;
+    }
+    /* All styles moved to dashboard-theme.css */
+    
+/* (remaining styles moved to dashboard-theme.css) */
+</style>
+
+<!-- Theme Toggle (fixed bottom-right) -->
+<button class="dash-theme-toggle" onclick="toggleDashTheme()" title="Toggle theme">
+    <i class="fas fa-moon" id="dashThemeIcon"></i> <span id="dashThemeLabel">Dark</span>
+</button>
+
+<div class="dashboard-container">
+    
+    {# ================================================================
+       WELCOME SECTION - Different for Free vs Professional
+       ================================================================ #}
+    
+    {% if IS_DEVELOPER_MODE %}
+    {# FREE / DEVELOPER MODE - Shows usage and upgrade prompts #}
+    <div class="welcome-free">
+        <div class="welcome-free-header">
+            <div>
+                <h1>Welcome{% if current_user.display_name %}, {{ current_user.display_name }}{% endif %}</h1>
+                <p class="welcome-free-subtitle">What would you like to work on today?</p>
+            </div>
+        </div>
+        
+        <div class="usage-section">
+            <div class="usage-info">
+                <div class="usage-label">
+                    <span class="plan-badge"><i class="fas fa-code mr-1"></i>Developer</span>
+                    <span>Plan Usage</span>
+                </div>
+                <div class="usage-bar-container">
+                    <div class="usage-bar" style="width: {{ usage_percent('agents') }}%"></div>
+                </div>
+                <div class="usage-text">
+                    <strong>{{ CURRENT_USAGE.get('agents', 0) }}</strong> of <strong>{{ tier_limit('agents') }}</strong> agents
+                    {% if tier_limit('custom_tools') > 0 %}
+                    • <strong>{{ CURRENT_USAGE.get('custom_tools', 0) }}</strong> of <strong>{{ tier_limit('custom_tools') }}</strong> tools
+                    {% endif %}
+                </div>
+            </div>
+            <a href="/pricing" class="upgrade-btn">
+                <i class="fas fa-arrow-up"></i>
+                Upgrade Plan
+            </a>
+        </div>
+    </div>
+    
+    {% else %}
+    {# PROFESSIONAL / ENTERPRISE - Clean, no plan info #}
+    <div class="welcome-section">
+        <div>
+            <h1>Welcome{% if current_user.display_name %}, {{ current_user.display_name }}{% endif %}</h1>
+            <p>What would you like to work on today?</p>
+            
+            {# Role indicator #}
+            {% if current_user.role == 3 %}
+            <span class="role-badge admin"><i class="fas fa-user-shield"></i> Administrator</span>
+            {% elif current_user.role == 2 %}
+            <span class="role-badge developer"><i class="fas fa-code"></i> Developer</span>
+            {% endif %}
+        </div>
+        <div class="welcome-actions">
+            <a href="{{ url_for('assistants') }}" class="btn-dashboard btn-dashboard-primary">
+                <i class="fas fa-comments"></i> New Chat
+            </a>
+            {% if current_user.role >= 2 %}
+            <a href="{{ url_for('custom_agent_enhanced') }}" class="btn-dashboard btn-dashboard-secondary">
+                <i class="fas fa-plus"></i> Create Agent
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+    
+    {# ================================================================
+       ACTION CARDS - Vary by role and tier features
+       ================================================================ #}
+    
+    <div class="section-title">Quick Actions</div>
+    
+    {% if current_user.role >= 2 %}
+    {# DEVELOPER / ADMIN VIEW - Full action cards #}
+    <div class="action-grid">
+        {# Chat - Always available #}
+        <a href="{{ url_for('assistants') }}" class="action-card primary">
+            <div class="action-icon"><i class="fas fa-comments"></i></div>
+            <div class="action-title">Chat with AI</div>
+            <div class="action-desc">Start a conversation</div>
+        </a>
+        
+        {# Agents - Always available for devs #}
+        <a href="{{ url_for('custom_agent_enhanced') }}" class="action-card">
+            <div class="action-icon blue"><i class="fas fa-robot"></i></div>
+            <div class="action-title">Manage Agents</div>
+            <div class="action-desc">Build & configure</div>
+        </a>
+        
+        {# Documents - Based on SHOW_DOCUMENT_FEATURES context flag #}
+        {% if SHOW_DOCUMENT_FEATURES %}
+        <a href="{{ url_for('document_processor') }}" class="action-card">
+            <div class="action-icon amber"><i class="fas fa-file-alt"></i></div>
+            <div class="action-title">Documents</div>
+            <div class="action-desc">Process & analyze</div>
+        </a>
+        {% else %}
+        <div class="action-card locked" title="Not available in your current plan">
+            <span class="feature-badge locked">UPGRADE</span>
+            <div class="action-icon amber"><i class="fas fa-file-alt"></i></div>
+            <div class="action-title">Documents</div>
+            <div class="action-desc">Not available</div>
+        </div>
+        {% endif %}
+        
+        {# Workflows - Based on SHOW_WORKFLOW_FEATURES context flag #}
+        {% if SHOW_WORKFLOW_FEATURES %}
+            {% if IS_DEVELOPER_MODE %}
+            <a href="{{ url_for('workflow_tool') }}" class="action-card" target="_blank">
+                <span class="feature-badge dev">DEV</span>
+                <div class="action-icon purple"><i class="fas fa-project-diagram"></i></div>
+                <div class="action-title">Workflows</div>
+                <div class="action-desc">Build & test</div>
+            </a>
+            {% else %}
+            <a href="{{ url_for('workflow_tool') }}" class="action-card" target="_blank">
+                <div class="action-icon purple"><i class="fas fa-project-diagram"></i></div>
+                <div class="action-title">Workflows</div>
+                <div class="action-desc">Automate processes</div>
+            </a>
+            {% endif %}
+        {% endif %}
+        
+        {# Environments - Available for all tiers with role >= 2 #}
+        {% if AGENT_ENVIRONMENTS_ENABLED %}
+        <a href="{{ url_for('environments.index') }}" class="action-card">
+            <div class="action-icon green"><i class="fas fa-cube"></i></div>
+            <div class="action-title">Environments</div>
+            <div class="action-desc">Manage configs</div>
+        </a>
+        {% endif %}
+    </div>
+    
+    {% else %}
+    {# END USER VIEW (role 1) - Limited action cards #}
+    <div class="action-grid">
+        <a href="{{ url_for('assistants') }}" class="action-card primary">
+            <div class="action-icon"><i class="fas fa-comments"></i></div>
+            <div class="action-title">Chat with AI</div>
+            <div class="action-desc">Start a conversation</div>
+        </a>
+        
+        <a href="{{ url_for('data_assistants') }}" class="action-card">
+            <div class="action-icon green"><i class="fas fa-database"></i></div>
+            <div class="action-title">Data Assistant</div>
+            <div class="action-desc">Query your data</div>
+        </a>
+        
+        {% if SHOW_WORKFLOW_FEATURES and not IS_DEVELOPER_MODE %}
+        <a href="{{ url_for('approvals') }}" class="action-card">
+            <div class="action-icon amber"><i class="fas fa-clipboard-check"></i></div>
+            <div class="action-title">My Approvals</div>
+            <div class="action-desc">Review pending items</div>
+        </a>
+        {% endif %}
+        
+        <a href="{{ url_for('jobs') }}" class="action-card">
+            <div class="action-icon purple"><i class="fas fa-briefcase"></i></div>
+            <div class="action-title">View Jobs</div>
+            <div class="action-desc">Check scheduled tasks</div>
+        </a>
+    </div>
+    {% endif %}
+    
+    {# ================================================================
+       RECENT CONVERSATIONS - From local history
+       ================================================================ #}
+    
+    <div class="dashboard-section expanded" onclick="toggleDashboardSection(this)">
+        <div class="section-header">
+            <div class="section-header-left">
+                <div class="section-icon purple"><i class="fas fa-history"></i></div>
+                <div>
+                    <div class="section-name">Recent Conversations</div>
+                    <div class="section-count">Saved conversations appear first • Click <i class="far fa-bookmark" style="font-size: 10px;"></i> to save</div>
+                </div>
+            </div>
+            <div class="section-header-right">
+                <!-- <a href="#" class="view-all-link" onclick="event.stopPropagation()">View All</a> -->
+                <i class="fas fa-chevron-down section-chevron"></i>
+            </div>
+        </div>
+        <div class="section-content" id="recentConversations">
+            <div class="empty-state" id="conversationsEmpty">
+                <i class="fas fa-comments"></i>
+                <p>No recent conversations yet. Start chatting!</p>
+            </div>
+            {# Populated via JavaScript #}
+        </div>
+    </div>
+    
+    {# ================================================================
+       QUICK QUERIES - Pinned and frequent
+       ================================================================ #}
+    
+    <div class="dashboard-section" onclick="toggleDashboardSection(this)">
+        <div class="section-header">
+            <div class="section-header-left">
+                <div class="section-icon amber"><i class="fas fa-bolt"></i></div>
+                <div>
+                    <div class="section-name">Quick Queries</div>
+                    <div class="section-count">Re-run frequent questions</div>
+                </div>
+            </div>
+            <div class="section-header-right">
+                <!-- <a href="#" class="view-all-link" onclick="event.stopPropagation()">Manage</a> -->
+                <i class="fas fa-chevron-down section-chevron"></i>
+            </div>
+        </div>
+        <div class="section-content" id="quickQueries">
+            <div class="empty-state" id="queriesEmpty">
+                <i class="fas fa-bolt"></i>
+                <p>Frequently used queries will appear here</p>
+            </div>
+            {# Populated via JavaScript #}
+        </div>
+    </div>
+    
+    {# ================================================================
+       YOUR AGENTS - For developers/admins
+       ================================================================ #}
+    
+    {% if current_user.role >= 2 %}
+    <div class="dashboard-section" onclick="toggleDashboardSection(this)">
+        <div class="section-header">
+            <div class="section-header-left">
+                <div class="section-icon blue"><i class="fas fa-robot"></i></div>
+                <div>
+                    <div class="section-name">Your Agents</div>
+                    <div class="section-count" id="agentsSectionCount">Loading...</div>
+                </div>
+            </div>
+            <div class="section-header-right">
+                <a href="{{ url_for('custom_agent_enhanced') }}" class="view-all-link" onclick="event.stopPropagation()">Manage</a>
+                <i class="fas fa-chevron-down section-chevron"></i>
+            </div>
+        </div>
+        <div class="section-content" id="agentsList">
+            <div class="empty-state" id="agentsLoading">
+                <i class="fas fa-spinner fa-spin"></i>
+                <p>Loading agents...</p>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    {# END USER VIEW - Available Assistants (chat only) #}
+    <div class="dashboard-section expanded" onclick="toggleDashboardSection(this)">
+        <div class="section-header">
+            <div class="section-header-left">
+                <div class="section-icon blue"><i class="fas fa-robot"></i></div>
+                <div>
+                    <div class="section-name">Available Assistants</div>
+                    <div class="section-count" id="assistantsSectionCount">AI assistants you can chat with</div>
+                </div>
+            </div>
+            <div class="section-header-right">
+                <i class="fas fa-chevron-down section-chevron"></i>
+            </div>
+        </div>
+        <div class="section-content" id="assistantsList">
+            <div class="empty-state" id="assistantsLoading">
+                <i class="fas fa-spinner fa-spin"></i>
+                <p>Loading assistants...</p>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    
+    {# ================================================================
+       SCHEDULED JOBS
+       ================================================================ #}
+    
+    {% if SHOW_WORKFLOW_SCHEDULING or (current_user.role >= 1 and not IS_DEVELOPER_MODE) %}
+    <div class="dashboard-section" onclick="toggleDashboardSection(this)">
+        <div class="section-header">
+            <div class="section-header-left">
+                <div class="section-icon green"><i class="fas fa-clock"></i></div>
+                <div>
+                    <div class="section-name">Scheduled Jobs</div>
+                    <div class="section-count" id="jobsSectionCount">
+                        {% if IS_DEVELOPER_MODE %}
+                        Scheduling requires upgrade
+                        {% else %}
+                        Loading...
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="section-header-right">
+                <a href="{{ url_for('jobs') }}" class="view-all-link" onclick="event.stopPropagation()">Manage</a>
+                <i class="fas fa-chevron-down section-chevron"></i>
+            </div>
+        </div>
+        <div class="section-content" id="jobsList">
+            {% if IS_DEVELOPER_MODE %}
+            <div class="empty-state">
+                <i class="fas fa-clock"></i>
+                <p>Job scheduling requires a Professional plan</p>
+                <a href="/pricing" class="btn-dashboard btn-dashboard-secondary btn-sm mt-2">
+                    <i class="fas fa-arrow-up"></i> Upgrade to unlock
+                </a>
+            </div>
+            {% else %}
+            <div class="empty-state" id="jobsLoading">
+                <i class="fas fa-spinner fa-spin"></i>
+                <p>Loading jobs...</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+    
+    {# ================================================================
+       ADMIN ONLY: System Status
+       ================================================================ #}
+    
+    {% if current_user.role == 3 %}
+    <div class="dashboard-section" onclick="toggleDashboardSection(this)">
+        <div class="section-header">
+            <div class="section-header-left">
+                <div class="section-icon red"><i class="fas fa-cog"></i></div>
+                <div>
+                    <div class="section-name">System Status</div>
+                    <div class="section-count">Admin overview</div>
+                </div>
+            </div>
+            <div class="section-header-right">
+                <a href="/admin/tier" class="view-all-link" onclick="event.stopPropagation()" target="_blank">View Details</a>
+                <i class="fas fa-chevron-down section-chevron"></i>
+            </div>
+        </div>
+        <div class="section-content">
+            <div class="list-item">
+                <div class="list-item-info">
+                    <div class="list-item-details">
+                        <h4>Active Users</h4>
+                        <span>Total registered</span>
+                    </div>
+                </div>
+                <div style="font-size: 18px; font-weight: 700; color: #22c55e;" id="totalUsersCount">
+                    <i class="fas fa-spinner fa-spin" style="font-size: 14px;"></i>
+                </div>
+            </div>
+            <div class="list-item">
+                <div class="list-item-info">
+                    <div class="list-item-details">
+                        <h4>Total Agents</h4>
+                        <span>All types</span>
+                    </div>
+                </div>
+                <div style="font-size: 18px; font-weight: 700; color: #6366f1;" id="totalAgentsCount">
+                    <i class="fas fa-spinner fa-spin" style="font-size: 14px;"></i>
+                </div>
+            </div>
+            {% if SHOW_WORKFLOW_FEATURES and not IS_DEVELOPER_MODE %}
+            <div class="list-item">
+                <div class="list-item-info">
+                    <div class="list-item-details">
+                        <h4>Pending Approvals</h4>
+                        <span>Workflow approvals waiting</span>
+                    </div>
+                </div>
+                <div style="font-size: 18px; font-weight: 700; color: #f59e0b;" id="pendingApprovalsCount">
+                    <i class="fas fa-spinner fa-spin" style="font-size: 14px;"></i>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+    
+    {# ================================================================
+       UPGRADE CTA - Only for Developer mode, using actual feature flags
+       ================================================================ #}
+    
+    {% if IS_DEVELOPER_MODE %}
+    <div class="upgrade-cta">
+        <div class="upgrade-cta-content">
+            <div class="upgrade-cta-icon"><i class="fas fa-rocket"></i></div>
+            <div>
+                <h4>Ready to go to production?</h4>
+                <p>Upgrade for job scheduling
+                    {%- if not SHOW_DOCUMENT_FEATURES %}, documents{% endif -%}
+                    {%- if not SHOW_ENTERPRISE_FEATURES %}, multi-user support{% endif -%}
+                    {%- if not SHOW_WORKFLOW_SCHEDULING %}, workflow automation{% endif -%}
+                    & more
+                </p>
+            </div>
+        </div>
+        <a href="/pricing" class="upgrade-btn">
+            <i class="fas fa-arrow-up"></i>
+            Upgrade Now
+        </a>
+    </div>
+    {% endif %}
+    
+    {# ================================================================
+       PRIVACY FOOTER - Subtle at bottom
+       ================================================================ #}
+    
+    <div class="privacy-footer">
+        <i class="fas fa-shield-alt"></i>
+        Conversation history is stored locally on your device only. Never sent to the cloud or used for training.
+    </div>
+    
+</div>
+
+<script>
+// Toggle collapsible sections
+function toggleDashboardSection(section) {
+    if (event.target.closest('a') || event.target.closest('button')) return;
+    section.classList.toggle('expanded');
+}
+
+// Current user role (passed from Jinja)
+const USER_ROLE = {{ current_user.role }};
+const USER_ID = {{ current_user.id }};
+
+// Store loaded data
+let loadedAgents = [];
+let loadedDataAgents = [];
+let loadedJobs = [];
+
+// Load all dashboard data on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadDashboardHistory();
+    loadAgents();
+    loadJobs();
+    if (USER_ROLE === 3) {
+        loadSystemStats();
+    }
+});
+
+// ============================================================
+// AGENTS LOADING
+// ============================================================
+
+async function loadAgents() {
+    try {
+        // Load regular agents
+        const agentsResponse = await fetch('/get/agents');
+        const agentsData = await agentsResponse.json();
+        
+        if (agentsData.status === 'success') {
+            loadedAgents = agentsData.data || [];
+        }
+        
+        // Load data agents
+        const dataAgentsResponse = await fetch('/get/data_agents');
+        const dataAgentsData = await dataAgentsResponse.json();
+        
+        if (dataAgentsData.status === 'success') {
+            let parsedData = dataAgentsData.data || [];
+            if (typeof parsedData === 'string') {
+                parsedData = JSON.parse(parsedData);
+            }
+            loadedDataAgents = parsedData;
+        }
+        
+        // Combine and render
+        const allAgents = [...loadedAgents, ...loadedDataAgents];
+        
+        // Update section count
+        const countEl = document.getElementById('agentsSectionCount');
+        if (countEl) {
+            const enabledCount = allAgents.filter(a => a.agent_enabled || a.enabled).length;
+            countEl.textContent = `${allAgents.length} agents (${enabledCount} enabled)`;
+        }
+        
+        // Update total agents count (admin section)
+        const totalAgentsEl = document.getElementById('totalAgentsCount');
+        if (totalAgentsEl) {
+            totalAgentsEl.textContent = allAgents.length;
+        }
+        
+        // Render agents list
+        if (USER_ROLE >= 2) {
+            renderAgentsList(allAgents);
+        } else {
+            renderAssistantsList(allAgents);
+        }
+        
+    } catch (error) {
+        console.error('Error loading agents:', error);
+        const container = document.getElementById('agentsList') || document.getElementById('assistantsList');
+        if (container) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <p>Error loading agents</p>
+                </div>
+            `;
+        }
+    }
+}
+
+function renderAgentsList(agents) {
+    const container = document.getElementById('agentsList');
+    if (!container) return;
+    
+    if (agents.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-robot"></i>
+                <p>No agents created yet</p>
+                <a href="/custom_agent_enhanced" class="btn-dashboard btn-dashboard-primary btn-sm mt-2">
+                    <i class="fas fa-plus"></i> Create Agent
+                </a>
+            </div>
+        `;
+        return;
+    }
+    
+    // Show first 5 agents
+    const displayAgents = agents.slice(0, 5);
+    
+    let html = '';
+    displayAgents.forEach(agent => {
+        const isEnabled = agent.agent_enabled || agent.enabled || false;
+        const agentName = agent.agent_description || agent.description || 'Unnamed Agent';
+        const agentType = agent.agent_type || agent.type || 'general';
+        const agentId = agent.agent_id || agent.id;
+        
+        // Determine icon based on type
+        let iconClass = 'comments';
+        let avatarClass = 'chat';
+        if (agentType === 'data') {
+            iconClass = 'database';
+            avatarClass = 'data';
+        } else if (agentType === 'workflow') {
+            iconClass = 'project-diagram';
+            avatarClass = 'workflow';
+        }
+        
+        html += `
+            <div class="list-item">
+                <div class="list-item-info">
+                    <div class="list-item-avatar ${avatarClass}">
+                        <i class="fas fa-${iconClass}"></i>
+                    </div>
+                    <div class="list-item-details">
+                        <h4>${escapeHtml(agentName)}</h4>
+                        <span>${agentType.charAt(0).toUpperCase() + agentType.slice(1)} Agent</span>
+                    </div>
+                </div>
+                <div class="status-badge ${isEnabled ? '' : 'inactive'}">
+                    <span class="status-dot ${isEnabled ? '' : 'inactive'}"></span>
+                    ${isEnabled ? 'Active' : 'Disabled'}
+                </div>
+                <div class="list-item-actions">
+                    <a href="/assistants?agent=${agentId}" class="btn-icon" title="Chat">
+                        <i class="fas fa-comments"></i>
+                    </a>
+                    <a href="/custom_agent_enhanced?edit=${agentId}" class="btn-icon secondary" title="Edit">
+                        <i class="fas fa-edit"></i>
+                    </a>
+                </div>
+            </div>
+        `;
+    });
+    
+    container.innerHTML = html;
+}
+
+function renderAssistantsList(agents) {
+    const container = document.getElementById('assistantsList');
+    if (!container) return;
+    
+    // Filter to only enabled agents
+    const enabledAgents = agents.filter(a => a.agent_enabled || a.enabled);
+    
+    // Update count
+    const countEl = document.getElementById('assistantsSectionCount');
+    if (countEl) {
+        countEl.textContent = `${enabledAgents.length} assistants available`;
+    }
+    
+    if (enabledAgents.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-robot"></i>
+                <p>No assistants available</p>
+            </div>
+        `;
+        return;
+    }
+    
+    let html = '';
+    enabledAgents.forEach(agent => {
+        const agentName = agent.agent_description || agent.description || 'Unnamed Agent';
+        const agentObjective = agent.agent_objective || agent.objective || '';
+        const agentType = agent.agent_type || agent.type || 'general';
+        const agentId = agent.agent_id || agent.id;
+        
+        let iconClass = 'comments';
+        let avatarClass = 'chat';
+        if (agentType === 'data') {
+            iconClass = 'database';
+            avatarClass = 'data';
+        }
+        
+        html += `
+            <div class="list-item">
+                <div class="list-item-info">
+                    <div class="list-item-avatar ${avatarClass}">
+                        <i class="fas fa-${iconClass}"></i>
+                    </div>
+                    <div class="list-item-details">
+                        <h4>${escapeHtml(agentName)}</h4>
+                        <span>${escapeHtml(agentObjective.substring(0, 60))}${agentObjective.length > 60 ? '...' : ''}</span>
+                    </div>
+                </div>
+                <div class="list-item-actions">
+                    <a href="/assistants?agent=${agentId}" class="btn-dashboard btn-dashboard-primary btn-sm">
+                        <i class="fas fa-comments"></i> Chat
+                    </a>
+                </div>
+            </div>
+        `;
+    });
+    
+    container.innerHTML = html;
+}
+
+// ============================================================
+// JOBS LOADING
+// ============================================================
+
+async function loadJobs() {
+    // Skip if developer mode (no scheduling)
+    const jobsContainer = document.getElementById('jobsList');
+    if (!jobsContainer || document.getElementById('jobsLoading') === null) {
+        return; // Developer mode or jobs not visible
+    }
+    
+    try {
+        const response = await fetch('/get/quickjobs');
+        let data = await response.json();
+        
+        // Parse if string
+        if (typeof data === 'string') {
+            data = JSON.parse(data);
+        }
+        
+        loadedJobs = Array.isArray(data) ? data : (data.data || []);
+        
+        // Update section count
+        const countEl = document.getElementById('jobsSectionCount');
+        if (countEl) {
+            const activeJobs = loadedJobs.filter(j => j.is_on || j.enabled || j.is_enabled).length;
+            countEl.textContent = `${loadedJobs.length} jobs (${activeJobs} active)`;
+        }
+        
+        // Render jobs
+        renderJobsList(loadedJobs);
+        
+    } catch (error) {
+        console.error('Error loading jobs:', error);
+        const container = document.getElementById('jobsList');
+        if (container) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <p>Error loading jobs</p>
+                </div>
+            `;
+        }
+    }
+}
+
+function renderJobsList(jobs) {
+    const container = document.getElementById('jobsList');
+    if (!container) return;
+    
+    if (jobs.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-clock"></i>
+                <p>No scheduled jobs</p>
+                <a href="/jobs" class="btn-dashboard btn-dashboard-primary btn-sm mt-2">
+                    <i class="fas fa-plus"></i> Create Job
+                </a>
+            </div>
+        `;
+        return;
+    }
+    
+    // Show first 3 jobs
+    const displayJobs = jobs.slice(0, 3);
+    
+    let html = '';
+    displayJobs.forEach(job => {
+        const isActive = job.is_on || job.enabled || job.is_enabled || false;
+        const jobName = job.description || job.job_name || job.name || 'Unnamed Job';
+        const jobDesc = job.ai_system || job.schedule || 'No description';
+        const agentId = job.agent_id;
+        const jobId = job.job_id || job.id;
+        
+        html += `
+            <div class="list-item">
+                <div class="list-item-info">
+                    <span class="status-dot ${isActive ? '' : 'inactive'}"></span>
+                    <div class="list-item-details" style="margin-left: 8px;">
+                        <h4>${escapeHtml(jobName)}</h4>
+                        <span>${agentId ? 'Agent #' + agentId : 'No agent'} • ${isActive ? 'Active' : 'Inactive'}</span>
+                    </div>
+                </div>
+                <div class="list-item-actions">
+                    <a href="/jobs?id=${jobId}" class="btn-icon secondary" title="Edit">
+                        <i class="fas fa-edit"></i>
+                    </a>
+                </div>
+            </div>
+        `;
+    });
+    
+    container.innerHTML = html;
+}
+
+// ============================================================
+// SYSTEM STATS (Admin only)
+// ============================================================
+
+async function loadSystemStats() {
+    try {
+        // Use the same endpoint as admin_tier_usage.html
+        const response = await fetch('/admin/tier/api/stats');
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success') {
+                // Update user count
+                const usersEl = document.getElementById('totalUsersCount');
+                if (usersEl && data.user_statistics) {
+                    usersEl.textContent = data.user_statistics.total || 0;
+                }
+                
+                // Update agents count from usage data
+                const agentsEl = document.getElementById('totalAgentsCount');
+                if (agentsEl && data.usage) {
+                    agentsEl.textContent = data.usage.agents || 0;
+                }
+            }
+        }
+    } catch (error) {
+        console.log('Could not load tier stats:', error);
+    }
+    
+    // Load approvals count
+    try {
+        const response = await fetch('/api/workflow/user-approvals');
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success' && data.statistics) {
+                const approvalsEl = document.getElementById('pendingApprovalsCount');
+                if (approvalsEl) {
+                    approvalsEl.textContent = data.statistics.pending || 0;
+                }
+            }
+        }
+    } catch (error) {
+        console.log('Could not load approvals:', error);
+    }
+}
+
+// ============================================================
+// HISTORY LOADING
+// ============================================================
+
+async function loadDashboardHistory() {
+    try {
+        // Add timestamp to prevent caching of stale data
+        const cacheBuster = new Date().getTime();
+        const response = await fetch(`/api/history/dashboard?_t=${cacheBuster}`);
+        if (!response.ok) {
+            console.warn('History API returned non-OK status:', response.status);
+            return;
+        }
+        
+        const data = await response.json();
+        
+        if (!data.enabled) {
+            console.log('History is not enabled for this user');
+            return;
+        }
+        
+        // Render conversations
+        if (data.conversations && data.conversations.length > 0) {
+            console.log(`Rendering ${data.conversations.length} conversations`);
+            renderConversations(data.conversations);
+        } else {
+            console.log('No conversations to display');
+        }
+        
+        // Render queries
+        if (data.queries && data.queries.length > 0) {
+            renderQueries(data.queries);
+        }
+        
+    } catch (error) {
+        console.error('Error loading history:', error);
+    }
+}
+
+function renderConversations(conversations) {
+    const container = document.getElementById('recentConversations');
+    const emptyState = document.getElementById('conversationsEmpty');
+    
+    // Clear existing conversation items (but keep the empty state element)
+    const existingItems = container.querySelectorAll('.list-item');
+    existingItems.forEach(item => item.remove());
+    
+    if (!conversations || conversations.length === 0) {
+        if (emptyState) emptyState.style.display = '';
+        return;
+    }
+    
+    if (emptyState) emptyState.style.display = 'none';
+    
+    // Sort: pinned first, then by updated_at descending
+    conversations.sort((a, b) => {
+        if (a.is_pinned && !b.is_pinned) return -1;
+        if (!a.is_pinned && b.is_pinned) return 1;
+        // Use moment.js for proper UTC timestamp comparison
+        const dateA = moment.utc(a.updated_at);
+        const dateB = moment.utc(b.updated_at);
+        return dateB.diff(dateA);
+    });
+    
+    let html = '';
+    conversations.forEach(conv => {
+        const timeAgo = formatTimeAgo(conv.updated_at);
+        const isPinned = conv.is_pinned || false;
+        const pinIcon = isPinned ? 'fas fa-bookmark' : 'far fa-bookmark';
+        const pinTitle = isPinned ? 'Unsave conversation' : 'Save conversation';
+        const pinClass = isPinned ? 'pinned' : '';
+        const avatarClass = isPinned ? 'history saved' : 'history';
+        
+        html += `
+            <div class="list-item ${pinClass}" data-conversation-id="${conv.id}">
+                <div class="list-item-info">
+                    <div class="list-item-avatar ${avatarClass}">
+                        <i class="fas fa-comment-alt"></i>
+                    </div>
+                    <div class="list-item-details">
+                        <h4>${escapeHtml(conv.title)}${isPinned ? ' <i class="fas fa-bookmark text-warning" style="font-size: 10px;"></i>' : ''}</h4>
+                        <span>Agent #${conv.agent_id} • ${timeAgo}</span>
+                    </div>
+                </div>
+                <div class="list-item-actions">
+                    <button class="btn-icon ${isPinned ? 'active' : ''}" onclick="togglePinConversation('${conv.id}', ${!isPinned})" title="${pinTitle}">
+                        <i class="${pinIcon}"></i>
+                    </button>
+                    <button class="run-btn" onclick="continueConversation('${conv.id}', ${conv.agent_id})">
+                        <i class="fas fa-play"></i> Continue
+                    </button>
+                    <button class="btn-icon danger" onclick="deleteConversation('${conv.id}')" title="Delete">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+    });
+    
+    // Insert before empty state
+    if (emptyState) {
+        emptyState.insertAdjacentHTML('beforebegin', html);
+    } else {
+        container.innerHTML = html;
+    }
+}
+
+function renderQueries(queries) {
+    const container = document.getElementById('quickQueries');
+    const emptyState = document.getElementById('queriesEmpty');
+    
+    if (emptyState) emptyState.style.display = 'none';
+    
+    let html = '';
+    queries.forEach(query => {
+        const iconClass = query.is_pinned ? 'pinned' : 'frequent';
+        const iconName = query.is_pinned ? 'thumbtack' : 'fire';
+        
+        html += `
+            <div class="query-item" onclick="runQuery(${query.agent_id}, '${escapeHtml(query.text)}')">
+                <div class="query-icon ${iconClass}">
+                    <i class="fas fa-${iconName}"></i>
+                </div>
+                <div class="query-content">
+                    <div class="query-text">${escapeHtml(query.text)}</div>
+                    <div class="query-meta">${query.is_pinned ? 'Pinned' : 'Frequent'} • Used ${query.frequency} times</div>
+                </div>
+                <button class="run-btn" onclick="event.stopPropagation(); runQuery(${query.agent_id}, '${escapeHtml(query.text)}')">
+                    <i class="fas fa-play"></i> Run
+                </button>
+            </div>
+        `;
+    });
+    
+    if (emptyState) {
+        emptyState.insertAdjacentHTML('beforebegin', html);
+    } else {
+        container.innerHTML = html;
+    }
+}
+
+// ============================================================
+// ACTION HANDLERS
+// ============================================================
+
+function continueConversation(conversationId, agentId) {
+    window.location.href = `/assistants?agent=${agentId}&conversation=${conversationId}`;
+}
+
+async function deleteConversation(conversationId) {
+    if (!confirm('Delete this conversation?')) return;
+    
+    try {
+        const response = await fetch(`/api/history/conversations/${conversationId}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            loadDashboardHistory();
+        }
+    } catch (error) {
+        console.error('Error deleting conversation:', error);
+    }
+}
+
+async function togglePinConversation(conversationId, shouldPin) {
+    try {
+        const response = await fetch(`/api/history/conversations/${conversationId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                is_pinned: shouldPin
+            })
+        });
+        
+        if (response.ok) {
+            // Reload the conversations to show updated state
+            loadDashboardHistory();
+        } else {
+            console.error('Failed to update conversation pin status');
+        }
+    } catch (error) {
+        console.error('Error toggling conversation pin:', error);
+    }
+}
+
+function runQuery(agentId, queryText) {
+    const encoded = encodeURIComponent(queryText);
+    window.location.href = `/assistants?agent=${agentId}&query=${encoded}`;
+}
+
+// ============================================================
+// UTILITY FUNCTIONS
+// ============================================================
+
+function formatTimeAgo(utcTimestamp) {
+    if (!utcTimestamp) {
+        console.warn('formatTimeAgo called with empty timestamp');
+        return 'Unknown';
+    }
+    
+    // Parse the UTC timestamp using moment.js
+    // This properly handles ISO format timestamps with UTC like "2024-01-15T10:30:45.123456+00:00"
+    const utcMoment = moment.utc(utcTimestamp);
+    
+    // Check if the timestamp is valid
+    if (!utcMoment.isValid()) {
+        console.warn('Invalid UTC timestamp:', utcTimestamp);
+        return 'Unknown';
+    }
+    
+    // Convert to local browser time
+    const localMoment = utcMoment.local();
+    const now = moment();
+    
+    // Calculate difference in seconds
+    const diffSeconds = now.diff(localMoment, 'seconds');
+    
+    // Handle future dates (can happen with clock skew)
+    if (diffSeconds < 0) {
+        return 'Just now';
+    }
+    
+    // Format based on time difference
+    if (diffSeconds < 60) return 'Just now';
+    if (diffSeconds < 3600) {
+        const mins = Math.floor(diffSeconds / 60);
+        return mins === 1 ? '1 min ago' : `${mins} mins ago`;
+    }
+    if (diffSeconds < 86400) {
+        const hours = Math.floor(diffSeconds / 3600);
+        return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
+    }
+    if (diffSeconds < 604800) {
+        const days = Math.floor(diffSeconds / 86400);
+        return days === 1 ? '1 day ago' : `${days} days ago`;
+    }
+    if (diffSeconds < 2592000) { // Less than 30 days
+        const weeks = Math.floor(diffSeconds / 604800);
+        return weeks === 1 ? '1 week ago' : `${weeks} weeks ago`;
+    }
+    
+    // For older dates, show the actual date in local time
+    return localMoment.format('MMM D, YYYY');
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+
+{# Include welcome modal for onboarding #}
+{% include 'components/welcome_modal.html' %}
+
+<!-- Dashboard Theme Toggle Script -->
+<script>
+function toggleDashTheme() {
+    const page = document.getElementById('dashboardPage');
+    const icon = document.getElementById('dashThemeIcon');
+    const label = document.getElementById('dashThemeLabel');
+    page.classList.toggle('light-mode');
+    const isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    const saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        const page = document.getElementById('dashboardPage');
+        if (page) {
+            page.classList.add('light-mode');
+            const icon = document.getElementById('dashThemeIcon');
+            const label = document.getElementById('dashThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+
+</div><!-- /.dashboard-page -->
+{% endblock %}

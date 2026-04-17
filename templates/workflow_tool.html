@@ -1,0 +1,2620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workflow Designer</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/workflow_node_colors.css') }}" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+</head>
+<body><div class="doc-page" id="docPage">
+<div style="position:fixed;bottom:20px;right:20px;z-index:9999;"><button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme"><i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span></button></div>
+    <style>
+        /* ===== STYLES FROM ASSISTANTS.HTML FOR CONSISTENCY ===== */
+        .compact-header {
+            background: linear-gradient(135deg, #2980b9 0%, #34495e 100%);
+            color: white;
+            padding: 0.5rem 1rem;
+            margin-bottom: 1rem;
+            border-radius: 0.5rem;
+        }
+        
+        /* Button size consistency */
+        .btn {
+            font-size: 0.9rem;
+            padding: 0.375rem 0.75rem;
+        }
+        
+        .btn-sm {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.875rem;
+        }
+        
+        /* Form controls - make them smaller */
+        .form-control, .form-select {
+            font-size: 0.9rem;
+            padding: 0.375rem 0.75rem;
+        }
+        
+        /* Modal styling consistency */
+        .modal-content { background: var(--bg-card, #0a0a0a); color: var(--text-primary, #fff); border: 1px solid var(--border-subtle, #27272a); }
+        .modal-header {
+            background-color: var(--bg-elevated, #111);
+            padding: 0.75rem 1rem;
+            border-bottom-color: var(--border-subtle, #27272a);
+            color: var(--text-primary, #fff);
+        }
+        .modal-header .btn-close { filter: invert(1) grayscale(100%) brightness(200%); }
+        
+        .modal-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--text-primary, #fff);
+        }
+        
+        .modal-body {
+            padding: 0.75rem;
+            font-size: 0.9rem;
+            color: var(--text-primary, #fff);
+        }
+        .modal-body .form-label, .modal-body label { color: var(--text-secondary, #a1a1aa); }
+        .modal-body .form-control, .modal-body .form-select { background: var(--bg-input, #18181b); color: var(--text-primary, #fff); border-color: var(--border-subtle, #27272a); }
+        .modal-body .form-control:focus, .modal-body .form-select:focus { border-color: var(--cyber-cyan, #06b6d4); box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.15); }
+        
+        .modal-footer {
+            padding: 0.75rem;
+            border-top-color: var(--border-subtle, #27272a);
+            background: var(--bg-elevated, #111);
+        }
+        
+        /* Table styling to be more compact */
+        .table {
+            font-size: 0.9rem;
+        }
+        
+        .table th {
+            padding: 0.5rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            background-color: var(--bg-elevated, #f8f9fa);
+        }
+        
+        .table td {
+            padding: 0.5rem;
+            vertical-align: middle;
+        }
+        
+        /* Card styling */
+        .card {
+            margin-bottom: 0.75rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            border-radius: 0.5rem;
+        }
+        
+        .card-body {
+            padding: 0.75rem;
+        }
+        
+        .card-title {
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        /* Workflow specific adjustments */
+        .workflow-header {
+            padding: 0.5rem 1rem !important;
+            background: linear-gradient(135deg, #2980b9 0%, #34495e 100%) !important;
+            border-bottom: none !important;
+            border-radius: 0.5rem;
+            margin: 0.5rem;
+        }
+        
+        /*
+        .workflow-header * {
+            color: white !important;
+        }
+        */
+        .workflow-header .btn {
+            font-size: 0.875rem;
+            padding: 0.25rem 0.5rem;
+        }
+        
+        .workflow-header select {
+            font-size: 0.875rem;
+            padding: 0.25rem 0.5rem;
+            max-width: 250px;
+        }
+        
+        #currentWorkflowDisplay {
+            font-size: 0.875rem;
+            padding: 0.25rem 0.5rem !important;
+        }
+        
+        /* Toolbar styling */
+        .toolbar {
+            padding: 1rem 1rem 1rem 1.5rem; /* top right bottom left */
+            background-color: var(--bg-elevated, #f8f9fa);
+            border-right: 1px solid var(--border-subtle, #dee2e6);
+            height: calc(100vh - 60px);
+            overflow-y: auto;
+            overflow-x: hidden;
+            min-width: 200px; /* Ensure minimum width */
+            box-sizing: border-box; /* Include padding in width calculation */
+        }
+        
+        .toolbar h4 {
+            font-size: 1rem;
+            margin-bottom: 0.75rem;
+            font-weight: 600;
+        }
+        
+        .tool-item {
+            padding: 0.5rem;
+            margin-bottom: 0.5rem;
+            border: 1px solid var(--border-subtle, #dee2e6);
+            border-radius: 0.25rem;
+            cursor: move;
+            background: var(--bg-card, white);
+            font-size: 0.875rem;
+            transition: all 0.2s;
+        }
+        
+        /* .tool-item:hover {
+            background: var(--border-subtle, #e9ecef);
+            transform: translateX(2px);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        } */
+        
+        .tool-item i {
+            margin-right: 0.5rem;
+            font-size: 0.875rem;
+        }
+        
+        /* Context menu styling */
+        .context-menu {
+            position: absolute;
+            background: var(--bg-card, white);
+            border: 1px solid var(--border-subtle, #dee2e6);
+            border-radius: 0.25rem;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            z-index: 1000;
+            display: none;
+            font-size: 0.875rem;
+        }
+        
+        .context-menu-item {
+            padding: 0.5rem 0.75rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .context-menu-item:hover {
+            background: var(--bg-elevated, #f8f9fa);
+        }
+        
+        .context-menu-item i {
+            margin-right: 0.5rem;
+            font-size: 0.875rem;
+        }
+        
+        .context-menu-separator {
+            border-top: 1px solid var(--border-subtle, #dee2e6);
+            margin: 0.25rem 0;
+        }
+        
+        /* Badge styling */
+        .badge {
+            font-size: 0.75rem;
+            padding: 0.25em 0.5em;
+        }
+        
+        /* Form labels */
+        .form-label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+        
+        /* Input groups */
+        .input-group .form-control {
+            font-size: 0.875rem;
+        }
+        
+        /* Workflow control buttons */
+        .workflow-control-btn {
+            font-size: 0.875rem;
+            padding: 0.25rem 0.75rem;
+        }
+        
+        .workflow-status {
+            font-size: 0.85rem;
+            margin-left: 0.5rem;
+            display: inline-block;
+        }
+        
+        /* Debug panel adjustments */
+        .debug-header {
+            padding: 0.5rem 1rem !important;
+        }
+        
+        .debug-header h5 {
+            font-size: 0.9rem !important;
+        }
+        
+        .debug-toggle-btn {
+            padding: 2px 6px !important;
+            min-width: 24px !important;
+            height: 24px !important;
+        }
+        
+        .debug-tabs .nav-link {
+            font-size: 0.85rem;
+            padding: 0.25rem 0.75rem;
+        }
+        
+        .debug-log-content {
+            font-size: 0.85rem;
+        }
+        
+        .debug-status {
+            font-size: 0.85rem;
+        }
+        
+        /* Tab content padding */
+        .tab-content {
+            padding: 0.75rem !important;
+        }
+        
+        /* Workflow node styling adjustments */
+        .workflow-node {
+            position: absolute !important;
+            transform: none !important;
+            min-width: 120px;
+            padding: 0.5rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+        }
+        
+        .node-content {
+            font-size: 0.875rem;
+        }
+        
+        /* Small text consistency */
+        h5 {
+            font-size: 1rem;
+        }
+        
+        h6 {
+            font-size: 0.9rem;
+        }
+        
+        /* Container adjustments */
+        .container-fluid {
+            padding: 0;
+        }
+        
+        .col-10 {
+            padding: 0.5rem;
+        }
+        
+        /* Feedback message */
+        #feedback-message {
+            font-size: 0.9rem;
+        }
+        
+        /* Existing workflow styles that need to be preserved */
+        /* .workflow-node[data-type="Conditional"] {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .workflow-node[data-type="Conditional"] .node-content {
+            color: white;
+        } */
+
+        /* Visual indicators for connection types */
+        .jtk-connector[data-type="pass"] {
+            stroke: #28a745 !important;
+        }
+
+        .jtk-connector[data-type="fail"] {
+            stroke: #dc3545 !important;
+        }
+
+        #workflow-canvas {
+            position: relative;
+            width: 100%;
+            height: calc(100vh - 100px);
+            overflow: auto;
+            background-color: var(--bg-elevated, #111);
+            background-image: 
+                linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        /* Ensure jsPlumb doesn't apply transforms during drag */
+        .jtk-drag {
+            transform: none !important;
+        }
+
+        .jtk-dragging {
+            transform: none !important;
+        }
+
+        /* Loop node styling */
+        /* .workflow-node[data-type="Loop"] {
+            background: linear-gradient(135deg, #00b4d8, #0077b6);
+        }
+
+        .workflow-node[data-type="Loop"] .node-content {
+            color: white;
+        } */
+
+        .workflow-node[data-type="Loop"]:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 15px rgba(0, 119, 182, 0.4);
+        }
+
+        /* Visual indicator for loop iterations in debug mode */
+        .workflow-node[data-type="Loop"].executing::after {
+            content: attr(data-iteration);
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            background: #ff6b6b;
+            color: white;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        /* End Loop node styling */
+        /* .workflow-node[data-type="End Loop"] {
+            background: linear-gradient(135deg, #48cae4, #0077b6);
+            border: 2px dashed #023e8a;
+        }
+
+        .workflow-node[data-type="End Loop"] .node-content {
+            color: white;
+        } */
+
+        /* Visual connection between Loop and End Loop */
+        .workflow-node[data-type="Loop"].executing ~ .workflow-node[data-type="End Loop"] {
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        /* Enhanced Debug Panel Styles with reduced sizes */
+        .debug-panel {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 250px; /* Reduced from 350px */
+            background: linear-gradient(180deg, var(--bg-card, #ffffff) 0%, var(--bg-elevated, #f8f9fa) 100%);
+            border-top: 2px solid var(--border-subtle, #dee2e6);
+            box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+            transition: transform 0.5s cubic-bezier(0.4, 0.0, 0.2, 1),
+                        opacity 0.5s cubic-bezier(0.4, 0.0, 0.2, 1),
+                        box-shadow 0.5s cubic-bezier(0.4, 0.0, 0.2, 1);
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        /* Collapsed state - panel slides down smoothly */
+        .debug-panel.collapsed {
+            transform: translateY(calc(100% - 40px)); /* Reduced from 50px */
+            box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        /* Debug content area with smooth fade */
+        .debug-content {
+            height: calc(100% - 40px); /* Adjusted for smaller header */
+            overflow-y: auto;
+            opacity: 1;
+            transition: opacity 0.3s ease;
+        }
+
+        .debug-panel.collapsed .debug-content {
+            opacity: 0.3;
+            pointer-events: none;
+        }
+
+        /* Resize handle for vertical resizing */
+        .debug-resize-handle {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 6px;
+            cursor: ns-resize;
+            background: linear-gradient(180deg, transparent 0%, rgba(108, 117, 125, 0.1) 100%);
+            transition: background 0.2s ease;
+        }
+
+        .debug-resize-handle:hover {
+            background: linear-gradient(180deg, transparent 0%, rgba(108, 117, 125, 0.2) 100%);
+        }
+
+        .debug-resize-handle::before {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 40px;
+            height: 3px;
+            background: var(--border-subtle, #dee2e6);
+            border-radius: 10px;
+            transition: all 0.2s ease;
+        }
+
+        .debug-resize-handle:hover::before {
+            width: 60px;
+            background: #adb5bd;
+        }
+
+        /* Visual feedback during resize */
+        .debug-panel.resizing {
+            transition: none;
+            user-select: none;
+        }
+
+        .debug-panel.resizing .debug-header {
+            cursor: ns-resize;
+        }
+
+        /* Icon rotation animation */
+        .debug-toggle-btn i {
+            transition: transform 0.4s cubic-bezier(0.4, 0.0, 0.2, 1);
+            font-size: 12px;
+        }
+
+        .debug-panel.collapsed .debug-toggle-btn i.bi-chevron-down {
+            transform: rotate(180deg);
+        }
+
+        /* Loading animation for debug logs */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        body {
+            background: #0a0a0a;
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            color: #fff;
+        }
+
+        /* Dark theme overrides for debug panel Bootstrap components */
+        .debug-panel .nav-tabs { border-bottom-color: var(--border-subtle, #27272a); background: var(--bg-card, #0a0a0a); }
+        .debug-panel .nav-tabs .nav-link { color: var(--text-muted, #71717a); border: none; font-size: 0.85rem; }
+        .debug-panel .nav-tabs .nav-link:hover { color: var(--text-primary, #fff); border: none; }
+        .debug-panel .nav-tabs .nav-link.active { color: var(--cyber-cyan, #06b6d4); background: transparent; border: none; border-bottom: 2px solid var(--cyber-cyan, #06b6d4); }
+        .debug-panel .tab-content { background: var(--bg-card, #0a0a0a); color: var(--text-primary, #fff); }
+        .debug-panel .table { color: var(--text-primary, #fff); --bs-table-bg: transparent; }
+        .debug-panel .table th { color: var(--text-secondary, #a1a1aa); border-color: var(--border-subtle, #27272a); background: var(--bg-elevated, #111); }
+        .debug-panel .table td { border-color: var(--border-subtle, #27272a); }
+        .debug-panel .table-hover > tbody > tr:hover > * { background-color: var(--bg-hover, #1c1c1f); color: var(--text-primary, #fff); }
+        .debug-panel .debug-header { background: var(--bg-elevated, #111); color: var(--text-primary, #fff); border-bottom: 1px solid var(--border-subtle, #27272a); }
+        .debug-panel .debug-log-content { color: var(--text-primary, #fff); font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; }
+        .debug-panel .form-select { background-color: var(--bg-input, #18181b); color: var(--text-primary, #fff); border-color: var(--border-subtle, #27272a); }
+        .debug-panel .list-group-item { background: var(--bg-card, #0a0a0a); color: var(--text-primary, #fff); border-color: var(--border-subtle, #27272a); }
+        .debug-panel pre { background: var(--bg-elevated, #111); color: var(--text-primary, #fff); }
+        /* Scrollbar overrides for standalone page */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #18181b; }
+        ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
+        .debug-panel .debug-content { background: var(--bg-card, #0a0a0a); }
+        .debug-panel .tab-pane { background: var(--bg-card, #0a0a0a); }
+        .debug-panel .debug-log { background: var(--bg-card, #0a0a0a); }
+        .debug-panel .debug-status { background: var(--bg-card, #0a0a0a); color: var(--text-primary, #fff); }
+
+
+        /* Human Approval specific node styling */
+/* .workflow-node[data-type="Human Approval"] {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: 2px solid #5a67d8;
+    color: white;
+}
+
+.workflow-node[data-type="Human Approval"] .node-content {
+    color: white;
+} 
+
+.workflow-node[data-type="Human Approval"] .bi-person-check {
+    color: white;
+    font-size: 1.2rem;
+}
+
+.workflow-node[data-type="Human Approval"].selected {
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.3);
+}
+*/
+
+/* Configuration modal enhancements for Human Approval */
+#nodeConfigModal .form-label {
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+    font-size: 0.9rem;
+}
+
+#nodeConfigModal .text-danger {
+    color: #dc3545 !important;
+}
+
+#nodeConfigModal .text-muted {
+    font-size: 0.8rem;
+    margin-top: 0.25rem;
+    display: block;
+}
+
+#nodeConfigModal .alert-info {
+    background-color: rgba(6, 182, 212, 0.1);
+    border-color: rgba(6, 182, 212, 0.25);
+    color: var(--cyber-cyan, #06b6d4);
+}
+
+#nodeConfigModal .alert-info i {
+    margin-right: 0.5rem;
+}
+
+/* Assignee dropdown styling */
+#assigneeType, #assigneeId {
+    font-size: 0.9rem;
+}
+
+#assigneeSelectGroup {
+    background-color: var(--bg-elevated, #f8f9fa);
+    padding: 15px;
+    border-radius: 5px;
+    margin-top: -10px;
+}
+
+/* Priority level color coding */
+select[name="priority"] option[value="0"] {
+    background-color: var(--border-subtle, #e9ecef);
+}
+
+select[name="priority"] option[value="1"] {
+    background-color: rgba(251, 191, 36, 0.15);
+}
+
+select[name="priority"] option[value="2"] {
+    background-color: rgba(251, 113, 133, 0.15);
+}
+
+/* JSON validation styling */
+textarea[name="approvalData"].is-invalid {
+    border-color: #dc3545;
+    padding-right: calc(1.5em + 0.75rem);
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' width='12' height='12' fill='none' stroke='%23dc3545'%3e%3ccircle cx='6' cy='6' r='4.5'/%3e%3cpath stroke-linejoin='round' d='M5.8 3.6h.4L6 6.5z'/%3e%3ccircle cx='6' cy='8.2' r='.6' fill='%23dc3545' stroke='none'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right calc(0.375em + 0.1875rem) center;
+    background-size: calc(0.75em + 0.375rem) calc(0.75em + 0.375rem);
+}
+
+/* Connection type badges for routing */
+.connection-label {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-left: 5px;
+}
+
+.connection-label.approved {
+    background-color: #28a745;
+    color: white;
+}
+
+.connection-label.rejected {
+    background-color: #dc3545;
+    color: white;
+}
+
+.connection-label.pass {
+    background-color: #6c757d;
+    color: white;
+}
+
+/* Loading indicator for assignee dropdown */
+#assigneeId[disabled] {
+    background-color: var(--border-subtle, #e9ecef);
+    cursor: wait;
+}
+
+/* Tooltip styling for help text */
+.tooltip-inner {
+    max-width: 300px;
+    text-align: left;
+}
+
+/* Approval node in canvas - add status indicator */
+.workflow-node[data-type="Human Approval"]::after {
+    content: attr(data-approval-status);
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    background: #ffc107;
+    color: #000;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 0.7rem;
+    font-weight: bold;
+    display: none;
+}
+
+.workflow-node[data-type="Human Approval"][data-approval-status]::after {
+    display: block;
+}
+
+.workflow-node[data-type="Human Approval"][data-approval-status="pending"]::after {
+    background: #ffc107;
+    content: "PENDING";
+}
+
+.workflow-node[data-type="Human Approval"][data-approval-status="approved"]::after {
+    background: #28a745;
+    color: white;
+    content: "APPROVED";
+}
+
+.workflow-node[data-type="Human Approval"][data-approval-status="rejected"]::after {
+    background: #dc3545;
+    color: white;
+    content: "REJECTED";
+}
+
+/* Enhanced modal size for Human Approval configuration */
+#nodeConfigModal.human-approval-modal .modal-dialog {
+    max-width: 650px;
+}
+
+/* Input group styling */
+.input-group-sm > .form-control,
+.input-group-sm > .input-group-text {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    #assigneeSelectGroup {
+        padding: 10px;
+    }
+    
+    #nodeConfigModal .modal-dialog {
+        margin: 10px;
+    }
+}
+
+/* Animation for approval status changes */
+@keyframes pulseApproval {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+.workflow-node[data-type="Human Approval"].approval-pending {
+    animation: pulseApproval 2s infinite;
+}
+
+/* Highlight required fields */
+.form-control:required,
+.form-select:required {
+    border-left: 3px solid #0d6efd;
+}
+
+.form-control:required:valid,
+.form-select:required:valid {
+    border-left: 3px solid #198754;
+}
+
+.form-control:required:invalid,
+.form-select:required:invalid {
+    border-left: 3px solid #dc3545;
+}
+
+
+/* AI Extract Node Styles */
+
+/* Tool item styling for palette */
+.tool-item[data-type="AI Extract"] {
+    background: linear-gradient(135deg, #6f42c1 0%, #d63384 100%);
+    color: white;
+    border: none;
+}
+
+.tool-item[data-type="AI Extract"]:hover {
+    background: linear-gradient(135deg, #5a32a3 0%, #b02a6d 100%);
+    transform: translateX(2px);
+}
+
+/* Node styling on canvas */
+.workflow-node[data-type="AI Extract"] {
+    background: linear-gradient(135deg, #6f42c1 0%, #d63384 100%);
+}
+
+.workflow-node[data-type="AI Extract"] .node-content {
+    color: white;
+}
+
+.workflow-node[data-type="AI Extract"]:hover {
+    box-shadow: 0 4px 12px rgba(111, 66, 193, 0.4);
+}
+
+/* Excel Export Node Styles */
+
+/* Tool item styling for palette */
+.tool-item[data-type="Excel Export"] {
+    background: linear-gradient(135deg, #198754 0%, #20c997 100%);
+    color: white;
+    border: none;
+}
+
+.tool-item[data-type="Excel Export"]:hover {
+    background: linear-gradient(135deg, #146c43 0%, #1aa179 100%);
+    transform: translateX(2px);
+}
+
+/* Node styling on canvas */
+.workflow-node[data-type="Excel Export"] {
+    background: linear-gradient(135deg, #198754 0%, #20c997 100%);
+}
+
+.workflow-node[data-type="Excel Export"] .node-content {
+    color: white;
+}
+
+.workflow-node[data-type="Excel Export"]:hover {
+    box-shadow: 0 4px 12px rgba(25, 135, 84, 0.4);
+}
+
+/* Excel Export Config Styles */
+.excel-export-config {
+    padding: 0.5rem;
+}
+
+.excel-export-config .form-label {
+    font-size: 0.875rem;
+}
+
+.excel-export-config hr {
+    border-color: var(--border-subtle, #dee2e6);
+}
+
+.excel-export-config h6 {
+    color: #198754;
+}
+
+#excel-export-mapping-container {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+#excel-export-mapping-container code {
+    font-size: 0.75rem;
+}
+
+#excel-export-mapping-container .badge {
+    font-size: 0.65rem;
+    padding: 0.15rem 0.3rem;
+}
+
+.excel-export-config .form-control,
+.excel-export-config .form-select {
+    font-size: 0.875rem;
+}
+
+.excel-export-config .form-text {
+    font-size: 0.75rem;
+}
+
+/* AI Extract Config Panel Styles */
+.ai-extract-config .fields-container {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.ai-extract-config .field-item {
+    border-left: 3px solid #0d6efd;
+}
+
+.ai-extract-config .field-item .card-body {
+    background: var(--bg-elevated, #f8f9fa);
+}
+
+.ai-extract-config .children-container {
+    border-color: #6c757d !important;
+}
+
+.ai-extract-config .children-container .field-item {
+    border-left-color: var(--text-muted, #6c757d);
+}
+
+.ai-extract-config .field-name-input.is-invalid {
+    border-color: #dc3545;
+    background-color: rgba(251, 113, 133, 0.1);
+}
+
+.ai-extract-config .field-name-input.is-valid {
+    border-color: #198754;
+}
+
+.ai-extract-config #ai-extract-preview {
+    font-family: 'Courier New', monospace;
+    background-color: var(--bg-elevated, #f8f9fa);
+}
+
+
+/* AI Extract Node Excel Options */
+#ai-extract-excel-options {
+    border-color: #198754 !important;
+}
+
+#ai-extract-excel-options h6 {
+    border-bottom: 1px solid var(--border-subtle, #dee2e6);
+    padding-bottom: 0.5rem;
+}
+
+/* Mapping row styling */
+.ai-extract-mapping-input {
+    font-size: 0.875rem;
+}
+
+/* Input source section transitions */
+#ai-extract-text-input-section,
+#ai-extract-document-section {
+    transition: all 0.2s ease-in-out;
+}
+
+/* Code badge for field names in mapping */
+#ai-extract-mapping-container code {
+    font-size: 0.8rem;
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+
+
+
+/* Compact AI Extract field items */
+.ai-extract-config .field-item {
+    margin-bottom: 0.5rem !important;
+}
+
+.ai-extract-config .field-item .card-body {
+    padding: 0.5rem 0.75rem !important;
+}
+
+.ai-extract-config .field-item .mb-2 {
+    margin-bottom: 0.35rem !important;
+}
+
+.ai-extract-config .field-item .mb-3 {
+    margin-bottom: 0.5rem !important;
+}
+
+.ai-extract-config .field-item .form-label {
+    margin-bottom: 0.15rem !important;
+    font-size: 0.85rem;
+}
+
+.ai-extract-config .field-item .form-control,
+.ai-extract-config .field-item .form-select {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+}
+
+.ai-extract-config .field-item .form-control-sm {
+    padding: 0.2rem 0.4rem;
+    font-size: 0.8rem;
+}
+
+.ai-extract-config .field-item .btn-sm {
+    padding: 0.2rem 0.4rem;
+    font-size: 0.8rem;
+}
+
+.ai-extract-config .field-item .row {
+    margin-bottom: 0.25rem;
+}
+
+/* Compact the field header row */
+.ai-extract-config .field-item .d-flex.justify-content-between {
+    margin-bottom: 0.25rem !important;
+}
+
+/* Reduce gap between inline elements */
+.ai-extract-config .field-item .gap-2 {
+    gap: 0.35rem !important;
+}
+
+/* Smaller delete button */
+.ai-extract-config .field-item .btn-outline-danger {
+    padding: 0.15rem 0.35rem;
+    font-size: 0.75rem;
+}
+
+/* Compact children container for nested fields */
+.ai-extract-config .children-container {
+    padding: 0.5rem !important;
+    margin-top: 0.35rem !important;
+}
+
+/* Reduce overall fields container padding if any */
+.ai-extract-config .fields-container {
+    padding: 0 !important;
+}
+
+
+
+
+/* Horizontal slide-out Excel options panel */
+.ai-extract-config {
+    position: relative;
+}
+
+.ai-extract-excel-slider {
+    position: absolute;
+    top: 0;
+    left: 100%;
+    width: 520px;
+    height: 100%;
+    background: var(--bg-card, #fff);
+    border: 1px solid #198754;
+    border-left: 3px solid #198754;
+    border-radius: 0 8px 8px 0;
+    box-shadow: 4px 0 15px rgba(0, 0, 0, 0.1);
+    transform: translateX(10px);
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+    z-index: 100;
+    overflow-y: auto;
+}
+
+.ai-extract-excel-slider.open {
+    transform: translateX(0);
+    opacity: 1;
+    visibility: visible;
+}
+
+.ai-extract-excel-slider .slider-header {
+    background: linear-gradient(135deg, #198754 0%, #157347 100%);
+    color: white;
+    padding: 0.5rem 0.75rem;
+    font-weight: bold;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.ai-extract-excel-slider .slider-body {
+    padding: 0.75rem;
+}
+
+.ai-extract-excel-slider .slider-close {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+.ai-extract-excel-slider .slider-close:hover {
+    opacity: 0.8;
+}
+
+/* Compact form elements inside slider */
+.ai-extract-excel-slider .form-label {
+    font-size: 0.85rem;
+    margin-bottom: 0.25rem;
+}
+
+.ai-extract-excel-slider .form-control,
+.ai-extract-excel-slider .form-select {
+    font-size: 0.85rem;
+    padding: 0.3rem 0.5rem;
+}
+
+.ai-extract-excel-slider .form-check-label {
+    font-size: 0.85rem;
+}
+
+.ai-extract-excel-slider .mb-3 {
+    margin-bottom: 0.75rem !important;
+}
+
+
+
+/* Sticky save/cancel buttons */
+#nodeConfigModal .modal-footer {
+    position: sticky;
+    bottom: 0;
+    background: var(--bg-card, white);
+    border-top: 1px solid var(--border-subtle, #dee2e6);
+    z-index: 10;
+}
+
+#nodeConfigModal .modal-body {
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+/* Excel slider - fixed position relative to viewport */
+.ai-extract-excel-slider {
+    position: fixed;
+    top: 50%;
+    transform: translateY(-50%) translateX(20px);
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+    height: auto;
+    max-height: 80vh;
+}
+
+.ai-extract-excel-slider.open {
+    transform: translateY(-50%) translateX(0);
+    opacity: 1;
+    visibility: visible;
+}
+    </style>
+    
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Workflow header with compact styling -->
+            <div class="workflow-header">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div class="d-flex align-items-center gap-2 flex-grow-1">
+                        <button id="newWorkflowBtn" class="btn btn-sm btn-success" onclick="createNewWorkflow()">
+                            <i class="bi bi-plus-circle"></i> New
+                        </button>
+                        <select id="workflowSelect" class="form-select form-select-sm" style="background-color: var(--bg-card, white); color: var(--text-primary, #212529);">
+                            <option value="">Select workflow...</option>
+                        </select>
+                        <button id="loadWorkflowBtn" class="btn btn-sm btn-primary" onclick="loadSelectedWorkflow()">
+                            <i class="bi bi-folder2-open"></i> Load
+                        </button>
+                        <button class="btn btn-sm btn-outline-light" onclick="openWorkflowManager()">
+                            <i class="bi bi-gear"></i> Manage
+                        </button>
+                        <button class="btn btn-sm btn-outline-light" onclick="openWorkflowVariables()">
+                            <i class="bi bi-braces"></i> Variables
+                        </button>
+                        <div class="btn-group">
+                            <button class="btn btn-sm btn-outline-light" onclick="exportWorkflow()" title="Export workflow to JSON file">
+                                <i class="bi bi-download"></i> Export
+                            </button>
+                            <button class="btn btn-sm btn-outline-light" onclick="importWorkflow()" title="Import workflow from JSON file">
+                                <i class="bi bi-upload"></i> Import
+                            </button>
+                            <button class="btn btn-sm btn-outline-light" onclick="copyCurrentWorkflow()" title="Create a copy of the current workflow">
+                                <i class="bi bi-files"></i> Copy
+                            </button>
+                        </div>
+                        <button id="deleteCurrentWorkflowBtn" class="btn btn-sm btn-danger" onclick="deleteCurrentWorkflow()" style="display: none;">
+                            <i class="bi bi-trash"></i> Delete
+                        </button>
+                        <div id="currentWorkflowDisplay" class="ms-3 px-3 py-2 bg-white text-dark border rounded d-none">
+                            <strong>Current:</strong> <span id="currentWorkflowName">None</span>
+                        </div>
+                    </div>
+                    <div class="workflow-controls">
+                        <button id="runWorkflowBtn" class="btn btn-sm btn-success workflow-control-btn" onclick="startWorkflow()">
+                            <i class="bi bi-play-fill"></i> Run
+                        </button>
+                        <button id="stopWorkflowBtn" class="btn btn-sm btn-danger workflow-control-btn" onclick="stopWorkflow()" style="display: none;">
+                            <i class="bi bi-stop-fill"></i> Stop
+                        </button>
+                        <div id="workflowStatus" class="workflow-status"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Toolbar -->
+            <div class="col-2 toolbar">
+                <div class="toolbar-header">
+                    <h4>Tools</h4>
+                    <button class="btn btn-sm btn-primary btn-save" onclick="saveWorkflow()">
+                        <i class="bi bi-save"></i> Save
+                    </button>
+                </div>
+                <input type="file" id="loadWorkflow" accept=".json" style="display: none;" onchange="loadWorkflowFile(this)">
+                
+                <!-- Data Sources -->
+                <div class="category-header">Data Sources</div>
+                <div class="tool-item" draggable="true" data-type="Database">
+                    <i class="bi bi-database"></i> Database
+                </div>
+                <div class="tool-item" draggable="true" data-type="File">
+                    <i class="bi bi-file-earmark"></i> File
+                </div>
+                <div class="tool-item" draggable="true" data-type="Folder Selector">
+                    <i class="bi bi-folder2"></i> Folder Selector
+                </div>
+                <div class="tool-item" draggable="true" data-type="Integration">
+                    <i class="bi bi-plug"></i> Integration
+                </div>
+                
+                <!-- AI & Documents -->
+                <div class="category-header">AI & Documents</div>
+                <div class="tool-item" draggable="true" data-type="Document">
+                    <i class="bi bi-file-text"></i> Document
+                </div>
+                <div class="tool-item" draggable="true" data-type="AI Action">
+                    <i class="bi bi-robot"></i> AI Action
+                </div>
+                <div class="tool-item" draggable="true" data-type="AI Extract">
+                    <i class="bi bi-search"></i> AI Extract
+                </div>
+                <div class="tool-item" draggable="true" data-type="Excel Export">
+                    <i class="bi bi-file-earmark-excel"></i> Excel Export
+                </div>
+                
+                <!-- Flow Control -->
+                <div class="category-header">Flow Control</div>
+                <div class="tool-item" draggable="true" data-type="Conditional">
+                    <i class="bi bi-diagram-3"></i> Conditional
+                </div>
+                <div class="tool-item" draggable="true" data-type="Loop">
+                    <i class="bi bi-arrow-repeat"></i> Start Loop
+                </div>
+                <div class="tool-item" draggable="true" data-type="End Loop">
+                    <i class="bi bi-arrow-return-left"></i> End Loop
+                </div>
+                
+                <!-- Variables & Processing -->
+                <div class="category-header">Variables & Processing</div>
+                <div class="tool-item" draggable="true" data-type="Set Variable">
+                    <i class="bi bi-braces"></i> Set Variable
+                </div>
+                <div class="tool-item" draggable="true" data-type="Execute Application">
+                    <i class="bi bi-terminal"></i> Execute App
+                </div>
+                
+                <!-- Communication -->
+                <div class="category-header">Communication</div>
+                <div class="tool-item" draggable="true" data-type="Alert">
+                    <i class="bi bi-exclamation-triangle"></i> Alert
+                </div>
+                <div class="tool-item" draggable="true" data-type="Human Approval">
+                    <i class="bi bi-person-check"></i> Human Approval
+                </div>
+            </div>
+            
+            <!-- Canvas -->
+            <div class="col-10">
+                <div id="workflow-canvas"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Workflow Manager Modal -->
+    <div class="modal fade" id="workflowManagerModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Workflow Manager</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row mb-3">
+                        <div class="col">
+                            <div class="input-group input-group-sm">
+                                <input type="text" id="workflowSearch" class="form-control form-control-sm" placeholder="Search workflows...">
+                                <select id="categoryFilter" class="form-select form-select-sm" style="max-width: 200px;">
+                                    <option value="">All Categories</option>
+                                </select>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="openCategoryManager()">
+                                    <i class="bi bi-gear"></i> Categories
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Category</th>
+                                    <th>Created</th>
+                                    <th>Modified</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="workflowTableBody">
+                                <!-- Workflows will be populated here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Node Configuration Modal -->
+    <div class="modal fade" id="nodeConfigModal" tabindex="-1" aria-labelledby="nodeConfigModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="nodeConfigModalLabel">Configure Node</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="nodeConfigModalBody">
+                    <!-- Configuration form will be dynamically inserted here -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-primary" onclick="saveNodeConfig()">Save changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Context Menus -->
+    <div id="arrow-context-menu" class="context-menu">
+        <div class="context-menu-item" onclick="setArrowType('pass')">
+            <i class="bi bi-check-circle"></i> Set as Pass
+        </div>
+        <div class="context-menu-item" onclick="setArrowType('fail')">
+            <i class="bi bi-x-circle"></i> Set as Fail
+        </div>
+        <div class="context-menu-item" onclick="setArrowType('complete')">
+            <i class="bi bi-check-square"></i> Set as Complete
+        </div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item text-danger" onclick="deleteArrow()">
+            <i class="bi bi-trash"></i> Delete Connection
+        </div>
+    </div>
+
+    <div id="node-context-menu" class="context-menu">
+        <div class="context-menu-item" onclick="renameNode()">
+            <i class="bi bi-pencil"></i> Rename
+        </div>
+        <div class="context-menu-item" onclick="configureNode()">
+            <i class="bi bi-gear"></i> Configure
+        </div>
+        <div class="context-menu-item" onclick="setAsStart()">
+            <i class="bi bi-flag"></i> Set as Start
+        </div>
+        <div class="context-menu-item" onclick="duplicateNode()">
+            <i class="bi bi-files"></i> Duplicate
+        </div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item text-danger" onclick="deleteNode()">
+            <i class="bi bi-trash"></i> Delete
+        </div>
+    </div>
+
+    <!-- DEBUG PANEL -->
+    <div id="debug-panel" class="debug-panel">
+        <div class="debug-resize-handle"></div>
+        <div class="debug-header">
+            <h5>
+                <i class="bi bi-bug"></i> Debug Panel 
+                <div class="float-end">
+                    <button class="btn btn-sm debug-toggle-btn" onclick="toggleDebugPanel()">
+                        <i id="debug-toggle-icon" class="bi bi-chevron-down"></i>
+                    </button>
+                </div>
+            </h5>
+        </div>
+        <div id="debug-content" class="debug-content">
+            <div class="debug-tabs">
+                <ul class="nav nav-tabs" id="debugTabs" role="tablist">
+                    <li class="nav-item">
+                        <a class="nav-link active" id="execution-tab" data-bs-toggle="tab" href="#execution" role="tab">Execution</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="variables-tab" data-bs-toggle="tab" href="#variables" role="tab">Variables</a>
+                    </li>
+                    <li class="nav-item" style="display: none;">
+                        <a class="nav-link" id="output-tab" data-bs-toggle="tab" href="#output" role="tab">Node Output</a>
+                    </li>
+                    <li class="nav-item" style="display: none;">
+                        <a class="nav-link" id="path-tab" data-bs-toggle="tab" href="#path" role="tab">Execution Path</a>
+                    </li>
+                </ul>
+                <div class="tab-content" id="debugTabContent">
+                    <div class="tab-pane fade show active" id="execution" role="tabpanel">
+                        <div class="debug-status">
+                            <span class="badge bg-secondary">Status: <span id="workflow-debug-status">Not Running</span></span>
+                            <button class="btn btn-sm btn-outline-secondary ms-2" onclick="clearDebugLogs()" id="clear-debug-btn">
+                                <i class="bi bi-trash"></i> Clear
+                            </button>
+                        </div>
+                        <div class="debug-log mt-2">
+                            <div id="debug-log-content" class="debug-log-content"></div>
+                        </div>
+                    </div>
+                    <div class="tab-pane fade" id="variables" role="tabpanel">
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Type</th>
+                                        <th>Value</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="variables-table-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="tab-pane fade" id="output" role="tabpanel">
+                        <div class="node-output-select mb-2">
+                            <select id="node-output-select" class="form-select form-select-sm" onchange="showSelectedNodeOutput()">
+                                <option value="">Select a node...</option>
+                            </select>
+                        </div>
+                        <div id="node-output-display" class="node-output-display">
+                            <pre id="node-output-content" class="node-output-content">No node selected</pre>
+                        </div>
+                    </div>
+                    <div class="tab-pane fade" id="path" role="tabpanel">
+                        <div id="execution-path" class="execution-path">
+                            <ul id="execution-path-list" class="list-group list-group-sm"></ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- END DEBUG PANEL -->
+
+    <!-- Workflow Variables Modal -->
+    <div class="modal fade" id="workflowVariablesModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Workflow Variables</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <button class="btn btn-sm btn-primary" onclick="showAddVariableForm()">
+                            <i class="bi bi-plus-circle"></i> Add Variable
+                        </button>
+                    </div>
+                    
+                    <!-- Add Variable Form -->
+                    <div id="add-variable-form" class="card mb-3" style="display: none;">
+                        <div class="card-body">
+                            <h6 class="card-title">New Variable</h6>
+                            <div class="mb-2">
+                                <label for="var-name" class="form-label">Name</label>
+                                <input type="text" class="form-control form-control-sm" id="var-name" placeholder="Variable name">
+                            </div>
+                            <div class="mb-2">
+                                <label for="var-type" class="form-label">Type</label>
+                                <select class="form-select form-select-sm" id="var-type">
+                                    <option value="string">String</option>
+                                    <option value="number">Number</option>
+                                    <option value="boolean">Boolean</option>
+                                    <option value="json">JSON</option>
+                                </select>
+                            </div>
+                            <div class="mb-2">
+                                <label for="var-value" class="form-label">Default Value</label>
+                                <input type="text" class="form-control form-control-sm" id="var-value" placeholder="Default value">
+                            </div>
+                            <div class="mb-2">
+                                <label for="var-description" class="form-label">Description</label>
+                                <textarea class="form-control form-control-sm" id="var-description" rows="2" placeholder="Optional description"></textarea>
+                            </div>
+                            <div class="d-flex justify-content-end">
+                                <button class="btn btn-sm btn-secondary me-2" onclick="hideAddVariableForm()">Cancel</button>
+                                <button class="btn btn-sm btn-primary" onclick="addWorkflowVariable()">Add Variable</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Variables Table -->
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Type</th>
+                                    <th>Default Value</th>
+                                    <th>Description</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="workflowVariablesTableBody">
+                                <!-- Variables will be populated here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Category Manager Modal -->
+    <div class="modal fade" id="categoryManagerModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Manage Categories</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <button type="button" class="btn btn-sm btn-primary" id="addCategoryBtn">
+                            <i class="bi bi-plus-circle"></i> Add Category
+                        </button>
+                    </div>
+                    
+                    <!-- Add category form -->
+                    <div id="categoryForm" class="card mb-3" style="display: none;">
+                        <div class="card-body">
+                            <h6 class="card-title" id="categoryFormTitle">Add Category</h6>
+                            <div class="mb-2">
+                                <label for="categoryName" class="form-label">Category Name</label>
+                                <input type="text" class="form-control form-control-sm" id="categoryName" placeholder="Enter category name">
+                                <input type="hidden" id="categoryId" value="0">
+                            </div>
+                            <div class="d-flex justify-content-end">
+                                <button type="button" class="btn btn-sm btn-secondary me-2" id="cancelCategoryBtn">Cancel</button>
+                                <button type="button" class="btn btn-sm btn-primary" id="saveCategoryBtn">Save</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Categories list -->
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="categoriesTableBody">
+                                <!-- Categories will be populated here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Feedback Message Area -->
+    <div id="feedback-message" style="position: fixed; top: 20px; right: 20px; z-index: 9999;"></div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsPlumb/2.15.6/js/jsplumb.min.js"></script>
+    <script src="{{ url_for('static', filename='js/workflow.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/workflow_fn_updates.js') }}"></script>
+    <script src="/static/js/integration_node.js"></script>
+
+    <!-- AI Coding Assistant Coding -->
+    <script src="{{ url_for('static', filename='js/workflow_command_executor.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/workflow_assistant_enhanced.css') }}">
+
+    <!-- AI Guided Workflow -->
+    <script>
+        // Inject config value for training capture feature
+        window.WORKFLOW_TRAINING_CAPTURE_ENABLED = {{ WORKFLOW_TRAINING_CAPTURE_ENABLED|tojson }};
+    </script>
+    <script src="{{ url_for('static', filename='js/workflow_builder_guide.js') }}"></script>
+
+    <!-- AI Extract Node -->
+    <script src="{{ url_for('static', filename='js/ai_extract_node.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/excel_export_node.js') }}"></script>
+
+    <!-- 
+    Workflow Assistant Widget (Microservice Version)
+    -->
+
+<!-- Assistant Container -->
+ {% if ENABLE_WORKFLOW_ASSISTANT %}
+<div id="workflow-assistant-container" class="workflow-assistant-container collapsed">
+    <!-- Toggle Button (Always Visible) -->
+    <button id="assistant-toggle-btn" class="assistant-toggle-btn" onclick="toggleAssistant()">
+        <i class="bi bi-robot"></i>
+        <span class="assistant-badge" id="assistant-badge" style="display: none;">1</span>
+    </button>
+
+    <!-- Assistant Panel -->
+    <div id="assistant-panel" class="assistant-panel">
+        <!-- Header -->
+        <div class="assistant-header">
+            <div class="d-flex align-items-center">
+                <i class="bi bi-robot me-2"></i>
+                <span class="fw-bold">Workflow Assistant</span>
+            </div>
+            <button class="btn btn-sm btn-link text-white" onclick="toggleAssistant()">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="assistant-quick-actions">
+            <button class="btn btn-sm btn-outline-primary" onclick="sendQuickPrompt('How do I connect nodes?')">
+                <i class="bi bi-question-circle"></i> Connect Nodes
+            </button>
+            <button class="btn btn-sm btn-outline-primary" onclick="sendQuickPrompt('Explain my current workflow')">
+                <i class="bi bi-diagram-3"></i> Explain Workflow
+            </button>
+            <button class="btn btn-sm btn-outline-primary" onclick="sendQuickPrompt('What node types are available?')">
+                <i class="bi bi-list"></i> Node Types
+            </button>
+            <button class="btn btn-sm btn-outline-primary" onclick="sendQuickPrompt('Help me debug this workflow')">
+                <i class="bi bi-bug"></i> Debug Help
+            </button>
+        </div>
+
+        <!-- Chat Messages -->
+        <div id="assistant-messages" class="assistant-messages">
+            <!-- Welcome Message -->
+            <div class="assistant-message">
+                <div class="message-avatar">
+                    <i class="bi bi-robot"></i>
+                </div>
+                <div class="message-content">
+                    <div class="message-text">
+                        👋 Hi! I'm your Workflow Assistant. I can help you:
+                        <ul class="mt-2 mb-0">
+                            <li>Create and build workflows</li>
+                            <li>Explain your current workflow configuration</li>
+                            <li>Debug issues and suggest improvements</li>
+                            <li>Answer questions about node types and features</li>
+                        </ul>
+                        <div class="mt-2">
+                            <small class="text-muted">Try asking: "How do I use variables?" or "Explain my workflow"</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Input Area -->
+        <div class="assistant-input-area">
+            <div class="input-group">
+                <input 
+                    type="text" 
+                    id="assistant-input" 
+                    class="form-control" 
+                    placeholder="Ask me anything about workflows..."
+                    onkeypress="handleAssistantKeyPress(event)"
+                >
+                <button class="btn btn-primary" onclick="sendAssistantMessage()" id="assistant-send-btn">
+                    <i class="bi bi-send-fill"></i>
+                </button>
+            </div>
+            <div class="assistant-status" id="assistant-status"></div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Styles for Assistant Widget (Same as before) -->
+<style>
+.workflow-assistant-container {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 1050;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+.assistant-toggle-btn {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #2980b9 0%, #34495e 100%);
+    border: none;
+    color: white;
+    font-size: 24px;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    transition: all 0.3s ease;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.assistant-toggle-btn:hover {
+    transform: scale(1.1);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+.assistant-badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    background: #dc3545;
+    color: white;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+}
+
+.workflow-assistant-container.collapsed .assistant-panel {
+    display: none;
+}
+
+.workflow-assistant-container.expanded .assistant-toggle-btn {
+    display: none;
+}
+
+.assistant-panel {
+    width: 420px;
+    height: 600px;
+    background: var(--bg-card, white);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.assistant-header {
+    background: linear-gradient(135deg, #2980b9 0%, #34495e 100%);
+    color: white;
+    padding: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.assistant-quick-actions {
+    padding: 12px;
+    background: var(--bg-elevated, #f8f9fa);
+    border-bottom: 1px solid var(--border-subtle, #dee2e6);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.assistant-quick-actions .btn {
+    font-size: 12px;
+    padding: 4px 8px;
+    white-space: nowrap;
+}
+
+.assistant-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    background: var(--bg-elevated, #f8f9fa);
+}
+
+.assistant-message,
+.user-message {
+    display: flex;
+    margin-bottom: 16px;
+    animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.user-message {
+    flex-direction: row-reverse;
+}
+
+.message-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #2980b9 0%, #34495e 100%);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 12px;
+    flex-shrink: 0;
+}
+
+.user-message .message-avatar {
+    background: #6c757d;
+    margin-right: 0;
+    margin-left: 12px;
+}
+
+.message-content {
+    flex: 1;
+    max-width: 85%;
+}
+
+.message-text {
+    background: var(--bg-card, white);
+    padding: 12px;
+    border-radius: 12px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    word-wrap: break-word;
+    line-height: 1.5;
+}
+
+.user-message .message-text {
+    background: #667eea;
+    color: white;
+}
+
+.message-text ul {
+    padding-left: 20px;
+    margin: 8px 0;
+}
+
+.message-text code {
+    background: var(--bg-elevated, #f1f3f5);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    font-family: 'Courier New', monospace;
+}
+
+.user-message .message-text code {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+}
+
+.message-text pre {
+    background: var(--bg-elevated, #f1f3f5);
+    padding: 12px;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 8px 0;
+}
+
+.message-text pre code {
+    background: none;
+    padding: 0;
+}
+
+.assistant-input-area {
+    padding: 16px;
+    background: var(--bg-card, white);
+    border-top: 1px solid var(--border-subtle, #dee2e6);
+}
+
+.assistant-status {
+    font-size: 12px;
+    color: var(--text-muted, #6c757d);
+    margin-top: 8px;
+    min-height: 18px;
+}
+
+.typing-indicator {
+    display: flex;
+    align-items: center;
+    padding: 12px;
+    background: var(--bg-card, white);
+    border-radius: 12px;
+    width: fit-content;
+}
+
+.typing-indicator span {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #667eea;
+    margin: 0 3px;
+    animation: typing 1.4s infinite;
+}
+
+.typing-indicator span:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.typing-indicator span:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+@keyframes typing {
+    0%, 60%, 100% {
+        transform: translateY(0);
+    }
+    30% {
+        transform: translateY(-10px);
+    }
+}
+
+.assistant-messages::-webkit-scrollbar {
+    width: 6px;
+}
+
+.assistant-messages::-webkit-scrollbar-track {
+    background: var(--bg-elevated, #f1f1f1);
+}
+
+.assistant-messages::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 3px;
+}
+
+.assistant-messages::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+@media (max-width: 768px) {
+    .assistant-panel {
+        width: calc(100vw - 40px);
+        height: calc(100vh - 40px);
+    }
+}
+</style>
+
+<!-- Assistant JavaScript (Updated for Microservice) -->
+<script>
+// Global state for assistant
+const assistantState = {
+    isOpen: false,
+    conversationHistory: [],
+    isProcessing: false,
+    sessionId: null
+};
+
+// Toggle assistant panel
+function toggleAssistant() {
+    const container = document.getElementById('workflow-assistant-container');
+    const isCollapsed = container.classList.contains('collapsed');
+    
+    if (isCollapsed) {
+        container.classList.remove('collapsed');
+        container.classList.add('expanded');
+        assistantState.isOpen = true;
+        
+        setTimeout(() => {
+            document.getElementById('assistant-input').focus();
+        }, 300);
+    } else {
+        container.classList.remove('expanded');
+        container.classList.add('collapsed');
+        assistantState.isOpen = false;
+    }
+}
+
+// Handle enter key in input
+function handleAssistantKeyPress(event) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        sendAssistantMessage();
+    }
+}
+
+// Send quick prompt
+function sendQuickPrompt(prompt) {
+    document.getElementById('assistant-input').value = prompt;
+    sendAssistantMessage();
+}
+
+// Build workflow context for assistant
+function buildWorkflowContext() {
+    try {
+        const nodes = Array.from(document.querySelectorAll('.workflow-node')).map(node => {
+            const config = nodeConfigs.get(node.id) || {};
+            return {
+                id: node.id,
+                type: node.getAttribute('data-type'),
+                label: node.querySelector('.node-content')?.textContent.trim() || 'Unknown',
+                isStart: node === startNode,
+                config: config,
+                position: {
+                    x: parseInt(node.style.left) || 0,
+                    y: parseInt(node.style.top) || 0
+                }
+            };
+        });
+
+        const connections = jsPlumbInstance.getAllConnections().map(conn => ({
+            from: conn.sourceId,
+            to: conn.targetId,
+            type: conn.getParameter('type') || 'standard'
+        }));
+
+        const variables = { ...workflowVariableDefinitions };
+
+        let selectedNodeContext = null;
+        if (selectedNode) {
+            selectedNodeContext = {
+                id: selectedNode.id,
+                type: selectedNode.getAttribute('data-type'),
+                config: nodeConfigs.get(selectedNode.id) || {}
+            };
+        }
+
+        return {
+            workflowName: currentWorkflowName || 'Untitled Workflow',
+            nodeCount: nodes.length,
+            hasStartNode: startNode !== null,
+            nodes: nodes,
+            connections: connections,
+            variables: variables,
+            selectedNode: selectedNodeContext,
+            availableNodeTypes: Object.keys(nodeConfigTemplates || {}),
+            debugMode: isDebugMode || false
+        };
+    } catch (error) {
+        console.error('Error building workflow context:', error);
+        return {
+            error: 'Unable to read current workflow state',
+            workflowName: currentWorkflowName || 'Untitled Workflow'
+        };
+    }
+}
+
+// Send message to assistant (calls microservice)
+async function sendAssistantMessage_legacy() {
+    const input = document.getElementById('assistant-input');
+    const message = input.value.trim();
+    
+    if (!message || assistantState.isProcessing) return;
+    
+    input.value = '';
+    addMessageToUI(message, 'user');
+    
+    updateAssistantStatus('Analyzing workflow...');
+    assistantState.isProcessing = true;
+    document.getElementById('assistant-send-btn').disabled = true;
+    
+    showTypingIndicator();
+    
+    try {
+        const workflowContext = buildWorkflowContext();
+        updateAssistantStatus('Asking assistant...');
+        
+        // Call YOUR Knowledge API microservice
+        const response = await fetch('/api/workflow/assistant', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                question: message,
+                workflow_context: workflowContext,
+                session_id: assistantState.sessionId,
+                include_history: true
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `Server error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        if (data.status === 'error') {
+            throw new Error(data.error || 'Unknown error');
+        }
+        
+        // Store session ID for conversation continuity
+        assistantState.sessionId = data.session_id;
+        
+        removeTypingIndicator();
+        addMessageToUI(data.response, 'assistant');
+        updateAssistantStatus('');
+        
+    } catch (error) {
+        console.error('Assistant error:', error);
+        removeTypingIndicator();
+        addMessageToUI('Sorry, I encountered an error. Please try again. Error: ' + error.message, 'assistant', true);
+        updateAssistantStatus('');
+    } finally {
+        assistantState.isProcessing = false;
+        document.getElementById('assistant-send-btn').disabled = false;
+        input.focus();
+    }
+}
+
+async function sendAssistantMessage() {
+    const input = document.getElementById('assistant-input');
+    const message = input.value.trim();
+    
+    if (!message || assistantState.isProcessing) return;
+    
+    input.value = '';
+    addMessageToUI(message, 'user');
+    
+    updateAssistantStatus('Analyzing workflow...');
+    assistantState.isProcessing = true;
+    document.getElementById('assistant-send-btn').disabled = true;
+    
+    showTypingIndicator();
+    
+    try {
+        const workflowContext = buildWorkflowContext();
+        updateAssistantStatus('Asking assistant...');
+        
+        const response = await fetch('/api/workflow/assistant', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                question: message,
+                workflow_context: workflowContext,
+                session_id: assistantState.sessionId,
+                include_history: true
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`Server error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        // ===== DEBUG LOGS - CHECK BROWSER CONSOLE =====
+        console.log('=== ASSISTANT RESPONSE DEBUG ===');
+        console.log('Full response:', data);
+        console.log('has_commands:', data.has_commands);
+        console.log('workflow_commands:', data.workflow_commands);
+        console.log('response text:', data.response);
+        console.log('================================');
+        // ===== END DEBUG LOGS =====
+        
+        if (data.status === 'error') {
+            throw new Error(data.error || 'Unknown error');
+        }
+        
+        assistantState.sessionId = data.session_id;
+        removeTypingIndicator();
+        
+        // Check if response contains workflow commands
+        if (data.has_commands && data.workflow_commands) {
+            console.log('✓ Building workflow with commands');
+            addBuildingResponseToUI(data);
+        } else {
+            console.log('✗ No workflow commands detected, showing regular response');
+            addMessageToUI(data.response, 'assistant');
+        }
+        
+        updateAssistantStatus('');
+        
+    } catch (error) {
+        console.error('Assistant error:', error);
+        removeTypingIndicator();
+        addMessageToUI('Error: ' + error.message, 'assistant', true);
+        updateAssistantStatus('');
+    } finally {
+        assistantState.isProcessing = false;
+        document.getElementById('assistant-send-btn').disabled = false;
+        input.focus();
+    }
+}
+
+async function sendAssistantMessage_new_original() {
+    const input = document.getElementById('assistant-input');
+    const message = input.value.trim();
+    
+    if (!message || assistantState.isProcessing) return;
+    
+    input.value = '';
+    addMessageToUI(message, 'user');
+    
+    updateAssistantStatus('Analyzing workflow...');
+    assistantState.isProcessing = true;
+    document.getElementById('assistant-send-btn').disabled = true;
+    
+    showTypingIndicator();
+    
+    try {
+        const workflowContext = buildWorkflowContext();
+        updateAssistantStatus('Asking assistant...');
+        
+        const response = await fetch('/api/workflow/assistant', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                question: message,
+                workflow_context: workflowContext,
+                session_id: assistantState.sessionId,
+                include_history: true
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`Server error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        if (data.status === 'error') {
+            throw new Error(data.error || 'Unknown error');
+        }
+        
+        assistantState.sessionId = data.session_id;
+        removeTypingIndicator();
+        
+        // Check if response contains workflow commands
+        if (data.has_commands && data.workflow_commands) {
+            addBuildingResponseToUI(data);
+        } else {
+            addMessageToUI(data.response, 'assistant');
+        }
+        
+        updateAssistantStatus('');
+        
+    } catch (error) {
+        console.error('Assistant error:', error);
+        removeTypingIndicator();
+        addMessageToUI('Error: ' + error.message, 'assistant', true);
+        updateAssistantStatus('');
+    } finally {
+        assistantState.isProcessing = false;
+        document.getElementById('assistant-send-btn').disabled = false;
+        input.focus();
+    }
+}
+
+function addBuildingResponseToUI(data) {
+    const messagesContainer = document.getElementById('assistant-messages');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'assistant-message';
+    
+    const commandsList = data.workflow_commands.commands.map(cmd => {
+        if (cmd.type === 'add_node') return `<li>➕ Add ${cmd.node_type}: "${cmd.label}"</li>`;
+        if (cmd.type === 'connect_nodes') return `<li>🔗 Connect nodes (${cmd.connection_type})</li>`;
+        if (cmd.type === 'set_start_node') return `<li>⭐ Set start node</li>`;
+        return `<li>✓ ${cmd.type}</li>`;
+    }).join('');
+    
+    messageDiv.innerHTML = `
+        <div class="message-avatar"><i class="bi bi-robot"></i></div>
+        <div class="message-content">
+            <div class="message-text">
+                <p>${data.response || data.workflow_commands.explanation || 'I can build this workflow for you.'}</p>
+                <div style="margin-top: 12px; padding: 12px; background: var(--bg-elevated, #f8f9fa); border-radius: 8px; border-left: 4px solid #667eea;">
+                    <strong>📋 Workflow Actions (${data.workflow_commands.commands.length})</strong>
+                    <ul style="margin: 8px 0 0 20px; font-size: 0.9em;">
+                        ${commandsList}
+                    </ul>
+                </div>
+                <div style="margin-top: 12px; display: flex; gap: 10px;">
+                    <button class="btn btn-sm btn-primary build-workflow-btn" data-commands="">
+                        <i class="bi bi-play-fill"></i> Build Workflow
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="this.closest('.assistant-message').remove()">
+                        <i class="bi bi-x"></i> Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    messagesContainer.appendChild(messageDiv);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    
+    // Set the commands data AFTER adding to DOM (avoids encoding issues)
+    const buildButton = messageDiv.querySelector('.build-workflow-btn');
+    buildButton._workflowCommands = data.workflow_commands; // Store directly on element
+    buildButton.addEventListener('click', executeWorkflowCommandsFromButton);
+}
+
+
+function addBuildingResponseToUI_new_original(data) {
+    const messagesContainer = document.getElementById('assistant-messages');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'assistant-message';
+    
+    messageDiv.innerHTML = `
+        <div class="message-avatar"><i class="bi bi-robot"></i></div>
+        <div class="message-content">
+            <div class="message-text">
+                ${data.response || data.workflow_commands.explanation || 'I can build this workflow for you.'}
+                <div style="margin-top: 12px; padding: 12px; background: var(--bg-elevated, #f8f9fa); border-radius: 8px;">
+                    <strong>📋 Workflow Actions (${data.workflow_commands.commands.length})</strong>
+                    <ul style="margin: 8px 0 0 20px; font-size: 0.9em;">
+                        ${data.workflow_commands.commands.map(cmd => {
+                            if (cmd.type === 'add_node') return `<li>Add ${cmd.node_type}: "${cmd.label}"</li>`;
+                            if (cmd.type === 'connect_nodes') return `<li>Connect nodes (${cmd.connection_type})</li>`;
+                            if (cmd.type === 'set_start_node') return `<li>Set start node</li>`;
+                            return `<li>${cmd.type}</li>`;
+                        }).join('')}
+                    </ul>
+                </div>
+                <div style="margin-top: 12px;">
+                    <button class="btn btn-sm btn-primary" onclick="executeWorkflowCommands('${encodeURIComponent(JSON.stringify(data.workflow_commands))}')">
+                        <i class="bi bi-play-fill"></i> Build Workflow
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="this.parentElement.parentElement.remove()">
+                        <i class="bi bi-x"></i> Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    messagesContainer.appendChild(messageDiv);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
+
+async function executeWorkflowCommands(encodedCommands) {
+    try {
+        // Handle both encoded and non-encoded input
+        let commandsStr;
+        try {
+            commandsStr = decodeURIComponent(encodedCommands);
+        } catch (e) {
+            // Already decoded or plain JSON - use as-is
+            commandsStr = encodedCommands;
+        }
+        const commands = JSON.parse(commandsStr);
+        
+        if (typeof workflowCommandExecutor === 'undefined') {
+            alert('Workflow command executor not loaded. Please refresh the page.');
+            return;
+        }
+        
+        const result = await workflowCommandExecutor.executeCommands(commands);
+        
+        if (result.success) {
+            showToast('Workflow built successfully!', 'success');
+            // Auto-save
+            //setTimeout(() => saveWorkflow().catch(e => console.error(e)), 500);
+        } else {
+            showToast(`Workflow built with ${result.failed} errors`, 'warning');
+        }
+    } catch (error) {
+        console.error('Error executing commands:', error);
+        showToast('Failed to build workflow: ' + error.message, 'error');
+    }
+}
+
+async function executeWorkflowCommandsFromButton(event) {
+    const button = event.currentTarget;
+    const commands = button._workflowCommands;
+    
+    if (!commands) {
+        console.error('No workflow commands found on button');
+        return;
+    }
+    
+    console.log('Executing commands:', commands);
+    
+    if (typeof workflowCommandExecutor === 'undefined') {
+        alert('Workflow command executor not loaded. Please refresh the page.');
+        return;
+    }
+    
+    // Disable button and show status
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Updating workflow...';
+    
+    try {
+        // ===== STEP 1: RESOLVE AGENT/CONNECTION IDS =====
+        const resolvedData = await resolveWorkflowIds(commands);
+        const resolvedCommands = resolvedData.commands;
+        
+        // Show what was resolved
+        if (resolvedData.resolutions && Object.keys(resolvedData.resolutions).length > 0) {
+            console.log('✓ ID Resolutions:', resolvedData.resolutions);
+        }
+        
+        // ===== STEP 2: EXECUTE COMMANDS =====
+        button.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Building...';
+        
+        const result = await workflowCommandExecutor.executeCommands(resolvedCommands);
+        
+        console.log('Execution result:', result);
+        
+        // ===== STEP 3: SEND RESULT BACK TO BACKEND FOR CONTEXT =====
+        sendExecutionResultToBackend(resolvedCommands, result);
+        // ===== END CONTEXT UPDATE =====
+        
+        // ===== STEP 4: UPDATE UI =====
+        if (result.success || result.executed > 0) {
+            showToast('Workflow built successfully!', 'success');
+            
+            // Update button to show success
+            button.innerHTML = '✓ Built Successfully';
+            button.classList.remove('btn-primary');
+            button.classList.add('btn-success');
+            
+            // Auto-save
+            // setTimeout(() => {
+            //     if (typeof saveWorkflow === 'function') {
+            //         saveWorkflow().catch(e => console.error('Auto-save error:', e));
+            //     }
+            // }, 500);
+        } else {
+            showToast(`Workflow built with ${result.failed} errors`, 'warning');
+            button.disabled = false;
+            button.innerHTML = '<i class="bi bi-play-fill"></i> Retry';
+        }
+        
+    } catch (error) {
+        console.error('Error executing commands:', error);
+        showToast('Failed to build workflow: ' + error.message, 'error');
+        button.disabled = false;
+        button.innerHTML = '<i class="bi bi-play-fill"></i> Retry';
+    }
+}
+
+/**
+ * Resolve agent names and connection names to IDs using AI
+ */
+async function resolveWorkflowIds(commands) {
+    try {
+        console.log('Resolving IDs for commands...');
+        
+        const response = await fetch('/api/workflow/resolve-ids', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ commands: commands })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Server error: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.status === 'error') {
+            throw new Error(data.error || 'Failed to resolve IDs');
+        }
+        
+        return data;
+        
+    } catch (error) {
+        console.error('ID resolution error:', error);
+        // If resolution fails, return original commands (graceful fallback)
+        console.warn('Using original commands without ID resolution');
+        return { commands: commands, resolutions: {} };
+    }
+}
+
+function executeWorkflowCommandsFromButton_legacy2(event) {
+    const button = event.currentTarget;
+    const commands = button._workflowCommands;
+    
+    if (!commands) {
+        console.error('No workflow commands found on button');
+        return;
+    }
+    
+    console.log('Executing commands:', commands);
+    
+    if (typeof workflowCommandExecutor === 'undefined') {
+        alert('Workflow command executor not loaded. Please refresh the page.');
+        return;
+    }
+    
+    // Disable button and show loading
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Building...';
+    
+    // Execute commands
+    workflowCommandExecutor.executeCommands(commands)
+        .then(result => {
+            console.log('Execution result:', result);
+            
+            // ===== SEND RESULT BACK TO BACKEND FOR CONTEXT =====
+            sendExecutionResultToBackend(commands, result);
+            // ===== END CONTEXT UPDATE =====
+            
+            if (result.success || result.executed > 0) {
+                showToast('Workflow built successfully!', 'success');
+                
+                // Update button to show success
+                button.innerHTML = '✓ Built Successfully';
+                button.classList.remove('btn-primary');
+                button.classList.add('btn-success');
+                
+                // Auto-save
+                setTimeout(() => {
+                    if (typeof saveWorkflow === 'function') {
+                        saveWorkflow().catch(e => console.error('Auto-save error:', e));
+                    }
+                }, 500);
+            } else {
+                showToast(`Workflow built with ${result.failed} errors`, 'warning');
+                button.disabled = false;
+                button.innerHTML = '<i class="bi bi-play-fill"></i> Retry';
+            }
+        })
+        .catch(error => {
+            console.error('Error executing commands:', error);
+            showToast('Failed to build workflow: ' + error.message, 'error');
+            button.disabled = false;
+            button.innerHTML = '<i class="bi bi-play-fill"></i> Retry';
+        });
+}
+
+/**
+ * NEW FUNCTION - Send execution results back to backend
+ */
+async function sendExecutionResultToBackend(commands, result) {
+    try {
+        const response = await fetch('/api/workflow/assistant/result', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                session_id: assistantState.sessionId,
+                commands: commands,
+                result: {
+                    success: result.success,
+                    executed: result.executed,
+                    failed: result.failed,
+                    nodeMapping: result.nodeMapping || {},
+                    errors: result.errors || []
+                }
+            })
+        });
+        
+        if (response.ok) {
+            console.log('✓ Context updated on backend');
+        } else {
+            console.warn('Failed to update backend context');
+        }
+    } catch (error) {
+        console.warn('Error sending result to backend:', error);
+        // Don't throw - this is non-critical
+    }
+}
+
+// Add message to UI
+function addMessageToUI(message, sender, isError = false) {
+    const messagesContainer = document.getElementById('assistant-messages');
+    
+    const messageDiv = document.createElement('div');
+    messageDiv.className = sender === 'user' ? 'user-message' : 'assistant-message';
+    
+    const avatarDiv = document.createElement('div');
+    avatarDiv.className = 'message-avatar';
+    avatarDiv.innerHTML = sender === 'user' ? '<i class="bi bi-person-fill"></i>' : '<i class="bi bi-robot"></i>';
+    
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'message-content';
+    
+    const textDiv = document.createElement('div');
+    textDiv.className = 'message-text';
+    
+    if (isError) {
+        textDiv.style.background = '#dc3545';
+        textDiv.style.color = 'white';
+    }
+    
+    textDiv.innerHTML = formatMessage(message);
+    
+    contentDiv.appendChild(textDiv);
+    messageDiv.appendChild(avatarDiv);
+    messageDiv.appendChild(contentDiv);
+    messagesContainer.appendChild(messageDiv);
+    
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
+
+// Format message with basic markdown support
+function formatMessage(text) {
+    let formatted = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    
+    formatted = formatted
+        .replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.+?)\*/g, '<em>$1</em>')
+        .replace(/\n/g, '<br>');
+    
+    return formatted;
+}
+
+// Show typing indicator
+function showTypingIndicator() {
+    const messagesContainer = document.getElementById('assistant-messages');
+    
+    const typingDiv = document.createElement('div');
+    typingDiv.id = 'typing-indicator';
+    typingDiv.className = 'assistant-message';
+    typingDiv.innerHTML = `
+        <div class="message-avatar">
+            <i class="bi bi-robot"></i>
+        </div>
+        <div class="message-content">
+            <div class="typing-indicator">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </div>
+    `;
+    
+    messagesContainer.appendChild(typingDiv);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
+
+// Remove typing indicator
+function removeTypingIndicator() {
+    const typingIndicator = document.getElementById('typing-indicator');
+    if (typingIndicator) {
+        typingIndicator.remove();
+    }
+}
+
+// Update assistant status
+function updateAssistantStatus(message) {
+    const statusDiv = document.getElementById('assistant-status');
+    statusDiv.innerHTML = message;
+}
+
+// Initialize assistant on page load
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Workflow Assistant initialized (microservice version)');
+    
+    const isWorkflowPage = document.getElementById('workflow-canvas') !== null;
+    if (isWorkflowPage) {
+        console.log('Workflow Assistant enabled for this page');
+    }
+
+    // Rotate chevron icon when preview collapses/expands
+    document.getElementById('ai-extract-preview-collapse')?.addEventListener('show.bs.collapse', function() {
+        document.getElementById('ai-extract-preview-icon').classList.replace('bi-chevron-right', 'bi-chevron-down');
+    });
+
+    document.getElementById('ai-extract-preview-collapse')?.addEventListener('hide.bs.collapse', function() {
+        document.getElementById('ai-extract-preview-icon').classList.replace('bi-chevron-down', 'bi-chevron-right');
+    });
+});
+</script>
+<script>
+function toggleDocTheme(){var p=document.getElementById('docPage'),i=document.getElementById('docThemeIcon'),l=document.getElementById('docThemeLabel');p.classList.toggle('light-mode');var lt=p.classList.contains('light-mode');i.className=lt?'fas fa-sun':'fas fa-moon';l.textContent=lt?'Light':'Dark';localStorage.setItem('docPageTheme',lt?'light':'dark')}
+(function(){var s=localStorage.getItem('docPageTheme');if(s==='light'){var p=document.getElementById('docPage');if(p){p.classList.add('light-mode');var i=document.getElementById('docThemeIcon'),l=document.getElementById('docThemeLabel');if(i)i.className='fas fa-sun';if(l)l.textContent='Light'}}})();
+</script>
+</div><!-- /.doc-page -->
+</body>
+</html>

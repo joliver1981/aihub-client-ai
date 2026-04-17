@@ -1,0 +1,1084 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<style>
+    /* ===== STYLES MATCHING APP LOOK & FEEL ===== */
+    .compact-header {
+        background: linear-gradient(135deg, #2980b9 0%, #34495e 100%);
+        color: white;
+        padding: 0.5rem 1rem;
+        margin-bottom: 1rem;
+        border-radius: 0.5rem;
+    }
+
+    .card {
+        margin-bottom: 0.75rem;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        border-radius: 0.5rem;
+        transition: all 0.3s ease;
+    }
+
+    .card:hover {
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        transform: translateY(-1px);
+    }
+
+    .card-header {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.9rem;
+        font-weight: 600;
+        background-color: var(--bg-elevated, #f8f9fa);
+        border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+    }
+
+    .card-body {
+        padding: 0.75rem;
+    }
+
+    .card-title {
+        font-size: 1rem;
+        margin-bottom: 0;
+    }
+
+    .card-subtitle {
+        font-size: 0.8rem;
+    }
+
+    .summary-card .card-body {
+        padding: 0.75rem;
+        min-height: 130px;
+    }
+
+    .summary-card h5 {
+        font-size: 0.85rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .summary-card h1.display-4 {
+        font-size: 2rem;
+        height: 45px;
+        display: flex;
+        align-items: center;
+        margin-bottom: 0.25rem;
+    }
+
+    .summary-card .card-text {
+        font-size: 0.8rem;
+    }
+
+    .form-control, .custom-select {
+        font-size: 0.85rem;
+        padding: 0.25rem 0.5rem;
+    }
+
+    .btn {
+        font-size: 0.85rem;
+        padding: 0.3rem 0.6rem;
+    }
+
+    .btn-sm {
+        padding: 0.2rem 0.4rem;
+        font-size: 0.8rem;
+    }
+
+    .table {
+        font-size: 0.85rem;
+    }
+
+    .table th {
+        padding: 0.4rem 0.5rem;
+        font-size: 0.8rem;
+        font-weight: 600;
+        background-color: var(--bg-elevated, #f8f9fa);
+    }
+
+    .table td {
+        padding: 0.4rem 0.5rem;
+        vertical-align: middle;
+    }
+
+    .table-striped tbody tr:nth-of-type(odd) {
+        background-color: rgba(0, 0, 0, 0.02);
+    }
+
+    .table-striped tbody tr:hover {
+        background-color: rgba(0, 123, 255, 0.05);
+        cursor: pointer;
+    }
+
+    .badge {
+        font-size: 0.7rem;
+        padding: 0.2em 0.45em;
+    }
+
+    .pagination {
+        font-size: 0.85rem;
+        margin-bottom: 0;
+    }
+
+    .page-link {
+        padding: 0.3rem 0.6rem;
+    }
+
+    .stars-container {
+        display: inline-block;
+        font-size: 0.9rem;
+    }
+
+    canvas {
+        max-height: 250px !important;
+    }
+
+    h5 { font-size: 1rem; }
+    h6 { font-size: 0.9rem; }
+
+    .container-fluid {
+        padding: 0 1rem;
+    }
+
+    /* ===== SLIDE-OUT DETAIL PANEL ===== */
+    .feedback-detail-panel {
+        position: fixed;
+        top: 0;
+        right: -520px;
+        width: 500px;
+        height: 100vh;
+        background: var(--bg-card, white);
+        box-shadow: -4px 0 16px rgba(0, 0, 0, 0.15);
+        z-index: 1050;
+        overflow-y: auto;
+        transition: right 0.3s ease;
+    }
+
+    .feedback-detail-panel.open {
+        right: 0;
+    }
+
+    .panel-header {
+        padding: 0.75rem 1rem;
+        background: linear-gradient(135deg, #2980b9 0%, #34495e 100%);
+        color: white;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }
+
+    .panel-body {
+        padding: 0.75rem 1rem;
+    }
+
+    .detail-section {
+        margin-bottom: 0.75rem;
+    }
+
+    .detail-section h6 {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: #495057;
+        margin-bottom: 0.3rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    .detail-field {
+        font-size: 0.85rem;
+        padding: 0.4rem 0.6rem;
+        background-color: var(--bg-elevated, #f8f9fa);
+        border-radius: 0.3rem;
+        margin-bottom: 0.4rem;
+        word-wrap: break-word;
+    }
+
+    .sql-block {
+        background-color: #2d2d2d;
+        color: #f8f8f2;
+        padding: 0.6rem;
+        border-radius: 0.4rem;
+        font-size: 0.75rem;
+        font-family: 'Consolas', 'Monaco', monospace;
+        max-height: 200px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+
+    .panel-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.3);
+        z-index: 1040;
+        display: none;
+    }
+
+    .panel-overlay.show {
+        display: block;
+    }
+
+    /* Status badge colors */
+    .badge-status-new { background-color: #ffc107; color: var(--text-primary, #212529); }
+    .badge-status-reviewed { background-color: #17a2b8; color: white; }
+    .badge-status-resolved { background-color: #28a745; color: white; }
+
+    /* Toast notification */
+    .toast-notification {
+        position: fixed;
+        bottom: 1rem;
+        right: 1rem;
+        padding: 0.5rem 1rem;
+        background-color: #28a745;
+        color: white;
+        border-radius: 0.4rem;
+        font-size: 0.85rem;
+        z-index: 1100;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+
+    .toast-notification.show {
+        opacity: 1;
+    }
+
+    /* Filter bar */
+    .filter-bar select,
+    .filter-bar input {
+        min-width: 120px;
+    }
+</style>
+
+<div class="container-fluid px-3 py-2">
+    <!-- Header Bar -->
+    <div class="compact-header d-flex justify-content-between align-items-center flex-wrap">
+        <h4 class="mb-0"><i class="fas fa-chart-line mr-2"></i>Feedback Analysis</h4>
+        <div class="d-flex align-items-center filter-bar flex-wrap">
+            <select id="status-filter" class="form-control form-control-sm mr-2 mb-1">
+                <option value="all">All Status</option>
+                <option value="new">New</option>
+                <option value="reviewed">Reviewed</option>
+                <option value="resolved">Resolved</option>
+            </select>
+            <select id="agent-filter" class="form-control form-control-sm mr-2 mb-1">
+                <option value="all">All Agents</option>
+            </select>
+            <select id="time-period-selector" class="form-control form-control-sm mr-2 mb-1">
+                <option value="all">All Time</option>
+                <option value="7d" selected>Last 7 Days</option>
+                <option value="30d">Last 30 Days</option>
+                <option value="90d">Last 90 Days</option>
+            </select>
+            <button id="export-csv-btn" class="btn btn-sm btn-outline-light mb-1">
+                <i class="fas fa-download mr-1"></i>Export
+            </button>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="row mb-3">
+        <div class="col">
+            <div class="card text-white bg-primary summary-card">
+                <div class="card-body">
+                    <h5 class="card-title">Total Feedback</h5>
+                    <h1 class="display-4" id="total-feedback-count">-</h1>
+                </div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="card text-white bg-success summary-card">
+                <div class="card-body">
+                    <h5 class="card-title">Positive</h5>
+                    <h1 class="display-4" id="positive-feedback-count">-</h1>
+                    <p class="card-text" id="positive-feedback-percent">-</p>
+                </div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="card text-white bg-danger summary-card">
+                <div class="card-body">
+                    <h5 class="card-title">Negative</h5>
+                    <h1 class="display-4" id="negative-feedback-count">-</h1>
+                    <p class="card-text" id="negative-feedback-percent">-</p>
+                </div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="card text-white bg-warning summary-card">
+                <div class="card-body">
+                    <h5 class="card-title">Needs Review</h5>
+                    <h1 class="display-4" id="needs-review-count">-</h1>
+                    <p class="card-text" id="needs-review-percent">-</p>
+                </div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="card text-white bg-info summary-card">
+                <div class="card-body">
+                    <h5 class="card-title">Avg Rating</h5>
+                    <h1 class="display-4" id="average-rating">-</h1>
+                    <div>
+                        <span class="stars-container" id="average-rating-stars"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="row mb-3">
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <h6 class="mb-0">Feedback by Agent</h6>
+                </div>
+                <div class="card-body">
+                    <canvas id="agent-feedback-chart" height="250"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <h6 class="mb-0">Feedback Trends</h6>
+                </div>
+                <div class="card-body">
+                    <canvas id="feedback-trend-chart" height="250"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Problematic Questions -->
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h6 class="mb-0">Problematic Questions</h6>
+                    <p class="card-subtitle mt-1 text-muted">Questions that frequently receive negative feedback</p>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped" id="problematic-questions-table">
+                            <thead>
+                                <tr>
+                                    <th>Question</th>
+                                    <th width="120">Feedback Count</th>
+                                    <th width="140">Avg Rating</th>
+                                    <th width="140">Avg Confidence</th>
+                                    <th width="80">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Feedback Table -->
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="mb-0">Recent Feedback</h6>
+                        <p class="card-subtitle mt-1 text-muted">Latest feedback submissions</p>
+                    </div>
+                    <div class="d-flex">
+                        <input type="text" id="feedback-search" class="form-control form-control-sm mr-2" placeholder="Search..." style="width: 180px;">
+                        <select id="feedback-type-filter" class="form-control form-control-sm">
+                            <option value="all" selected>All Types</option>
+                            <option value="positive">Positive</option>
+                            <option value="negative">Negative</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped" id="recent-feedback-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>User</th>
+                                    <th>Agent</th>
+                                    <th>Question</th>
+                                    <th width="80">Type</th>
+                                    <th width="80">Status</th>
+                                    <th width="100">Rating</th>
+                                    <th width="80">Confidence</th>
+                                    <th width="50">View</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <div class="mt-3" id="feedback-pagination">
+                        <nav aria-label="Feedback pagination">
+                            <ul class="pagination pagination-sm justify-content-center"></ul>
+                        </nav>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Overlay for slide-out panel -->
+<div class="panel-overlay" id="panel-overlay" onclick="closeDetailPanel()"></div>
+
+<!-- Slide-out Detail Panel -->
+<div class="feedback-detail-panel" id="feedback-detail-panel">
+    <div class="panel-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="fas fa-clipboard-list mr-2"></i>Feedback Detail</h5>
+        <button type="button" class="btn btn-sm btn-outline-light" onclick="closeDetailPanel()">
+            <i class="fas fa-times"></i>
+        </button>
+    </div>
+    <div class="panel-body">
+        <!-- Metadata -->
+        <div class="detail-section">
+            <div class="row mb-1">
+                <div class="col-4"><small class="text-muted">Date</small></div>
+                <div class="col-8"><span id="panel-date" class="small">-</span></div>
+            </div>
+            <div class="row mb-1">
+                <div class="col-4"><small class="text-muted">User</small></div>
+                <div class="col-8"><span id="panel-user" class="small">-</span></div>
+            </div>
+            <div class="row mb-1">
+                <div class="col-4"><small class="text-muted">Agent</small></div>
+                <div class="col-8"><span id="panel-agent" class="small">-</span></div>
+            </div>
+            <div class="row mb-1">
+                <div class="col-4"><small class="text-muted">Type / Rating</small></div>
+                <div class="col-8"><span id="panel-type-rating" class="small">-</span></div>
+            </div>
+            <div class="row mb-1">
+                <div class="col-4"><small class="text-muted">Confidence</small></div>
+                <div class="col-8"><span id="panel-confidence" class="small">-</span></div>
+            </div>
+            <div class="row mb-1">
+                <div class="col-4"><small class="text-muted">Caution</small></div>
+                <div class="col-8"><span id="panel-caution" class="small">-</span></div>
+            </div>
+        </div>
+
+        <!-- Question -->
+        <div class="detail-section">
+            <h6>Question</h6>
+            <div id="panel-question" class="detail-field">-</div>
+        </div>
+
+        <!-- Answer -->
+        <div class="detail-section">
+            <h6>Answer</h6>
+            <div id="panel-answer" class="detail-field" style="max-height: 200px; overflow-y: auto;">-</div>
+        </div>
+
+        <!-- SQL Query -->
+        <div class="detail-section" id="panel-sql-section" style="display:none;">
+            <h6>Generated SQL Query</h6>
+            <pre id="panel-sql-query" class="sql-block"></pre>
+        </div>
+
+        <!-- User Feedback Details -->
+        <div class="detail-section" id="panel-feedback-section" style="display:none;">
+            <h6>User Feedback</h6>
+            <div id="panel-feedback-details" class="detail-field">-</div>
+        </div>
+
+        <!-- Admin Review Controls -->
+        <div class="detail-section border-top pt-2 mt-2">
+            <h6>Admin Review</h6>
+            <div class="form-group mb-2">
+                <label class="small mb-1"><strong>Status</strong></label>
+                <select id="panel-status" class="form-control form-control-sm">
+                    <option value="new">New</option>
+                    <option value="reviewed">Reviewed</option>
+                    <option value="resolved">Resolved</option>
+                </select>
+            </div>
+            <div class="form-group mb-2">
+                <label class="small mb-1"><strong>Admin Notes</strong></label>
+                <textarea id="panel-admin-notes" class="form-control form-control-sm"
+                          rows="3" placeholder="Add notes about this feedback..."></textarea>
+            </div>
+            <div class="d-flex justify-content-between align-items-center">
+                <button id="save-review-btn" class="btn btn-sm btn-primary" onclick="saveReview()">
+                    <i class="fas fa-save mr-1"></i>Save Review
+                </button>
+                <small id="panel-reviewer-info" class="text-muted"></small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast notification -->
+<div class="toast-notification" id="toast-notification"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@2.9.4/dist/Chart.min.js"></script>
+<script>
+// Current feedback ID open in detail panel
+let currentFeedbackId = null;
+let currentPage = 1;
+const perPage = 15;
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadAll();
+    populateAgentFilter();
+
+    // Filter change listeners
+    document.getElementById('time-period-selector').addEventListener('change', function() {
+        loadFeedbackSummary();
+        loadFeedbackTrendChart();
+    });
+
+    document.getElementById('status-filter').addEventListener('change', loadRecentFeedback);
+    document.getElementById('agent-filter').addEventListener('change', loadRecentFeedback);
+    document.getElementById('feedback-type-filter').addEventListener('change', loadRecentFeedback);
+
+    document.getElementById('feedback-search').addEventListener('input', debounce(loadRecentFeedback, 300));
+
+    document.getElementById('export-csv-btn').addEventListener('click', exportCSV);
+});
+
+function loadAll() {
+    loadFeedbackSummary();
+    loadProblematicQuestions();
+    loadRecentFeedback();
+}
+
+// ===== UTILITY FUNCTIONS =====
+
+function debounce(func, wait) {
+    let timeout;
+    return function() {
+        clearTimeout(timeout);
+        timeout = setTimeout(func, wait);
+    };
+}
+
+function getStarRatingHTML(rating) {
+    const val = parseFloat(rating);
+    let html = '';
+    for (let i = 1; i <= 5; i++) {
+        if (i <= Math.floor(val)) {
+            html += '<i class="fas fa-star text-warning"></i>';
+        } else if (i === Math.ceil(val) && val % 1 !== 0) {
+            html += '<i class="fas fa-star-half-alt text-warning"></i>';
+        } else {
+            html += '<i class="far fa-star text-warning"></i>';
+        }
+    }
+    return html;
+}
+
+function getStatusBadge(status) {
+    const map = {
+        'new': '<span class="badge badge-status-new">New</span>',
+        'reviewed': '<span class="badge badge-status-reviewed">Reviewed</span>',
+        'resolved': '<span class="badge badge-status-resolved">Resolved</span>'
+    };
+    return map[status] || '<span class="badge badge-secondary">' + (status || '-') + '</span>';
+}
+
+function getTypeBadge(type) {
+    const map = {
+        'positive': '<span class="badge badge-success">Positive</span>',
+        'negative': '<span class="badge badge-danger">Negative</span>',
+        'detailed': '<span class="badge badge-info">Detailed</span>'
+    };
+    return map[type] || '<span class="badge badge-secondary">' + type + '</span>';
+}
+
+function truncate(str, len) {
+    if (!str) return '-';
+    return str.length > len ? str.substring(0, len) + '...' : str;
+}
+
+function showToast(message) {
+    const toast = document.getElementById('toast-notification');
+    toast.textContent = message;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 2500);
+}
+
+function getCurrentFilters() {
+    return {
+        type: document.getElementById('feedback-type-filter').value,
+        status: document.getElementById('status-filter').value,
+        agent_id: document.getElementById('agent-filter').value,
+        search: document.getElementById('feedback-search').value,
+        time_period: document.getElementById('time-period-selector').value
+    };
+}
+
+function buildFilterParams(filters) {
+    let params = [];
+    if (filters.type !== 'all') params.push(`type=${filters.type}`);
+    if (filters.status !== 'all') params.push(`status=${filters.status}`);
+    if (filters.agent_id !== 'all') params.push(`agent_id=${filters.agent_id}`);
+    if (filters.search) params.push(`search=${encodeURIComponent(filters.search)}`);
+    if (filters.time_period && filters.time_period !== 'all') params.push(`time_period=${filters.time_period}`);
+    return params.join('&');
+}
+
+// ===== POPULATE AGENT FILTER =====
+
+function populateAgentFilter() {
+    fetch('/api/feedback/by-agent')
+        .then(r => r.json())
+        .then(agents => {
+            const select = document.getElementById('agent-filter');
+            agents.forEach(agent => {
+                if (agent.agent_name) {
+                    const opt = document.createElement('option');
+                    opt.value = agent.agent_id;
+                    opt.textContent = agent.agent_name;
+                    select.appendChild(opt);
+                }
+            });
+        })
+        .catch(err => console.error('Error loading agents:', err));
+}
+
+// ===== SUMMARY =====
+
+function loadFeedbackSummary() {
+    const timePeriod = document.getElementById('time-period-selector').value;
+    fetch(`/api/feedback/summary?time_period=${timePeriod}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'error') return;
+
+            const total = data.total_feedback || 0;
+            document.getElementById('total-feedback-count').textContent = total;
+
+            let positiveCount = 0, negativeCount = 0, totalRating = 0, ratingCount = 0;
+
+            if (data.by_type) {
+                positiveCount = (data.by_type.positive || {}).count || 0;
+                negativeCount = (data.by_type.negative || {}).count || 0;
+
+                Object.keys(data.by_type).forEach(type => {
+                    if (data.by_type[type].avg_rating) {
+                        totalRating += data.by_type[type].avg_rating * data.by_type[type].count;
+                        ratingCount += data.by_type[type].count;
+                    }
+                });
+            }
+
+            document.getElementById('positive-feedback-count').textContent = positiveCount;
+            document.getElementById('positive-feedback-percent').textContent =
+                total > 0 ? `${((positiveCount / total) * 100).toFixed(1)}% of total` : '-';
+
+            document.getElementById('negative-feedback-count').textContent = negativeCount;
+            document.getElementById('negative-feedback-percent').textContent =
+                total > 0 ? `${((negativeCount / total) * 100).toFixed(1)}% of total` : '-';
+
+            // Needs Review count
+            const needsReview = (data.by_status || {}).new || 0;
+            document.getElementById('needs-review-count').textContent = needsReview;
+            document.getElementById('needs-review-percent').textContent =
+                total > 0 ? `${((needsReview / total) * 100).toFixed(1)}% of total` : '-';
+
+            // Average rating
+            const avgRating = ratingCount > 0 ? (totalRating / ratingCount).toFixed(1) : '-';
+            document.getElementById('average-rating').textContent = avgRating;
+            updateStarRating(avgRating);
+
+            // Load charts
+            loadAgentFeedbackChart();
+            loadFeedbackTrendChart();
+        })
+        .catch(err => console.error('Error loading summary:', err));
+}
+
+function updateStarRating(rating) {
+    const container = document.getElementById('average-rating-stars');
+    container.innerHTML = rating !== '-' ? getStarRatingHTML(rating) : '';
+}
+
+// ===== CHARTS =====
+
+function loadAgentFeedbackChart() {
+    const timePeriod = document.getElementById('time-period-selector').value;
+    fetch(`/api/feedback/by-agent?time_period=${timePeriod}`)
+        .then(r => r.json())
+        .then(agents => {
+            const ctx = document.getElementById('agent-feedback-chart').getContext('2d');
+            if (window.agentFeedbackChart) window.agentFeedbackChart.destroy();
+
+            window.agentFeedbackChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: agents.map(a => a.agent_name),
+                    datasets: [
+                        { label: 'Positive', backgroundColor: '#28a745', data: agents.map(a => a.positive_count) },
+                        { label: 'Negative', backgroundColor: '#dc3545', data: agents.map(a => a.negative_count) }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: {
+                        xAxes: [{ stacked: true, ticks: { fontSize: 10 } }],
+                        yAxes: [{ stacked: true, ticks: { beginAtZero: true, fontSize: 10 } }]
+                    },
+                    legend: { labels: { fontSize: 10 } }
+                }
+            });
+        })
+        .catch(err => console.error('Error loading agent chart:', err));
+}
+
+function loadFeedbackTrendChart() {
+    const timePeriod = document.getElementById('time-period-selector').value;
+    fetch(`/api/feedback/trends?time_period=${timePeriod}`)
+        .then(r => r.json())
+        .then(trendData => {
+            const ctx = document.getElementById('feedback-trend-chart').getContext('2d');
+            if (window.feedbackTrendChart) window.feedbackTrendChart.destroy();
+
+            window.feedbackTrendChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: trendData.map(d => d.date_label),
+                    datasets: [
+                        {
+                            label: 'Total Feedback',
+                            backgroundColor: 'rgba(0, 123, 255, 0.2)',
+                            borderColor: 'rgba(0, 123, 255, 1)',
+                            borderWidth: 2,
+                            pointBackgroundColor: 'rgba(0, 123, 255, 1)',
+                            data: trendData.map(d => d.count)
+                        },
+                        {
+                            label: 'Average Rating',
+                            backgroundColor: 'rgba(255, 193, 7, 0.2)',
+                            borderColor: 'rgba(255, 193, 7, 1)',
+                            borderWidth: 2,
+                            pointBackgroundColor: 'rgba(255, 193, 7, 1)',
+                            data: trendData.map(d => d.avg_rating),
+                            yAxisID: 'y-axis-2'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: {
+                        yAxes: [
+                            { id: 'y-axis-1', position: 'left', ticks: { beginAtZero: true, fontSize: 10 }, scaleLabel: { display: true, labelString: 'Count', fontSize: 10 } },
+                            { id: 'y-axis-2', position: 'right', ticks: { beginAtZero: true, max: 5, fontSize: 10 }, scaleLabel: { display: true, labelString: 'Rating', fontSize: 10 } }
+                        ],
+                        xAxes: [{ ticks: { fontSize: 10 } }]
+                    },
+                    legend: { labels: { fontSize: 10 } }
+                }
+            });
+        })
+        .catch(err => console.error('Error loading trend chart:', err));
+}
+
+// ===== PROBLEMATIC QUESTIONS =====
+
+function loadProblematicQuestions() {
+    fetch('/api/feedback/problems')
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.querySelector('#problematic-questions-table tbody');
+            tbody.innerHTML = '';
+
+            const questions = data.problematic_questions || [];
+            if (questions.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No problematic questions found</td></tr>';
+                return;
+            }
+
+            questions.forEach(q => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${truncate(q.question, 80)}</td>
+                    <td>${q.feedback_count}</td>
+                    <td>${q.avg_rating.toFixed(1)} ${getStarRatingHTML(q.avg_rating)}</td>
+                    <td>${(q.avg_confidence * 100).toFixed(0)}%</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" onclick="filterByQuestion('${encodeURIComponent(q.question)}')">
+                            <i class="fas fa-search"></i>
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        })
+        .catch(err => {
+            console.error('Error loading problematic questions:', err);
+            document.querySelector('#problematic-questions-table tbody').innerHTML =
+                '<tr><td colspan="5" class="text-center text-danger">Error loading data</td></tr>';
+        });
+}
+
+function filterByQuestion(encodedQuestion) {
+    document.getElementById('feedback-search').value = decodeURIComponent(encodedQuestion);
+    loadRecentFeedback();
+    document.getElementById('recent-feedback-table').scrollIntoView({ behavior: 'smooth' });
+}
+
+// ===== RECENT FEEDBACK =====
+
+function loadRecentFeedback() {
+    const filters = getCurrentFilters();
+    let url = `/api/feedback?page=${currentPage}&per_page=${perPage}`;
+    const filterParams = buildFilterParams(filters);
+    if (filterParams) url += '&' + filterParams;
+
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {
+            populateFeedbackTable(data.feedback || []);
+            renderPagination(data.pagination || {});
+        })
+        .catch(err => {
+            console.error('Error loading feedback:', err);
+            document.querySelector('#recent-feedback-table tbody').innerHTML =
+                '<tr><td colspan="9" class="text-center text-danger">Error loading data</td></tr>';
+        });
+}
+
+function populateFeedbackTable(feedbackData) {
+    const tbody = document.querySelector('#recent-feedback-table tbody');
+    tbody.innerHTML = '';
+
+    if (!feedbackData || feedbackData.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted">No feedback found</td></tr>';
+        return;
+    }
+
+    feedbackData.forEach(fb => {
+        const row = document.createElement('tr');
+        const date = fb.created_at ? new Date(fb.created_at) : null;
+        const dateStr = date ? `${date.toLocaleDateString()} ${date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}` : '-';
+        const confidence = fb.confidence_score ? `${(fb.confidence_score * 100).toFixed(0)}%` : '-';
+        const ratingHtml = fb.rating ? `${fb.rating} ${getStarRatingHTML(fb.rating)}` : '-';
+
+        row.innerHTML = `
+            <td style="font-size:0.8rem; white-space:nowrap;">${dateStr}</td>
+            <td>${fb.username || '-'}</td>
+            <td>${fb.agent_name || '-'}</td>
+            <td title="${(fb.original_question || '').replace(/"/g, '&quot;')}">${truncate(fb.original_question, 50)}</td>
+            <td>${getTypeBadge(fb.feedback_type)}</td>
+            <td>${getStatusBadge(fb.status)}</td>
+            <td>${ratingHtml}</td>
+            <td>${confidence}</td>
+            <td>
+                <button class="btn btn-sm btn-outline-info" onclick="showDetailPanel(${fb.id})">
+                    <i class="fas fa-eye"></i>
+                </button>
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+function renderPagination(pagination) {
+    const ul = document.querySelector('#feedback-pagination .pagination');
+    ul.innerHTML = '';
+    if (!pagination || pagination.total_pages <= 1) return;
+
+    const { page, total_pages } = pagination;
+
+    // Previous
+    const prevLi = document.createElement('li');
+    prevLi.className = `page-item ${page <= 1 ? 'disabled' : ''}`;
+    prevLi.innerHTML = `<a class="page-link" href="#" onclick="goToPage(${page - 1}); return false;">Prev</a>`;
+    ul.appendChild(prevLi);
+
+    // Page numbers (show max 5 around current)
+    let start = Math.max(1, page - 2);
+    let end = Math.min(total_pages, start + 4);
+    start = Math.max(1, end - 4);
+
+    for (let i = start; i <= end; i++) {
+        const li = document.createElement('li');
+        li.className = `page-item ${i === page ? 'active' : ''}`;
+        li.innerHTML = `<a class="page-link" href="#" onclick="goToPage(${i}); return false;">${i}</a>`;
+        ul.appendChild(li);
+    }
+
+    // Next
+    const nextLi = document.createElement('li');
+    nextLi.className = `page-item ${page >= total_pages ? 'disabled' : ''}`;
+    nextLi.innerHTML = `<a class="page-link" href="#" onclick="goToPage(${page + 1}); return false;">Next</a>`;
+    ul.appendChild(nextLi);
+}
+
+function goToPage(page) {
+    if (page < 1) return;
+    currentPage = page;
+    loadRecentFeedback();
+}
+
+// ===== DETAIL PANEL =====
+
+function showDetailPanel(feedbackId) {
+    currentFeedbackId = feedbackId;
+
+    fetch(`/api/feedback/detail?id=${feedbackId}`)
+        .then(r => r.json())
+        .then(fb => {
+            if (!fb || fb.status === 'error') return;
+
+            const date = fb.created_at ? new Date(fb.created_at) : null;
+            document.getElementById('panel-date').textContent = date ? `${date.toLocaleDateString()} ${date.toLocaleTimeString()}` : '-';
+            document.getElementById('panel-user').textContent = fb.username || '-';
+            document.getElementById('panel-agent').textContent = fb.agent_name || '-';
+
+            // Type + Rating
+            const typeHtml = getTypeBadge(fb.feedback_type);
+            const ratingHtml = fb.rating ? ` ${fb.rating} ${getStarRatingHTML(fb.rating)}` : '';
+            document.getElementById('panel-type-rating').innerHTML = typeHtml + ratingHtml;
+
+            document.getElementById('panel-confidence').textContent = fb.confidence_score ? `${(fb.confidence_score * 100).toFixed(0)}%` : '-';
+
+            // Caution level
+            const cautionMap = { low: 'badge-info', medium: 'badge-primary', high: 'badge-warning', very_high: 'badge-danger' };
+            const cautionLabel = fb.caution_level ? fb.caution_level.replace('_', ' ') : '-';
+            document.getElementById('panel-caution').innerHTML = fb.caution_level
+                ? `<span class="badge ${cautionMap[fb.caution_level] || 'badge-secondary'}">${cautionLabel}</span>`
+                : '-';
+
+            // Question
+            document.getElementById('panel-question').textContent = fb.original_question || '-';
+
+            // Answer (handle HTML tables)
+            const answerEl = document.getElementById('panel-answer');
+            const answer = fb.original_answer || '-';
+            if (answer.includes('<table') || answer.includes('<a href=')) {
+                answerEl.innerHTML = answer;
+                answerEl.querySelectorAll('table').forEach(t => {
+                    t.classList.add('table', 'table-sm', 'table-bordered', 'table-striped');
+                    t.style.width = '100%';
+                });
+            } else {
+                answerEl.textContent = answer;
+            }
+
+            // SQL Query
+            const sqlSection = document.getElementById('panel-sql-section');
+            if (fb.sql_query) {
+                document.getElementById('panel-sql-query').textContent = fb.sql_query;
+                sqlSection.style.display = '';
+            } else {
+                sqlSection.style.display = 'none';
+            }
+
+            // User Feedback Details
+            const fbSection = document.getElementById('panel-feedback-section');
+            if (fb.feedback_details) {
+                document.getElementById('panel-feedback-details').textContent = fb.feedback_details;
+                fbSection.style.display = '';
+            } else {
+                fbSection.style.display = 'none';
+            }
+
+            // Admin controls
+            document.getElementById('panel-status').value = fb.status || 'new';
+            document.getElementById('panel-admin-notes').value = fb.admin_notes || '';
+
+            // Reviewer info
+            const reviewerInfo = document.getElementById('panel-reviewer-info');
+            if (fb.reviewed_by && fb.reviewer_name) {
+                const reviewDate = fb.reviewed_at ? new Date(fb.reviewed_at).toLocaleDateString() : '';
+                reviewerInfo.textContent = `Reviewed by ${fb.reviewer_name} ${reviewDate}`;
+            } else {
+                reviewerInfo.textContent = '';
+            }
+
+            // Open panel
+            document.getElementById('feedback-detail-panel').classList.add('open');
+            document.getElementById('panel-overlay').classList.add('show');
+        })
+        .catch(err => console.error('Error loading detail:', err));
+}
+
+function closeDetailPanel() {
+    document.getElementById('feedback-detail-panel').classList.remove('open');
+    document.getElementById('panel-overlay').classList.remove('show');
+    currentFeedbackId = null;
+}
+
+function saveReview() {
+    if (!currentFeedbackId) return;
+
+    const data = {
+        id: currentFeedbackId,
+        status: document.getElementById('panel-status').value,
+        admin_notes: document.getElementById('panel-admin-notes').value,
+        reviewed_by: '{{ current_user.id }}' || null
+    };
+
+    fetch('/api/feedback/status', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    })
+    .then(r => r.json())
+    .then(result => {
+        if (result.status === 'success') {
+            showToast('Review saved successfully');
+            loadRecentFeedback();
+            loadFeedbackSummary();
+        } else {
+            showToast('Error: ' + (result.message || 'Failed to save'));
+        }
+    })
+    .catch(err => {
+        console.error('Error saving review:', err);
+        showToast('Error saving review');
+    });
+}
+
+// ===== EXPORT =====
+
+function exportCSV() {
+    const filters = getCurrentFilters();
+    let url = '/api/feedback/export?';
+    url += buildFilterParams(filters);
+    window.location.href = url;
+}
+</script>
+<script src="/static/js/feedback_analysis_context.js"></script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}

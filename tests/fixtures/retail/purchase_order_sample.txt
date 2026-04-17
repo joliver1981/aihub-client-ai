@@ -1,0 +1,54 @@
+PURCHASE ORDER
+==============
+PO Number:    PO-2026-4521
+Date:         2026-03-05
+Payment Terms: Net 30
+
+VENDOR:
+  Westfield Wholesale Distribution
+  1420 Commerce Blvd, Suite 200
+  Dallas, TX 75201
+  Contact: Sarah Mitchell
+  Email: sarah.mitchell@westfieldwholesale.com
+  Phone: (214) 555-0187
+
+SHIP TO:
+  Metro Retail Group - Warehouse B
+  8900 Industrial Pkwy
+  Houston, TX 77032
+  Attn: Receiving Dept
+
+BILL TO:
+  Metro Retail Group
+  Accounts Payable
+  2100 Main Street
+  Houston, TX 77001
+
+LINE ITEMS:
++------+-------------+------------------------------------+------+------------+-------------+
+| Line | SKU         | Description                        | Qty  | Unit Price | Line Total  |
++------+-------------+------------------------------------+------+------------+-------------+
+|  1   | WF-EL-1001  | Wireless Bluetooth Earbuds Pro     |  200 |   $24.99   |   $4,998.00 |
+|  2   | WF-EL-1042  | USB-C Fast Charging Cable (6ft)    |  500 |    $4.99   |   $2,495.00 |
+|  3   | WF-HM-2015  | Stainless Steel Water Bottle 32oz  |  300 |    $8.49   |   $2,547.00 |
+|  4   | WF-HM-2023  | Bamboo Cutting Board Set (3pc)     |  150 |   $12.99   |   $1,948.50 |
+|  5   | WF-SP-3008  | Yoga Mat Premium (6mm)             |  100 |   $18.99   |   $1,899.00 |
+|  6   | WF-SP-3012  | Resistance Band Set (5 levels)     |  250 |    $9.49   |   $2,372.50 |
+|  7   | WF-OF-4001  | Ergonomic Mouse Pad with Wrist Rest|  400 |    $6.99   |   $2,796.00 |
++------+-------------+------------------------------------+------+------------+-------------+
+
+                                        Subtotal:    $19,056.00
+                                        Shipping:     $1,250.00
+                                        Tax (8.25%):  $1,572.12
+                                        TOTAL:       $21,878.12
+
+SHIPPING INSTRUCTIONS:
+  - Carrier: FedEx Ground
+  - Required Delivery: 2026-03-15
+  - Dock hours: 6:00 AM - 4:00 PM
+  - Appointment required: Yes
+  - Special handling: Line 5 (Yoga Mats) — keep dry, do not stack
+
+AUTHORIZATION:
+  Approved by: James Rodriguez, Purchasing Manager
+  Date: 2026-03-05

@@ -1,0 +1,600 @@
+# Enhanced Core Tools Configuration
+# This file defines core tools, their dependencies, and visibility settings
+
+# Tool definitions
+tools:
+  # System & Utility Tools
+  - name: get_the_current_date
+    display_name: "Get Current Date"
+    description: "Returns the current date."
+    
+  - name: get_the_current_date_and_time
+    display_name: "Get Current Date & Time"
+    description: "Returns the current date and time."
+    
+  - name: wait_seconds
+    display_name: "Wait/Pause"
+    description: "Pauses execution for a specified number of seconds."
+    
+  - name: get_word_length
+    display_name: "Get Word Length"
+    description: "Returns the length of a word."
+    
+  - name: run_python_code
+    display_name: "Run Python Code"
+    description: "This function allows for the creation of tools dynamically by accepting a string of Python code, executing it, and capturing any output or errors as a string."
+
+  # Communication Tools
+  - name: send_email_message
+    display_name: "Send Email"
+    description: "Sends an email message to a specified email address."
+    
+  - name: text_message_alert
+    display_name: "Send Text Message"
+    description: "Sends a text message alert to the destination phone number and informs them of the content in the message. The function retuns 'Text message succeeded' if the call was successful and 'Text message failed' if it failed."
+    
+  - name: phone_call_alert
+    display_name: "Make Phone Call"
+    description: "Makes a phone call alert to the destination phone number and informs them of the content in the message. The function retuns 'Phone call succeeded' if the call was successful and 'Phone call failed' if it failed."
+    
+  - name: get_user_contact_info
+    display_name: "Get User Contact Info"
+    description: "Returns a report containing contact info for users, including name, email, and phone."
+
+  # File & Folder Tools
+  - name: folder_report
+    display_name: "Folder Report"
+    description: "Generates a report of files in a folder with their file name, file path, and creation date."
+    
+  - name: check_age_of_files_in_folder
+    display_name: "Check File Ages"
+    description: "Generates a report of files in a network folder with their age in minutes, file name, file path, and creation date."
+    routing_hint: "Only use if the user explicitly says root folder only, no subfolders. Otherwise prefer check_age_of_files_in_subfolders."
+
+  - name: check_age_of_files_in_subfolders
+    display_name: "Check File Ages (Include Subfolders)"
+    description: "Generates a report of files in a network folder and subfolders with their age in minutes, file name, file path, and creation date. Only use this function if the user has requested to include subfolders."
+    routing_hint: "Preferred over check_age_of_files_in_folder — handles both root-only and recursive subfolder searches."
+    
+  - name: folder_statistics_report
+    display_name: "Folder Statistics"
+    description: "Generates a report summarizing folder statistics including total files, total files by type, total size, for the root folder and its immediate subfolders."
+    
+  - name: search_in_text_files
+    display_name: "Search Text Files"
+    description: "Searches for and locates specific strings within a collection of files. Returns the names of the files that contained the search string as a comma separated list."
+    
+  - name: create_text_file
+    display_name: "Create Text File"
+    description: "Writes a string to a file with the optionally specified extension (default is .txt)"
+    
+  - name: load_text_file
+    display_name: "Load Text File"
+    description: "Loads the content of a text file and returns it as a string."
+
+  # Windows Service Tools
+  - name: check_windows_service
+    description: "Returns the status of a Windows service on a specific server. Returns the status as 'Running', 'Not running'. If the function encounters an error, it will return 'Error checking status'."
+    
+  - name: restart_windows_service
+    description: "Restarts a windows service on a remote computer."
+    
+  - name: list_running_windows_services
+    description: "Generates a list of the running services on a remote computer."
+
+  # SQL Job Tools
+  - name: sql_job_report
+    description: "Fetches the status report of SQL Server Agent jobs and returns it as a string."
+    
+  - name: sql_job_executor
+    description: "This function initiates a SQL Server Agent job and returns the status after the job completes."
+    
+  - name: sql_job_name_lookup
+    description: "Looks up the exact name of a SQL Server job using the name that was provided by a user, so the correct job is executed."
+    
+  - name: sql_job_history_report
+    display_name: "SQL Job History Search"
+    description: "Search SQL Server job execution history. Shows execution results, duration, and error messages for a specified time period."
+
+  # Database & Query Tools
+  - name: get_database_connection_info
+    description: "Returns a list of available database connections along with their unique connection id, connection name (description), database name, and database type."
+    
+  - name: query_database
+    description: "Execute a SQL query against a specified database connection and return the results."
+    routing_hint: "Use when you need to write and execute specific SQL queries directly."
+
+  - name: get_query_agent_info
+    description: "Returns a list of available natural language query agents along with their unique agent id, name, objective, and database connection id."
+
+  - name: ask_query_agent_a_question
+    description: "Sends a question to a natural language query AI assistant and returns the reply from the assistant."
+    routing_hint: "Use when the user asks a data question in natural language — delegates to a specialized query agent that knows the database schema."
+
+  # Document Tools
+  - name: search_documents_by_order
+    description: "Fetch information for various types of documents such as invoices, purchase orders, and bill of ladings to assist users with research. The function searches by order number and optional document type."
+    
+  - name: list_document_types
+    description: "Execute a query to extract all available document types, returning a JSON structure."
+    
+  - name: list_document_fields
+    description: "Execute a query to extract all document types and their fields, returning a JSON structure where fields are grouped by document type."
+    
+  - name: search_documents
+    description: "Search documents with flexible field filtering and return results as JSON string. Designed for AI agent analysis of document data."
+    
+  - name: search_documents_meaning
+    description: "Searches documents based on the meaning of the text within the search query and return results as JSON string."
+    routing_hint: "FALLBACK only — use for conceptual/meaning-based queries when document_super_search returns no results."
+
+  - name: document_super_search
+    display_name: "Document Search"
+    description: "Search documents and return results as JSON string. Designed for AI agent analysis of document data."
+    routing_hint: "PRIMARY document search tool. Use this first for any document repository query."
+
+  - name: document_intelligent_search
+    description: "Intelligent document search that automatically adapts response based on result size and question type."
+    
+  - name: get_document_universe_metadata
+    description: "Provides comprehensive metadata about the document universe to help AI understand document types, fields, relationships, and usage patterns."
+    
+  - name: get_document_fields
+    description: "Execute a query to extract all document types and their fields with sample values, returning a JSON structure for AI analysis."
+    
+  - name: get_next_document_page
+    description: "Retrieve the next page in a document based on the current page ID."
+    
+  - name: get_previous_document_page
+    description: "Retrieve the previous page in a document based on the current page ID."
+    
+  - name: get_document_page_by_number
+    description: "Retrieve a specific page from a document by its number."
+    
+  - name: find_potential_search_fields
+    description: "Suggests alternative fields to search when original field returns no results."
+    
+  - name: drill_down_document_type
+    description: "Get detailed results for a specific document type after receiving a summary."
+    
+  - name: drill_down_by_field
+    description: "Get detailed results for documents with specific field values."
+    
+  - name: get_document_page
+    description: "Get paginated document search results for large result sets."
+    
+  - name: get_document_pages
+    description: "Get document pages for a specific document."
+    
+  - name: analyze_document_result_strategy
+    description: "Analyze what strategy would be best for presenting document search results."
+    
+  - name: get_document_paths
+    description: "Extract document paths/links from search results or document data."
+    
+  - name: get_document_direct_links
+    description: "Generate direct access links for specific documents by their IDs."
+    
+  - name: extract_document_paths_from_conversation
+    description: "Extract all document paths/links mentioned in the conversation history."
+
+  # Data Processing Tools
+  - name: process_csv
+    description: "Process a CSV file with various operations like summarize, filter, transform, etc."
+    
+  - name: show_csv
+    description: "Display the contents of a CSV file in a readable format."
+
+  # External Integration Tools
+  - name: call_external_api
+    description: "Make requests to external APIs and return the response."
+
+  - name: web_search
+    description: "Search the web for real-time information."
+
+  - name: sftp_file_report
+    description: "Provides reports about files in SFTP directory, including age of files"
+
+  # Connected Integration Tools
+  - name: list_integrations
+    display_name: "List Integrations"
+    description: "List all connected integrations (Stripe, HubSpot, Slack, etc.) with their status."
+
+  - name: get_integration_operations
+    display_name: "Get Integration Operations"
+    description: "Get available operations for a connected integration (e.g., get_customers, get_invoices)."
+
+  - name: execute_integration
+    display_name: "Execute Integration"
+    description: "Execute an operation on a connected integration and return the results (e.g., fetch Stripe payments, get HubSpot contacts)."
+    routing_hint: "Use when the user asks for data from an external service like Stripe, HubSpot, Salesforce, etc."
+
+  # Agent Communication Tools (if enabled)
+  - name: communicate_with_agent
+    description: "Send a message to another agent and receive their response."
+    routing_hint: "Use when you need to talk to a specific agent you already know by ID."
+
+  - name: broadcast_to_agents
+    description: "Broadcast a message to multiple agents simultaneously."
+    routing_hint: "Use only when you need input from multiple agents simultaneously on the same question."
+
+  - name: delegate_task_to_best_agent
+    description: "Intelligently delegate a task to the most suitable agent based on capabilities."
+    routing_hint: "Use when you want the system to automatically find the best agent for a task."
+
+  - name: get_active_agents
+    description: "Get a list of all currently active agents with their capabilities."
+
+  - name: create_agent_workflow
+    description: "Create a multi-agent workflow where agents pass results to each other."
+    routing_hint: "Use only for multi-step sequential processes requiring multiple agents in a chain."
+    
+   # Agent Knowledge Management Tools
+  - name: manage_knowledge
+    display_name: "Manage Knowledge"
+    description: "Gives agent the ability to manage its own personal knowledge base."
+
+# Tool Categories
+categories:
+  utilities:
+    description: "General utility and system tools"
+    tools:
+      - get_the_current_date
+      - get_the_current_date_and_time
+      - wait_seconds
+      - get_word_length
+      - run_python_code
+      - manage_knowledge
+  
+  communication:
+    description: "Tools for sending alerts and messages"
+    tools:
+      - send_email_message
+      - text_message_alert
+      - phone_call_alert
+      - get_user_contact_info
+  
+  file_operations:
+    description: "Tools for file and folder operations"
+    tools:
+      - folder_report
+      - folder_statistics_report
+      - check_age_of_files_in_folder
+      - check_age_of_files_in_subfolders
+      - search_in_text_files
+      - create_text_file
+      - load_text_file
+  
+  system_monitoring:
+    description: "Tools for system monitoring and management"
+    tools:
+      - check_windows_service
+      - restart_windows_service
+      - list_running_windows_services
+  
+  sql_operations:
+    description: "SQL job management tools"
+    tools:
+      - sql_job_report
+      - sql_job_executor
+      - sql_job_name_lookup
+      - sql_job_history_report
+  
+  data_analysis:
+    description: "Tools for data querying and analysis"
+    tools:
+      - query_database
+      - get_query_agent_info
+      - ask_query_agent_a_question
+      - get_database_connection_info
+      - process_csv
+      - show_csv
+  
+  document_management:
+    description: "Document search and management tools"
+    tools:
+      - search_documents_by_order
+      - search_documents
+      - search_documents_meaning
+      - document_super_search
+      - document_intelligent_search
+      - list_document_types
+      - list_document_fields
+      - get_document_fields
+      - get_document_universe_metadata
+      - get_next_document_page
+      - get_previous_document_page
+      - get_document_page_by_number
+      - find_potential_search_fields
+      - drill_down_document_type
+      - drill_down_by_field
+      - get_document_page
+      - analyze_document_result_strategy
+      - get_document_paths
+      - get_document_direct_links
+      - extract_document_paths_from_conversation
+  
+  external_integration:
+    description: "External API and integration tools"
+    tools:
+      - call_external_api
+      - web_search
+      - sftp_file_report
+      - list_integrations
+      - get_integration_operations
+      - execute_integration
+  
+  agent_collaboration:
+    description: "Multi-agent communication and coordination"
+    tools:
+      - communicate_with_agent
+      - broadcast_to_agents
+      - delegate_task_to_best_agent
+      - get_active_agents
+      - create_agent_workflow
+
+# Tool Visibility Settings
+visibility:
+  # Tools that are mandatory for all agents
+  mandatory:
+    - get_the_current_date_and_time
+    - wait_seconds
+  
+  # Tools that users can select
+  user_selectable:
+    - send_email_message
+    - text_message_alert
+    - phone_call_alert
+    - query_database
+    - folder_report
+    - check_windows_service
+    - restart_windows_service
+    - search_in_text_files
+    - create_text_file
+    - load_text_file
+    - run_python_code
+    - folder_statistics_report
+    - check_age_of_files_in_folder
+    - check_age_of_files_in_subfolders
+    - list_running_windows_services
+    - search_documents_meaning
+    - document_super_search
+    - document_intelligent_search
+    - process_csv
+    - show_csv
+    - call_external_api
+    - web_search
+    - ask_query_agent_a_question
+    - communicate_with_agent
+    - broadcast_to_agents
+    - delegate_task_to_best_agent
+    - create_agent_workflow
+    - sql_job_history_report
+    - manage_knowledge
+    - execute_integration
+  
+  # Tools that are hidden from user selection (only added as dependencies)
+  hidden:
+    - get_user_contact_info
+    - get_database_connection_info
+    - get_query_agent_info
+    - sql_job_name_lookup
+    - find_potential_search_fields
+    - get_active_agents
+    - get_the_current_date  # Usually get_the_current_date_and_time is preferred
+    - get_word_length  # Utility function rarely needed directly
+    - get_next_document_page
+    - get_previous_document_page
+    - get_document_page_by_number
+    - drill_down_document_type
+    - drill_down_by_field
+    - list_document_types
+    - list_document_fields
+    - get_document_fields
+    - get_document_universe_metadata
+    - get_document_page
+    - analyze_document_result_strategy
+    - get_document_paths
+    - get_document_direct_links
+    - extract_document_paths_from_conversation
+    - sql_job_report
+    - sql_job_executor
+    - sftp_file_report
+    - get_document_pages
+    - search_documents_by_order
+    - search_documents
+    - list_integrations
+    - get_integration_operations
+    - search_documents_meaning
+    - document_intelligent_search
+
+  # Tools that can be both selected by users AND added as dependencies
+  dual_purpose:
+    - folder_statistics_report
+    - check_age_of_files_in_folder
+
+# Tool Dependencies
+dependencies:
+  # Communication tool dependencies
+  send_email_message:
+    required:
+      - get_user_contact_info
+    optional:
+      - get_the_current_date_and_time
+  
+  text_message_alert:
+    required:
+      - get_user_contact_info
+    optional:
+      - get_the_current_date_and_time
+  
+  phone_call_alert:
+    required:
+      - get_user_contact_info
+    optional:
+      - get_the_current_date_and_time
+  
+  # Database tool dependencies
+  query_database:
+    required:
+      - get_database_connection_info
+  
+  ask_query_agent_a_question:
+    required:
+      - get_query_agent_info
+  
+  # File operation dependencies
+  folder_report:
+    optional:
+      - folder_statistics_report
+      - check_age_of_files_in_folder
+  
+  search_in_text_files:
+    optional:
+      - folder_report
+  
+  # System monitoring dependencies
+  restart_windows_service:
+    required:
+      - check_windows_service
+    optional:
+      - wait_seconds
+      - text_message_alert
+  
+  # SQL job dependencies
+  sql_job_executor:
+    required:
+      - sql_job_name_lookup
+    optional:
+      - sql_job_report
+      - wait_seconds
+  
+  sql_job_report:
+    optional:
+      - get_the_current_date_and_time
+
+  sql_job_history_report:
+    required:
+      - get_database_connection_info
+  
+  # Document search dependencies
+  search_documents:
+    required:
+      - get_next_document_page
+      - get_previous_document_page
+      - get_document_page_by_number
+      - list_document_fields
+      - get_document_universe_metadata
+      - list_document_types
+    optional:
+      - find_potential_search_fields
+  
+  document_super_search:
+    required:
+      - get_document_universe_metadata
+      - find_potential_search_fields
+      - get_document_pages
+  
+  # Agent communication dependencies
+  create_agent_workflow:
+    required:
+      - communicate_with_agent
+      - get_active_agents
+  
+  delegate_task_to_best_agent:
+    required:
+      - get_active_agents
+      - communicate_with_agent
+
+  # Integration tool dependencies
+  execute_integration:
+    required:
+      - list_integrations
+      - get_integration_operations
+
+# Dependency Groups
+dependency_groups:
+  complete_alerting:
+    description: "Full alerting capability with all communication methods"
+    tools:
+      - send_email_message
+      - text_message_alert
+      - phone_call_alert
+      - get_user_contact_info
+  
+  data_analysis_suite:
+    description: "Complete data analysis toolkit"
+    tools:
+      - query_database
+      - process_csv
+      - show_csv
+      - get_database_connection_info
+  
+  file_management_suite:
+    description: "Comprehensive file management tools"
+    tools:
+      - folder_report
+      - folder_statistics_report
+      - check_age_of_files_in_folder
+      - search_in_text_files
+      - create_text_file
+      - load_text_file
+  
+  windows_service_management:
+    description: "Windows service monitoring and management"
+    tools:
+      - check_windows_service
+      - restart_windows_service
+      - list_running_windows_services
+      - wait_seconds
+  
+  sql_job_management:
+    description: "Complete SQL job management"
+    tools:
+      - sql_job_executor
+      - sql_job_report
+      - sql_job_name_lookup
+      - sql_job_history_report
+      - wait_seconds
+  
+  document_search_complete:
+    description: "All document search capabilities"
+    tools:
+      - search_documents
+      - document_super_search
+      - document_intelligent_search
+      - search_documents_meaning
+      - get_document_universe_metadata
+      - list_document_types
+      - list_document_fields
+
+# Conditional Dependencies
+conditional_dependencies:
+  # If agent has workflow capabilities
+  workflow_enabled:
+    condition: "has_tool:create_agent_workflow"
+    adds:
+      - get_active_agents
+      - communicate_with_agent
+  
+  # If agent has document search
+  document_search_enabled:
+    condition: "has_any_tool:search_documents,document_super_search"
+    adds:
+      - get_document_universe_metadata
+      - find_potential_search_fields
+  
+  # If agent has monitoring capabilities
+  monitoring_enabled:
+    condition: "has_any_tool:check_windows_service,sql_job_report"
+    adds:
+      - text_message_alert
+      - get_user_contact_info
+
+# Tool Metadata
+metadata:
+  version: "2.0"
+  last_updated: "2024-01-01"
+  enable_mandatory_tools: true
+  enable_dependencies: true
+  enable_conditional_dependencies: true

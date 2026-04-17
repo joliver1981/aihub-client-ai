@@ -1,0 +1,906 @@
+{% extends "base.html" %}
+{% block title %}Document Processor{% endblock %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<style>
+    /* ===== DOCUMENT SUMMARIZATION SPECIFIC ===== */
+    .doc-page .summary-card {
+        border-left: 4px solid var(--cyber-cyan);
+        background: var(--bg-card);
+        border-right: 1px solid var(--border-subtle);
+        border-top: 1px solid var(--border-subtle);
+        border-bottom: 1px solid var(--border-subtle);
+        margin-bottom: 1rem;
+        border-radius: 0 12px 12px 0;
+    }
+
+    .doc-page .summary-card .card-body {
+        padding: 1rem 1.25rem;
+    }
+
+    .doc-page .summary-type-badge {
+        font-size: 0.75em;
+        margin-right: 5px;
+    }
+
+    .doc-page .key-points {
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-subtle);
+        border-radius: 10px;
+        padding: 0.85rem;
+        margin-top: 0.75rem;
+        color: var(--text-secondary);
+    }
+
+    .doc-page .key-points strong {
+        color: var(--text-primary);
+    }
+
+    .doc-page .key-points ul {
+        color: var(--text-secondary);
+    }
+
+    .doc-page .entities {
+        background: rgba(251, 191, 36, 0.06);
+        border: 1px solid rgba(251, 191, 36, 0.15);
+        border-radius: 10px;
+        padding: 0.85rem;
+        margin-top: 0.75rem;
+        color: var(--text-secondary);
+    }
+
+    .doc-page .entities strong {
+        color: var(--status-warning);
+    }
+
+    .doc-page .no-summaries {
+        text-align: center;
+        color: var(--text-muted);
+        padding: 3rem;
+        font-style: italic;
+    }
+
+    .doc-page .no-summaries i {
+        color: var(--text-muted);
+        display: block;
+        margin-bottom: 1rem;
+    }
+
+    .doc-page .summary-stats {
+        background: var(--bg-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: 12px;
+        padding: 1rem 1.25rem;
+        margin-bottom: 1rem;
+    }
+
+    .doc-page .page-summary {
+        border: 1px solid var(--border-subtle);
+        border-radius: 12px;
+        margin-bottom: 1.25rem;
+        padding: 1rem 1.25rem;
+        background: var(--bg-card);
+    }
+
+    .doc-page .page-header {
+        background: var(--bg-elevated);
+        margin: -1rem -1.25rem 1rem -1.25rem;
+        padding: 0.65rem 1rem;
+        border-radius: 12px 12px 0 0;
+        font-weight: 600;
+        color: var(--text-primary);
+        border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .doc-page .page-header i {
+        color: var(--cyber-cyan);
+        margin-right: 0.4rem;
+    }
+
+    .doc-page .btn-group-summary-types .btn {
+        font-size: 0.8rem;
+    }
+
+    .doc-page .btn-group-summary-types .btn-outline-primary {
+        border-color: var(--cyber-cyan);
+        color: var(--cyber-cyan);
+    }
+    .doc-page .btn-group-summary-types .btn-outline-primary.active,
+    .doc-page .btn-group-summary-types .btn-outline-primary:active {
+        background: rgba(6, 182, 212, 0.15);
+        color: var(--cyber-cyan);
+        border-color: var(--cyber-cyan);
+    }
+
+    .doc-page .btn-group-summary-types .btn-outline-info {
+        border-color: var(--cyber-violet);
+        color: var(--cyber-violet);
+    }
+    .doc-page .btn-group-summary-types .btn-outline-info.active,
+    .doc-page .btn-group-summary-types .btn-outline-info:active {
+        background: rgba(167, 139, 250, 0.15);
+        color: var(--cyber-violet);
+        border-color: var(--cyber-violet);
+    }
+
+    .doc-page .btn-group-summary-types .btn-outline-success {
+        border-color: var(--status-success);
+        color: var(--status-success);
+    }
+    .doc-page .btn-group-summary-types .btn-outline-success.active,
+    .doc-page .btn-group-summary-types .btn-outline-success:active {
+        background: rgba(52, 211, 153, 0.15);
+        color: var(--status-success);
+        border-color: var(--status-success);
+    }
+
+    .doc-page .btn-group-summary-types .btn-outline-warning {
+        border-color: var(--status-warning);
+        color: var(--status-warning);
+    }
+    .doc-page .btn-group-summary-types .btn-outline-warning.active,
+    .doc-page .btn-group-summary-types .btn-outline-warning:active {
+        background: rgba(251, 191, 36, 0.15);
+        color: var(--status-warning);
+        border-color: var(--status-warning);
+    }
+
+    .doc-page .btn-group-summary-types .btn-outline-secondary {
+        border-color: var(--border-accent);
+        color: var(--text-secondary);
+    }
+    .doc-page .btn-group-summary-types .btn-outline-secondary.active,
+    .doc-page .btn-group-summary-types .btn-outline-secondary:active {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+        border-color: var(--border-accent);
+    }
+
+    .doc-page .btn-group-vertical .btn {
+        text-align: left;
+        border-radius: 8px !important;
+        margin-bottom: 0.4rem;
+    }
+
+    /* Feedback message styling */
+    #feedback-message {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 9999;
+    }
+</style>
+
+<div class="doc-page" id="docPage">
+<div class="container-fluid">
+
+    <!-- Page Header -->
+    <div class="doc-page-header">
+        <div>
+            <h4 class="doc-page-header-title"><i class="fas fa-file-alt"></i> Document Processor</h4>
+            <span class="doc-page-header-subtitle">Generate and manage document summaries</span>
+        </div>
+        <div class="doc-page-header-actions">
+            <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+                <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+            </button>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Sidebar -->
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-header doc-card-header">
+                    <i class="fas fa-magic" style="color:var(--cyber-cyan);margin-right:0.5rem;"></i> Summarization Tools
+                </div>
+                <div class="card-body">
+                    <!-- Document Selection -->
+                    <div class="form-group">
+                        <label for="documentSelect">Select Document</label>
+                        <select class="form-control" id="documentSelect">
+                            <option value="">Loading documents...</option>
+                        </select>
+                    </div>
+
+                    <!-- Summary Types -->
+                    <div class="form-group">
+                        <label>Summary Types</label>
+                        <div class="btn-group-toggle btn-group-summary-types" data-toggle="buttons">
+                            <label class="btn btn-outline-primary btn-sm active">
+                                <input type="checkbox" checked value="standard"> Standard
+                            </label>
+                            <label class="btn btn-outline-info btn-sm">
+                                <input type="checkbox" value="brief"> Brief
+                            </label>
+                            <label class="btn btn-outline-success btn-sm">
+                                <input type="checkbox" value="detailed"> Detailed
+                            </label>
+                            <label class="btn btn-outline-warning btn-sm">
+                                <input type="checkbox" value="bullet_points"> Bullet Points
+                            </label>
+                            <label class="btn btn-outline-secondary btn-sm">
+                                <input type="checkbox" value="executive"> Executive
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Custom Instructions -->
+                    <div class="form-group">
+                        <label for="customInstructions">Custom Instructions</label>
+                        <textarea class="form-control" id="customInstructions" rows="3" 
+                            placeholder="e.g., Focus on financial information, dates, and key decisions..."></textarea>
+                    </div>
+
+                    <!-- Options -->
+                    <div class="form-group">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="overwriteExisting">
+                            <label class="form-check-label" for="overwriteExisting">
+                                Overwrite existing summaries
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="btn-group-vertical w-100">
+                        <button class="btn btn-primary" onclick="generateSummaries()">
+                            <i class="fas fa-magic"></i> Generate Summaries
+                        </button>
+                        <button class="btn btn-info" onclick="loadSummaries()">
+                            <i class="fas fa-sync"></i> Refresh View
+                        </button>
+                        <button class="btn btn-success" onclick="exportSummaries()">
+                            <i class="fas fa-download"></i> Export Summaries
+                        </button>
+                    </div>
+
+                    <!-- Batch Operations -->
+                    <hr>
+                    <label style="margin-bottom:0.5rem;">Batch Operations</label>
+                    <div class="btn-group-vertical w-100">
+                        <button class="btn btn-warning btn-sm" onclick="batchProcessAll()">
+                            <i class="fas fa-layer-group"></i> Process All Unsummarized
+                        </button>
+                        <button class="btn btn-danger btn-sm" onclick="clearAllSummaries()">
+                            <i class="fas fa-trash"></i> Clear All Summaries
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="col-md-9">
+            <!-- Document Info -->
+            <div class="card mb-3" id="documentInfo" style="display: none;">
+                <div class="card-header doc-card-header">
+                    <i class="fas fa-info-circle" style="color:var(--cyber-cyan);margin-right:0.5rem;"></i> 
+                    <span id="documentTitle">Document Info</span>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <small class="text-muted">Type</small><br>
+                            <span id="documentType" style="color:var(--text-primary);"></span>
+                        </div>
+                        <div class="col-md-3">
+                            <small class="text-muted">Pages</small><br>
+                            <span id="documentPages" style="color:var(--text-primary);"></span>
+                        </div>
+                        <div class="col-md-3">
+                            <small class="text-muted">Processed</small><br>
+                            <span id="documentProcessed" style="color:var(--text-primary);"></span>
+                        </div>
+                        <div class="col-md-3">
+                            <small class="text-muted">Summaries</small><br>
+                            <span id="summaryCount" style="color:var(--text-primary);">0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Summary Statistics -->
+            <div class="summary-stats" id="summaryStats" style="display: none;">
+                <div class="row">
+                    <div class="col-md-4">
+                        <label><i class="fas fa-chart-bar" style="color:var(--cyber-cyan);margin-right:0.4rem;"></i> Summary Statistics</label>
+                        <div id="statsContent"></div>
+                    </div>
+                    <div class="col-md-8">
+                        <div class="progress mb-2">
+                            <div class="progress-bar" role="progressbar" id="summaryProgress" style="width: 0%"></div>
+                        </div>
+                        <small class="text-muted" id="progressText">No summaries loaded</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Loading Spinner -->
+            <div class="loading-spinner" id="loadingSpinner">
+                <div class="d-flex flex-column align-items-center">
+                    <div class="processing-animation mb-3">
+                        <div class="processing-spinner"></div>
+                    </div>
+                    <h5 style="color:var(--text-primary);">Processing summaries...</h5>
+                    <p class="text-muted">This may take several minutes depending on document size</p>
+                    <div class="progress" style="width: 300px;">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                            role="progressbar" style="width: 100%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Summaries Container -->
+            <div id="summariesContainer">
+                <div class="no-summaries">
+                    <i class="fas fa-file-alt fa-3x"></i>
+                    <p>Select a document to view summaries</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div><!-- /.container-fluid -->
+
+<!-- Export Modal -->
+<div class="modal fade" id="exportModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-download" style="color:var(--cyber-cyan);margin-right:0.5rem;"></i> Export Summaries</h5>
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Export Format</label>
+                    <select class="form-control" id="exportFormat">
+                        <option value="json">JSON</option>
+                        <option value="html">HTML</option>
+                        <option value="markdown">Markdown</option>
+                        <option value="txt">Text</option>
+                    </select>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="includeFullText">
+                    <label class="form-check-label" for="includeFullText">
+                        Include full page text
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="downloadExport()">Download</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Feedback Message Area -->
+<div id="feedback-message"></div>
+
+<script>
+    let currentDocumentId = null;
+    let currentSummaries = [];
+
+    // Initialize the page
+    $(document).ready(function() {
+        loadDocuments();
+        $('#documentSelect').change(function() {
+            const documentId = $(this).val();
+            if (documentId) {
+                currentDocumentId = documentId;
+                loadDocumentInfo(documentId);
+                loadSummaries();
+            } else {
+                currentDocumentId = null;
+                $('#documentInfo').hide();
+                $('#summaryStats').hide();
+                showNoSummariesMessage();
+            }
+        });
+    });
+
+    // Load available documents
+    function loadDocuments() {
+        $.get('/api/documents', { per_page: 999 }, function(data) {
+            const select = $('#documentSelect');
+            select.empty();
+            select.append('<option value="">Select a document...</option>');
+            
+            if (data.documents && data.documents.length > 0) {
+                data.documents.forEach(doc => {
+                    select.append(`<option value="${doc.document_id}">${doc.filename} (${doc.document_type})</option>`);
+                });
+            } else {
+                select.append('<option value="">No documents available</option>');
+            }
+        }).fail(function() {
+            $('#documentSelect').html('<option value="">Error loading documents</option>');
+        });
+    }
+
+    // Load document information
+    function loadDocumentInfo(documentId) {
+        $.get(`/api/documents/${documentId}`, function(data) {
+            $('#documentTitle').text(data.filename || 'Unknown Document');
+            $('#documentType').text(data.document_type || 'Unknown');
+            $('#documentPages').text(data.page_count || '0');
+            $('#documentProcessed').text(formatDate(data.processed_at));
+            $('#documentInfo').show();
+        }).fail(function() {
+            showError('Failed to load document information');
+        });
+    }
+
+    // Load summaries for current document
+    function loadSummaries() {
+        if (!currentDocumentId) return;
+
+        showLoading(true);
+        
+        $.get(`/api/documents/${currentDocumentId}/summaries`, function(data) {
+            console.log('Raw summaries data:', data);
+            currentSummaries = data.pages || [];
+            displaySummaries();
+            updateSummaryStats();
+            showLoading(false);
+        }).fail(function(xhr) {
+            showLoading(false);
+            console.error('Error loading summaries:', xhr.responseText);
+            showError('Failed to load summaries: ' + (xhr.responseJSON?.message || 'Unknown error'));
+        });
+    }
+
+    // Display summaries in the UI
+    function displaySummaries() {
+        const container = $('#summariesContainer');
+        
+        if (currentSummaries.length === 0) {
+            showNoSummariesMessage();
+            return;
+        }
+
+        let html = '';
+        currentSummaries.forEach(page => {
+            html += `
+                <div class="page-summary">
+                    <div class="page-header">
+                        <i class="fas fa-file-alt"></i> Page ${page.page_number}
+                        <span class="float-right">
+                            <small class="text-muted">${Object.keys(page.summaries).length} summaries</small>
+                        </span>
+                    </div>
+            `;
+
+            Object.entries(page.summaries).forEach(([type, summary]) => {
+                const confidenceClass = getConfidenceClass(summary.confidence_score);
+                html += `
+                    <div class="summary-card card">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                            <div>
+                                <div>
+                                    <span class="badge badge-primary summary-type-badge">${type.replace('_', ' ').toUpperCase()}</span>
+                                    <span class="confidence-score ${confidenceClass}">
+                                        ${Math.round(summary.confidence_score * 100)}% confidence
+                                    </span>
+                                </div>
+                                <div class="mt-1">
+                                    <small class="text-muted">
+                                        Length: ${summary.summary_length || summary.summary_text.length} chars
+                                        ${summary.max_length_limit ? `/ ${summary.max_length_limit} max` : ''}
+                                        ${summary.length_truncated ? '<span style="color:var(--status-warning)"><i class="fas fa-exclamation-triangle"></i> Truncated</span>' : ''}
+                                    </small>
+                                </div>
+                            </div>
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-secondary" onclick="editSummary('${summary.summary_id}')">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button class="btn btn-danger" onclick="deleteSummary('${summary.summary_id}')">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <p class="mb-2" style="color:var(--text-secondary);line-height:1.6;">${summary.summary_text}</p>
+                            
+                            ${summary.key_points ? `
+                                <div class="key-points">
+                                    <strong><i class="fas fa-list"></i> Key Points:</strong>
+                                    <ul class="mb-0 mt-1">
+                                        ${safeParseKeyPoints(summary.key_points).map(point => `<li>${escapeHtml(point)}</li>`).join('')}
+                                    </ul>
+                                </div>
+                            ` : ''}
+                            
+                            ${summary.entities ? `
+                                <div class="entities">
+                                    <strong><i class="fas fa-tags"></i> Entities:</strong>
+                                    ${formatEntities(safeParseEntities(summary.entities))}
+                                </div>
+                            ` : ''}
+                            
+                            <div class="mt-2">
+                                <small class="text-muted">
+                                    <i class="fas fa-clock"></i> Generated: ${formatDate(summary.created_at)} |
+                                    <i class="fas fa-stopwatch"></i> ${summary.processing_time_ms}ms |
+                                    <i class="fas fa-robot"></i> ${summary.model_used}
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += '</div>';
+        });
+
+        container.html(html);
+    }
+
+    // Update summary statistics
+    function updateSummaryStats() {
+        if (currentSummaries.length === 0) {
+            $('#summaryStats').hide();
+            $('#summaryCount').text('0');
+            return;
+        }
+
+        let totalSummaries = 0;
+        let summaryTypes = {};
+        let avgConfidence = 0;
+
+        currentSummaries.forEach(page => {
+            Object.entries(page.summaries).forEach(([type, summary]) => {
+                totalSummaries++;
+                summaryTypes[type] = (summaryTypes[type] || 0) + 1;
+                avgConfidence += summary.confidence_score;
+            });
+        });
+
+        avgConfidence = avgConfidence / totalSummaries;
+        
+        const progressPercent = (currentSummaries.length / parseInt($('#documentPages').text() || 1)) * 100;
+        
+        $('#summaryCount').text(totalSummaries);
+        $('#summaryProgress').css('width', progressPercent + '%');
+        $('#progressText').text(`${currentSummaries.length} pages with summaries`);
+        
+        let statsHtml = `
+            <div><strong>Total:</strong> ${totalSummaries}</div>
+            <div><strong>Avg Confidence:</strong> <span class="${getConfidenceClass(avgConfidence)}">${Math.round(avgConfidence * 100)}%</span></div>
+            <div><strong>Types:</strong></div>
+        `;
+        
+        Object.entries(summaryTypes).forEach(([type, count]) => {
+            statsHtml += `<div class="ml-2">• ${type.replace('_', ' ')}: ${count}</div>`;
+        });
+        
+        $('#statsContent').html(statsHtml);
+        $('#summaryStats').show();
+    }
+
+    // Generate summaries
+    function generateSummaries() {
+        if (!currentDocumentId) {
+            showError('Please select a document first');
+            return;
+        }
+
+        const summaryTypes = getSelectedSummaryTypes();
+        if (summaryTypes.length === 0) {
+            showError('Please select at least one summary type');
+            return;
+        }
+
+        const requestData = {
+            summary_types: summaryTypes,
+            custom_instructions: $('#customInstructions').val().trim() || null,
+            overwrite_existing: $('#overwriteExisting').is(':checked')
+        };
+
+        showLoading(true);
+        updateLoadingMessage("Initializing summarization...");
+
+        const startTime = Date.now();
+        let progressInterval = null;
+
+        progressInterval = setInterval(() => {
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            updateLoadingMessage(`Processing summaries... (${elapsed}s elapsed)`);
+        }, 2000);
+
+        function cleanup() {
+            if (progressInterval) {
+                clearInterval(progressInterval);
+                progressInterval = null;
+            }
+            showLoading(false);
+        }
+        
+        $.ajax({
+            url: `/api/documents/${currentDocumentId}/summarize`,
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(requestData),
+            success: function(data) {
+                cleanup();
+                showSuccess(`Successfully processed ${data.summary_statistics.total_pages} pages. Generated ${data.summary_statistics.successful_summaries} summaries.`);
+                loadSummaries();
+            },
+            error: function(xhr) {
+                cleanup();
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                
+                let errorMessage = 'Unknown error';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    errorMessage = xhr.responseJSON.message;
+                } else if (xhr.responseText) {
+                    try {
+                        const errorData = JSON.parse(xhr.responseText);
+                        errorMessage = errorData.message || errorMessage;
+                    } catch (e) {
+                        errorMessage = `HTTP ${xhr.status}: ${xhr.statusText}`;
+                    }
+                }
+                
+                showError(`Failed to generate summaries after ${elapsed}s: ${errorMessage}`);
+            }
+        });
+    }
+
+    // Export summaries
+    function exportSummaries() {
+        if (!currentDocumentId) {
+            showError('Please select a document first');
+            return;
+        }
+        $('#exportModal').modal('show');
+    }
+
+    function downloadExport() {
+        const format = $('#exportFormat').val();
+        const includeFullText = $('#includeFullText').is(':checked');
+        
+        const form = $('<form>', {
+            method: 'POST',
+            action: `/api/documents/${currentDocumentId}/export`,
+            target: '_blank'
+        });
+        
+        form.append($('<input>', { type: 'hidden', name: 'format', value: format }));
+        form.append($('<input>', { type: 'hidden', name: 'include_full_text', value: includeFullText }));
+        
+        $('body').append(form);
+        form.submit();
+        form.remove();
+        
+        $('#exportModal').modal('hide');
+    }
+
+    // Batch operations
+    function batchProcessAll() {
+        if (!confirm('This will process all documents without summaries. This may take a while. Continue?')) {
+            return;
+        }
+
+        const summaryTypes = getSelectedSummaryTypes();
+        if (summaryTypes.length === 0) {
+            showError('Please select at least one summary type');
+            return;
+        }
+
+        showLoading(true);
+        
+        $.post('/api/summaries/batch-regenerate', {
+            summary_types: summaryTypes,
+            overwrite_existing: false
+        }, function(data) {
+            showLoading(false);
+            showSuccess(`Batch processing completed. Generated ${data.statistics.total_summaries_generated} summaries.`);
+            if (currentDocumentId) {
+                loadSummaries();
+            }
+        }).fail(function(xhr) {
+            showLoading(false);
+            showError('Batch processing failed: ' + (xhr.responseJSON?.message || 'Unknown error'));
+        });
+    }
+
+    function clearAllSummaries() {
+        if (!currentDocumentId) {
+            showError('Please select a document first');
+            return;
+        }
+
+        if (!confirm('This will delete ALL summaries for this document. This action cannot be undone. Continue?')) {
+            return;
+        }
+
+        showError('Bulk deletion not yet implemented');
+    }
+
+    // Delete individual summary
+    function deleteSummary(summaryId) {
+        if (!confirm('Delete this summary?')) return;
+
+        $.ajax({
+            url: `/api/summaries/${summaryId}`,
+            method: 'DELETE',
+            success: function(data) {
+                showSuccess('Summary deleted successfully');
+                loadSummaries();
+            },
+            error: function(xhr) {
+                showError('Failed to delete summary: ' + (xhr.responseJSON?.message || 'Unknown error'));
+            }
+        });
+    }
+
+    // Edit summary (placeholder)
+    function editSummary(summaryId) {
+        showError('Summary editing not yet implemented');
+    }
+
+    // Utility functions
+    function getSelectedSummaryTypes() {
+        const types = [];
+        $('.btn-group-summary-types input:checked').each(function() {
+            types.push($(this).val());
+        });
+        console.log(`Selected summary types: ${types}`);
+        return types;
+    }
+
+    function getConfidenceClass(score) {
+        if (score >= 0.8) return 'confidence-high';
+        if (score >= 0.6) return 'confidence-medium';
+        return 'confidence-low';
+    }
+
+    function safeParseKeyPoints(keyPointsData) {
+        try {
+            if (typeof keyPointsData === 'string') {
+                const parsed = JSON.parse(keyPointsData);
+                return Array.isArray(parsed) ? parsed : [];
+            } else if (Array.isArray(keyPointsData)) {
+                return keyPointsData;
+            } else {
+                return [];
+            }
+        } catch (e) {
+            console.warn('Failed to parse key points:', e);
+            return [];
+        }
+    }
+
+    function safeParseEntities(entitiesData) {
+        try {
+            if (typeof entitiesData === 'string') {
+                const parsed = JSON.parse(entitiesData);
+                return typeof parsed === 'object' && parsed !== null ? parsed : {};
+            } else if (typeof entitiesData === 'object' && entitiesData !== null) {
+                return entitiesData;
+            } else {
+                return {};
+            }
+        } catch (e) {
+            console.warn('Failed to parse entities:', e);
+            return {};
+        }
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatEntities(entities) {
+        let html = '';
+        Object.entries(entities).forEach(([type, items]) => {
+            if (items && Array.isArray(items) && items.length > 0) {
+                html += `<div><strong>${escapeHtml(type)}:</strong> ${items.map(item => escapeHtml(item)).join(', ')}</div>`;
+            }
+        });
+        return html || '<em>No entities extracted</em>';
+    }
+
+    function formatDate(dateString) {
+        if (!dateString) return 'Unknown';
+        return new Date(dateString).toLocaleString();
+    }
+
+    function showLoading(show) {
+        const spinner = $('#loadingSpinner');
+        const summariesContainer = $('#summariesContainer');
+        const actionButtons = $('.btn');
+        
+        if (show) {
+            spinner.addClass('show').show();
+            summariesContainer.hide();
+            actionButtons.prop('disabled', true).addClass('disabled');
+        } else {
+            spinner.removeClass('show').hide();
+            summariesContainer.show();
+            actionButtons.prop('disabled', false).removeClass('disabled');
+        }
+    }
+
+    function updateLoadingMessage(message) {
+        $('#loadingSpinner').find('h5').text(message);
+    }
+
+    function showNoSummariesMessage() {
+        $('#summariesContainer').html(`
+            <div class="no-summaries">
+                <i class="fas fa-file-alt fa-3x"></i>
+                <p>No summaries available for this document</p>
+                <button class="btn btn-primary" onclick="generateSummaries()">
+                    <i class="fas fa-magic"></i> Generate Summaries
+                </button>
+            </div>
+        `);
+    }
+
+    function showSuccess(message) {
+        showFeedback(message, 'success');
+    }
+
+    function showError(message) {
+        showFeedback(message, 'failure');
+    }
+
+    function showFeedback(message, type = 'success') {
+        const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+        const icon = type === 'success' ? 'check-circle' : 'exclamation-circle';
+        
+        const feedbackHtml = `
+            <div class="alert ${alertClass} alert-dismissible fade show" role="alert">
+                <i class="fas fa-${icon} mr-2"></i>${message}
+                <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+        `;
+        
+        $('#feedback-message').html(feedbackHtml);
+        
+        setTimeout(() => {
+            $('.alert').alert('close');
+        }, 5000);
+    }
+</script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    const page = document.getElementById('docPage');
+    const icon = document.getElementById('docThemeIcon');
+    const label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    const isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    const saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        const page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            const icon = document.getElementById('docThemeIcon');
+            const label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}

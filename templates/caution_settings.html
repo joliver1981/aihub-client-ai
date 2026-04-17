@@ -1,0 +1,367 @@
+<!-- caution-settings.html - User interface for caution levels -->
+
+<!-- User Caution Level Selector - Add this to your chat interface -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="card-title mb-0">AI Cautiousness</h5>
+    </div>
+    <div class="card-body">
+        <div class="form-group">
+            <label for="caution-level-setting"><strong>Caution Level:</strong></label>
+            <select id="caution-level-setting" name="caution-level-setting" class="form-control custom-select">
+                <option value="low">Low - More assumptions, fewer questions</option>
+                <option value="medium" selected>Medium - Balanced approach</option>
+                <option value="high">High - More verification, fewer assumptions</option>
+                <option value="very_high">Very High - Maximum verification</option>
+            </select>
+            <small class="form-text text-muted">
+                Adjust how cautious the AI should be with its answers. Higher levels will ask for more clarification.
+            </small>
+        </div>
+    </div>
+</div>
+
+<!-- Caution Level Admin Panel - Create a separate admin page for this -->
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">AI Caution Level Settings</h3>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle mr-2"></i>
+                        Configure how cautious the AI should be when answering questions. Higher caution levels will lead to more clarification requests and fewer assumptions.
+                    </div>
+                    
+                    <!-- Caution Level Tabs -->
+                    <ul class="nav nav-tabs" id="cautionLevelTabs" role="tablist">
+                        <li class="nav-item">
+                            <a class="nav-link active" id="low-tab" data-toggle="tab" href="#low" role="tab">
+                                Low
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" id="medium-tab" data-toggle="tab" href="#medium" role="tab">
+                                Medium
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" id="high-tab" data-toggle="tab" href="#high" role="tab">
+                                High
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" id="very-high-tab" data-toggle="tab" href="#very_high" role="tab">
+                                Very High
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" id="custom-tab" data-toggle="tab" href="#custom" role="tab">
+                                <i class="fas fa-plus"></i> Custom
+                            </a>
+                        </li>
+                    </ul>
+                    
+                    <!-- Tab Content -->
+                    <div class="tab-content p-3 border border-top-0 rounded-bottom" id="cautionLevelTabContent">
+                        <!-- Low Caution Level -->
+                        <div class="tab-pane fade show active" id="low" role="tabpanel">
+                            <form id="low-form" class="caution-level-form">
+                                <input type="hidden" name="level_name" value="low">
+                                
+                                <div class="form-group">
+                                    <label for="low-description">Description:</label>
+                                    <input type="text" class="form-control" id="low-description" name="description" 
+                                           value="Makes more assumptions, fewer clarification requests">
+                                </div>
+                                
+                                <div class="form-row">
+                                    <div class="form-group col-md-6">
+                                        <label for="low-confidence">Confidence Threshold:</label>
+                                        <input type="range" class="custom-range" id="low-confidence" name="confidence_threshold" 
+                                               min="0.1" max="1.0" step="0.05" value="0.3">
+                                        <small class="form-text text-muted">
+                                            <span id="low-confidence-value">0.3</span> - Minimum confidence required before showing answer
+                                        </small>
+                                    </div>
+                                    
+                                    <div class="form-group col-md-6">
+                                        <label for="low-clarification">Clarification Threshold:</label>
+                                        <input type="range" class="custom-range" id="low-clarification" name="clarification_threshold" 
+                                               min="0.1" max="1.0" step="0.05" value="0.4">
+                                        <small class="form-text text-muted">
+                                            <span id="low-clarification-value">0.4</span> - When to ask for clarification
+                                        </small>
+                                    </div>
+                                </div>
+                                
+                                <div class="form-row">
+                                    <div class="form-group col-md-6">
+                                        <label for="low-assumptions">Max Assumptions:</label>
+                                        <input type="number" class="form-control" id="low-assumptions" name="max_assumption_count" 
+                                               min="0" max="5" value="3">
+                                        <small class="form-text text-muted">
+                                            Maximum number of assumptions the AI can make
+                                        </small>
+                                    </div>
+                                    
+                                    <div class="form-group col-md-6">
+                                        <div class="custom-control custom-switch mt-4">
+                                            <input type="checkbox" class="custom-control-input" id="low-extrapolation" name="allow_extrapolation" checked>
+                                            <label class="custom-control-label" for="low-extrapolation">Allow Extrapolation</label>
+                                            <small class="d-block text-muted">
+                                                Allow AI to extrapolate beyond given data
+                                            </small>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <button type="button" class="btn btn-primary save-caution-level" data-level="low">
+                                    <i class="fas fa-save mr-1"></i> Save Settings
+                                </button>
+                            </form>
+                        </div>
+                        
+                        <!-- Medium Caution Level -->
+                        <div class="tab-pane fade" id="medium" role="tabpanel">
+                            <form id="medium-form" class="caution-level-form">
+                                <input type="hidden" name="level_name" value="medium">
+                                
+                                <div class="form-group">
+                                    <label for="medium-description">Description:</label>
+                                    <input type="text" class="form-control" id="medium-description" name="description" 
+                                           value="Balanced approach with reasonable verification">
+                                </div>
+                                
+                                <div class="form-row">
+                                    <div class="form-group col-md-6">
+                                        <label for="medium-confidence">Confidence Threshold:</label>
+                                        <input type="range" class="custom-range" id="medium-confidence" name="confidence_threshold" 
+                                               min="0.1" max="1.0" step="0.05" value="0.5">
+                                        <small class="form-text text-muted">
+                                            <span id="medium-confidence-value">0.5</span> - Minimum confidence required before showing answer
+                                        </small>
+                                    </div>
+                                    
+                                    <div class="form-group col-md-6">
+                                        <label for="medium-clarification">Clarification Threshold:</label>
+                                        <input type="range" class="custom-range" id="medium-clarification" name="clarification_threshold" 
+                                               min="0.1" max="1.0" step="0.05" value="0.6">
+                                        <small class="form-text text-muted">
+                                            <span id="medium-clarification-value">0.6</span> - When to ask for clarification
+                                        </small>
+                                    </div>
+                                </div>
+                                
+                                <div class="form-row">
+                                    <div class="form-group col-md-6">
+                                        <label for="medium-assumptions">Max Assumptions:</label>
+                                        <input type="number" class="form-control" id="medium-assumptions" name="max_assumption_count" 
+                                               min="0" max="5" value="2">
+                                        <small class="form-text text-muted">
+                                            Maximum number of assumptions the AI can make
+                                        </small>
+                                    </div>
+                                    
+                                    <div class="form-group col-md-6">
+                                        <div class="custom-control custom-switch mt-4">
+                                            <input type="checkbox" class="custom-control-input" id="medium-extrapolation" name="allow_extrapolation" checked>
+                                            <label class="custom-control-label" for="medium-extrapolation">Allow Extrapolation</label>
+                                            <small class="d-block text-muted">
+                                                Allow AI to extrapolate beyond given data
+                                            </small>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <button type="button" class="btn btn-primary save-caution-level" data-level="medium">
+                                    <i class="fas fa-save mr-1"></i> Save Settings
+                                </button>
+                            </form>
+                        </div>
+                        
+                        <!-- High Caution Level -->
+                        <div class="tab-pane fade" id="high" role="tabpanel">
+                            <form id="high-form" class="caution-level-form">
+                                <input type="hidden" name="level_name" value="high">
+                                
+                                <div class="form-group">
+                                    <label for="high-description">Description:</label>
+                                    <input type="text" class="form-control" id="high-description" name="description" 
+                                           value="Cautious approach with more verification">
+                                </div>
+                                
+                                <div class="form-row">
+                                    <div class="form-group col-md-6">
+                                        <label for="high-confidence">Confidence Threshold:</label>
+                                        <input type="range" class="custom-range" id="high-confidence" name="confidence_threshold" 
+                                               min="0.1" max="1.0" step="0.05" value="0.7">
+                                        <small class="form-text text-muted">
+                                            <span id="high-confidence-value">0.7</span> - Minimum confidence required before showing answer
+                                        </small>
+                                    </div>
+                                    
+                                    <div class="form-group col-md-6">
+                                        <label for="high-clarification">Clarification Threshold:</label>
+                                        <input type="range" class="custom-range" id="high-clarification" name="clarification_threshold" 
+                                               min="0.1" max="1.0" step="0.05" value="0.75">
+                                        <small class="form-text text-muted">
+                                            <span id="high-clarification-value">0.75</span> - When to ask for clarification
+                                        </small>
+                                    </div>
+                                </div>
+                                
+                                <div class="form-row">
+                                    <div class="form-group col-md-6">
+                                        <label for="high-assumptions">Max Assumptions:</label>
+                                        <input type="number" class="form-control" id="high-assumptions" name="max_assumption_count" 
+                                               min="0" max="5" value="1">
+                                        <small class="form-text text-muted">
+                                            Maximum number of assumptions the AI can make
+                                        </small>
+                                    </div>
+                                    
+                                    <div class="form-group col-md-6">
+                                        <div class="custom-control custom-switch mt-4">
+                                            <input type="checkbox" class="custom-control-input" id="high-extrapolation" name="allow_extrapolation">
+                                            <label class="custom-control-label" for="high-extrapolation">Allow Extrapolation</label>
+                                            <small class="d-block text-muted">
+                                                Allow AI to extrapolate beyond given data
+                                            </small>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <button type="button" class="btn btn-primary save-caution-level" data-level="high">
+                                    <i class="fas fa-save mr-1"></i> Save Settings
+                                </button>
+                            </form>
+                        </div>
+                        
+                        <!-- Very High Caution Level -->
+                        <div class="tab-pane fade" id="very_high" role="tabpanel">
+                            <form id="very-high-form" class="caution-level-form">
+                                <input type="hidden" name="level_name" value="very_high">
+                                
+                                <div class="form-group">
+                                    <label for="very-high-description">Description:</label>
+                                    <input type="text" class="form-control" id="very-high-description" name="description" 
+                                           value="Maximum caution, minimal assumptions">
+                                </div>
+                                
+                                <div class="form-row">
+                                    <div class="form-group col-md-6">
+                                        <label for="very-high-confidence">Confidence Threshold:</label>
+                                        <input type="range" class="custom-range" id="very-high-confidence" name="confidence_threshold" 
+                                               min="0.1" max="1.0" step="0.05" value="0.85">
+                                        <small class="form-text text-muted">
+                                            <span id="very-high-confidence-value">0.85</span> - Minimum confidence required before showing answer
+                                        </small>
+                                    </div>
+                                    
+                                    <div class="form-group col-md-6">
+                                        <label for="very-high-clarification">Clarification Threshold:</label>
+                                        <input type="range" class="custom-range" id="very-high-clarification" name="clarification_threshold" 
+                                               min="0.1" max="1.0" step="0.05" value="0.9">
+                                        <small class="form-text text-muted">
+                                            <span id="very-high-clarification-value">0.9</span> - When to ask for clarification
+                                        </small>
+                                    </div>
+                                </div>
+                                
+                                <div class="form-row">
+                                    <div class="form-group col-md-6">
+                                        <label for="very-high-assumptions">Max Assumptions:</label>
+                                        <input type="number" class="form-control" id="very-high-assumptions" name="max_assumption_count" 
+                                               min="0" max="5" value="0">
+                                        <small class="form-text text-muted">
+                                            Maximum number of assumptions the AI can make
+                                        </small>
+                                    </div>
+                                    
+                                    <div class="form-group col-md-6">
+                                        <div class="custom-control custom-switch mt-4">
+                                            <input type="checkbox" class="custom-control-input" id="very-high-extrapolation" name="allow_extrapolation">
+                                            <label class="custom-control-label" for="very-high-extrapolation">Allow Extrapolation</label>
+                                            <small class="d-block text-muted">
+                                                Allow AI to extrapolate beyond given data
+                                            </small>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <button type="button" class="btn btn-primary save-caution-level" data-level="very_high">
+                                    <i class="fas fa-save mr-1"></i> Save Settings
+                                </button>
+                            </form>
+                        </div>
+                        
+                        <!-- Custom Caution Level -->
+                        <div class="tab-pane fade" id="custom" role="tabpanel">
+                            <form id="custom-form" class="caution-level-form">
+                                <div class="form-group">
+                                    <label for="custom-name">Level Name:</label>
+                                    <input type="text" class="form-control" id="custom-name" name="level_name" 
+                                           placeholder="Enter a unique name for this caution level">
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="custom-description">Description:</label>
+                                    <input type="text" class="form-control" id="custom-description" name="description" 
+                                           placeholder="Enter a description for this caution level">
+                                </div>
+                                
+                                <div class="form-row">
+                                    <div class="form-group col-md-6">
+                                        <label for="custom-confidence">Confidence Threshold:</label>
+                                        <input type="range" class="custom-range" id="custom-confidence" name="confidence_threshold" 
+                                               min="0.1" max="1.0" step="0.05" value="0.6">
+                                        <small class="form-text text-muted">
+                                            <span id="custom-confidence-value">0.6</span> - Minimum confidence required before showing answer
+                                        </small>
+                                    </div>
+                                    
+                                    <div class="form-group col-md-6">
+                                        <label for="custom-clarification">Clarification Threshold:</label>
+                                        <input type="range" class="custom-range" id="custom-clarification" name="clarification_threshold" 
+                                               min="0.1" max="1.0" step="0.05" value="0.7">
+                                        <small class="form-text text-muted">
+                                            <span id="custom-clarification-value">0.7</span> - When to ask for clarification
+                                        </small>
+                                    </div>
+                                </div>
+                                
+                                <div class="form-row">
+                                    <div class="form-group col-md-6">
+                                        <label for="custom-assumptions">Max Assumptions:</label>
+                                        <input type="number" class="form-control" id="custom-assumptions" name="max_assumption_count" 
+                                               min="0" max="5" value="2">
+                                        <small class="form-text text-muted">
+                                            Maximum number of assumptions the AI can make
+                                        </small>
+                                    </div>
+                                    
+                                    <div class="form-group col-md-6">
+                                        <div class="custom-control custom-switch mt-4">
+                                            <input type="checkbox" class="custom-control-input" id="custom-extrapolation" name="allow_extrapolation">
+                                            <label class="custom-control-label" for="custom-extrapolation">Allow Extrapolation</label>
+                                            <small class="d-block text-muted">
+                                                Allow AI to extrapolate beyond given data
+                                            </small>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <button type="button" class="btn btn-primary" id="save-custom-level">
+                                    <i class="fas fa-save mr-1"></i> Create New Level
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

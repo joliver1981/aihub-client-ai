@@ -1,0 +1,437 @@
+{
+  "template_key": "netsuite",
+  "platform_name": "Oracle NetSuite",
+  "platform_category": "ERP",
+  "description": "Connect to NetSuite via SuiteQL and REST APIs. Query customers, invoices, vendors, transactions, and more using Token-Based Authentication (TBA).",
+  "logo_url": null,
+  "documentation_url": "https://docs.oracle.com/en/cloud/saas/netsuite/ns-online-help/chapter_1558708800.html",
+
+  "auth_type": "oauth1_tba",
+  "auth_config": {
+    "signature_method": "HMAC-SHA256",
+    "realm": "{account_id}",
+    "credential_fields": [
+      {
+        "field": "consumer_key",
+        "label": "Consumer Key",
+        "type": "password",
+        "required": true,
+        "help": "From NetSuite: Setup > Integration > Manage Integrations"
+      },
+      {
+        "field": "consumer_secret",
+        "label": "Consumer Secret",
+        "type": "password",
+        "required": true,
+        "help": "Shown once when integration record is created"
+      },
+      {
+        "field": "token_id",
+        "label": "Token ID",
+        "type": "password",
+        "required": true,
+        "help": "From NetSuite: Setup > Users/Roles > Access Tokens"
+      },
+      {
+        "field": "token_secret",
+        "label": "Token Secret",
+        "type": "password",
+        "required": true,
+        "help": "Shown once when access token is created"
+      }
+    ]
+  },
+
+  "requires_instance_id": true,
+  "instance_id_label": "Account ID",
+  "instance_id_placeholder": "e.g., 1234567 or 1234567_SB1 (sandbox)",
+  "instance_id_help": "Your NetSuite Account ID. Found in Setup > Company > Company Information. For sandbox, append _SB1.",
+  "additional_instance_fields": [
+    {
+      "field": "account_id",
+      "label": "Account ID",
+      "placeholder": "e.g., 1234567 or 1234567_SB1",
+      "required": true,
+      "help": "Your NetSuite Account ID. Found in Setup > Company > Company Information."
+    }
+  ],
+
+  "base_url": "https://{account_id}.suitetalk.api.netsuite.com",
+
+  "default_headers": {
+    "Accept": "application/json",
+    "Content-Type": "application/json",
+    "Prefer": "transient"
+  },
+
+  "operations": [
+    {
+      "key": "run_suiteql",
+      "name": "Run SuiteQL Query",
+      "description": "Execute a SuiteQL query to retrieve data from any NetSuite record type. SuiteQL is a SQL-like language for querying NetSuite data.",
+      "method": "POST",
+      "endpoint": "/services/rest/query/v1/suiteql",
+      "category": "Query",
+      "parameters": [
+        {
+          "name": "q",
+          "label": "SuiteQL Query",
+          "type": "textarea",
+          "required": true,
+          "placeholder": "SELECT id, companyname, email FROM customer WHERE isinactive = 'F'",
+          "description": "The SuiteQL query to execute"
+        },
+        {
+          "name": "limit",
+          "label": "Result Limit",
+          "type": "number",
+          "required": false,
+          "default": 100,
+          "description": "Maximum number of records to return (max 1000)"
+        },
+        {
+          "name": "offset",
+          "label": "Result Offset",
+          "type": "number",
+          "required": false,
+          "default": 0,
+          "description": "Number of records to skip for pagination"
+        }
+      ],
+      "body_template": {
+        "q": "{q}"
+      },
+      "output_mapping": {
+        "items": "$.items",
+        "count": "$.count",
+        "has_more": "$.hasMore",
+        "total_results": "$.totalResults",
+        "offset": "$.offset"
+      }
+    },
+    {
+      "key": "get_customers",
+      "name": "Get Customers",
+      "description": "Retrieve customer records via SuiteQL",
+      "method": "POST",
+      "endpoint": "/services/rest/query/v1/suiteql",
+      "category": "Customers",
+      "parameters": [
+        {
+          "name": "status",
+          "label": "Active Only",
+          "type": "select",
+          "required": false,
+          "default": "active",
+          "options": [
+            {"value": "active", "label": "Active Only"},
+            {"value": "all", "label": "All (including inactive)"}
+          ],
+          "description": "Filter by active status"
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "required": false,
+          "default": 100,
+          "description": "Maximum records to return"
+        }
+      ],
+      "body_template": {
+        "q": "SELECT id, entityid, companyname, email, phone, datecreated, lastmodifieddate, balance FROM customer WHERE isinactive = 'F' ORDER BY id"
+      },
+      "output_mapping": {
+        "customers": "$.items",
+        "count": "$.count",
+        "has_more": "$.hasMore"
+      }
+    },
+    {
+      "key": "get_customer_by_id",
+      "name": "Get Customer by ID",
+      "description": "Retrieve a single customer record by internal ID",
+      "method": "GET",
+      "endpoint": "/services/rest/record/v1/customer/{customer_id}",
+      "category": "Customers",
+      "parameters": [
+        {
+          "name": "customer_id",
+          "label": "Customer Internal ID",
+          "type": "text",
+          "required": true,
+          "description": "The NetSuite internal ID of the customer"
+        }
+      ]
+    },
+    {
+      "key": "get_invoices",
+      "name": "Get Invoices",
+      "description": "Retrieve invoice records via SuiteQL with optional filters",
+      "method": "POST",
+      "endpoint": "/services/rest/query/v1/suiteql",
+      "category": "Invoices",
+      "parameters": [
+        {
+          "name": "status",
+          "label": "Status",
+          "type": "select",
+          "required": false,
+          "options": [
+            {"value": "open", "label": "Open"},
+            {"value": "paid", "label": "Paid In Full"},
+            {"value": "all", "label": "All"}
+          ],
+          "default": "open",
+          "description": "Filter by invoice status"
+        },
+        {
+          "name": "date_from",
+          "label": "Date From",
+          "type": "date",
+          "required": false,
+          "description": "Filter invoices on or after this date (YYYY-MM-DD)"
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "required": false,
+          "default": 100,
+          "description": "Maximum records to return"
+        }
+      ],
+      "body_template": {
+        "q": "SELECT t.id, t.tranid, t.trandate, t.entity, c.companyname, t.foreigntotal, t.status, t.duedate, t.memo FROM transaction t JOIN customer c ON t.entity = c.id WHERE t.type = 'CustInvc' ORDER BY t.trandate DESC"
+      },
+      "output_mapping": {
+        "invoices": "$.items",
+        "count": "$.count",
+        "has_more": "$.hasMore"
+      }
+    },
+    {
+      "key": "get_invoice_by_id",
+      "name": "Get Invoice by ID",
+      "description": "Retrieve a single invoice by internal ID",
+      "method": "GET",
+      "endpoint": "/services/rest/record/v1/invoice/{invoice_id}",
+      "category": "Invoices",
+      "parameters": [
+        {
+          "name": "invoice_id",
+          "label": "Invoice Internal ID",
+          "type": "text",
+          "required": true,
+          "description": "The NetSuite internal ID of the invoice"
+        }
+      ]
+    },
+    {
+      "key": "get_vendors",
+      "name": "Get Vendors",
+      "description": "Retrieve vendor records via SuiteQL",
+      "method": "POST",
+      "endpoint": "/services/rest/query/v1/suiteql",
+      "category": "Vendors",
+      "parameters": [
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "required": false,
+          "default": 100,
+          "description": "Maximum records to return"
+        }
+      ],
+      "body_template": {
+        "q": "SELECT id, entityid, companyname, email, phone, balance, datecreated FROM vendor WHERE isinactive = 'F' ORDER BY id"
+      },
+      "output_mapping": {
+        "vendors": "$.items",
+        "count": "$.count",
+        "has_more": "$.hasMore"
+      }
+    },
+    {
+      "key": "get_sales_orders",
+      "name": "Get Sales Orders",
+      "description": "Retrieve sales order records via SuiteQL",
+      "method": "POST",
+      "endpoint": "/services/rest/query/v1/suiteql",
+      "category": "Sales Orders",
+      "parameters": [
+        {
+          "name": "status",
+          "label": "Status",
+          "type": "select",
+          "required": false,
+          "options": [
+            {"value": "pending", "label": "Pending Fulfillment"},
+            {"value": "fulfilled", "label": "Fulfilled"},
+            {"value": "closed", "label": "Closed"},
+            {"value": "all", "label": "All"}
+          ],
+          "default": "all",
+          "description": "Filter by order status"
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "required": false,
+          "default": 100,
+          "description": "Maximum records to return"
+        }
+      ],
+      "body_template": {
+        "q": "SELECT t.id, t.tranid, t.trandate, t.entity, c.companyname, t.foreigntotal, t.status, t.memo FROM transaction t JOIN customer c ON t.entity = c.id WHERE t.type = 'SalesOrd' ORDER BY t.trandate DESC"
+      },
+      "output_mapping": {
+        "sales_orders": "$.items",
+        "count": "$.count",
+        "has_more": "$.hasMore"
+      }
+    },
+    {
+      "key": "get_purchase_orders",
+      "name": "Get Purchase Orders",
+      "description": "Retrieve purchase order records via SuiteQL",
+      "method": "POST",
+      "endpoint": "/services/rest/query/v1/suiteql",
+      "category": "Purchase Orders",
+      "parameters": [
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "required": false,
+          "default": 100,
+          "description": "Maximum records to return"
+        }
+      ],
+      "body_template": {
+        "q": "SELECT t.id, t.tranid, t.trandate, t.entity, v.companyname, t.foreigntotal, t.status, t.memo FROM transaction t JOIN vendor v ON t.entity = v.id WHERE t.type = 'PurchOrd' ORDER BY t.trandate DESC"
+      },
+      "output_mapping": {
+        "purchase_orders": "$.items",
+        "count": "$.count",
+        "has_more": "$.hasMore"
+      }
+    },
+    {
+      "key": "get_items",
+      "name": "Get Items",
+      "description": "Retrieve inventory and non-inventory item records",
+      "method": "POST",
+      "endpoint": "/services/rest/query/v1/suiteql",
+      "category": "Items",
+      "parameters": [
+        {
+          "name": "item_type",
+          "label": "Item Type",
+          "type": "select",
+          "required": false,
+          "options": [
+            {"value": "all", "label": "All Items"},
+            {"value": "InvtPart", "label": "Inventory Items"},
+            {"value": "NonInvtPart", "label": "Non-Inventory Items"},
+            {"value": "Service", "label": "Service Items"},
+            {"value": "Kit", "label": "Kit/Package Items"}
+          ],
+          "default": "all",
+          "description": "Filter by item type"
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "required": false,
+          "default": 100,
+          "description": "Maximum records to return"
+        }
+      ],
+      "body_template": {
+        "q": "SELECT id, itemid, displayname, itemtype, salesdescription, baseprice, isinactive FROM item WHERE isinactive = 'F' ORDER BY itemid"
+      },
+      "output_mapping": {
+        "items": "$.items",
+        "count": "$.count",
+        "has_more": "$.hasMore"
+      }
+    },
+    {
+      "key": "get_accounts",
+      "name": "Get Chart of Accounts",
+      "description": "Retrieve the chart of accounts",
+      "method": "POST",
+      "endpoint": "/services/rest/query/v1/suiteql",
+      "category": "Accounting",
+      "parameters": [
+        {
+          "name": "account_type",
+          "label": "Account Type",
+          "type": "select",
+          "required": false,
+          "options": [
+            {"value": "all", "label": "All Accounts"},
+            {"value": "Bank", "label": "Bank"},
+            {"value": "AcctRec", "label": "Accounts Receivable"},
+            {"value": "AcctPay", "label": "Accounts Payable"},
+            {"value": "Income", "label": "Income"},
+            {"value": "Expense", "label": "Expense"}
+          ],
+          "default": "all",
+          "description": "Filter by account type"
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "required": false,
+          "default": 200,
+          "description": "Maximum records to return"
+        }
+      ],
+      "body_template": {
+        "q": "SELECT id, acctnumber, acctname, accttype, balance, isinactive FROM account WHERE isinactive = 'F' ORDER BY acctnumber"
+      },
+      "output_mapping": {
+        "accounts": "$.items",
+        "count": "$.count",
+        "has_more": "$.hasMore"
+      }
+    },
+    {
+      "key": "get_employees",
+      "name": "Get Employees",
+      "description": "Retrieve employee records",
+      "method": "POST",
+      "endpoint": "/services/rest/query/v1/suiteql",
+      "category": "Employees",
+      "parameters": [
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "required": false,
+          "default": 100,
+          "description": "Maximum records to return"
+        }
+      ],
+      "body_template": {
+        "q": "SELECT id, entityid, firstname, lastname, email, title, department, isinactive FROM employee WHERE isinactive = 'F' ORDER BY lastname, firstname"
+      },
+      "output_mapping": {
+        "employees": "$.items",
+        "count": "$.count",
+        "has_more": "$.hasMore"
+      }
+    }
+  ],
+
+  "setup_instructions": "## NetSuite Token-Based Authentication Setup\n\n### Prerequisites\n- NetSuite administrator access\n- SuiteQL and REST Web Services features enabled\n\n### Step 1: Enable Features\n1. Go to **Setup > Company > Enable Features**\n2. Under the **SuiteCloud** tab, enable:\n   - **Token-Based Authentication**\n   - **REST Web Services**\n   - **SuiteQL**\n\n### Step 2: Create an Integration Record\n1. Go to **Setup > Integration > Manage Integrations > New**\n2. Give it a name (e.g., \"AI Hub\")\n3. Under **Authentication**, check **Token-Based Authentication**\n4. Save. **Copy the Consumer Key and Consumer Secret** (shown only once)\n\n### Step 3: Create an Access Token\n1. Go to **Setup > Users/Roles > Access Tokens > New**\n2. Select the **Application** (integration you just created)\n3. Select the **User** and **Role** (must have REST and SuiteQL permissions)\n4. Save. **Copy the Token ID and Token Secret** (shown only once)\n\n### Step 4: Find Your Account ID\n1. Go to **Setup > Company > Company Information**\n2. Your **Account ID** is displayed at the top\n3. For sandbox accounts, append _SB1 (e.g., 1234567_SB1)\n\n### Step 5: Configure in AI Hub\n1. Enter your Account ID\n2. Enter Consumer Key and Consumer Secret\n3. Enter Token ID and Token Secret\n4. Test the connection\n\nNeed help? See the [NetSuite TBA Guide](https://docs.oracle.com/en/cloud/saas/netsuite/ns-online-help/section_4247337262.html).",
+
+  "supports_webhooks": false,
+  "is_builtin": true
+}

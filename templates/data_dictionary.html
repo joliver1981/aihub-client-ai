@@ -1,0 +1,2918 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<style>
+    /* ===== BASE STYLES FROM ORIGINAL (COMPACT DESIGN) ===== */
+    .compact-header {
+        background: linear-gradient(135deg, #2980b9 0%, #34495e 100%);
+        color: white;
+        padding: 0.5rem 1rem;
+        margin-bottom: 1rem;
+        border-radius: 0.5rem;
+    }
+    
+    .card {
+        margin-bottom: 0.75rem;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        border-radius: 0.5rem;
+    }
+    
+    .card-header {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.9rem;
+        font-weight: 600;
+        background-color: var(--bg-elevated, #f8f9fa);
+        border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+    }
+    
+    .card-body {
+        padding: 0.75rem;
+    }
+    
+    .form-control, .custom-select {
+        font-size: 0.9rem;
+        padding: 0.375rem 0.75rem;
+    }
+    
+    .form-group {
+        margin-bottom: 0.75rem;
+    }
+    
+    .form-group label {
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+    }
+    
+    .btn {
+        font-size: 0.9rem;
+        padding: 0.375rem 0.75rem;
+    }
+    
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+    }
+    
+    /* ===== ENHANCED DATA DICTIONARY STYLES ===== */
+    
+    /* Tab Navigation */
+    .nav-tabs {
+        border-bottom: 2px solid var(--border-subtle, #dee2e6);
+    }
+    
+    .nav-tabs .nav-link {
+        font-size: 0.9rem;
+        padding: 0.5rem 1rem;
+        color: #495057;
+        border: none;
+        border-bottom: 3px solid transparent;
+    }
+    
+    .nav-tabs .nav-link:hover {
+        border-color: transparent;
+        border-bottom-color: #7ab5e8;
+    }
+    
+    .nav-tabs .nav-link.active {
+        color: #2980b9;
+        border-bottom-color: #2980b9;
+        background-color: transparent;
+        font-weight: 600;
+    }
+    
+    /* List Groups for Tables/Columns */
+    .list-group-item {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.9rem;
+        cursor: pointer;
+        transition: background-color 0.2s;
+    }
+    
+    .list-group-item:hover {
+        background-color: var(--bg-elevated, #f8f9fa);
+    }
+    
+    .list-group-item.active {
+        background-color: #2980b9;
+        border-color: #2980b9;
+        color: white;
+    }
+    
+    /* Enhancement Badges */
+    .badge-enhanced {
+        background-color: #28a745;
+    }
+    
+    .badge-partial {
+        background-color: #ffc107;
+    }
+    
+    .badge-empty {
+        background-color: #dc3545;
+    }
+    
+    .badge-pk {
+        background-color: #ffc107;
+        color: #000;
+    }
+    
+    .badge-fk {
+        background-color: #17a2b8;
+    }
+    
+    .badge-calc {
+        background-color: #28a745;
+    }
+    
+    /* Form Sections */
+    .form-section {
+        border-bottom: 1px solid var(--border-subtle, #dee2e6);
+        padding-bottom: 1rem;
+        margin-bottom: 1rem;
+    }
+    
+    .form-section:last-child {
+        border-bottom: none;
+    }
+    
+    .form-section-title {
+        font-size: 1rem;
+        font-weight: 600;
+        color: #495057;
+        margin-bottom: 0.75rem;
+        display: flex;
+        align-items: center;
+    }
+    
+    .form-section-title i {
+        margin-right: 0.5rem;
+        color: #2980b9;
+    }
+    
+    /* Business Rules Builder */
+    .rule-item, .filter-item, .default-item {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+        align-items: center;
+    }
+    
+    .rule-item input,
+    .filter-item input,
+    .default-item input {
+        flex: 1;
+    }
+    
+    .remove-btn {
+        flex-shrink: 0;
+    }
+    
+    .add-item-btn {
+        margin-top: 0.5rem;
+    }
+    
+    /* Related Tables Multi-Select */
+    .related-table-item {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+        padding: 0.5rem;
+        background-color: var(--bg-elevated, #f8f9fa);
+        border-radius: 0.25rem;
+        align-items: center;
+    }
+    
+    .related-table-item select,
+    .related-table-item input {
+        flex: 1;
+    }
+    
+    /* JSON Editor */
+    .json-editor-textarea {
+        font-family: 'Courier New', monospace;
+        font-size: 0.85rem;
+    }
+    
+    /* Feedback Container */
+    .feedback-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1050;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+    }
+    
+    .feedback-alert {
+        margin-top: 10px;
+        display: flex;
+        align-items: center;
+        min-width: 300px;
+        max-width: 400px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        animation: slideIn 0.3s ease-out;
+    }
+    
+    @keyframes slideIn {
+        from {
+            transform: translateX(400px);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+    
+    /* Progress Bar */
+    .progress {
+        height: 25px;
+    }
+    
+    .progress-bar {
+        font-size: 0.85rem;
+        line-height: 25px;
+    }
+    
+    /* Discovery Tab Styles */
+    .table-checkbox-label {
+        cursor: pointer;
+    }
+    
+    .table-checkbox-label:hover {
+        background-color: var(--bg-elevated, #f8f9fa);
+    }
+    
+    /* Scrollable areas */
+    .scrollable-list {
+        max-height: 500px;
+        overflow-y: auto;
+    }
+    
+    /* Help Accordion */
+    .accordion .card {
+        margin-bottom: 0;
+        border-radius: 0;
+    }
+    
+    .accordion .card:first-child {
+        border-top-left-radius: 0.5rem;
+        border-top-right-radius: 0.5rem;
+    }
+    
+    .accordion .card:last-child {
+        border-bottom-left-radius: 0.5rem;
+        border-bottom-right-radius: 0.5rem;
+    }
+    
+    /* SQL Validation */
+    .sql-valid {
+        border-color: #28a745;
+    }
+    
+    .sql-invalid {
+        border-color: #dc3545;
+    }
+    
+    .validation-message {
+        font-size: 0.8rem;
+        margin-top: 0.25rem;
+    }
+    
+    /* Tag Input (for synonyms) */
+    .tag-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        padding: 0.375rem 0.75rem;
+        border: 1px solid #ced4da;
+        border-radius: 0.25rem;
+        min-height: calc(1.5em + 0.75rem + 2px);
+    }
+    
+    .tag {
+        background-color: #2980b9;
+        color: white;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.25rem;
+        font-size: 0.85rem;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+    
+    .tag .remove-tag {
+        cursor: pointer;
+        font-weight: bold;
+    }
+    
+    .tag-input {
+        border: none;
+        outline: none;
+        flex: 1;
+        min-width: 100px;
+        font-size: 0.9rem;
+    }
+</style>
+
+<div class="container-fluid px-3 py-2">
+    <!-- Compact Header Bar -->
+    <div class="doc-page-header">
+        <h4 class="mb-0"><i class="fas fa-book mr-2"></i>Data Dictionary</h4>
+        <!-- <div>
+            <button class="btn btn-sm btn-light" id="exportDictionaryBtn">
+                <i class="fas fa-download mr-1"></i> Export
+            </button>
+            <button class="btn btn-sm btn-light" id="importDictionaryBtn">
+                <i class="fas fa-upload mr-1"></i> Import
+            </button>
+        </div> -->
+    </div>
+    
+    <!-- Connection Selector -->
+    <div class="card">
+        <div class="card-body">
+            <div class="form-row">
+                <div class="col-md-5">
+                    <label for="connectionSelect"><strong>Database Connection:</strong></label>
+                    <select class="form-control" id="connectionSelect" onchange="onConnectionChange()">
+                        <option value="">Select a connection...</option>
+                    </select>
+                </div>
+                <div class="col-md-7">
+                    <label>&nbsp;</label>
+                    <div>
+                        <span class="badge badge-info" id="tableCount">0 Tables</span>
+                        <span class="badge badge-info ml-2" id="columnCount">0 Columns</span>
+                        <span class="badge badge-success ml-2" id="enhancedCount">0% Enhanced</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Tab Navigation -->
+    <ul class="nav nav-tabs" id="dictionaryTabs" role="tablist">
+        <li class="nav-item">
+            <a class="nav-link active" id="tables-tab" data-toggle="tab" href="#tablesPanel" role="tab">
+                <i class="fas fa-table mr-1"></i> Tables
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" id="columns-tab" data-toggle="tab" href="#columnsPanel" role="tab">
+                <i class="fas fa-columns mr-1"></i> Columns
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" id="discover-tab" data-toggle="tab" href="#discoverPanel" role="tab">
+                <i class="fas fa-magic mr-1"></i> AI Discovery
+            </a>
+        </li>
+        <li class="nav-item" style="display:none;">
+            <a class="nav-link" id="bulk-tab" data-toggle="tab" href="#bulkPanel" role="tab">
+                <i class="fas fa-tasks mr-1"></i> Bulk Operations
+            </a>
+        </li>
+        <li class="nav-item" style="display:none;">
+            <a class="nav-link" id="help-tab" data-toggle="tab" href="#helpPanel" role="tab">
+                <i class="fas fa-question-circle mr-1"></i> Help
+            </a>
+        </li>
+    </ul>
+    
+    <!-- Tab Content -->
+    <div class="tab-content" id="dictionaryTabContent">
+        
+        <!-- TABLES TAB -->
+        <div class="tab-pane fade show active" id="tablesPanel" role="tabpanel">
+            <div class="row mt-3">
+                <!-- Table List (Left Panel) -->
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0">Tables</h6>
+                                <div>
+                                    <button class="btn btn-sm btn-success" id="addNewTableBtn" title="Add New Table">
+                                        <i class="fas fa-plus"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-primary ml-1" id="refreshTablesBtn" title="Refresh Tables">
+                                        <i class="fas fa-sync-alt"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <input type="text" class="form-control form-control-sm mt-2" 
+                                   id="tableSearchInput" placeholder="Search tables...">
+                        </div>
+                        <div class="card-body p-0 scrollable-list">
+                            <div class="list-group list-group-flush" id="tableList">
+                                <div class="text-center p-4 text-muted">
+                                    <i class="fas fa-database fa-3x mb-2"></i>
+                                    <p>Select a connection to view tables</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Table Details Form (Right Panel) -->
+                <div class="col-md-8">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0" id="tableFormTitle">Table Details</h6>
+                                <div>
+                                    <button class="btn btn-sm btn-success" id="saveTableBtn" style="display:none;">
+                                        <i class="fas fa-save mr-1"></i> Save
+                                    </button>
+                                    <button class="btn btn-sm btn-secondary ml-2" id="cancelTableBtn" style="display:none;">
+                                        Cancel
+                                    </button>
+                                    <button type="button" class="btn btn-danger btn-block mt-2" onclick="deleteTable()" id="deleteTableBtn" style="display: none;">
+                                        <i class="fas fa-trash mr-1"></i> Delete
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-body scrollable-list" id="tableFormContainer">
+                            <div class="text-center p-5 text-muted">
+                                <i class="fas fa-table fa-3x mb-2"></i>
+                                <p>Select a table to view and edit its metadata</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- COLUMNS TAB -->
+        <div class="tab-pane fade" id="columnsPanel" role="tabpanel">
+            <div class="row mt-3">
+                <!-- Table & Column Selection (Left Panel) -->
+                <div class="col-md-4">
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <h6 class="mb-0">Select Table</h6>
+                        </div>
+                        <div class="card-body">
+                            <select class="form-control" id="columnTableSelect" onchange="onColumnTableChange()">
+                                <option value="">Select a connection first...</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0">Columns</h6>
+                                <button class="btn btn-sm btn-success" id="addNewColumnBtn" title="Add New Column">
+                                    <i class="fas fa-plus"></i>
+                                </button>
+                            </div>
+                            <input type="text" class="form-control form-control-sm mt-2" 
+                                   id="columnSearchInput" placeholder="Search columns...">
+                        </div>
+                        <div class="card-body p-0 scrollable-list">
+                            <div class="list-group list-group-flush" id="columnList">
+                                <div class="text-center p-4 text-muted">
+                                    <i class="fas fa-columns fa-3x mb-2"></i>
+                                    <p>Select a table to view columns</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Column Details Form (Right Panel) -->
+                <div class="col-md-8">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0" id="columnFormTitle">Column Details</h6>
+                                <div>
+                                    <button class="btn btn-sm btn-success" id="saveColumnBtn" style="display:none;">
+                                        <i class="fas fa-save mr-1"></i> Save
+                                    </button>
+                                    <button class="btn btn-sm btn-secondary ml-2" id="cancelColumnBtn" style="display:none;">
+                                        Cancel
+                                    </button>
+                                    <button type="button" class="btn btn-danger btn-block mt-2" onclick="deleteColumn()" id="deleteColumnBtn" style="display: none;">
+                                        <i class="fas fa-trash mr-1"></i> Delete Column
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-body scrollable-list" id="columnFormContainer">
+                            <div class="text-center p-5 text-muted">
+                                <i class="fas fa-columns fa-3x mb-2"></i>
+                                <p>Select a column to view and edit its metadata</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI DISCOVERY TAB -->
+        <div class="tab-pane fade" id="discoverPanel" role="tabpanel">
+            <div class="row mt-3">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header doc-card-header">
+                            <h6 class="mb-0"><i class="fas fa-magic mr-2"></i> AI-Powered Table Discovery & Analysis</h6>
+                        </div>
+                        <div class="card-body">
+                            <p>Automatically discover tables from your database and use AI to generate comprehensive metadata including descriptions, classifications, relationships, and suggested business metrics.</p>
+                            
+                            <div class="mb-3">
+                                <button class="btn btn-primary" id="discoverTablesBtn" onclick="discoverTables()">
+                                    <i class="fas fa-search mr-1"></i> Discover Tables from Database
+                                </button>
+                            </div>
+                            
+                            <div id="discoveredTablesContainer" style="display:none;">
+                                <h6>Select tables to analyze with AI:</h6>
+                                <div class="form-check mb-2">
+                                    <input type="checkbox" class="form-check-input" id="selectAllTables">
+                                    <label class="form-check-label" for="selectAllTables">
+                                        <strong>Select All</strong>
+                                    </label>
+                                </div>
+                                <hr>
+                                <div id="discoveredTablesList" class="scrollable-list" style="max-height: 400px;">
+                                    <!-- Table checkboxes will be populated here -->
+                                </div>
+                                
+                                <div class="mt-3">
+                                    <button class="btn btn-success btn-lg" id="aiAnalyzeBtn" onclick="aiAnalyzeTables()" disabled>
+                                        <i class="fas fa-magic mr-1"></i> AI Auto-Populate Selected Tables
+                                    </button>
+                                    <small class="form-text text-muted">
+                                        AI will analyze schema, sample data, and relationships to automatically generate comprehensive metadata for selected tables.
+                                    </small>
+                                </div>
+                            </div>
+                            
+                            <div id="analysisProgress" style="display:none;" class="mt-3">
+                                <h6>Analysis Progress:</h6>
+                                <div class="progress">
+                                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                         id="analysisProgressBar" role="progressbar" 
+                                         style="width: 0%">0%</div>
+                                </div>
+                                <div id="analysisStatus" class="mt-2 text-muted">
+                                    <!-- Status messages will appear here -->
+                                </div>
+                            </div>
+                            
+                            <div id="analysisResults" style="display:none;" class="mt-3">
+                                <h6>Analysis Complete!</h6>
+                                <div class="alert alert-success">
+                                    <i class="fas fa-check-circle mr-2"></i>
+                                    <span id="analysisResultsSummary"></span>
+                                </div>
+                                <div id="analysisResultsDetails"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- BULK OPERATIONS TAB -->
+        <div class="tab-pane fade" id="bulkPanel" role="tabpanel">
+            <div class="row mt-3">
+                <div class="col-12">
+                    <!-- Import/Export Section -->
+                    <div class="card mb-3">
+                        <div class="card-header bg-success text-white">
+                            <h6 class="mb-0"><i class="fas fa-exchange-alt mr-2"></i> Import / Export</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6>Export Current Dictionary</h6>
+                                    <p class="text-muted">Download all metadata as CSV for backup or documentation</p>
+                                    <button class="btn btn-success btn-block" onclick="exportDictionary('csv')">
+                                        <i class="fas fa-download mr-1"></i> Export to CSV
+                                    </button>
+                                    <button class="btn btn-outline-success btn-block mt-2" onclick="exportDictionary('excel')">
+                                        <i class="fas fa-file-excel mr-1"></i> Export to Excel
+                                    </button>
+                                </div>
+                                <div class="col-md-6">
+                                    <h6>Import Metadata</h6>
+                                    <p class="text-muted">Upload CSV file to bulk update metadata</p>
+                                    <input type="file" class="form-control-file mb-2" id="importFileInput" accept=".csv,.xlsx">
+                                    <button class="btn btn-primary btn-block" id="importBtn" onclick="importDictionary()" disabled>
+                                        <i class="fas fa-upload mr-1"></i> Import File
+                                    </button>
+                                    <button class="btn btn-outline-secondary btn-block mt-2" onclick="downloadTemplate()">
+                                        <i class="fas fa-file-download mr-1"></i> Download Template
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Validation Section -->
+                    <div class="card">
+                        <div class="card-header bg-warning">
+                            <h6 class="mb-0"><i class="fas fa-check-circle mr-2"></i> Validate Metadata</h6>
+                        </div>
+                        <div class="card-body">
+                            <p>Check for missing or inconsistent metadata</p>
+                            <button class="btn btn-warning btn-block" onclick="validateMetadata()">
+                                <i class="fas fa-check-double mr-1"></i> Run Validation
+                            </button>
+                            <div id="validationResults" class="mt-3" style="display:none;">
+                                <h6>Validation Results:</h6>
+                                <div id="validationResultsList"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- HELP TAB -->
+        <div class="tab-pane fade" id="helpPanel" role="tabpanel">
+            <div class="row mt-3">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="mb-0"><i class="fas fa-book mr-2"></i> Field Documentation</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="accordion" id="helpAccordion">
+                                <!-- Help content will be dynamically loaded -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- Feedback Container -->
+<div class="feedback-container" id="feedbackContainer"></div>
+
+<!-- Modals -->
+
+<!-- Business Rules Builder Modal -->
+<div class="modal fade" id="businessRulesModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-rules mr-2"></i> Business Rules Builder</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-section">
+                    <div class="form-section-title">Rules</div>
+                    <div id="rulesList">
+                        <!-- Rules will be added here -->
+                    </div>
+                    <button type="button" class="btn btn-sm btn-primary add-item-btn" onclick="addRule()">
+                        <i class="fas fa-plus mr-1"></i> Add Rule
+                    </button>
+                </div>
+                
+                <div class="form-section">
+                    <div class="form-section-title">Default Values</div>
+                    <div id="defaultsList">
+                        <!-- Defaults will be added here -->
+                    </div>
+                    <button type="button" class="btn btn-sm btn-primary add-item-btn" onclick="addDefault()">
+                        <i class="fas fa-plus mr-1"></i> Add Default
+                    </button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveBusinessRules()">
+                    <i class="fas fa-save mr-1"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Common Filters Builder Modal -->
+<div class="modal fade" id="commonFiltersModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-filter mr-2"></i> Common Filters Builder</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-section">
+                    <div class="form-section-title">Recommended Filters</div>
+                    <small class="text-muted">Filters users typically want (e.g., "status = 'Active'")</small>
+                    <div id="recommendedFiltersList" class="mt-2">
+                        <!-- Recommended filters will be added here -->
+                    </div>
+                    <button type="button" class="btn btn-sm btn-primary add-item-btn" onclick="addRecommendedFilter()">
+                        <i class="fas fa-plus mr-1"></i> Add Filter
+                    </button>
+                </div>
+                
+                <div class="form-section">
+                    <div class="form-section-title">Required Filters</div>
+                    <small class="text-muted">Filters that must always be applied (e.g., "is_deleted = 0")</small>
+                    <div id="requiredFiltersList" class="mt-2">
+                        <!-- Required filters will be added here -->
+                    </div>
+                    <button type="button" class="btn btn-sm btn-primary add-item-btn" onclick="addRequiredFilter()">
+                        <i class="fas fa-plus mr-1"></i> Add Filter
+                    </button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveCommonFilters()">
+                    <i class="fas fa-save mr-1"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Related Tables Multi-Select Modal -->
+<div class="modal fade" id="relatedTablesModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-link mr-2"></i> Related Tables</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted">Define tables that are commonly joined with this table</p>
+                <div id="relatedTablesList">
+                    <!-- Related tables will be added here -->
+                </div>
+                <button type="button" class="btn btn-sm btn-primary add-item-btn" onclick="addRelatedTable()">
+                    <i class="fas fa-plus mr-1"></i> Add Related Table
+                </button>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveRelatedTables()">
+                    <i class="fas fa-save mr-1"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// =============================================
+// GLOBAL VARIABLES
+// =============================================
+let currentConnection = null;
+let currentTable = null;
+let currentColumn = null;
+let allTables = [];
+let allColumns = [];
+let businessRulesData = { rules: [], defaults: {} };
+let commonFiltersData = { recommended: [], required: [] };
+let relatedTablesData = { commonly_joined_with: [] };
+
+// =============================================
+// INITIALIZATION
+// =============================================
+$(document).ready(function() {
+    loadConnections();
+    setupEventListeners();
+    loadHelpContent();
+});
+
+// =============================================
+// CONNECTION MANAGEMENT
+// =============================================
+function loadConnections() {
+    $.getJSON('/get/connections', function(data) {
+        const connections = JSON.parse(data);
+        
+        // Populate the main connection selector (applies to all tabs)
+        const connectionSelect = $('#connectionSelect');
+        connectionSelect.empty().append('<option value="">Select a connection...</option>');
+        
+        connections.forEach(function(conn) {
+            connectionSelect.append(`<option value="${conn.id}">${conn.connection_name}</option>`);
+        });
+        
+        // Initialize the column table selector as empty
+        $('#columnTableSelect').empty().append('<option value="">Select a connection first...</option>');
+    }).fail(function() {
+        showFeedback('Failed to load connections', false);
+    });
+}
+
+function onConnectionChange() {
+    const connectionId = $('#connectionSelect').val();
+    if (!connectionId) {
+        clearTableList();
+        clearTableForm();
+        $('#columnTableSelect').empty().append('<option value="">Select a connection first...</option>');
+        clearColumnList();
+        clearColumnForm();
+        return;
+    }
+    
+    currentConnection = connectionId;
+    
+     // Clear columns when connection changes
+    clearColumnList();
+    clearColumnForm();
+
+    loadTables(connectionId);
+}
+
+// =============================================
+// TABLE MANAGEMENT
+// =============================================
+function loadTables(connectionId) {
+    showLoadingSpinner('#tableList');
+    clearTableForm();  // Clear the table form when loading tables
+    clearColumnForm(); // Clear the column form when loading tables
+    
+    $.ajax({
+        url: `/api/tables/${connectionId}`,
+        method: 'GET',
+        success: function(data) {
+            allTables = data.tables || [];
+            renderTableList(allTables);
+            updateStatistics();
+            
+            // Also populate the column tab dropdown
+            populateColumnTableDropdown(allTables);
+        },
+        error: function() {
+            showFeedback('Failed to load tables', false);
+            $('#tableList').html('<div class="text-center p-4 text-danger">Error loading tables</div>');
+        }
+    });
+}
+
+function renderTableList(tables) {
+    const listContainer = $('#tableList');
+    listContainer.empty();
+    
+    if (tables.length === 0) {
+        listContainer.html('<div class="text-center p-4 text-muted">No tables found</div>');
+        return;
+    }
+    
+    tables.forEach(function(table) {
+        const enhancementLevel = calculateTableEnhancementLevel(table);
+        const badgeClass = getEnhancementBadgeClass(enhancementLevel);
+        
+        const item = $(`
+            <a href="#" class="list-group-item list-group-item-action" data-table-id="${table.id}">
+                <div class="d-flex justify-content-between align-items-center">
+                    <span>${table.table_name}</span>
+                    <span class="badge ${badgeClass}">${enhancementLevel}%</span>
+                </div>
+                ${table.table_description ? `<small class="text-muted">${truncate(table.table_description, 60)}</small>` : ''}
+            </a>
+        `);
+        
+        item.on('click', function(e) {
+            e.preventDefault();
+            selectTable(table.id);
+        });
+        
+        listContainer.append(item);
+    });
+}
+
+function selectTable(tableId) {
+    const table = allTables.find(t => t.id === tableId);
+    if (!table) return;
+    
+    currentTable = table;
+    
+    // Update UI
+    $('#tableList .list-group-item').removeClass('active');
+    $(`#tableList .list-group-item[data-table-id="${tableId}"]`).addClass('active');
+    
+    // Load table form
+    renderTableForm(table);
+
+    // Show delete button
+    $('#deleteTableBtn').show();
+}
+
+function renderTableForm(table) {
+    const container = $('#tableFormContainer');
+    $('#tableFormTitle').text(`Table: ${table.table_name}`);
+    $('#saveTableBtn, #cancelTableBtn').show();
+    
+    const form = `
+        <form id="tableMetadataForm">
+            <input type="hidden" id="tableId" value="${table.id}">
+            
+            <!-- Basic Information -->
+            <div class="form-section">
+                <div class="form-section-title">
+                    <i class="fas fa-info-circle"></i> Basic Information
+                </div>
+                
+                <div class="form-group">
+                    <label for="tableName">Table Name</label>
+                    <input type="text" class="form-control" id="tableName" value="${table.table_name}" readonly>
+                </div>
+                
+                <div class="form-group">
+                    <label for="tableAlias">Table Alias (optional)</label>
+                    <input type="text" class="form-control" id="tableAlias" 
+                           value="${table.table_alias || ''}" 
+                           placeholder="e.g., 'o' for Orders">
+                    <small class="form-text text-muted">Short name used in queries</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="tableDescription">Description *</label>
+                    <textarea class="form-control" id="tableDescription" rows="3" required>${table.table_description || ''}</textarea>
+                    <small class="form-text text-muted">Explain what this table contains and its purpose</small>
+                </div>
+            </div>
+            
+            <!-- Classification -->
+            <div class="form-section">
+                <div class="form-section-title">
+                    <i class="fas fa-tags"></i> Classification
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label for="tableType">Table Type</label>
+                            <select class="form-control" id="tableType">
+                                <option value="">Not specified</option>
+                                <option value="fact" ${table.table_type === 'fact' ? 'selected' : ''}>Fact (Transactions)</option>
+                                <option value="dimension" ${table.table_type === 'dimension' ? 'selected' : ''}>Dimension (Lookup)</option>
+                                <option value="bridge" ${table.table_type === 'bridge' ? 'selected' : ''}>Bridge (Many-to-Many)</option>
+                                <option value="lookup" ${table.table_type === 'lookup' ? 'selected' : ''}>Lookup (Reference)</option>
+                                <option value="aggregate" ${table.table_type === 'aggregate' ? 'selected' : ''}>Aggregate (Summary)</option>
+                            </select>
+                            <small class="form-text text-muted">
+                                <a href="#" onclick="showHelp('table_type'); return false;">What is this?</a>
+                            </small>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label for="tableCategory">Category</label>
+                            <input type="text" class="form-control" id="tableCategory" 
+                                   value="${table.table_category || ''}" 
+                                   placeholder="e.g., sales, finance, hr"
+                                   list="categoryList">
+                            <datalist id="categoryList">
+                                <option value="sales">
+                                <option value="finance">
+                                <option value="hr">
+                                <option value="operations">
+                                <option value="marketing">
+                            </datalist>
+                            <small class="form-text text-muted">Business domain or department</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Keys and Structure -->
+            <div class="form-section">
+                <div class="form-section-title">
+                    <i class="fas fa-key"></i> Keys and Structure
+                </div>
+                
+                <div class="form-group">
+                    <label for="primaryKeyColumns">Primary Key Columns</label>
+                    <input type="text" class="form-control" id="primaryKeyColumns" 
+                           value="${table.primary_key_columns || ''}"
+                           placeholder="e.g., customer_id or order_id,line_number">
+                    <small class="form-text text-muted">Comma-separated for composite keys</small>
+                </div>
+            </div>
+            
+            <!-- Business Rules -->
+            <div class="form-section">
+                <div class="form-section-title">
+                    <i class="fas fa-gavel"></i> Business Rules
+                </div>
+                
+                <div class="form-group">
+                    <label>Business Rules</label>
+                    <button type="button" class="btn btn-sm btn-outline-primary btn-block"
+                            onclick="openBusinessRulesBuilder(document.getElementById('businessRules').value)">
+                        <i class="fas fa-edit mr-1"></i> Open Business Rules Builder
+                    </button>
+                    <textarea class="form-control mt-2" id="businessRulesPreview" rows="3" readonly 
+                              style="font-family: monospace; font-size: 0.85rem;">${formatJSON(table.business_rules)}</textarea>
+                    <input type="hidden" id="businessRules" value='${escapeHtml(table.business_rules || '')}'>
+                </div>
+                
+                <div class="form-group">
+                    <label>Common Filters</label>
+                    <button type="button" class="btn btn-sm btn-outline-primary btn-block"
+                            onclick="openCommonFiltersBuilder(document.getElementById('commonFilters').value)">
+                        <i class="fas fa-filter mr-1"></i> Open Filters Builder
+                    </button>
+                    <textarea class="form-control mt-2" id="commonFiltersPreview" rows="3" readonly 
+                              style="font-family: monospace; font-size: 0.85rem;">${formatJSON(table.common_filters)}</textarea>
+                    <input type="hidden" id="commonFilters" value='${escapeHtml(table.common_filters || '')}'>
+                </div>
+            </div>
+            
+            <!-- Metadata -->
+            <div class="form-section">
+                <div class="form-section-title">
+                    <i class="fas fa-info"></i> Metadata
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="rowCountEstimate">Row Count Estimate</label>
+                            <input type="number" class="form-control" id="rowCountEstimate" 
+                                   value="${table.row_count_estimate || ''}" placeholder="0">
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="refreshFrequency">Refresh Frequency</label>
+                            <select class="form-control" id="refreshFrequency">
+                                <option value="">Not specified</option>
+                                <option value="real-time" ${table.refresh_frequency === 'real-time' ? 'selected' : ''}>Real-time</option>
+                                <option value="hourly" ${table.refresh_frequency === 'hourly' ? 'selected' : ''}>Hourly</option>
+                                <option value="daily" ${table.refresh_frequency === 'daily' ? 'selected' : ''}>Daily</option>
+                                <option value="weekly" ${table.refresh_frequency === 'weekly' ? 'selected' : ''}>Weekly</option>
+                                <option value="monthly" ${table.refresh_frequency === 'monthly' ? 'selected' : ''}>Monthly</option>
+                                <option value="static" ${table.refresh_frequency === 'static' ? 'selected' : ''}>Static</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="dataOwner">Data Owner</label>
+                            <input type="text" class="form-control" id="dataOwner" 
+                                   value="${table.data_owner || ''}" placeholder="Team or person">
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <div class="custom-control custom-checkbox">
+                        <input type="checkbox" class="custom-control-input" id="isDeprecated" 
+                               ${table.is_deprecated ? 'checked' : ''}>
+                        <label class="custom-control-label text-danger" for="isDeprecated">
+                            <i class="fas fa-exclamation-triangle"></i> This table is deprecated
+                        </label>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Related Tables -->
+            <div class="form-section">
+                <div class="form-section-title">
+                    <i class="fas fa-project-diagram"></i> Related Tables
+                </div>
+                
+                <div class="form-group">
+                    <label>Related Tables</label>
+                    <button type="button" class="btn btn-sm btn-outline-primary btn-block" 
+                            onclick="openRelatedTablesBuilder(document.getElementById('relatedTables').value)">
+                        <i class="fas fa-link mr-1"></i> Manage Related Tables
+                    </button>
+                    <textarea class="form-control mt-2" id="relatedTablesPreview" rows="3" readonly 
+                              style="font-family: monospace; font-size: 0.85rem;">${formatJSON(table.related_tables)}</textarea>
+                    <input type="hidden" id="relatedTables" value='${escapeJsonForAttribute(table.related_tables || '')}'>
+                </div>
+            </div>
+        </form>
+    `;
+    
+    container.html(form);
+}
+
+function saveTable() {
+    const tableId = $('#tableId').val();
+    const isNewTable = !tableId || tableId === '' || tableId === 'null';
+    
+    // Gather form data
+    const data = {
+        id: isNewTable ? null : tableId,
+        table_alias: $('#tableAlias').val() || null,
+        table_description: $('#tableDescription').val(),
+        table_type: $('#tableType').val() || null,
+        table_category: $('#tableCategory').val() || null,
+        primary_key_columns: $('#primaryKeyColumns').val() || null,
+        business_rules: $('#businessRules').val() || null,
+        row_count_estimate: $('#rowCountEstimate').val() || null,
+        refresh_frequency: $('#refreshFrequency').val() || null,
+        data_owner: $('#dataOwner').val() || null,
+        is_deprecated: $('#isDeprecated').is(':checked') ? 1 : 0,
+        related_tables: $('#relatedTables').val() || null,
+        common_filters: $('#commonFilters').val() || null
+    };
+    
+    // For new tables, include connection_id and table_name
+    if (isNewTable) {
+        data.connection_id = currentConnection;
+        data.table_name = currentTable.table_name;
+        data.table_schema = $('#tableSchema').val() || 'public';
+    }
+    
+    // Validate required field
+    if (!data.table_description) {
+        showFeedback('Table description is required', false);
+        return;
+    }
+    
+    // Validate JSON fields
+    const jsonFields = ['business_rules', 'related_tables', 'common_filters'];
+    for (let field of jsonFields) {
+        if (data[field]) {
+            try {
+                JSON.parse(data[field]);
+            } catch (e) {
+                showFeedback(`Invalid JSON in ${field.replace('_', ' ')}: ${e.message}`, false);
+                return;
+            }
+        }
+    }
+    
+    // Save via API
+    $('#saveTableBtn').prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Saving...');
+    
+    $.ajax({
+        url: '/api/table/update',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function(response) {
+            showFeedback(isNewTable ? 'Table created successfully' : 'Table metadata saved successfully', true);
+            $('#saveTableBtn').prop('disabled', false).html('<i class="fas fa-save mr-1"></i> Save');
+            loadTables(currentConnection); // Refresh list
+            // Mark step as complete
+            if (typeof markDataAssistantStep === 'function') {
+                markDataAssistantStep('dictionary');
+            }
+        },
+        error: function(xhr) {
+            const error = xhr.responseJSON?.error || 'Failed to save table metadata';
+            showFeedback(error, false);
+            $('#saveTableBtn').prop('disabled', false).html('<i class="fas fa-save mr-1"></i> Save');
+        }
+    });
+}
+
+// =============================================
+// COLUMN MANAGEMENT
+// =============================================
+
+function populateColumnTableDropdown(tables) {
+    const select = $('#columnTableSelect');
+    select.empty().append('<option value="">Select a table...</option>');
+    
+    tables.forEach(function(table) {
+        select.append(`<option value="${table.id}">${table.table_name}</option>`);
+    });
+}
+
+function onColumnTableChange() {
+    const tableId = $('#columnTableSelect').val();
+    if (!tableId) {
+        clearColumnList();
+        clearColumnForm();
+        return;
+    }
+    
+    loadColumnsForTable(tableId);
+}
+
+function loadColumnsForTable(tableId) {
+    showLoadingSpinner('#columnList');
+    
+    $.ajax({
+        url: `/api/columns/${tableId}`,
+        method: 'GET',
+        success: function(data) {
+            allColumns = data.columns || [];
+            renderColumnList(allColumns);
+        },
+        error: function() {
+            showFeedback('Failed to load columns', false);
+            $('#columnList').html('<div class="text-center p-4 text-danger">Error loading columns</div>');
+        }
+    });
+}
+
+function renderColumnList(columns) {
+    const listContainer = $('#columnList');
+    listContainer.empty();
+    
+    if (columns.length === 0) {
+        listContainer.html('<div class="text-center p-4 text-muted">No columns found</div>');
+        return;
+    }
+    
+    columns.forEach(function(column) {
+        const enhancementLevel = calculateColumnEnhancementLevel(column);
+        const badgeClass = getEnhancementBadgeClass(enhancementLevel);
+        
+        const icons = [];
+        if (column.is_primary_key) icons.push('<span class="badge badge-pk ml-1" title="Primary Key">PK</span>');
+        if (column.is_foreign_key) icons.push('<span class="badge badge-fk ml-1" title="Foreign Key">FK</span>');
+        if (column.is_calculated) icons.push('<span class="badge badge-calc ml-1" title="Calculated">CALC</span>');
+        
+        const item = $(`
+            <a href="#" class="list-group-item list-group-item-action" data-column-id="${column.id}">
+                <div class="d-flex justify-content-between align-items-center">
+                    <span>
+                        ${column.column_name}
+                        ${icons.join(' ')}
+                    </span>
+                    <span class="badge ${badgeClass}">${enhancementLevel}%</span>
+                </div>
+                ${column.column_description ? `<small class="text-muted">${truncate(column.column_description, 60)}</small>` : ''}
+            </a>
+        `);
+        
+        item.on('click', function(e) {
+            e.preventDefault();
+            selectColumn(column.id);
+        });
+        
+        listContainer.append(item);
+    });
+}
+
+function selectColumn(columnId) {
+    const column = allColumns.find(c => c.id === columnId);
+    if (!column) return;
+    
+    currentColumn = column;
+    
+    // Update UI
+    $('#columnList .list-group-item').removeClass('active');
+    $(`#columnList .list-group-item[data-column-id="${columnId}"]`).addClass('active');
+    
+    // Load column form
+    renderColumnForm(column);
+
+    // Show delete button
+    $('#deleteColumnBtn').show();
+}
+
+function renderColumnForm(column) {
+    const container = $('#columnFormContainer');
+    $('#columnFormTitle').text(`Column: ${column.column_name}`);
+    $('#saveColumnBtn, #cancelColumnBtn').show();
+    
+    // Get available tables for FK dropdown
+    const tableOptions = allTables.map(t => 
+        `<option value="${t.table_name}" ${column.foreign_key_table === t.table_name ? 'selected' : ''}>${t.table_name}</option>`
+    ).join('');
+    
+    const form = `
+        <form id="columnMetadataForm">
+            <input type="hidden" id="columnId" value="${column.id}">
+            
+            <!-- Basic Information -->
+            <div class="form-section">
+                <div class="form-section-title">
+                    <i class="fas fa-info-circle"></i> Basic Information
+                </div>
+                
+                <div class="form-group">
+                    <label for="columnName">Column Name</label>
+                    <input type="text" class="form-control" id="columnName" value="${column.column_name}" readonly>
+                </div>
+                
+                <div class="form-group">
+                    <label for="columnAlias">Column Alias (optional)</label>
+                    <input type="text" class="form-control" id="columnAlias" 
+                           value="${column.column_alias || ''}" 
+                           placeholder="e.g., 'cust_id'">
+                    <small class="form-text text-muted">Alternative name for this column</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="columnDescription">Description *</label>
+                    <textarea class="form-control" id="columnDescription" rows="3" required>${column.column_description || ''}</textarea>
+                    <small class="form-text text-muted">Explain what this column contains and how it's used</small>
+                </div>
+            </div>
+            
+            <!-- Data Type -->
+            <div class="form-section">
+                <div class="form-section-title">
+                    <i class="fas fa-database"></i> Data Type
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label for="dataType">Data Type</label>
+                            <input type="text" class="form-control" id="dataType" 
+                                   value="${column.data_type || ''}" 
+                                   placeholder="e.g., int, varchar, decimal">
+                            <small class="form-text text-muted">Base data type from database</small>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label for="dataTypePrecision">Precision</label>
+                            <input type="text" class="form-control" id="dataTypePrecision" 
+                                   value="${column.data_type_precision || ''}" 
+                                   placeholder="e.g., varchar(255), decimal(18,2)">
+                            <small class="form-text text-muted">Full type specification</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Key Information -->
+            <div class="form-section">
+                <div class="form-section-title">
+                    <i class="fas fa-key"></i> Key Information
+                </div>
+                
+                <div class="custom-control custom-checkbox mb-2">
+                    <input type="checkbox" class="custom-control-input" id="isPrimaryKey" 
+                           ${column.is_primary_key ? 'checked' : ''}>
+                    <label class="custom-control-label" for="isPrimaryKey">
+                        <strong>Primary Key</strong> - This column uniquely identifies rows
+                    </label>
+                </div>
+                
+                <div class="custom-control custom-checkbox mb-3">
+                    <input type="checkbox" class="custom-control-input" id="isForeignKey" 
+                           ${column.is_foreign_key ? 'checked' : ''} 
+                           onchange="toggleForeignKeyFields()">
+                    <label class="custom-control-label" for="isForeignKey">
+                        <strong>Foreign Key</strong> - This column references another table
+                    </label>
+                </div>
+                
+                <div id="foreignKeyFields" style="display: ${column.is_foreign_key ? 'block' : 'none'};">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="foreignKeyTable">Referenced Table</label>
+                                <select class="form-control" id="foreignKeyTable" onchange="loadForeignKeyColumns()">
+                                    <option value="">Select table...</option>
+                                    ${tableOptions}
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="foreignKeyColumn">Referenced Column</label>
+                                <select class="form-control" id="foreignKeyColumn">
+                                    <option value="">Select column...</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="custom-control custom-checkbox">
+                    <input type="checkbox" class="custom-control-input" id="isNullable" 
+                           ${column.is_nullable ? 'checked' : ''}>
+                    <label class="custom-control-label" for="isNullable">
+                        Nullable - Column can contain NULL values
+                    </label>
+                </div>
+                
+                <div class="form-group mt-2">
+                    <label for="defaultValue">Default Value</label>
+                    <input type="text" class="form-control" id="defaultValue" 
+                           value="${column.default_value || ''}" 
+                           placeholder="e.g., 0, GETDATE(), 'Active'">
+                </div>
+            </div>
+            
+            <!-- Calculation (for virtual metrics) -->
+            <div class="form-section">
+                <div class="form-section-title">
+                    <i class="fas fa-calculator"></i> Calculation (Virtual Metrics)
+                </div>
+                
+                <div class="custom-control custom-checkbox mb-3">
+                    <input type="checkbox" class="custom-control-input" id="isCalculated" 
+                           ${column.is_calculated ? 'checked' : ''}
+                           onchange="toggleCalculationFields()">
+                    <label class="custom-control-label" for="isCalculated">
+                        <strong>This is a calculated/virtual metric</strong>
+                    </label>
+                    <small class="form-text text-muted">
+                        Use this for metrics users might request that don't physically exist 
+                        (e.g., "total_revenue", "profit_margin")
+                    </small>
+                </div>
+                
+                <div id="calculationFields" style="display: ${column.is_calculated ? 'block' : 'none'};">
+                    <div class="form-group">
+                        <label for="calculationFormula">Calculation Formula</label>
+                        <textarea class="form-control" id="calculationFormula" rows="3" 
+                                  placeholder="e.g., SUM(order_total) or (revenue - cost) / revenue * 100">${column.calculation_formula || ''}</textarea>
+                        <small class="form-text text-muted">SQL expression to calculate this metric</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="calculationDependencies">Dependencies (comma-separated)</label>
+                        <input type="text" class="form-control" id="calculationDependencies" 
+                               value="${column.calculation_dependencies ? JSON.parse(column.calculation_dependencies).join(', ') : ''}" 
+                               placeholder="e.g., order_total, discount_percent">
+                        <small class="form-text text-muted">Columns needed for this calculation</small>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Format and Display -->
+            <div class="form-section">
+                <div class="form-section-title">
+                    <i class="fas fa-paint-brush"></i> Format and Display
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label for="semanticType">Semantic Type</label>
+                            <select class="form-control" id="semanticType">
+                                <option value="">Not specified</option>
+                                <option value="identifier" ${column.semantic_type === 'identifier' ? 'selected' : ''}>Identifier</option>
+                                <option value="name" ${column.semantic_type === 'name' ? 'selected' : ''}>Name</option>
+                                <option value="email" ${column.semantic_type === 'email' ? 'selected' : ''}>Email</option>
+                                <option value="phone" ${column.semantic_type === 'phone' ? 'selected' : ''}>Phone</option>
+                                <option value="address" ${column.semantic_type === 'address' ? 'selected' : ''}>Address</option>
+                                <option value="date" ${column.semantic_type === 'date' ? 'selected' : ''}>Date</option>
+                                <option value="date_created" ${column.semantic_type === 'date_created' ? 'selected' : ''}>Date Created</option>
+                                <option value="date_modified" ${column.semantic_type === 'date_modified' ? 'selected' : ''}>Date Modified</option>
+                                <option value="amount" ${column.semantic_type === 'amount' ? 'selected' : ''}>Amount (Money)</option>
+                                <option value="quantity" ${column.semantic_type === 'quantity' ? 'selected' : ''}>Quantity</option>
+                                <option value="percentage" ${column.semantic_type === 'percentage' ? 'selected' : ''}>Percentage</option>
+                                <option value="status" ${column.semantic_type === 'status' ? 'selected' : ''}>Status</option>
+                                <option value="flag" ${column.semantic_type === 'flag' ? 'selected' : ''}>Flag (Boolean)</option>
+                                <option value="description" ${column.semantic_type === 'description' ? 'selected' : ''}>Description</option>
+                            </select>
+                            <small class="form-text text-muted">Meaning of the data</small>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label for="valueFormat">Display Format</label>
+                            <select class="form-control" id="valueFormat">
+                                <option value="">Not specified</option>
+                                <option value="currency" ${column.value_format === 'currency' ? 'selected' : ''}>Currency</option>
+                                <option value="percentage" ${column.value_format === 'percentage' ? 'selected' : ''}>Percentage</option>
+                                <option value="phone" ${column.value_format === 'phone' ? 'selected' : ''}>Phone</option>
+                                <option value="email" ${column.value_format === 'email' ? 'selected' : ''}>Email</option>
+                                <option value="date" ${column.value_format === 'date' ? 'selected' : ''}>Date</option>
+                                <option value="datetime" ${column.value_format === 'datetime' ? 'selected' : ''}>Date/Time</option>
+                                <option value="integer" ${column.value_format === 'integer' ? 'selected' : ''}>Integer</option>
+                                <option value="decimal_2" ${column.value_format === 'decimal_2' ? 'selected' : ''}>Decimal (2 places)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label for="units">Units</label>
+                            <input type="text" class="form-control" id="units" 
+                                   value="${column.units || ''}" 
+                                   placeholder="e.g., USD, kg, miles"
+                                   list="unitsList">
+                            <datalist id="unitsList">
+                                <option value="USD">
+                                <option value="EUR">
+                                <option value="GBP">
+                                <option value="kg">
+                                <option value="lbs">
+                                <option value="miles">
+                                <option value="km">
+                            </datalist>
+                            <small class="form-text text-muted">Measurement unit</small>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label for="valueRange">Value Range</label>
+                            <input type="text" class="form-control" id="valueRange" 
+                                   value="${column.value_range || ''}" 
+                                   placeholder="e.g., min: 0, max: 100">
+                            <small class="form-text text-muted">Expected range of values</small>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>Common Aggregations</label>
+                    <div class="form-check form-check-inline">
+                        <input type="checkbox" class="form-check-input agg-checkbox" id="aggSum" value="SUM" 
+                               ${column.common_aggregations && column.common_aggregations.includes('SUM') ? 'checked' : ''}>
+                        <label class="form-check-label" for="aggSum">SUM</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input type="checkbox" class="form-check-input agg-checkbox" id="aggAvg" value="AVG" 
+                               ${column.common_aggregations && column.common_aggregations.includes('AVG') ? 'checked' : ''}>
+                        <label class="form-check-label" for="aggAvg">AVG</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input type="checkbox" class="form-check-input agg-checkbox" id="aggCount" value="COUNT" 
+                               ${column.common_aggregations && column.common_aggregations.includes('COUNT') ? 'checked' : ''}>
+                        <label class="form-check-label" for="aggCount">COUNT</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input type="checkbox" class="form-check-input agg-checkbox" id="aggMin" value="MIN" 
+                               ${column.common_aggregations && column.common_aggregations.includes('MIN') ? 'checked' : ''}>
+                        <label class="form-check-label" for="aggMin">MIN</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input type="checkbox" class="form-check-input agg-checkbox" id="aggMax" value="MAX" 
+                               ${column.common_aggregations && column.common_aggregations.includes('MAX') ? 'checked' : ''}>
+                        <label class="form-check-label" for="aggMax">MAX</label>
+                    </div>
+                    <small class="form-text text-muted">Appropriate aggregation functions for this column</small>
+                </div>
+            </div>
+            
+            <!-- Sensitivity and Discoverability -->
+            <div class="form-section">
+                <div class="form-section-title">
+                    <i class="fas fa-shield-alt"></i> Sensitivity & Discoverability
+                </div>
+                
+                <div class="custom-control custom-checkbox mb-3">
+                    <input type="checkbox" class="custom-control-input" id="isSensitive" 
+                           ${column.is_sensitive ? 'checked' : ''}>
+                    <label class="custom-control-label text-danger" for="isSensitive">
+                        <i class="fas fa-exclamation-triangle"></i> <strong>Contains sensitive/PII data</strong>
+                    </label>
+                    <small class="form-text text-muted">
+                        Check if this contains personally identifiable information (SSN, credit card, etc.)
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="synonyms">Synonyms</label>
+                    <input type="text" class="form-control" id="synonyms" 
+                           value="${column.synonyms || ''}" 
+                           placeholder="e.g., client_id, cust_id, customer_number">
+                    <small class="form-text text-muted">Comma-separated alternative names users might use</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="examples">Example Values</label>
+                    <textarea class="form-control" id="examples" rows="2" 
+                              placeholder="e.g., 'Pending', 'Shipped', 'Delivered', 'Cancelled'">${column.examples || ''}</textarea>
+                    <small class="form-text text-muted">Sample values to help understand the data</small>
+                </div>
+            </div>
+        </form>
+    `;
+    
+    container.html(form);
+    
+    // If FK is checked, load FK columns
+    if (column.is_foreign_key && column.foreign_key_table) {
+        loadForeignKeyColumns(column.foreign_key_column);
+    }
+}
+
+function saveColumn() {
+    const columnId = $('#columnId').val();
+    const isNewColumn = !columnId || columnId === '' || columnId === 'null';
+    console.log('Saving column...');
+    console.log(`Column ID: ${columnId}`);
+    console.log(`Is New Column: ${isNewColumn}`);
+    // Gather aggregations
+    const aggregations = [];
+    $('.agg-checkbox:checked').each(function() {
+        aggregations.push($(this).val());
+    });
+    
+    // Gather calculation dependencies
+    let calcDeps = $('#calculationDependencies').val();
+    if (calcDeps) {
+        calcDeps = JSON.stringify(calcDeps.split(',').map(s => s.trim()).filter(s => s));
+    } else {
+        calcDeps = null;
+    }
+    
+    // Gather form data
+    const data = {
+        id: isNewColumn ? null : columnId,
+        column_alias: $('#columnAlias').val() || null,
+        column_description: $('#columnDescription').val(),
+        data_type: $('#dataType').val() || null,
+        data_type_precision: $('#dataTypePrecision').val() || null,
+        is_primary_key: $('#isPrimaryKey').is(':checked') ? 1 : 0,
+        is_foreign_key: $('#isForeignKey').is(':checked') ? 1 : 0,
+        foreign_key_table: $('#foreignKeyTable').val() || null,
+        foreign_key_column: $('#foreignKeyColumn').val() || null,
+        is_nullable: $('#isNullable').is(':checked') ? 1 : 0,
+        default_value: $('#defaultValue').val() || null,
+        is_calculated: $('#isCalculated').is(':checked') ? 1 : 0,
+        calculation_formula: $('#calculationFormula').val() || null,
+        calculation_dependencies: calcDeps,
+        semantic_type: $('#semanticType').val() || null,
+        value_format: $('#valueFormat').val() || null,
+        units: $('#units').val() || null,
+        value_range: $('#valueRange').val() || null,
+        common_aggregations: aggregations.length > 0 ? aggregations.join(',') : null,
+        is_sensitive: $('#isSensitive').is(':checked') ? 1 : 0,
+        synonyms: $('#synonyms').val() || null,
+        examples: $('#examples').val() || null
+    };
+    
+    // For new columns, include table_id and column_name
+    if (isNewColumn) {
+        data.table_id = currentColumn.table_id;
+        data.column_name = currentColumn.column_name;
+    }
+    
+    // Validate required field
+    if (!data.column_description) {
+        showFeedback('Column description is required', false);
+        return;
+    }
+    
+    // Validate FK fields
+    if (data.is_foreign_key && (!data.foreign_key_table || !data.foreign_key_column)) {
+        showFeedback('Foreign key table and column are required when FK is checked', false);
+        return;
+    }
+    
+    // Save via API
+    $('#saveColumnBtn').prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Saving...');
+    
+    $.ajax({
+        url: '/api/column/update',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function(response) {
+            showFeedback(isNewColumn ? 'Column created successfully' : 'Column metadata saved successfully', true);
+            $('#saveColumnBtn').prop('disabled', false).html('<i class="fas fa-save mr-1"></i> Save');
+            // Refresh column list
+            const tableId = $('#columnTableSelect').val();
+            loadColumnsForTable(tableId);
+
+            // Mark step as complete
+            if (typeof markDataAssistantStep === 'function') {
+                markDataAssistantStep('dictionary');
+            }
+        },
+        error: function(xhr) {
+            const error = xhr.responseJSON?.error || 'Failed to save column metadata';
+            showFeedback(error, false);
+            $('#saveColumnBtn').prop('disabled', false).html('<i class="fas fa-save mr-1"></i> Save');
+        }
+    });
+}
+
+function toggleForeignKeyFields() {
+    const isChecked = $('#isForeignKey').is(':checked');
+    $('#foreignKeyFields').toggle(isChecked);
+}
+
+function toggleCalculationFields() {
+    const isChecked = $('#isCalculated').is(':checked');
+    $('#calculationFields').toggle(isChecked);
+}
+
+function loadForeignKeyColumns(selectedColumn) {
+    const tableName = $('#foreignKeyTable').val();
+    if (!tableName) {
+        $('#foreignKeyColumn').html('<option value="">Select table first...</option>');
+        return;
+    }
+    
+    // Find table ID
+    const table = allTables.find(t => t.table_name === tableName);
+    if (!table) return;
+    
+    // Load columns for this table
+    $.ajax({
+        url: `/api/columns/${table.id}`,
+        method: 'GET',
+        success: function(data) {
+            const columns = data.columns || [];
+            const select = $('#foreignKeyColumn');
+            select.empty().append('<option value="">Select column...</option>');
+            
+            columns.forEach(function(col) {
+                const selected = col.column_name === selectedColumn ? 'selected' : '';
+                select.append(`<option value="${col.column_name}" ${selected}>${col.column_name}</option>`);
+            });
+        }
+    });
+}
+
+// =============================================
+// BUSINESS RULES BUILDER
+// =============================================
+
+function openBusinessRulesBuilder(currentData) {
+    try {
+        businessRulesData = currentData ? JSON.parse(currentData) : { rules: [], defaults: {} };
+    } catch (e) {
+        businessRulesData = { rules: [], defaults: {} };
+    }
+    
+    // Clear and populate rules
+    const rulesList = $('#rulesList');
+    rulesList.empty();
+    
+    if (businessRulesData.rules && businessRulesData.rules.length > 0) {
+        businessRulesData.rules.forEach((rule, index) => {
+            addRuleItem(rule);
+        });
+    } else {
+        addRuleItem('');
+    }
+    
+    // Clear and populate defaults
+    const defaultsList = $('#defaultsList');
+    defaultsList.empty();
+    
+    if (businessRulesData.defaults && Object.keys(businessRulesData.defaults).length > 0) {
+        Object.entries(businessRulesData.defaults).forEach(([key, value]) => {
+            addDefaultItem(key, value);
+        });
+    } else {
+        addDefaultItem('', '');
+    }
+    
+    $('#businessRulesModal').modal('show');
+}
+
+function addRule() {
+    addRuleItem('');
+}
+
+function addRuleItem(value) {
+    const rulesList = $('#rulesList');
+    const item = $(`
+        <div class="rule-item">
+            <input type="text" class="form-control" placeholder="Enter business rule..." value="${escapeHtml(value || '')}">
+            <button type="button" class="btn btn-sm btn-danger remove-btn" onclick="$(this).closest('.rule-item').remove()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    `);
+    rulesList.append(item);
+}
+
+function addDefault() {
+    addDefaultItem('', '');
+}
+
+function addDefaultItem(key, value) {
+    const defaultsList = $('#defaultsList');
+    const item = $(`
+        <div class="default-item">
+            <input type="text" class="form-control" placeholder="Column name" value="${escapeHtml(key || '')}">
+            <input type="text" class="form-control" placeholder="Default value" value="${escapeHtml(value || '')}">
+            <button type="button" class="btn btn-sm btn-danger remove-btn" onclick="$(this).closest('.default-item').remove()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    `);
+    defaultsList.append(item);
+}
+
+function saveBusinessRules() {
+    // Gather rules
+    const rules = [];
+    $('#rulesList .rule-item input').each(function() {
+        const val = $(this).val().trim();
+        if (val) rules.push(val);
+    });
+    
+    // Gather defaults
+    const defaults = {};
+    $('#defaultsList .default-item').each(function() {
+        const key = $(this).find('input').eq(0).val().trim();
+        const value = $(this).find('input').eq(1).val().trim();
+        if (key) defaults[key] = value;
+    });
+    
+    // Build JSON
+    const data = {
+        rules: rules,
+        defaults: defaults
+    };
+    
+    // Update hidden field and preview
+    const jsonString = JSON.stringify(data, null, 2);
+    $('#businessRules').val(jsonString);
+    $('#businessRulesPreview').val(jsonString);
+    
+    $('#businessRulesModal').modal('hide');
+    showFeedback('Business rules updated (remember to save table)', true);
+}
+
+// =============================================
+// COMMON FILTERS BUILDER
+// =============================================
+
+function openCommonFiltersBuilder(currentData) {
+    try {
+        commonFiltersData = currentData ? JSON.parse(currentData) : { recommended: [], required: [] };
+    } catch (e) {
+        commonFiltersData = { recommended: [], required: [] };
+    }
+    
+    // Clear and populate recommended filters
+    const recommendedList = $('#recommendedFiltersList');
+    recommendedList.empty();
+    
+    if (commonFiltersData.recommended && commonFiltersData.recommended.length > 0) {
+        commonFiltersData.recommended.forEach(filter => {
+            addRecommendedFilterItem(filter);
+        });
+    } else {
+        addRecommendedFilterItem('');
+    }
+    
+    // Clear and populate required filters
+    const requiredList = $('#requiredFiltersList');
+    requiredList.empty();
+    
+    if (commonFiltersData.required && commonFiltersData.required.length > 0) {
+        commonFiltersData.required.forEach(filter => {
+            addRequiredFilterItem(filter);
+        });
+    } else {
+        addRequiredFilterItem('');
+    }
+    
+    $('#commonFiltersModal').modal('show');
+}
+
+function addRecommendedFilter() {
+    addRecommendedFilterItem('');
+}
+
+function addRecommendedFilterItem(value) {
+    const list = $('#recommendedFiltersList');
+    const item = $(`
+        <div class="filter-item">
+            <input type="text" class="form-control sql-filter" placeholder="WHERE condition (e.g., status = 'Active')" 
+                   value="${escapeHtml(value || '')}" onblur="validateSQL(this)">
+            <button type="button" class="btn btn-sm btn-danger remove-btn" onclick="$(this).closest('.filter-item').remove()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    `);
+    list.append(item);
+}
+
+function addRequiredFilter() {
+    addRequiredFilterItem('');
+}
+
+function addRequiredFilterItem(value) {
+    const list = $('#requiredFiltersList');
+    const item = $(`
+        <div class="filter-item">
+            <input type="text" class="form-control sql-filter" placeholder="WHERE condition (e.g., is_deleted = 0)" 
+                   value="${escapeHtml(value || '')}" onblur="validateSQL(this)">
+            <button type="button" class="btn btn-sm btn-danger remove-btn" onclick="$(this).closest('.filter-item').remove()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    `);
+    list.append(item);
+}
+
+function validateSQL(input) {
+    const value = $(input).val().trim();
+    if (!value) {
+        $(input).removeClass('sql-valid sql-invalid');
+        return;
+    }
+    
+    // Simple SQL validation - check for basic patterns
+    // This is basic validation - you can enhance this
+    const hasOperator = /[=<>!]/.test(value);
+    const hasQuotes = /['"]/.test(value);
+    const looksValid = hasOperator && (hasQuotes || /\d+/.test(value) || /NULL/i.test(value));
+    
+    if (looksValid) {
+        $(input).removeClass('sql-invalid').addClass('sql-valid');
+    } else {
+        $(input).removeClass('sql-valid').addClass('sql-invalid');
+    }
+}
+
+function saveCommonFilters() {
+    // Gather recommended filters
+    const recommended = [];
+    $('#recommendedFiltersList .filter-item input').each(function() {
+        const val = $(this).val().trim();
+        if (val) recommended.push(val);
+    });
+    
+    // Gather required filters
+    const required = [];
+    $('#requiredFiltersList .filter-item input').each(function() {
+        const val = $(this).val().trim();
+        if (val) required.push(val);
+    });
+    
+    // Build JSON
+    const data = {
+        recommended: recommended,
+        required: required
+    };
+    
+    // Update hidden field and preview
+    const jsonString = JSON.stringify(data, null, 2);
+    $('#commonFilters').val(jsonString);
+    $('#commonFiltersPreview').val(jsonString);
+    
+    $('#commonFiltersModal').modal('hide');
+    showFeedback('Common filters updated (remember to save table)', true);
+}
+
+// =============================================
+// RELATED TABLES BUILDER
+// =============================================
+
+function openRelatedTablesBuilder(currentData) {
+    try {
+        relatedTablesData = currentData ? JSON.parse(currentData) : { commonly_joined_with: [] };
+    } catch (e) {
+        relatedTablesData = { commonly_joined_with: [] };
+    }
+    
+    // Clear and populate related tables
+    const list = $('#relatedTablesList');
+    list.empty();
+    
+    if (relatedTablesData.commonly_joined_with && relatedTablesData.commonly_joined_with.length > 0) {
+        relatedTablesData.commonly_joined_with.forEach(rel => {
+            addRelatedTableItem(rel.table, rel.frequency, rel.join_type, rel.description);
+        });
+    } else {
+        addRelatedTableItem('', 'high', 'INNER', '');
+    }
+    
+    $('#relatedTablesModal').modal('show');
+}
+
+function addRelatedTable() {
+    addRelatedTableItem('', 'high', 'INNER', '');
+}
+
+function addRelatedTableItem(tableName, frequency, joinType, description) {
+    const list = $('#relatedTablesList');
+    
+    // Get table options
+    const tableOptions = allTables.map(t => 
+        `<option value="${t.table_name}" ${t.table_name === tableName ? 'selected' : ''}>${t.table_name}</option>`
+    ).join('');
+    
+    const item = $(`
+        <div class="related-table-item">
+            <select class="form-control">
+                <option value="">Select table...</option>
+                ${tableOptions}
+            </select>
+            <select class="form-control">
+                <option value="high" ${frequency === 'high' ? 'selected' : ''}>High</option>
+                <option value="medium" ${frequency === 'medium' ? 'selected' : ''}>Medium</option>
+                <option value="low" ${frequency === 'low' ? 'selected' : ''}>Low</option>
+            </select>
+            <select class="form-control">
+                <option value="INNER" ${joinType === 'INNER' ? 'selected' : ''}>INNER</option>
+                <option value="LEFT" ${joinType === 'LEFT' ? 'selected' : ''}>LEFT</option>
+                <option value="RIGHT" ${joinType === 'RIGHT' ? 'selected' : ''}>RIGHT</option>
+            </select>
+            <input type="text" class="form-control" placeholder="Description (optional)" 
+                   value="${escapeHtml(description || '')}">
+            <button type="button" class="btn btn-sm btn-danger remove-btn" onclick="$(this).closest('.related-table-item').remove()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    `);
+    list.append(item);
+}
+
+function saveRelatedTables() {
+    // Gather related tables
+    const commonly_joined_with = [];
+    $('#relatedTablesList .related-table-item').each(function() {
+        const table = $(this).find('select').eq(0).val();
+        const frequency = $(this).find('select').eq(1).val();
+        const join_type = $(this).find('select').eq(2).val();
+        const description = $(this).find('input').val().trim();
+        
+        if (table) {
+            commonly_joined_with.push({
+                table: table,
+                frequency: frequency,
+                join_type: join_type,
+                description: description || undefined
+            });
+        }
+    });
+    
+    // Build JSON
+    const data = {
+        commonly_joined_with: commonly_joined_with
+    };
+    
+    // Update hidden field and preview
+    const jsonString = JSON.stringify(data, null, 2);
+    $('#relatedTables').val(jsonString);
+    $('#relatedTablesPreview').val(jsonString);
+    
+    $('#relatedTablesModal').modal('hide');
+    showFeedback('Related tables updated (remember to save table)', true);
+}
+
+// =============================================
+// AI DISCOVERY
+// =============================================
+
+function discoverTables() {
+    if (!currentConnection) {
+        showFeedback('Please select a connection first', false);
+        return;
+    }
+    
+    $('#discoverTablesBtn').prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Discovering...');
+    
+    $.ajax({
+        url: `/api/discover/tables/${currentConnection}`,
+        method: 'GET',
+        success: function(response) {
+            if (response.success) {
+                renderDiscoveredTables(response.tables);
+                $('#discoveredTablesContainer').show();
+            }
+            $('#discoverTablesBtn').prop('disabled', false).html('<i class="fas fa-search mr-1"></i> Discover Tables from Database');
+        },
+        error: function() {
+            showFeedback('Failed to discover tables', false);
+            $('#discoverTablesBtn').prop('disabled', false).html('<i class="fas fa-search mr-1"></i> Discover Tables from Database');
+        }
+    });
+}
+
+function renderDiscoveredTables(tables) {
+    const container = $('#discoveredTablesList');
+    container.empty();
+    
+    tables.forEach(function(table) {
+        const badge = table.is_documented ? 
+            '<span class="badge badge-success ml-2">Documented</span>' : 
+            '<span class="badge badge-warning ml-2">New</span>';
+        
+        const checkbox = $(`
+            <div class="form-check table-checkbox-label p-2">
+                <input type="checkbox" class="form-check-input table-checkbox" 
+                       id="table_${table.TABLE_NAME}" 
+                       value="${table.TABLE_NAME}"
+                       ${table.is_documented ? '' : 'checked'}>
+                <label class="form-check-label" for="table_${table.TABLE_NAME}">
+                    <strong>${table.TABLE_NAME}</strong>
+                    ${badge}
+                    <small class="text-muted ml-2">(${table.column_count} columns)</small>
+                </label>
+            </div>
+        `);
+        
+        container.append(checkbox);
+    });
+    
+    // Update analyze button state
+    updateAnalyzeButtonState();
+    
+    // Add event listeners
+    $('.table-checkbox').on('change', updateAnalyzeButtonState);
+    $('#selectAllTables').on('change', function() {
+        $('.table-checkbox').prop('checked', $(this).is(':checked'));
+        updateAnalyzeButtonState();
+    });
+}
+
+function updateAnalyzeButtonState() {
+    const selectedCount = $('.table-checkbox:checked').length;
+    $('#aiAnalyzeBtn').prop('disabled', selectedCount === 0);
+    
+    if (selectedCount > 0) {
+        $('#aiAnalyzeBtn').html(`<i class="fas fa-magic mr-1"></i> AI Auto-Populate ${selectedCount} Selected Table${selectedCount !== 1 ? 's' : ''}`);
+    } else {
+        $('#aiAnalyzeBtn').html('<i class="fas fa-magic mr-1"></i> AI Auto-Populate Selected Tables');
+    }
+}
+
+function aiAnalyzeTables() {
+    const selectedTables = $('.table-checkbox:checked').map(function() {
+        return $(this).val();
+    }).get();
+    
+    if (selectedTables.length === 0) {
+        showFeedback('Please select at least one table', false);
+        return;
+    }
+    
+    // Show progress UI
+    $('#analysisProgress').show();
+    $('#analysisResults').hide();
+    $('#aiAnalyzeBtn').prop('disabled', true);
+    $('#analysisProgressBar').css('width', '0%').text('0%');
+    $('#analysisStatus').text('Starting analysis...');
+    
+    // Start analysis (returns immediately with task_id)
+    $.ajax({
+        url: '/api/ai/analyze-tables-batch',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            connection_id: currentConnection,
+            table_names: selectedTables
+        }),
+        success: function(response) {
+            if (response.success && response.task_id) {
+                // Start polling for progress
+                pollAnalysisProgress(response.task_id);
+
+                // Mark Data Assistant step as done
+                if (typeof markDataAssistantStep === 'function') {
+                    markDataAssistantStep('dictionary');
+                }
+            } else {
+                showFeedback('Failed to start analysis', false);
+                $('#analysisProgress').hide();
+                $('#aiAnalyzeBtn').prop('disabled', false);
+            }
+        },
+        error: function(xhr) {
+            const error = xhr.responseJSON?.error || 'Failed to start analysis';
+            showFeedback(error, false);
+            $('#analysisProgress').hide();
+            $('#aiAnalyzeBtn').prop('disabled', false);
+        }
+    });
+}
+
+function pollAnalysisProgress(taskId) {
+    let pollInterval = null;
+    
+    pollInterval = setInterval(function() {
+        $.ajax({
+            url: `/api/ai/progress/${taskId}`,
+            method: 'GET',
+            success: function(data) {
+                if (!data.success) {
+                    clearInterval(pollInterval);
+                    showFeedback('Error getting progress', false);
+                    $('#analysisProgress').hide();
+                    $('#aiAnalyzeBtn').prop('disabled', false);
+                    return;
+                }
+                
+                // Calculate percentage
+                const percent = data.total > 0 ? (data.current / data.total) * 100 : 0;
+                
+                // Update progress bar
+                $('#analysisProgressBar').css('width', percent + '%').text(Math.round(percent) + '%');
+                
+                // Update status text
+                if (data.status === 'processing' && data.table) {
+                    $('#analysisStatus').text(`Analyzing ${data.table}... (${data.current}/${data.total})`);
+                } else if (data.status === 'completed') {
+                    $('#analysisStatus').text(`Analysis complete! (${data.total}/${data.total})`);
+                } else if (data.status === 'error') {
+                    $('#analysisStatus').text(`Analysis failed: ${data.error_message || 'Unknown error'}`);
+                }
+                
+                // Check if completed or error
+                if (data.status === 'completed' || data.status === 'error') {
+                    clearInterval(pollInterval);
+                    
+                    // Display results
+                    displayAnalysisResults({
+                        success: data.status === 'completed',
+                        total_processed: data.results ? data.results.length : 0,
+                        total_errors: data.errors ? data.errors.length : 0,
+                        results: data.results || [],
+                        errors: data.errors || []
+                    });
+                    
+                    // Show feedback
+                    if (data.status === 'completed') {
+                        showFeedback(`Successfully analyzed ${data.results.length} tables!`, true);
+                        
+                        // Refresh tables list
+                        loadTables(currentConnection);
+                    } else {
+                        showFeedback('Analysis completed with errors', false);
+                    }
+                    
+                    // Hide progress, enable button
+                    $('#analysisProgress').hide();
+                    $('#aiAnalyzeBtn').prop('disabled', false);
+                    
+                    // Clean up task (optional)
+                    cleanupAnalysisTask(taskId);
+                }
+            },
+            error: function(xhr) {
+                clearInterval(pollInterval);
+                console.error('Error polling progress:', xhr);
+                showFeedback('Error tracking progress', false);
+                $('#analysisProgress').hide();
+                $('#aiAnalyzeBtn').prop('disabled', false);
+            }
+        });
+    }, 1000); // Poll every 1 second
+}
+
+function cleanupAnalysisTask(taskId) {
+    // Clean up server-side progress data after a delay
+    setTimeout(function() {
+        $.ajax({
+            url: `/api/ai/cleanup/${taskId}`,
+            method: 'DELETE',
+            success: function() {
+                console.log(`Cleaned up task ${taskId}`);
+            },
+            error: function(xhr) {
+                console.error(`Failed to cleanup task ${taskId}:`, xhr);
+            }
+        });
+    }, 5000); // Clean up after 5 seconds
+}
+
+
+function simulateProgress(totalTables) {
+    let progress = 0;
+    const increment = 100 / totalTables;
+    const interval = setInterval(function() {
+        progress += increment;
+        if (progress >= 100) {
+            progress = 100;
+            clearInterval(interval);
+        }
+        $('#analysisProgressBar').css('width', progress + '%').text(Math.round(progress) + '%');
+        $('#analysisStatus').text(`Analyzing tables... ${Math.round(progress)}% complete`);
+    }, 2000);
+}
+
+function displayAnalysisResults(response) {
+    $('#analysisResults').show();
+    
+    const summary = `Analyzed ${response.total_processed} tables successfully. ${response.total_errors} errors.`;
+    $('#analysisResultsSummary').text(summary);
+    
+    const details = $('#analysisResultsDetails');
+    details.empty();
+    
+    // Show successful analyses
+    if (response.results && response.results.length > 0) {
+        const successList = $('<ul class="list-group mt-2"></ul>');
+        response.results.forEach(function(result) {
+            successList.append(`
+                <li class="list-group-item list-group-item-success">
+                    <i class="fas fa-check mr-2"></i>
+                    <strong>${result.table_name}</strong>: 
+                    ${result.columns_updated} columns updated, 
+                    ${result.metrics_created} metrics created
+                </li>
+            `);
+        });
+        details.append(successList);
+    }
+    
+    // Show errors
+    if (response.errors && response.errors.length > 0) {
+        const errorList = $('<ul class="list-group mt-2"></ul>');
+        response.errors.forEach(function(error) {
+            errorList.append(`
+                <li class="list-group-item list-group-item-danger">
+                    <i class="fas fa-times mr-2"></i>
+                    <strong>${error.table_name}</strong>: ${error.error}
+                </li>
+            `);
+        });
+        details.append(errorList);
+    }
+}
+
+// =============================================
+// BULK OPERATIONS
+// =============================================
+
+function exportDictionary(format) {
+    if (!currentConnection) {
+        showFeedback('Please select a connection first', false);
+        return;
+    }
+    
+    window.location.href = `/api/export/dictionary/${currentConnection}?format=${format}`;
+}
+
+function importDictionary() {
+    const fileInput = document.getElementById('importFileInput');
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        showFeedback('Please select a file to import', false);
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('connection_id', currentConnection);
+    
+    $('#importBtn').prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Importing...');
+    
+    $.ajax({
+        url: '/api/import/dictionary',
+        method: 'POST',
+        data: formData,
+        processData: false,
+        contentType: false,
+        success: function(response) {
+            showFeedback(`Import successful: ${response.imported_count} records imported`, true);
+            $('#importBtn').prop('disabled', false).html('<i class="fas fa-upload mr-1"></i> Import File');
+            loadTables(currentConnection);
+        },
+        error: function(xhr) {
+            const error = xhr.responseJSON?.error || 'Failed to import file';
+            showFeedback(error, false);
+            $('#importBtn').prop('disabled', false).html('<i class="fas fa-upload mr-1"></i> Import File');
+        }
+    });
+}
+
+function downloadTemplate() {
+    window.location.href = '/api/download/template';
+}
+
+function validateMetadata() {
+    if (!currentConnection) {
+        showFeedback('Please select a connection first', false);
+        return;
+    }
+    
+    $.ajax({
+        url: `/api/validate/metadata/${currentConnection}`,
+        method: 'GET',
+        success: function(response) {
+            displayValidationResults(response);
+            $('#validationResults').show();
+        },
+        error: function() {
+            showFeedback('Failed to validate metadata', false);
+        }
+    });
+}
+
+function displayValidationResults(response) {
+    const container = $('#validationResultsList');
+    container.empty();
+    
+    if (response.issues && response.issues.length > 0) {
+        const list = $('<ul class="list-group"></ul>');
+        response.issues.forEach(function(issue) {
+            const severity = issue.severity === 'error' ? 'danger' : 'warning';
+            list.append(`
+                <li class="list-group-item list-group-item-${severity}">
+                    <i class="fas fa-${issue.severity === 'error' ? 'times' : 'exclamation-triangle'} mr-2"></i>
+                    ${issue.message}
+                </li>
+            `);
+        });
+        container.append(list);
+    } else {
+        container.html('<div class="alert alert-success"><i class="fas fa-check-circle mr-2"></i>No issues found! Metadata looks good.</div>');
+    }
+}
+
+// =============================================
+// UTILITY FUNCTIONS
+// =============================================
+
+function calculateTableEnhancementLevel(table) {
+    let filled = 0;
+    let total = 10;
+    
+    if (table.table_type) filled++;
+    if (table.table_category) filled++;
+    if (table.primary_key_columns) filled++;
+    if (table.business_rules) filled++;
+    if (table.row_count_estimate) filled++;
+    if (table.refresh_frequency) filled++;
+    if (table.data_owner) filled++;
+    if (table.related_tables) filled++;
+    if (table.common_filters) filled++;
+    if (table.table_description) filled++;
+    
+    return Math.round((filled / total) * 100);
+}
+
+function calculateColumnEnhancementLevel(column) {
+    let filled = 0;
+    let total = 15;
+    
+    if (column.data_type) filled++;
+    if (column.is_primary_key !== null) filled++;
+    if (column.is_foreign_key !== null) filled++;
+    if (column.semantic_type) filled++;
+    if (column.value_format) filled++;
+    if (column.value_range) filled++;
+    if (column.common_aggregations) filled++;
+    if (column.units) filled++;
+    if (column.synonyms) filled++;
+    if (column.examples) filled++;
+    if (column.column_description) filled++;
+    if (column.is_nullable !== null) filled++;
+    if (column.is_calculated !== null) filled++;
+    if (column.is_sensitive !== null) filled++;
+    if (column.data_type_precision) filled++;
+    
+    return Math.round((filled / total) * 100);
+}
+
+function getEnhancementBadgeClass(level) {
+    if (level >= 70) return 'badge-enhanced';
+    if (level >= 30) return 'badge-partial';
+    return 'badge-empty';
+}
+
+function formatJSON(jsonString) {
+    if (!jsonString) return '';
+    try {
+        const obj = JSON.parse(jsonString);
+        return JSON.stringify(obj, null, 2);
+    } catch (e) {
+        return jsonString;
+    }
+}
+
+function truncate(str, length) {
+    if (!str || str.length <= length) return str;
+    return str.substring(0, length) + '...';
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return text.replace(/[&<>"']/g, m => map[m]);
+}
+
+function showLoadingSpinner(selector) {
+    $(selector).html('<div class="text-center p-4"><i class="fas fa-spinner fa-spin fa-2x"></i></div>');
+}
+
+function clearTableList() {
+    $('#tableList').html('<div class="text-center p-4 text-muted">Select a connection to view tables</div>');
+}
+
+function clearTableForm() {
+    $('#tableFormContainer').html('<div class="text-center p-5 text-muted"><i class="fas fa-table fa-3x mb-2"></i><p>Select a table to view and edit its metadata</p></div>');
+    $('#saveTableBtn, #cancelTableBtn, #deleteTableBtn').hide();
+}
+
+function clearColumnList() {
+    $('#columnList').html('<div class="text-center p-4 text-muted">Select a table to view columns</div>');
+}
+
+function clearColumnForm() {
+    $('#columnFormContainer').html('<div class="text-center p-5 text-muted"><i class="fas fa-columns fa-3x mb-2"></i><p>Select a column to view and edit its metadata</p></div>');
+    $('#saveColumnBtn, #cancelColumnBtn, #deleteColumnBtn').hide();
+}
+
+function showFeedback(message, isSuccess) {
+    const feedbackContainer = $('#feedbackContainer');
+    const feedback = $(`
+        <div class="alert ${isSuccess ? 'alert-success' : 'alert-danger'} feedback-alert" role="alert">
+            <i class="fas ${isSuccess ? 'fa-check-circle' : 'fa-times-circle'} mr-2"></i>
+            ${message}
+        </div>
+    `);
+    
+    feedbackContainer.append(feedback);
+    
+    setTimeout(() => {
+        feedback.fadeOut(300, function() {
+            $(this).remove();
+        });
+    }, 3000);
+}
+
+function updateStatistics() {
+    const tableCount = allTables.length;
+    let enhancedTables = 0;
+    
+    allTables.forEach(table => {
+        if (calculateTableEnhancementLevel(table) >= 50) enhancedTables++;
+    });
+    
+    const percentage = tableCount > 0 ? Math.round((enhancedTables / tableCount) * 100) : 0;
+    
+    $('#tableCount').text(`${tableCount} Tables`);
+    $('#enhancedCount').text(`${percentage}% Enhanced`);
+    
+    // Count total columns across all tables
+    if (currentConnection && tableCount > 0) {
+        // Make AJAX call to get total column count for this connection
+        $.ajax({
+            url: `/api/connection/stats/${currentConnection}`,
+            method: 'GET',
+            success: function(data) {
+                const columnCount = data.column_count || 0;
+                $('#columnCount').text(`${columnCount} Columns`);
+            },
+            error: function() {
+                // Fallback: just show table count
+                $('#columnCount').text('0 Columns');
+            }
+        });
+    } else {
+        $('#columnCount').text('0 Columns');
+    }
+}
+
+function loadHelpContent() {
+    const helpTopics = [
+        {
+            id: 'table_type',
+            title: 'Table Type',
+            content: `<p><strong>Table Type</strong> classifies tables by their role:</p>
+                     <ul>
+                         <li><strong>fact:</strong> Transaction/event tables with measurements (Orders, Sales)</li>
+                         <li><strong>dimension:</strong> Descriptive/lookup tables (Customers, Products)</li>
+                         <li><strong>lookup:</strong> Small reference tables (Status codes, Countries)</li>
+                         <li><strong>bridge:</strong> Many-to-many relationships</li>
+                         <li><strong>aggregate:</strong> Pre-calculated summaries</li>
+                     </ul>`
+        },
+        {
+            id: 'virtual_metrics',
+            title: 'Calculated/Virtual Metrics',
+            content: `<p>Use <strong>is_calculated</strong> for metrics that don't physically exist but users commonly request:</p>
+                     <ul>
+                         <li><strong>total_revenue:</strong> SUM(order_total)</li>
+                         <li><strong>profit_margin:</strong> (revenue - cost) / revenue * 100</li>
+                         <li><strong>average_order_value:</strong> AVG(order_total)</li>
+                     </ul>
+                     <p>When users ask "What's our total revenue?", the AI uses the calculation formula to generate the correct SQL.</p>`
+        },
+        {
+            id: 'business_rules',
+            title: 'Business Rules',
+            content: `<p>Define rules and defaults that guide query generation:</p>
+                     <ul>
+                         <li><strong>Rules:</strong> Important constraints (e.g., "Always filter by is_active = 1")</li>
+                         <li><strong>Defaults:</strong> Default filter values for columns</li>
+                     </ul>
+                     <p>Use the Business Rules Builder to easily create these without writing JSON manually.</p>`
+        }
+    ];
+    
+    const accordion = $('#helpAccordion');
+    helpTopics.forEach((topic, index) => {
+        const item = `
+            <div class="card">
+                <div class="card-header" id="heading${index}">
+                    <h6 class="mb-0">
+                        <button class="btn btn-link" type="button" data-toggle="collapse" 
+                                data-target="#collapse${index}">
+                            ${topic.title}
+                        </button>
+                    </h6>
+                </div>
+                <div id="collapse${index}" class="collapse" data-parent="#helpAccordion">
+                    <div class="card-body">${topic.content}</div>
+                </div>
+            </div>
+        `;
+        accordion.append(item);
+    });
+}
+
+function showHelp(topicId) {
+    $('#help-tab').tab('show');
+    $(`#collapse_${topicId}`).collapse('show');
+}
+
+function setupEventListeners() {
+    $('#saveTableBtn').on('click', saveTable);
+    $('#cancelTableBtn').on('click', function() {
+        if (currentTable) {
+            renderTableForm(currentTable);
+        }
+    });
+    
+    $('#saveColumnBtn').on('click', saveColumn);
+    $('#cancelColumnBtn').on('click', function() {
+        if (currentColumn) {
+            renderColumnForm(currentColumn);
+        }
+    });
+    
+    $('#addNewTableBtn').on('click', function() {
+        if (!currentConnection) {
+            showFeedback('Please select a connection first', false);
+            return;
+        }
+        createNewTable();
+    });
+    
+    $('#addNewColumnBtn').on('click', function() {
+        const tableId = $('#columnTableSelect').val();
+        if (!tableId) {
+            showFeedback('Please select a table first', false);
+            return;
+        }
+        createNewColumn(tableId);
+    });
+    
+    // Header export and import buttons
+    $('#exportDictionaryBtn').on('click', function() {
+        if (!currentConnection) {
+            showFeedback('Please select a connection first', false);
+            return;
+        }
+        // Show a simple modal or directly export as CSV
+        exportDictionary('csv');
+    });
+    
+    $('#importDictionaryBtn').on('click', function() {
+        if (!currentConnection) {
+            showFeedback('Please select a connection first', false);
+            return;
+        }
+        // Switch to bulk operations tab where import is located
+        $('#bulk-tab').tab('show');
+        showFeedback('Please use the Import section below to upload your file', true);
+    });
+    
+    $('#refreshTablesBtn').on('click', function() {
+        if (currentConnection) {
+            loadTables(currentConnection);
+        }
+    });
+    
+    $('#tableSearchInput').on('keyup', function() {
+        const searchText = $(this).val().toLowerCase();
+        $('#tableList .list-group-item').each(function() {
+            const text = $(this).text().toLowerCase();
+            $(this).toggle(text.includes(searchText));
+        });
+    });
+    
+    $('#columnSearchInput').on('keyup', function() {
+        const searchText = $(this).val().toLowerCase();
+        $('#columnList .list-group-item').each(function() {
+            const text = $(this).text().toLowerCase();
+            $(this).toggle(text.includes(searchText));
+        });
+    });
+    
+    $('#importFileInput').on('change', function() {
+        $('#importBtn').prop('disabled', !this.files.length);
+    });
+}
+
+// =============================================
+// CREATE NEW TABLE AND COLUMN
+// =============================================
+
+function createNewTable() {
+    if (!currentConnection) {
+        showFeedback('Please select a connection first', false);
+        return;
+    }
+    
+    // Prompt for table name
+    const tableName = prompt('Enter the new table name:');
+    if (!tableName || tableName.trim() === '') {
+        return;
+    }
+    
+    // Create a new table object with default values
+    const newTable = {
+        id: null,  // Will be assigned by backend
+        connection_id: currentConnection,
+        table_name: tableName.trim(),
+        table_schema: 'public',
+        table_type: 'fact',
+        business_name: '',
+        table_description: '',
+        primary_keys: null,
+        foreign_keys: null,
+        related_tables: null,
+        business_rules: null,
+        common_filters: null,
+        aggregation_defaults: null,
+        synonyms: null,
+        tags: null,
+        data_quality_notes: '',
+        last_updated: new Date().toISOString(),
+        created_at: new Date().toISOString()
+    };
+    
+    // Set as current table and render the form
+    currentTable = newTable;
+    renderTableForm(newTable);
+    
+    // Show save and cancel buttons
+    $('#saveTableBtn, #cancelTableBtn').show();
+    $('#deleteTableBtn').hide();  // Don't show delete for new tables
+    $('#tableFormTitle').text('New Table: ' + tableName);
+    
+    showFeedback('Enter table details and click Save to create the table', true);
+}
+
+function createNewColumn(tableId) {
+    if (!tableId) {
+        showFeedback('Please select a table first', false);
+        return;
+    }
+    
+    // Prompt for column name
+    const columnName = prompt('Enter the new column name:');
+    if (!columnName || columnName.trim() === '') {
+        return;
+    }
+    
+    // Create a new column object with default values
+    const newColumn = {
+        id: null,  // Will be assigned by backend
+        table_id: parseInt(tableId),
+        column_name: columnName.trim(),
+        data_type: 'VARCHAR',
+        business_name: '',
+        column_description: '',
+        is_primary_key: false,
+        is_foreign_key: false,
+        foreign_key_table: null,
+        foreign_key_column: null,
+        is_nullable: true,
+        is_calculated: false,
+        calculation_formula: null,
+        is_sensitive: false,
+        value_range: null,
+        common_aggregations: null,
+        units: null,
+        synonyms: null,
+        examples: null,
+        data_type_precision: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+    };
+    
+    // Set as current column and render the form
+    currentColumn = newColumn;
+    renderColumnForm(newColumn);
+    
+    // Show save and cancel buttons
+    $('#saveColumnBtn, #cancelColumnBtn').show();
+    $('#deleteColumnBtn').hide();  // Don't show delete for new columns
+    $('#columnFormTitle').text('New Column: ' + columnName);
+    
+    showFeedback('Enter column details and click Save to create the column', true);
+}
+
+
+function deleteTable() {
+    if (!currentTable) {
+        showFeedback('No table selected', false);
+        return;
+    }
+    
+    if (!confirm(`Are you sure you want to delete the table "${currentTable.table_name}"? This will also delete all associated columns and cannot be undone.`)) {
+        return;
+    }
+    
+    $.ajax({
+        url: `/api/table/${currentTable.id}`,
+        method: 'DELETE',
+        success: function(response) {
+            showFeedback('Table deleted successfully', true);
+            
+            // Remove from list
+            allTables = allTables.filter(t => t.id !== currentTable.id);
+            
+            // Clear form and re-render
+            clearTableForm();
+            renderTableList(allTables);
+            updateStatistics();
+        },
+        error: function(xhr) {
+            const error = xhr.responseJSON?.error || 'Failed to delete table';
+            showFeedback(error, false);
+        }
+    });
+}
+
+function deleteColumn() {
+    if (!currentColumn) {
+        showFeedback('No column selected', false);
+        return;
+    }
+    
+    if (!confirm(`Are you sure you want to delete the column "${currentColumn.column_name}"? This cannot be undone.`)) {
+        return;
+    }
+    
+    $.ajax({
+        url: `/api/column/${currentColumn.id}`,
+        method: 'DELETE',
+        success: function(response) {
+            showFeedback('Column deleted successfully', true);
+            
+            // Remove from list
+            allColumns = allColumns.filter(c => c.id !== currentColumn.id);
+            
+            // Clear form and re-render
+            clearColumnForm();
+            renderColumnList(allColumns);
+        },
+        error: function(xhr) {
+            const error = xhr.responseJSON?.error || 'Failed to delete column';
+            showFeedback(error, false);
+        }
+    });
+}
+
+function escapeJsonForAttribute(json) {
+    if (!json) return '';
+    // Only escape single quotes for use in HTML attributes with single quotes
+    return json.replace(/'/g, '&#39;');
+}
+</script>
+<script src="/static/js/data_dictionary_context.js"></script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}

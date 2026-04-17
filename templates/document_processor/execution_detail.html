@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<div class="container-fluid">
+
+    <!-- Page Header -->
+    <div class="doc-page-header">
+        <div>
+            <h4 class="doc-page-header-title"><i class="fas fa-play-circle"></i> Execution #{{ execution.ExecutionID }}</h4>
+        </div>
+        <div class="doc-page-header-actions">
+            <a href="{{ url_for('document_processor_view_job', job_id=job_id) }}" class="btn btn-secondary btn-sm">
+                <i class="fas fa-arrow-left mr-1"></i> Back to Job
+            </a>
+            <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+                <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+            </button>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            
+            <div class="row mb-4">
+                <div class="col-md-8">
+                    <div class="card">
+                        <div class="card-header doc-card-header">
+                            <i class="fas fa-clipboard-list" style="color:var(--cyber-cyan);margin-right:0.5rem;"></i> Execution Summary
+                        </div>
+                        <div class="card-body">
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <strong>Started:</strong> <span class="local-datetime" data-utc="{{ execution.StartedAt.isoformat() }}Z"></span>
+                                </div>
+                                <div class="col-md-6">
+                                    {% if execution.CompletedAt %}
+                                        <strong>Completed:</strong>
+                                        <span class="local-datetime" data-utc="{{ execution.CompletedAt.isoformat() }}Z"></span>
+                                    {% else %}
+                                        <strong>Completed:</strong> <em>Not completed</em>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            
+                            <div class="row mb-3">
+                                <div class="col-md-4">
+                                    <strong>Status:</strong> 
+                                    {% if execution.Status == 'COMPLETED' %}
+                                        <span class="badge badge-success">Completed</span>
+                                    {% elif execution.Status == 'RUNNING' %}
+                                        <span class="badge badge-primary">Running</span>
+                                    {% elif execution.Status == 'QUEUED' %}
+                                        <span class="badge badge-info">Queued</span>
+                                    {% elif execution.Status == 'FAILED' %}
+                                        <span class="badge badge-danger">Failed</span>
+                                    {% else %}
+                                        <span class="badge badge-secondary">{{ execution.Status }}</span>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-4">
+                                    <strong>Duration:</strong> 
+                                    {% if execution.ExecutionDurationSeconds %}
+                                        {{ execution.ExecutionDurationSeconds }} seconds
+                                    {% else %}
+                                        <em>Not completed</em>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-4">
+                                    <strong>Total Pages:</strong> {{ execution.TotalPages|default(0, true) }}
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <strong>Total Documents:</strong> {{ execution.DocumentsProcessed|default(0, true) }}
+                                </div>
+                                <div class="col-md-4">
+                                    <strong>Succeeded:</strong> {{ execution.DocumentsSucceeded|default(0, true) }}
+                                </div>
+                                <div class="col-md-4">
+                                    <strong>Failed:</strong> {{ execution.DocumentsFailed|default(0, true) }}
+                                </div>
+                            </div>
+                            
+                            {% if execution.ErrorMessage %}
+                                <div class="alert alert-danger mt-4">
+                                    <strong>Error:</strong> {{ execution.ErrorMessage }}
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-header doc-card-header">
+                            <i class="fas fa-chart-pie" style="color:var(--cyber-cyan);margin-right:0.5rem;"></i> Processing Statistics
+                        </div>
+                        <div class="card-body">
+                            {% if execution.DocumentsProcessed > 0 %}
+                                <div class="mb-3">
+                                    <h6>Success Rate</h6>
+                                    <div class="progress" style="height: 24px;">
+                                        {% if execution.DocumentsProcessed > 0 %}
+                                            {% set success_rate = (execution.DocumentsSucceeded / execution.DocumentsProcessed) * 100 %}
+                                        {% else %}
+                                            {% set success_rate = 0 %}
+                                        {% endif %}
+                                        <div class="progress-bar bg-success" role="progressbar" 
+                                            style="width: {{ success_rate }}%;" 
+                                            aria-valuenow="{{ success_rate }}" 
+                                            aria-valuemin="0" 
+                                            aria-valuemax="100">
+                                            {{ success_rate|round(1) }}%
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                {% if execution.CompletedAt and execution.StartedAt %}
+                                    <div>
+                                        <h6>Processing Rate</h6>
+                                        {% set execution_duration = execution.ExecutionDurationSeconds|default(0) %}
+                                        {% if execution_duration > 0 %}
+                                            {% set docs_per_min = (execution.DocumentsProcessed / execution_duration) * 60 %}
+                                            <p>{{ docs_per_min|round(2) }} documents per minute</p>
+                                            
+                                            {% if execution.TotalPages > 0 %}
+                                                {% set pages_per_min = (execution.TotalPages / execution_duration) * 60 %}
+                                                <p>{{ pages_per_min|round(2) }} pages per minute</p>
+                                            {% endif %}
+                                        {% else %}
+                                            <p>N/A documents per minute (duration too short)</p>
+                                            {% if execution.TotalPages > 0 %}
+                                                <p>N/A pages per minute (duration too short)</p>
+                                            {% endif %}
+                                        {% endif %}
+                                    </div>
+                                {% endif %}
+                            {% else %}
+                                <p class="text-muted">No documents processed yet.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            
+            
+
+        </div>
+    </div> <!-- ROW -->
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header doc-card-header">
+                    <i class="fas fa-file-alt" style="color:var(--cyber-cyan);margin-right:0.5rem;"></i> Processed Files 
+                    <span class="badge badge-primary ml-2">{{ files|length }}</span>
+                </div>
+                {% if files %}
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>File Name</th>
+                                    <th>Document Type</th>
+                                    <th>Pages</th>
+                                    <th>Status</th>
+                                    <th>Duration</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for file in files %}
+                                    <tr>
+                                        <td>{{ file.FileName }}</td>
+                                        <td>{{ file.DocumentType or 'Unknown' }}</td>
+                                        <td>{{ file.PageCount }}</td>
+                                        <td>
+                                            {% if file.Status == 'SUCCEEDED' %}
+                                                <span class="badge badge-success">Success</span>
+                                            {% elif file.Status == 'FAILED' %}
+                                                <span class="badge badge-danger">Failed</span>
+                                            {% elif file.Status == 'SKIPPED' %}
+                                                <span class="badge badge-warning">Skipped</span>
+                                            {% else %}
+                                                <span class="badge badge-secondary">{{ file.Status }}</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if file.ProcessingDurationSeconds %}
+                                                {{ file.ProcessingDurationSeconds }} seconds
+                                            {% else %}
+                                                -
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if file.DocumentID %}
+                                                <a href="#" class="btn btn-sm btn-outline-primary" data-toggle="tooltip" title="View Document" onclick="docProcessor.viewDocument('{{ file.DocumentID }}', '{{ file.ArchivedPath|replace('\\', '\\\\') }}')">
+                                                    <i class="fas fa-eye"></i>
+                                                </a>
+                                            {% endif %}
+                                            {% if file.ErrorMessage %}
+                                                <button class="btn btn-sm btn-outline-danger" data-toggle="popover" title="Error" data-content="{{ file.ErrorMessage }}">
+                                                    <i class="fas fa-exclamation-circle"></i>
+                                                </button>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="card-body">
+                        <p class="text-muted">No files processed yet.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    const page = document.getElementById('docPage');
+    const icon = document.getElementById('docThemeIcon');
+    const label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    const isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    const saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        const page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            const icon = document.getElementById('docThemeIcon');
+            const label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+
+<script>
+    function convertUtcToLocalString(utcString) {
+        const date = new Date(utcString);
+        if (isNaN(date)) return '';
+        return date.toLocaleString();
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+        document.querySelectorAll('[data-utc]').forEach(el => {
+            const utc = el.dataset.utc;
+            if (!utc) return;
+            const date = new Date(utc);
+            if (isNaN(date)) return;
+            el.textContent = convertUtcToLocalString(utc);
+        });
+    });
+</script>
+</div><!-- /.container-fluid -->
+</div><!-- /.doc-page -->
+{% endblock %}

@@ -1,0 +1,778 @@
+{% extends "base.html" %}
+
+{% block title %}Agent Email Inbox
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme(){var p=document.getElementById('docPage'),i=document.getElementById('docThemeIcon'),l=document.getElementById('docThemeLabel');p.classList.toggle('light-mode');var lt=p.classList.contains('light-mode');i.className=lt?'fas fa-sun':'fas fa-moon';l.textContent=lt?'Light':'Dark';localStorage.setItem('docPageTheme',lt?'light':'dark')}
+(function(){var s=localStorage.getItem('docPageTheme');if(s==='light'){var p=document.getElementById('docPage');if(p){p.classList.add('light-mode');var i=document.getElementById('docThemeIcon'),l=document.getElementById('docThemeLabel');if(i)i.className='fas fa-sun';if(l)l.textContent='Light'}}})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+<div class="doc-page" id="docPage">
+<div style="position:fixed;bottom:20px;right:20px;z-index:100;"><button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme"><i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span></button></div>
+<style>
+    .inbox-container {
+        height: calc(100vh - 160px);
+        display: flex;
+        flex-direction: column;
+    }
+    .inbox-header {
+        background: linear-gradient(135deg, #2980b9 0%, #34495e 100%);
+        color: white;
+        padding: 15px 20px;
+        border-radius: 8px;
+        margin-bottom: 15px;
+    }
+    .inbox-body {
+        flex: 1;
+        display: flex;
+        gap: 15px;
+        min-height: 0;
+    }
+    .email-list-panel {
+        width: 400px;
+        background: var(--bg-card, white);
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    .email-list-header {
+        padding: 10px 15px;
+        border-bottom: 1px solid var(--border-subtle, #eee);
+        background: var(--bg-elevated, #f8f9fa);
+    }
+    .email-list-container {
+        flex: 1;
+        overflow-y: auto;
+    }
+    .email-item {
+        padding: 12px 15px;
+        border-bottom: 1px solid #f0f0f0;
+        cursor: pointer;
+        transition: background 0.2s;
+        display: flex;
+        gap: 12px;
+    }
+    .email-item:hover {
+        background: var(--bg-elevated, #f8f9fa);
+    }
+    .email-item.selected {
+        background: #e3f2fd;
+        border-left: 3px solid #667eea;
+    }
+    .email-item.unread {
+        background: var(--bg-elevated, #fafbff);
+    }
+    .email-item.unread .email-from {
+        font-weight: 600;
+    }
+    .email-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        flex-shrink: 0;
+    }
+    .email-content {
+        flex: 1;
+        min-width: 0;
+    }
+    .email-from {
+        font-size: 14px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .email-subject {
+        font-size: 13px;
+        color: var(--text-secondary, #666);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .email-time {
+        font-size: 11px;
+        color: #999;
+    }
+    .email-detail-panel {
+        flex: 1;
+        background: var(--bg-card, white);
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    .email-detail-header {
+        padding: 20px;
+        border-bottom: 1px solid var(--border-subtle, #eee);
+    }
+    .email-detail-body {
+        flex: 1;
+        padding: 20px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        font-family: inherit;
+        line-height: 1.6;
+    }
+    .email-detail-actions {
+        padding: 15px 20px;
+        border-top: 1px solid var(--border-subtle, #eee);
+        background: var(--bg-elevated, #f8f9fa);
+    }
+    .empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: #999;
+    }
+    .empty-state i {
+        font-size: 48px;
+        margin-bottom: 15px;
+    }
+    .badge-new {
+        background: #667eea;
+        color: white;
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: 10px;
+        margin-left: 5px;
+    }
+    .reply-composer {
+        padding: 20px;
+        border-top: 1px solid var(--border-subtle, #eee);
+        background: var(--bg-elevated, #f8f9fa);
+    }
+    .stat-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        background: rgba(255,255,255,0.2);
+        border-radius: 15px;
+        font-size: 13px;
+        margin-left: 10px;
+    }
+    .loading-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 200px;
+        color: var(--text-secondary, #666);
+    }
+    /* Email detail content - hidden by default, flex when shown */
+    .email-detail-content {
+        display: none;
+        height: 100%;
+        flex-direction: column;
+    }
+    .email-detail-content.active {
+        display: flex;
+    }
+
+
+    .attachments-section {
+    padding: 15px 20px;
+    border-top: 1px solid var(--border-subtle, #eee);
+    background: var(--bg-elevated, #f9f9f9);
+}
+.attachments-header {
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: #555;
+}
+.attachments-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+.attachment-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    background: var(--bg-card, white);
+    border: 1px solid var(--border-subtle, #ddd);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.attachment-item:hover {
+    background: var(--border-subtle, #e9ecef);
+}
+.attachment-icon {
+    margin-right: 8px;
+    color: #667eea;
+}
+.attachment-info {
+    display: flex;
+    flex-direction: column;
+}
+.attachment-name {
+    font-size: 13px;
+    font-weight: 500;
+}
+.attachment-size {
+    font-size: 11px;
+    color: #888;
+}
+</style>
+
+<div class="container-fluid py-3">
+    <div class="inbox-container">
+        <!-- Header -->
+        <div class="inbox-header d-flex justify-content-between align-items-center">
+            <div>
+                <h5 class="mb-1">
+                    <i class="fas fa-inbox mr-2"></i>
+                    <span id="agentName">Agent</span> Inbox
+                </h5>
+                <small id="emailAddress" class="opacity-75">Loading...</small>
+            </div>
+            <div class="d-flex align-items-center">
+                <span class="stat-badge">
+                    <i class="fas fa-envelope mr-1"></i>
+                    <span id="statNew">0</span> new
+                </span>
+                <span class="stat-badge ml-2">
+                    <i class="fas fa-inbox mr-1"></i>
+                    <span id="statTotal">0</span> total
+                </span>
+                <div class="btn-group ml-3">
+                    <button class="btn btn-light btn-sm" onclick="loadInbox()">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                    <button class="btn btn-light btn-sm" id="markReadBtn" onclick="markAllRead()" disabled>
+                        <i class="fas fa-check-double mr-1"></i> Mark All Read
+                    </button>
+                    <a href="/agent-email/config/{{ agent_id }}" class="btn btn-light btn-sm">
+                        <i class="fas fa-cog"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Body -->
+        <div class="inbox-body">
+            <!-- Email List -->
+            <div class="email-list-panel">
+                <div class="email-list-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="font-weight-bold">Messages</span>
+                        <select class="form-control form-control-sm" style="width: auto;" 
+                                onchange="filterEmails(this.value)" id="filterSelect">
+                            <option value="all">All</option>
+                            <option value="new">New Only</option>
+                            <option value="attachments">With Attachments</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="email-list-container" id="emailListContainer">
+                    <div class="loading-state">
+                        <i class="fas fa-spinner fa-spin fa-2x mb-3"></i>
+                        <span>Loading emails...</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Email Detail -->
+            <div class="email-detail-panel">
+                <!-- Selected Email View (hidden until email selected) -->
+                <div id="emailDetailView" class="email-detail-content">
+                    <div class="email-detail-header">
+                        <h5 id="detailSubject" class="mb-2"></h5>
+                        <div class="d-flex justify-content-between text-muted small">
+                            <div>
+                                <strong>From:</strong> <span id="detailFrom"></span>
+                            </div>
+                            <div id="detailDate"></div>
+                        </div>
+                        <div class="text-muted small mt-1">
+                            <strong>To:</strong> <span id="detailTo"></span>
+                        </div>
+                    </div>
+                    <div class="email-detail-body" id="detailBody"></div>
+
+                    <!-- Attachments Section -->
+                    <div id="attachmentsSection" class="attachments-section" style="display: none;">
+                        <div class="attachments-header">
+                            <i class="fas fa-paperclip"></i> Attachments (<span id="attachmentCount">0</span>)
+                        </div>
+                        <div id="attachmentsList" class="attachments-list"></div>
+                    </div>
+                    
+                    <!-- Reply Composer (hidden by default) -->
+                    <div class="reply-composer" id="replyComposer" style="display: none;">
+                        <div class="form-group mb-2">
+                            <textarea class="form-control" id="replyBody" rows="4" 
+                                      placeholder="Type your reply..."></textarea>
+                        </div>
+                        <div class="d-flex justify-content-between">
+                            <button class="btn btn-outline-secondary btn-sm" onclick="hideReplyComposer()">
+                                Cancel
+                            </button>
+                            <button class="btn btn-primary btn-sm" onclick="sendReply()">
+                                <i class="fas fa-paper-plane mr-1"></i> Send Reply
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="email-detail-actions" id="detailActions">
+                        <button class="btn btn-primary" onclick="showReplyComposer()">
+                            <i class="fas fa-reply mr-1"></i> Reply
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- No Selection State -->
+                <div id="noSelectionView" class="empty-state">
+                    <i class="fas fa-envelope-open text-muted"></i>
+                    <h5>Select an email to view</h5>
+                    <p class="text-muted">Click on an email from the list</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const agentId = {{ agent_id }};
+let emails = [];
+let selectedEmail = null;
+let currentFilter = 'all';
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadInbox();
+    // Auto-refresh every 60 seconds
+    setInterval(loadInbox, 60000);
+});
+
+async function loadInbox() {
+    const container = document.getElementById('emailListContainer');
+    
+    try {
+        console.log('Loading inbox for agent:', agentId);
+        const response = await fetch(`/api/agent-email/inbox/${agentId}?limit=100`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log('Inbox response:', data);
+        
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to load inbox');
+        }
+        
+        emails = data.emails || [];
+        
+        // Update header
+        document.getElementById('emailAddress').textContent = data.email_address || 'Not configured';
+        document.getElementById('statNew').textContent = data.new_count || 0;
+        document.getElementById('statTotal').textContent = data.total_count || 0;
+        document.getElementById('markReadBtn').disabled = (data.new_count || 0) === 0;
+        
+        // Show message if applicable
+        if (data.message && emails.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-info-circle text-info"></i>
+                    <h6>${data.message}</h6>
+                    <p class="text-muted small">${data.storage_note || ''}</p>
+                </div>
+            `;
+            return;
+        }
+        
+        renderEmailList();
+        
+    } catch (error) {
+        console.error('Error loading inbox:', error);
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-exclamation-circle text-warning"></i>
+                <h6>Could not load emails</h6>
+                <p class="text-muted small">${error.message}</p>
+                <button class="btn btn-primary btn-sm mt-2" onclick="loadInbox()">
+                    <i class="fas fa-redo mr-1"></i> Retry
+                </button>
+            </div>
+        `;
+    }
+}
+
+function renderEmailList() {
+    const container = document.getElementById('emailListContainer');
+    
+    // Apply filter
+    let filteredEmails = emails;
+    if (currentFilter === 'new') {
+        filteredEmails = emails.filter(e => e.is_new);
+    } else if (currentFilter === 'attachments') {
+        filteredEmails = emails.filter(e => e.has_attachments);
+    }
+    
+    if (filteredEmails.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-inbox"></i>
+                <h6>No emails</h6>
+                <p class="text-muted small">${currentFilter === 'all' ? 'Inbox is empty' : 'No emails match filter'}</p>
+            </div>
+        `;
+        return;
+    }
+    
+    let html = '';
+    filteredEmails.forEach((email, index) => {
+        const initial = (email.sender_name || email.sender_email || '?')[0].toUpperCase();
+        const fromDisplay = email.sender_name || email.sender_email || 'Unknown';
+        const subject = email.subject || '(No subject)';
+        const time = formatTime(email.received_at);
+        const isSelected = selectedEmail && selectedEmail.event_id === email.event_id;
+        
+        html += `
+            <div class="email-item ${email.is_new ? 'unread' : ''} ${isSelected ? 'selected' : ''}"
+                 onclick="selectEmail(${index})">
+                <div class="email-avatar">${escapeHtml(initial)}</div>
+                <div class="email-content">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="email-from">${escapeHtml(fromDisplay)}</span>
+                        <span class="email-time">${time}</span>
+                    </div>
+                    <div class="email-subject">
+                        ${email.is_new ? '<span class="badge-new">NEW</span>' : ''}
+                        ${escapeHtml(subject)}
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    
+    container.innerHTML = html;
+}
+
+function filterEmails(filter) {
+    currentFilter = filter;
+    renderEmailList();
+}
+
+async function selectEmail(index) {
+    const filteredEmails = currentFilter === 'all' ? emails : 
+                           currentFilter === 'new' ? emails.filter(e => e.is_new) :
+                           emails.filter(e => e.has_attachments);
+    
+    selectedEmail = filteredEmails[index];
+    if (!selectedEmail) return;
+    
+    // Update UI - show detail view, hide empty state
+    document.getElementById('noSelectionView').style.display = 'none';
+    document.getElementById('emailDetailView').classList.add('active');
+    document.getElementById('attachmentsSection').style.display = 'none';
+    
+    // Populate header
+    document.getElementById('detailSubject').textContent = selectedEmail.subject || '(No subject)';
+    document.getElementById('detailFrom').textContent = selectedEmail.sender_name 
+        ? `${selectedEmail.sender_name} <${selectedEmail.sender_email}>`
+        : selectedEmail.sender_email || 'Unknown';
+    document.getElementById('detailTo').textContent = selectedEmail.recipient_email || '';
+    document.getElementById('detailDate').textContent = formatDate(selectedEmail.received_at);
+    
+    // Show body if available, otherwise fetch
+    if (selectedEmail.body_text || selectedEmail.body_preview) {
+        document.getElementById('detailBody').textContent = selectedEmail.body_text || selectedEmail.body_preview;
+    } else if (selectedEmail.message_key) {
+        document.getElementById('detailBody').innerHTML = '<em>Loading...</em>';
+        try {
+            // Deprecated method
+            //const url = selectedEmail.storage_url 
+                //? `/api/agent-email/message/${agentId}/${selectedEmail.message_key}?storage_url=${encodeURIComponent(selectedEmail.storage_url)}`
+                //: `/api/agent-email/message/${agentId}/${selectedEmail.message_key}`;
+
+            // Build URL with event_id (preferred) and storage_url as fallback
+            let url = `/api/agent-email/message/${agentId}/${selectedEmail.message_key || 'unknown'}`;
+            const params = new URLSearchParams();
+
+            if (selectedEmail.event_id) {
+                params.append('event_id', selectedEmail.event_id);
+            }
+            if (selectedEmail.storage_url) {
+                params.append('storage_url', selectedEmail.storage_url);
+            }
+
+            if (params.toString()) {
+                url += '?' + params.toString();
+            }
+            
+            const response = await fetch(url);
+            const data = await response.json();
+            
+            if (data.success && data.message) {
+                const detailBody = document.getElementById('detailBody');
+                
+                // Check for HTML content first
+                const htmlBody = data.message.body_html || data.message['body-html'];
+                const plainBody = data.message.body_plain 
+                    || data.message.body_text 
+                    || data.message.stripped_text
+                    || data.message['body-plain'] 
+                    || data.message['stripped-text']
+                    || '';
+                
+                if (htmlBody) {
+                    // Render HTML email in a sandboxed iframe for security
+                    detailBody.innerHTML = '';
+                    detailBody.style.whiteSpace = 'normal';
+                    const iframe = document.createElement('iframe');
+                    iframe.style.cssText = 'width:100%; height:100%; border:none; background:var(--bg-card, white);';
+                    iframe.sandbox = 'allow-same-origin';  // Restricts scripts, forms, popups
+                    detailBody.appendChild(iframe);
+                    
+                    // Write HTML content to iframe
+                    const doc = iframe.contentDocument || iframe.contentWindow.document;
+                    doc.open();
+                    doc.write(`
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <style>
+                                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+                                       font-size: 14px; line-height: 1.6; margin: 0; padding: 10px; color: var(--text-primary, #333); }
+                                img { max-width: 100%; height: auto; }
+                                a { color: #667eea; }
+                            </style>
+                        </head>
+                        <body>${htmlBody}</body>
+                        </html>
+                    `);
+                    doc.close();
+                } else if (plainBody) {
+                    // Plain text - use textContent for safety
+                    detailBody.style.whiteSpace = 'pre-wrap';
+                    detailBody.textContent = plainBody;
+                } else {
+                    detailBody.style.whiteSpace = 'pre-wrap';
+                    detailBody.textContent = 'No content available';
+                }
+
+                // Render attachments
+                renderAttachments(data.message.attachments);
+            } else {
+                document.getElementById('detailBody').textContent = selectedEmail.body_preview || 'Content not available';
+            }
+        } catch (error) {
+            document.getElementById('detailBody').textContent = selectedEmail.body_preview || 'Could not load content';
+        }
+    } else {
+        document.getElementById('detailBody').textContent = selectedEmail.body_preview || 'No content';
+    }
+    
+    // Re-render list to update selection
+    renderEmailList();
+    
+    // Hide reply composer
+    hideReplyComposer();
+}
+
+function showReplyComposer() {
+    document.getElementById('replyComposer').style.display = 'block';
+    document.getElementById('detailActions').style.display = 'none';
+    document.getElementById('replyBody').focus();
+}
+
+function hideReplyComposer() {
+    document.getElementById('replyComposer').style.display = 'none';
+    document.getElementById('detailActions').style.display = 'block';
+    document.getElementById('replyBody').value = '';
+}
+
+async function sendReply() {
+    if (!selectedEmail) return;
+    
+    const body = document.getElementById('replyBody').value.trim();
+    if (!body) {
+        alert('Please enter a reply');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/agent-email/reply/${agentId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                to: selectedEmail.sender_email,
+                subject: selectedEmail.subject?.startsWith('RE:') 
+                    ? selectedEmail.subject 
+                    : `RE: ${selectedEmail.subject || ''}`,
+                body: body,
+                in_reply_to: selectedEmail.message_id
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('Reply sent!');
+            hideReplyComposer();
+        } else {
+            throw new Error(data.error || 'Failed to send');
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function markAllRead() {
+    const eventIds = emails.filter(e => e.is_new).map(e => e.event_id);
+    if (eventIds.length === 0) return;
+    
+    try {
+        await fetch(`/api/agent-email/mark-read/${agentId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ event_ids: eventIds })
+        });
+        
+        // Update local state
+        emails.forEach(e => e.is_new = false);
+        document.getElementById('statNew').textContent = '0';
+        document.getElementById('markReadBtn').disabled = true;
+        renderEmailList();
+        
+    } catch (error) {
+        console.error('Error marking read:', error);
+    }
+}
+
+function formatTime(dateStr) {
+    if (!dateStr) return '';
+    try {
+        // Treat timestamps without timezone info as UTC
+        let date;
+        if (dateStr.endsWith('Z') || dateStr.includes('+') || dateStr.includes('-', 10)) {
+            // Already has timezone info
+            date = new Date(dateStr);
+        } else {
+            // No timezone info - treat as UTC
+            date = new Date(dateStr + 'Z');
+        }
+        
+        const now = new Date();
+        const diffMs = now - date;
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMs / 3600000);
+        const diffDays = Math.floor(diffMs / 86400000);
+        
+        if (diffMins < 1) return 'Just now';
+        if (diffMins < 60) return `${diffMins}m ago`;
+        if (diffHours < 24) return `${diffHours}h ago`;
+        if (diffDays < 7) return `${diffDays}d ago`;
+        return date.toLocaleDateString();
+    } catch {
+        return '';
+    }
+}
+
+function formatDate(dateStr) {
+    if (!dateStr) return '';
+    try {
+        // Treat timestamps without timezone info as UTC
+        let date;
+        if (dateStr.endsWith('Z') || dateStr.includes('+') || dateStr.includes('-', 10)) {
+            date = new Date(dateStr);
+        } else {
+            date = new Date(dateStr + 'Z');
+        }
+        return date.toLocaleString();
+    } catch {
+        return dateStr;
+    }
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function getFileIcon(contentType) {
+    if (contentType.startsWith('image/')) return 'fa-file-image';
+    if (contentType.startsWith('video/')) return 'fa-file-video';
+    if (contentType.startsWith('audio/')) return 'fa-file-audio';
+    if (contentType.includes('pdf')) return 'fa-file-pdf';
+    if (contentType.includes('word') || contentType.includes('document')) return 'fa-file-word';
+    if (contentType.includes('excel') || contentType.includes('spreadsheet')) return 'fa-file-excel';
+    if (contentType.includes('zip') || contentType.includes('archive')) return 'fa-file-archive';
+    return 'fa-file';
+}
+
+function renderAttachments(attachments) {
+    const section = document.getElementById('attachmentsSection');
+    const list = document.getElementById('attachmentsList');
+    const count = document.getElementById('attachmentCount');
+    
+    if (!attachments || attachments.length === 0) {
+        section.style.display = 'none';
+        return;
+    }
+    
+    count.textContent = attachments.length;
+    
+    let html = '';
+    attachments.forEach(att => {
+        const icon = getFileIcon(att.content_type);
+        html += `
+            <div class="attachment-item" onclick="downloadAttachment(${att.attachment_id}, '${escapeHtml(att.filename)}')">
+                <i class="fas ${icon} attachment-icon"></i>
+                <div class="attachment-info">
+                    <span class="attachment-name">${escapeHtml(att.filename)}</span>
+                    <span class="attachment-size">${formatFileSize(att.size)}</span>
+                </div>
+            </div>
+        `;
+    });
+    
+    list.innerHTML = html;
+    section.style.display = 'block';
+}
+
+function downloadAttachment(attachmentId, filename) {
+    // Create a temporary link to download
+    const link = document.createElement('a');
+    link.href = `/api/agent-email/attachment/${attachmentId}`;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+</script>
+<script src="/static/js/agent_inbox_context.js"></script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme(){var p=document.getElementById('docPage'),i=document.getElementById('docThemeIcon'),l=document.getElementById('docThemeLabel');p.classList.toggle('light-mode');var lt=p.classList.contains('light-mode');i.className=lt?'fas fa-sun':'fas fa-moon';l.textContent=lt?'Light':'Dark';localStorage.setItem('docPageTheme',lt?'light':'dark')}
+(function(){var s=localStorage.getItem('docPageTheme');if(s==='light'){var p=document.getElementById('docPage');if(p){p.classList.add('light-mode');var i=document.getElementById('docThemeIcon'),l=document.getElementById('docThemeLabel');if(i)i.className='fas fa-sun';if(l)l.textContent='Light'}}})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}

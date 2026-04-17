@@ -1,0 +1,2232 @@
+{% extends "base.html" %}
+
+{% block page_title %}Integrations
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<div style="position:fixed;bottom:20px;right:20px;z-index:100;">
+    <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+        <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+    </button>
+</div>
+<style>
+    /* Page Layout */
+    .integrations-container {
+        padding: 20px 30px;
+    }
+    
+    /* Header */
+    .int-page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 30px;
+    }
+    
+    .int-page-header h2 {
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    .int-page-header .subtitle {
+        color: var(--text-muted, #6c757d);
+        font-size: 0.95rem;
+        margin-top: 5px;
+    }
+    
+    /* Tabs */
+    .integrations-tabs {
+        border-bottom: 2px solid var(--border-subtle, #dee2e6);
+        margin-bottom: 25px;
+    }
+    
+    .integrations-tabs .nav-link {
+        border: none;
+        border-bottom: 3px solid transparent;
+        color: var(--text-muted, #6c757d);
+        padding: 12px 20px;
+        font-weight: 500;
+        margin-bottom: -2px;
+    }
+    
+    .integrations-tabs .nav-link:hover {
+        border-color: var(--border-subtle, #dee2e6);
+        color: #495057;
+    }
+    
+    .integrations-tabs .nav-link.active {
+        border-color: #007bff;
+        color: #007bff;
+        background: transparent;
+    }
+    
+    /* Category Pills */
+    .category-pills {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 25px;
+    }
+    
+    .category-pill {
+        padding: 8px 16px;
+        border-radius: 20px;
+        background: var(--bg-elevated, #f8f9fa);
+        border: 1px solid var(--border-subtle, #dee2e6);
+        color: #495057;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-size: 0.9rem;
+    }
+    
+    .category-pill:hover {
+        background: var(--border-subtle, #e9ecef);
+    }
+    
+    .category-pill.active {
+        background: #007bff;
+        border-color: #007bff;
+        color: white;
+    }
+    
+    .category-pill i {
+        margin-right: 6px;
+    }
+    
+    /* Template Cards */
+    .templates-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 20px;
+    }
+    
+    .template-card {
+        background: var(--bg-card, white);
+        border: 1px solid var(--border-subtle, #e9ecef);
+        border-radius: 12px;
+        padding: 20px;
+        cursor: pointer;
+        transition: all 0.2s;
+        position: relative;
+    }
+    
+    .template-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        border-color: #007bff;
+    }
+    
+    .template-card.connected {
+        border-color: #28a745;
+        background: linear-gradient(to bottom right, var(--bg-card, white), var(--bg-elevated, #f0fff4));
+    }
+    
+    .template-card .connected-badge {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: #28a745;
+        color: white;
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 500;
+    }
+    
+    .template-card .logo-container {
+        width: 50px;
+        height: 50px;
+        margin-bottom: 15px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .template-card .logo-container img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+    }
+    
+    .template-card .logo-container i {
+        font-size: 2rem;
+        color: var(--text-muted, #6c757d);
+    }
+    
+    .template-card h5 {
+        margin: 0 0 8px 0;
+        font-weight: 600;
+        color: var(--text-primary, #212529);
+    }
+    
+    .template-card .description {
+        color: var(--text-muted, #6c757d);
+        font-size: 0.9rem;
+        margin-bottom: 12px;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+    
+    .template-card .category-badge {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        background: var(--border-subtle, #e9ecef);
+    }
+    
+    /* Search Box */
+    .search-box {
+        position: relative;
+        width: 300px;
+    }
+    
+    .search-box i {
+        position: absolute;
+        left: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--text-muted, #6c757d);
+    }
+    
+    .search-box input {
+        padding-left: 38px;
+        border-radius: 20px;
+    }
+    
+    /* Integration Cards (Connected) */
+    .integration-card {
+        background: var(--bg-card, white);
+        border: 1px solid var(--border-subtle, #e9ecef);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 15px;
+    }
+    
+    .integration-card .header {
+        display: flex;
+        align-items: center;
+        margin-bottom: 15px;
+    }
+    
+    .integration-card .logo {
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 15px;
+    }
+    
+    .integration-card .logo img {
+        max-width: 100%;
+        max-height: 100%;
+    }
+    
+    .integration-card .logo i {
+        font-size: 1.5rem;
+        color: var(--text-muted, #6c757d);
+    }
+    
+    .integration-card .info h6 {
+        margin: 0;
+        font-weight: 600;
+    }
+    
+    .integration-card .info .platform {
+        color: var(--text-muted, #6c757d);
+        font-size: 0.85rem;
+    }
+    
+    .integration-card .status {
+        margin-left: auto;
+        padding: 5px 12px;
+        border-radius: 15px;
+        font-size: 0.8rem;
+        font-weight: 500;
+    }
+    
+    .integration-card .status.connected {
+        background: #d4edda;
+        color: #34d399;
+    }
+    
+    .integration-card .status.disconnected {
+        background: rgba(251, 113, 133, 0.15);
+        color: #fb7185;
+    }
+    
+    .integration-card .stats {
+        display: flex;
+        gap: 30px;
+        margin-bottom: 15px;
+        padding: 15px;
+        background: var(--bg-elevated, #f8f9fa);
+        border-radius: 8px;
+    }
+    
+    .integration-card .stat {
+        text-align: center;
+    }
+    
+    .integration-card .stat .value {
+        font-size: 1.25rem;
+        font-weight: 600;
+    }
+    
+    .integration-card .stat .label {
+        font-size: 0.75rem;
+        color: var(--text-muted, #6c757d);
+        text-transform: uppercase;
+    }
+    
+    .integration-card .actions {
+        display: flex;
+        gap: 10px;
+    }
+    
+    /* Empty State */
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--text-muted, #6c757d);
+    }
+    
+    .empty-state i {
+        font-size: 4rem;
+        margin-bottom: 20px;
+        opacity: 0.5;
+    }
+    
+    /* Modal Styles */
+    .setup-modal .modal-header {
+        background: linear-gradient(135deg, #007bff, #0056b3);
+        color: white;
+        border-radius: 0;
+    }
+    
+    .setup-modal .modal-header .close {
+        color: white;
+        opacity: 0.8;
+    }
+    
+    .setup-modal .platform-info {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        margin-bottom: 20px;
+        padding: 15px;
+        background: var(--bg-elevated, #f8f9fa);
+        border-radius: 8px;
+    }
+    
+    .setup-modal .platform-info .logo {
+        width: 50px;
+        height: 50px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .setup-modal .platform-info .logo img {
+        max-width: 100%;
+        max-height: 100%;
+    }
+    
+    .setup-modal .setup-instructions {
+        background: rgba(251, 191, 36, 0.15);
+        border: 1px solid #ffc107;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 20px;
+        font-size: 0.82rem;
+        max-height: 250px;
+        overflow-y: auto;
+    }
+
+    .setup-modal .setup-instructions h1,
+    .setup-modal .setup-instructions h2,
+    .setup-modal .setup-instructions h3 {
+        font-size: 1rem;
+    }
+
+    .setup-modal .setup-instructions h6 {
+        color: #fbbf24;
+        margin-bottom: 10px;
+    }
+    
+    /* Operation Tester */
+    .operation-tester {
+        background: var(--bg-elevated, #f8f9fa);
+        border-radius: 8px;
+        padding: 20px;
+        margin-top: 20px;
+    }
+    
+    .operation-tester h6 {
+        margin-bottom: 15px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .operation-result {
+        background: #212529;
+        color: #00ff00;
+        border-radius: 8px;
+        padding: 15px;
+        font-family: monospace;
+        font-size: 0.85rem;
+        max-height: 300px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+    }
+    
+    .operation-result.error {
+        color: #ff6b6b;
+    }
+
+    /* Operations Editor */
+    .operations-editor {
+        border: 1px solid var(--border-subtle, #dee2e6);
+        border-radius: 8px;
+        padding: 15px;
+        margin-top: 10px;
+        background: var(--bg-elevated, #f8f9fa);
+    }
+
+    .operations-editor-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+    }
+
+    .operations-editor-header h6 {
+        margin: 0;
+        font-weight: 600;
+    }
+
+    .operation-item {
+        background: var(--bg-card, #fff);
+        border: 1px solid var(--border-subtle, #dee2e6);
+        border-radius: 6px;
+        padding: 15px;
+        margin-bottom: 10px;
+        position: relative;
+    }
+
+    .operation-item.collapsed .operation-item-body {
+        display: none;
+    }
+
+    .operation-item-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        cursor: pointer;
+    }
+
+    .operation-item-header .operation-summary {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 500;
+    }
+
+    .operation-item-header .method-badge {
+        font-size: 0.7rem;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-weight: 700;
+        color: #fff;
+        text-transform: uppercase;
+    }
+
+    .method-badge.get { background: #28a745; }
+    .method-badge.post { background: #007bff; }
+    .method-badge.put { background: #fd7e14; }
+    .method-badge.patch { background: #6f42c1; }
+    .method-badge.delete { background: #dc3545; }
+
+    .operation-item-actions {
+        display: flex;
+        gap: 5px;
+    }
+
+    .operation-item-body {
+        margin-top: 12px;
+        border-top: 1px solid var(--border-subtle, #eee);
+        padding-top: 12px;
+    }
+
+    .param-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 6px;
+    }
+
+    .param-row input, .param-row select {
+        font-size: 0.85rem;
+    }
+
+    .param-row .btn-sm {
+        padding: 2px 6px;
+    }
+
+    .no-operations-msg {
+        text-align: center;
+        color: var(--text-muted, #6c757d);
+        padding: 15px;
+        font-style: italic;
+    }
+</style>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+
+<div class="integrations-container">
+    <!-- Header -->
+    <div class="int-page-header">
+        <div>
+            <h2><i class="bi bi-plug-fill text-primary"></i> Integrations</h2>
+            <p class="subtitle">Connect your favorite apps and services to automate your workflows</p>
+        </div>
+        <div class="d-flex" style="gap: 8px;">
+            <button class="btn btn-outline-secondary" id="refreshBtn">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+            <div class="dropdown">
+                <button class="btn btn-outline-secondary dropdown-toggle" type="button" 
+                        id="importExportDropdown" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                    <i class="bi bi-arrow-down-up"></i> Import/Export
+                </button>
+                <div class="dropdown-menu dropdown-menu-right" aria-labelledby="importExportDropdown">
+                    <a class="dropdown-item" href="#" id="showImportBtn">
+                        <i class="bi bi-upload"></i> Import Template
+                    </a>
+                    <a class="dropdown-item" href="#" id="showExportBtn">
+                        <i class="bi bi-download"></i> Export Custom Templates
+                    </a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="#" id="reloadTemplatesBtn">
+                        <i class="bi bi-arrow-repeat"></i> Reload Templates
+                    </a>
+                </div>
+            </div>
+            <button class="btn btn-primary" id="customTemplateBtn">
+                <i class="bi bi-plus-circle"></i> Custom Integration
+            </button>
+        </div>
+    </div>
+    
+    <!-- Tabs -->
+    <ul class="nav integrations-tabs" id="mainTabs">
+        <li class="nav-item">
+            <a class="nav-link active" data-toggle="tab" href="#gallery" id="galleryTab">
+                <i class="bi bi-grid-3x3-gap"></i> Integration Gallery
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-toggle="tab" href="#connected" id="connectedTab">
+                <i class="bi bi-link-45deg"></i> My Integrations
+                <span class="badge badge-primary ml-1" id="connectedCount">0</span>
+            </a>
+        </li>
+    </ul>
+    
+    <!-- Tab Content -->
+    <div class="tab-content">
+        <!-- Gallery Tab -->
+        <div class="tab-pane fade show active" id="gallery">
+            <!-- Search and Filter -->
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div class="category-pills" id="categoryPills">
+                    <span class="category-pill active" data-category="all">
+                        <i class="bi bi-grid"></i> All
+                    </span>
+                </div>
+                <div class="search-box">
+                    <i class="bi bi-search"></i>
+                    <input type="text" class="form-control" id="searchInput" placeholder="Search integrations...">
+                </div>
+            </div>
+            
+            <!-- Templates Grid -->
+            <div class="templates-grid" id="templatesGrid">
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="mt-2 text-muted">Loading templates...</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Connected Tab -->
+        <div class="tab-pane fade" id="connected">
+            <div id="connectedIntegrations">
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Setup Modal -->
+<div class="modal fade setup-modal" id="setupModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <span id="modalLogo" class="mr-2"></span>
+                    <span id="modalPlatformName">Connect Integration</span>
+                </h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="setupForm">
+                    <input type="hidden" id="templateKey">
+                    
+                    <div class="mb-3">
+                        <span class="badge badge-info" id="modalAuthType">API Key</span>
+                    </div>
+                    
+                    <div class="setup-instructions" id="setupInstructions" style="display: none;">
+                        <h6><i class="bi bi-info-circle"></i> Setup Instructions</h6>
+                        <div id="setupInstructionsContent"></div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Integration Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="integrationName" required placeholder="My Integration">
+                    </div>
+                    
+                    <div id="instanceConfigFields"></div>
+                    <div id="credentialFields"></div>
+                    
+                    <div id="oauthSection" style="display: none;">
+                        <button type="button" class="btn btn-primary btn-block" id="startOAuthBtn">
+                            <i class="bi bi-box-arrow-up-right"></i> Connect with OAuth
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer" id="setupModalFooter">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveIntegrationBtn">
+                    <i class="bi bi-check-circle"></i> Save Integration
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Details Modal -->
+<div class="modal fade" id="detailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <span id="detailsLogo" class="mr-2"></span>
+                    <span id="detailsName">Integration Details</span>
+                </h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="operation-tester">
+                    <h6><i class="bi bi-play-circle"></i> Test Operations</h6>
+                    <div class="form-group">
+                        <label>Select Operation</label>
+                        <select class="form-control" id="operationSelect"></select>
+                    </div>
+                    <div id="operationParams"></div>
+                    <button class="btn btn-success mt-3" id="executeOperationBtn">
+                        <i class="bi bi-play-fill"></i> Execute
+                    </button>
+                    <div id="operationResultContainer" style="display: none;" class="mt-3">
+                        <label>Result:</label>
+                        <div class="operation-result" id="operationResult"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-info" id="editIntegrationBtn">
+                    <i class="bi bi-pencil"></i> Edit
+                </button>
+                <button type="button" class="btn btn-outline-danger" id="deleteIntegrationBtn">
+                    <i class="bi bi-trash"></i> Delete
+                </button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Integration Modal -->
+<div class="modal fade" id="editIntegrationModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-pencil"></i> Edit Integration</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Integration Name <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="editIntegrationName">
+                </div>
+                <div id="editInstanceConfigFields"></div>
+                <div id="editCredentialFields"></div>
+                <div class="alert alert-info mt-3">
+                    <small><i class="bi bi-info-circle"></i> Leave credential fields blank to keep existing values.</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveEditIntegrationBtn">
+                    <i class="bi bi-check-circle"></i> Save Changes
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Custom Template Modal -->
+<div class="modal fade" id="customTemplateModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-code-slash"></i> Create Custom Integration</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="customTemplateForm">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Integration Name <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="customPlatformName" required placeholder="My Custom API">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Template Key <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="customTemplateKey" required placeholder="my_custom_api" pattern="[a-z0-9_]+">
+                                <small class="text-muted">Lowercase letters, numbers, underscores only</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Base URL <span class="text-danger">*</span></label>
+                        <input type="url" class="form-control" id="customBaseUrl" required placeholder="https://api.example.com/v1">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Authentication Type <span class="text-danger">*</span></label>
+                        <select class="form-control" id="customAuthType" required>
+                            <option value="none">None</option>
+                            <option value="api_key">API Key</option>
+                            <option value="bearer">Bearer Token</option>
+                            <option value="basic">Basic Auth</option>
+                            <option value="oauth1_tba">OAuth 1.0a (Token-Based Auth)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group" id="customAuthConfig" style="display: none;"></div>
+                    
+                    <div class="form-group">
+                        <label>Description</label>
+                        <textarea class="form-control" id="customDescription" rows="2" placeholder="Describe what this integration does..."></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Default Headers (JSON)</label>
+                        <textarea class="form-control" id="customHeaders" rows="3" placeholder='{"Content-Type": "application/json"}' style="font-family: monospace;"></textarea>
+                    </div>
+
+                    <!-- Operations Editor -->
+                    <div class="operations-editor">
+                        <div class="operations-editor-header">
+                            <h6><i class="bi bi-lightning"></i> Operations</h6>
+                            <button type="button" class="btn btn-sm btn-outline-primary" id="addOperationBtn">
+                                <i class="bi bi-plus"></i> Add Operation
+                            </button>
+                        </div>
+                        <small class="text-muted d-block mb-2">Define API operations that users can execute on this integration.</small>
+                        <div id="operationsContainer">
+                            <div class="no-operations-msg">No operations defined yet. Click "Add Operation" to get started.</div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="createCustomTemplateBtn">
+                    <i class="bi bi-plus-circle"></i> Create Template
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Import Template Modal -->
+<div class="modal fade" id="importTemplateModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-upload"></i> Import Template</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-3">Import an integration template from a JSON file.</p>
+                
+                <div class="form-group">
+                    <label>Template File <span class="text-danger">*</span></label>
+                    <div class="custom-file">
+                        <input type="file" class="custom-file-input" id="importFile" accept=".json">
+                        <label class="custom-file-label" for="importFile" id="importFileLabel">Choose JSON file...</label>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>Save Location</label>
+                    <select class="form-control" id="importSaveLocation">
+                        <option value="database">Database (recommended)</option>
+                        <option value="file">File system</option>
+                    </select>
+                </div>
+                
+                <div id="importPreview" style="display: none;">
+                    <hr>
+                    <h6><i class="bi bi-eye"></i> Preview</h6>
+                    <div id="importPreviewContent" class="p-3 bg-light rounded"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="importBtn" disabled>
+                    <i class="bi bi-upload"></i> Import Template
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Custom Templates List Modal -->
+<div class="modal fade" id="customTemplatesModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-download"></i> Custom Templates</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-3">Export your custom templates to share or backup.</p>
+                <div id="customTemplatesList">
+                    <div class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+(function() {
+    'use strict';
+    
+    // State
+    var templates = [];
+    var categories = [];
+    var integrations = [];
+    var currentTemplate = null;
+    var currentIntegration = null;
+    var selectedCategory = 'all';
+    
+    // Initialize on DOM ready
+    $(document).ready(function() {
+        loadTemplates();
+        loadIntegrations();
+        checkUrlParams();
+        bindEvents();
+    });
+    
+    // Bind all event handlers
+    function bindEvents() {
+        $('#refreshBtn').on('click', refreshData);
+        $('#showImportBtn').on('click', function(e) { e.preventDefault(); showImportModal(); });
+        $('#showExportBtn').on('click', function(e) { e.preventDefault(); showCustomTemplatesModal(); });
+        $('#reloadTemplatesBtn').on('click', function(e) { e.preventDefault(); reloadTemplates(); });
+        $('#customTemplateBtn').on('click', showCustomTemplateModal);
+        $('#searchInput').on('keyup', filterTemplates);
+        $('#saveIntegrationBtn').on('click', saveIntegration);
+        $('#startOAuthBtn').on('click', startOAuth);
+        $('#executeOperationBtn').on('click', executeOperation);
+        $('#editIntegrationBtn').on('click', showEditIntegrationModal);
+        $('#saveEditIntegrationBtn').on('click', saveEditIntegration);
+        $('#deleteIntegrationBtn').on('click', deleteIntegration);
+        $('#operationSelect').on('change', loadOperationParams);
+        $('#createCustomTemplateBtn').on('click', createCustomTemplate);
+        $('#addOperationBtn').on('click', addOperation);
+        $('#customAuthType').on('change', updateCustomAuthConfig);
+        $('#importFile').on('change', function() { updateFileLabel(this); });
+        $('#importBtn').on('click', importTemplate);
+    }
+    
+    function checkUrlParams() {
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('success') === 'connected') {
+            showToast('Integration connected successfully!', 'success');
+            window.history.replaceState({}, '', '/integrations');
+        }
+        if (params.get('error')) {
+            showToast('Error: ' + params.get('error'), 'error');
+            window.history.replaceState({}, '', '/integrations');
+        }
+    }
+    
+    function loadTemplates() {
+        $.get('/api/integrations/templates')
+            .done(function(data) {
+                if (data.status === 'success') {
+                    templates = data.templates;
+                    categories = data.categories || [];
+                    renderCategories();
+                    renderTemplates();
+                }
+            })
+            .fail(function(error) {
+                console.error('Error loading templates:', error);
+                showToast('Failed to load templates', 'error');
+            });
+    }
+    
+    function loadIntegrations() {
+        $.get('/api/integrations')
+            .done(function(data) {
+                if (data.status === 'success') {
+                    integrations = data.integrations;
+                    $('#connectedCount').text(integrations.length);
+                    renderIntegrations();
+                }
+            })
+            .fail(function(error) {
+                console.error('Error loading integrations:', error);
+            });
+    }
+    
+    function renderCategories() {
+        var container = $('#categoryPills');
+        var html = '<span class="category-pill ' + (selectedCategory === 'all' ? 'active' : '') + '" data-category="all"><i class="bi bi-grid"></i> All</span>';
+        
+        categories.forEach(function(cat) {
+            var catName = cat.name || cat;
+            var isActive = selectedCategory === catName;
+            html += '<span class="category-pill ' + (isActive ? 'active' : '') + '" data-category="' + catName + '"><i class="' + (cat.icon || 'bi-tag') + '"></i> ' + catName + '</span>';
+        });
+        
+        container.html(html);
+        
+        container.find('.category-pill').on('click', function() {
+            selectCategory($(this).data('category'));
+        });
+    }
+    
+    function selectCategory(category) {
+        selectedCategory = category;
+        renderCategories();
+        renderTemplates();
+    }
+    
+    function renderTemplates() {
+        var container = $('#templatesGrid');
+        var searchTerm = $('#searchInput').val().toLowerCase();
+        
+        var filtered = templates.filter(function(t) {
+            var matchesCategory = selectedCategory === 'all' || t.platform_category === selectedCategory;
+            var matchesSearch = !searchTerm || 
+                t.platform_name.toLowerCase().indexOf(searchTerm) !== -1 ||
+                (t.description && t.description.toLowerCase().indexOf(searchTerm) !== -1);
+            return matchesCategory && matchesSearch;
+        });
+        
+        if (filtered.length === 0) {
+            container.html('<div class="empty-state" style="grid-column: 1/-1;"><i class="bi bi-search"></i><h5>No integrations found</h5><p>Try adjusting your search or category filter</p></div>');
+            return;
+        }
+        
+        var html = '';
+        filtered.forEach(function(template) {
+            var connectedCount = integrations.filter(function(i) { return i.template_key === template.template_key; }).length;
+            
+            html += '<div class="template-card ' + (connectedCount > 0 ? 'connected' : '') + '" data-template="' + template.template_key + '">';
+            if (connectedCount > 0) {
+                html += '<span class="connected-badge"><i class="bi bi-check"></i> Connected (' + connectedCount + ')</span>';
+            }
+            html += '<div class="logo-container">';
+            if (template.logo_url) {
+                html += '<img src="' + template.logo_url + '" alt="' + template.platform_name + '" onerror="this.parentElement.innerHTML=\'<i class=bi bi-plug></i>\'">';
+            } else {
+                html += '<i class="bi bi-plug"></i>';
+            }
+            html += '</div>';
+            html += '<h5>' + template.platform_name + '</h5>';
+            html += '<p class="description">' + (template.description || 'Connect to ' + template.platform_name) + '</p>';
+            html += '<span class="category-badge">' + (template.platform_category || 'Other') + '</span>';
+            html += '</div>';
+        });
+        
+        container.html(html);
+        
+        container.find('.template-card').on('click', function() {
+            showSetupModal($(this).data('template'));
+        });
+    }
+    
+    function filterTemplates() {
+        renderTemplates();
+    }
+    
+    function renderIntegrations() {
+        var container = $('#connectedIntegrations');
+        
+        if (integrations.length === 0) {
+            container.html('<div class="empty-state"><i class="bi bi-plug"></i><h5>No integrations connected</h5><p>Browse the gallery to connect your first integration</p><button class="btn btn-primary mt-3" id="browseBtn"><i class="bi bi-grid-3x3-gap"></i> Browse Integrations</button></div>');
+            $('#browseBtn').on('click', function() { $('#mainTabs a[href="#gallery"]').tab('show'); });
+            return;
+        }
+        
+        var html = '';
+        integrations.forEach(function(int) {
+            var successRate = int.total_requests > 0 ? Math.round((int.successful_requests / int.total_requests) * 100) : 100;
+            
+            html += '<div class="integration-card" data-id="' + int.integration_id + '">';
+            html += '<div class="header">';
+            html += '<div class="logo">';
+            if (int.logo_url) {
+                html += '<img src="' + int.logo_url + '" alt="">';
+            } else {
+                html += '<i class="bi bi-plug"></i>';
+            }
+            html += '</div>';
+            html += '<div class="info"><h6>' + int.integration_name + '</h6><span class="platform">' + int.platform_name + '</span></div>';
+            html += '<div class="status ' + (int.is_connected ? 'connected' : 'disconnected') + '"><i class="bi bi-' + (int.is_connected ? 'check-circle-fill' : 'x-circle-fill') + '"></i> ' + (int.is_connected ? 'Connected' : 'Disconnected') + '</div>';
+            html += '</div>';
+            html += '<div class="stats">';
+            html += '<div class="stat"><div class="value">' + (int.total_requests || 0) + '</div><div class="label">Requests</div></div>';
+            html += '<div class="stat"><div class="value text-success">' + (int.successful_requests || 0) + '</div><div class="label">Success</div></div>';
+            html += '<div class="stat"><div class="value text-danger">' + (int.failed_requests || 0) + '</div><div class="label">Failed</div></div>';
+            html += '<div class="stat"><div class="value">' + successRate + '%</div><div class="label">Rate</div></div>';
+            html += '</div>';
+            html += '<div class="actions">';
+            html += '<button class="btn btn-sm btn-outline-primary manage-btn"><i class="bi bi-gear"></i> Manage</button>';
+            html += '<button class="btn btn-sm btn-outline-success test-btn"><i class="bi bi-play-circle"></i> Test</button>';
+            html += '</div>';
+            html += '</div>';
+        });
+        
+        container.html(html);
+        
+        container.find('.manage-btn').on('click', function(e) {
+            e.stopPropagation();
+            var id = $(this).closest('.integration-card').data('id');
+            showDetailsModal(id);
+        });
+        
+        container.find('.test-btn').on('click', function(e) {
+            e.stopPropagation();
+            var id = $(this).closest('.integration-card').data('id');
+            quickTest(id);
+        });
+    }
+    
+    function showSetupModal(templateKey) {
+        currentTemplate = templates.find(function(t) { return t.template_key === templateKey; });
+        if (!currentTemplate) return;
+        
+        $('#templateKey').val(templateKey);
+        $('#modalPlatformName').text(currentTemplate.platform_name);
+        $('#modalAuthType').text((currentTemplate.auth_type || '').replace('_', ' ').toUpperCase());
+        $('#integrationName').val(currentTemplate.platform_name);
+        
+        if (currentTemplate.logo_url) {
+            $('#modalLogo').html('<img src="' + currentTemplate.logo_url + '" alt="" style="max-width:40px;max-height:40px">');
+        } else {
+            $('#modalLogo').html('<i class="bi bi-plug" style="font-size:28px"></i>');
+        }
+        
+        if (currentTemplate.setup_instructions) {
+            $('#setupInstructions').show();
+            $('#setupInstructionsContent').html(marked.parse(currentTemplate.setup_instructions));
+        } else {
+            $('#setupInstructions').hide();
+        }
+        
+        var instanceFields = $('#instanceConfigFields');
+        instanceFields.empty();
+
+        // Show base URL field if template has no base_url (e.g., Custom REST API)
+        if (!currentTemplate.base_url) {
+            instanceFields.append('<div class="form-group"><label>Base URL <span class="text-danger">*</span></label><input type="url" class="form-control" id="baseUrlOverride" required placeholder="https://api.example.com/v1"><small class="text-muted">The base URL of the API you want to connect to</small></div>');
+        }
+
+        if (currentTemplate.requires_instance_id) {
+            instanceFields.append('<div class="form-group"><label>' + (currentTemplate.instance_id_label || 'Instance ID') + ' <span class="text-danger">*</span></label><input type="text" class="form-control" id="instanceId" required placeholder="' + (currentTemplate.instance_id_placeholder || '') + '"></div>');
+        }
+
+        // Render additional instance config fields (e.g., Channel Type for Walmart)
+        if (currentTemplate.additional_instance_fields) {
+            currentTemplate.additional_instance_fields.forEach(function(field) {
+                instanceFields.append(
+                    '<div class="form-group">' +
+                    '<label>' + field.label + (field.required ? ' <span class="text-danger">*</span>' : '') + '</label>' +
+                    '<input type="text" class="form-control additional-instance-field" ' +
+                    'data-field="' + field.field + '" ' +
+                    (field.required ? 'required ' : '') +
+                    'placeholder="' + (field.placeholder || '') + '">' +
+                    (field.help ? '<small class="text-muted">' + field.help + '</small>' : '') +
+                    '</div>'
+                );
+            });
+        }
+
+        var credFields = $('#credentialFields');
+        credFields.empty();
+        
+        // Check if this is OAuth2 with client_credentials grant (e.g., Walmart)
+        var isClientCredentials = currentTemplate.auth_type === 'oauth2' && 
+            currentTemplate.auth_config && 
+            currentTemplate.auth_config.grant_type === 'client_credentials';
+        
+        if (currentTemplate.auth_type === 'oauth2' && !isClientCredentials) {
+            // Standard OAuth2 with user authorization flow
+            $('#oauthSection').show();
+            $('#setupModalFooter').hide();
+
+            // Check if OAuth secrets are configured
+            $.ajax({
+                url: '/api/integrations/secrets/check',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ template_key: templateKey })
+            }).done(function(data) {
+                if (data.status === 'success' && !data.all_configured) {
+                    var missing = [];
+                    for (var key in data.secrets) {
+                        if (!data.secrets[key]) missing.push(key);
+                    }
+                    if (missing.length > 0) {
+                        credFields.html(
+                            '<div class="alert alert-warning">' +
+                            '<i class="bi bi-exclamation-triangle"></i> <strong>OAuth not configured.</strong><br>' +
+                            'Add these secrets in Local Secrets before connecting:<br>' +
+                            '<code>' + missing.join('</code>, <code>') + '</code>' +
+                            '</div>'
+                        );
+                    }
+                }
+            });
+        } else {
+            // Non-OAuth or client_credentials OAuth (no user auth redirect needed)
+            $('#oauthSection').hide();
+            $('#setupModalFooter').show();
+            
+            if (isClientCredentials) {
+                // Client credentials OAuth - user enters Client ID and Secret directly
+                credFields.html(
+                    '<div class="form-group">' +
+                        '<label>Client ID <span class="text-danger">*</span></label>' +
+                        '<input type="text" class="form-control" id="clientId" required>' +
+                    '</div>' +
+                    '<div class="form-group">' +
+                        '<label>Client Secret <span class="text-danger">*</span></label>' +
+                        '<input type="password" class="form-control" id="clientSecret" required>' +
+                    '</div>'
+                );
+            } else if (currentTemplate.auth_type === 'cloud_storage') {
+                // Dynamic credential fields from auth_config.credential_fields
+                var fields = (currentTemplate.auth_config || {}).credential_fields || [];
+                var html = '';
+                fields.forEach(function(f) {
+                    var inputType = f.type === 'password' ? 'password' : 'text';
+                    var required = f.required ? ' required' : '';
+                    var reqSpan = f.required ? ' <span class="text-danger">*</span>' : '';
+                    html += '<div class="form-group">' +
+                        '<label>' + f.label + reqSpan + '</label>' +
+                        '<input type="' + inputType + '" class="form-control cloud-cred-field" ' +
+                        'data-field="' + f.field + '" id="cloud_' + f.field + '"' + required + '>';
+                    if (f.help) {
+                        html += '<small class="form-text text-muted">' + f.help + '</small>';
+                    }
+                    html += '</div>';
+                });
+                credFields.html(html);
+            } else if (currentTemplate.auth_type === 'api_key') {
+                credFields.html('<div class="form-group"><label>API Key <span class="text-danger">*</span></label><input type="password" class="form-control" id="apiKey" required></div>');
+            } else if (currentTemplate.auth_type === 'bearer') {
+                credFields.html('<div class="form-group"><label>Bearer Token <span class="text-danger">*</span></label><input type="password" class="form-control" id="bearerToken" required></div>');
+            } else if (currentTemplate.auth_type === 'basic') {
+                credFields.html('<div class="form-group"><label>Username <span class="text-danger">*</span></label><input type="text" class="form-control" id="username" required></div><div class="form-group"><label>Password <span class="text-danger">*</span></label><input type="password" class="form-control" id="password" required></div>');
+            }
+        }
+        
+        $('#setupModal').modal('show');
+    }
+    
+    function saveIntegration() {
+        var templateKey = $('#templateKey').val();
+        var integrationName = $('#integrationName').val();
+        
+        if (!integrationName) {
+            showToast('Please enter an integration name', 'error');
+            return;
+        }
+        
+        var instanceConfig = {};
+        var credentials = {};
+
+        // Capture base URL override if present
+        var baseUrlInput = $('#baseUrlOverride');
+        var baseUrlOverride = null;
+        if (baseUrlInput.length && baseUrlInput.val()) {
+            baseUrlOverride = baseUrlInput.val();
+        } else if (baseUrlInput.length && !baseUrlInput.val()) {
+            showToast('Please enter the Base URL', 'error');
+            return;
+        }
+
+        var instanceIdInput = $('#instanceId');
+        if (instanceIdInput.length && instanceIdInput.val()) {
+            var fieldName = currentTemplate.instance_id_field || 'instance_id';
+            instanceConfig[fieldName] = instanceIdInput.val();
+        }
+
+        // Collect additional instance config fields (e.g., Channel Type for Walmart)
+        $('.additional-instance-field').each(function() {
+            var fieldName = $(this).data('field');
+            var fieldVal = $(this).val();
+            if (fieldVal) {
+                instanceConfig[fieldName] = fieldVal;
+            }
+        });
+
+        // Check if this is client_credentials OAuth
+        var isClientCredentials = currentTemplate.auth_type === 'oauth2' &&
+            currentTemplate.auth_config &&
+            currentTemplate.auth_config.grant_type === 'client_credentials';
+
+        if (isClientCredentials) {
+            // Client credentials OAuth - capture Client ID and Secret
+            credentials.client_id = $('#clientId').val();
+            credentials.client_secret = $('#clientSecret').val();
+
+            if (!credentials.client_id || !credentials.client_secret) {
+                showToast('Please enter Client ID and Client Secret', 'error');
+                return;
+            }
+        } else if (currentTemplate.auth_type === 'cloud_storage') {
+            // Collect dynamic credential fields
+            var missingRequired = false;
+            $('.cloud-cred-field').each(function() {
+                var fieldName = $(this).data('field');
+                var fieldVal = $(this).val();
+                if (fieldVal) {
+                    credentials[fieldName] = fieldVal;
+                } else if ($(this).prop('required')) {
+                    missingRequired = true;
+                }
+            });
+            if (missingRequired) {
+                showToast('Please fill in all required credential fields', 'error');
+                return;
+            }
+        } else if (currentTemplate.auth_type === 'api_key') {
+            credentials.api_key = $('#apiKey').val();
+        } else if (currentTemplate.auth_type === 'bearer') {
+            credentials.bearer_token = $('#bearerToken').val();
+        } else if (currentTemplate.auth_type === 'basic') {
+            credentials.username = $('#username').val();
+            credentials.password = $('#password').val();
+        }
+
+        var payload = {
+            template_key: templateKey,
+            integration_name: integrationName,
+            instance_config: instanceConfig,
+            credentials: credentials
+        };
+        if (baseUrlOverride) {
+            payload.base_url_override = baseUrlOverride;
+        }
+
+        $.ajax({
+            url: '/api/integrations',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(payload)
+        })
+        .done(function(data) {
+            if (data.status === 'success') {
+                showToast('Integration created successfully!', 'success');
+                $('#setupModal').modal('hide');
+                loadIntegrations();
+                loadTemplates();
+            } else {
+                showToast(data.message || 'Failed to create integration', 'error');
+            }
+        })
+        .fail(function(xhr) {
+            var msg = 'Failed to create integration';
+            try {
+                var resp = JSON.parse(xhr.responseText);
+                if (resp.message) msg = resp.message;
+            } catch(e) {}
+            showToast(msg, 'error');
+        });
+    }
+    
+    function startOAuth() {
+        var templateKey = $('#templateKey').val();
+        var integrationName = $('#integrationName').val();
+        
+        sessionStorage.setItem('oauth_integration_name', integrationName);
+        
+        var instanceConfig = {};
+        var instanceIdInput = $('#instanceId');
+        if (instanceIdInput.length && instanceIdInput.val()) {
+            var fieldName = currentTemplate.instance_id_field || 'instance_id';
+            instanceConfig[fieldName] = instanceIdInput.val();
+            sessionStorage.setItem('oauth_instance_config', JSON.stringify(instanceConfig));
+        }
+        
+        $.ajax({
+            url: '/api/integrations/oauth/start/' + templateKey,
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                integration_name: integrationName,
+                instance_config: instanceConfig
+            })
+        })
+        .done(function(data) {
+            if (data.status === 'success' && data.auth_url) {
+                window.location.href = data.auth_url;
+            } else {
+                showToast(data.message || 'Failed to start OAuth', 'error');
+            }
+        })
+        .fail(function(xhr) {
+            var msg = 'Failed to start OAuth';
+            try {
+                var resp = JSON.parse(xhr.responseText);
+                if (resp.message) msg = resp.message;
+            } catch(e) {}
+            showToast(msg, 'error');
+        });
+    }
+    
+    function showDetailsModal(integrationId) {
+        currentIntegration = integrations.find(function(i) { return i.integration_id === integrationId; });
+        if (!currentIntegration) return;
+        
+        $('#detailsName').text(currentIntegration.integration_name);
+        
+        $.get('/api/integrations/' + integrationId + '/operations')
+            .done(function(data) {
+                if (data.status === 'success') {
+                    var select = $('#operationSelect');
+                    select.html('<option value="">Select an operation...</option>');
+                    data.operations.forEach(function(op) {
+                        select.append('<option value="' + op.key + '">' + op.name + '</option>');
+                    });
+                    currentIntegration.operations = data.operations;
+                }
+            });
+        
+        $('#operationParams').empty();
+        $('#operationResultContainer').hide();
+        
+        $('#detailsModal').modal('show');
+    }
+    
+    function loadOperationParams() {
+        var opKey = $('#operationSelect').val();
+        var container = $('#operationParams');
+        
+        if (!opKey || !currentIntegration.operations) {
+            container.empty();
+            return;
+        }
+        
+        var operation = currentIntegration.operations.find(function(o) { return o.key === opKey; });
+        if (!operation || !operation.parameters) {
+            container.empty();
+            return;
+        }
+        
+        var html = '';
+        operation.parameters.forEach(function(param) {
+            html += '<div class="form-group">';
+            html += '<label>' + (param.label || param.name) + (param.required ? ' <span class="text-danger">*</span>' : '') + '</label>';
+            
+            if (param.type === 'select' && param.options) {
+                html += '<select class="form-control" id="param_' + param.name + '"' + (param.required ? ' required' : '') + '>';
+                param.options.forEach(function(opt) {
+                    html += '<option value="' + opt.value + '">' + opt.label + '</option>';
+                });
+                html += '</select>';
+            } else if (param.type === 'textarea' || param.type === 'json') {
+                html += '<textarea class="form-control" id="param_' + param.name + '" rows="3"' + (param.required ? ' required' : '') + '></textarea>';
+            } else if (param.type === 'checkbox') {
+                html += '<input type="checkbox" id="param_' + param.name + '">';
+            } else {
+                html += '<input type="' + (param.type === 'number' ? 'number' : 'text') + '" class="form-control" id="param_' + param.name + '"' + (param.required ? ' required' : '') + (param.default ? ' value="' + param.default + '"' : '') + '>';
+            }
+            
+            if (param.description) {
+                html += '<small class="text-muted">' + param.description + '</small>';
+            }
+            html += '</div>';
+        });
+        
+        container.html(html);
+    }
+    
+    function executeOperation() {
+        var opKey = $('#operationSelect').val();
+        if (!opKey || !currentIntegration) {
+            showToast('Please select an operation', 'error');
+            return;
+        }
+        
+        var operation = currentIntegration.operations.find(function(o) { return o.key === opKey; });
+        var parameters = {};
+        
+        if (operation && operation.parameters) {
+            operation.parameters.forEach(function(param) {
+                var input = $('#param_' + param.name);
+                if (input.length) {
+                    if (param.type === 'checkbox') {
+                        parameters[param.name] = input.prop('checked');
+                    } else if (input.val()) {
+                        parameters[param.name] = input.val();
+                    }
+                }
+            });
+        }
+        
+        var resultDiv = $('#operationResult');
+        var resultContainer = $('#operationResultContainer');
+        resultDiv.text('Executing...').removeClass('error');
+        resultContainer.show();
+        
+        $.ajax({
+            url: '/api/integrations/' + currentIntegration.integration_id + '/execute',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                operation: opKey,
+                parameters: parameters
+            })
+        })
+        .done(function(data) {
+            if (data.status === 'success') {
+                resultDiv.text(JSON.stringify(data.data, null, 2)).removeClass('error');
+            } else {
+                resultDiv.text('Error: ' + (data.error || data.message || 'Unknown error')).addClass('error');
+            }
+        })
+        .fail(function(error) {
+            resultDiv.text('Error: ' + error.statusText).addClass('error');
+        });
+    }
+    
+    function deleteIntegration() {
+        if (!currentIntegration) return;
+        
+        if (!confirm('Are you sure you want to delete "' + currentIntegration.integration_name + '"?')) {
+            return;
+        }
+        
+        $.ajax({
+            url: '/api/integrations/' + currentIntegration.integration_id,
+            method: 'DELETE'
+        })
+        .done(function(data) {
+            if (data.status === 'success') {
+                showToast('Integration deleted', 'success');
+                $('#detailsModal').modal('hide');
+                loadIntegrations();
+                loadTemplates();
+            } else {
+                showToast(data.message || 'Failed to delete', 'error');
+            }
+        })
+        .fail(function(error) {
+            showToast('Error: ' + error.statusText, 'error');
+        });
+    }
+    
+    function showEditIntegrationModal() {
+        if (!currentIntegration) return;
+
+        $('#editIntegrationName').val(currentIntegration.integration_name);
+
+        // Find the template to determine what fields to show
+        var tpl = templates.find(function(t) { return t.template_key === currentIntegration.template_key; });
+        var authType = tpl ? tpl.auth_type : (currentIntegration.auth_type || '');
+        var instanceConfig = {};
+        try { instanceConfig = JSON.parse(currentIntegration.instance_config || '{}'); } catch(e) {}
+
+        // Instance config fields (e.g., shop_domain, partner_id)
+        var instanceFields = $('#editInstanceConfigFields');
+        instanceFields.empty();
+
+        // Base URL override
+        if (instanceConfig._base_url_override) {
+            instanceFields.append(
+                '<div class="form-group"><label>Base URL</label>' +
+                '<input type="url" class="form-control" id="editBaseUrl" value="' +
+                $('<span>').text(instanceConfig._base_url_override).html() + '">' +
+                '</div>'
+            );
+        }
+
+        if (tpl && tpl.requires_instance_id) {
+            var fieldName = tpl.instance_id_field || 'instance_id';
+            var currentVal = instanceConfig[fieldName] || '';
+            instanceFields.append(
+                '<div class="form-group"><label>' + (tpl.instance_id_label || 'Instance ID') + '</label>' +
+                '<input type="text" class="form-control" id="editInstanceId" data-field="' + fieldName + '" ' +
+                'value="' + $('<span>').text(currentVal).html() + '">' +
+                '</div>'
+            );
+        }
+
+        // Additional instance config fields (e.g., Channel Type for Walmart)
+        if (tpl && tpl.additional_instance_fields) {
+            tpl.additional_instance_fields.forEach(function(field) {
+                var currentVal = instanceConfig[field.field] || '';
+                instanceFields.append(
+                    '<div class="form-group"><label>' + field.label + '</label>' +
+                    '<input type="text" class="form-control edit-additional-instance-field" ' +
+                    'data-field="' + field.field + '" ' +
+                    'value="' + $('<span>').text(currentVal).html() + '" ' +
+                    'placeholder="' + (field.placeholder || '') + '">' +
+                    (field.help ? '<small class="text-muted">' + field.help + '</small>' : '') +
+                    '</div>'
+                );
+            });
+        }
+
+        // Credential fields based on auth type
+        var credFields = $('#editCredentialFields');
+        credFields.empty();
+
+        var isClientCredentials = authType === 'oauth2' && tpl &&
+            tpl.auth_config && tpl.auth_config.grant_type === 'client_credentials';
+
+        if (isClientCredentials) {
+            credFields.html(
+                '<div class="form-group"><label>Client ID</label>' +
+                '<input type="text" class="form-control" id="editClientId" placeholder="Leave blank to keep current">' +
+                '</div>' +
+                '<div class="form-group"><label>Client Secret</label>' +
+                '<input type="password" class="form-control" id="editClientSecret" placeholder="Leave blank to keep current">' +
+                '</div>'
+            );
+        } else if (authType === 'cloud_storage' && tpl) {
+            var fields = (tpl.auth_config || {}).credential_fields || [];
+            var html = '';
+            fields.forEach(function(f) {
+                var inputType = f.type === 'password' ? 'password' : 'text';
+                html += '<div class="form-group">' +
+                    '<label>' + f.label + '</label>' +
+                    '<input type="' + inputType + '" class="form-control edit-cloud-cred-field" ' +
+                    'data-field="' + f.field + '" id="editCloud_' + f.field + '" ' +
+                    'placeholder="Leave blank to keep current">' +
+                    '</div>';
+            });
+            credFields.html(html);
+        } else if (authType === 'api_key') {
+            credFields.html(
+                '<div class="form-group"><label>API Key</label>' +
+                '<input type="password" class="form-control" id="editApiKey" placeholder="Leave blank to keep current">' +
+                '</div>'
+            );
+        } else if (authType === 'bearer') {
+            credFields.html(
+                '<div class="form-group"><label>Bearer Token</label>' +
+                '<input type="password" class="form-control" id="editBearerToken" placeholder="Leave blank to keep current">' +
+                '</div>'
+            );
+        } else if (authType === 'basic') {
+            credFields.html(
+                '<div class="form-group"><label>Username</label>' +
+                '<input type="text" class="form-control" id="editUsername" placeholder="Leave blank to keep current">' +
+                '</div>' +
+                '<div class="form-group"><label>Password</label>' +
+                '<input type="password" class="form-control" id="editPassword" placeholder="Leave blank to keep current">' +
+                '</div>'
+            );
+        }
+
+        $('#detailsModal').modal('hide');
+        $('#editIntegrationModal').modal('show');
+    }
+
+    function saveEditIntegration() {
+        if (!currentIntegration) return;
+
+        var integrationName = $('#editIntegrationName').val();
+        if (!integrationName) {
+            showToast('Please enter an integration name', 'error');
+            return;
+        }
+
+        var payload = {
+            integration_name: integrationName
+        };
+
+        // Collect instance config updates
+        var instanceConfig = {};
+        var instanceIdInput = $('#editInstanceId');
+        if (instanceIdInput.length && instanceIdInput.val()) {
+            instanceConfig[instanceIdInput.data('field')] = instanceIdInput.val();
+        }
+        var baseUrlInput = $('#editBaseUrl');
+        if (baseUrlInput.length && baseUrlInput.val()) {
+            instanceConfig._base_url_override = baseUrlInput.val();
+        }
+        // Collect additional instance config fields (e.g., Channel Type for Walmart)
+        $('.edit-additional-instance-field').each(function() {
+            var fieldName = $(this).data('field');
+            var fieldVal = $(this).val();
+            if (fieldVal) {
+                instanceConfig[fieldName] = fieldVal;
+            }
+        });
+        if (Object.keys(instanceConfig).length > 0) {
+            payload.instance_config = instanceConfig;
+        }
+
+        // Collect credential updates (only non-empty)
+        var credentials = {};
+        var editApiKey = $('#editApiKey');
+        if (editApiKey.length && editApiKey.val()) credentials.api_key = editApiKey.val();
+        var editBearerToken = $('#editBearerToken');
+        if (editBearerToken.length && editBearerToken.val()) credentials.bearer_token = editBearerToken.val();
+        var editUsername = $('#editUsername');
+        if (editUsername.length && editUsername.val()) credentials.username = editUsername.val();
+        var editPassword = $('#editPassword');
+        if (editPassword.length && editPassword.val()) credentials.password = editPassword.val();
+        var editClientId = $('#editClientId');
+        if (editClientId.length && editClientId.val()) credentials.client_id = editClientId.val();
+        var editClientSecret = $('#editClientSecret');
+        if (editClientSecret.length && editClientSecret.val()) credentials.client_secret = editClientSecret.val();
+        // Cloud storage dynamic credential fields
+        $('.edit-cloud-cred-field').each(function() {
+            var fieldName = $(this).data('field');
+            var fieldVal = $(this).val();
+            if (fieldVal) credentials[fieldName] = fieldVal;
+        });
+
+        if (Object.keys(credentials).length > 0) {
+            payload.credentials = credentials;
+        }
+
+        $.ajax({
+            url: '/api/integrations/' + currentIntegration.integration_id,
+            method: 'PUT',
+            contentType: 'application/json',
+            data: JSON.stringify(payload)
+        })
+        .done(function(data) {
+            if (data.status === 'success') {
+                showToast('Integration updated successfully!', 'success');
+                $('#editIntegrationModal').modal('hide');
+                loadIntegrations();
+            } else {
+                showToast(data.message || 'Failed to update', 'error');
+            }
+        })
+        .fail(function(xhr) {
+            var msg = 'Failed to update integration';
+            try {
+                var resp = JSON.parse(xhr.responseText);
+                if (resp.message) msg = resp.message;
+            } catch(e) {}
+            showToast(msg, 'error');
+        });
+    }
+
+    function quickTest(integrationId) {
+        showToast('Testing connection...', 'info');
+        
+        $.ajax({
+            url: '/api/integrations/' + integrationId + '/test',
+            method: 'POST'
+        })
+        .done(function(data) {
+            if (data.status === 'success' && data.connected) {
+                showToast('Connection successful!', 'success');
+            } else {
+                showToast('Connection failed: ' + (data.message || 'Unknown error'), 'error');
+            }
+        })
+        .fail(function(error) {
+            showToast('Test failed: ' + error.statusText, 'error');
+        });
+    }
+    
+    // =========================================================================
+    // Operations Editor
+    // =========================================================================
+    var operationCounter = 0;
+
+    function addOperation() {
+        operationCounter++;
+        var opId = operationCounter;
+        var container = $('#operationsContainer');
+        container.find('.no-operations-msg').remove();
+
+        var html = '<div class="operation-item" id="op-' + opId + '">' +
+            '<div class="operation-item-header" onclick="toggleOperation(' + opId + ')">' +
+                '<span class="operation-summary">' +
+                    '<span class="method-badge get" id="op-' + opId + '-badge">GET</span>' +
+                    '<span id="op-' + opId + '-title">New Operation</span>' +
+                '</span>' +
+                '<div class="operation-item-actions">' +
+                    '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="event.stopPropagation(); toggleOperation(' + opId + ')" title="Expand/Collapse">' +
+                        '<i class="bi bi-chevron-down"></i>' +
+                    '</button>' +
+                    '<button type="button" class="btn btn-sm btn-outline-danger" onclick="event.stopPropagation(); removeOperation(' + opId + ')" title="Remove">' +
+                        '<i class="bi bi-trash"></i>' +
+                    '</button>' +
+                '</div>' +
+            '</div>' +
+            '<div class="operation-item-body">' +
+                '<div class="row">' +
+                    '<div class="col-md-4">' +
+                        '<div class="form-group">' +
+                            '<label class="small">Operation Key <span class="text-danger">*</span></label>' +
+                            '<input type="text" class="form-control form-control-sm op-key" placeholder="get_records" pattern="[a-z0-9_]+" ' +
+                                'onchange="updateOperationTitle(' + opId + ')">' +
+                            '<small class="text-muted">Unique identifier</small>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="col-md-4">' +
+                        '<div class="form-group">' +
+                            '<label class="small">Display Name <span class="text-danger">*</span></label>' +
+                            '<input type="text" class="form-control form-control-sm op-name" placeholder="Get Records" ' +
+                                'onchange="updateOperationTitle(' + opId + ')">' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="col-md-4">' +
+                        '<div class="form-group">' +
+                            '<label class="small">Category</label>' +
+                            '<input type="text" class="form-control form-control-sm op-category" placeholder="e.g., Customers">' +
+                        '</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="row">' +
+                    '<div class="col-md-3">' +
+                        '<div class="form-group">' +
+                            '<label class="small">Method <span class="text-danger">*</span></label>' +
+                            '<select class="form-control form-control-sm op-method" onchange="updateOperationBadge(' + opId + ')">' +
+                                '<option value="GET">GET</option>' +
+                                '<option value="POST">POST</option>' +
+                                '<option value="PUT">PUT</option>' +
+                                '<option value="PATCH">PATCH</option>' +
+                                '<option value="DELETE">DELETE</option>' +
+                            '</select>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="col-md-9">' +
+                        '<div class="form-group">' +
+                            '<label class="small">Endpoint Path <span class="text-danger">*</span></label>' +
+                            '<input type="text" class="form-control form-control-sm op-endpoint" placeholder="/api/v1/records/{id}">' +
+                            '<small class="text-muted">Use {param} for path parameters</small>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="form-group">' +
+                    '<label class="small">Description</label>' +
+                    '<input type="text" class="form-control form-control-sm op-description" placeholder="What does this operation do?">' +
+                '</div>' +
+                '<div class="form-group">' +
+                    '<label class="small">Parameters</label>' +
+                    '<div class="op-params-container"></div>' +
+                    '<button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="addOperationParam(' + opId + ')">' +
+                        '<i class="bi bi-plus"></i> Add Parameter' +
+                    '</button>' +
+                '</div>' +
+                '<div class="form-group">' +
+                    '<label class="small">Request Body Template (JSON) <small class="text-muted">— for POST/PUT/PATCH</small></label>' +
+                    '<textarea class="form-control form-control-sm op-body-template" rows="2" ' +
+                        'placeholder=\'{"field": "{param_name}"}\' style="font-family: monospace; font-size: 0.8rem;"></textarea>' +
+                '</div>' +
+            '</div>' +
+        '</div>';
+
+        container.append(html);
+    }
+
+    function removeOperation(opId) {
+        $('#op-' + opId).remove();
+        if ($('#operationsContainer .operation-item').length === 0) {
+            $('#operationsContainer').html('<div class="no-operations-msg">No operations defined yet. Click "Add Operation" to get started.</div>');
+        }
+    }
+
+    function toggleOperation(opId) {
+        $('#op-' + opId).toggleClass('collapsed');
+    }
+
+    function updateOperationTitle(opId) {
+        var item = $('#op-' + opId);
+        var name = item.find('.op-name').val() || item.find('.op-key').val() || 'New Operation';
+        $('#op-' + opId + '-title').text(name);
+    }
+
+    function updateOperationBadge(opId) {
+        var method = $('#op-' + opId).find('.op-method').val().toLowerCase();
+        var badge = $('#op-' + opId + '-badge');
+        badge.text(method.toUpperCase()).removeClass('get post put patch delete').addClass(method);
+    }
+
+    function addOperationParam(opId) {
+        var container = $('#op-' + opId + ' .op-params-container');
+        var html = '<div class="param-row">' +
+            '<input type="text" class="form-control form-control-sm param-name" placeholder="Name" style="flex: 2;">' +
+            '<select class="form-control form-control-sm param-type" style="flex: 1.5;">' +
+                '<option value="text">Text</option>' +
+                '<option value="number">Number</option>' +
+                '<option value="date">Date</option>' +
+                '<option value="textarea">Textarea</option>' +
+                '<option value="select">Select</option>' +
+                '<option value="checkbox">Checkbox</option>' +
+            '</select>' +
+            '<label class="mb-0 small" style="flex: 0.8; white-space: nowrap;">' +
+                '<input type="checkbox" class="param-required"> Req' +
+            '</label>' +
+            '<input type="text" class="form-control form-control-sm param-desc" placeholder="Description" style="flex: 3;">' +
+            '<button type="button" class="btn btn-sm btn-outline-danger" onclick="$(this).closest(\'.param-row\').remove()" title="Remove">' +
+                '<i class="bi bi-x"></i>' +
+            '</button>' +
+        '</div>';
+        container.append(html);
+    }
+
+    function collectOperations() {
+        var operations = [];
+        $('#operationsContainer .operation-item').each(function() {
+            var item = $(this);
+            var key = item.find('.op-key').val();
+            var method = item.find('.op-method').val();
+
+            if (!key || !method) return;
+
+            var op = {
+                key: key.trim(),
+                name: item.find('.op-name').val() || key.trim(),
+                method: method,
+                endpoint: item.find('.op-endpoint').val() || '/',
+                description: item.find('.op-description').val() || '',
+                category: item.find('.op-category').val() || '',
+                parameters: []
+            };
+
+            // Collect parameters
+            item.find('.param-row').each(function() {
+                var row = $(this);
+                var paramName = row.find('.param-name').val();
+                if (!paramName) return;
+                op.parameters.push({
+                    name: paramName.trim(),
+                    label: paramName.trim().replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); }),
+                    type: row.find('.param-type').val() || 'text',
+                    required: row.find('.param-required').is(':checked'),
+                    description: row.find('.param-desc').val() || ''
+                });
+            });
+
+            // Collect body template
+            var bodyText = item.find('.op-body-template').val();
+            if (bodyText) {
+                try {
+                    op.body_template = JSON.parse(bodyText);
+                } catch (e) {
+                    // Leave as-is if invalid JSON; validation will catch it
+                }
+            }
+
+            operations.push(op);
+        });
+        return operations;
+    }
+
+    function resetOperationsEditor() {
+        operationCounter = 0;
+        $('#operationsContainer').html('<div class="no-operations-msg">No operations defined yet. Click "Add Operation" to get started.</div>');
+    }
+
+    function showCustomTemplateModal() {
+        $('#customTemplateForm')[0].reset();
+        $('#customAuthConfig').hide().empty();
+        resetOperationsEditor();
+        $('#customTemplateModal').modal('show');
+    }
+    
+    function updateCustomAuthConfig() {
+        var authType = $('#customAuthType').val();
+        var container = $('#customAuthConfig');
+
+        if (authType === 'api_key') {
+            container.show().html('<div class="form-group"><label>API Key Header</label><input type="text" class="form-control" id="customApiKeyHeader" placeholder="X-API-Key"></div>');
+        } else if (authType === 'oauth1_tba') {
+            container.show().html(
+                '<div class="alert alert-info small mb-0">' +
+                    '<i class="bi bi-info-circle"></i> ' +
+                    'OAuth 1.0a TBA requires these credentials when connecting: ' +
+                    '<strong>Consumer Key</strong>, <strong>Consumer Secret</strong>, ' +
+                    '<strong>Token ID</strong>, and <strong>Token Secret</strong>. ' +
+                    'Users will provide these during integration setup.' +
+                '</div>'
+            );
+        } else {
+            container.hide().empty();
+        }
+    }
+    
+    function createCustomTemplate() {
+        var platformName = $('#customPlatformName').val();
+        var templateKey = $('#customTemplateKey').val();
+        var baseUrl = $('#customBaseUrl').val();
+        var authType = $('#customAuthType').val();
+        var description = $('#customDescription').val();
+        var headersText = $('#customHeaders').val();
+
+        if (!platformName || !templateKey || !baseUrl) {
+            showToast('Please fill in all required fields', 'error');
+            return;
+        }
+
+        var headers = {};
+        if (headersText) {
+            try {
+                headers = JSON.parse(headersText);
+            } catch (e) {
+                showToast('Invalid JSON for headers', 'error');
+                return;
+            }
+        }
+
+        // Collect operations from the editor
+        var operations = collectOperations();
+
+        // Validate operations have required fields
+        for (var i = 0; i < operations.length; i++) {
+            if (!operations[i].key) {
+                showToast('Operation ' + (i + 1) + ' is missing a key', 'error');
+                return;
+            }
+            if (!operations[i].endpoint) {
+                showToast('Operation "' + operations[i].key + '" is missing an endpoint', 'error');
+                return;
+            }
+        }
+
+        var payload = {
+            template_key: templateKey,
+            platform_name: platformName,
+            platform_category: 'Custom',
+            base_url: baseUrl,
+            auth_type: authType,
+            description: description,
+            default_headers: headers
+        };
+
+        if (operations.length > 0) {
+            payload.operations = operations;
+        }
+
+        $.ajax({
+            url: '/api/integrations/templates/custom',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(payload)
+        })
+        .done(function(data) {
+            if (data.status === 'success') {
+                showToast('Custom template created with ' + operations.length + ' operation(s)!', 'success');
+                $('#customTemplateModal').modal('hide');
+                loadTemplates();
+            } else {
+                showToast(data.message || 'Failed to create template', 'error');
+            }
+        })
+        .fail(function(error) {
+            showToast('Error: ' + error.statusText, 'error');
+        });
+    }
+    
+    function refreshData() {
+        loadTemplates();
+        loadIntegrations();
+        showToast('Data refreshed', 'success');
+    }
+    
+    function showImportModal() {
+        $('#importFile').val('');
+        $('#importFileLabel').text('Choose JSON file...');
+        $('#importPreview').hide();
+        $('#importBtn').prop('disabled', true);
+        $('#importTemplateModal').modal('show');
+    }
+    
+    function updateFileLabel(input) {
+        var label = $('#importFileLabel');
+        var previewDiv = $('#importPreview');
+        var previewContent = $('#importPreviewContent');
+        var importBtn = $('#importBtn');
+        
+        if (input.files && input.files[0]) {
+            label.text(input.files[0].name);
+            
+            var reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    var template = JSON.parse(e.target.result);
+                    
+                    if (!template.template_key || !template.platform_name || !template.auth_type) {
+                        previewContent.html('<div class="text-danger"><i class="bi bi-exclamation-triangle"></i> Invalid template: missing required fields</div>');
+                        importBtn.prop('disabled', true);
+                    } else {
+                        previewContent.html('<strong>' + template.platform_name + '</strong><br><small class="text-muted">' + template.template_key + '</small><br><span class="badge badge-secondary">' + (template.platform_category || 'Custom') + '</span> <span class="badge badge-info">' + template.auth_type + '</span>');
+                        importBtn.prop('disabled', false);
+                    }
+                    
+                    previewDiv.show();
+                } catch (err) {
+                    previewContent.html('<div class="text-danger"><i class="bi bi-exclamation-triangle"></i> Invalid JSON: ' + err.message + '</div>');
+                    previewDiv.show();
+                    importBtn.prop('disabled', true);
+                }
+            };
+            reader.readAsText(input.files[0]);
+        } else {
+            label.text('Choose JSON file...');
+            previewDiv.hide();
+            importBtn.prop('disabled', true);
+        }
+    }
+    
+    function importTemplate() {
+        var fileInput = document.getElementById('importFile');
+        var saveLocation = $('#importSaveLocation').val();
+        
+        if (!fileInput.files || !fileInput.files[0]) {
+            showToast('Please select a file', 'error');
+            return;
+        }
+        
+        var formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        
+        $.ajax({
+            url: '/api/integrations/templates/import?save_to_file=' + (saveLocation === 'file'),
+            method: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false
+        })
+        .done(function(data) {
+            if (data.status === 'success') {
+                showToast('Template "' + data.template_key + '" imported!', 'success');
+                $('#importTemplateModal').modal('hide');
+                loadTemplates();
+            } else {
+                showToast(data.message || 'Import failed', 'error');
+            }
+        })
+        .fail(function(error) {
+            showToast('Error: ' + error.statusText, 'error');
+        });
+    }
+    
+    function showCustomTemplatesModal() {
+        var listDiv = $('#customTemplatesList');
+        listDiv.html('<div class="text-center py-4"><div class="spinner-border text-primary" role="status"></div></div>');
+        
+        $('#customTemplatesModal').modal('show');
+        
+        $.get('/api/integrations/templates/custom')
+            .done(function(data) {
+                if (data.status === 'success') {
+                    if (data.templates.length === 0) {
+                        listDiv.html('<div class="text-center py-4 text-muted"><i class="bi bi-inbox" style="font-size: 2rem;"></i><p class="mt-2">No custom templates found</p></div>');
+                    } else {
+                        var html = '<table class="table table-hover"><thead><tr><th>Template</th><th>Category</th><th>Source</th><th>Actions</th></tr></thead><tbody>';
+                        data.templates.forEach(function(t) {
+                            html += '<tr><td><strong>' + t.platform_name + '</strong><br><small class="text-muted">' + t.template_key + '</small></td>';
+                            html += '<td><span class="badge badge-secondary">' + (t.platform_category || 'Custom') + '</span></td>';
+                            html += '<td><span class="badge badge-' + (t.source === 'file' ? 'info' : 'primary') + '">' + (t.source === 'file' ? 'File' : 'Database') + '</span></td>';
+                            html += '<td><div class="btn-group btn-group-sm"><a href="/api/integrations/templates/' + t.template_key + '/export" class="btn btn-outline-primary" download="' + t.template_key + '.json"><i class="bi bi-download"></i></a>';
+                            html += '<button class="btn btn-outline-danger delete-template-btn" data-key="' + t.template_key + '"><i class="bi bi-trash"></i></button></div></td></tr>';
+                        });
+                        html += '</tbody></table>';
+                        listDiv.html(html);
+                        
+                        listDiv.find('.delete-template-btn').on('click', function() {
+                            deleteCustomTemplate($(this).data('key'));
+                        });
+                    }
+                } else {
+                    listDiv.html('<div class="alert alert-danger">' + data.message + '</div>');
+                }
+            })
+            .fail(function(error) {
+                listDiv.html('<div class="alert alert-danger">Error: ' + error.statusText + '</div>');
+            });
+    }
+    
+    function deleteCustomTemplate(templateKey) {
+        if (!confirm('Are you sure you want to delete the template "' + templateKey + '"?')) {
+            return;
+        }
+        
+        $.ajax({
+            url: '/api/integrations/templates/custom/' + templateKey,
+            method: 'DELETE'
+        })
+        .done(function(data) {
+            if (data.status === 'success') {
+                showToast('Template deleted', 'success');
+                showCustomTemplatesModal();
+                loadTemplates();
+            } else {
+                showToast(data.message || 'Failed to delete', 'error');
+            }
+        })
+        .fail(function(error) {
+            showToast('Error: ' + error.statusText, 'error');
+        });
+    }
+    
+    function reloadTemplates() {
+        $.ajax({
+            url: '/api/integrations/templates/reload',
+            method: 'POST'
+        })
+        .done(function(data) {
+            if (data.status === 'success') {
+                showToast('Templates reloaded: ' + data.templates_count + ' available', 'success');
+                loadTemplates();
+            } else {
+                showToast(data.message || 'Failed to reload', 'error');
+            }
+        })
+        .fail(function(error) {
+            showToast('Error: ' + error.statusText, 'error');
+        });
+    }
+    
+    function showToast(message, type) {
+        type = type || 'info';
+        var alertClass = type === 'success' ? 'alert-success' : type === 'error' ? 'alert-danger' : 'alert-info';
+        
+        var toast = $('<div class="alert ' + alertClass + ' position-fixed" style="top: 20px; right: 20px; z-index: 9999; min-width: 300px;"><button type="button" class="close"><span>&times;</span></button>' + message + '</div>');
+        
+        toast.find('.close').on('click', function() { toast.remove(); });
+        
+        $('body').append(toast);
+        
+        setTimeout(function() { toast.remove(); }, 5000);
+    }
+})();
+</script>
+<script src="/static/js/integrations_context.js"></script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}

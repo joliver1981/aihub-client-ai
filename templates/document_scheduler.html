@@ -1,0 +1,935 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<div style="position:fixed;bottom:20px;right:20px;z-index:100;">
+    <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+        <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+    </button>
+</div>
+<div class="doc-processor">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1>Document Processor Job Schedules</h1>
+                <a href="{{ url_for('document_processor') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left mr-1"></i> Back to Jobs
+                </a>
+            </div>
+            
+            <div class="row mb-4">
+                <!-- Document Jobs -->
+                <div class="col-lg-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Document Jobs</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label for="documentJobSelect">Select a Document Job</label>
+                                <select class="form-control" id="documentJobSelect">
+                                    <option value="">-- Select a job --</option>
+                                    <!-- Jobs will be populated here -->
+                                </select>
+                            </div>
+                            
+                            <div id="jobDetails" class="mt-4" style="display: none;">
+                                <h6>Job Details</h6>
+                                <table class="table table-sm">
+                                    <tbody>
+                                        <tr>
+                                            <th style="width: 30%;">Name:</th>
+                                            <td id="jobName"></td>
+                                        </tr>
+                                        <tr>
+                                            <th>Description:</th>
+                                            <td id="jobDescription"></td>
+                                        </tr>
+                                        <tr>
+                                            <th>Status:</th>
+                                            <td id="jobStatus"></td>
+                                        </tr>
+                                        <tr>
+                                            <th>Last Run:</th>
+                                            <td id="jobLastRun"></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                                
+                                <div class="mt-3">
+                                    <button type="button" class="btn btn-primary btn-sm" id="runJobNowBtn">
+                                        <i class="fas fa-play mr-1"></i> Run Now
+                                    </button>
+                                    <button type="button" class="btn btn-success btn-sm" id="addScheduleBtn">
+                                        <i class="fas fa-plus mr-1"></i> Add Schedule
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Schedules -->
+                <div class="col-lg-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Schedules</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="schedulesContainer">
+                                <p class="text-muted">Select a job to view its schedules</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Execution History -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Execution History</h5>
+                </div>
+                <div class="card-body">
+                    <div id="executionHistoryContainer">
+                        <p class="text-muted">Select a job to view its execution history</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Schedule Modal -->
+<div class="modal fade" id="addScheduleModal" tabindex="-1" aria-labelledby="addScheduleModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addScheduleModalLabel">Add Schedule</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="scheduleForm">
+                    <input type="hidden" id="scheduleJobId" name="scheduleJobId">
+                    
+                    <div class="form-group">
+                        <label for="scheduleType">Schedule Type</label>
+                        <select class="form-control" id="scheduleType" name="scheduleType" required>
+                            <option value="">-- Select a schedule type --</option>
+                            <option value="interval">Interval</option>
+                            <option value="cron">Cron Expression</option>
+                            <option value="date">One-time Execution</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Interval Settings -->
+                    <div id="intervalSettings" style="display: none;">
+                        <div class="form-row">
+                            <div class="form-group col-md-4">
+                                <label for="intervalSeconds">Seconds</label>
+                                <input type="number" class="form-control" id="intervalSeconds" name="intervalSeconds" min="0">
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label for="intervalMinutes">Minutes</label>
+                                <input type="number" class="form-control" id="intervalMinutes" name="intervalMinutes" min="0">
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label for="intervalHours">Hours</label>
+                                <input type="number" class="form-control" id="intervalHours" name="intervalHours" min="0">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group col-md-6">
+                                <label for="intervalDays">Days</label>
+                                <input type="number" class="form-control" id="intervalDays" name="intervalDays" min="0">
+                            </div>
+                            <div class="form-group col-md-6">
+                                <label for="intervalWeeks">Weeks</label>
+                                <input type="number" class="form-control" id="intervalWeeks" name="intervalWeeks" min="0">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Cron Settings -->
+                    <div id="cronSettings" style="display: none;">
+                        <div class="form-group">
+                            <label for="cronExpression">Cron Expression</label>
+                            <input type="text" class="form-control" id="cronExpression" name="cronExpression" 
+                                   placeholder="e.g., 0 0 * * * (daily at midnight)">
+                            <small class="form-text text-muted">
+                                Format: Minute Hour Day Month DayOfWeek (e.g., "0 0 * * *" for daily at midnight)
+                            </small>
+                        </div>
+                    </div>
+                    
+                    <!-- Date/Time Settings -->
+                    <div class="form-group">
+                        <label for="startDate">Start Date/Time</label>
+                        <div class="input-group date" id="startDatePicker" data-target-input="nearest">
+                            <input type="text" class="form-control datetimepicker-input" id="startDate" name="startDate" data-target="#startDatePicker"/>
+                            <div class="input-group-append" data-target="#startDatePicker" data-toggle="datetimepicker">
+                                <div class="input-group-text"><i class="fa fa-calendar"></i></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="endDate">End Date/Time (Optional)</label>
+                        <div class="input-group date" id="endDatePicker" data-target-input="nearest">
+                            <input type="text" class="form-control datetimepicker-input" id="endDate" name="endDate" data-target="#endDatePicker"/>
+                            <div class="input-group-append" data-target="#endDatePicker" data-toggle="datetimepicker">
+                                <div class="input-group-text"><i class="fa fa-calendar"></i></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="maxRuns">Maximum Executions (Optional)</label>
+                        <input type="number" class="form-control" id="maxRuns" name="maxRuns" min="1">
+                        <small class="form-text text-muted">Leave empty for unlimited executions</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <div class="custom-control custom-checkbox">
+                            <input type="checkbox" class="custom-control-input" id="isActive" name="isActive" checked>
+                            <label class="custom-control-label" for="isActive">Active</label>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveScheduleBtn">Save Schedule</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Schedule Modal -->
+<div class="modal fade" id="editScheduleModal" tabindex="-1" aria-labelledby="editScheduleModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editScheduleModalLabel">Edit Schedule</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <!-- Clone of the add form with different IDs -->
+                <form id="editScheduleForm">
+                    <input type="hidden" id="editScheduleId" name="editScheduleId">
+                    <input type="hidden" id="editScheduleJobId" name="editScheduleJobId">
+                    
+                    <div class="form-group">
+                        <label for="editScheduleType">Schedule Type</label>
+                        <select class="form-control" id="editScheduleType" name="editScheduleType" required disabled>
+                            <option value="">-- Select a schedule type --</option>
+                            <option value="interval">Interval</option>
+                            <option value="cron">Cron Expression</option>
+                            <option value="date">One-time Execution</option>
+                        </select>
+                        <small class="form-text text-muted">Schedule type cannot be changed after creation</small>
+                    </div>
+                    
+                    <!-- Interval Settings -->
+                    <div id="editIntervalSettings" style="display: none;">
+                        <div class="form-row">
+                            <div class="form-group col-md-4">
+                                <label for="editIntervalSeconds">Seconds</label>
+                                <input type="number" class="form-control" id="editIntervalSeconds" name="editIntervalSeconds" min="0">
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label for="editIntervalMinutes">Minutes</label>
+                                <input type="number" class="form-control" id="editIntervalMinutes" name="editIntervalMinutes" min="0">
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label for="editIntervalHours">Hours</label>
+                                <input type="number" class="form-control" id="editIntervalHours" name="editIntervalHours" min="0">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group col-md-6">
+                                <label for="editIntervalDays">Days</label>
+                                <input type="number" class="form-control" id="editIntervalDays" name="editIntervalDays" min="0">
+                            </div>
+                            <div class="form-group col-md-6">
+                                <label for="editIntervalWeeks">Weeks</label>
+                                <input type="number" class="form-control" id="editIntervalWeeks" name="editIntervalWeeks" min="0">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Cron Settings -->
+                    <div id="editCronSettings" style="display: none;">
+                        <div class="form-group">
+                            <label for="editCronExpression">Cron Expression</label>
+                            <input type="text" class="form-control" id="editCronExpression" name="editCronExpression" 
+                                   placeholder="e.g., 0 0 * * * (daily at midnight)">
+                            <small class="form-text text-muted">
+                                Format: Minute Hour Day Month DayOfWeek (e.g., "0 0 * * *" for daily at midnight)
+                            </small>
+                        </div>
+                    </div>
+                    
+                    <!-- Date/Time Settings -->
+                    <div class="form-group">
+                        <label for="editStartDate">Start Date/Time</label>
+                        <div class="input-group date" id="editStartDatePicker" data-target-input="nearest">
+                            <input type="text" class="form-control datetimepicker-input" id="editStartDate" name="editStartDate" data-target="#editStartDatePicker"/>
+                            <div class="input-group-append" data-target="#editStartDatePicker" data-toggle="datetimepicker">
+                                <div class="input-group-text"><i class="fa fa-calendar"></i></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="editEndDate">End Date/Time (Optional)</label>
+                        <div class="input-group date" id="editEndDatePicker" data-target-input="nearest">
+                            <input type="text" class="form-control datetimepicker-input" id="editEndDate" name="editEndDate" data-target="#editEndDatePicker"/>
+                            <div class="input-group-append" data-target="#editEndDatePicker" data-toggle="datetimepicker">
+                                <div class="input-group-text"><i class="fa fa-calendar"></i></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="editMaxRuns">Maximum Executions (Optional)</label>
+                        <input type="number" class="form-control" id="editMaxRuns" name="editMaxRuns" min="1">
+                        <small class="form-text text-muted">Leave empty for unlimited executions</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <div class="custom-control custom-checkbox">
+                            <input type="checkbox" class="custom-control-input" id="editIsActive" name="editIsActive">
+                            <label class="custom-control-label" for="editIsActive">Active</label>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="updateScheduleBtn">Update Schedule</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- JavaScript -->
+<script>
+    $(document).ready(function() {
+        // Initialize date pickers
+        $('#startDatePicker, #endDatePicker, #editStartDatePicker, #editEndDatePicker').datetimepicker({
+            format: 'YYYY-MM-DD HH:mm',
+            icons: {
+                time: 'fas fa-clock',
+                date: 'fas fa-calendar',
+                up: 'fas fa-arrow-up',
+                down: 'fas fa-arrow-down',
+                previous: 'fas fa-chevron-left',
+                next: 'fas fa-chevron-right',
+                today: 'fas fa-calendar-check',
+                clear: 'fas fa-trash',
+                close: 'fas fa-times'
+            },
+            // Use these options for local timezone
+            useCurrent: true,
+            sideBySide: true,
+            keepOpen: false,
+            showTodayButton: true
+        });
+        
+        // Load document jobs
+        loadDocumentJobs();
+        
+        // Event handlers
+        $('#documentJobSelect').on('change', function() {
+            const jobId = $(this).val();
+            if (jobId) {
+                loadJobDetails(jobId);
+                loadJobSchedules(jobId);
+                loadExecutionHistory(jobId);
+                $('#jobDetails').show();
+            } else {
+                $('#jobDetails').hide();
+                $('#schedulesContainer').html('<p class="text-muted">Select a job to view its schedules</p>');
+                $('#executionHistoryContainer').html('<p class="text-muted">Select a job to view its execution history</p>');
+            }
+        });
+        
+        // Schedule type change handler
+        $('#scheduleType').on('change', function() {
+            const scheduleType = $(this).val();
+            
+            // Hide all settings sections
+            $('#intervalSettings, #cronSettings').hide();
+            
+            // Show appropriate section based on type
+            if (scheduleType === 'interval') {
+                $('#intervalSettings').show();
+            } else if (scheduleType === 'cron') {
+                $('#cronSettings').show();
+            }
+        });
+        
+        // Edit schedule type change handler
+        $('#editScheduleType').on('change', function() {
+            const scheduleType = $(this).val();
+            
+            // Hide all settings sections
+            $('#editIntervalSettings, #editCronSettings').hide();
+            
+            // Show appropriate section based on type
+            if (scheduleType === 'interval') {
+                $('#editIntervalSettings').show();
+            } else if (scheduleType === 'cron') {
+                $('#editCronSettings').show();
+            }
+        });
+        
+        // Add schedule button
+        $('#addScheduleBtn').on('click', function() {
+            const jobId = $('#documentJobSelect').val();
+            $('#scheduleJobId').val(jobId);
+            
+            // Reset form
+            $('#scheduleForm')[0].reset();
+            $('#scheduleType').val('').trigger('change');
+            
+            // Show modal
+            $('#addScheduleModal').modal('show');
+        });
+        
+        // Save schedule button
+        $('#saveScheduleBtn').on('click', function() {
+            console.log('Saving schedule...');
+            saveSchedule();
+        });
+        
+        // Update schedule button
+        $('#updateScheduleBtn').on('click', function() {
+            updateSchedule();
+        });
+        
+        // Run job now button
+        $('#runJobNowBtn').on('click', function() {
+            const jobId = $('#documentJobSelect').val();
+            runJobNow(jobId);
+        });
+    });
+    
+    // Load document jobs from API
+    function loadDocumentJobs() {
+        $.ajax({
+            url: '/api/scheduler/jobs',
+            type: 'GET',
+            dataType: 'json',
+            success: function(jobs) {
+                // Filter for document jobs only
+                const documentJobs = jobs.filter(job => job.type === 'document');
+                
+                // Populate select dropdown
+                const select = $('#documentJobSelect');
+                select.empty();
+                select.append('<option value="">-- Select a job --</option>');
+                
+                documentJobs.forEach(job => {
+                    select.append(`<option value="${job.id}">${job.name}</option>`);
+                });
+                
+                // If we have jobs, select the first one
+                if (documentJobs.length > 0) {
+                    // Don't automatically select - let user choose
+                    // select.val(documentJobs[0].id).trigger('change');
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('Error loading document jobs:', error);
+                showAlert('danger', 'Failed to load document jobs. Please try again.');
+            }
+        });
+    }
+    
+    // Load job details
+    function loadJobDetails(jobId) {
+        $.ajax({
+            url: `/api/scheduler/jobs/${jobId}`,
+            type: 'GET',
+            dataType: 'json',
+            success: function(job) {
+                // Update job details
+                $('#jobName').text(job.name);
+                $('#jobDescription').text(job.description || 'No description');
+                $('#jobStatus').html(job.is_active 
+                    ? '<span class="badge badge-success">Active</span>' 
+                    : '<span class="badge badge-secondary">Inactive</span>');
+                
+                // Get last run from schedules if available
+                let lastRun = 'Never';
+                if (job.schedules && job.schedules.length > 0) {
+                    const lastRunTimes = job.schedules
+                        .filter(s => s.last_run_time)
+                        .map(s => new Date(s.last_run_time));
+                    
+                    if (lastRunTimes.length > 0) {
+                        const mostRecent = new Date(Math.max.apply(null, lastRunTimes));
+                        lastRun = formatDateTime(mostRecent);
+                    }
+                }
+                $('#jobLastRun').text(lastRun);
+            },
+            error: function(xhr, status, error) {
+                console.error('Error loading job details:', error);
+                showAlert('danger', 'Failed to load job details. Please try again.');
+            }
+        });
+    }
+    
+    // Load job schedules
+    function loadJobSchedules(jobId) {
+        $.ajax({
+            url: `/api/scheduler/jobs/${jobId}/schedules`,
+            type: 'GET',
+            dataType: 'json',
+            success: function(schedules) {
+                const container = $('#schedulesContainer');
+                
+                if (schedules.length === 0) {
+                    container.html('<p class="text-muted">No schedules found for this job</p>');
+                    return;
+                }
+                
+                let html = '<div class="list-group">';
+                
+                schedules.forEach(schedule => {
+                    const isActive = schedule.is_active 
+                        ? '<span class="badge badge-success">Active</span>' 
+                        : '<span class="badge badge-secondary">Inactive</span>';
+                    
+                    let scheduleDesc = '';
+                    
+                    if (schedule.type === 'interval') {
+                        scheduleDesc = getIntervalDescription(schedule);
+                    } else if (schedule.type === 'cron') {
+                        scheduleDesc = `Cron: ${schedule.cron_expression}`;
+                    } else if (schedule.type === 'date') {
+                        scheduleDesc = `One-time: ${formatDateTime(new Date(schedule.start_date))}`;
+                    }
+                    
+                    let nextRun = schedule.next_run_time 
+                        ? `Next run: ${formatDateTime(new Date(schedule.next_run_time))}` 
+                        : 'No future runs scheduled';
+                    
+                    let lastRun = schedule.last_run_time 
+                        ? `Last run: ${formatDateTime(new Date(schedule.last_run_time))}` 
+                        : 'Never run';
+                    
+                    let runsInfo = '';
+                    if (schedule.max_runs) {
+                        runsInfo = `${schedule.current_runs || 0}/${schedule.max_runs} executions completed`;
+                    }
+                    
+                    html += `
+                        <div class="list-group-item">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1">${scheduleDesc}</h6>
+                                ${isActive}
+                            </div>
+                            <p class="mb-1">${nextRun}</p>
+                            <small>${lastRun}</small>
+                            ${runsInfo ? `<small class="d-block">${runsInfo}</small>` : ''}
+                            <div class="mt-2">
+                                <button type="button" class="btn btn-outline-primary btn-sm" 
+                                        onclick="editSchedule(${schedule.id}, ${jobId})">
+                                    <i class="fas fa-edit"></i> Edit
+                                </button>
+                                <button type="button" class="btn btn-outline-danger btn-sm" 
+                                        onclick="deleteSchedule(${schedule.id}, ${jobId})">
+                                    <i class="fas fa-trash"></i> Delete
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+                container.html(html);
+            },
+            error: function(xhr, status, error) {
+                console.error('Error loading job schedules:', error);
+                showAlert('danger', 'Failed to load job schedules. Please try again.');
+            }
+        });
+    }
+    
+    // Load execution history
+    function loadExecutionHistory(jobId) {
+        $.ajax({
+            url: `/api/scheduler/executions?job_id=${jobId}`,
+            type: 'GET',
+            dataType: 'json',
+            success: function(executions) {
+                const container = $('#executionHistoryContainer');
+                
+                if (executions.length === 0) {
+                    container.html('<p class="text-muted">No execution history found for this job</p>');
+                    return;
+                }
+                
+                let html = `
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Start Time</th>
+                                    <th>End Time</th>
+                                    <th>Status</th>
+                                    <th>Result</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+                
+                executions.forEach(execution => {
+                    const startTime = formatDateTime(new Date(execution.start_time));
+                    const endTime = execution.end_time ? formatDateTime(new Date(execution.end_time)) : '-';
+                    
+                    let statusBadge = '';
+                    switch (execution.status.toLowerCase()) {
+                        case 'completed':
+                            statusBadge = '<span class="badge badge-success">Completed</span>';
+                            break;
+                        case 'running':
+                            statusBadge = '<span class="badge badge-primary">Running</span>';
+                            break;
+                        case 'pending':
+                            statusBadge = '<span class="badge badge-info">Pending</span>';
+                            break;
+                        case 'failed':
+                            statusBadge = '<span class="badge badge-danger">Failed</span>';
+                            break;
+                        default:
+                            statusBadge = `<span class="badge badge-secondary">${execution.status}</span>`;
+                    }
+                    
+                    const resultPreview = execution.result_message ? 
+                        execution.result_message.substring(0, 100) + (execution.result_message.length > 100 ? '...' : '') : 
+                        '-';
+                    
+                    html += `
+                        <tr>
+                            <td>${startTime}</td>
+                            <td>${endTime}</td>
+                            <td>${statusBadge}</td>
+                            <td>${resultPreview}</td>
+                        </tr>
+                    `;
+                });
+                
+                html += `
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+                
+                container.html(html);
+            },
+            error: function(xhr, status, error) {
+                console.error('Error loading execution history:', error);
+                showAlert('danger', 'Failed to load execution history. Please try again.');
+            }
+        });
+    }
+    
+    // Save a new schedule
+    function saveSchedule() {
+        const jobId = $('#scheduleJobId').val();
+        const scheduleType = $('#scheduleType').val();
+
+        console.log('Updating job schedule...');
+        
+        if (!jobId || !scheduleType) {
+            showAlert('warning', 'Please select a job and schedule type.');
+            return;
+        }
+        
+        // Build schedule data based on type
+        const scheduleData = {
+            type: scheduleType,
+            start_date: $('#startDate').val() || null,
+            end_date: $('#endDate').val() || null,
+            max_runs: $('#maxRuns').val() ? parseInt($('#maxRuns').val()) : null,
+            is_active: $('#isActive').is(':checked'),
+            // Add timezone offset in minutes
+            timezone_offset: new Date().getTimezoneOffset()
+        };
+        
+        if (scheduleType === 'interval') {
+            scheduleData.interval_seconds = $('#intervalSeconds').val() ? parseInt($('#intervalSeconds').val()) : null;
+            scheduleData.interval_minutes = $('#intervalMinutes').val() ? parseInt($('#intervalMinutes').val()) : null;
+            scheduleData.interval_hours = $('#intervalHours').val() ? parseInt($('#intervalHours').val()) : null;
+            scheduleData.interval_days = $('#intervalDays').val() ? parseInt($('#intervalDays').val()) : null;
+            scheduleData.interval_weeks = $('#intervalWeeks').val() ? parseInt($('#intervalWeeks').val()) : null;
+            //scheduleData.timezone_offset = new Date().getTimezoneOffset();
+            
+            // Validate that at least one interval is set
+            if (!scheduleData.interval_seconds && !scheduleData.interval_minutes && 
+                !scheduleData.interval_hours && !scheduleData.interval_days && !scheduleData.interval_weeks) {
+                showAlert('warning', 'Please specify at least one interval value.');
+                return;
+            }
+        } else if (scheduleType === 'cron') {
+            scheduleData.cron_expression = $('#cronExpression').val();
+            
+            if (!scheduleData.cron_expression) {
+                showAlert('warning', 'Please enter a cron expression.');
+                return;
+            }
+        } else if (scheduleType === 'date') {
+            if (!scheduleData.start_date) {
+                showAlert('warning', 'Please specify a start date for one-time execution.');
+                return;
+            }
+        }
+        
+        console.log(`Schedule Data: ${scheduleData}`);
+
+        $.ajax({
+            url: `/api/scheduler/jobs/${jobId}/schedules`,
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(scheduleData),
+            success: function(response) {
+                // Close modal
+                $('#addScheduleModal').modal('hide');
+                
+                // Show success message
+                showAlert('success', 'Schedule created successfully.');
+                
+                // Reload schedules
+                loadJobSchedules(jobId);
+            },
+            error: function(xhr, status, error) {
+                console.error('Error creating schedule:', error);
+                showAlert('danger', `Failed to create schedule: ${xhr.responseJSON?.error || error}`);
+            }
+        });
+    }
+    
+    // Edit an existing schedule
+    function editSchedule(scheduleId, jobId) {
+        $.ajax({
+            url: `/api/scheduler/jobs/${jobId}/schedules/${scheduleId}`,
+            type: 'GET',
+            dataType: 'json',
+            success: function(schedule) {
+                // Populate form fields
+                $('#editScheduleId').val(scheduleId);
+                $('#editScheduleJobId').val(jobId);
+                $('#editScheduleType').val(schedule.type).trigger('change');
+                
+                // Interval settings
+                $('#editIntervalSeconds').val(schedule.interval_seconds);
+                $('#editIntervalMinutes').val(schedule.interval_minutes);
+                $('#editIntervalHours').val(schedule.interval_hours);
+                $('#editIntervalDays').val(schedule.interval_days);
+                $('#editIntervalWeeks').val(schedule.interval_weeks);
+                
+                // Cron settings
+                $('#editCronExpression').val(schedule.cron_expression);
+                
+                // Date settings
+                $('#editStartDate').val(schedule.start_date ? formatDateTimeForInput(new Date(schedule.start_date)) : '');
+                $('#editEndDate').val(schedule.end_date ? formatDateTimeForInput(new Date(schedule.end_date)) : '');
+                
+                // Other settings
+                $('#editMaxRuns').val(schedule.max_runs);
+                $('#editIsActive').prop('checked', schedule.is_active);
+                
+                // Show modal
+                $('#editScheduleModal').modal('show');
+            },
+            error: function(xhr, status, error) {
+                console.error('Error loading schedule details:', error);
+                showAlert('danger', 'Failed to load schedule details. Please try again.');
+            }
+        });
+    }
+    
+    // Update an existing schedule
+    function updateSchedule() {
+        const scheduleId = $('#editScheduleId').val();
+        const jobId = $('#editScheduleJobId').val();
+        const scheduleType = $('#editScheduleType').val();
+        
+        // Build schedule data based on type
+        const scheduleData = {
+            start_date: $('#editStartDate').val() || null,
+            end_date: $('#editEndDate').val() || null,
+            max_runs: $('#editMaxRuns').val() ? parseInt($('#editMaxRuns').val()) : null,
+            is_active: $('#editIsActive').is(':checked')
+        };
+        
+        if (scheduleType === 'interval') {
+            scheduleData.interval_seconds = $('#editIntervalSeconds').val() ? parseInt($('#editIntervalSeconds').val()) : null;
+            scheduleData.interval_minutes = $('#editIntervalMinutes').val() ? parseInt($('#editIntervalMinutes').val()) : null;
+            scheduleData.interval_hours = $('#editIntervalHours').val() ? parseInt($('#editIntervalHours').val()) : null;
+            scheduleData.interval_days = $('#editIntervalDays').val() ? parseInt($('#editIntervalDays').val()) : null;
+            scheduleData.interval_weeks = $('#editIntervalWeeks').val() ? parseInt($('#editIntervalWeeks').val()) : null;
+        } else if (scheduleType === 'cron') {
+            scheduleData.cron_expression = $('#editCronExpression').val();
+        }
+        
+        $.ajax({
+            url: `/api/scheduler/jobs/${jobId}/schedules/${scheduleId}`,
+            type: 'PUT',
+            contentType: 'application/json',
+            data: JSON.stringify(scheduleData),
+            success: function(response) {
+                // Close modal
+                $('#editScheduleModal').modal('hide');
+                
+                // Show success message
+                showAlert('success', 'Schedule updated successfully.');
+                
+                // Reload schedules
+                loadJobSchedules(jobId);
+            },
+            error: function(xhr, status, error) {
+                console.error('Error updating schedule:', error);
+                showAlert('danger', `Failed to update schedule: ${xhr.responseJSON?.error || error}`);
+            }
+        });
+    }
+    
+    // Delete a schedule
+    function deleteSchedule(scheduleId, jobId) {
+        if (confirm('Are you sure you want to delete this schedule?')) {
+            $.ajax({
+                url: `/api/scheduler/jobs/${jobId}/schedules/${scheduleId}`,
+                type: 'DELETE',
+                success: function(response) {
+                    // Show success message
+                    showAlert('success', 'Schedule deleted successfully.');
+                    
+                    // Reload schedules
+                    loadJobSchedules(jobId);
+                },
+                error: function(xhr, status, error) {
+                    console.error('Error deleting schedule:', error);
+                    showAlert('danger', `Failed to delete schedule: ${xhr.responseJSON?.error || error}`);
+                }
+            });
+        }
+    }
+    
+    // Run a job immediately
+    function runJobNow(jobId) {
+        $.ajax({
+            url: `/api/scheduler/run/${jobId}`,
+            type: 'POST',
+            success: function(response) {
+                // Show success message
+                showAlert('success', 'Job started successfully.');
+                
+                // Reload execution history after a short delay
+                setTimeout(() => {
+                    loadExecutionHistory(jobId);
+                }, 2000);
+            },
+            error: function(xhr, status, error) {
+                console.error('Error running job:', error);
+                showAlert('danger', `Failed to run job: ${xhr.responseJSON?.error || error}`);
+            }
+        });
+    }
+    
+    // Helper function to show an alert
+    function showAlert(type, message) {
+        const alertHtml = `
+            <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                ${message}
+                <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+        `;
+        
+        // Prepend alert to the top of the page
+        $('.doc-processor').prepend(alertHtml);
+        
+        // Auto-dismiss after 5 seconds
+        setTimeout(() => {
+            $('.alert').alert('close');
+        }, 5000);
+    }
+    
+    // Helper function to format date/time
+    function formatDateTime(date) {
+        // For display in UI elements (in user's local timezone)
+        if (typeof date === 'string') {
+            date = new Date(date);
+        }
+        return date.toLocaleString();
+    }
+    
+    // Helper function to format date/time for input fields
+    function formatDateTimeForInput_legacy(date) {
+        return date.toISOString().slice(0, 16).replace('T', ' ');
+    }
+
+    function formatDateTimeForInput(date) {
+        // For input fields
+        if (typeof date === 'string') {
+            date = new Date(date);
+        }
+        
+        // Format using local date components but make it clear this is local time
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        
+        return `${year}-${month}-${day} ${hours}:${minutes}`;
+    }
+
+    // Helper function to get interval description
+    function getIntervalDescription(schedule) {
+        const parts = [];
+        
+        if (schedule.interval_seconds) {
+            parts.push(`${schedule.interval_seconds} second${schedule.interval_seconds !== 1 ? 's' : ''}`);
+        }
+        
+        if (schedule.interval_minutes) {
+            parts.push(`${schedule.interval_minutes} minute${schedule.interval_minutes !== 1 ? 's' : ''}`);
+        }
+        
+        if (schedule.interval_hours) {
+            parts.push(`${schedule.interval_hours} hour${schedule.interval_hours !== 1 ? 's' : ''}`);
+        }
+        
+        if (schedule.interval_days) {
+            parts.push(`${schedule.interval_days} day${schedule.interval_days !== 1 ? 's' : ''}`);
+        }
+        
+        if (schedule.interval_weeks) {
+            parts.push(`${schedule.interval_weeks} week${schedule.interval_weeks !== 1 ? 's' : ''}`);
+        }
+        
+        return `Every ${parts.join(', ')}`;
+    }
+</script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme(){var p=document.getElementById('docPage'),i=document.getElementById('docThemeIcon'),l=document.getElementById('docThemeLabel');p.classList.toggle('light-mode');var lt=p.classList.contains('light-mode');i.className=lt?'fas fa-sun':'fas fa-moon';l.textContent=lt?'Light':'Dark';localStorage.setItem('docPageTheme',lt?'light':'dark')}
+(function(){var s=localStorage.getItem('docPageTheme');if(s==='light'){var p=document.getElementById('docPage');if(p){p.classList.add('light-mode');var i=document.getElementById('docThemeIcon'),l=document.getElementById('docThemeLabel');if(i)i.className='fas fa-sun';if(l)l.textContent='Light'}}})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}

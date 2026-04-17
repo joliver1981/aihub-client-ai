@@ -1,0 +1,33 @@
+WHOLESALE PRICE LIST — Q1 2026
+================================
+Metro Retail Group
+Effective: January 1, 2026
+Valid Through: March 31, 2026
+
+PRICING TIERS:
+  Bronze:  1-99 units        (List Price)
+  Silver:  100-499 units     (5% discount)
+  Gold:    500+ units        (12% discount)
+
++-------------+------------------------------------+--------+--------+--------+--------+
+| SKU         | Product Name                       | MSRP   | Bronze | Silver | Gold   |
++-------------+------------------------------------+--------+--------+--------+--------+
+| WF-EL-1001  | Wireless Bluetooth Earbuds Pro     | $49.99 | $24.99 | $23.74 | $21.99 |
+| WF-EL-1042  | USB-C Fast Charging Cable 6ft      | $12.99 |  $4.99 |  $4.74 |  $4.39 |
+| WF-EL-1055  | Portable Power Bank 10000mAh       | $34.99 | $15.99 | $15.19 | $14.07 |
+| WF-HM-2015  | Stainless Steel Water Bottle 32oz  | $19.99 |  $8.49 |  $8.07 |  $7.47 |
+| WF-HM-2023  | Bamboo Cutting Board Set 3pc       | $29.99 | $12.99 | $12.34 | $11.43 |
+| WF-HM-2031  | Silicone Kitchen Utensil Set 8pc   | $24.99 | $11.49 | $10.92 | $10.11 |
+| WF-SP-3008  | Yoga Mat Premium 6mm               | $39.99 | $18.99 | $18.04 | $16.71 |
+| WF-SP-3012  | Resistance Band Set 5 Levels       | $21.99 |  $9.49 |  $9.02 |  $8.35 |
+| WF-OF-4001  | Ergonomic Mouse Pad w/ Wrist Rest  | $14.99 |  $6.99 |  $6.64 |  $6.15 |
+| WF-OF-4010  | Desk Organizer 5 Compartment       | $22.99 |  $9.99 |  $9.49 |  $8.79 |
++-------------+------------------------------------+--------+--------+--------+--------+
+
+NOTES:
+  - Prices FOB Metro Retail warehouse
+  - Minimum order: $500 per SKU (Bronze), $2,500 per order (Silver/Gold)
+  - Volume commitments reviewed quarterly
+  - Price protection: 30 days on published price decreases
+  - Tier upgrades evaluated monthly based on trailing 90-day volume
+  - Contact your account manager for custom pricing on 1000+ unit orders

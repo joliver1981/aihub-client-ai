@@ -1,0 +1,12 @@
+{
+    "id": "web_intelligence",
+    "name": "Web Intelligence",
+    "version": "1.0.0",
+    "description": "Web search, news monitoring, and geographic data correlation",
+    "provides": {
+        "tools": ["search_web", "geocode_address"],
+        "renderers": ["map"],
+        "data_sources": ["web_search"]
+    },
+    "handler": "handler.py"
+}

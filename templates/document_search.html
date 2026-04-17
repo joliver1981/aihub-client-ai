@@ -1,0 +1,1120 @@
+{% extends "base.html" %}
+{% block title %}Document Search{% endblock %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<style>
+    /* ===== DOCUMENT SEARCH SPECIFIC STYLES ===== */
+    .doc-page .highlight {
+        background-color: rgba(6, 182, 212, 0.25);
+        color: var(--text-primary);
+        padding: 0 2px;
+        border-radius: 2px;
+    }
+
+    .doc-page #results-list .list-group-item:hover {
+        background: var(--bg-hover);
+    }
+
+    .doc-page .badge-low-score {
+        opacity: 0.7;
+    }
+
+    .doc-page .field-criteria-row {
+        padding: 0.75rem;
+        border-radius: 10px;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-subtle);
+    }
+
+    .doc-page .attribute-criteria-row {
+        padding: 0.75rem;
+        border-radius: 10px;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-subtle);
+    }
+
+    .doc-page .field-select-dropdown,
+    .doc-page .operator-dropdown,
+    .doc-page .attribute-name,
+    .doc-page .attribute-operator,
+    .doc-page .attribute-value {
+        background: var(--bg-input);
+        border: 1px solid var(--border-subtle);
+        color: var(--text-primary);
+    }
+
+    .doc-page .list-group-item a.field-select {
+        color: var(--cyber-cyan);
+        text-decoration: none;
+    }
+
+    .doc-page .list-group-item a.field-select:hover {
+        color: var(--cyber-violet);
+        text-decoration: underline;
+    }
+
+    .doc-page .collapse-toggle {
+        cursor: pointer;
+    }
+
+    .doc-page .custom-range {
+        height: 0.5rem;
+        accent-color: var(--cyber-cyan);
+    }
+
+    .doc-page .input-group-text {
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-subtle);
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+
+    .doc-page .input-group-append .btn {
+        border-radius: 0 8px 8px 0;
+    }
+
+    /* Current filters bar */
+    .doc-page .doc-filters-bar {
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-subtle);
+        border-radius: 10px;
+        padding: 0.65rem 0.85rem;
+        margin-top: 0.75rem;
+    }
+
+    .doc-page .doc-filters-bar .badge {
+        background: rgba(6, 182, 212, 0.15);
+        color: var(--cyber-cyan);
+        border: 1px solid rgba(6, 182, 212, 0.3);
+    }
+</style>
+
+<div class="doc-page" id="docPage">
+<div class="container-fluid">
+
+    <!-- Page Header -->
+    <div class="doc-page-header">
+        <div>
+            <h4 class="doc-page-header-title"><i class="fas fa-search"></i> Document Search</h4>
+        </div>
+        <div class="doc-page-header-actions">
+            <span class="badge badge-primary" style="font-size:0.8rem;">{{ document_counts.values()|sum }} Total Documents</span>
+            <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+                <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+            </button>
+        </div>
+    </div>
+    
+    <div class="row">
+        <!-- Sidebar -->
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-header doc-card-header">
+                    <i class="fas fa-folder" style="color:var(--cyber-cyan);margin-right:0.5rem;"></i> Document Types
+                </div>
+                <div class="card-body p-0">
+                    <div class="list-group list-group-flush" id="document-type-list">
+                        <a href="{{ url_for('document_search_page', document_type='') }}" class="list-group-item list-group-item-action {% if not selected_type %}active{% endif %}" data-type="">
+                            All Documents
+                            <span class="badge badge-light float-right">{{ document_counts.values()|sum }}</span>
+                        </a>
+                        {% for doc_type in document_types %}
+                            <a href="{{ url_for('document_search_page', document_type=doc_type) }}" class="list-group-item list-group-item-action {% if selected_type == doc_type %}active{% endif %}" data-type="{{ doc_type }}">
+                                {{ doc_type|title }}
+                                <span class="badge badge-primary float-right">{{ document_counts.get(doc_type, 0) }}</span>
+                            </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card mt-3">
+                <div class="card-header doc-card-header">
+                    <i class="fas fa-cog" style="color:var(--cyber-cyan);margin-right:0.5rem;"></i> Search Options
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('document_search_page') }}" method="GET" id="search-options-form">
+                        {% if search_query %}
+                            <input type="hidden" name="query" value="{{ search_query }}">
+                        {% endif %}
+                        {% if selected_type %}
+                            <input type="hidden" name="document_type" value="{{ selected_type }}">
+                        {% endif %}
+                        <div class="form-group">
+                            <label for="max-results">Maximum Results</label>
+                            <select class="form-control form-control-sm" id="max-results" name="max_results" onchange="this.form.submit()">
+                                <option value="5" {% if max_results == 5 %}selected{% endif %}>5 results</option>
+                                <option value="10" {% if max_results == 10 or not max_results %}selected{% endif %}>10 results</option>
+                                <option value="25" {% if max_results == 25 %}selected{% endif %}>25 results</option>
+                                <option value="50" {% if max_results == 50 %}selected{% endif %}>50 results</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="min-score">Minimum Score Threshold</label>
+                            <input type="range" class="custom-range" id="min-score" name="min_score" min="0" max="1" step="0.05" value="{{ min_score|default(0.5) }}" onchange="this.form.submit()">
+                            <div class="d-flex justify-content-between">
+                                <small>0.0</small>
+                                <small id="min-score-value">{{ min_score|default(0.5) }}</small>
+                                <small>1.0</small>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- Common Field Filters -->
+            <div class="card mt-3">
+                <div class="card-header doc-card-header d-flex justify-content-between align-items-center">
+                    <span><i class="fas fa-list" style="color:var(--cyber-cyan);margin-right:0.5rem;"></i> Common Fields</span>
+                    <button class="btn btn-sm btn-light collapse-toggle" type="button" data-toggle="collapse" data-target="#collapseCommonFields">
+                        <i class="fas fa-chevron-down"></i>
+                    </button>
+                </div>
+                <div class="collapse" id="collapseCommonFields">
+                    <div class="card-body">
+                        <p class="small text-muted">Frequently used document fields</p>
+                        <ul class="list-group">
+                            {% for field in common_fields %}
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    <a href="#" class="field-select" data-field="{{ field.name }}" data-path="{{ field.path }}">
+                                        {{ field.display_name }}
+                                    </a>
+                                    <span class="badge badge-primary badge-pill">{{ field.count }}</span>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="col-md-9">
+            <div class="card mb-4">
+                <div class="card-header doc-card-header">
+                    <i class="fas fa-terminal" style="color:var(--cyber-cyan);margin-right:0.5rem;"></i> Search Interface
+                </div>
+                <div class="card-body">
+                    <ul class="nav nav-tabs" id="searchTabs" role="tablist">
+                        <li class="nav-item">
+                            <a class="nav-link {% if search_mode != 'attributes' and not advanced_search %}active{% endif %}" id="field-tab" data-toggle="tab" href="#field-search" role="tab">Field Search</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if search_mode == 'attributes' %}active{% endif %}" id="attribute-tab" data-toggle="tab" href="#attribute-search" role="tab">Attribute Search</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if advanced_search and search_mode != 'attributes' %}active{% endif %}" id="language-tab" data-toggle="tab" href="#language-search" role="tab">Language Search</a>
+                        </li>
+                    </ul>
+                                        
+                    <div class="tab-content mt-3" id="searchTabsContent">
+                        <!-- Field Search Tab -->
+                        <div class="tab-pane fade {% if search_mode != 'attributes' and not advanced_search %}show active{% endif %}" id="field-search" role="tabpanel">
+                            <form action="{{ url_for('document_search_page') }}" method="GET" id="field-search-form">
+                                <!-- Your existing field search form content stays exactly the same -->
+                                <!-- Document type selection -->
+                                {% if not selected_type %}
+                                    <div class="form-group">
+                                        <label for="adv-document-type">Document Type</label>
+                                        <select class="form-control form-control-sm" id="adv-document-type" name="document_type">
+                                            <option value="">Any document type</option>
+                                            {% for doc_type in document_types %}
+                                                <option value="{{ doc_type }}" {% if selected_type == doc_type %}selected{% endif %}>{{ doc_type|title }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                {% else %}
+                                    <input type="hidden" name="document_type" value="{{ selected_type }}">
+                                {% endif %}
+                                
+                                <!-- Field criteria container -->
+                                <div id="field-criteria-container">
+                                    {% if field_filters %}
+                                        {% for filter in field_filters %}
+                                            <div class="field-criteria-row mb-3">
+                                                <div class="row">
+                                                    <div class="col-md-5">
+                                                        <select class="form-control form-control-sm field-select-dropdown" name="field_name[]">
+                                                            <option value="%">Any field</option>
+                                                            {% for field_group in available_fields %}
+                                                                <optgroup label="{{ field_group.group }}">
+                                                                    {% for field in field_group.fields %}
+                                                                        <option value="{{ field.path }}" {% if filter.field_path == field.path %}selected{% endif %}>
+                                                                            {{ field.display_name }}
+                                                                        </option>
+                                                                    {% endfor %}
+                                                                </optgroup>
+                                                            {% endfor %}
+                                                        </select>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <select class="form-control form-control-sm operator-dropdown" name="field_operator[]">
+                                                            <option value="equals" {% if filter.operator == 'equals' %}selected{% endif %}>Equals</option>
+                                                            <option value="contains" {% if filter.operator == 'contains' %}selected{% endif %}>Contains</option>
+                                                            <option value="starts_with" {% if filter.operator == 'starts_with' %}selected{% endif %}>Starts with</option>
+                                                            <option value="ends_with" {% if filter.operator == 'ends_with' %}selected{% endif %}>Ends with</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <input type="text" class="form-control form-control-sm" name="field_value[]" placeholder="Value" value="{{ filter.value }}">
+                                                    </div>
+                                                    <div class="col-md-1">
+                                                        <button type="button" class="btn btn-sm btn-outline-danger remove-field-btn">
+                                                            <i class="fas fa-times"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        {% endfor %}
+                                    {% else %}
+                                        <div class="field-criteria-row mb-3">
+                                            <div class="row">
+                                                <div class="col-md-5">
+                                                    <select class="form-control form-control-sm field-select-dropdown" name="field_name[]">
+                                                        <option value="%">Any field</option>
+                                                        {% for field_group in available_fields %}
+                                                            <optgroup label="{{ field_group.group }}">
+                                                                {% for field in field_group.fields %}
+                                                                    <option value="{{ field.path }}">{{ field.display_name }}</option>
+                                                                {% endfor %}
+                                                            </optgroup>
+                                                        {% endfor %}
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <select class="form-control form-control-sm operator-dropdown" name="field_operator[]">
+                                                        <option value="equals">Equals</option>
+                                                        <option value="contains">Contains</option>
+                                                        <option value="starts_with">Starts with</option>
+                                                        <option value="ends_with">Ends with</option>
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <input type="text" class="form-control form-control-sm" name="field_value[]" placeholder="Value">
+                                                </div>
+                                                <div class="col-md-1">
+                                                    <button type="button" class="btn btn-sm btn-outline-danger remove-field-btn">
+                                                        <i class="fas fa-times"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                                
+                                <!-- Add more fields button -->
+                                <div class="mb-3">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="add-field-btn">
+                                        <i class="fas fa-plus"></i> Add Field
+                                    </button>
+                                </div>
+                                
+                                <!-- Free text search (optional in advanced mode) -->
+                                <div class="form-group">
+                                    <label for="advanced-query">Additional Search Terms (Optional)</label>
+                                    <input type="text" class="form-control form-control-sm" id="advanced-query" name="query" placeholder="Additional free text search terms" value="{{ search_query }}">
+                                </div>
+                                
+                                <!-- Search options (hidden) -->
+                                {% if min_score %}
+                                    <input type="hidden" name="min_score" value="{{ min_score }}">
+                                {% endif %}
+                                {% if max_results %}
+                                    <input type="hidden" name="max_results" value="{{ max_results }}">
+                                {% endif %}
+                                
+                                <!-- Submit button -->
+                                <div class="form-group mt-4">
+                                    <button type="submit" class="btn btn-primary btn-sm">
+                                        <i class="fas fa-search"></i> Search Documents
+                                    </button>
+                                    <a href="{{ url_for('document_search_page') }}" class="btn btn-outline-secondary btn-sm ml-2">
+                                        <i class="fas fa-undo"></i> Reset
+                                    </a>
+                                </div>
+                            </form>
+                        </div>
+                        
+                       <!-- Attribute Search Tab -->
+                        <div class="tab-pane fade {% if search_mode == 'attributes' %}show active{% endif %}" id="attribute-search" role="tabpanel">
+                            <form action="{{ url_for('document_search_page') }}" method="GET" id="attribute-search-form">
+                                <input type="hidden" name="search_mode" value="attributes">
+                                
+                                <!-- Document type selection -->
+                                {% if not selected_type %}
+                                    <div class="form-group">
+                                        <label for="attr-document-type">Document Type</label>
+                                        <select class="form-control form-control-sm" id="attr-document-type" name="document_type">
+                                            <option value="">Any document type</option>
+                                            {% for doc_type in document_types %}
+                                                <option value="{{ doc_type }}" {% if selected_type == doc_type %}selected{% endif %}>{{ doc_type|title }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                {% else %}
+                                    <input type="hidden" name="document_type" value="{{ selected_type }}">
+                                {% endif %}
+                                
+                                <!-- Description -->
+                                <div class="alert alert-info">
+                                    <i class="fas fa-info-circle"></i>
+                                    <strong>Attribute Search:</strong> Search documents by their custom metadata
+                                </div>
+                                
+                                <!-- Attribute criteria container -->
+                                <div id="attribute-criteria-container">
+                                    <div class="attribute-criteria-row mb-3">
+                                        <div class="row">
+                                            <div class="col-md-4">
+                                                <label class="form-label small">Attribute Name</label>
+                                                <input type="text" class="form-control form-control-sm attribute-name" 
+                                                    placeholder="e.g., Author, Department..." 
+                                                    list="attribute-suggestions"
+                                                    name="attribute_name[]">
+                                            </div>
+                                            <div class="col-md-2">
+                                                <label class="form-label small">Operator</label>
+                                                <select class="form-control form-control-sm attribute-operator" name="attribute_operator[]">
+                                                    <option value="equals">Equals</option>
+                                                    <option value="contains">Contains</option>
+                                                    <option value="starts_with">Starts with</option>
+                                                    <option value="ends_with">Ends with</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-5">
+                                                <label class="form-label small">Value</label>
+                                                <input type="text" class="form-control form-control-sm attribute-value" 
+                                                    placeholder="Enter attribute value..."
+                                                    name="attribute_value[]">
+                                            </div>
+                                            <div class="col-md-1 d-flex align-items-end">
+                                                <button type="button" class="btn btn-sm btn-outline-danger remove-attribute-btn">
+                                                    <i class="fas fa-times"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Add more attributes button -->
+                                <div class="mb-3">
+                                    <button type="button" class="btn btn-sm btn-outline-primary" id="add-attribute-btn">
+                                        <i class="fas fa-plus"></i> Add Attribute
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-info ml-2" id="load-suggestions-btn">
+                                        <i class="fas fa-lightbulb"></i> Show Available Attributes
+                                    </button>
+                                </div>
+                                
+                                <!-- Optional text search -->
+                                <div class="form-group">
+                                    <label for="attr-query">Additional Search Terms (Optional)</label>
+                                    <input type="text" class="form-control form-control-sm" id="attr-query" name="query" 
+                                        placeholder="Additional free text search terms" value="{{ search_query }}">
+                                    <small class="form-text text-muted">Searches within document content in addition to attributes</small>
+                                </div>
+                                
+                                <!-- Search options (hidden) -->
+                                {% if min_score %}
+                                    <input type="hidden" name="min_score" value="{{ min_score }}">
+                                {% endif %}
+                                {% if max_results %}
+                                    <input type="hidden" name="max_results" value="{{ max_results }}">
+                                {% endif %}
+                                
+                                <!-- Submit button -->
+                                <div class="form-group mt-4">
+                                    <button type="submit" class="btn btn-primary btn-sm">
+                                        <i class="fas fa-search"></i> Search by Attributes
+                                    </button>
+                                    <a href="{{ url_for('document_search_page') }}" class="btn btn-outline-secondary btn-sm ml-2">
+                                        <i class="fas fa-undo"></i> Reset
+                                    </a>
+                                </div>
+                            </form>
+                        </div>
+                        
+                        <!-- Language Search Tab -->
+                        <div class="tab-pane fade {% if advanced_search and search_mode != 'attributes' %}show active{% endif %}" id="language-search" role="tabpanel">
+                            <form action="{{ url_for('document_search_page') }}" method="GET" id="language-search-form">
+                                <input type="hidden" name="advanced" value="1">
+                                <div class="input-group mb-3">
+                                    <input type="text" class="form-control form-control-sm" id="search-query" name="query" 
+                                        placeholder="Enter search terms..." value="{{ search_query }}" required>
+                                    {% if selected_type %}
+                                        <input type="hidden" name="document_type" value="{{ selected_type }}">
+                                    {% endif %}
+                                    {% if min_score %}
+                                        <input type="hidden" name="min_score" value="{{ min_score }}">
+                                    {% endif %}
+                                    {% if max_results %}
+                                        <input type="hidden" name="max_results" value="{{ max_results }}">
+                                    {% endif %}
+                                    <div class="input-group-append">
+                                        <button class="btn btn-primary btn-sm" type="submit">
+                                            <i class="fas fa-search"></i> Search
+                                        </button>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Datalist for attribute suggestions -->
+                    <datalist id="attribute-suggestions">
+                        <!-- Options will be populated via JavaScript -->
+                    </datalist>
+                    
+                    <!-- Current filters display -->
+                    {% if search_query or field_filters or selected_type %}
+                        <div class="mt-3 doc-filters-bar">
+                            <strong>Current Filters:</strong>
+                            
+                            {% if selected_type %}
+                                <span class="badge badge-info mr-2">Type: {{ selected_type }}</span>
+                            {% endif %}
+                            
+                            {% if search_query %}
+                                <span class="badge badge-info mr-2">Text: "{{ search_query }}"</span>
+                            {% endif %}
+                            
+                            {% if field_filters %}
+                                {% for filter in field_filters %}
+                                    <span class="badge badge-info mr-2">
+                                        {{ filter.display_name }} {{ filter.operator|replace('_', ' ') }} "{{ filter.value }}"
+                                    </span>
+                                {% endfor %}
+                            {% endif %}
+                            
+                            <a href="{{ url_for('document_search_page') }}" class="btn btn-sm btn-outline-secondary float-right">
+                                <i class="fas fa-times"></i> Clear All
+                            </a>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+            
+            {% if error_message %}
+                <!-- Error Message -->
+                <div class="alert alert-danger">
+                    Error: {{ error_message }}
+                </div>
+            {% endif %}
+            
+            {% if search_results %}
+                <!-- Results Count -->
+                <div class="alert alert-success">
+                    Found {{ search_results|length }} result{% if search_results|length != 1 %}s{% endif %}
+                </div>
+                
+                <!-- Results List -->
+                <div class="card">
+                    <div class="card-header doc-card-header">
+                        <i class="fas fa-list-alt" style="color:var(--cyber-cyan);margin-right:0.5rem;"></i> Search Results
+                    </div>
+                    <div class="list-group list-group-flush">
+                        {% for result in search_results %}
+                            <div class="list-group-item">
+                                <div class="d-flex w-100 justify-content-between">
+                                    <h6 class="mb-1">
+                                        <a href="{{ url_for('document_view_page', document_id=result.document_id, page=result.page_number) }}" class="text-dark">
+                                            {{ result.filename }}
+                                        </a>
+                                    </h6>
+                                    <div>
+                                        <button class="btn btn-sm btn-outline-danger" onclick="event.stopPropagation(); openDeleteModal('{{ result.document_id }}', '{{ result.filename }}')">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                        <small class="text-muted ml-2">Page {{ result.page_number }}</small>
+                                    </div>
+                                </div>
+                                <p class="mb-1">{{ result.snippet|safe }}</p>
+                                <div class="d-flex w-100 justify-content-between mt-2">
+                                    <small class="text-muted">
+                                        <span class="badge badge-secondary">{{ result.document_type }}</span>
+                                        {% if result.reference_number %}
+                                            <span class="ml-2">Ref: {{ result.reference_number }}</span>
+                                        {% endif %}
+                                        {% if result.document_date %}
+                                            <span class="ml-2">Date: {{ result.document_date }}</span>
+                                        {% endif %}
+                                    </small>
+                                    <small>
+                                        {% if result.relevance_score >= 0.90 %}
+                                            <span class="badge badge-success">Score: {{ "%.2f"|format(result.relevance_score) }}</span>
+                                        {% elif result.relevance_score >= 0.70 %}
+                                            <span class="badge badge-info">Score: {{ "%.2f"|format(result.relevance_score) }}</span>
+                                        {% elif result.relevance_score >= 0.50 %}
+                                            <span class="badge badge-primary">Score: {{ "%.2f"|format(result.relevance_score) }}</span>
+                                        {% elif result.relevance_score >= 0.30 %}
+                                            <span class="badge badge-warning">Score: {{ "%.2f"|format(result.relevance_score) }}</span>
+                                        {% else %}
+                                            <span class="badge badge-danger">Score: {{ "%.2f"|format(result.relevance_score) }}</span>
+                                        {% endif %}
+                                    </small>
+                                </div>
+                                
+                                <!-- Matching fields (in advanced search) -->
+                                {% if result.matching_fields %}
+                                    <div class="mt-2 small">
+                                        <strong>Matching Fields:</strong>
+                                        {% for field in result.matching_fields %}
+                                            <span class="badge badge-light">{{ field.name }}: {{ field.value }}</span>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                
+                <!-- Pagination -->
+                {% if pagination %}
+                    <nav aria-label="Results pagination" class="mt-3">
+                        <ul class="pagination pagination-sm justify-content-center">
+                            {% if pagination.has_prev %}
+                                <li class="page-item">
+                                    <a class="page-link" href="{{ url_for('document_search_page', query=search_query, document_type=selected_type, min_score=min_score, max_results=max_results, page=pagination.prev_num, advanced=1 if advanced_search else none) }}{% if field_filters %}{% for filter in field_filters %}&field_name[]={{ filter.field_path|urlencode }}&field_operator[]={{ filter.operator|urlencode }}&field_value[]={{ filter.value|urlencode }}{% endfor %}{% endif %}" aria-label="Previous">
+                                        <span aria-hidden="true">&laquo;</span>
+                                    </a>
+                                </li>
+                            {% else %}
+                                <li class="page-item disabled">
+                                    <a class="page-link" href="#" aria-label="Previous">
+                                        <span aria-hidden="true">&laquo;</span>
+                                    </a>
+                                </li>
+                            {% endif %}
+                            
+                            {% for page_num in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                                {% if page_num %}
+                                    {% if page_num == pagination.page %}
+                                        <li class="page-item active">
+                                            <a class="page-link" href="#">{{ page_num }}</a>
+                                        </li>
+                                    {% else %}
+                                        <li class="page-item">
+                                            <a class="page-link" href="{{ url_for('document_search_page', query=search_query, document_type=selected_type, min_score=min_score, max_results=max_results, page=page_num, advanced=1 if advanced_search else none) }}{% if field_filters %}{% for filter in field_filters %}&field_name[]={{ filter.field_path|urlencode }}&field_operator[]={{ filter.operator|urlencode }}&field_value[]={{ filter.value|urlencode }}{% endfor %}{% endif %}">{{ page_num }}</a>
+                                        </li>
+                                    {% endif %}
+                                {% else %}
+                                    <li class="page-item disabled">
+                                        <a class="page-link" href="#">...</a>
+                                    </li>
+                                {% endif %}
+                            {% endfor %}
+                            
+                            {% if pagination.has_next %}
+                                <li class="page-item">
+                                    <a class="page-link" href="{{ url_for('document_search_page', query=search_query, document_type=selected_type, min_score=min_score, max_results=max_results, page=pagination.next_num, advanced=1 if advanced_search else none) }}{% if field_filters %}{% for filter in field_filters %}&field_name[]={{ filter.field_path|urlencode }}&field_operator[]={{ filter.operator|urlencode }}&field_value[]={{ filter.value|urlencode }}{% endfor %}{% endif %}" aria-label="Next">
+                                        <span aria-hidden="true">&raquo;</span>
+                                    </a>
+                                </li>
+                            {% else %}
+                                <li class="page-item disabled">
+                                    <a class="page-link" href="#" aria-label="Next">
+                                        <span aria-hidden="true">&raquo;</span>
+                                    </a>
+                                </li>
+                            {% endif %}
+                        </ul>
+                    </nav>
+                {% endif %}
+            {% elif search_query or field_filters %}
+                <!-- No Results -->
+                <div class="alert alert-warning">
+                    No results found. Try adjusting your search terms or filters.
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Delete Document Modal -->
+<div class="modal fade" id="delete-document-modal" tabindex="-1" role="dialog" aria-labelledby="deleteDocumentModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deleteDocumentModalLabel">Delete Document</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="delete-document-id">
+                <p>Are you sure you want to delete the document "<span id="delete-document-name"></span>"?</p>
+                <p class="text-danger"><i class="fas fa-exclamation-triangle"></i> This action cannot be undone and will delete the entire document.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirm-delete-btn" onclick="deleteDocument()">
+                    <i class="fas fa-trash"></i> Delete
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // First, define the global function for adding a field row
+    function addFieldRow() {
+        console.log('Add field function called');
+        
+        var container = document.getElementById('field-criteria-container');
+        var templateRow = document.querySelector('.field-criteria-row');
+        
+        if (!container || !templateRow) {
+            console.error('Container or template row not found');
+            return;
+        }
+        
+        // Clone the template row
+        var newRow = templateRow.cloneNode(true);
+        
+        // Clear values in the new row
+        var inputs = newRow.querySelectorAll('input[type="text"]');
+        var selects = newRow.querySelectorAll('select');
+        
+        for (var i = 0; i < inputs.length; i++) {
+            inputs[i].value = '';
+        }
+        
+        for (var j = 0; j < selects.length; j++) {
+            selects[j].selectedIndex = 0;
+        }
+        
+        // Add to container
+        container.appendChild(newRow);
+        
+        // Set up remove button in the new row
+        var removeBtn = newRow.querySelector('.remove-field-btn');
+        if (removeBtn) {
+            removeBtn.onclick = function() {
+                this.closest('.field-criteria-row').remove();
+                updateRemoveButtons();
+                return false;
+            };
+        }
+        
+        // Update button states
+        updateRemoveButtons();
+    }
+    
+    // Define the updateRemoveButtons function
+    function updateRemoveButtons() {
+        var rows = document.querySelectorAll('.field-criteria-row');
+        if (rows.length === 1) {
+            var btn = rows[0].querySelector('.remove-field-btn');
+            if (btn) btn.disabled = true;
+        } else {
+            for (var i = 0; i < rows.length; i++) {
+                var btn = rows[i].querySelector('.remove-field-btn');
+                if (btn) btn.disabled = false;
+            }
+        }
+    }
+    
+    // Now attach the event handler when the DOM is loaded
+    document.addEventListener('DOMContentLoaded', function() {
+        // Find the button and attach the click handler
+        var addButton = document.getElementById('add-field-btn');
+        if (addButton) {
+            console.log('Found add button, attaching handler');
+            addButton.onclick = function() {
+                console.log('Add button clicked');
+                addFieldRow();
+                return false;
+            };
+        } else {
+            console.error('Add button not found');
+        }
+        
+        // Set up existing remove buttons
+        var removeButtons = document.querySelectorAll('.remove-field-btn');
+        for (var i = 0; i < removeButtons.length; i++) {
+            removeButtons[i].onclick = function() {
+                this.closest('.field-criteria-row').remove();
+                updateRemoveButtons();
+                return false;
+            };
+        }
+        
+        // Initialize remove button states
+        updateRemoveButtons();
+        
+        // Rest of your initialization code...
+        
+        // Min score slider
+        var minScoreSlider = document.getElementById('min-score');
+        var minScoreValue = document.getElementById('min-score-value');
+        if (minScoreSlider && minScoreValue) {
+            minScoreSlider.oninput = function() {
+                minScoreValue.textContent = parseFloat(this.value).toFixed(2);
+            };
+        }
+        
+        // Common fields links
+        var fieldLinks = document.querySelectorAll('.field-select');
+        for (var j = 0; j < fieldLinks.length; j++) {
+            fieldLinks[j].onclick = function(e) {
+                e.preventDefault();
+                // Your existing field selection code...
+                
+                var fieldPath = this.getAttribute('data-path');
+                
+                // Switch to advanced tab
+                document.getElementById('advanced-tab').click();
+                
+                // Find empty row or create one
+                var fieldRow = null;
+                var fieldRows = document.querySelectorAll('.field-criteria-row');
+                
+                for (var k = 0; k < fieldRows.length; k++) {
+                    var valueInput = fieldRows[k].querySelector('input[name="field_value[]"]');
+                    if (!valueInput.value) {
+                        fieldRow = fieldRows[k];
+                        break;
+                    }
+                }
+                
+                if (!fieldRow) {
+                    // Call the add function directly
+                    addFieldRow();
+                    fieldRow = document.querySelector('.field-criteria-row:last-child');
+                }
+                
+                // Set field in dropdown
+                var dropdown = fieldRow.querySelector('select[name="field_name[]"]');
+                for (var m = 0; m < dropdown.options.length; m++) {
+                    if (dropdown.options[m].value === fieldPath) {
+                        dropdown.selectedIndex = m;
+                        break;
+                    }
+                }
+                
+                // Focus on input
+                fieldRow.querySelector('input[name="field_value[]"]').focus();
+            };
+        }
+    });
+
+function showToast(message, type = 'info') {
+    // Create toast container if it doesn't exist
+    let toastContainer = document.getElementById('toast-container');
+    if (!toastContainer) {
+        toastContainer = document.createElement('div');
+        toastContainer.id = 'toast-container';
+        toastContainer.style.position = 'fixed';
+        toastContainer.style.top = '20px';
+        toastContainer.style.right = '20px';
+        toastContainer.style.zIndex = '9999';
+        document.body.appendChild(toastContainer);
+    }
+
+    // Create toast element
+    const toast = document.createElement('div');
+    toast.className = `toast align-items-center text-white bg-${type} border-0`;
+    toast.setAttribute('role', 'alert');
+    toast.setAttribute('aria-live', 'assertive');
+    toast.setAttribute('aria-atomic', 'true');
+
+    // Create toast content
+    toast.innerHTML = `
+        <div class="d-flex">
+            <div class="toast-body">
+                ${message}
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+    `;
+
+    // Add toast to container
+    toastContainer.appendChild(toast);
+
+    // Initialize and show toast
+    const bsToast = new bootstrap.Toast(toast, {
+        autohide: true,
+        delay: 3000
+    });
+    bsToast.show();
+
+    // Remove toast after it's hidden
+    toast.addEventListener('hidden.bs.toast', () => {
+        toast.remove();
+    });
+}
+
+function openDeleteModal(documentId, filename) {
+    console.log('Opening delete modal for:', documentId, filename); // Debug log
+    document.getElementById('delete-document-id').value = documentId;
+    document.getElementById('delete-document-name').textContent = filename;
+    $('#delete-document-modal').modal('show');
+}
+
+function deleteDocument() {
+    const documentId = document.getElementById('delete-document-id').value;
+    console.log('Deleting document:', documentId); // Debug log
+    const deleteButton = document.getElementById('confirm-delete-btn');
+    
+    // Disable button and show loading state
+    deleteButton.disabled = true;
+    deleteButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting...';
+    
+    fetch(`/document/delete/${documentId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log('Delete response:', data); // Debug log
+        if (data.status === 'success') {
+            $('#delete-document-modal').modal('hide');
+            showToast('Document deleted successfully', 'success');
+            
+            // Reload the current page to refresh results
+            window.location.reload();
+        } else {
+            showToast(data.message || 'Failed to delete document', 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error deleting document:', error);
+        showToast('Error deleting document', 'error');
+    })
+    .finally(() => {
+        // Reset button state
+        deleteButton.disabled = false;
+        deleteButton.innerHTML = '<i class="fas fa-trash"></i> Delete';
+    });
+}
+
+
+// ===== NEW ATTRIBUTE SEARCH FUNCTIONS =====
+
+// Attribute management functions
+function addAttributeRow() {
+    console.log('Add attribute function called');
+    
+    const container = document.getElementById('attribute-criteria-container');
+    const templateRow = container.querySelector('.attribute-criteria-row');
+    
+    if (!container || !templateRow) {
+        console.error('Attribute container or template row not found');
+        return;
+    }
+    
+    // Clone the template row
+    const newRow = templateRow.cloneNode(true);
+    
+    // Clear values in the new row
+    const inputs = newRow.querySelectorAll('input');
+    const selects = newRow.querySelectorAll('select');
+    
+    inputs.forEach(input => {
+        if (input.type !== 'submit' && input.type !== 'button') {
+            input.value = '';
+        }
+    });
+    
+    selects.forEach(select => {
+        select.selectedIndex = 0;
+    });
+    
+    // Add to container
+    container.appendChild(newRow);
+    
+    // Set up remove button in the new row
+    const removeBtn = newRow.querySelector('.remove-attribute-btn');
+    if (removeBtn) {
+        removeBtn.onclick = function() {
+            this.closest('.attribute-criteria-row').remove();
+            updateAttributeRemoveButtons();
+            return false;
+        };
+    }
+    
+    // Update button states
+    updateAttributeRemoveButtons();
+}
+
+function updateAttributeRemoveButtons() {
+    const rows = document.querySelectorAll('.attribute-criteria-row');
+    if (rows.length === 1) {
+        const btn = rows[0].querySelector('.remove-attribute-btn');
+        if (btn) btn.disabled = true;
+    } else {
+        rows.forEach(row => {
+            const btn = row.querySelector('.remove-attribute-btn');
+            if (btn) btn.disabled = false;
+        });
+    }
+}
+
+function loadAttributeSuggestions() {
+    fetch('/api/document-attributes/metadata')
+        .then(response => response.json())
+        .then(data => {
+            const datalist = document.getElementById('attribute-suggestions');
+            datalist.innerHTML = '';
+            
+            if (data.attribute_metadata) {
+                data.attribute_metadata.forEach(attr => {
+                    const option = document.createElement('option');
+                    option.value = attr.attribute_name;
+                    option.textContent = `${attr.attribute_name} (used in ${attr.documents_with_attribute} docs)`;
+                    datalist.appendChild(option);
+                });
+            }
+            
+            // Show a modal with available attributes
+            showAttributesSuggestionModal(data);
+        })
+        .catch(error => {
+            console.error('Error loading attribute suggestions:', error);
+            alert('Error loading attribute suggestions. Please try again.');
+        });
+}
+
+function showAttributesSuggestionModal(data) {
+    let modalHtml = `
+        <div class="modal fade" id="attributeSuggestionsModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Available Document Attributes</h5>
+                        <button type="button" class="close" data-dismiss="modal">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="text-muted">Here are the attributes currently used across your documents:</p>
+                        <div class="row">
+    `;
+    
+    if (data.attribute_metadata && data.attribute_metadata.length > 0) {
+        data.attribute_metadata.forEach(attr => {
+            modalHtml += `
+                <div class="col-md-6 mb-3">
+                    <div class="border rounded p-2">
+                        <strong>${attr.attribute_name}</strong>
+                        <br><small class="text-muted">Used in ${attr.documents_with_attribute} documents</small>
+                        <br><small class="text-info">Examples: ${attr.sample_values.join(', ')}</small>
+                        <br><button class="btn btn-sm btn-outline-primary mt-1" 
+                                   onclick="addAttributeWithName('${attr.attribute_name}')">
+                            <i class="fas fa-plus"></i> Use This
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+    } else {
+        modalHtml += `
+            <div class="col-12">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    No document attributes found. Start by adding attributes to documents in the Document Manager.
+                </div>
+            </div>
+        `;
+    }
+    
+    modalHtml += `
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Remove existing modal if any
+    const existingModal = document.getElementById('attributeSuggestionsModal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+    
+    // Add new modal to body
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    $('#attributeSuggestionsModal').modal('show');
+}
+
+function addAttributeWithName(attributeName) {
+    addAttributeRow();
+    const lastRow = document.querySelector('#attribute-criteria-container .attribute-criteria-row:last-child');
+    if (lastRow) {
+        lastRow.querySelector('.attribute-name').value = attributeName;
+    }
+    $('#attributeSuggestionsModal').modal('hide');
+}
+
+// ===== EVENT LISTENERS =====
+document.addEventListener('DOMContentLoaded', function() {
+    // Your existing event listeners stay the same...
+    
+    // NEW: Attribute search event listeners
+    const addAttributeButton = document.getElementById('add-attribute-btn');
+    if (addAttributeButton) {
+        addAttributeButton.onclick = function() {
+            addAttributeRow();
+            return false;
+        };
+    }
+    
+    const loadSuggestionsButton = document.getElementById('load-suggestions-btn');
+    if (loadSuggestionsButton) {
+        loadSuggestionsButton.onclick = function() {
+            loadAttributeSuggestions();
+            return false;
+        };
+    }
+    
+    // Set up existing remove buttons for attributes
+    const removeAttributeButtons = document.querySelectorAll('.remove-attribute-btn');
+    removeAttributeButtons.forEach(btn => {
+        btn.onclick = function() {
+            this.closest('.attribute-criteria-row').remove();
+            updateAttributeRemoveButtons();
+            return false;
+        };
+    });
+    
+    // Initialize button states
+    updateAttributeRemoveButtons();
+});
+</script>
+<script src="/static/js/document_search_context.js"></script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    const page = document.getElementById('docPage');
+    const icon = document.getElementById('docThemeIcon');
+    const label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    const isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    const saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        const page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            const icon = document.getElementById('docThemeIcon');
+            const label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.container-fluid -->
+</div><!-- /.doc-page -->
+{% endblock %}

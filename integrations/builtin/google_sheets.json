@@ -1,0 +1,253 @@
+{
+  "template_key": "google_sheets",
+  "platform_name": "Google Sheets",
+  "platform_category": "Productivity",
+  "description": "Connect to Google Sheets for reading and writing spreadsheet data.",
+  "logo_url": "https://cdn.worldvectorlogo.com/logos/google-sheets-logo-icon.svg",
+  "documentation_url": "https://developers.google.com/sheets/api/reference/rest",
+  
+  "auth_type": "oauth2",
+  "auth_config": {
+    "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_url": "https://oauth2.googleapis.com/token",
+    "scopes": [
+      "https://www.googleapis.com/auth/spreadsheets"
+    ],
+    "extra_auth_params": {
+      "access_type": "offline",
+      "prompt": "consent"
+    }
+  },
+  
+  "base_url": "https://sheets.googleapis.com/v4/spreadsheets",
+  
+  "default_headers": {
+    "Accept": "application/json",
+    "Content-Type": "application/json"
+  },
+  
+  "setup_instructions": "## Google Sheets Setup\n\n1. Go to [Google Cloud Console](https://console.cloud.google.com/)\n2. Create a project (or select existing)\n3. Enable the Google Sheets API\n4. Create OAuth 2.0 credentials (Web application)\n5. Add redirect URI: `{callback_url}`\n6. Store credentials in Local Secrets:\n   - `OAUTH_GOOGLE_SHEETS_CLIENT_ID`\n   - `OAUTH_GOOGLE_SHEETS_CLIENT_SECRET`\n7. Click Connect and authorize access to your Google account\n\n**Finding Spreadsheet ID:**\n- From URL: `https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/edit`",
+  
+  "operations": [
+    {
+      "key": "get_values",
+      "name": "Get Values",
+      "description": "Read values from a spreadsheet range",
+      "method": "GET",
+      "endpoint": "/{spreadsheet_id}/values/{range}",
+      "parameters": [
+        {
+          "name": "spreadsheet_id",
+          "label": "Spreadsheet ID",
+          "type": "text",
+          "required": true,
+          "description": "ID from the spreadsheet URL"
+        },
+        {
+          "name": "range",
+          "label": "Range",
+          "type": "text",
+          "required": true,
+          "default": "Sheet1!A1:Z1000",
+          "description": "A1 notation (e.g., Sheet1!A1:D10)"
+        },
+        {
+          "name": "majorDimension",
+          "label": "Major Dimension",
+          "type": "select",
+          "options": [
+            {"value": "ROWS", "label": "Rows"},
+            {"value": "COLUMNS", "label": "Columns"}
+          ],
+          "default": "ROWS"
+        },
+        {
+          "name": "valueRenderOption",
+          "label": "Value Render",
+          "type": "select",
+          "options": [
+            {"value": "FORMATTED_VALUE", "label": "Formatted"},
+            {"value": "UNFORMATTED_VALUE", "label": "Unformatted"},
+            {"value": "FORMULA", "label": "Formula"}
+          ],
+          "default": "FORMATTED_VALUE"
+        }
+      ],
+      "output_mapping": {
+        "values": "$.values",
+        "range": "$.range",
+        "majorDimension": "$.majorDimension"
+      },
+      "category": "read"
+    },
+    {
+      "key": "update_values",
+      "name": "Update Values",
+      "description": "Write values to a spreadsheet range",
+      "method": "PUT",
+      "endpoint": "/{spreadsheet_id}/values/{range}",
+      "parameters": [
+        {
+          "name": "spreadsheet_id",
+          "label": "Spreadsheet ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "range",
+          "label": "Range",
+          "type": "text",
+          "required": true,
+          "default": "Sheet1!A1"
+        },
+        {
+          "name": "values",
+          "label": "Values (JSON 2D array)",
+          "type": "json",
+          "required": true,
+          "placeholder": "[[\"A1\", \"B1\"], [\"A2\", \"B2\"]]"
+        },
+        {
+          "name": "valueInputOption",
+          "label": "Input Option",
+          "type": "select",
+          "options": [
+            {"value": "RAW", "label": "Raw (as-is)"},
+            {"value": "USER_ENTERED", "label": "User Entered (parse formulas)"}
+          ],
+          "default": "USER_ENTERED",
+          "query_param": true
+        }
+      ],
+      "body_template": {
+        "range": "{range}",
+        "majorDimension": "ROWS",
+        "values": "{values}"
+      },
+      "output_mapping": {
+        "updatedRange": "$.updatedRange",
+        "updatedRows": "$.updatedRows",
+        "updatedColumns": "$.updatedColumns",
+        "updatedCells": "$.updatedCells"
+      },
+      "category": "write"
+    },
+    {
+      "key": "append_values",
+      "name": "Append Values",
+      "description": "Append rows to a spreadsheet",
+      "method": "POST",
+      "endpoint": "/{spreadsheet_id}/values/{range}:append",
+      "parameters": [
+        {
+          "name": "spreadsheet_id",
+          "label": "Spreadsheet ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "range",
+          "label": "Range",
+          "type": "text",
+          "required": true,
+          "default": "Sheet1!A1",
+          "description": "Starting cell for append"
+        },
+        {
+          "name": "values",
+          "label": "Values (JSON 2D array)",
+          "type": "json",
+          "required": true,
+          "placeholder": "[[\"New Row 1\", \"Value\"]]"
+        },
+        {
+          "name": "valueInputOption",
+          "label": "Input Option",
+          "type": "select",
+          "options": [
+            {"value": "RAW", "label": "Raw"},
+            {"value": "USER_ENTERED", "label": "User Entered"}
+          ],
+          "default": "USER_ENTERED",
+          "query_param": true
+        },
+        {
+          "name": "insertDataOption",
+          "label": "Insert Option",
+          "type": "select",
+          "options": [
+            {"value": "OVERWRITE", "label": "Overwrite"},
+            {"value": "INSERT_ROWS", "label": "Insert Rows"}
+          ],
+          "default": "INSERT_ROWS",
+          "query_param": true
+        }
+      ],
+      "body_template": {
+        "range": "{range}",
+        "majorDimension": "ROWS",
+        "values": "{values}"
+      },
+      "output_mapping": {
+        "updates": "$.updates"
+      },
+      "category": "write"
+    },
+    {
+      "key": "get_spreadsheet",
+      "name": "Get Spreadsheet Info",
+      "description": "Get spreadsheet metadata including sheets",
+      "method": "GET",
+      "endpoint": "/{spreadsheet_id}",
+      "parameters": [
+        {
+          "name": "spreadsheet_id",
+          "label": "Spreadsheet ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "includeGridData",
+          "label": "Include Grid Data",
+          "type": "checkbox",
+          "default": false
+        }
+      ],
+      "output_mapping": {
+        "spreadsheetId": "$.spreadsheetId",
+        "title": "$.properties.title",
+        "sheets": "$.sheets"
+      },
+      "category": "read"
+    },
+    {
+      "key": "clear_values",
+      "name": "Clear Values",
+      "description": "Clear values from a range",
+      "method": "POST",
+      "endpoint": "/{spreadsheet_id}/values/{range}:clear",
+      "parameters": [
+        {
+          "name": "spreadsheet_id",
+          "label": "Spreadsheet ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "range",
+          "label": "Range",
+          "type": "text",
+          "required": true,
+          "description": "Range to clear (e.g., Sheet1!A1:D10)"
+        }
+      ],
+      "body_template": {},
+      "output_mapping": {
+        "clearedRange": "$.clearedRange"
+      },
+      "category": "write"
+    }
+  ],
+  
+  "supports_webhooks": false
+}

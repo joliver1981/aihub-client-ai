@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<style>
+    .login-page {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 70vh;
+    }
+    .login-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: 16px;
+        padding: 2.5rem;
+        width: 100%;
+        max-width: 420px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    }
+    .login-card h3 {
+        color: var(--text-primary);
+        font-family: 'Outfit', sans-serif;
+        font-weight: 700;
+        font-size: 1.5rem;
+        margin-bottom: 0.25rem;
+    }
+    .login-card .login-subtitle {
+        color: var(--text-muted);
+        font-size: 0.88rem;
+        margin-bottom: 1.5rem;
+    }
+    .login-card .login-icon {
+        color: var(--cyber-cyan);
+        font-size: 2rem;
+        margin-bottom: 1rem;
+        display: block;
+    }
+</style>
+
+<div class="doc-page" id="docPage">
+
+    <div class="login-page">
+        <div class="login-card">
+            <i class="fas fa-shield-alt login-icon"></i>
+            <h3>Login</h3>
+            <p class="login-subtitle">Sign in to access AI Hub</p>
+            <form method="POST" action="">
+                {{ form.hidden_tag() }}
+                <div class="form-group">
+                    {{ form.username.label(class="form-control-label") }}
+                    {{ form.username(class="form-control form-control-lg") }}
+                </div>
+                <div class="form-group">
+                    {{ form.password.label(class="form-control-label") }}
+                    {{ form.password(class="form-control form-control-lg") }}
+                </div>
+                <div class="form-group">
+                    <div class="form-check">
+                        {{ form.remember(class="form-check-input") }}
+                        {{ form.remember.label(class="form-check-label") }}
+                    </div>
+                </div>
+                <div class="form-group">
+                    {{ form.submit(class="btn btn-primary btn-lg btn-block") }}
+                </div>
+            </form>
+        </div>
+    </div>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme(){var p=document.getElementById('docPage'),i=document.getElementById('docThemeIcon'),l=document.getElementById('docThemeLabel');p.classList.toggle('light-mode');var lt=p.classList.contains('light-mode');i.className=lt?'fas fa-sun':'fas fa-moon';l.textContent=lt?'Light':'Dark';localStorage.setItem('docPageTheme',lt?'light':'dark')}
+(function(){var s=localStorage.getItem('docPageTheme');if(s==='light'){var p=document.getElementById('docPage');if(p){p.classList.add('light-mode');var i=document.getElementById('docThemeIcon'),l=document.getElementById('docThemeLabel');if(i)i.className='fas fa-sun';if(l)l.textContent='Light'}}})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}

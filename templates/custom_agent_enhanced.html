@@ -1,0 +1,3024 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<!-- Enhanced CSS for the tool selection UI -->
+<style>
+    /* ===== ANIMATED CHECKBOX STYLES ===== */
+    /* Checkbox Container */
+    .animated-checkbox {
+        display: inline-block;
+        margin-right: 10px;
+    }
+    
+    /* Hide the default checkbox */
+    .animated-checkbox input[type="checkbox"] {
+        display: none;
+    }
+    
+    /* Custom checkbox label */
+    .checkbox-label {
+        position: relative;
+        padding-left: 35px;
+        cursor: pointer;
+        display: inline-block;
+        color: var(--text-secondary, #666);
+        transition: color 0.3s ease;
+        user-select: none;
+        font-size: 0.9rem;
+        line-height: 25px;
+    }
+    
+    /* The checkbox box itself */
+    .checkbox-label:before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 20px;
+        height: 20px;
+        border: 2px solid #667eea;
+        border-radius: 4px;
+        background: var(--bg-card, white);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    /* The checkmark */
+    .checkbox-label:after {
+        content: '';
+        position: absolute;
+        left: 7px;
+        top: 3px;
+        width: 5px;
+        height: 10px;
+        border: solid white;
+        border-width: 0 2px 2px 0;
+        transform: rotate(45deg) scale(0);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    /* Checked state - box background */
+    input[type="checkbox"]:checked + .checkbox-label:before {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border-color: #667eea;
+    }
+    
+    /* Checked state - show checkmark */
+    input[type="checkbox"]:checked + .checkbox-label:after {
+        transform: rotate(45deg) scale(1);
+    }
+    
+    /* Checked state - label color */
+    input[type="checkbox"]:checked + .checkbox-label {
+        color: #667eea;
+    }
+    
+    /* Optional: Hover effects */
+    .checkbox-label:hover:before {
+        border-color: #764ba2;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+    
+    /* Optional: Focus state (for accessibility) */
+    .animated-checkbox input[type="checkbox"]:focus + .checkbox-label:before {
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+    }
+    
+    /* Disabled state for mandatory tools */
+    .animated-checkbox input[type="checkbox"]:disabled + .checkbox-label {
+        opacity: 0.7;
+        cursor: not-allowed;
+    }
+    
+    .animated-checkbox input[type="checkbox"]:disabled + .checkbox-label:before {
+        background: #e3f2fd;
+        border-color: #667eea;
+    }
+    
+    .animated-checkbox input[type="checkbox"]:disabled:checked + .checkbox-label:before {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+    }
+
+    /* ===== STYLES FROM ASSISTANTS.HTML FOR CONSISTENCY ===== */
+    .compact-header {
+        background: linear-gradient(135deg, #2980b9 0%, #34495e 100%);
+        color: white;
+        padding: 0.5rem 1rem;
+        margin-bottom: 1rem;
+        border-radius: 0.5rem;
+    }
+    
+    /* Make cards more compact like in assistant pages */
+    .card {
+        margin-bottom: 0.75rem;
+    }
+    
+    .card-header {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.9rem;
+        font-weight: 600;
+        background-color: var(--bg-elevated, #f8f9fa);
+    }
+    
+    .card-body {
+        padding: 0.75rem;
+    }
+    
+    .card-title {
+        font-size: 1rem;
+        margin-bottom: 0.5rem;
+    }
+    
+    /* Form controls - make them smaller to match */
+    .form-control, .custom-select {
+        font-size: 0.9rem;
+        padding: 0.25rem 0.75rem;
+    }
+    
+    .form-group label {
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+    }
+    
+    /* Button size consistency */
+    .btn {
+        font-size: 0.9rem;
+        padding: 0.375rem 0.75rem;
+    }
+    
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+    }
+    
+    .btn-group-sm > .btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+    }
+    
+    /* Alert styling consistency */
+    .alert {
+        padding: 0.75rem;
+        font-size: 0.9rem;
+    }
+    
+    /* List group styling to match */
+    .list-group-item {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.9rem;
+        border: none;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    
+    .list-group-item:last-child {
+        border-bottom: none;
+    }
+    
+    /* Badge styling */
+    .badge {
+        font-size: 0.75rem;
+        padding: 0.25em 0.5em;
+    }
+    
+    /* Modal styling consistency */
+    .modal-header {
+        background-color: var(--bg-elevated, #f8f9fa);
+        padding: 0.75rem 1rem;
+    }
+    
+    .modal-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+    }
+    
+    /* Small text consistency */
+    .small {
+        font-size: 0.8rem;
+    }
+    
+    /* ===== ORIGINAL STYLES PRESERVED ===== */
+    .category-header {
+        background-color: var(--bg-elevated, #f8f9fa);
+        padding: 8px 12px;
+        margin: 0;
+        font-weight: 600;
+        font-size: 0.9rem;
+        cursor: pointer;
+        border-bottom: 1px solid var(--border-subtle, #dee2e6);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .category-header:hover {
+        background-color: var(--border-subtle, #e9ecef);
+    }
+    
+    .category-header .badge {
+        font-weight: normal;
+    }
+    
+    .category-tools {
+        max-height: 250px;
+        overflow-y: auto;
+        padding: 8px 0;
+    }
+    
+    .tool-category {
+        margin-bottom: 8px;
+        border: 1px solid var(--border-subtle, #dee2e6);
+        border-radius: 4px;
+        overflow: hidden;
+    }
+    
+    .dependency-group-card {
+        border: 2px solid #007bff;
+        margin-bottom: 8px;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+    
+    .dependency-group-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,123,255,0.2);
+    }
+    
+    .dependency-group-card.selected {
+        background-color: #e7f3ff;
+        border-color: #0056b3;
+    }
+    
+    .tool-item {
+        padding: 6px 12px;
+        transition: background-color 0.2s;
+        font-size: 0.85rem;
+    }
+    
+    .tool-item:hover {
+        background-color: var(--bg-elevated, #f8f9fa);
+    }
+    
+    .tool-count {
+        color: var(--text-muted, #6c757d);
+        font-size: 0.8rem;
+    }
+    
+    .category-toggle {
+        transition: transform 0.3s;
+    }
+    
+    .category-toggle.collapsed {
+        transform: rotate(-90deg);
+    }
+    
+    .view-toggle {
+        margin-bottom: 12px;
+    }
+    
+    .search-highlight {
+        background-color: rgba(251, 191, 36, 0.15);
+        font-weight: 500;
+    }
+    
+    .tools-by-group {
+        display: none;
+    }
+    
+    .tools-view-active {
+        display: block !important;
+    }
+    
+    .popup {
+        display: none;
+        position: fixed;
+        z-index: 1000;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        background-color: rgba(0,0,0,0.4);
+    }
+    
+    .popup-content {
+        background-color: var(--bg-card, #fefefe);
+        margin: 5% auto;
+        padding: 20px;
+        border: 1px solid #888;
+        width: 80%;
+        max-width: 900px;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    
+    .close {
+        color: #aaa;
+        font-size: 28px;
+        font-weight: bold;
+        cursor: pointer;
+    }
+    
+    .close:hover,
+    .close:focus {
+        color: #000;
+        text-decoration: none;
+    }
+    
+    .scrollable-list {
+        max-height: 437px;
+        overflow-y: auto;
+    }
+    
+    .tool-info {
+        display: inline-block;
+        vertical-align: top;
+    }
+    
+    .tool-info strong {
+        white-space: nowrap;
+        font-size: 0.85rem;
+    }
+    
+    .tool-info .text-muted {
+        display: inline;
+        word-wrap: break-word;
+        font-size: 0.8rem;
+    }
+    
+    .tool-mandatory-indicator,
+    .tool-dependency-indicator {
+        font-size: 0.7rem;
+        vertical-align: middle;
+        white-space: nowrap;
+        margin-left: 5px;
+    }
+    
+    .list-group-item.is-mandatory {
+        background-color: #e3f2fd;
+    }
+    
+    #dependency-info-panel {
+        border: 1px solid #17a2b8;
+    }
+    
+    #dependency-info-panel .card-header {
+        background-color: #e3f2fd;
+        border-bottom: 1px solid #17a2b8;
+    }
+    
+    .dependency-item {
+        border-left: 3px solid #17a2b8;
+        padding: 8px;
+        font-size: 0.85rem;
+    }
+
+    /* Updated CSS for proper tool view switching */
+    #tools-by-category,
+    #tools-by-group,
+    #tools-all {
+        display: none;
+    }
+
+    #tools-by-category {
+        display: block;
+    }
+
+    .tools-view-active {
+        display: block !important;
+    }
+
+    #add-agent-popup .row {
+        display: none !important;
+    }
+
+    .import-step {
+        min-height: 400px;
+    }
+
+    .import-icon-wrapper {
+        display: inline-block;
+        position: relative;
+    }
+
+    .animated-icon {
+        animation: float 3s ease-in-out infinite;
+    }
+
+    @keyframes float {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-10px); }
+    }
+
+    .animated-success {
+        animation: successPulse 1s ease-in-out;
+    }
+
+    @keyframes successPulse {
+        0% { transform: scale(0); opacity: 0; }
+        50% { transform: scale(1.2); }
+        100% { transform: scale(1); opacity: 1; }
+    }
+
+    .custom-file-upload label {
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+
+    .custom-file-upload label:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,123,255,0.25);
+    }
+
+    .import-steps-list {
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .import-step-item {
+        padding: 10px;
+        margin-bottom: 8px;
+        border-radius: 6px;
+        background: var(--bg-elevated, #f8f9fa);
+        border-left: 4px solid var(--border-subtle, #dee2e6);
+        transition: all 0.3s ease;
+        animation: slideIn 0.5s ease-out;
+        font-size: 0.85rem;
+    }
+
+    @keyframes slideIn {
+        from {
+            opacity: 0;
+            transform: translateX(-20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateX(0);
+        }
+    }
+
+    .import-step-item.processing {
+        border-left-color: #ffc107;
+        background: rgba(251, 191, 36, 0.15);
+    }
+
+    .import-step-item.success {
+        border-left-color: #28a745;
+        background: #d4edda;
+    }
+
+    .import-step-item.error {
+        border-left-color: #dc3545;
+        background: rgba(251, 113, 133, 0.15);
+    }
+
+    .import-step-item .step-icon {
+        display: inline-block;
+        width: 24px;
+        text-align: center;
+        margin-right: 10px;
+    }
+
+    .modal-dialog {
+        max-width: 800px;
+    }
+
+    .analysis-container dl {
+        margin-bottom: 0;
+    }
+
+    .analysis-container dd {
+        font-weight: 500;
+        font-size: 0.85rem;
+    }
+
+    .import-step {
+        opacity: 0;
+        transition: opacity 0.3s ease-in-out;
+    }
+
+    .import-step.active {
+        opacity: 1;
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+        .category-tools {
+            max-height: 150px;
+        }
+        
+        .view-toggle .btn {
+            font-size: 0.7rem;
+            padding: 0.2rem 0.4rem;
+        }
+    }
+</style>
+
+<div class="container-fluid px-3 py-2">
+    <!-- Compact Header Bar (NEW - matching assistants.html style) -->
+    <div class="doc-page-header">
+        <h4 class="mb-0"><i class="fas fa-robot mr-2"></i>Agent Builder</h4>
+    </div>
+    
+    <div class="agent-builder">
+        <div class="row">
+            <div class="col-12">
+                {% if current_user.is_authenticated %}
+                    {% if current_user.role in [2, 3] %}
+                        <div class="row">
+                            <div class="col-md-8">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h6 class="mb-0">Agent Configuration</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <form action="/add/agent" method="post" novalidate>
+                                            <div class="form-group">
+                                                <label for="objective"><strong>Agent Objective:</strong></label>
+                                                <textarea type="text" id="objective" name="objective" class="form-control form-control-sm" rows="3" placeholder="You are a helpful assistant that answers weather related questions." readonly></textarea>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="name"><strong>Agent Name:</strong></label>
+                                                <input type="text" id="name" name="name" class="form-control form-control-sm" readonly>
+                                            </div>
+                                            
+                                            <div class="row">
+                                                <!-- Enhanced Core Tools section -->
+                                                <div class="col-md-6">
+                                                    <h6 class="mb-2"><strong>Core Tools</strong></h6>
+                                                    
+                                                    <div class="card">
+                                                        <div class="card-header py-2">
+                                                            <div class="input-group input-group-sm">
+                                                                <div class="input-group-prepend">
+                                                                    <span class="input-group-text"><i class="fas fa-search"></i></span>
+                                                                </div>
+                                                                <input type="text" class="form-control form-control-sm" id="core-tool-search" 
+                                                                       placeholder="Search core tools..." onkeyup="filterCoreTools()">
+                                                                <div class="input-group-append">
+                                                                    <button class="btn btn-sm btn-outline-secondary" type="button" onclick="clearCoreToolSearch()">
+                                                                        <i class="fas fa-times"></i>
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <!-- Tools by Category View -->
+                                                        <div id="tools-by-category" class="tools-view-active">
+                                                            <div id="core-tool-categories">
+                                                                <!-- Categories will be dynamically inserted here -->
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <!-- Tools by Dependency Group View -->
+                                                        <div id="tools-by-group" class="tools-by-group">
+                                                            <div class="p-3">
+                                                                <div id="dependency-groups">
+                                                                    <!-- Dependency groups will be dynamically inserted here -->
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <!-- All Tools View -->
+                                                        <div id="tools-all" class="tools-by-group">
+                                                            <div class="list-group scrollable-list" id="core-tool-list">
+                                                                {% for tool in core_tools %}
+                                                                <div class="list-group-item core-tool-item tool-item">
+                                                                    <div class="animated-checkbox">
+                                                                        <input type="checkbox" name="core-tools" value="{{ tool.name }}" id="core-{{ loop.index }}">
+                                                                        <label class="checkbox-label" for="core-{{ loop.index }}">
+                                                                            <span class="tool-info">
+                                                                                <strong>{{ tool.display_name|default(tool.name) }}:</strong> 
+                                                                                <span class="text-muted">{{ tool.description }}</span>
+                                                                            </span>
+                                                                        </label>
+                                                                    </div>
+                                                                </div>
+                                                                {% endfor %}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                
+                                                <!-- Custom Tools section -->
+                                                <div class="col-md-6">
+                                                    <h6 class="mb-2"><strong>Custom Tools</strong></h6>
+                                                    <div class="card">
+                                                        <div class="card-header py-2">
+                                                            <div class="input-group input-group-sm">
+                                                                <div class="input-group-prepend">
+                                                                    <span class="input-group-text"><i class="fas fa-search"></i></span>
+                                                                </div>
+                                                                <input type="text" class="form-control form-control-sm" id="custom-tool-search" placeholder="Search custom tools..." onkeyup="filterCustomTools()">
+                                                                <div class="input-group-append">
+                                                                    <button class="btn btn-sm btn-outline-secondary" type="button" onclick="clearCustomToolSearch()">
+                                                                        <i class="fas fa-times"></i>
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div class="list-group scrollable-list" id="tool-list">
+                                                            {% for tool in custom_tools %}
+                                                            <div class="list-group-item custom-tool-item">
+                                                                <div class="animated-checkbox">
+                                                                    <input type="checkbox" name="files" value="{{ tool.name }}" id="custom-{{ loop.index }}">
+                                                                    <label class="checkbox-label" for="custom-{{ loop.index }}">
+                                                                        <span class="tool-info">
+                                                                            <strong>{{ tool.display_name|default(tool.name) }}:</strong> 
+                                                                            <span class="text-muted">{{ tool.description }}</span>
+                                                                        </span>
+                                                                    </label>
+                                                                </div>
+                                                            </div>
+                                                            {% endfor %}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Dependency Info Panel -->
+                                            <div id="dependency-info-panel" class="card mt-3" style="display: none;">
+                                                <div class="card-header">
+                                                    <h6 class="mb-0">
+                                                        <i class="fas fa-link"></i> Tool Dependencies
+                                                    </h6>
+                                                </div>
+                                                <div class="card-body">
+                                                    <div id="dependency-list"></div>
+                                                    <div class="mt-2">
+                                                        <small class="text-muted">
+                                                            <i class="fas fa-info-circle"></i> 
+                                                            Dependencies are automatically included when you select tools.
+                                                        </small>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            
+                                            <input type="hidden" id="agent_id" name="agent_id" value="">
+                                            <div class="mt-3">
+                                                <button type="button" class="btn btn-sm btn-primary" onclick="updateAgent()">
+                                                    <i class="fas fa-save mr-1"></i> Save Changes
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-danger" onclick="deleteAgent()">
+                                                    <i class="fas fa-trash mr-1"></i> Delete Agent
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-4">
+                                <div class="card mb-3">
+                                    <div class="card-header">
+                                        <h6 class="mb-0">Select Agent</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="form-group mb-0">
+                                            <label for="agent-dropdown"><strong>Agent:</strong></label>
+                                            <select id="agent-dropdown" name="agent-dropdown" class="form-control form-control-sm custom-select">
+                                                <option value="">Select an agent</option>
+                                                <!-- Agents options will be populated here dynamically -->
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h6 class="mb-0">Actions</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <button type="button" class="btn btn-sm btn-info btn-block mb-2" onclick="manageAgentKnowledge()">
+                                            <i class="fas fa-book mr-1"></i> Manage Knowledge
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-success btn-block mb-2" onclick="openAddAgentPopup()">
+                                            <i class="fas fa-plus mr-1"></i> Add New Agent
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-primary btn-block mb-2" id="exportAgentBtn" onclick="exportAgent()">
+                                            <i class="fas fa-download mr-1"></i> Export Agent
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-secondary btn-block" onclick="showImportDialog()">
+                                            <i class="fas fa-upload mr-1"></i> Import Agent
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                <!-- Email Settings Card (only visible when agent selected) -->
+                                {% if SHOW_ENTERPRISE_FEATURES %}
+                                <div class="card mt-2" id="emailActionsCard" style="display: none;">
+                                    <div class="card-header d-flex justify-content-between align-items-center">
+                                        <h6 class="mb-0"><i class="fas fa-envelope mr-1"></i> Email</h6>
+                                        <span class="badge badge-secondary" id="emailStatusBadge">Not Configured</span>
+                                    </div>
+                                    <div class="card-body">
+                                        <a href="#" id="emailSettingsBtn" class="btn btn-sm btn-outline-primary btn-block mb-2">
+                                            <i class="fas fa-cog mr-1"></i> Email Settings
+                                        </a>
+                                        <a href="#" id="emailInboxBtn" class="btn btn-sm btn-outline-secondary btn-block position-relative">
+                                            <i class="fas fa-inbox mr-1"></i> View Inbox
+                                            <span class="badge badge-danger position-absolute" id="unreadBadge" 
+                                                  style="top: -5px; right: -5px; display: none;">0</span>
+                                        </a>
+                                        <a href="#" id="emailHistoryBtn" class="btn btn-sm btn-outline-info btn-block mt-1">
+                                            <i class="fas fa-history mr-1"></i> Processing History
+                                        </a>
+                                    </div>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        
+                        <!-- Popup Box for New Agent -->
+                        <div id="add-agent-popup" class="popup">
+                            <div class="popup-content">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h5 class="mb-0">Add New Agent</h5>
+                                    <span class="close" onclick="closeAddAgentPopup()">&times;</span>
+                                </div>
+                                <div class="form-group">
+                                    <label for="new-agent-name"><strong>Agent Name:</strong></label>
+                                    <input type="text" id="new-agent-name" class="form-control form-control-sm">
+                                </div>
+                                <div class="form-group">
+                                    <label for="new-agent-objective"><strong>Agent Objective:</strong></label>
+                                    <textarea type="text" id="new-agent-objective" class="form-control form-control-sm" rows="3"></textarea>
+                                </div>
+                                
+                                <div class="row">
+                                    <!-- Core Tools for new agent -->
+                                    <div class="col-md-6">
+                                        <h6 class="mb-2"><strong>Core Tools</strong></h6>
+                                        <div class="card">
+                                            <div class="card-header py-2">
+                                                <div class="input-group input-group-sm">
+                                                    <div class="input-group-prepend">
+                                                        <span class="input-group-text"><i class="fas fa-search"></i></span>
+                                                    </div>
+                                                    <input type="text" class="form-control form-control-sm" id="new-core-tool-search" placeholder="Search core tools..." onkeyup="filterNewCoreTools()">
+                                                    <div class="input-group-append">
+                                                        <button class="btn btn-sm btn-outline-secondary" type="button" onclick="clearNewCoreToolSearch()">
+                                                            <i class="fas fa-times"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="list-group scrollable-list" id="new-core-tool-list">
+                                                {% for tool in core_tools %}
+                                                <div class="list-group-item new-core-tool-item">
+                                                    <div class="animated-checkbox">
+                                                        <input type="checkbox" name="new-core-tools" value="{{ tool.name }}" id="new-core-{{ loop.index }}">
+                                                        <label class="checkbox-label" for="new-core-{{ loop.index }}">
+                                                            <span class="tool-info">
+                                                                <strong>{{ tool.display_name|default(tool.name) }}:</strong> 
+                                                                <span class="text-muted">{{ tool.description }}</span>
+                                                            </span>
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Custom Tools for new agent -->
+                                    <div class="col-md-6">
+                                        <h6 class="mb-2"><strong>Custom Tools</strong></h6>
+                                        <div class="card">
+                                            <div class="card-header py-2">
+                                                <div class="input-group input-group-sm">
+                                                    <div class="input-group-prepend">
+                                                        <span class="input-group-text"><i class="fas fa-search"></i></span>
+                                                    </div>
+                                                    <input type="text" class="form-control form-control-sm" id="new-custom-tool-search" placeholder="Search custom tools..." onkeyup="filterNewCustomTools()">
+                                                    <div class="input-group-append">
+                                                        <button class="btn btn-sm btn-outline-secondary" type="button" onclick="clearNewCustomToolSearch()">
+                                                            <i class="fas fa-times"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="list-group scrollable-list" id="new-tool-list">
+                                                {% for tool in custom_tools %}
+                                                <div class="list-group-item new-custom-tool-item">
+                                                    <div class="animated-checkbox">
+                                                        <input type="checkbox" name="new-files" value="{{ tool.name }}" id="new-custom-{{ loop.index }}">
+                                                        <label class="checkbox-label" for="new-custom-{{ loop.index }}">
+                                                            <span class="tool-info">
+                                                                <strong>{{ tool.display_name|default(tool.name) }}:</strong> 
+                                                                <span class="text-muted">{{ tool.description }}</span>
+                                                            </span>
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="mt-3">
+                                    <button type="button" class="btn btn-sm btn-primary" onclick="saveNewAgent()">
+                                        <i class="fas fa-save mr-1"></i> Save Agent
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-secondary" onclick="closeAddAgentPopup()">
+                                        <i class="fas fa-times mr-1"></i> Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Agent Import Dialog -->
+                        <div id="importAgentDialog" class="modal fade" tabindex="-1" role="dialog" style="display: none;">
+                            <div class="modal-dialog modal-lg" role="document">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title">
+                                            <i class="fas fa-file-import mr-2"></i>Import Agent Package
+                                        </h5>
+                                        <button type="button" class="close" onclick="hideImportDialog()">
+                                            <span aria-hidden="true">&times;</span>
+                                        </button>
+                                    </div>
+                                    
+                                    <div class="modal-body">
+                                        <!-- File Selection Step -->
+                                        <div id="importStep1" class="import-step">
+                                            <div class="text-center py-4">
+                                                <div class="import-icon-wrapper mb-4">
+                                                    <i class="fas fa-file-archive fa-4x text-primary animated-icon"></i>
+                                                </div>
+                                                
+                                                <h5 class="mb-3">Select Agent Export Package</h5>
+                                                <p class="text-muted mb-4">Choose a .zip file exported from this platform</p>
+                                                
+                                                <div class="custom-file-upload">
+                                                    <input type="file" id="importAgentFile" class="d-none" accept=".zip" onchange="handleFileSelection(this)">
+                                                    <label for="importAgentFile" class="btn btn-outline-primary">
+                                                        <i class="fas fa-folder-open mr-2"></i>Browse Files
+                                                    </label>
+                                                </div>
+                                                
+                                                <div id="selectedFileInfo" class="mt-3" style="display: none;">
+                                                    <div class="alert alert-info">
+                                                        <i class="fas fa-file mr-2"></i>
+                                                        <span id="selectedFileName"></span>
+                                                        <button type="button" class="btn btn-sm btn-link" onclick="clearFileSelection()">
+                                                            <i class="fas fa-times"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Analysis Step -->
+                                        <div id="importStep2" class="import-step" style="display: none;">
+                                            <div class="analysis-container">
+                                                <div class="text-center mb-4">
+                                                    <div class="spinner-border text-primary" role="status" id="analysisSpinner">
+                                                        <span class="sr-only">Analyzing...</span>
+                                                    </div>
+                                                    <h5 class="mt-3">Analyzing Package</h5>
+                                                    <p class="text-muted">Scanning contents and checking for conflicts...</p>
+                                                </div>
+                                                
+                                                <div id="analysisResults" style="display: none;">
+                                                    <div class="row">
+                                                        <div class="col-md-6">
+                                                            <div class="card mb-3">
+                                                                <div class="card-header doc-card-header">
+                                                                    <h6 class="mb-0"><i class="fas fa-info-circle mr-2"></i>Package Information</h6>
+                                                                </div>
+                                                                <div class="card-body">
+                                                                    <dl class="row mb-0">
+                                                                        <dt class="col-sm-4">Agent:</dt>
+                                                                        <dd class="col-sm-8" id="analyzeAgentName">-</dd>
+                                                                        <dt class="col-sm-4">Version:</dt>
+                                                                        <dd class="col-sm-8" id="analyzeVersion">-</dd>
+                                                                        <dt class="col-sm-4">Export Date:</dt>
+                                                                        <dd class="col-sm-8" id="analyzeDate">-</dd>
+                                                                    </dl>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <div class="col-md-6">
+                                                            <div class="card mb-3">
+                                                                <div class="card-header doc-card-header">
+                                                                    <h6 class="mb-0"><i class="fas fa-box mr-2"></i>Contents</h6>
+                                                                </div>
+                                                                <div class="card-body">
+                                                                    <dl class="row mb-0">
+                                                                        <dt class="col-sm-6">Core Tools:</dt>
+                                                                        <dd class="col-sm-6"><span class="badge badge-primary" id="analyzeCoreTools">0</span></dd>
+                                                                        <dt class="col-sm-6">Custom Tools:</dt>
+                                                                        <dd class="col-sm-6"><span class="badge badge-info" id="analyzeCustomTools">0</span></dd>
+                                                                        <dt class="col-sm-6">Knowledge Items:</dt>
+                                                                        <dd class="col-sm-6"><span class="badge badge-success" id="analyzeKnowledge">0</span></dd>
+                                                                    </dl>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    <!-- Conflicts Section -->
+                                                    <div id="conflictsSection" class="alert alert-warning" style="display: none;">
+                                                        <h6><i class="fas fa-exclamation-triangle mr-2"></i>Potential Conflicts Detected</h6>
+                                                        <ul id="conflictsList" class="mb-2"></ul>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="checkbox" id="overwriteTools">
+                                                            <label class="form-check-label" for="overwriteTools">
+                                                                Overwrite existing custom tools
+                                                            </label>
+                                                        </div>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="checkbox" id="renameAgent" checked>
+                                                            <label class="form-check-label" for="renameAgent">
+                                                                Rename agent if name exists
+                                                            </label>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Import Progress Step -->
+                                        <div id="importStep3" class="import-step" style="display: none;">
+                                            <div class="import-progress-container">
+                                                <h5 class="text-center mb-4" id="importProgressTitle">Importing Agent</h5>
+                                                
+                                                <div class="progress mb-4" style="height: 25px;">
+                                                    <div id="importProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                                                        role="progressbar" style="width: 0%">
+                                                        <span id="importProgressText">0%</span>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div id="importSteps" class="import-steps-list">
+                                                    <!-- Steps will be added dynamically -->
+                                                </div>
+                                                
+                                                <!-- Back to Summary button (hidden initially, shown when viewing details) -->
+                                                <div id="backToSummaryContainer" class="text-center mt-4" style="display: none;">
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="backToSummary()">
+                                                        <i class="fas fa-arrow-left mr-2"></i>Back to Summary
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Success Step -->
+                                        <div id="importStep4" class="import-step" style="display: none;">
+                                            <div class="text-center py-4">
+                                                <div class="success-animation mb-4">
+                                                    <i class="fas fa-check-circle fa-5x text-success animated-success"></i>
+                                                </div>
+                                                
+                                                <h4 class="text-success mb-3">Import Successful!</h4>
+                                                
+                                                <div id="importSummary" class="mb-4">
+                                                    <!-- Summary will be added dynamically -->
+                                                </div>
+                                                
+                                                <div class="btn-group" role="group">
+                                                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="viewImportDetails()">
+                                                        <i class="fas fa-list-ul mr-2"></i>View Details
+                                                    </button>
+                                                    <button type="button" class="btn btn-sm btn-success" onclick="completeImport()">
+                                                        <i class="fas fa-check mr-2"></i>Done
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-sm btn-secondary" onclick="hideImportDialog()">
+                                            <i class="fas fa-times mr-1"></i>Cancel
+                                        </button>
+                                        <button type="button" id="importAnalyzeBtn" class="btn btn-sm btn-primary" onclick="analyzePackage()" style="display: none;">
+                                            <i class="fas fa-search mr-1"></i>Analyze Package
+                                        </button>
+                                        <button type="button" id="importProceedBtn" class="btn btn-sm btn-success" onclick="proceedWithImport()" style="display: none;">
+                                            <i class="fas fa-file-import mr-1"></i>Proceed with Import
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                    {% else %}
+                        <div class="alert alert-warning" role="alert">
+                            <h5 class="alert-heading">Access Restricted</h5>
+                            <p>You do not have permission to access this page. This area is restricted to administrators and authorized users only.</p>
+                            <hr>
+                            <p class="mb-0">If you believe you should have access, please contact your system administrator.</p>
+                        </div>
+                    {% endif %}
+                {% else %}
+                    <div class="alert alert-info" role="alert">
+                        <h5 class="alert-heading">Authentication Required</h5>
+                        <p>Please log in to access the Agent Builder.</p>
+                        <hr>
+                        <p class="mb-0"><a href="/login" class="btn btn-primary">Go to Login</a></p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Feedback Message Area -->
+<div id="feedback-message" style="position: fixed; top: 20px; right: 20px; z-index: 9999;"></div>
+
+<!-- All JavaScript remains exactly the same with slight modifications for checkbox IDs -->
+<script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+<script>
+    // Store tools by category for easier access
+    let toolsByCategory = {};
+    let dependencyGroups = {};
+    let coreToolsData = {{ core_tools | tojson }};
+
+    let currentImportFile = null;
+    let analysisData = null;
+    
+    // Tool Dependency Viewer class
+    class ToolDependencyViewer {
+        constructor() {
+            this.dependencies = {};
+            this.selectedTools = new Set();
+            this.init();
+        }
+
+        init() {
+            // Add event listeners to tool checkboxes
+            this.attachEventListeners();
+            
+            // Add dependency indicator UI
+            this.addDependencyUI();
+        }
+
+        attachEventListeners() {
+            // For core tools
+            document.querySelectorAll('input[name="core-tools"], input[name="new-core-tools"]').forEach(checkbox => {
+                checkbox.addEventListener('change', (e) => this.handleToolSelection(e));
+            });
+
+            // For custom tools
+            document.querySelectorAll('input[name="files"], input[name="new-files"]').forEach(checkbox => {
+                checkbox.addEventListener('change', (e) => this.handleToolSelection(e));
+            });
+        }
+
+        addDependencyUI() {
+            // UI already added in HTML
+        }
+
+        async handleToolSelection(event) {
+            const checkbox = event.target;
+            const toolName = checkbox.value;
+
+            if (checkbox.checked) {
+                this.selectedTools.add(toolName);
+            } else {
+                this.selectedTools.delete(toolName);
+            }
+
+            // Update category counts
+            updateCategoryCounts();
+
+            // Get dependencies for selected tools
+            await this.updateDependencies();
+        }
+
+        async updateDependencies() {
+            if (this.selectedTools.size === 0) {
+                document.querySelectorAll('#dependency-info-panel').forEach(panel => {
+                    panel.style.display = 'none';
+                });
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/tool/dependencies', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        tools: Array.from(this.selectedTools),
+                        include_optional: false
+                    })
+                });
+
+                const data = await response.json();
+                if (data.status === 'success') {
+                    this.displayDependencies(data);
+                }
+            } catch (error) {
+                console.error('Error fetching dependencies:', error);
+            }
+        }
+
+        displayDependencies(data) {
+            const panels = document.querySelectorAll('#dependency-info-panel');
+            const lists = document.querySelectorAll('#dependency-list');
+
+            // Check for both added dependencies and mandatory tools
+            const hasDependencies = data.added_dependencies && data.added_dependencies.length > 0;
+            const hasMandatory = data.mandatory_tools && data.mandatory_tools.length > 0;
+
+            if (!hasDependencies && !hasMandatory) {
+                panels.forEach(panel => panel.style.display = 'none');
+                return;
+            }
+
+            // Build dependency display
+            let html = '<div class="dependency-items">';
+            
+            // Display mandatory tools first
+            if (hasMandatory) {
+                html += '<h6 class="text-primary mb-2">Mandatory Tools (added to all agents):</h6>';
+                for (const tool of data.mandatory_tools) {
+                    html += `
+                        <div class="dependency-item mb-2 p-2 bg-info bg-opacity-10 rounded">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <strong>${tool.display_name || tool.name}</strong>
+                                    <small class="text-muted d-block">${tool.description || 'No description'}</small>
+                                </div>
+                                <span class="badge badge-primary">Mandatory</span>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+            
+            // Display dependencies
+            if (hasDependencies) {
+                if (hasMandatory) {
+                    html += '<h6 class="text-secondary mb-2 mt-3">Tool Dependencies:</h6>';
+                }
+                
+                // Group dependencies by the tool that requires them
+                const depsByTool = {};
+                for (const [tool, deps] of Object.entries(data.dependency_map || {})) {
+                    if (deps.length > 0) {
+                        depsByTool[tool] = deps;
+                    }
+                }
+
+                // Display dependencies
+                for (const dep of data.added_dependencies) {
+                    // Find which tools require this dependency
+                    const requiredBy = [];
+                    for (const [tool, deps] of Object.entries(depsByTool)) {
+                        if (deps.includes(dep.name)) {
+                            requiredBy.push(tool);
+                        }
+                    }
+
+                    html += `
+                        <div class="dependency-item mb-2 p-2 bg-light rounded">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <strong>${dep.display_name || dep.name}</strong>
+                                    <small class="text-muted d-block">${dep.description || 'No description'}</small>
+                                    ${requiredBy.length > 0 ? `<small class="text-info">Required by: ${requiredBy.join(', ')}</small>` : ''}
+                                </div>
+                                <span class="badge badge-secondary">Auto-included</span>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+
+            html += '</div>';
+
+            // Update all dependency lists
+            lists.forEach(list => {
+                list.innerHTML = html;
+            });
+
+            // Show panels
+            panels.forEach(panel => {
+                panel.style.display = 'block';
+            });
+
+            // Update the UI to show which tools are dependencies or mandatory
+            this.highlightSpecialTools(data);
+        }
+
+        highlightSpecialTools(data) {
+            // Remove existing highlights
+            document.querySelectorAll('.tool-dependency-indicator, .tool-mandatory-indicator').forEach(el => el.remove());
+
+            // Highlight mandatory tools
+            if (data.mandatory_tools) {
+                data.mandatory_tools.forEach(tool => {
+                    const checkboxes = document.querySelectorAll(`input[value="${tool.name}"]`);
+                    checkboxes.forEach(checkbox => {
+                        const label = checkbox.nextElementSibling;
+                        if (label && !label.querySelector('.tool-mandatory-indicator')) {
+                            const indicator = document.createElement('span');
+                            indicator.className = 'tool-mandatory-indicator badge badge-primary ml-2';
+                            indicator.innerHTML = '<i class="fas fa-star"></i> Mandatory';
+                            indicator.title = 'This tool is included in all agents';
+                            label.appendChild(indicator);
+                            
+                            // Disable the checkbox since it's mandatory
+                            checkbox.checked = true;
+                            checkbox.disabled = true;
+                        }
+                    });
+                });
+            }
+
+            // Highlight dependencies
+            if (data.added_dependencies) {
+                data.added_dependencies.forEach(dep => {
+                    const checkboxes = document.querySelectorAll(`input[value="${dep.name}"]`);
+                    checkboxes.forEach(checkbox => {
+                        const label = checkbox.nextElementSibling;
+                        if (label && !label.querySelector('.tool-dependency-indicator')) {
+                            const indicator = document.createElement('span');
+                            indicator.className = 'tool-dependency-indicator badge badge-info ml-2';
+                            indicator.innerHTML = '<i class="fas fa-link"></i> Dependency';
+                            indicator.title = 'This tool is automatically included as a dependency';
+                            label.appendChild(indicator);
+                        }
+                    });
+                });
+            }
+        }
+
+        // Method to get all selected tools including dependencies
+        getAllSelectedTools() {
+            const tools = {
+                core: [],
+                custom: [],
+                dependencies: []
+            };
+
+            // Get directly selected tools
+            document.querySelectorAll('input[name="core-tools"]:checked, input[name="new-core-tools"]:checked').forEach(cb => {
+                tools.core.push(cb.value);
+            });
+
+            document.querySelectorAll('input[name="files"]:checked, input[name="new-files"]:checked').forEach(cb => {
+                tools.custom.push(cb.value);
+            });
+
+            // Dependencies will be resolved server-side
+            return tools;
+        }
+    }
+    
+    // Initialize the categorized view
+    function initializeCategorizedView() {
+        // Group tools by category
+        coreToolsData.forEach(tool => {
+            const category = tool.category || 'Uncategorized';
+            if (!toolsByCategory[category]) {
+                toolsByCategory[category] = [];
+            }
+            toolsByCategory[category].push(tool);
+        });
+        
+        // Render categories
+        renderCategories();
+        
+        // Load dependency groups if available
+        loadDependencyGroups();
+    }
+        
+// Updated render categories function with animated checkboxes
+function renderCategories() {
+    const container = document.getElementById('core-tool-categories');
+    container.innerHTML = '';
+    
+    // Sort categories alphabetically
+    const sortedCategories = Object.keys(toolsByCategory).sort();
+    
+    let checkboxCounter = 1000; // Start counter high to avoid conflicts with static checkboxes
+    
+    sortedCategories.forEach((category) => {
+        const tools = toolsByCategory[category];
+        const categoryId = `category-${category.replace(/\s+/g, '-').toLowerCase()}`;
+        
+        // Format the category name properly
+        const formattedCategoryName = formatCategoryName(category);
+        
+        const categoryHtml = `
+            <div class="tool-category">
+                <div class="category-header" onclick="toggleCategory('${categoryId}')">
+                    <span>
+                        <i class="fas fa-chevron-down category-toggle collapsed"></i>
+                        ${formattedCategoryName}
+                        <span class="badge badge-secondary ml-2">
+                            <span class="selected-count">0</span>/<span class="total-count">${tools.length}</span>
+                        </span>
+                    </span>
+                </div>
+                <div id="${categoryId}" class="category-tools d-none">
+                    ${tools.map((tool, index) => {
+                        const uniqueId = `cat-core-${checkboxCounter++}`;
+                        return `
+                        <div class="list-group-item core-tool-item tool-item">
+                            <div class="animated-checkbox">
+                                <input type="checkbox" name="core-tools" value="${tool.name}" id="${uniqueId}">
+                                <label class="checkbox-label" for="${uniqueId}">
+                                    <span class="tool-info">
+                                        <strong>${tool.display_name || tool.name}:</strong> 
+                                        <span class="text-muted">${tool.description || ''}</span>
+                                    </span>
+                                </label>
+                            </div>
+                        </div>
+                    `}).join('')}
+                </div>
+            </div>
+        `;
+        container.innerHTML += categoryHtml;
+    });
+    
+    // Reattach event listeners for the new checkboxes
+    if (window.toolDependencyViewer) {
+        window.toolDependencyViewer.attachEventListeners();
+    }
+}
+    
+    // Load and render dependency groups
+    function loadDependencyGroups() {
+        // This would typically come from the server
+        fetch('/api/tool/dependency-groups')
+            .then(response => response.json())
+            .then(data => {
+                dependencyGroups = data.groups || {};
+                renderDependencyGroups();
+            })
+            .catch(() => {
+                // Fallback to default groups
+                dependencyGroups = {
+                    'complete_alerting': {
+                        'name': 'Complete Alerting Suite',
+                        'description': 'All communication and alerting tools',
+                        'tools': ['send_email_message', 'text_message_alert', 'phone_call_alert']
+                    },
+                    'file_management_suite': {
+                        'name': 'File Management Suite',
+                        'description': 'Comprehensive file and folder operations',
+                        'tools': ['folder_report', 'folder_statistics_report', 'check_age_of_files_in_folder']
+                    }
+                };
+                renderDependencyGroups();
+            });
+    }
+    
+    // Render dependency groups
+    function renderDependencyGroups() {
+        const container = document.getElementById('dependency-groups');
+        container.innerHTML = '';
+        
+        Object.entries(dependencyGroups).forEach(([key, group]) => {
+            // Format the group name properly
+            const formattedGroupName = formatCategoryName(group.name || key);
+            
+            const groupHtml = `
+                <div class="card dependency-group-card" onclick="toggleDependencyGroup('${key}')">
+                    <div class="card-body">
+                        <h6 class="card-title mb-1">
+                            <i class="fas fa-cube mr-2"></i>${formattedGroupName}
+                        </h6>
+                        <p class="card-text small text-muted mb-2">${group.description || ''}</p>
+                        <div class="tool-count">
+                            <i class="fas fa-tools"></i> ${group.tools.length} tools
+                        </div>
+                    </div>
+                </div>
+            `;
+            container.innerHTML += groupHtml;
+        });
+    }
+    
+    // Toggle category expansion
+    function toggleCategory(categoryId) {
+        const categoryDiv = document.getElementById(categoryId);
+        const toggle = categoryDiv.previousElementSibling.querySelector('.category-toggle');
+        
+        if (categoryDiv.classList.contains('d-none')) {
+            categoryDiv.classList.remove('d-none');
+            toggle.classList.remove('collapsed');
+        } else {
+            categoryDiv.classList.add('d-none');
+            toggle.classList.add('collapsed');
+        }
+    }
+    
+// Utility function to format category names (Title Case)
+function formatCategoryName(categoryName) {
+    return categoryName
+        .replace(/_/g, ' ')  // Replace underscores with spaces
+        .replace(/\b\w/g, char => char.toUpperCase());  // Capitalize first letter of each word
+}
+
+// Fixed toggle tool view function
+function toggleToolView(view, button) {
+    // Update active button
+    document.querySelectorAll('.view-toggle .btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    button.classList.add('active');
+    
+    // Hide all views first
+    document.getElementById('tools-by-category').style.display = 'none';
+    document.getElementById('tools-by-group').style.display = 'none';
+    document.getElementById('tools-all').style.display = 'none';
+    
+    // Show selected view
+    switch(view) {
+        case 'category':
+            document.getElementById('tools-by-category').style.display = 'block';
+            break;
+        case 'group':
+            document.getElementById('tools-by-group').style.display = 'block';
+            break;
+        case 'all':
+            document.getElementById('tools-all').style.display = 'block';
+            break;
+    }
+}
+
+// Fixed switch tools view function (updated to match the new approach)
+function switchToolsView(view) {
+    // Hide all views first
+    document.getElementById('tools-by-category').style.display = 'none';
+    document.getElementById('tools-by-group').style.display = 'none';
+    document.getElementById('tools-all').style.display = 'none';
+    
+    // Show selected view
+    switch(view) {
+        case 'category':
+            document.getElementById('tools-by-category').style.display = 'block';
+            break;
+        case 'group':
+            document.getElementById('tools-by-group').style.display = 'block';
+            break;
+        case 'all':
+            document.getElementById('tools-all').style.display = 'block';
+            break;
+    }
+}
+    
+    // Toggle dependency group selection
+    function toggleDependencyGroup(groupKey) {
+        const group = dependencyGroups[groupKey];
+        if (!group) return;
+        
+        const card = event.currentTarget;
+        const isSelected = card.classList.contains('selected');
+        
+        // Toggle card selection state
+        card.classList.toggle('selected');
+        
+        // Get all checkboxes
+        const checkboxes = document.querySelectorAll('input[name="core-tools"]');
+        
+        // Toggle all tools in the group
+        group.tools.forEach(toolName => {
+            checkboxes.forEach(checkbox => {
+                if (checkbox.value === toolName) {
+                    checkbox.checked = !isSelected;
+                    // Trigger change event for dependency viewer
+                    checkbox.dispatchEvent(new Event('change'));
+                }
+            });
+        });
+        
+        // Update dependencies
+        updateDependencies();
+    }
+    
+    // Enhanced search with highlighting
+    function filterCoreTools() {
+        const searchTerm = document.getElementById('core-tool-search').value.toLowerCase();
+        
+        // Determine which view is currently active
+        const categoryView = document.getElementById('tools-by-category');
+        const groupView = document.getElementById('tools-by-group');
+        const allView = document.getElementById('tools-all');
+        
+        if (categoryView.style.display !== 'none') {
+            // Filter categories view
+            Object.keys(toolsByCategory).forEach(category => {
+                const categoryId = `category-${category.replace(/\s+/g, '-').toLowerCase()}`;
+                const categoryDiv = document.getElementById(categoryId);
+                const categoryHeader = categoryDiv.previousElementSibling;
+                
+                let hasVisibleTools = false;
+                const toolItems = categoryDiv.querySelectorAll('.tool-item');
+                
+                toolItems.forEach(item => {
+                    const toolInfo = item.querySelector('.tool-info').textContent.toLowerCase();
+                    if (toolInfo.includes(searchTerm)) {
+                        item.style.display = '';
+                        hasVisibleTools = true;
+                        
+                        // Highlight search term
+                        if (searchTerm) {
+                            highlightSearchTerm(item, searchTerm);
+                        } else {
+                            removeHighlight(item);
+                        }
+                    } else {
+                        item.style.display = 'none';
+                    }
+                });
+                
+                // Show/hide category based on whether it has visible tools
+                if (hasVisibleTools) {
+                    categoryHeader.style.display = '';
+                    if (searchTerm) {
+                        categoryDiv.classList.remove('d-none'); // Auto-expand when searching
+                    }
+                } else {
+                    categoryHeader.style.display = 'none';
+                }
+            });
+        } else if (allView.style.display !== 'none') {
+            // Filter all tools view
+            const toolItems = document.querySelectorAll('#tools-all .core-tool-item');
+            toolItems.forEach(item => {
+                const toolInfo = item.querySelector('.tool-info').textContent.toLowerCase();
+                if (toolInfo.includes(searchTerm)) {
+                    item.style.display = '';
+                    if (searchTerm) {
+                        highlightSearchTerm(item, searchTerm);
+                    } else {
+                        removeHighlight(item);
+                    }
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        }
+    }
+
+    // Filter custom tools
+    function filterCustomTools() {
+        const searchTerm = document.getElementById('custom-tool-search').value.toLowerCase();
+        const toolItems = document.querySelectorAll('.custom-tool-item');
+        
+        toolItems.forEach(item => {
+            const toolInfo = item.querySelector('.tool-info').textContent.toLowerCase();
+            if (toolInfo.includes(searchTerm)) {
+                item.style.display = '';
+            } else {
+                item.style.display = 'none';
+            }
+        });
+    }
+    
+    // Filter new core tools
+    function filterNewCoreTools() {
+        const searchTerm = document.getElementById('new-core-tool-search').value.toLowerCase();
+        const toolItems = document.querySelectorAll('.new-core-tool-item');
+        
+        toolItems.forEach(item => {
+            const toolInfo = item.querySelector('.tool-info').textContent.toLowerCase();
+            if (toolInfo.includes(searchTerm)) {
+                item.style.display = '';
+            } else {
+                item.style.display = 'none';
+            }
+        });
+    }
+    
+    // Filter new custom tools
+    function filterNewCustomTools() {
+        const searchTerm = document.getElementById('new-custom-tool-search').value.toLowerCase();
+        const toolItems = document.querySelectorAll('.new-custom-tool-item');
+        
+        toolItems.forEach(item => {
+            const toolInfo = item.querySelector('.tool-info').textContent.toLowerCase();
+            if (toolInfo.includes(searchTerm)) {
+                item.style.display = '';
+            } else {
+                item.style.display = 'none';
+            }
+        });
+    }
+    
+    // Highlight search term in text
+    function highlightSearchTerm(element, term) {
+        const toolInfo = element.querySelector('.tool-info');
+        const originalHtml = toolInfo.innerHTML;
+        
+        // Store original HTML if not already stored
+        if (!toolInfo.dataset.originalHtml) {
+            toolInfo.dataset.originalHtml = originalHtml;
+        }
+        
+        // Create regex for case-insensitive search
+        const regex = new RegExp(`(${term})`, 'gi');
+        const highlightedHtml = toolInfo.dataset.originalHtml.replace(regex, '<span class="search-highlight">$1</span>');
+        toolInfo.innerHTML = highlightedHtml;
+    }
+    
+    // Remove search highlighting
+    function removeHighlight(element) {
+        const toolInfo = element.querySelector('.tool-info');
+        if (toolInfo.dataset.originalHtml) {
+            toolInfo.innerHTML = toolInfo.dataset.originalHtml;
+        }
+    }
+    
+    // Clear search functions
+    function clearCoreToolSearch() {
+        document.getElementById('core-tool-search').value = '';
+        filterCoreTools();
+    }
+    
+    function clearCustomToolSearch() {
+        document.getElementById('custom-tool-search').value = '';
+        filterCustomTools();
+    }
+    
+    function clearNewCoreToolSearch() {
+        document.getElementById('new-core-tool-search').value = '';
+        filterNewCoreTools();
+    }
+    
+    function clearNewCustomToolSearch() {
+        document.getElementById('new-custom-tool-search').value = '';
+        filterNewCustomTools();
+    }
+    
+    // Update dependencies when tools are selected
+    function updateDependencies() {
+        // This would integrate with your existing dependency system
+        if (window.toolDependencyViewer) {
+            window.toolDependencyViewer.updateDependencies();
+        }
+    }
+    
+    // Existing functions from original code
+    function showFeedback(message, type = 'success') {
+        const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+        const icon = type === 'success' ? 'check-circle' : 'exclamation-circle';
+        
+        const feedbackHtml = `
+            <div class="alert ${alertClass} alert-dismissible fade show" role="alert">
+                <i class="fas fa-${icon} mr-2"></i>${message}
+                <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+        `;
+        
+        $('#feedback-message').html(feedbackHtml);
+        
+        // Auto-dismiss after 5 seconds
+        setTimeout(() => {
+            $('#feedback-message .alert').alert('close');  // FIXED: Scoped to feedback-message only
+        }, 5000);
+    }
+    
+    function loadAgents() {
+        fetch('/get/agents')
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    const agents = data.data;
+                    populateAgentDropdown(agents);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showFeedback('Error loading agents', 'error');
+            });
+    }
+    
+    function populateAgentDropdown(agents) {
+        const dropdown = document.getElementById('agent-dropdown');
+        dropdown.innerHTML = '<option value="">Select an agent</option>';
+        
+        agents.forEach(agent => {
+            const option = document.createElement('option');
+            option.value = agent.agent_id;
+            option.textContent = agent.agent_description;
+            dropdown.appendChild(option);
+        });
+    }
+
+    function getAgentById(agentId) {
+        // Use the existing agents endpoint and filter
+        fetch('/get/agents')
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    const agent = data.data.find(a => a.agent_id == agentId);
+                    if (agent) {
+                        displayAgentData(agent);
+                    } else {
+                        showFeedback('Agent not found', 'error');
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showFeedback('Error loading agent details', 'error');
+            });
+    }
+    
+    function displayAgentData(agent) {
+        document.getElementById('name').value = agent.agent_description;
+        document.getElementById('objective').value = agent.agent_objective;
+        document.getElementById('agent_id').value = agent.agent_id;
+        document.getElementById('name').readOnly = false;
+        document.getElementById('objective').readOnly = false;
+        
+        // Clear existing selections first
+        clearCheckboxes();
+        
+        // Reconstruct the tools array from the database structure
+        const tools = [];
+        if (agent.tool_names && agent.custom_tool) {
+            for (let i = 0; i < agent.tool_names.length; i++) {
+                tools.push({
+                    tool_name: agent.tool_names[i],
+                    custom_tool: agent.custom_tool[i]
+                });
+            }
+        }
+        
+        checkAgentTools(tools);
+        
+        // Show email card and update URLs
+        showEmailCard(agent.agent_id);
+    }
+    
+    // Show email card and load email status for agent
+    function showEmailCard(agentId) {
+        const emailCard = document.getElementById('emailActionsCard');
+        const settingsBtn = document.getElementById('emailSettingsBtn');
+        const inboxBtn = document.getElementById('emailInboxBtn');
+        const statusBadge = document.getElementById('emailStatusBadge');
+        const unreadBadge = document.getElementById('unreadBadge');
+        const historyBtn = document.getElementById('emailHistoryBtn')
+        
+        // Set URLs
+        if (settingsBtn) {
+            settingsBtn.href = `/agent-email/config/${agentId}`;
+        }
+        
+        if (inboxBtn) {
+            inboxBtn.href = `/agent-email/inbox/${agentId}`;
+        }
+        
+        if (historyBtn) {
+            historyBtn.href = `/email-processing/history/${agentId}`;
+        }
+        
+        // Show the card
+        emailCard.style.display = 'block';
+        
+        // Reset status while loading
+        statusBadge.textContent = 'Loading...';
+        statusBadge.className = 'badge badge-secondary';
+        unreadBadge.style.display = 'none';
+        
+        // Load email configuration status
+        loadAgentEmailStatus(agentId);
+    }
+    
+    // Load email status for an agent
+    async function loadAgentEmailStatus(agentId) {
+        const statusBadge = document.getElementById('emailStatusBadge');
+        const unreadBadge = document.getElementById('unreadBadge');
+        
+        try {
+            const response = await fetch(`/api/agent-email/config/${agentId}`);
+            const data = await response.json();
+            
+            if (data.success && data.configured) {
+                const config = data.config;
+                
+                // Update status badge based on configuration
+                if (config.is_active && config.inbound_enabled) {
+                    statusBadge.textContent = 'Active';
+                    statusBadge.className = 'badge badge-success';
+                    
+                    // Try to get inbox count
+                    loadInboxCount(agentId);
+                } else if (config.is_active) {
+                    statusBadge.textContent = 'Outbound Only';
+                    statusBadge.className = 'badge badge-info';
+                } else {
+                    statusBadge.textContent = 'Disabled';
+                    statusBadge.className = 'badge badge-warning';
+                }
+            } else {
+                statusBadge.textContent = 'Not Configured';
+                statusBadge.className = 'badge badge-secondary';
+            }
+        } catch (error) {
+            console.error('Error loading email status:', error);
+            statusBadge.textContent = 'Not Configured';
+            statusBadge.className = 'badge badge-secondary';
+        }
+    }
+    
+    // Load inbox unread count
+    async function loadInboxCount(agentId) {
+        const unreadBadge = document.getElementById('unreadBadge');
+        
+        try {
+            const response = await fetch(`/api/agent-email/inbox/${agentId}?limit=50`);
+            const data = await response.json();
+            
+            if (data.success && data.new_count > 0) {
+                unreadBadge.textContent = data.new_count > 99 ? '99+' : data.new_count;
+                unreadBadge.style.display = 'inline-block';
+            } else {
+                unreadBadge.style.display = 'none';
+            }
+        } catch (error) {
+            console.log('Could not load inbox count:', error);
+            unreadBadge.style.display = 'none';
+        }
+    }
+
+    // Fixed clearCheckboxes to clear ALL views
+    function clearCheckboxes() {
+        // Clear checked checkboxes in ALL views
+        const allCoreCheckboxes = document.querySelectorAll('input[name="core-tools"]');
+        const allCustomCheckboxes = document.querySelectorAll('input[name="files"]');
+        
+        console.log('Clearing checkboxes:');
+        console.log('- Core tool checkboxes to clear (all views):', allCoreCheckboxes.length);
+        console.log('- Custom tool checkboxes to clear:', allCustomCheckboxes.length);
+        
+        allCoreCheckboxes.forEach((checkbox) => {
+            if (checkbox.checked) {
+                console.log('- Clearing core tool:', checkbox.value);
+                checkbox.checked = false;
+            }
+        });
+        
+        allCustomCheckboxes.forEach((checkbox) => {
+            if (checkbox.checked) {
+                console.log('- Clearing custom tool:', checkbox.value);
+                checkbox.checked = false;
+            }
+        });
+        
+        // Update category counts after clearing
+        if (typeof updateCategoryCounts === 'function') {
+            updateCategoryCounts();
+        }
+    }
+
+    // Fixed checkAgentTools to set tools in ALL views
+    function checkAgentTools(tools) {
+        // Get ALL checkboxes from ALL views
+        const allCoreCheckboxes = document.querySelectorAll('input[name="core-tools"]');
+        const allCustomCheckboxes = document.querySelectorAll('input[name="files"]');
+        
+        console.log('Setting agent tools in ALL views:');
+        console.log('- Tools to set:', tools);
+        console.log('- Available core tool checkboxes (all views):', allCoreCheckboxes.length);
+        console.log('- Available custom tool checkboxes:', allCustomCheckboxes.length);
+        
+        // Check custom tools in all views
+        allCustomCheckboxes.forEach((checkbox) => {
+            for (const tool of tools) {
+                if (checkbox.value == tool.tool_name && tool.custom_tool) {
+                    checkbox.checked = true;
+                    console.log('- Checked custom tool:', checkbox.value);
+                    break;
+                }
+            }
+        });
+        
+        // Check core tools in ALL views
+        allCoreCheckboxes.forEach((checkbox) => {
+            for (const tool of tools) {
+                if (checkbox.value == tool.tool_name && !tool.custom_tool) {
+                    checkbox.checked = true;
+                    console.log('- Checked core tool in view:', checkbox.value);
+                    break;
+                }
+            }
+        });
+        
+        // Update category counts after checking tools
+        if (typeof updateCategoryCounts === 'function') {
+            updateCategoryCounts();
+        }
+        
+        // Trigger change events to update any dependency viewers
+        const allCheckboxes = document.querySelectorAll('input[name="files"], input[name="core-tools"]');
+        allCheckboxes.forEach(checkbox => {
+            checkbox.dispatchEvent(new Event('change'));
+        });
+    }
+
+    // Enhanced updateAgent function with better debugging and processing indicator
+    function updateAgent() {
+        const agentName = document.getElementById('name').value;
+        const agentObjective = document.getElementById('objective').value;
+        const agentId = document.getElementById('agent_id').value;
+        
+        if (!agentName || !agentObjective) {
+            showFeedback('Please fill in all required fields', 'error');
+            return;
+        }
+        
+        // Get selected tools with debugging
+        const selectedCoreTools = getSelectedCoreTools();
+        const selectedTools = getSelectedTools();
+        
+        // Debug logging to see what tools are being sent
+        console.log('Updating agent with:');
+        console.log('- Agent ID:', agentId);
+        console.log('- Selected Core Tools:', selectedCoreTools);
+        console.log('- Selected Custom Tools:', selectedTools);
+        
+        const agentData = {
+            agent_id: agentId,
+            agent_description: agentName,
+            agent_objective: agentObjective,
+            agent_enabled: 1,
+            tool_names: selectedTools,      // Custom tools
+            core_tool_names: selectedCoreTools  // Core tools
+        };
+        
+        // Get the save button and disable it with loading state
+        const saveButton = document.querySelector('button[onclick="updateAgent()"]');
+        const originalButtonContent = saveButton.innerHTML;
+        saveButton.disabled = true;
+        saveButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Saving...';
+        
+        fetch('/add/agent', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(agentData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showFeedback('Agent updated successfully!', 'success');
+                // Preserve the selected agent after reload
+                loadAgentsAndMaintainSelection(agentId);
+            } else {
+                showFeedback('Failed to update agent: ' + data.message, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showFeedback('Error updating agent', 'error');
+        })
+        .finally(() => {
+            // Reset button state
+            saveButton.disabled = false;
+            saveButton.innerHTML = originalButtonContent;
+        });
+    }
+
+    // Enhanced deleteAgent function with processing indicator (optional)
+    function deleteAgent() {
+        const agentId = document.getElementById('agent_id').value;
+        if (!agentId) {
+            showFeedback('Please select an agent to delete', 'error');
+            return;
+        }
+        
+        if (confirm('Are you sure you want to delete this agent?')) {
+            // Get the delete button and disable it with loading state
+            const deleteButton = document.querySelector('button[onclick="deleteAgent()"]');
+            const originalButtonContent = deleteButton.innerHTML;
+            deleteButton.disabled = true;
+            deleteButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Deleting...';
+
+            const agentData = {
+                agent_id: agentId
+            };
+            
+            fetch('/delete/agent', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(agentData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showFeedback('Agent deleted successfully!', 'success');
+                    clearForm();
+                    loadAgents();
+                } else {
+                    showFeedback('Failed to delete agent: ' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showFeedback('Error deleting agent', 'error');
+            })
+            .finally(() => {
+                // Reset button state
+                deleteButton.disabled = false;
+                deleteButton.innerHTML = originalButtonContent;
+            });
+        }
+    }
+
+    // New function to load agents and maintain selection (fixing issue #2)
+    function loadAgentsAndMaintainSelection(agentIdToSelect) {
+        fetch('/get/agents')
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    const agents = data.data;
+                    populateAgentDropdown(agents);
+                    
+                    // Select the specified agent
+                    if (agentIdToSelect) {
+                        const dropdown = document.getElementById('agent-dropdown');
+                        dropdown.value = agentIdToSelect;
+                        
+                        // Load the agent details
+                        const selectedAgent = agents.find(agent => agent.agent_id == agentIdToSelect);
+                        if (selectedAgent) {
+                            displayAgentData(selectedAgent);
+                        }
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showFeedback('Error loading agents', 'error');
+            });
+    }
+
+    // Test function to verify tool selection is working
+    function debugToolSelection() {
+        console.log('=== DEBUGGING TOOL SELECTION ===');
+        
+        // Check what tools are currently visible and their states
+        const customCheckboxes = document.querySelectorAll('input[name="files"]');
+        const coreCheckboxes = document.querySelectorAll('input[name="core-tools"]');
+        
+        console.log('Custom tool checkboxes:');
+        customCheckboxes.forEach(cb => {
+            console.log(`- ${cb.value}: ${cb.checked ? 'CHECKED' : 'unchecked'}`);
+        });
+        
+        console.log('Core tool checkboxes:');
+        coreCheckboxes.forEach(cb => {
+            console.log(`- ${cb.value}: ${cb.checked ? 'CHECKED' : 'unchecked'}`);
+        });
+        
+        console.log('Selected tools would be:');
+        console.log('- Custom:', getSelectedTools());
+        console.log('- Core:', getSelectedCoreTools());
+    }
+
+    // Add this line to make the debug function available in console
+    window.debugToolSelection = debugToolSelection;
+    
+    function clearForm() {
+        document.getElementById('name').value = '';
+        document.getElementById('objective').value = '';
+        document.getElementById('agent_id').value = '';
+        document.getElementById('name').readOnly = true;
+        document.getElementById('objective').readOnly = true;
+        clearCheckboxes();
+        
+        // Hide email actions card
+        document.getElementById('emailActionsCard').style.display = 'none';
+    }
+    
+    function openAddAgentPopup() {
+        document.getElementById('add-agent-popup').style.display = "block";
+    }
+    
+    function closeAddAgentPopup() {
+        document.getElementById('add-agent-popup').style.display = "none";
+    }
+
+    // Enhanced saveNewAgent function with processing indicator
+    function saveNewAgent() {
+        const newAgentName = document.getElementById('new-agent-name').value;
+        const newAgentObjective = document.getElementById('new-agent-objective').value;
+        const selectedCoreTools = getNewSelectedCoreTools();
+        const selectedTools = getNewSelectedTools();
+        
+        // Validation
+        var nameField = document.getElementById("new-agent-name");
+        var objectiveField = document.getElementById("new-agent-objective");
+        var coreToolsSection = document.getElementById("new-core-tool-list");
+        var customToolsSection = document.getElementById("new-tool-list");
+        
+        nameField.style.borderColor = "";
+        objectiveField.style.borderColor = "";
+        coreToolsSection.style.borderColor = "";
+        customToolsSection.style.borderColor = "";
+        
+        var coreToolsSelected = document.querySelectorAll('input[name="new-core-tools"]:checked').length > 0;
+        var customToolsSelected = document.querySelectorAll('input[name="new-files"]:checked').length > 0;
+        
+        var valid = true;
+        
+        if (newAgentName === "" || newAgentObjective === "") {
+            valid = false;
+            if (newAgentName === "") {
+                nameField.style.borderColor = "red";
+            }
+            if (newAgentObjective === "") {
+                objectiveField.style.borderColor = "red";
+            }
+            return;
+        }
+        
+        if (!valid) {
+            showFeedback("Please fill out all required fields.", 'error');
+            return;
+        }
+        
+        const agentData = {
+            agent_id: 0,
+            agent_description: newAgentName,
+            agent_objective: newAgentObjective,
+            agent_enabled: 1,
+            tool_names: [],
+            core_tool_names: []
+        };
+        
+        // Get the save button and disable it with loading state
+        const saveButton = document.querySelector('button[onclick="saveNewAgent()"]');
+        const originalButtonContent = saveButton.innerHTML;
+        saveButton.disabled = true;
+        saveButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Creating...';
+        
+        fetch('/add/agent', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(agentData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                const newAgentId = data.message;
+                showFeedback('Agent created successfully!', 'success');
+                closeAddAgentPopup();
+                clearNewAgentForm();
+                loadAgentsAndMaintainSelection(newAgentId);
+            } else {
+                showFeedback('Failed to create agent: ' + data.message, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showFeedback('Error creating agent', 'error');
+        })
+        .finally(() => {
+            // Reset button state
+            saveButton.disabled = false;
+            saveButton.innerHTML = originalButtonContent;
+        });
+    }
+    
+    function clearNewAgentForm() {
+        document.getElementById('new-agent-name').value = '';
+        document.getElementById('new-agent-objective').value = '';
+        document.querySelectorAll('input[name="new-core-tools"]:checked').forEach(checkbox => {
+            checkbox.checked = false;
+        });
+        document.querySelectorAll('input[name="new-files"]:checked').forEach(checkbox => {
+            checkbox.checked = false;
+        });
+    }
+
+
+    // Enhanced tool selection functions with better debugging
+    function getSelectedTools() {
+        const checkboxes = document.querySelectorAll('input[name="files"]:checked');
+        const selectedTools = [];
+        
+        console.log('Custom tool checkboxes found:', checkboxes.length);
+        checkboxes.forEach((checkbox) => {
+            selectedTools.push(checkbox.value);
+            console.log('- Selected custom tool:', checkbox.value);
+        });
+        
+        return selectedTools;
+    }
+
+    // Fixed getSelectedCoreTools to only look at visible checkboxes
+    function getSelectedCoreTools() {
+        let checkboxes;
+        
+        // Determine which view is currently visible and get checkboxes from that view only
+        const categoryView = document.getElementById('tools-by-category');
+        const groupView = document.getElementById('tools-by-group');
+        const allView = document.getElementById('tools-all');
+        
+        if (categoryView && categoryView.style.display !== 'none') {
+            // Category view is active
+            checkboxes = categoryView.querySelectorAll('input[name="core-tools"]:checked');
+            console.log('Getting core tools from CATEGORY view');
+        } else if (groupView && groupView.style.display !== 'none') {
+            // Group view is active
+            checkboxes = groupView.querySelectorAll('input[name="core-tools"]:checked');
+            console.log('Getting core tools from GROUP view');
+        } else if (allView && allView.style.display !== 'none') {
+            // All tools view is active
+            checkboxes = allView.querySelectorAll('input[name="core-tools"]:checked');
+            console.log('Getting core tools from ALL view');
+        } else {
+            // Fallback - get from all visible checkboxes
+            checkboxes = document.querySelectorAll('input[name="core-tools"]:checked:not([style*="display: none"])');
+            console.log('Getting core tools from FALLBACK (all visible)');
+        }
+        
+        const selectedTools = [];
+        console.log('Core tool checkboxes found in active view:', checkboxes.length);
+        
+        checkboxes.forEach((checkbox) => {
+            selectedTools.push(checkbox.value);
+            console.log('- Selected core tool:', checkbox.value);
+        });
+        
+        return selectedTools;
+    }
+    
+    function getNewSelectedTools() {
+        const checkboxes = document.querySelectorAll('input[name="new-files"]:checked');
+        const selectedTools = [];
+        checkboxes.forEach((checkbox) => {
+            selectedTools.push(checkbox.value);
+        });
+        return selectedTools;
+    }
+    
+    function getNewSelectedCoreTools() {
+        const checkboxes = document.querySelectorAll('input[name="new-core-tools"]:checked');
+        const selectedTools = [];
+        checkboxes.forEach((checkbox) => {
+            selectedTools.push(checkbox.value);
+        });
+        return selectedTools;
+    }
+    
+    function manageAgentKnowledge() {
+        const agentId = document.getElementById('agent_id').value;
+        if (!agentId) {
+            showFeedback('Please select an agent first', 'error');
+            return;
+        }
+        window.location.href = `/agent_knowledge/${agentId}`;
+    }
+    
+    // Event listeners
+    document.getElementById('agent-dropdown').addEventListener('change', function() {
+        const selectedAgentId = this.value;
+        if (selectedAgentId) {
+            getAgentById(selectedAgentId);
+        } else {
+            clearForm();
+        }
+    });
+    
+    // Click outside popup to close
+    window.onclick = function(event) {
+        if (event.target == document.getElementById('add-agent-popup')) {
+            closeAddAgentPopup();
+        }
+    }
+    
+    // Function to parse URL parameters
+    function getUrlParameter(name) {
+        name = name.replace(/[\[]/, '\\[').replace(/[\]]/, '\\]');
+        var regex = new RegExp('[\\?&]' + name + '=([^&#]*)');
+        var results = regex.exec(location.search);
+        return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));
+    }
+    
+    // Function to handle agent parameter from URL
+    function handleAgentParameter() {
+        const agentId = getUrlParameter('agent') || getUrlParameter('edit');
+        if (agentId) {
+            // Set the dropdown value and trigger the selection
+            const dropdown = document.getElementById('agent-dropdown');
+            dropdown.value = agentId;
+            
+            // Load the agent details
+            getAgentById(agentId);
+        }
+    }
+    
+    // Initialize page with URL parameter handling
+    function initializePageWithUrlHandling() {
+        // Load agents first
+        fetch('/get/agents')
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    const agents = data.data;
+                    populateAgentDropdown(agents);
+                    
+                    // After agents are loaded, check for URL parameter
+                    handleAgentParameter();
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showFeedback('Error loading agents', 'error');
+            });
+    }
+    
+    // Initialize when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        window.toolDependencyViewer = new ToolDependencyViewer();
+        initializePageWithUrlHandling(); // Initialize with URL parameter handling
+        initializeCategorizedView();
+    });
+
+    // Add this function after the ToolDependencyViewer class
+    function updateCategoryCounts() {
+        // Get all category headers
+        const categoryHeaders = document.querySelectorAll('.category-header');
+        
+        categoryHeaders.forEach(header => {
+            const categoryDiv = header.nextElementSibling;
+            const selectedCount = categoryDiv.querySelectorAll('input[type="checkbox"]:checked').length;
+            const totalCount = categoryDiv.querySelectorAll('input[type="checkbox"]').length;
+            
+            // Update the counts in the badge
+            const selectedSpan = header.querySelector('.selected-count');
+            const totalSpan = header.querySelector('.total-count');
+            
+            if (selectedSpan && totalSpan) {
+                selectedSpan.textContent = selectedCount;
+                totalSpan.textContent = totalCount;
+                
+                // Update badge color based on selection
+                const badge = header.querySelector('.badge');
+                if (selectedCount > 0) {
+                    badge.classList.remove('badge-secondary');
+                    badge.classList.add('badge-primary');
+                } else {
+                    badge.classList.remove('badge-primary');
+                    badge.classList.add('badge-secondary');
+                }
+            }
+        });
+    }
+
+
+/* Agent Import/Export Functions */
+// Export current agent
+function exportAgent() {
+    const agentId = document.getElementById('agent_id').value;
+    
+    if (!agentId || agentId === '0') {
+        showFeedback('Please select an agent to export', 'error');
+        return;
+    }
+    
+    // Show loading state
+    const exportBtn = document.getElementById('exportAgentBtn');
+    const originalText = exportBtn.innerHTML;
+    exportBtn.disabled = true;
+    exportBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Exporting...';
+    
+    fetch(`/export/agent/${agentId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Export failed');
+        }
+        return response.blob();
+    })
+    .then(blob => {
+        // Create download link
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        const agentName = document.getElementById('name').value || 'agent';
+        link.setAttribute('download', `${agentName.replace(/\s+/g, '_')}_export.zip`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+        
+        showFeedback('Agent exported successfully!', 'success');
+    })
+    .catch(error => {
+        console.error('Export error:', error);
+        showFeedback('Failed to export agent', 'error');
+    })
+    .finally(() => {
+        // Reset button
+        exportBtn.disabled = false;
+        exportBtn.innerHTML = originalText;
+    });
+}
+
+function showImportDialog() {
+    $('#importAgentDialog').modal('show');
+    resetImportDialog();
+}
+
+function hideImportDialog() {
+    $('#importAgentDialog').modal('hide');
+    resetImportDialog();
+}
+
+function resetImportDialog() {
+    currentImportFile = null;
+    analysisData = null;
+    document.getElementById('importAgentFile').value = '';
+    document.getElementById('selectedFileInfo').style.display = 'none';
+    document.getElementById('importAnalyzeBtn').style.display = 'none';
+    document.getElementById('importProceedBtn').style.display = 'none';
+
+    // Remove environment section if it exists
+    const envSection = document.getElementById('environmentSection');
+    if (envSection) {
+        envSection.remove();
+    }
+    
+    // Show only step 1
+    showImportStep(1);
+}
+
+function showImportStep(stepNumber) {
+    // Hide all steps
+    document.querySelectorAll('.import-step').forEach(step => {
+        step.style.display = 'none';
+        step.classList.remove('active');
+    });
+    
+    // Show the requested step with fade-in effect
+    const targetStep = document.getElementById(`importStep${stepNumber}`);
+    if (targetStep) {
+        targetStep.style.display = 'block';
+        setTimeout(() => targetStep.classList.add('active'), 50);
+    }
+}
+
+
+function handleFileSelection(input) {
+    console.log('handleFileSelection called', input);
+    
+    // Check if input exists
+    if (!input) {
+        console.error('File input element is null or undefined');
+        return;
+    }
+    
+    // Check if files property exists
+    if (!input.files) {
+        console.error('No files property on input element');
+        return;
+    }
+    
+    const file = input.files[0];
+    console.log('Selected file:', file);
+    
+    if (file) {
+        // Validate file extension
+        if (!file.name.endsWith('.zip')) {
+            console.warn('Invalid file type:', file.name);
+            
+            // Check if showFeedback function exists
+            if (typeof showFeedback === 'function') {
+                showFeedback('Please select a valid .zip file', 'error');
+            } else {
+                // Fallback alert if showFeedback is not available
+                alert('Please select a valid .zip file');
+                console.error('showFeedback function not found');
+            }
+            
+            input.value = '';
+            return;
+        }
+        
+        // Store the file reference
+        if (typeof currentImportFile !== 'undefined') {
+            currentImportFile = file;
+        } else {
+            console.error('currentImportFile variable not declared');
+            // Try to declare it globally if it doesn't exist
+            window.currentImportFile = file;
+        }
+        
+        // Update UI elements with safety checks
+        const fileNameElement = document.getElementById('selectedFileName');
+        const fileInfoElement = document.getElementById('selectedFileInfo');
+        const analyzeBtnElement = document.getElementById('importAnalyzeBtn');
+        
+        if (fileNameElement) {
+            fileNameElement.textContent = file.name;
+        } else {
+            console.error('Element with id "selectedFileName" not found');
+        }
+        
+        if (fileInfoElement) {
+            fileInfoElement.style.display = 'block';
+        } else {
+            console.error('Element with id "selectedFileInfo" not found');
+        }
+        
+        if (analyzeBtnElement) {
+            analyzeBtnElement.style.display = 'inline-block';
+        } else {
+            console.error('Element with id "importAnalyzeBtn" not found');
+        }
+        
+        console.log('File selection completed successfully');
+    } else {
+        console.warn('No file selected');
+    }
+}
+
+function clearFileSelection() {
+    currentImportFile = null;
+    document.getElementById('importAgentFile').value = '';
+    document.getElementById('selectedFileInfo').style.display = 'none';
+    document.getElementById('importAnalyzeBtn').style.display = 'none';
+}
+
+function analyzePackage() {
+    if (!currentImportFile) {
+        showFeedback('Please select a file first', 'error');
+        return;
+    }
+    
+    // Show analysis step
+    showImportStep(2);
+    document.getElementById('analysisResults').style.display = 'none';
+    document.getElementById('analysisSpinner').style.display = 'inline-block';
+    document.getElementById('importAnalyzeBtn').style.display = 'none';
+    
+    const formData = new FormData();
+    formData.append('file', currentImportFile);
+    
+    fetch('/import/agent/analyze', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            analysisData = data;
+            displayAnalysisResults(data);
+        } else {
+            showFeedback('Analysis failed: ' + data.message, 'error');
+            showImportStep(1);
+            document.getElementById('importAnalyzeBtn').style.display = 'inline-block';
+        }
+    })
+    .catch(error => {
+        console.error('Analysis error:', error);
+        showFeedback('Failed to analyze package', 'error');
+        showImportStep(1);
+        document.getElementById('importAnalyzeBtn').style.display = 'inline-block';
+    });
+}
+
+function displayAnalysisResults(data) {
+    // Hide spinner, show results
+    document.getElementById('analysisSpinner').style.display = 'none';
+    document.getElementById('analysisResults').style.display = 'block';
+    
+    // Fill in package info
+    document.getElementById('analyzeAgentName').textContent = data.agent_info.name || '-';
+    document.getElementById('analyzeVersion').textContent = data.package_info.version || '-';
+    document.getElementById('analyzeDate').textContent = 
+        data.package_info.export_date ? new Date(data.package_info.export_date).toLocaleDateString() : '-';
+    
+    // Fill in contents
+    document.getElementById('analyzeCoreTools').textContent = data.tools.core_tools.length;
+    document.getElementById('analyzeCustomTools').textContent = data.tools.custom_tools.length;
+    document.getElementById('analyzeKnowledge').textContent = data.knowledge.total_items;
+
+    // Environment Section
+    if (data.environment) {
+        const env = data.environment;
+        let envHtml = '';
+        
+        if (env.included) {
+            let statusBadge = '';
+            let statusMessage = '';
+            
+            switch(env.status) {
+                case 'exists':
+                    statusBadge = '<span class="badge badge-info">Existing</span>';
+                    statusMessage = `Environment "${env.environment_name}" already exists and will be reused.`;
+                    break;
+                case 'new':
+                    statusBadge = '<span class="badge badge-success">New</span>';
+                    statusMessage = `Environment "${env.environment_name}" will be created.`;
+                    break;
+                case 'feature_disabled':
+                    statusBadge = '<span class="badge badge-warning">Feature Disabled</span>';
+                    statusMessage = 'Agent Environments feature is not enabled. Environment will be skipped.';
+                    break;
+                default:
+                    statusBadge = '<span class="badge badge-secondary">Unknown</span>';
+            }
+            
+            envHtml = `
+                <div id="environmentSection" class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-box-open mr-2"></i>Environment ${statusBadge}</span>
+                        <small class="text-muted">${env.package_count} packages</small>
+                    </div>
+                    <div class="card-body">
+                        <p class="mb-2"><strong>Name:</strong> ${env.environment_name || 'N/A'}</p>
+                        <p class="mb-2"><strong>Python Version:</strong> ${env.python_version || 'N/A'}</p>
+                        <p class="mb-2"><strong>Description:</strong> ${env.description || 'N/A'}</p>
+                        <p class="mb-3"><small class="text-muted">${statusMessage}</small></p>
+                        
+                        ${env.packages && env.packages.length > 0 ? `
+                            <details>
+                                <summary class="text-primary" style="cursor: pointer;">
+                                    View ${env.package_count} packages
+                                </summary>
+                                <div class="mt-2" style="max-height: 150px; overflow-y: auto;">
+                                    <ul class="list-unstyled mb-0 small">
+                                        ${env.packages.map(pkg => `
+                                            <li><code>${pkg.name}${pkg.version ? '==' + pkg.version : ''}</code></li>
+                                        `).join('')}
+                                    </ul>
+                                </div>
+                            </details>
+                        ` : ''}
+                        
+                        ${env.feature_enabled !== false ? `
+                            <div class="mt-3">
+                                <label class="d-block mb-2"><strong>Environment Import Options:</strong></label>
+                                <div class="form-check">
+                                    <input type="radio" class="form-check-input" name="envAction" 
+                                        id="envActionCreateOrReuse" value="create_or_reuse" checked>
+                                    <label class="form-check-label" for="envActionCreateOrReuse">
+                                        Create if new, reuse if exists
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <input type="radio" class="form-check-input" name="envAction" 
+                                        id="envActionSkip" value="skip">
+                                    <label class="form-check-label" for="envActionSkip">
+                                        Skip environment import
+                                    </label>
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        } else {
+            envHtml = `
+                <div id="environmentSection" class="card mb-3">
+                    <div class="card-header">
+                        <i class="fas fa-box-open mr-2"></i>Environment
+                        <span class="badge badge-secondary ml-2">Not Included</span>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted mb-0">No custom environment was included in this export package.</p>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Insert after knowledge section or at end of analysis container
+        const analysisContainer = document.getElementById('analysisResults');
+        if (analysisContainer) {
+            // Remove existing environment section first to prevent duplicates
+            const existingEnv = document.getElementById('environmentSection');
+            if (existingEnv) {
+                existingEnv.remove();
+            }
+            analysisContainer.innerHTML += envHtml;
+        }
+    }
+    
+    // Check for conflicts
+    const conflicts = [];
+    if (data.conflicts.agent_name_exists) {
+        conflicts.push('Agent name already exists');
+    }
+    if (data.conflicts.existing_custom_tools.length > 0) {
+        conflicts.push(`${data.conflicts.existing_custom_tools.length} custom tools already exist`);
+    }
+    
+    if (conflicts.length > 0) {
+        document.getElementById('conflictsSection').style.display = 'block';
+        const conflictsList = document.getElementById('conflictsList');
+        conflictsList.innerHTML = conflicts.map(c => `<li>${c}</li>`).join('');
+    } else {
+        document.getElementById('conflictsSection').style.display = 'none';
+    }
+    
+    // Show proceed button
+    document.getElementById('importProceedBtn').style.display = 'inline-block';
+}
+
+function proceedWithImport() {
+    if (!currentImportFile || !analysisData) {
+        showFeedback('Analysis data missing', 'error');
+        return;
+    }
+    
+    // Show progress step
+    showImportStep(3);
+    document.getElementById('importProceedBtn').style.display = 'none';
+    
+    // Clear previous steps
+    document.getElementById('importSteps').innerHTML = '';
+    
+    // Prepare import options
+    const options = {
+        overwrite_tools: document.getElementById('overwriteTools').checked,
+        rename_if_exists: document.getElementById('renameAgent').checked,
+        import_environment: true,
+        environment_action: document.querySelector('input[name="envAction"]:checked')?.value || 'create_or_reuse'
+    };
+    
+    const formData = new FormData();
+    formData.append('file', currentImportFile);
+    formData.append('options', JSON.stringify(options));
+    
+    // Start import with step tracking
+    executeImport(formData);
+}
+
+function executeImport(formData) {
+    // Show progress step
+    const progressBar = document.getElementById('importProgressBar');
+    const progressText = document.getElementById('importProgressText');
+    const progressTitle = document.getElementById('importProgressTitle');
+    
+    // Make progress bar indeterminate (animated stripes at 100%)
+    progressBar.classList.add('progress-bar-striped', 'progress-bar-animated');
+    progressBar.style.width = '100%';
+    progressText.textContent = '';
+    
+    // Check if this import includes an environment
+    const hasEnvironment = analysisData && 
+                           analysisData.environment && 
+                           analysisData.environment.included &&
+                           document.querySelector('input[name="envAction"]:checked')?.value !== 'skip';
+    
+    if (hasEnvironment) {
+        progressTitle.innerHTML = `
+            <i class="fas fa-spinner fa-spin mr-2"></i>Importing Agent
+            <div class="small text-muted mt-2">
+                <i class="fas fa-clock mr-1"></i>
+                This may take a few minutes while the environment and packages are installed.
+            </div>
+        `;
+    } else {
+        progressTitle.innerHTML = `
+            <i class="fas fa-spinner fa-spin mr-2"></i>Importing Agent...
+        `;
+    }
+
+    fetch('/import/agent/execute', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            displayImportSteps(data.steps);
+            setTimeout(() => {
+                showImportSuccess(data);
+            }, 1500);
+        } else {
+            displayImportSteps(data.steps || []);
+            showFeedback('Import failed: ' + data.message, 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Import error:', error);
+        showFeedback('Failed to import agent', 'error');
+    });
+}
+
+function displayImportSteps(steps) {
+    const container = document.getElementById('importSteps');
+    const progressBar = document.getElementById('importProgressBar');
+    const progressText = document.getElementById('importProgressText');
+    
+    let currentStep = 0;
+    const totalSteps = steps.length;
+    
+    function addNextStep() {
+        if (currentStep < totalSteps) {
+            const step = steps[currentStep];
+            const stepElement = createStepElement(step);
+            container.appendChild(stepElement);
+            container.scrollTop = container.scrollHeight;
+            
+            // Update progress
+            const progress = Math.round(((currentStep + 1) / totalSteps) * 100);
+            progressBar.style.width = progress + '%';
+            progressText.textContent = progress + '%';
+            
+            currentStep++;
+            
+            // Add next step with delay for smooth animation
+            setTimeout(addNextStep, 300);
+        } else {
+            // Import complete - finalize the progress view
+            finalizeProgressView();
+        }
+    }
+    
+    addNextStep();
+}
+
+function finalizeProgressView() {
+    // Remove animation classes when complete
+    const progressBar = document.getElementById('importProgressBar');
+    progressBar.classList.remove('progress-bar-animated', 'progress-bar-striped');
+    progressBar.classList.add('bg-success');
+    
+    // Update title to show completion
+    document.getElementById('importProgressTitle').innerHTML = 
+        '<i class="fas fa-check-circle text-success mr-2"></i>Import Complete';
+}
+
+function viewImportDetails() {
+    // Show the progress step with all the details
+    showImportStep(3);
+    
+    // Show the back button
+    document.getElementById('backToSummaryContainer').style.display = 'block';
+    
+    // Hide the footer buttons since we're in review mode
+    document.getElementById('importProceedBtn').style.display = 'none';
+}
+
+function backToSummary() {
+    // Go back to the success summary view
+    showImportStep(4);
+    
+    // Hide the back button
+    document.getElementById('backToSummaryContainer').style.display = 'none';
+}
+
+function createStepElement(step) {
+    const div = document.createElement('div');
+    div.className = `import-step-item ${step.status}`;
+    
+    let icon = '';
+    switch (step.status) {
+        case 'processing':
+            icon = '<i class="fas fa-spinner fa-spin text-warning"></i>';
+            break;
+        case 'success':
+            icon = '<i class="fas fa-check-circle text-success"></i>';
+            break;
+        case 'error':
+            icon = '<i class="fas fa-times-circle text-danger"></i>';
+            break;
+        case 'info':
+            icon = '<i class="fas fa-info-circle text-info"></i>';
+            break;
+        case 'warning':
+            icon = '<i class="fas fa-exclamation-triangle text-warning"></i>';
+            break;
+    }
+    
+    div.innerHTML = `
+        <div class="d-flex align-items-center">
+            <span class="step-icon">${icon}</span>
+            <div class="flex-grow-1">
+                <strong>${step.step.charAt(0).toUpperCase() + step.step.slice(1).replace('_', ' ')}</strong>
+                <div class="text-muted small">${step.message}</div>
+            </div>
+        </div>
+    `;
+    
+    return div;
+}
+
+function showImportSuccess(data) {
+    showImportStep(4);
+    
+    const summary = document.getElementById('importSummary');
+    
+    // Build environment info HTML
+    let envInfo = '';
+    if (data.summary.environment_imported) {
+        envInfo = `
+            <p class="mb-1">
+                <i class="fas fa-box-open mr-2 text-success"></i>
+                <strong>Environment:</strong> Imported successfully 
+                <span class="badge badge-success">ID: ${data.summary.environment_id}</span>
+            </p>
+        `;
+    } else if (data.analysis && data.analysis.environment && data.analysis.environment.included) {
+        envInfo = `
+            <p class="mb-1">
+                <i class="fas fa-box-open mr-2 text-secondary"></i>
+                <strong>Environment:</strong> Skipped
+            </p>
+        `;
+    }
+    
+    summary.innerHTML = `
+        <div class="alert alert-success mb-0">
+            <h5 class="alert-heading">
+                <i class="fas fa-check-circle mr-2"></i>
+                Agent "${data.agent_name}" imported successfully!
+            </h5>
+            <hr>
+            <div class="row">
+                <div class="col-md-6">
+                    <p class="mb-1">
+                        <i class="fas fa-robot mr-2"></i>
+                        <strong>Agent ID:</strong> ${data.agent_id}
+                    </p>
+                    <p class="mb-1">
+                        <i class="fas fa-tools mr-2"></i>
+                        <strong>Custom Tools:</strong> ${data.summary.custom_tools_imported} imported, 
+                        ${data.summary.custom_tools_skipped} skipped
+                    </p>
+                    <p class="mb-1">
+                        <i class="fas fa-cogs mr-2"></i>
+                        <strong>Core Tools:</strong> ${data.summary.core_tools_added} added
+                    </p>
+                </div>
+                <div class="col-md-6">
+                    <p class="mb-1">
+                        <i class="fas fa-book mr-2"></i>
+                        <strong>Knowledge Items:</strong> ${data.summary.knowledge_items_imported} imported
+                    </p>
+                    ${envInfo}
+                    <p class="mb-0">
+                        <i class="fas fa-clock mr-2"></i>
+                        <strong>Total Time:</strong> ${data.summary.total_time.toFixed(2)} seconds
+                    </p>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function completeImport() {
+    hideImportDialog();
+    // Reload agents list
+    loadAgents();
+    showFeedback('Agent imported successfully!', 'success');
+}
+
+</script>
+{% include 'components/welcome_modal.html' %}
+<script src="/static/js/custom_agent_enhanced_context.js"></script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}

@@ -1,0 +1,533 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<style>
+    /* ===== STYLES FROM ASSISTANTS.HTML FOR CONSISTENCY ===== */
+    .compact-header {
+        background: linear-gradient(135deg, #2980b9 0%, #34495e 100%);
+        color: white;
+        padding: 0.5rem 1rem;
+        margin-bottom: 1rem;
+        border-radius: 0.5rem;
+    }
+    
+    /* Make cards more compact like in assistant pages */
+    .card {
+        margin-bottom: 0.75rem;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        border-radius: 0.5rem;
+    }
+    
+    .card-header {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.9rem;
+        font-weight: 600;
+        background-color: var(--bg-elevated, #f8f9fa);
+        border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+    }
+    
+    .card-body {
+        padding: 0.75rem;
+    }
+    
+    .card-title {
+        font-size: 1rem;
+        margin-bottom: 0;
+    }
+    
+    /* Form controls - make them smaller to match */
+    .form-control, .custom-select {
+        font-size: 0.9rem;
+        padding: 0.25rem 0.75rem;
+    }
+    
+    .form-group {
+        margin-bottom: 0.75rem;
+    }
+    
+    .form-group label {
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+    }
+    
+    .form-text {
+        font-size: 0.8rem;
+        margin-top: 0.25rem;
+    }
+    
+    /* Button size consistency */
+    .btn {
+        font-size: 0.9rem;
+        padding: 0.375rem 0.75rem;
+    }
+    
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+    }
+    
+    /* Alert styling consistency */
+    .alert {
+        padding: 0.75rem;
+        font-size: 0.9rem;
+    }
+    
+    /* Table styling to be more compact */
+    .table {
+        font-size: 0.9rem;
+    }
+    
+    .table th {
+        padding: 0.5rem;
+        font-size: 0.85rem;
+        font-weight: 600;
+        background-color: var(--bg-elevated, #f8f9fa);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }
+    
+    .table td {
+        padding: 0.5rem;
+        vertical-align: middle;
+    }
+    
+    /* Table container */
+    #tableContainer {
+        max-height: 60vh;
+        overflow-y: auto;
+    }
+    
+    /* Modal styling consistency */
+    .modal-header {
+        background-color: var(--bg-elevated, #f8f9fa);
+        padding: 0.75rem 1rem;
+    }
+    
+    .modal-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+    }
+    
+    .modal-body .form-control {
+        font-size: 0.9rem;
+        padding: 0.375rem 0.75rem;
+    }
+    
+    .modal-footer {
+        padding: 0.75rem;
+    }
+    
+    /* Badge styling */
+    .badge {
+        font-size: 0.75rem;
+        padding: 0.25em 0.5em;
+    }
+    
+    .role-badge {
+        font-size: 0.75rem;
+        padding: 0.25em 0.5em;
+    }
+    
+    /* Action buttons */
+    .action-buttons {
+        display: flex;
+        gap: 0.25rem;
+    }
+
+    /* Feedback container */
+    .feedback-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1050;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+    }
+
+    .feedback-alert {
+        margin-top: 10px;
+        display: flex;
+        align-items: center;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        min-width: 250px;
+        font-size: 0.9rem;
+        padding: 0.5rem 0.75rem;
+    }
+
+    .feedback-alert i {
+        margin-right: 8px;
+        font-size: 1rem;
+    }
+    
+    /* Small text consistency */
+    .small, small {
+        font-size: 0.8rem;
+    }
+</style>
+
+<div class="container-fluid px-3 py-2">
+    {% if current_user.is_authenticated %}
+        {% if current_user.role == 3 %}
+            <!-- Compact Header Bar (NEW - matching assistants.html style) -->
+            <div class="doc-page-header">
+                <h4 class="mb-0"><i class="fas fa-users mr-2"></i>User Management</h4>
+                <button class="btn btn-sm btn-light" data-toggle="modal" data-target="#userModal">
+                    <i class="fas fa-plus mr-1"></i> Add User
+                </button>
+            </div>
+            
+            <div class="doc-processor">
+                <div class="row">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header">
+                                <h6 class="mb-0">User Accounts</h6>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="table-responsive" id="tableContainer">
+                                    <table class="table table-striped table-hover mb-0" id="userTable">
+                                        <thead class="bg-light">
+                                            <tr>
+                                                <th width="60">ID</th>
+                                                <th>Name</th>
+                                                <th>Username</th>
+                                                <th>Email</th>
+                                                <th>Phone</th>
+                                                <th width="100">Role</th>
+                                                <th width="140">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <!-- User rows will be populated here -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- User Modal -->
+            <div class="modal fade" id="userModal" tabindex="-1" role="dialog" aria-labelledby="userModalLabel" aria-hidden="true">
+                <div class="modal-dialog" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="userModalLabel">Add User</h5>
+                            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                <span aria-hidden="true">&times;</span>
+                            </button>
+                        </div>
+                        <div class="modal-body">
+                            <form id="userForm">
+                                <input type="hidden" id="userId">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="fullName"><strong>Full Name</strong></label>
+                                            <input type="text" class="form-control form-control-sm" id="fullName" required>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="userName"><strong>Username</strong></label>
+                                            <input type="text" class="form-control form-control-sm" id="userName" required>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="email"><strong>Email</strong></label>
+                                            <input type="email" class="form-control form-control-sm" id="email" required>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="phone"><strong>Phone Number</strong></label>
+                                            <input type="text" class="form-control form-control-sm" id="phone" required>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="permissions"><strong>Role</strong></label>
+                                            <select class="form-control form-control-sm" id="permissions" required>
+                                                <option value="3">Admin</option>
+                                                <option value="2">Developer</option>
+                                                <option value="1">End User</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="password"><strong>Password</strong></label>
+                                            <input type="password" class="form-control form-control-sm" id="password">
+                                            <small class="form-text text-muted">Leave blank to keep existing password when editing</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Cancel</button>
+                            <button type="submit" class="btn btn-sm btn-primary" form="userForm">
+                                <i class="fas fa-save mr-1"></i> Save User
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Feedback container for notifications -->
+            <div class="feedback-container" id="feedbackContainer"></div>
+
+            <script>
+                $(document).ready(function() {
+                    function loadUsers() {
+                        $.getJSON('/get/users', function(data) {
+                            var rows = '';
+                            data = JSON.parse(data);
+                            data.forEach(function(user) {
+                                var permissionDisplay;
+                                var badgeClass;
+                                
+                                switch(user.role) {
+                                    case 1:
+                                        permissionDisplay = 'End User';
+                                        badgeClass = 'badge-info';
+                                        break;
+                                    case 2:
+                                        permissionDisplay = 'Developer';
+                                        badgeClass = 'badge-primary';
+                                        break;
+                                    case 3:
+                                        permissionDisplay = 'Admin';
+                                        badgeClass = 'badge-danger';
+                                        break;
+                                    default:
+                                        permissionDisplay = 'Unknown';
+                                        badgeClass = 'badge-secondary';
+                                }
+                                
+                                rows += `
+                                    <tr>
+                                        <td>${user.id}</td>
+                                        <td>${user.name}</td>
+                                        <td>${user.user_name}</td>
+                                        <td>${user.email}</td>
+                                        <td>${user.phone}</td>
+                                        <td><span class="badge ${badgeClass} role-badge">${permissionDisplay}</span></td>
+                                        <td>
+                                            <div class="action-buttons">
+                                                <button class="btn btn-sm btn-outline-primary edit-btn" data-id="${user.id}">
+                                                    <i class="fas fa-edit"></i> Edit
+                                                </button>
+                                                <button class="btn btn-sm btn-outline-danger delete-btn" data-id="${user.id}">
+                                                    <i class="fas fa-trash-alt"></i> Delete
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                `;
+                            });
+                            $('#userTable tbody').html(rows);
+                        }).fail(function(error) {
+                            console.error('Error loading users:', error);
+                            showFeedback('Error loading users', false);
+                        });
+                    }
+
+                    loadUsers();
+
+                    $('#userForm').on('submit', function(e) {
+                        e.preventDefault();
+                        var userId = $('#userId').val();
+                        var url = '/add/user';
+                        var type = userId ? 'POST' : 'POST';
+                        var userId = userId ? userId : 0;
+
+                        var password = $('#password').val();
+
+                        function hashPassword(password) {
+                            return password
+                        }
+
+                        console.log('userId:', userId);
+                        console.log('userName:', $('#userName').val());
+                        console.log('name:', $('#fullName').val());
+                        console.log('email:', $('#email').val());
+                        console.log('phone:', $('#phone').val());
+                        console.log('Role:', $('#permissions').val());
+
+                        $.ajax({
+                            url: url,
+                            type: type,
+                            contentType: 'application/json',
+                            data: JSON.stringify({
+                                user_id: userId,
+                                user_name: $('#userName').val(),
+                                name: $('#fullName').val(),
+                                email: $('#email').val(),
+                                phone: $('#phone').val(),
+                                role: $('#permissions').val(),
+                                password: hashPassword(password)
+                            }),
+                            success: function() {
+                                $('#userModal').modal('hide');
+                                loadUsers();
+                                showFeedback(userId ? 'User updated successfully' : 'User added successfully', true);
+                            },
+                            error: function() {
+                                showFeedback('Error saving user', false);
+                            }
+                        });
+                    });
+
+                    $(document).on('click', '.edit-btn', function() {
+                        var userId = $(this).data('id');
+                        console.log('userId ==========>>>', userId);
+                        $.getJSON(`/get/user/${userId}`, function(user) {
+                            user = JSON.parse(user);
+                            user = user[0];
+                            console.log('user >>>>>-=-=-==-=->>>>>', user)
+                            $('#userId').val(user.id);
+                            $('#fullName').val(user.name);
+                            $('#userName').val(user.user_name);
+                            $('#email').val(user.email);
+                            $('#phone').val(user.phone);
+                            $('#permissions').val(user.role);
+                            $('#password').val(''); // Clear password field on edit
+                            $('#userModalLabel').text('Edit User');
+                            $('#userModal').modal('show');
+                        }).fail(function() {
+                            showFeedback('Error loading user details', false);
+                        });
+                    });
+
+                    $(document).on('click', '.delete-btn', function() {
+                        var userId = $(this).data('id');
+                        if (confirm('Are you sure you want to delete this user?')) {
+                            $.ajax({
+                                url: `/delete/user`,
+                                type: 'POST',
+                                contentType: 'application/json',
+                                data: JSON.stringify({
+                                    user_id: userId,
+                                }),
+                                success: function() {
+                                    loadUsers();
+                                    showFeedback('User deleted successfully', true);
+                                },
+                                error: function() {
+                                    showFeedback('Error deleting user', false);
+                                }
+                            });
+                        }
+                    });
+
+                    $('#userModal').on('hidden.bs.modal', function() {
+                        $('#userForm')[0].reset();
+                        $('#userId').val('');
+                        $('#userModalLabel').text('Add User');
+                    });
+
+                    function adjustTableHeight() {
+                        var windowHeight = $(window).height();
+                        var headerHeight = $('.compact-header').outerHeight(true) + $('.card-header').outerHeight(true);
+                        var containerHeight = windowHeight - headerHeight - 150; // Adjusted padding
+                        $('#tableContainer').css('max-height', containerHeight + 'px');
+                    }
+
+                    // Adjust table height on page load and when the window is resized
+                    adjustTableHeight();
+                    $(window).resize(adjustTableHeight);
+                    
+                    // Function to show feedback notifications
+                    function showFeedback(message, isSuccess) {
+                        const feedbackContainer = document.getElementById('feedbackContainer');
+                        const feedback = document.createElement('div');
+                        feedback.className = `alert ${isSuccess ? 'alert-success' : 'alert-danger'} feedback-alert`;
+                        feedback.role = 'alert';
+
+                        const icon = document.createElement('i');
+                        icon.className = isSuccess ? 'fas fa-check-circle' : 'fas fa-times-circle';
+                        feedback.appendChild(icon);
+
+                        const textNode = document.createTextNode(` ${message}`);
+                        feedback.appendChild(textNode);
+
+                        feedbackContainer.appendChild(feedback);
+
+                        // Add animation for a smoother appearance
+                        feedback.style.opacity = '0';
+                        feedback.style.transform = 'translateX(20px)';
+                        feedback.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+                        
+                        // Trigger animation
+                        setTimeout(() => {
+                            feedback.style.opacity = '1';
+                            feedback.style.transform = 'translateX(0)';
+                        }, 10);
+
+                        // Remove after delay
+                        setTimeout(() => {
+                            // Exit animation
+                            feedback.style.opacity = '0';
+                            feedback.style.transform = 'translateX(20px)';
+                            
+                            // Remove from DOM after animation completes
+                            setTimeout(() => {
+                                feedback.remove();
+                            }, 300);
+                        }, 3000);
+                    }
+                });
+            </script>
+        {% else %}
+            <div class="alert alert-danger">
+                <i class="fas fa-exclamation-circle mr-2"></i> You are not authorized to view this content
+            </div>
+        {% endif %}
+    {% endif %}
+</div>
+<script src="/static/js/users_context.js"></script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}

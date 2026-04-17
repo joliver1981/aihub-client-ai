@@ -1,0 +1,28 @@
+INVOICE #INV-2025-001
+=====================================
+Invoice Date: January 15, 2025
+Due Date: February 15, 2025
+
+FROM:
+Acme Corporation
+123 Business Street
+New York, NY 10001
+
+TO:
+Sample Customer Inc.
+456 Client Avenue
+Los Angeles, CA 90001
+
+ITEMS:
+------
+Widget Pro (x10)          $99.99    $999.90
+Service Package (x1)     $250.00    $250.00
+Shipping                              $25.00
+------
+Subtotal:                         $1,274.90
+Tax (8%):                           $101.99
+------
+TOTAL DUE:                        $1,376.89
+
+Payment Terms: Net 30
+Thank you for your business!

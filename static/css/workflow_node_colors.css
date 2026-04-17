@@ -1,0 +1,522 @@
+/* ============================================
+   WORKFLOW NODE COLOR SCHEME - PROFESSIONAL
+   ============================================
+   Subtle, muted colors for a professional look.
+   
+   Categories:
+   - Data Sources (Slate Blue)
+   - AI/Intelligence (Muted Purple)  
+   - Flow Control (Cool Gray-Blue)
+   - Communication (Warm Amber/Tan)
+   - Transformation (Sage/Muted Teal)
+   
+   Version: 2.0 - Subtle & Professional
+   ============================================ */
+
+
+/* ============================================
+   CANVAS NODE STYLES
+   ============================================ */
+
+   /* OVERRIDE - Force tool-item backgrounds */
+.tool-item,
+.tool-item:hover,
+.tool-item:active,
+.tool-item:focus {
+    background: none !important;
+    background-color: transparent !important;
+}
+
+/* --- DATA SOURCES - Slate Blue (professional, trustworthy) --- */
+
+.workflow-node[data-type="Database"] {
+    background: linear-gradient(135deg, #4a6fa5 0%, #3d5a80 100%) !important;
+    box-shadow: 0 2px 6px rgba(61, 90, 128, 0.25);
+}
+
+.workflow-node[data-type="Database"]:hover {
+    box-shadow: 0 4px 10px rgba(61, 90, 128, 0.35);
+}
+
+.workflow-node[data-type="File"] {
+    background: linear-gradient(135deg, #5a7fb8 0%, #4a6fa5 100%) !important;
+    box-shadow: 0 2px 6px rgba(74, 111, 165, 0.25);
+}
+
+.workflow-node[data-type="File"]:hover {
+    box-shadow: 0 4px 10px rgba(74, 111, 165, 0.35);
+}
+
+.workflow-node[data-type="Folder Selector"] {
+    background: linear-gradient(135deg, #6b8cce 0%, #5a7fb8 100%) !important;
+    box-shadow: 0 2px 6px rgba(90, 127, 184, 0.25);
+}
+
+.workflow-node[data-type="Folder Selector"]:hover {
+    box-shadow: 0 4px 10px rgba(90, 127, 184, 0.35);
+}
+
+
+/* --- AI/INTELLIGENCE - Muted Purple (sophisticated, smart) --- */
+
+.workflow-node[data-type="AI Action"] {
+    background: linear-gradient(135deg, #7c6f9c 0%, #5d5279 100%) !important;
+    box-shadow: 0 2px 6px rgba(93, 82, 121, 0.25);
+}
+
+.workflow-node[data-type="AI Action"]:hover {
+    box-shadow: 0 4px 10px rgba(93, 82, 121, 0.35);
+}
+
+.workflow-node[data-type="AI Extract"] {
+    background: linear-gradient(135deg, #9181ab 0%, #7c6f9c 100%) !important;
+    box-shadow: 0 2px 6px rgba(124, 111, 156, 0.25);
+}
+
+.workflow-node[data-type="AI Extract"]:hover {
+    box-shadow: 0 4px 10px rgba(124, 111, 156, 0.35);
+}
+
+.workflow-node[data-type="Document"] {
+    background: linear-gradient(135deg, #8677a3 0%, #6e5f8a 100%) !important;
+    box-shadow: 0 2px 6px rgba(110, 95, 138, 0.25);
+}
+
+.workflow-node[data-type="Document"]:hover {
+    box-shadow: 0 4px 10px rgba(110, 95, 138, 0.35);
+}
+
+
+/* --- FLOW CONTROL - Cool Gray-Blue (logical, structured) --- */
+
+.workflow-node[data-type="Conditional"] {
+    background: linear-gradient(135deg, #5c6b7a 0%, #4a5568 100%) !important;
+    box-shadow: 0 2px 6px rgba(74, 85, 104, 0.25);
+}
+
+.workflow-node[data-type="Conditional"]:hover {
+    box-shadow: 0 4px 10px rgba(74, 85, 104, 0.35);
+}
+
+.workflow-node[data-type="Loop"] {
+    background: linear-gradient(135deg, #4e5d6c 0%, #3d4a5c 100%) !important;
+    box-shadow: 0 2px 6px rgba(61, 74, 92, 0.25);
+}
+
+.workflow-node[data-type="Loop"]:hover {
+    box-shadow: 0 4px 10px rgba(61, 74, 92, 0.35);
+}
+
+.workflow-node[data-type="End Loop"] {
+    background: linear-gradient(135deg, #6b7a8a 0%, #5c6b7a 100%) !important;
+    box-shadow: 0 2px 6px rgba(92, 107, 122, 0.25);
+    border: 2px dashed rgba(255, 255, 255, 0.3);
+}
+
+.workflow-node[data-type="End Loop"]:hover {
+    box-shadow: 0 4px 10px rgba(92, 107, 122, 0.35);
+}
+
+
+/* --- COMMUNICATION/HUMAN - Warm Amber/Tan (attention, human) --- */
+
+.workflow-node[data-type="Alert"] {
+    background: linear-gradient(135deg, #c49a6c 0%, #a67c52 100%) !important;
+    box-shadow: 0 2px 6px rgba(166, 124, 82, 0.25);
+}
+
+.workflow-node[data-type="Alert"]:hover {
+    box-shadow: 0 4px 10px rgba(166, 124, 82, 0.35);
+}
+
+.workflow-node[data-type="Human Approval"] {
+    background: linear-gradient(135deg, #d4a574 0%, #c49a6c 100%) !important;
+    box-shadow: 0 2px 6px rgba(196, 154, 108, 0.25);
+    border: none;
+}
+
+.workflow-node[data-type="Human Approval"]:hover {
+    box-shadow: 0 4px 10px rgba(196, 154, 108, 0.35);
+}
+
+
+/* --- TRANSFORMATION - Sage/Muted Teal (processing, change) --- */
+
+.workflow-node[data-type="Set Variable"] {
+    background: linear-gradient(135deg, #5a8a7a 0%, #4a7a6a 100%) !important;
+    box-shadow: 0 2px 6px rgba(74, 122, 106, 0.25);
+}
+
+.workflow-node[data-type="Set Variable"]:hover {
+    box-shadow: 0 4px 10px rgba(74, 122, 106, 0.35);
+}
+
+.workflow-node[data-type="Execute Application"] {
+    background: linear-gradient(135deg, #6a9a8a 0%, #5a8a7a 100%) !important;
+    box-shadow: 0 2px 6px rgba(90, 138, 122, 0.25);
+}
+
+.workflow-node[data-type="Execute Application"]:hover {
+    box-shadow: 0 4px 10px rgba(90, 138, 122, 0.35);
+}
+
+
+/* --- SERVER - Neutral Gray (infrastructure) --- */
+
+.workflow-node[data-type="Server"] {
+    background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%) !important;
+    box-shadow: 0 2px 6px rgba(75, 85, 99, 0.25);
+}
+
+.workflow-node[data-type="Server"]:hover {
+    box-shadow: 0 4px 10px rgba(75, 85, 99, 0.35);
+}
+
+
+/* --- TEXT COLOR FOR ALL NODES --- */
+
+.workflow-node[data-type="Database"] .node-content,
+.workflow-node[data-type="File"] .node-content,
+.workflow-node[data-type="Folder Selector"] .node-content,
+.workflow-node[data-type="AI Action"] .node-content,
+.workflow-node[data-type="AI Extract"] .node-content,
+.workflow-node[data-type="Document"] .node-content,
+.workflow-node[data-type="Conditional"] .node-content,
+.workflow-node[data-type="Loop"] .node-content,
+.workflow-node[data-type="End Loop"] .node-content,
+.workflow-node[data-type="Alert"] .node-content,
+.workflow-node[data-type="Human Approval"] .node-content,
+.workflow-node[data-type="Set Variable"] .node-content,
+.workflow-node[data-type="Execute Application"] .node-content,
+.workflow-node[data-type="Server"] .node-content {
+    color: white !important;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+/* Ensure ALL icons inside canvas nodes are white */
+.workflow-node .node-content i,
+.workflow-node .node-content .bi {
+    color: white !important;
+}
+
+/* Specific icon overrides to ensure white color */
+.workflow-node[data-type="Folder Selector"] .bi-folder2,
+.workflow-node[data-type="Folder Selector"] .bi-folder,
+.workflow-node[data-type="AI Action"] .bi-robot,
+.workflow-node[data-type="AI Extract"] .bi-search,
+.workflow-node[data-type="Database"] .bi-database,
+.workflow-node[data-type="File"] .bi-file-earmark,
+.workflow-node[data-type="Document"] .bi-file-text,
+.workflow-node[data-type="Alert"] .bi-exclamation-triangle,
+.workflow-node[data-type="Human Approval"] .bi-person-check,
+.workflow-node[data-type="Set Variable"] .bi-braces,
+.workflow-node[data-type="Execute Application"] .bi-terminal,
+.workflow-node[data-type="Conditional"] .bi-diagram-3,
+.workflow-node[data-type="Loop"] .bi-arrow-repeat,
+.workflow-node[data-type="End Loop"] .bi-arrow-return-left {
+    color: white !important;
+}
+
+
+/* --- NODE TRANSITION EFFECTS --- */
+
+.workflow-node {
+    transition: box-shadow 0.15s ease;
+}
+
+
+/* ============================================
+   TOOLBAR/PALETTE NODE STYLES
+   ============================================ */
+
+/* --- DATA SOURCES --- */
+
+.tool-item[data-type="Database"] {
+    background: linear-gradient(135deg, #4a6fa5 0%, #3d5a80 100%) !important;
+    color: white;
+    border: none;
+}
+
+.tool-item[data-type="File"] {
+    background: linear-gradient(135deg, #5a7fb8 0%, #4a6fa5 100%) !important;
+    color: white;
+    border: none;
+}
+
+.tool-item[data-type="Folder Selector"] {
+    background: linear-gradient(135deg, #6b8cce 0%, #5a7fb8 100%) !important;
+    color: white;
+    border: none;
+}
+
+/* --- Integration (Data Sources category) --- */
+
+.workflow-node[data-type="Integration"] {
+    background: linear-gradient(135deg, #7a9ed4 0%, #6b8cce 100%) !important;
+    box-shadow: 0 2px 6px rgba(107, 140, 206, 0.25);
+}
+
+.workflow-node[data-type="Integration"]:hover {
+    box-shadow: 0 4px 10px rgba(107, 140, 206, 0.35);
+}
+
+/* Add to the TEXT COLOR section */
+.workflow-node[data-type="Integration"] .node-content {
+    color: white !important;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+/* Add to the icon overrides section */
+.workflow-node[data-type="Integration"] .bi-plug {
+    color: white !important;
+}
+
+/* --- TOOLBAR STYLE --- */
+.tool-item[data-type="Integration"] {
+    background: linear-gradient(135deg, #7a9ed4 0%, #6b8cce 100%) !important;
+    color: white;
+    border: none;
+}
+
+
+/* --- AI/INTELLIGENCE --- */
+
+.tool-item[data-type="AI Action"] {
+    background: linear-gradient(135deg, #7c6f9c 0%, #5d5279 100%) !important;
+    color: white;
+    border: none;
+}
+
+.tool-item[data-type="AI Extract"] {
+    background: linear-gradient(135deg, #9181ab 0%, #7c6f9c 100%) !important;
+    color: white;
+    border: none;
+}
+
+.tool-item[data-type="Excel Export"]
+ {
+    background: linear-gradient(135deg, #198754 0%, #20c997 100%) !important;
+    color: white;
+    border: none;
+}
+
+.tool-item[data-type="Document"] {
+    background: linear-gradient(135deg, #8677a3 0%, #6e5f8a 100%) !important;
+    color: white;
+    border: none;
+}
+
+
+/* --- FLOW CONTROL --- */
+
+.tool-item[data-type="Conditional"] {
+    background: linear-gradient(135deg, #5c6b7a 0%, #4a5568 100%) !important;
+    color: white;
+    border: none;
+}
+
+.tool-item[data-type="Loop"] {
+    background: linear-gradient(135deg, #4e5d6c 0%, #3d4a5c 100%) !important;
+    color: white;
+    border: none;
+}
+
+.tool-item[data-type="End Loop"] {
+    background: linear-gradient(135deg, #6b7a8a 0%, #5c6b7a 100%) !important;
+    color: white;
+    border: none;
+}
+
+
+/* --- COMMUNICATION/HUMAN --- */
+
+.tool-item[data-type="Alert"] {
+    background: linear-gradient(135deg, #c49a6c 0%, #a67c52 100%) !important;
+    color: white;
+    border: none;
+}
+
+.tool-item[data-type="Human Approval"] {
+    background: linear-gradient(135deg, #d4a574 0%, #c49a6c 100%) !important;
+    color: white;
+    border: none;
+}
+
+
+/* --- TRANSFORMATION --- */
+
+.tool-item[data-type="Set Variable"] {
+    background: linear-gradient(135deg, #5a8a7a 0%, #4a7a6a 100%) !important;
+    color: white;
+    border: none;
+}
+
+.tool-item[data-type="Execute Application"] {
+    background: linear-gradient(135deg, #6a9a8a 0%, #5a8a7a 100%) !important;
+    color: white;
+    border: none;
+}
+
+
+/* --- SERVER --- */
+
+.tool-item[data-type="Server"] {
+    background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%) !important;
+    color: white;
+    border: none;
+}
+
+
+/* --- HOVER EFFECTS FOR PALETTE ITEMS --- */
+.tool-item[data-type]:hover {
+    filter: brightness(1.15);
+    transform: translateX(3px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* ============================================
+   DRAG GHOST IMAGE STYLES
+   ============================================ */
+
+/* Make the drag ghost more visible */
+.tool-item {
+    /* This ensures the drag image inherits the tool's appearance */
+    -webkit-user-drag: element;
+}
+
+/* Style applied during drag via JavaScript */
+.tool-item.dragging {
+    opacity: 0.9;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+
+/* ============================================
+   CATEGORY HEADERS FOR TOOLBAR
+   ============================================ */
+
+.toolbar .category-header {
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: #8a9199;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 0.75rem;
+    margin-bottom: 0.35rem;
+    padding-bottom: 0.2rem;
+    border-bottom: 1px solid #e2e5e9;
+}
+
+.toolbar .category-header:first-of-type {
+    margin-top: 0;
+}
+
+
+/* ============================================
+   TOOLBAR HEADER WITH SAVE BUTTON
+   ============================================ */
+
+.toolbar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid #dee2e6;
+}
+
+.toolbar-header h4 {
+    margin: 0;
+    font-size: 1rem;
+}
+
+.toolbar-header .btn-save {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+}
+
+
+/* ============================================
+   EXECUTION STATE STYLES
+   ============================================ */
+
+/* Node currently executing - Yellow pulsing border */
+.workflow-node.executing {
+    animation: executing-pulse 1.2s ease-in-out infinite;
+    border: 2px solid #ffc107 !important;
+}
+
+@keyframes executing-pulse {
+    0%, 100% {
+        box-shadow: 0 0 8px rgba(255, 193, 7, 0.6), 0 0 0 2px rgba(255, 193, 7, 0.8);
+    }
+    50% {
+        box-shadow: 0 0 20px rgba(255, 193, 7, 0.9), 0 0 0 4px rgba(255, 193, 7, 1);
+    }
+}
+
+/* Node completed successfully - Green border */
+.workflow-node.completed {
+    border: 2px solid #28a745 !important;
+    box-shadow: 0 0 8px rgba(40, 167, 69, 0.4);
+}
+
+/* Node failed - Red border */
+.workflow-node.failed,
+.workflow-node.error {
+    border: 2px solid #dc3545 !important;
+    box-shadow: 0 0 8px rgba(220, 53, 69, 0.4);
+}
+
+/* Node waiting (e.g., Human Approval) - Yellow pulsing like executing */
+.workflow-node.waiting,
+.workflow-node.paused,
+.workflow-node.approval-pending {
+    animation: executing-pulse 1.2s ease-in-out infinite;
+    border: 2px solid #ffc107 !important;
+}
+
+/* Also support the configured.paused combination */
+.workflow-node.configured.paused {
+    animation: executing-pulse 1.2s ease-in-out infinite;
+    border: 2px solid #ffc107 !important;
+}
+
+
+/* ============================================
+   SELECTED NODE STYLES
+   ============================================ */
+
+.workflow-node.selected {
+    box-shadow: 0 0 0 2px #4a6fa5, 0 4px 10px rgba(74, 111, 165, 0.3);
+}
+
+
+/* ============================================
+   COLOR REFERENCE (for documentation)
+   ============================================
+   
+   Data Sources (Slate Blue):
+   - Database:        #4a6fa5 → #3d5a80
+   - File:            #5a7fb8 → #4a6fa5
+   - Folder Selector: #6b8cce → #5a7fb8
+   
+   AI/Intelligence (Muted Purple):
+   - AI Action:       #7c6f9c → #5d5279
+   - AI Extract:      #9181ab → #7c6f9c
+   - Document:        #8677a3 → #6e5f8a
+   
+   Flow Control (Cool Gray-Blue):
+   - Conditional:     #5c6b7a → #4a5568
+   - Loop:            #4e5d6c → #3d4a5c
+   - End Loop:        #6b7a8a → #5c6b7a
+   
+   Communication (Warm Amber/Tan):
+   - Alert:           #c49a6c → #a67c52
+   - Human Approval:  #d4a574 → #c49a6c
+   
+   Transformation (Sage/Muted Teal):
+   - Set Variable:    #5a8a7a → #4a7a6a
+   - Execute App:     #6a9a8a → #5a8a7a
+   
+   ============================================ */

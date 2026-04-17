@@ -1,0 +1,831 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<div style="position:fixed;bottom:20px;right:20px;z-index:100;">
+    <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+        <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+    </button>
+</div>
+<!-- moment.js for timezone handling -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/moment-timezone/0.5.43/moment-timezone-with-data.min.js"></script>
+    <style>
+        body { font-family: 'Outfit', 'Segoe UI', sans-serif; }
+        
+        .approval-container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        
+        .page-header {
+            background: linear-gradient(135deg, rgba(6, 182, 212, 0.15) 0%, rgba(167, 139, 250, 0.15) 100%);
+            color: var(--text-primary, #fff);
+            padding: 24px 28px;
+            border-radius: 12px;
+            border: 1px solid var(--border-subtle, #27272a);
+            margin-bottom: 24px;
+        }
+        .page-header h1 { margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--text-primary, #fff); }
+        .page-header p { margin: 8px 0 0; color: var(--text-secondary, #a1a1aa); }
+        
+        .timezone-indicator {
+            position: absolute; top: 10px; right: 10px;
+            background: rgba(6, 182, 212, 0.15); border: 1px solid rgba(6, 182, 212, 0.3);
+            padding: 5px 10px; border-radius: 8px; font-size: 0.78rem; color: var(--cyber-cyan, #06b6d4);
+        }
+        
+        .stats-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        
+        .stat-card {
+            background: var(--bg-card, #0a0a0a); border: 1px solid var(--border-subtle, #27272a);
+            padding: 18px; border-radius: 12px; display: flex; align-items: center;
+            transition: transform 0.2s, border-color 0.2s;
+        }
+        .stat-card:hover { transform: translateY(-2px); border-color: var(--border-accent, #3f3f46); }
+        
+        .stat-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; margin-right: 14px; }
+        .stat-icon.pending { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+        .stat-icon.approved { background: rgba(52, 211, 153, 0.15); color: #34d399; }
+        .stat-icon.rejected { background: rgba(251, 113, 133, 0.15); color: #fb7185; }
+        .stat-icon.overdue { background: rgba(251, 113, 133, 0.2); color: #fb7185; }
+        
+        .stat-content h3 { font-size: 1.75rem; margin: 0; font-weight: 700; color: var(--text-primary, #fff); }
+        .stat-content p { margin: 0; color: var(--text-muted, #71717a); font-size: 0.85rem; }
+        
+        .filters-section {
+            background: var(--bg-card, #0a0a0a); border: 1px solid var(--border-subtle, #27272a);
+            padding: 16px 20px; border-radius: 12px; margin-bottom: 20px;
+        }
+        .filter-group { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+        .filter-group label { font-weight: 600; font-size: 0.82rem; color: var(--text-secondary, #a1a1aa); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0; }
+        .filter-group .form-control { background: var(--bg-input, #18181b); border: 1px solid var(--border-subtle, #27272a); color: var(--text-primary, #fff); border-radius: 8px; font-size: 0.85rem; }
+        
+        .approvals-table-container {
+            background: var(--bg-card, #0a0a0a); border: 1px solid var(--border-subtle, #27272a);
+            border-radius: 12px; overflow: hidden;
+        }
+        
+        .table-header {
+            padding: 16px 20px; background: var(--bg-elevated, #111111);
+            border-bottom: 1px solid var(--border-subtle, #27272a);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .table-title { font-size: 1rem; font-weight: 600; color: var(--text-primary, #fff); margin: 0; }
+        
+        .approval-table { width: 100%; border-collapse: collapse; color: var(--text-primary, #fff); background: var(--bg-card, #0a0a0a); }
+        .approval-table th {
+            background: var(--bg-elevated, #111111); color: var(--text-secondary, #a1a1aa);
+            font-weight: 600; text-transform: uppercase; font-size: 0.78rem; letter-spacing: 0.04em;
+            padding: 12px 15px; text-align: left; border-bottom: 1px solid var(--border-subtle, #27272a);
+        }
+        .approval-table td { padding: 12px 15px; border-bottom: 1px solid var(--border-subtle, #27272a); color: var(--text-primary, #fff); }
+        .approval-table td strong { color: var(--text-primary, #fff); }
+        .approval-table tbody tr:hover { background: var(--bg-hover, #1c1c1f); }
+        
+        .priority-badge { padding: 4px 10px; border-radius: 6px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; }
+        .priority-urgent { background: rgba(251, 113, 133, 0.2); color: #fb7185; }
+        .priority-high { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .priority-normal { background: rgba(113, 113, 122, 0.2); color: #a1a1aa; }
+        
+        .status-badge { padding: 4px 10px; border-radius: 6px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; }
+        .status-pending { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .status-approved { background: rgba(52, 211, 153, 0.2); color: #34d399; }
+        .status-rejected { background: rgba(251, 113, 133, 0.2); color: #fb7185; }
+        .status-cancelled { background: rgba(113, 113, 122, 0.2); color: #a1a1aa; }
+        
+        .countdown-timer { font-size: 0.85rem; color: #fb7185; font-weight: 600; }
+        .countdown-timer.warning { color: #fbbf24; }
+        .countdown-timer.safe { color: #34d399; }
+        
+        .action-buttons { display: flex; gap: 8px; }
+        .btn-action { padding: 6px 12px; font-size: 0.82rem; border-radius: 8px; border: none; cursor: pointer; transition: all 0.2s; font-family: 'Outfit', sans-serif; }
+        .btn-approve { background: rgba(52, 211, 153, 0.15); border: 1px solid rgba(52, 211, 153, 0.3); color: #34d399; }
+        .btn-approve:hover { background: rgba(52, 211, 153, 0.25); }
+        .btn-reject { background: rgba(251, 113, 133, 0.15); border: 1px solid rgba(251, 113, 133, 0.3); color: #fb7185; }
+        .btn-reject:hover { background: rgba(251, 113, 133, 0.25); }
+        .btn-view { background: rgba(6, 182, 212, 0.15); border: 1px solid rgba(6, 182, 212, 0.3); color: #06b6d4; }
+        .btn-view:hover { background: rgba(6, 182, 212, 0.25); }
+        
+        .empty-state { padding: 60px 20px; text-align: center; color: var(--text-muted, #71717a); background: var(--bg-card, #0a0a0a); }
+        .empty-state i { font-size: 3rem; margin-bottom: 16px; color: var(--border-accent, #3f3f46); display: block; }
+        .empty-state h3 { margin-bottom: 8px; font-weight: 400; color: var(--text-secondary, #a1a1aa); }
+        
+        /* Modal */
+        .approval-modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); overflow-y: auto; padding: 20px; }
+        .modal-content { background: var(--bg-card, #0a0a0a); border: 1px solid var(--border-subtle, #27272a); margin: 20px auto; padding: 0; width: 90%; max-width: 700px; border-radius: 14px; box-shadow: 0 10px 40px rgba(0,0,0,0.4); animation: slideIn 0.3s; color: var(--text-primary, #fff); }
+        @keyframes slideIn { from { transform: translateY(-50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        
+        .modal-header { padding: 20px 28px; background: linear-gradient(135deg, rgba(6, 182, 212, 0.2), rgba(167, 139, 250, 0.2)); border-bottom: 1px solid var(--border-subtle, #27272a); color: var(--text-primary, #fff); border-radius: 14px 14px 0 0; position: sticky; top: 0; z-index: 1; }
+        .modal-header h2 { margin: 0; font-size: 1.3rem; color: var(--text-primary, #fff); }
+        .modal-close { color: var(--text-muted, #71717a); float: right; font-size: 24px; cursor: pointer; }
+        .modal-close:hover { color: var(--text-primary, #fff); }
+        
+        .modal-body { padding: 24px 28px; max-height: calc(100vh - 240px); overflow-y: auto; }
+        .modal-section { margin-bottom: 20px; }
+        .modal-section h4 { margin-bottom: 12px; color: var(--cyber-cyan, #06b6d4); font-weight: 600; font-size: 0.95rem; }
+        .modal-section p { margin: 8px 0; color: var(--text-secondary, #a1a1aa); }
+        .modal-section p strong { color: var(--text-primary, #fff); }
+        
+        .modal-data-preview { background: var(--bg-elevated, #111111); border: 1px solid var(--border-subtle, #27272a); padding: 14px; border-radius: 10px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; max-height: 250px; overflow: auto; white-space: pre; line-height: 1.5; color: var(--text-primary, #fff); }
+        
+        .modal-footer { padding: 16px 28px; background: var(--bg-elevated, #111111); border-radius: 0 0 14px 14px; display: flex; justify-content: flex-end; gap: 10px; border-top: 1px solid var(--border-subtle, #27272a); position: sticky; bottom: 0; z-index: 1; }
+        
+        .modal-input { width: 100%; padding: 10px; background: var(--bg-input, #18181b); border: 1px solid var(--border-subtle, #27272a); border-radius: 8px; font-size: 0.9rem; color: var(--text-primary, #fff); resize: vertical; font-family: 'Outfit', sans-serif; }
+        .modal-input:focus { outline: none; border-color: var(--cyber-cyan, #06b6d4); box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.15); }
+        .modal-input::placeholder { color: var(--text-muted, #71717a); }
+        
+        @media (max-width: 768px) {
+            .approval-modal { padding: 10px; }
+            .modal-content { width: 100%; margin-top: 10px; }
+            .modal-body { padding: 16px; max-height: calc(100vh - 200px); }
+        }
+        
+        .refresh-indicator { display: none; position: fixed; top: 20px; right: 20px; background: linear-gradient(135deg, var(--cyber-cyan, #06b6d4), var(--cyber-violet, #a78bfa)); color: white; padding: 10px 20px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 1001; }
+        .refresh-indicator.show { display: block; animation: slideInRight 0.3s; }
+        @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+        
+        .local-time-note { font-size: 0.75rem; color: var(--text-muted, #71717a); font-style: italic; }
+    </style>
+    <div class="approval-container">
+        <!-- Page Header with Timezone Indicator -->
+        <div class="page-header" style="position: relative;">
+            <div class="timezone-indicator">
+                <i class="fas fa-clock"></i> <span id="userTimezone"></span>
+            </div>
+            <h1><i class="fas fa-check-circle"></i> My Approvals</h1>
+            <p>Review and respond to workflow approval requests assigned to you or your groups</p>
+        </div>
+        
+        <!-- Statistics Cards -->
+        <div class="stats-cards">
+            <div class="stat-card">
+                <div class="stat-icon pending">
+                    <i class="fas fa-clock"></i>
+                </div>
+                <div class="stat-content">
+                    <h3 id="pendingCount">0</h3>
+                    <p>Pending Approvals</p>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-icon approved">
+                    <i class="fas fa-check"></i>
+                </div>
+                <div class="stat-content">
+                    <h3 id="approvedCount">0</h3>
+                    <p>Approved Today</p>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-icon rejected">
+                    <i class="fas fa-times"></i>
+                </div>
+                <div class="stat-content">
+                    <h3 id="rejectedCount">0</h3>
+                    <p>Rejected Today</p>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-icon overdue">
+                    <i class="fas fa-exclamation-triangle"></i>
+                </div>
+                <div class="stat-content">
+                    <h3 id="overdueCount">0</h3>
+                    <p>Overdue</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Filters Section -->
+        <div class="filters-section">
+            <div class="filter-group">
+                <label for="statusFilter">Status:</label>
+                <select id="statusFilter" class="form-control" style="width: 150px;">
+                    <option value="pending">Pending</option>
+                    <option value="all">All</option>
+                    <option value="approved">Approved</option>
+                    <option value="rejected">Rejected</option>
+                    <option value="cancelled">Cancelled</option>
+                </select>
+                
+                <label for="assignmentFilter">Assignment:</label>
+                <select id="assignmentFilter" class="form-control" style="width: 200px;">
+                    <option value="all">All Assignments</option>
+                    <option value="direct">Direct to Me</option>
+                    <option value="group">Via Group</option>
+                </select>
+                
+                <label for="dateFilter">Date Range:</label>
+                <select id="dateFilter" class="form-control" style="width: 150px;">
+                    <option value="all">All Time</option>
+                    <option value="today">Today</option>
+                    <option value="week">This Week</option>
+                    <option value="month">This Month</option>
+                </select>
+                
+                <button class="btn btn-primary ml-auto" onclick="refreshApprovals()">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+        </div>
+        
+        <!-- Approvals Table -->
+        <div class="approvals-table-container">
+            <div class="table-header">
+                <h2 class="table-title">Approval Requests</h2>
+                <span class="local-time-note">All times shown in your local timezone</span>
+            </div>
+            
+            <table class="approval-table">
+                <thead>
+                    <tr>
+                        <th>Priority</th>
+                        <th>Title</th>
+                        <th>Workflow</th>
+                        <th>Requested</th>
+                        <th>Due</th>
+                        <th>Time Remaining</th>
+                        <th>Assignment</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="approvalsTableBody">
+                    <!-- Table rows will be populated here -->
+                </tbody>
+            </table>
+            
+            <div id="emptyState" class="empty-state" style="display: none;">
+                <i class="fas fa-inbox"></i>
+                <h3>No approval requests found</h3>
+                <p>There are no approval requests matching your filters.</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Approval Modal -->
+    <div id="approvalModal" class="approval-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="modal-close" onclick="closeModal()">&times;</span>
+                <h2 id="modalTitle">Approval Request</h2>
+            </div>
+            
+            <div class="modal-body">
+                <div class="modal-section">
+                    <h4>Request Details</h4>
+                    <p><strong>Workflow:</strong> <span id="modalWorkflow"></span></p>
+                    <p><strong>Step:</strong> <span id="modalStep"></span></p>
+                    <p><strong>Requested:</strong> <span id="modalRequested"></span></p>
+                    <p><strong>Due:</strong> <span id="modalDue"></span></p>
+                    <p><strong>Time Remaining:</strong> <span id="modalTimeRemaining"></span></p>
+                </div>
+                
+                <div class="modal-section">
+                    <h4>Description</h4>
+                    <p id="modalDescription"></p>
+                </div>
+                
+                <div class="modal-section">
+                    <h4>Context Data</h4>
+                    <div class="modal-data-preview" id="modalData">
+                        <!-- JSON data will be displayed here -->
+                    </div>
+                </div>
+                
+                <div class="modal-section">
+                    <h4>Your Comments</h4>
+                    <textarea id="modalComments" class="modal-input" rows="3" 
+                            placeholder="Add comments about your decision (optional)"></textarea>
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-danger" onclick="processApproval('rejected')">
+                    <i class="fas fa-times"></i> Reject
+                </button>
+                <button class="btn btn-success" onclick="processApproval('approved')">
+                    <i class="fas fa-check"></i> Approve
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Refresh Indicator -->
+    <div id="refreshIndicator" class="refresh-indicator">
+        <i class="fas fa-sync-alt fa-spin"></i> Refreshing...
+    </div>
+    
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        let currentRequestId = null;
+        let currentUserId = null;
+        let countdownIntervals = {};
+        
+        // Timezone utilities
+        const TimezoneUtils = {
+            // Detect user's timezone
+            getUserTimezone: function() {
+                return Intl.DateTimeFormat().resolvedOptions().timeZone;
+            },
+            
+            // Convert UTC ISO string to local moment
+            utcToLocal: function(utcDateString) {
+                if (!utcDateString) return null;
+                // Assume the database returns UTC times
+                return moment.utc(utcDateString).local();
+            },
+            
+            // Format date for display
+            formatDate: function(utcDateString, format = 'MMM DD, YYYY h:mm A') {
+                const localMoment = this.utcToLocal(utcDateString);
+                if (!localMoment) return 'N/A';
+                return localMoment.format(format);
+            },
+            
+            // Get relative time (e.g., "2 hours ago")
+            getRelativeTime: function(utcDateString) {
+                const localMoment = this.utcToLocal(utcDateString);
+                if (!localMoment) return 'N/A';
+                return localMoment.fromNow();
+            },
+            
+            // Calculate time remaining
+            getTimeRemaining: function(utcDueDateString) {
+                if (!utcDueDateString) return null;
+                
+                const dueDate = this.utcToLocal(utcDueDateString);
+                const now = moment();
+                const diff = dueDate.diff(now);
+                
+                if (diff <= 0) {
+                    return { text: 'Overdue', class: 'text-danger', expired: true };
+                }
+                
+                const duration = moment.duration(diff);
+                const days = Math.floor(duration.asDays());
+                const hours = duration.hours();
+                const minutes = duration.minutes();
+                
+                let text = '';
+                let cssClass = 'safe';
+                
+                if (days > 0) {
+                    text = `${days}d ${hours}h`;
+                    cssClass = 'safe';
+                } else if (hours > 2) {
+                    text = `${hours}h ${minutes}m`;
+                    cssClass = 'safe';
+                } else if (hours > 0) {
+                    text = `${hours}h ${minutes}m`;
+                    cssClass = 'warning';
+                } else {
+                    text = `${minutes}m`;
+                    cssClass = 'text-danger';
+                }
+                
+                return { text: text, class: cssClass, expired: false };
+            },
+            
+            // Check if date is today in local timezone
+            isToday: function(utcDateString) {
+                if (!utcDateString) return false;
+                const localDate = this.utcToLocal(utcDateString);
+                return localDate.isSame(moment(), 'day');
+            },
+            
+            // Check if date is in current week
+            isThisWeek: function(utcDateString) {
+                if (!utcDateString) return false;
+                const localDate = this.utcToLocal(utcDateString);
+                return localDate.isSame(moment(), 'week');
+            },
+            
+            // Check if date is in current month
+            isThisMonth: function(utcDateString) {
+                if (!utcDateString) return false;
+                const localDate = this.utcToLocal(utcDateString);
+                return localDate.isSame(moment(), 'month');
+            }
+        };
+        
+        // Initialize on page load
+        $(document).ready(function() {
+            // Display user's timezone
+            $('#userTimezone').text(TimezoneUtils.getUserTimezone());
+            
+            // Get current user ID from session
+            getCurrentUser();
+            
+            // Load approvals
+            refreshApprovals();
+            
+            // Set up auto-refresh
+            setInterval(refreshApprovals, 120000);
+            
+            // Update countdown timers
+            setInterval(updateAllCountdowns, 90000);
+            
+            // Set up filter change handlers
+            $('#statusFilter, #assignmentFilter, #dateFilter').change(function() {
+                refreshApprovals();
+            });
+        });
+        
+        function getCurrentUser() {
+            $.ajax({
+                url: '/api/current-user',
+                method: 'GET',
+                success: function(response) {
+                    currentUserId = response.id;
+                },
+                error: function() {
+                    console.error('Failed to get current user');
+                    currentUserId = 1; // Fallback for testing
+                }
+            });
+        }
+        
+        function refreshApprovals() {
+            $('#refreshIndicator').addClass('show');
+            
+            const filters = {
+                status: $('#statusFilter').val(),
+                assignment: $('#assignmentFilter').val(),
+                dateRange: $('#dateFilter').val()
+            };
+            
+            $.ajax({
+                url: '/api/workflow/user-approvals',
+                method: 'GET',
+                data: filters,
+                success: function(response) {
+                    updateStatistics(response.statistics);
+                    populateTable(response.approvals);
+                    $('#refreshIndicator').removeClass('show');
+                },
+                error: function(error) {
+                    console.error('Failed to load approvals:', error);
+                    $('#refreshIndicator').removeClass('show');
+                    showNotification('Failed to load approvals', 'error');
+                }
+            });
+        }
+        
+        function updateStatistics(stats) {
+            $('#pendingCount').text(stats.pending || 0);
+            $('#approvedCount').text(stats.approved_today || 0);
+            $('#rejectedCount').text(stats.rejected_today || 0);
+            $('#overdueCount').text(stats.overdue || 0);
+        }
+        
+        function populateTable(approvals) {
+            const tbody = $('#approvalsTableBody');
+            tbody.empty();
+            
+            // Clear all countdown intervals
+            Object.keys(countdownIntervals).forEach(key => {
+                clearInterval(countdownIntervals[key]);
+            });
+            countdownIntervals = {};
+            
+            if (approvals.length === 0) {
+                $('#emptyState').show();
+                return;
+            }
+            
+            $('#emptyState').hide();
+            
+            approvals.forEach(function(approval) {
+                const row = createTableRow(approval);
+                tbody.append(row);
+                
+                // Set up countdown timer for this row
+                if (approval.due_date && approval.status === 'Pending') {
+                    updateCountdown(approval.request_id, approval.due_date);
+                }
+            });
+        }
+        
+        function createTableRow(approval) {
+            const priorityClass = getPriorityClass(approval.priority);
+            const statusClass = getStatusClass(approval.status);
+            const requestedDate = TimezoneUtils.formatDate(approval.requested_at);
+            const requestedRelative = TimezoneUtils.getRelativeTime(approval.requested_at);
+            const dueDate = approval.due_date ? TimezoneUtils.formatDate(approval.due_date) : 'No deadline';
+            
+            let timeRemainingHtml = '';
+            if (approval.due_date && approval.status === 'Pending') {
+                const timeRemaining = TimezoneUtils.getTimeRemaining(approval.due_date);
+                if (timeRemaining) {
+                    timeRemainingHtml = `<span id="countdown-${approval.request_id}" class="countdown-timer ${timeRemaining.class}">${timeRemaining.text}</span>`;
+                }
+            } else {
+                timeRemainingHtml = '-';
+            }
+            
+            let actionsHtml = '';
+            if (approval.status === 'Pending') {
+                actionsHtml = `
+                    <button class="btn-action btn-view" onclick="viewApproval('${approval.request_id}')">
+                        <i class="fas fa-eye"></i> View
+                    </button>
+                    <button class="btn-action btn-approve" onclick="quickApprove('${approval.request_id}')">
+                        <i class="fas fa-check"></i>
+                    </button>
+                    <button class="btn-action btn-reject" onclick="quickReject('${approval.request_id}')">
+                        <i class="fas fa-times"></i>
+                    </button>
+                `;
+            } else {
+                actionsHtml = `
+                    <button class="btn-action btn-view" onclick="viewApproval('${approval.request_id}')">
+                        <i class="fas fa-eye"></i> View Details
+                    </button>
+                `;
+            }
+            
+            return `
+                <tr data-request-id="${approval.request_id}">
+                    <td>
+                        <span class="priority-badge ${priorityClass}">
+                            ${getPriorityLabel(approval.priority)}
+                        </span>
+                    </td>
+                    <td>
+                        <strong>${approval.title}</strong>
+                    </td>
+                    <td>${approval.workflow_name}</td>
+                    <td title="${requestedDate}">${requestedRelative}</td>
+                    <td>${dueDate}</td>
+                    <td>${timeRemainingHtml}</td>
+                    <td>${approval.assignment_type || 'Direct'}</td>
+                    <td>
+                        <span class="status-badge ${statusClass}">
+                            ${approval.status}
+                        </span>
+                    </td>
+                    <td>
+                        <div class="action-buttons">
+                            ${actionsHtml}
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }
+        
+        function updateCountdown(requestId, dueDateUtc) {
+            const updateFunc = function() {
+                const element = $(`#countdown-${requestId}`);
+                if (element.length === 0) {
+                    // Element no longer exists, clear interval
+                    if (countdownIntervals[requestId]) {
+                        clearInterval(countdownIntervals[requestId]);
+                        delete countdownIntervals[requestId];
+                    }
+                    return;
+                }
+                
+                const timeRemaining = TimezoneUtils.getTimeRemaining(dueDateUtc);
+                if (timeRemaining) {
+                    element.text(timeRemaining.text);
+                    element.removeClass('safe warning text-danger').addClass(timeRemaining.class);
+                    
+                    if (timeRemaining.expired) {
+                        element.text('Overdue');
+                        // Clear this interval as it's expired
+                        if (countdownIntervals[requestId]) {
+                            clearInterval(countdownIntervals[requestId]);
+                            delete countdownIntervals[requestId];
+                        }
+                        // Optionally refresh the table to get updated status
+                        //setTimeout(refreshApprovals, 30000);
+                    }
+                }
+            };
+            
+            // Update immediately
+            updateFunc();
+            
+            // Then update every second
+            //countdownIntervals[requestId] = setInterval(updateFunc, 1000);
+        }
+        
+        function updateAllCountdowns() {
+            // This is a backup to update any countdowns that might have been missed
+            $('.countdown-timer').each(function() {
+                const id = $(this).attr('id');
+                if (id && !countdownIntervals[id.replace('countdown-', '')]) {
+                    // Countdown not being updated, trigger refresh
+                    refreshApprovals();
+                    return false; // Break the loop
+                }
+            });
+        }
+        
+        function getPriorityClass(priority) {
+            switch(priority) {
+                case 2: return 'priority-urgent';
+                case 1: return 'priority-high';
+                default: return 'priority-normal';
+            }
+        }
+        
+        function getPriorityLabel(priority) {
+            switch(priority) {
+                case 2: return 'URGENT';
+                case 1: return 'HIGH';
+                default: return 'NORMAL';
+            }
+        }
+        
+        function getStatusClass(status) {
+            return 'status-' + status.toLowerCase().replace(/[^a-z]/g, '');
+        }
+        
+        function viewApproval(requestId) {
+            currentRequestId = requestId;
+            
+            $.ajax({
+                url: `/api/workflow/approvals/${requestId}`,
+                method: 'GET',
+                success: function(approval) {
+                    populateModal(approval);
+                    $('#approvalModal').show();
+                },
+                error: function(error) {
+                    showNotification('Failed to load approval details', 'error');
+                }
+            });
+        }
+        
+        function populateModal(approval) {
+            $('#modalTitle').text(approval.title);
+            $('#modalWorkflow').text(approval.workflow_name);
+            $('#modalStep').text(approval.node_name);
+            $('#modalRequested').text(TimezoneUtils.formatDate(approval.requested_at) + 
+                                    ' (' + TimezoneUtils.getRelativeTime(approval.requested_at) + ')');
+            
+            if (approval.due_date) {
+                $('#modalDue').text(TimezoneUtils.formatDate(approval.due_date));
+                const timeRemaining = TimezoneUtils.getTimeRemaining(approval.due_date);
+                if (timeRemaining) {
+                    $('#modalTimeRemaining').html(`<span class="${timeRemaining.class}">${timeRemaining.text}</span>`);
+                }
+            } else {
+                $('#modalDue').text('No deadline');
+                $('#modalTimeRemaining').text('No deadline');
+            }
+            
+            $('#modalDescription').text(approval.description || 'No description provided');
+            
+            // Display JSON data with proper formatting
+            try {
+                if (approval.approval_data) {
+                    // Try to parse as JSON first
+                    try {
+                        const data = JSON.parse(approval.approval_data);
+                        // Format JSON with 2-space indentation
+                        const formattedJson = JSON.stringify(data, null, 2);
+                        $('#modalData').text(formattedJson);
+                    } catch(jsonError) {
+                        // If not valid JSON, display as-is with preserved formatting
+                        $('#modalData').text(approval.approval_data);
+                    }
+                } else {
+                    $('#modalData').text('No additional data provided');
+                }
+            } catch(e) {
+                $('#modalData').text('Error displaying data: ' + e.message);
+            }
+            
+            // Clear comments if viewing already processed approval
+            if (approval.status !== 'Pending') {
+                $('#modalComments').val(approval.comments || '').prop('disabled', true);
+                $('.modal-footer button').not('.btn-secondary').hide();
+            } else {
+                $('#modalComments').val('').prop('disabled', false);
+                $('.modal-footer button').show();
+            }
+            
+            // Scroll modal to top when opened
+            $('.approval-modal').scrollTop(0);
+        }
+
+        // Update the closeModal function to reset scroll
+        function closeModal() {
+            $('#approvalModal').hide();
+            $('.approval-modal').scrollTop(0);
+            currentRequestId = null;
+        }
+
+        // Update the window click handler
+        window.onclick = function(event) {
+            if (event.target.className === 'approval-modal') {
+                closeModal();
+            }
+        }
+        
+        function quickApprove(requestId) {
+            if (confirm('Are you sure you want to approve this request?')) {
+                processApprovalRequest(requestId, 'approved', '');
+            }
+        }
+        
+        function quickReject(requestId) {
+            const reason = prompt('Please provide a reason for rejection:');
+            if (reason !== null) {
+                processApprovalRequest(requestId, 'rejected', reason);
+            }
+        }
+        
+        function processApproval(status) {
+            const comments = $('#modalComments').val();
+            processApprovalRequest(currentRequestId, status, comments);
+            closeModal();
+        }
+        
+        function processApprovalRequest(requestId, status, comments) {
+            $.ajax({
+                url: `/api/workflow/approvals/${requestId}`,
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    status: status,
+                    comments: comments,
+                    user: currentUserId
+                }),
+                success: function(response) {
+                    showNotification(`Request ${status}`, 'success');
+                    refreshApprovals();
+                },
+                error: function(error) {
+                    showNotification(`Failed to ${status} request`, 'error');
+                }
+            });
+        }
+        
+        function showNotification(message, type) {
+            const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+            const icon = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle';
+            
+            const notification = $(`
+                <div class="alert ${alertClass} alert-dismissible fade show" role="alert">
+                    <i class="fas ${icon}"></i> ${message}
+                    <button type="button" class="close" data-dismiss="alert">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+            `);
+            
+            $('body').append(notification);
+            
+            setTimeout(function() {
+                notification.fadeOut(function() {
+                    notification.remove();
+                });
+            }, 3000);
+        }
+        
+        // Close modal when clicking outside of it
+        window.onclick = function(event) {
+            if (event.target == document.getElementById('approvalModal')) {
+                closeModal();
+            }
+        }
+    </script>
+<script src="/static/js/approvals_context.js"></script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}

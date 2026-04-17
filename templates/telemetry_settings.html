@@ -1,0 +1,375 @@
+{% extends "base.html" %}
+
+{% block title %}Telemetry Settings
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<div style="position:fixed;bottom:20px;right:20px;z-index:100;">
+    <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+        <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+    </button>
+</div>
+<div class="container-fluid py-4">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <!-- Header -->
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h2 class="mb-1">
+                        <i class="fas fa-chart-line text-primary mr-2"></i>
+                        Telemetry & Crash Reporting
+                    </h2>
+                    <p class="text-muted mb-0">Control what diagnostic data is shared to help improve AI Hub</p>
+                </div>
+                <div id="connection-status">
+                    <span class="badge badge-secondary">
+                        <i class="fas fa-circle-notch fa-spin mr-1"></i> Checking...
+                    </span>
+                </div>
+            </div>
+
+            <!-- Privacy Notice -->
+            <div class="alert alert-info mb-4">
+                <div class="d-flex">
+                    <div class="mr-3">
+                        <i class="fas fa-shield-alt fa-2x"></i>
+                    </div>
+                    <div>
+                        <h6 class="alert-heading mb-1">Privacy First</h6>
+                        <p class="mb-0 small">
+                            All telemetry data is anonymized. We never collect your documents, queries, 
+                            personal information, or business data. Only technical diagnostics to help 
+                            us fix bugs and improve performance.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Card -->
+            <div class="card shadow-sm">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-sliders-h mr-2"></i>
+                        Settings
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <!-- Crash Reporting -->
+                    <div class="d-flex justify-content-between align-items-start mb-4 pb-4 border-bottom">
+                        <div class="pr-4">
+                            <h6 class="mb-1">
+                                <i class="fas fa-bug text-danger mr-2"></i>
+                                Crash Reporting
+                                <span class="badge badge-success ml-2">Recommended</span>
+                            </h6>
+                            <p class="text-muted small mb-2">
+                                Automatically send error reports when something goes wrong. 
+                                Helps us identify and fix issues quickly.
+                            </p>
+                            <a href="#" class="small" data-toggle="collapse" data-target="#crash-details">
+                                <i class="fas fa-info-circle mr-1"></i>What's collected?
+                            </a>
+                            <div class="collapse mt-2" id="crash-details">
+                                <div class="card card-body bg-light small">
+                                    <strong class="text-success">✓ Collected:</strong>
+                                    <ul class="mb-2 pl-3">
+                                        <li>Error type and message (scrubbed of personal info)</li>
+                                        <li>Stack trace (code location of error)</li>
+                                        <li>App version and operating system</li>
+                                        <li>What you clicked before the error (breadcrumbs)</li>
+                                    </ul>
+                                    <strong class="text-danger">✗ Never collected:</strong>
+                                    <ul class="mb-0 pl-3">
+                                        <li>Your documents or queries</li>
+                                        <li>Usernames, emails, or passwords</li>
+                                        <li>Database content or connection details</li>
+                                        <li>API keys or license keys</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="custom-control custom-switch">
+                            <input type="checkbox" class="custom-control-input" id="crash-reporting" checked>
+                            <label class="custom-control-label" for="crash-reporting"></label>
+                        </div>
+                    </div>
+
+                    <!-- Usage Analytics -->
+                    <div class="d-flex justify-content-between align-items-start mb-4 pb-4 border-bottom">
+                        <div class="pr-4">
+                            <h6 class="mb-1">
+                                <i class="fas fa-chart-bar text-info mr-2"></i>
+                                Usage Analytics
+                                <span class="badge badge-secondary ml-2">Optional</span>
+                            </h6>
+                            <p class="text-muted small mb-2">
+                                Share anonymous usage statistics to help us understand which features 
+                                are most valuable and where to focus improvements.
+                            </p>
+                            <a href="#" class="small" data-toggle="collapse" data-target="#analytics-details">
+                                <i class="fas fa-info-circle mr-1"></i>What's collected?
+                            </a>
+                            <div class="collapse mt-2" id="analytics-details">
+                                <div class="card card-body bg-light small">
+                                    <strong class="text-success">✓ Collected:</strong>
+                                    <ul class="mb-2 pl-3">
+                                        <li>Feature usage counts (e.g., "agent created")</li>
+                                        <li>App version and subscription tier</li>
+                                        <li>Success/failure rates for operations</li>
+                                    </ul>
+                                    <strong class="text-danger">✗ Never collected:</strong>
+                                    <ul class="mb-0 pl-3">
+                                        <li>What you name your agents or workflows</li>
+                                        <li>Content of your prompts or queries</li>
+                                        <li>Any identifiable information</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="custom-control custom-switch">
+                            <input type="checkbox" class="custom-control-input" id="usage-analytics">
+                            <label class="custom-control-label" for="usage-analytics"></label>
+                        </div>
+                    </div>
+
+                    <!-- Performance Monitoring -->
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="pr-4">
+                            <h6 class="mb-1">
+                                <i class="fas fa-tachometer-alt text-warning mr-2"></i>
+                                Performance Monitoring
+                                <span class="badge badge-secondary ml-2">Optional</span>
+                            </h6>
+                            <p class="text-muted small mb-2">
+                                Share timing information to help us identify slow operations 
+                                and optimize performance.
+                            </p>
+                            <a href="#" class="small" data-toggle="collapse" data-target="#perf-details">
+                                <i class="fas fa-info-circle mr-1"></i>What's collected?
+                            </a>
+                            <div class="collapse mt-2" id="perf-details">
+                                <div class="card card-body bg-light small">
+                                    <strong class="text-success">✓ Collected:</strong>
+                                    <ul class="mb-0 pl-3">
+                                        <li>Operation durations (e.g., "agent response took 2.5s")</li>
+                                        <li>Performance percentiles across users</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="custom-control custom-switch">
+                            <input type="checkbox" class="custom-control-input" id="performance-monitoring">
+                            <label class="custom-control-label" for="performance-monitoring"></label>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-footer bg-white">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <small class="text-muted" id="save-status">
+                            <i class="fas fa-check-circle text-success mr-1"></i>
+                            Settings auto-save
+                        </small>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="testConnection()">
+                            <i class="fas fa-plug mr-1"></i>
+                            Test Connection
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Additional Info -->
+            <div class="mt-4">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card bg-light border-0">
+                            <div class="card-body">
+                                <h6><i class="fas fa-question-circle text-primary mr-2"></i>Why collect telemetry?</h6>
+                                <p class="small text-muted mb-0">
+                                    Telemetry helps us identify bugs you might not even notice, 
+                                    understand which features matter most, and ensure new versions 
+                                    are stable before reaching everyone.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card bg-light border-0">
+                            <div class="card-body">
+                                <h6><i class="fas fa-lock text-success mr-2"></i>Your data stays yours</h6>
+                                <p class="small text-muted mb-0">
+                                    All identifiers are one-way hashed. Even we can't trace 
+                                    telemetry back to you. You can opt out completely at any time.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Load current settings
+    loadSettings();
+    
+    // Check connection status
+    checkConnection();
+    
+    // Add change listeners
+    document.querySelectorAll('.custom-control-input').forEach(function(toggle) {
+        toggle.addEventListener('change', saveSettings);
+    });
+});
+
+function loadSettings() {
+    fetch('/settings/api/telemetry/consent')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                document.getElementById('crash-reporting').checked = data.consent.crash_reporting || false;
+                document.getElementById('usage-analytics').checked = data.consent.usage_analytics || false;
+                document.getElementById('performance-monitoring').checked = data.consent.performance_monitoring || false;
+            }
+        })
+        .catch(error => {
+            console.error('Error loading settings:', error);
+        });
+}
+
+function saveSettings() {
+    const settings = {
+        crash_reporting: document.getElementById('crash-reporting').checked,
+        usage_analytics: document.getElementById('usage-analytics').checked,
+        performance_monitoring: document.getElementById('performance-monitoring').checked
+    };
+    
+    // Show saving indicator
+    const status = document.getElementById('save-status');
+    status.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-1"></i> Saving...';
+    
+    fetch('/settings/api/telemetry/consent', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(settings)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            status.innerHTML = '<i class="fas fa-check-circle text-success mr-1"></i> Saved';
+        } else {
+            status.innerHTML = '<i class="fas fa-exclamation-circle text-danger mr-1"></i> Error saving';
+        }
+    })
+    .catch(error => {
+        status.innerHTML = '<i class="fas fa-exclamation-circle text-danger mr-1"></i> Error saving';
+        console.error('Error saving settings:', error);
+    });
+}
+
+function checkConnection() {
+    const statusBadge = document.getElementById('connection-status');
+    
+    fetch('/settings/api/telemetry/health')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'connected') {
+                statusBadge.innerHTML = '<span class="badge badge-success"><i class="fas fa-check-circle mr-1"></i> Connected</span>';
+            } else if (data.status === 'not_configured') {
+                statusBadge.innerHTML = '<span class="badge badge-warning"><i class="fas fa-exclamation-triangle mr-1"></i> Not Configured</span>';
+            } else {
+                statusBadge.innerHTML = '<span class="badge badge-danger"><i class="fas fa-times-circle mr-1"></i> Disconnected</span>';
+            }
+        })
+        .catch(error => {
+            statusBadge.innerHTML = '<span class="badge badge-danger"><i class="fas fa-times-circle mr-1"></i> Error</span>';
+        });
+}
+
+function testConnection() {
+    const statusBadge = document.getElementById('connection-status');
+    statusBadge.innerHTML = '<span class="badge badge-secondary"><i class="fas fa-circle-notch fa-spin mr-1"></i> Testing...</span>';
+    
+    fetch('/settings/api/telemetry/health')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'connected') {
+                statusBadge.innerHTML = '<span class="badge badge-success"><i class="fas fa-check-circle mr-1"></i> Connected</span>';
+                alert('✓ Connection successful!\n\nCloud API is reachable and telemetry relay is active.');
+            } else if (data.status === 'not_configured') {
+                statusBadge.innerHTML = '<span class="badge badge-warning"><i class="fas fa-exclamation-triangle mr-1"></i> Not Configured</span>';
+                alert('⚠ Telemetry not configured.\n\nCloud API URL: ' + (data.cloud_api_url || 'not set'));
+            } else {
+                statusBadge.innerHTML = '<span class="badge badge-danger"><i class="fas fa-times-circle mr-1"></i> Disconnected</span>';
+                alert('✗ Connection failed.\n\nError: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            statusBadge.innerHTML = '<span class="badge badge-danger"><i class="fas fa-times-circle mr-1"></i> Error</span>';
+            alert('✗ Connection test failed.\n\nError: ' + error.message);
+        });
+}
+</script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}

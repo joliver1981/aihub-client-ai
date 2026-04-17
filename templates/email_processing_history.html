@@ -1,0 +1,794 @@
+{% extends "base.html" %}
+
+{% block title %}Email Processing History
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<div style="position:fixed;bottom:20px;right:20px;z-index:100;">
+    <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+        <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+    </button>
+</div>
+<style>
+    .history-container {
+        padding: 20px;
+    }
+    .history-header {
+        background: linear-gradient(135deg, rgba(6, 182, 212, 0.15) 0%, rgba(167, 139, 250, 0.15) 100%);
+        border: 1px solid var(--border-subtle, #27272a);
+        color: var(--text-primary, #fff);
+        padding: 20px;
+        border-radius: 12px;
+        margin-bottom: 20px;
+    }
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-bottom: 20px;
+    }
+    .stat-card {
+        background: var(--bg-card, #0a0a0a);
+        border: 1px solid var(--border-subtle, #27272a);
+        border-radius: 12px;
+        padding: 20px;
+        text-align: center;
+    }
+    .stat-card .stat-value {
+        font-size: 2rem;
+        font-weight: 700;
+        color: var(--text-primary, #fff);
+    }
+    .stat-card .stat-label {
+        color: var(--text-muted, #71717a);
+        font-size: 0.9rem;
+        margin-top: 5px;
+    }
+    .stat-card.success .stat-value { color: #34d399; }
+    .stat-card.failed .stat-value { color: #fb7185; }
+    .stat-card.skipped .stat-value { color: var(--text-muted, #71717a); }
+    
+    .filters-bar {
+        background: var(--bg-card, #0a0a0a);
+        border: 1px solid var(--border-subtle, #27272a);
+        border-radius: 12px;
+        padding: 15px 20px;
+        margin-bottom: 20px;
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+    .filters-bar .form-group {
+        margin-bottom: 0;
+    }
+    .filters-bar label {
+        font-size: 0.85rem;
+        color: var(--text-secondary, #666);
+        margin-bottom: 3px;
+    }
+    
+    .history-table-container {
+        background: var(--bg-card, #0a0a0a);
+        border: 1px solid var(--border-subtle, #27272a);
+        border-radius: 12px;
+        overflow: hidden;
+    }
+    .history-table {
+        width: 100%;
+        border-collapse: collapse;
+        color: var(--text-primary, #fff);
+    }
+    .history-table th {
+        background: var(--bg-elevated, #111);
+        padding: 12px 15px;
+        text-align: left;
+        font-weight: 600;
+        font-size: 0.85rem;
+        color: var(--text-secondary, #a1a1aa);
+        border-bottom: 1px solid var(--border-subtle, #27272a);
+    }
+    .history-table td {
+        padding: 12px 15px;
+        border-bottom: 1px solid var(--border-subtle, #27272a);
+        font-size: 0.9rem;
+    }
+    .history-table tr:hover {
+        background: var(--bg-hover, #1c1c1f);
+    }
+    
+    .status-badge {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+    .status-badge.completed { background: rgba(52, 211, 153, 0.15); color: #34d399; }
+    .status-badge.failed { background: rgba(251, 113, 133, 0.15); color: #fb7185; }
+    .status-badge.skipped { background: rgba(113, 113, 122, 0.2); color: #a1a1aa; }
+    .status-badge.pending { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+    .status-badge.pending_approval { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+    
+    .type-badge {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        background: rgba(113, 113, 122, 0.2);
+        color: var(--text-secondary, #a1a1aa);
+    }
+    .type-badge.auto_response { background: rgba(6, 182, 212, 0.15); color: #06b6d4; }
+    .type-badge.workflow_trigger { background: rgba(52, 211, 153, 0.15); color: #34d399; }
+    .type-badge.pending_approval { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+    
+    .time-cell {
+        white-space: nowrap;
+        font-size: 0.85rem;
+        color: var(--text-secondary, #666);
+    }
+    
+    .subject-cell {
+        max-width: 250px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    
+    .pagination-bar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 15px 20px;
+        background: var(--bg-elevated, #f8f9fa);
+        border-top: 1px solid var(--border-subtle, #e9ecef);
+    }
+    
+    .dispatcher-status {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .dispatcher-status .status-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #dc3545;
+    }
+    .dispatcher-status .status-dot.running {
+        background: #28a745;
+        animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+    
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--text-muted, #71717a);
+    }
+    .empty-state i {
+        font-size: 3rem;
+        margin-bottom: 15px;
+        display: block;
+    }
+    
+    .error-details {
+        max-width: 300px;
+        font-size: 0.8rem;
+        color: #fb7185;
+        cursor: pointer;
+    }
+    .error-details:hover {
+        text-decoration: underline;
+    }
+    
+    .agent-breakdown {
+        background: var(--bg-card, #0a0a0a);
+        border: 1px solid var(--border-subtle, #27272a);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    .agent-breakdown h6 {
+        margin-bottom: 15px;
+        color: var(--text-primary, #fff);
+    }
+    .agent-bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 10px;
+    }
+    .agent-bar .agent-name {
+        width: 150px;
+        font-size: 0.9rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .agent-bar .bar-container {
+        flex: 1;
+        height: 20px;
+        background: var(--border-subtle, #e9ecef);
+        border-radius: 4px;
+        overflow: hidden;
+        display: flex;
+    }
+    .agent-bar .bar-completed {
+        background: #28a745;
+        height: 100%;
+    }
+    .agent-bar .bar-failed {
+        background: #dc3545;
+        height: 100%;
+    }
+    .agent-bar .count {
+        width: 60px;
+        text-align: right;
+        font-size: 0.85rem;
+        color: var(--text-secondary, #666);
+    }
+</style>
+
+<div class="history-container">
+    <!-- Header -->
+    <div class="history-header">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <h4 class="mb-1">
+                    <i class="fas fa-history mr-2"></i>
+                    Email Processing History
+                </h4>
+                <p class="mb-0 small opacity-75">Track and monitor automated email processing</p>
+            </div>
+            <div class="dispatcher-status">
+                <div class="status-dot" id="dispatcherDot"></div>
+                <span id="dispatcherStatus">Checking...</span>
+                <button class="btn btn-sm btn-outline-light ml-2" id="dispatcherToggle" onclick="toggleDispatcher()">
+                    <i class="fas fa-power-off"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Stats Grid -->
+    <div class="stats-grid" id="statsGrid">
+        <div class="stat-card">
+            <div class="stat-value" id="statTotal">-</div>
+            <div class="stat-label">Total Processed</div>
+        </div>
+        <div class="stat-card success">
+            <div class="stat-value" id="statCompleted">-</div>
+            <div class="stat-label">Completed</div>
+        </div>
+        <div class="stat-card failed">
+            <div class="stat-value" id="statFailed">-</div>
+            <div class="stat-label">Failed</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="statAvgTime">-</div>
+            <div class="stat-label">Avg Processing Time</div>
+        </div>
+    </div>
+    
+    <!-- Agent Breakdown -->
+    <div class="agent-breakdown" id="agentBreakdown" style="display: none;">
+        <h6><i class="fas fa-robot mr-2"></i>Processing by Agent</h6>
+        <div id="agentBars"></div>
+    </div>
+    
+    <!-- Filters -->
+    <div class="filters-bar">
+        <div class="form-group">
+            <label>Agent</label>
+            <select class="form-control form-control-sm" id="filterAgent" onchange="applyFilters()">
+                <option value="">All Agents</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Status</label>
+            <select class="form-control form-control-sm" id="filterStatus" onchange="applyFilters()">
+                <option value="">All Statuses</option>
+                <option value="completed">Completed</option>
+                <option value="failed">Failed</option>
+                <option value="skipped">Skipped</option>
+                <option value="pending">Pending</option>
+                <option value="pending_approval">Pending Approval</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Type</label>
+            <select class="form-control form-control-sm" id="filterType" onchange="applyFilters()">
+                <option value="">All Types</option>
+                <option value="auto_response">Auto Response</option>
+                <option value="workflow_trigger">Workflow Trigger</option>
+                <option value="pending_approval">Pending Approval</option>
+                <option value="skipped">Skipped</option>
+                <option value="received_only">Received Only</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Time Period</label>
+            <select class="form-control form-control-sm" id="filterDays" onchange="applyFilters()">
+                <option value="1">Last 24 Hours</option>
+                <option value="7" selected>Last 7 Days</option>
+                <option value="30">Last 30 Days</option>
+            </select>
+        </div>
+        <div class="form-group ml-auto">
+            <label>&nbsp;</label>
+            <button class="btn btn-sm btn-outline-primary d-block" onclick="refreshData()">
+                <i class="fas fa-sync-alt mr-1"></i> Refresh
+            </button>
+        </div>
+    </div>
+    
+    <!-- History Table -->
+    <div class="history-table-container">
+        <table class="history-table">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Agent</th>
+                    <th>From</th>
+                    <th>Subject</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Duration</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="historyTableBody">
+                <tr>
+                    <td colspan="8">
+                        <div class="empty-state">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            <p>Loading...</p>
+                        </div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+        
+        <div class="pagination-bar">
+            <span id="paginationInfo">Showing 0 records</span>
+            <div>
+                <button class="btn btn-sm btn-outline-secondary" id="prevBtn" onclick="prevPage()" disabled>
+                    <i class="fas fa-chevron-left"></i> Previous
+                </button>
+                <button class="btn btn-sm btn-outline-secondary ml-2" id="nextBtn" onclick="nextPage()" disabled>
+                    Next <i class="fas fa-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Error Details Modal -->
+<div class="modal fade" id="errorModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Error Details</h5>
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <pre id="errorContent" style="white-space: pre-wrap; font-size: 0.85rem;"></pre>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" onclick="retryFromModal()">
+                    <i class="fas fa-redo mr-1"></i> Retry Processing
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// State
+let currentOffset = 0;
+const pageSize = 50;
+let totalRecords = 0;
+let currentRecordId = null;
+const agentId = {{ agent_id|default('null') }};
+
+// Initialize
+document.addEventListener('DOMContentLoaded', function() {
+    loadDispatcherStatus();
+    loadStats();
+    loadHistory();
+    
+    // Set initial agent filter if provided
+    if (agentId) {
+        document.getElementById('filterAgent').value = agentId;
+    }
+    
+    // Auto-refresh every 30 seconds
+    setInterval(loadDispatcherStatus, 30000);
+});
+
+// Dispatcher Status
+async function loadDispatcherStatus() {
+    try {
+        const response = await fetch('/api/email-processing/dispatcher/status');
+        const data = await response.json();
+        
+        const dot = document.getElementById('dispatcherDot');
+        const status = document.getElementById('dispatcherStatus');
+        const toggle = document.getElementById('dispatcherToggle');
+        
+        if (data.running) {
+            dot.classList.add('running');
+            status.textContent = `Running (${data.total_processed || 0} processed)`;
+            toggle.innerHTML = '<i class="fas fa-stop"></i>';
+            toggle.title = 'Stop Dispatcher';
+        } else {
+            dot.classList.remove('running');
+            status.textContent = 'Stopped';
+            toggle.innerHTML = '<i class="fas fa-play"></i>';
+            toggle.title = 'Start Dispatcher';
+        }
+    } catch (error) {
+        console.error('Error loading dispatcher status:', error);
+        document.getElementById('dispatcherStatus').textContent = 'Unknown';
+    }
+}
+
+async function toggleDispatcher() {
+    const dot = document.getElementById('dispatcherDot');
+    const isRunning = dot.classList.contains('running');
+    
+    try {
+        const endpoint = isRunning ? '/api/email-processing/dispatcher/stop' : '/api/email-processing/dispatcher/start';
+        const response = await fetch(endpoint, { method: 'POST' });
+        const data = await response.json();
+        
+        if (data.success) {
+            loadDispatcherStatus();
+        } else {
+            alert('Error: ' + (data.error || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Error toggling dispatcher:', error);
+        alert('Failed to toggle dispatcher');
+    }
+}
+
+// Stats
+async function loadStats() {
+    try {
+        const days = document.getElementById('filterDays').value;
+        const agentFilter = document.getElementById('filterAgent').value;
+        
+        let url = `/api/email-processing/stats?days=${days}`;
+        if (agentFilter) url += `&agent_id=${agentFilter}`;
+        
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        if (data.success) {
+            document.getElementById('statTotal').textContent = data.total_processed || 0;
+            document.getElementById('statCompleted').textContent = data.status_counts?.completed || 0;
+            document.getElementById('statFailed').textContent = data.status_counts?.failed || 0;
+            
+            if (data.avg_processing_time_ms) {
+                document.getElementById('statAvgTime').textContent = 
+                    data.avg_processing_time_ms > 1000 
+                        ? (data.avg_processing_time_ms / 1000).toFixed(1) + 's'
+                        : data.avg_processing_time_ms + 'ms';
+            } else {
+                document.getElementById('statAvgTime').textContent = '-';
+            }
+            
+            // Populate agent filter and breakdown
+            updateAgentBreakdown(data.agent_breakdown || []);
+        }
+    } catch (error) {
+        console.error('Error loading stats:', error);
+    }
+}
+
+function updateAgentBreakdown(agents) {
+    const container = document.getElementById('agentBreakdown');
+    const barsDiv = document.getElementById('agentBars');
+    const select = document.getElementById('filterAgent');
+    
+    // Update filter dropdown
+    const currentValue = select.value;
+    select.innerHTML = '<option value="">All Agents</option>';
+    agents.forEach(agent => {
+        select.innerHTML += `<option value="${agent.agent_id}">${escapeHtml(agent.agent_name)}</option>`;
+    });
+    select.value = currentValue;
+    
+    // Update breakdown bars
+    if (agents.length === 0) {
+        container.style.display = 'none';
+        return;
+    }
+    
+    container.style.display = 'block';
+    const maxTotal = Math.max(...agents.map(a => a.total));
+    
+    barsDiv.innerHTML = agents.slice(0, 5).map(agent => {
+        const completedWidth = (agent.completed / maxTotal * 100).toFixed(1);
+        const failedWidth = (agent.failed / maxTotal * 100).toFixed(1);
+        
+        return `
+            <div class="agent-bar">
+                <div class="agent-name" title="${escapeHtml(agent.agent_name)}">${escapeHtml(agent.agent_name)}</div>
+                <div class="bar-container">
+                    <div class="bar-completed" style="width: ${completedWidth}%"></div>
+                    <div class="bar-failed" style="width: ${failedWidth}%"></div>
+                </div>
+                <div class="count">${agent.total}</div>
+            </div>
+        `;
+    }).join('');
+}
+
+// History Table
+async function loadHistory() {
+    try {
+        const days = document.getElementById('filterDays').value;
+        const status = document.getElementById('filterStatus').value;
+        const type = document.getElementById('filterType').value;
+        const agentFilter = document.getElementById('filterAgent').value;
+        
+        let url = `/api/email-processing/history?days=${days}&limit=${pageSize}&offset=${currentOffset}`;
+        if (status) url += `&status=${status}`;
+        if (type) url += `&type=${type}`;
+        if (agentFilter) url += `&agent_id=${agentFilter}`;
+        
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        if (data.success) {
+            totalRecords = data.total_count;
+            renderTable(data.records);
+            updatePagination(data);
+        }
+    } catch (error) {
+        console.error('Error loading history:', error);
+        document.getElementById('historyTableBody').innerHTML = `
+            <tr><td colspan="8">
+                <div class="empty-state">
+                    <i class="fas fa-exclamation-circle text-danger"></i>
+                    <p>Failed to load data</p>
+                </div>
+            </td></tr>
+        `;
+    }
+}
+
+function renderTable(records) {
+    const tbody = document.getElementById('historyTableBody');
+    
+    if (records.length === 0) {
+        tbody.innerHTML = `
+            <tr><td colspan="8">
+                <div class="empty-state">
+                    <i class="fas fa-inbox"></i>
+                    <p>No processing records found</p>
+                </div>
+            </td></tr>
+        `;
+        return;
+    }
+    
+    tbody.innerHTML = records.map(record => `
+        <tr>
+            <td class="time-cell">
+                <div>${formatDate(record.processed_at)}</div>
+                <small class="text-muted">${formatTime(record.processed_at)}</small>
+            </td>
+            <td>
+                <a href="/email-processing/history/${record.agent_id}">${escapeHtml(record.agent_name)}</a>
+            </td>
+            <td>
+                <div>${escapeHtml(record.sender_name || record.sender_email || 'Unknown')}</div>
+                ${record.sender_name ? `<small class="text-muted">${escapeHtml(record.sender_email)}</small>` : ''}
+            </td>
+            <td class="subject-cell" title="${escapeHtml(record.subject || '')}">${escapeHtml(record.subject || '(No subject)')}</td>
+            <td><span class="type-badge ${record.processing_type}">${formatType(record.processing_type)}</span></td>
+            <td><span class="status-badge ${record.processing_status}">${formatStatus(record.processing_status)}</span></td>
+            <td>${record.processing_duration_ms ? record.processing_duration_ms + 'ms' : '-'}</td>
+            <td>
+                ${record.processing_status === 'failed' ? `
+                    <button class="btn btn-sm btn-outline-danger" onclick="showError(${record.id}, '${escapeHtml(record.error_message || '')}')">
+                        <i class="fas fa-exclamation-triangle"></i>
+                    </button>
+                ` : ''}
+                ${record.workflow_execution_id ? `
+                    <a href="/monitoring" class="btn btn-sm btn-outline-primary" title="View Workflow" target="_blank">
+                        <i class="fas fa-project-diagram"></i>
+                    </a>
+                ` : ''}
+            </td>
+        </tr>
+    `).join('');
+}
+
+function updatePagination(data) {
+    const start = currentOffset + 1;
+    const end = Math.min(currentOffset + data.records.length, totalRecords);
+    
+    document.getElementById('paginationInfo').textContent = 
+        totalRecords > 0 ? `Showing ${start}-${end} of ${totalRecords} records` : 'No records';
+    
+    document.getElementById('prevBtn').disabled = currentOffset === 0;
+    document.getElementById('nextBtn').disabled = !data.has_more;
+}
+
+function prevPage() {
+    currentOffset = Math.max(0, currentOffset - pageSize);
+    loadHistory();
+}
+
+function nextPage() {
+    currentOffset += pageSize;
+    loadHistory();
+}
+
+function applyFilters() {
+    currentOffset = 0;
+    loadStats();
+    loadHistory();
+}
+
+function refreshData() {
+    loadDispatcherStatus();
+    loadStats();
+    loadHistory();
+}
+
+// Error handling
+function showError(recordId, errorMsg) {
+    currentRecordId = recordId;
+    document.getElementById('errorContent').textContent = errorMsg || 'No error details available';
+    $('#errorModal').modal('show');
+}
+
+async function retryFromModal() {
+    if (!currentRecordId) return;
+    
+    try {
+        const response = await fetch(`/api/email-processing/retry/${currentRecordId}`, { method: 'POST' });
+        const data = await response.json();
+        
+        if (data.success) {
+            $('#errorModal').modal('hide');
+            loadHistory();
+            alert('Processing queued for retry');
+        } else {
+            alert('Error: ' + (data.error || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Error retrying:', error);
+        alert('Failed to retry processing');
+    }
+}
+
+// Utilities
+function formatDate(dateStr) {
+    if (!dateStr) return '-';
+    // Treat the date string as UTC if it doesn't have timezone info
+    let date;
+    if (dateStr.endsWith('Z') || dateStr.includes('+') || dateStr.includes('-', 10)) {
+        // Already has timezone info
+        date = new Date(dateStr);
+    } else {
+        // No timezone info - treat as UTC
+        date = new Date(dateStr + 'Z');
+    }
+    return date.toLocaleDateString();
+}
+
+function formatTime(dateStr) {
+    if (!dateStr) return '';
+    // Treat the date string as UTC if it doesn't have timezone info
+    let date;
+    if (dateStr.endsWith('Z') || dateStr.includes('+') || dateStr.includes('-', 10)) {
+        date = new Date(dateStr);
+    } else {
+        date = new Date(dateStr + 'Z');
+    }
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatType(type) {
+    const labels = {
+        'auto_response': 'Auto Response',
+        'workflow_trigger': 'Workflow',
+        'skipped': 'Skipped',
+        'received_only': 'Received',
+        'pending_approval': 'Pending Approval',
+        'manual': 'Manual'
+    };
+    return labels[type] || type;
+}
+
+function formatStatus(status) {
+    const labels = {
+        'completed': 'Completed',
+        'failed': 'Failed',
+        'skipped': 'Skipped',
+        'pending': 'Pending',
+        'pending_approval': 'Pending Approval'
+    };
+    return labels[status] || status;
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+</script>
+<script src="{{ url_for('static', filename='js/context/email_processing_history_context.js') }}"></script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}

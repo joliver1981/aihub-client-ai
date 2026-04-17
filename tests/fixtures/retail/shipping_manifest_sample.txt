@@ -1,0 +1,54 @@
+SHIPPING MANIFEST
+==================
+Manifest Number:  SM-2026-0341
+Ship Date:        2026-03-06
+Carrier:          FedEx Ground
+Tracking Number:  7948 2103 5567 8842
+
+ORIGIN:
+  Metro Retail Group — Distribution Center
+  8900 Industrial Pkwy
+  Houston, TX 77032
+  Ship From Contact: Robert Nguyen
+  Phone: (713) 555-0145
+
+DESTINATION:
+  Sunrise Home & Garden LLC
+  7800 Warehouse Row, Bldg C
+  Round Rock, TX 78681
+  Ship To Contact: Dave Wilson
+  Phone: (512) 555-0250
+
+REFERENCE:
+  Customer PO:    SUNR-2026-0088
+  Sales Order:    SO-2026-3421
+  Invoice:        INV-2026-8834
+
+SHIPMENT DETAILS:
+  Total Pallets:  3
+  Total Cartons:  47
+  Total Weight:   1,842 lbs
+  Freight Class:  70
+
+PALLET BREAKDOWN:
++--------+--------+-------------+------------------------------------+------+---------+--------+
+| Pallet | Cartons| SKU         | Description                        | Qty  | Weight  | Cube   |
++--------+--------+-------------+------------------------------------+------+---------+--------+
+|   1    |   16   | WF-EL-1001  | Wireless Bluetooth Earbuds Pro     |  200 |  320 lb | 48 ft3 |
+|   1    |    4   | WF-EL-1042  | USB-C Fast Charging Cable 6ft      |  500 |   80 lb | 12 ft3 |
+|   2    |   12   | WF-HM-2015  | Stainless Steel Water Bottle 32oz  |  300 |  720 lb | 54 ft3 |
+|   2    |    5   | WF-HM-2023  | Bamboo Cutting Board Set 3pc       |  150 |  225 lb | 30 ft3 |
+|   3    |    4   | WF-SP-3008  | Yoga Mat Premium 6mm               |  100 |  280 lb | 60 ft3 |
+|   3    |    4   | WF-SP-3012  | Resistance Band Set 5 Levels       |  250 |   75 lb | 16 ft3 |
+|   3    |    2   | WF-OF-4001  | Ergonomic Mouse Pad w/ Wrist Rest  |  400 |  142 lb | 24 ft3 |
++--------+--------+-------------+------------------------------------+------+---------+--------+
+
+SPECIAL INSTRUCTIONS:
+  - Pallet 3: Contains Yoga Mats — KEEP DRY, DO NOT STACK
+  - Delivery appointment confirmed: 2026-03-10, 8:00 AM
+  - Signature required on delivery
+  - BOL attached: BOL-2026-0341
+
+LOADED BY: Warehouse Team A — R. Nguyen
+VERIFIED BY: Quality Check — S. Park
+SEALED: Seal #MRG-88421

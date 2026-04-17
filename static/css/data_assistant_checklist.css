@@ -1,0 +1,358 @@
+/**
+ * Data Assistant Setup Checklist Styles
+ * Floating progress tracker for multi-step Data Assistant setup
+ */
+
+/* ==========================================================================
+   Checklist Container
+   ========================================================================== */
+
+.setup-checklist {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 1050;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.checklist-container {
+    width: 320px;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+/* Collapsed state */
+.setup-checklist.collapsed .checklist-container {
+    width: 280px;
+}
+
+.setup-checklist.collapsed .checklist-body {
+    display: none;
+}
+
+.setup-checklist.collapsed .checklist-collapsed-hint {
+    display: block !important;
+    text-align: center;
+    padding: 8px;
+    font-size: 0.75rem;
+    color: #6c757d;
+}
+
+.setup-checklist.collapsed .checklist-toggle-icon {
+    transform: rotate(180deg);
+}
+
+
+/* ==========================================================================
+   Header
+   ========================================================================== */
+
+.checklist-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px;
+    background: linear-gradient(135deg, #28a745 0%, #20863d 100%);
+    color: #fff;
+    cursor: pointer;
+    user-select: none;
+}
+
+.checklist-header:hover {
+    background: linear-gradient(135deg, #2dbc4e 0%, #28a745 100%);
+}
+
+.checklist-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+}
+
+.checklist-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8rem;
+    opacity: 0.9;
+}
+
+.checklist-toggle-icon {
+    transition: transform 0.3s ease;
+    font-size: 0.75rem;
+}
+
+
+/* ==========================================================================
+   Progress Bar
+   ========================================================================== */
+
+.checklist-progress-bar {
+    height: 4px;
+    background: #e9ecef;
+}
+
+.checklist-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #28a745 0%, #20c997 100%);
+    transition: width 0.5s ease;
+}
+
+
+/* ==========================================================================
+   Steps
+   ========================================================================== */
+
+.checklist-body {
+    padding: 12px;
+}
+
+.checklist-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.checklist-step {
+    display: flex;
+    align-items: center;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: #f8f9fa;
+    transition: all 0.2s ease;
+}
+
+.checklist-step:hover {
+    background: #e9ecef;
+}
+
+.checklist-step.active {
+    background: #e8f5e9;
+    border: 1px solid #c8e6c9;
+}
+
+.checklist-step.completed {
+    background: #f8f9fa;
+    opacity: 0.7;
+}
+
+.checklist-step.completed .step-title {
+    text-decoration: line-through;
+    color: #6c757d;
+}
+
+/* Step status icon */
+.step-status {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 12px;
+    flex-shrink: 0;
+}
+
+.step-pending {
+    color: #dee2e6;
+    font-size: 0.5rem;
+}
+
+.step-complete {
+    color: #28a745;
+    font-size: 1.1rem;
+}
+
+.checklist-step.active .step-pending {
+    color: #28a745;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* Step content */
+.step-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.step-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #212529;
+    line-height: 1.3;
+}
+
+.step-subtitle {
+    font-size: 0.75rem;
+    color: #6c757d;
+    line-height: 1.3;
+    margin-top: 1px;
+}
+
+/* Step action button */
+.step-action {
+    padding: 4px 8px;
+    font-size: 0.75rem;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    flex-shrink: 0;
+}
+
+.checklist-step:hover .step-action {
+    opacity: 1;
+}
+
+.checklist-step.active .step-action {
+    opacity: 1;
+}
+
+.checklist-step.completed .step-action {
+    display: none;
+}
+
+
+/* ==========================================================================
+   Footer
+   ========================================================================== */
+
+.checklist-footer {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #e9ecef;
+}
+
+.checklist-footer .btn-primary {
+    background: linear-gradient(135deg, #28a745 0%, #20863d 100%);
+    border: none;
+    font-weight: 600;
+    padding: 10px 16px;
+}
+
+.checklist-footer .btn-primary:hover {
+    background: linear-gradient(135deg, #2dbc4e 0%, #28a745 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+}
+
+.checklist-footer .btn-link {
+    font-size: 0.8rem;
+}
+
+
+/* ==========================================================================
+   Completion Toast
+   ========================================================================== */
+
+.setup-complete-toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 1050;
+    animation: slideInUp 0.4s ease;
+}
+
+@keyframes slideInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.complete-toast-content {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: #fff;
+    padding: 16px 20px;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+    border-left: 4px solid #28a745;
+}
+
+.complete-icon {
+    font-size: 2rem;
+    color: #28a745;
+    animation: bounceIn 0.6s ease;
+}
+
+@keyframes bounceIn {
+    0% { transform: scale(0); }
+    50% { transform: scale(1.2); }
+    100% { transform: scale(1); }
+}
+
+.complete-text {
+    flex: 1;
+}
+
+.complete-text strong {
+    display: block;
+    font-size: 0.95rem;
+    color: #212529;
+    margin-bottom: 2px;
+}
+
+.complete-text span {
+    font-size: 0.85rem;
+    color: #6c757d;
+}
+
+
+/* ==========================================================================
+   Page-Specific Highlights
+   ========================================================================== */
+
+/* When on connections page, highlight step 1 */
+body[data-page="connections"] .checklist-step[data-step="connection"] {
+    background: #e8f5e9;
+    border: 1px solid #c8e6c9;
+}
+
+/* When on data dictionary page, highlight step 2 */
+body[data-page="data-dictionary"] .checklist-step[data-step="dictionary"] {
+    background: #e8f5e9;
+    border: 1px solid #c8e6c9;
+}
+
+/* When on data agent builder, highlight step 3 */
+body[data-page="data-agent-builder"] .checklist-step[data-step="agent"] {
+    background: #e8f5e9;
+    border: 1px solid #c8e6c9;
+}
+
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 576px) {
+    .setup-checklist {
+        bottom: 16px;
+        right: 16px;
+        left: 16px;
+    }
+    
+    .checklist-container {
+        width: 100%;
+    }
+    
+    .setup-complete-toast {
+        bottom: 16px;
+        right: 16px;
+        left: 16px;
+    }
+    
+    .complete-toast-content {
+        flex-wrap: wrap;
+    }
+}

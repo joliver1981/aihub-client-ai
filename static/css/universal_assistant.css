@@ -1,0 +1,684 @@
+/**
+ * Universal Assistant Widget Styles - Enhanced Version
+ * 
+ * Key features:
+ * - Large chat panel (600px wide, 800px tall)
+ * - Context bar showing current page
+ * - Single-line input (expands only when typing multiline)
+ */
+
+/* ==========================================================================
+   CSS Variables
+   ========================================================================== */
+
+.ua-container {
+    --ua-bg: #ffffff;
+    --ua-bg-secondary: #f8f9fa;
+    --ua-bg-tertiary: #e9ecef;
+    --ua-text: #212529;
+    --ua-text-muted: #6c757d;
+    --ua-border: #dee2e6;
+    --ua-primary: #3498db;
+    --ua-primary-hover: #2980b9;
+    --ua-user-bg: #e3f2fd;
+    --ua-user-text: #1565c0;
+    --ua-assistant-bg: #f5f5f5;
+    --ua-assistant-text: #333333;
+    --ua-error-bg: #ffebee;
+    --ua-error-text: #c62828;
+    --ua-success: #4caf50;
+    --ua-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+    --ua-shadow-btn: 0 4px 15px rgba(0, 0, 0, 0.25);
+}
+
+.ua-theme-dark {
+    --ua-bg: #1e1e1e;
+    --ua-bg-secondary: #2d2d2d;
+    --ua-bg-tertiary: #383838;
+    --ua-text: #e0e0e0;
+    --ua-text-muted: #888888;
+    --ua-border: #404040;
+    --ua-primary: #64b5f6;
+    --ua-primary-hover: #42a5f5;
+    --ua-user-bg: #1e3a5f;
+    --ua-user-text: #90caf9;
+    --ua-assistant-bg: #2d2d2d;
+    --ua-assistant-text: #e0e0e0;
+    --ua-error-bg: #4a1c1c;
+    --ua-error-text: #ef9a9a;
+    --ua-success: #81c784;
+    --ua-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    --ua-shadow-btn: 0 4px 15px rgba(0, 0, 0, 0.5);
+}
+
+/* ==========================================================================
+   Container & Positioning
+   ========================================================================== */
+
+.ua-container {
+    position: fixed;
+    z-index: 10000;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.ua-bottom-right {
+    bottom: 24px;
+    right: 24px;
+}
+
+.ua-bottom-left {
+    bottom: 24px;
+    left: 24px;
+}
+
+/* ==========================================================================
+   Toggle Button
+   ========================================================================== */
+
+.ua-toggle-btn {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--ua-primary) 0%, var(--ua-primary-hover) 100%);
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--ua-shadow-btn);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    position: relative;
+}
+
+.ua-toggle-btn:hover {
+    transform: scale(1.08);
+    box-shadow: 0 6px 20px rgba(52, 152, 219, 0.5);
+}
+
+.ua-toggle-btn:active {
+    transform: scale(0.95);
+}
+
+.ua-toggle-btn .ua-icon {
+    width: 30px;
+    height: 30px;
+    color: white;
+}
+
+/* ==========================================================================
+   Chat Panel - LARGE SIZE (600x800)
+   ========================================================================== */
+
+.ua-panel {
+    position: absolute;
+    bottom: 75px;
+    width: 600px;
+    height: 800px;
+    max-height: calc(100vh - 100px);
+    background: var(--ua-bg);
+    border-radius: 16px;
+    box-shadow: var(--ua-shadow);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(20px) scale(0.95);
+    transition: opacity 0.3s ease, transform 0.3s ease, visibility 0.3s;
+}
+
+.ua-bottom-right .ua-panel {
+    right: 0;
+}
+
+.ua-bottom-left .ua-panel {
+    left: 0;
+}
+
+.ua-container.ua-open .ua-panel {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0) scale(1);
+}
+
+/* ==========================================================================
+   Header
+   ========================================================================== */
+
+.ua-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    background: linear-gradient(135deg, var(--ua-primary) 0%, var(--ua-primary-hover) 100%);
+    color: white;
+    flex-shrink: 0;
+}
+
+.ua-header-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.ua-header-icon {
+    width: 26px;
+    height: 26px;
+}
+
+.ua-header-title {
+    font-weight: 600;
+    font-size: 16px;
+}
+
+.ua-header-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.ua-header-btn {
+    background: rgba(255, 255, 255, 0.15);
+    border: none;
+    border-radius: 8px;
+    padding: 8px;
+    cursor: pointer;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, transform 0.2s;
+}
+
+.ua-header-btn:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+.ua-header-btn:active {
+    transform: scale(0.9);
+}
+
+/* ==========================================================================
+   Context Bar
+   ========================================================================== */
+
+.ua-context-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    background: var(--ua-bg-secondary);
+    border-bottom: 1px solid var(--ua-border);
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.ua-context-icon {
+    font-size: 14px;
+}
+
+.ua-context-page {
+    color: var(--ua-text);
+    font-weight: 500;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ua-context-status {
+    color: var(--ua-success);
+    font-size: 10px;
+    animation: ua-pulse 2s infinite;
+}
+
+@keyframes ua-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* ==========================================================================
+   Messages Area - Large scrollable area
+   ========================================================================== */
+
+.ua-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    background: var(--ua-bg);
+    min-height: 0; /* Important for flex overflow */
+}
+
+/* Custom scrollbar */
+.ua-messages::-webkit-scrollbar {
+    width: 8px;
+}
+
+.ua-messages::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.ua-messages::-webkit-scrollbar-thumb {
+    background: var(--ua-border);
+    border-radius: 4px;
+}
+
+.ua-messages::-webkit-scrollbar-thumb:hover {
+    background: var(--ua-text-muted);
+}
+
+/* ==========================================================================
+   Message Bubbles
+   ========================================================================== */
+
+.ua-message {
+    display: flex;
+    gap: 12px;
+    max-width: 90%;
+    animation: ua-fade-in 0.3s ease;
+}
+
+@keyframes ua-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.ua-message-user {
+    align-self: flex-end;
+    flex-direction: row-reverse;
+}
+
+.ua-message-assistant {
+    align-self: flex-start;
+}
+
+.ua-message-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    background: var(--ua-bg-secondary);
+    color: var(--ua-text-muted);
+}
+
+.ua-message-avatar svg {
+    width: 20px;
+    height: 20px;
+}
+
+.ua-message-user .ua-message-avatar {
+    background: var(--ua-primary);
+    color: white;
+}
+
+.ua-message-content {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.ua-message-text {
+    padding: 12px 16px;
+    border-radius: 18px;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.ua-message-user .ua-message-text {
+    background: var(--ua-user-bg);
+    color: var(--ua-user-text);
+    border-bottom-right-radius: 6px;
+}
+
+.ua-message-assistant .ua-message-text {
+    background: var(--ua-assistant-bg);
+    color: var(--ua-assistant-text);
+    border-bottom-left-radius: 6px;
+}
+
+.ua-message-error .ua-message-text {
+    background: var(--ua-error-bg);
+    color: var(--ua-error-text);
+}
+
+.ua-message-time {
+    font-size: 11px;
+    color: var(--ua-text-muted);
+    padding: 0 6px;
+}
+
+.ua-message-user .ua-message-time {
+    text-align: right;
+}
+
+/* Message text formatting */
+.ua-message-text code {
+    background: rgba(0, 0, 0, 0.08);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+    font-size: 13px;
+}
+
+.ua-theme-dark .ua-message-text code {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.ua-message-text pre {
+    background: var(--ua-bg-tertiary);
+    padding: 14px;
+    border-radius: 10px;
+    overflow-x: auto;
+    margin: 10px 0;
+    border: 1px solid var(--ua-border);
+}
+
+.ua-message-text pre code {
+    background: transparent;
+    padding: 0;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.ua-message-text ul,
+.ua-message-text ol {
+    margin: 10px 0;
+    padding-left: 24px;
+}
+
+.ua-message-text li {
+    margin: 6px 0;
+}
+
+.ua-message-text strong {
+    font-weight: 600;
+}
+
+.ua-message-text em {
+    font-style: italic;
+}
+
+/* ==========================================================================
+   Typing Indicator - EXPLICIT STYLES (no variable dependencies)
+   ========================================================================== */
+
+.ua-typing-indicator {
+    display: flex !important;
+}
+
+.ua-typing-indicator .ua-message-content {
+    padding: 8px 0;
+}
+
+.ua-typing-dots {
+    display: flex !important;
+    align-items: center;
+    gap: 5px;
+    padding: 14px 18px;
+    background-color: #f5f5f5;
+    border-radius: 18px;
+    border-bottom-left-radius: 6px;
+    min-width: 70px;
+    min-height: 20px;
+}
+
+.ua-theme-dark .ua-typing-dots {
+    background-color: #2d2d2d;
+}
+
+.ua-typing-dots span {
+    width: 10px;
+    height: 10px;
+    min-width: 10px;
+    min-height: 10px;
+    background-color: #6c757d;
+    border-radius: 50%;
+    display: inline-block !important;
+    -webkit-animation: ua-typing 1.4s infinite ease-in-out both;
+    -moz-animation: ua-typing 1.4s infinite ease-in-out both;
+    animation: ua-typing 1.4s infinite ease-in-out both;
+}
+
+.ua-typing-dots span:nth-child(1) {
+    -webkit-animation-delay: 0s;
+    animation-delay: 0s;
+}
+
+.ua-typing-dots span:nth-child(2) {
+    -webkit-animation-delay: 0.2s;
+    animation-delay: 0.2s;
+}
+
+.ua-typing-dots span:nth-child(3) {
+    -webkit-animation-delay: 0.4s;
+    animation-delay: 0.4s;
+}
+
+@-webkit-keyframes ua-typing {
+    0%, 80%, 100% {
+        -webkit-transform: scale(0.6);
+        transform: scale(0.6);
+        opacity: 0.4;
+        background-color: #6c757d;
+    }
+    40% {
+        -webkit-transform: scale(1);
+        transform: scale(1);
+        opacity: 1;
+        background-color: #3498db;
+    }
+}
+
+@keyframes ua-typing {
+    0%, 80%, 100% {
+        -webkit-transform: scale(0.6);
+        transform: scale(0.6);
+        opacity: 0.4;
+        background-color: #6c757d;
+    }
+    40% {
+        -webkit-transform: scale(1);
+        transform: scale(1);
+        opacity: 1;
+        background-color: #3498db;
+    }
+}
+
+/* ==========================================================================
+   Input Area - FIXED SINGLE LINE HEIGHT
+   ========================================================================== */
+
+.ua-input-area {
+    padding: 16px 18px;
+    border-top: 1px solid var(--ua-border);
+    background: var(--ua-bg);
+    flex-shrink: 0;
+}
+
+.ua-input-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--ua-bg-secondary);
+    border: 2px solid var(--ua-border);
+    border-radius: 14px;
+    padding: 10px 14px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.ua-input-wrapper:focus-within {
+    border-color: var(--ua-primary);
+    box-shadow: 0 0 0 4px rgba(52, 152, 219, 0.15);
+}
+
+.ua-input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    resize: none;
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--ua-text);
+    outline: none;
+    max-height: 120px;
+    min-height: 24px;
+    height: 24px;
+    font-family: inherit;
+    overflow-y: auto;
+    padding: 0;
+    margin: 0;
+    vertical-align: top;
+}
+
+.ua-input::placeholder {
+    color: var(--ua-text-muted);
+}
+
+.ua-send-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--ua-primary);
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, transform 0.15s;
+    flex-shrink: 0;
+}
+
+.ua-send-btn:hover:not(:disabled) {
+    background: var(--ua-primary-hover);
+    transform: scale(1.05);
+}
+
+.ua-send-btn:active:not(:disabled) {
+    transform: scale(0.92);
+}
+
+.ua-send-btn:disabled {
+    cursor: not-allowed;
+}
+
+.ua-send-btn svg {
+    width: 20px;
+    height: 20px;
+    color: white;
+}
+
+.ua-input-hint {
+    font-size: 11px;
+    color: var(--ua-text-muted);
+    margin-top: 8px;
+    text-align: center;
+}
+
+/* ==========================================================================
+   Responsive Styles
+   ========================================================================== */
+
+@media (max-width: 700px) {
+    .ua-panel {
+        width: calc(100vw - 32px);
+        height: calc(100vh - 100px);
+        max-height: none;
+        bottom: 85px;
+        border-radius: 20px;
+    }
+    
+    .ua-bottom-right .ua-panel,
+    .ua-bottom-left .ua-panel {
+        left: 16px;
+        right: 16px;
+    }
+    
+    .ua-toggle-btn {
+        width: 56px;
+        height: 56px;
+    }
+    
+    .ua-bottom-right {
+        bottom: 16px;
+        right: 16px;
+    }
+    
+    .ua-bottom-left {
+        bottom: 16px;
+        left: 16px;
+    }
+}
+
+@media (max-height: 900px) {
+    .ua-panel {
+        height: calc(100vh - 100px);
+    }
+}
+
+/* ==========================================================================
+   Print Styles
+   ========================================================================== */
+
+@media print {
+    .ua-container {
+        display: none !important;
+    }
+}
+
+/* ==========================================================================
+   Accessibility
+   ========================================================================== */
+
+.ua-toggle-btn:focus,
+.ua-send-btn:focus,
+.ua-header-btn:focus {
+    outline: 3px solid var(--ua-primary);
+    outline-offset: 2px;
+}
+
+.ua-input:focus {
+    outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ua-panel,
+    .ua-message,
+    .ua-toggle-btn,
+    .ua-context-status {
+        animation: none !important;
+        transition: none !important;
+    }
+    
+    /* Keep typing dots visible but static for reduced motion */
+    .ua-typing-dots span {
+        animation: none !important;
+        opacity: 0.7 !important;
+        transform: scale(0.8) !important;
+    }
+}
+
+@media (prefers-contrast: high) {
+    .ua-container {
+        --ua-border: #000000;
+    }
+    
+    .ua-theme-dark {
+        --ua-border: #ffffff;
+    }
+}

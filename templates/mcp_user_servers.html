@@ -1,0 +1,1552 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<div style="position:fixed;bottom:20px;right:20px;z-index:100;">
+    <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+        <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+    </button>
+</div>
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-12">
+            <h2><i class="fas fa-plug"></i> MCP Server Connections</h2>
+            <p class="text-muted">Connect your AI agents to enterprise systems and cloud services through Model Context Protocol</p>
+            
+            <!-- Help Section -->
+            <div class="alert alert-info alert-dismissible fade show" role="alert">
+                <h6><i class="fas fa-info-circle"></i> What are MCP Server Connections?</h6>
+                <p class="mb-2">MCP servers provide tools and capabilities to your AI agents. Most enterprise servers are <strong>already running</strong> and just need connection details:</p>
+                <div class="row">
+                    <div class="col-md-4">
+                        <strong>🏢 Enterprise Systems</strong><br>
+                        <small>ERP, CRM, HR systems with MCP endpoints</small>
+                    </div>
+                    <div class="col-md-4">
+                        <strong>☁️ Cloud Services</strong><br>
+                        <small>AWS, Azure, Google Cloud MCP APIs</small>
+                    </div>
+                    <div class="col-md-4">
+                        <strong>🔧 SaaS Platforms</strong><br>
+                        <small>Salesforce, Slack, GitHub, etc.</small>
+                    </div>
+                </div>
+                <button type="button" class="close" data-dismiss="alert">
+                    <span>&times;</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="row mb-3">
+        <div class="col-12">
+            <button class="btn btn-primary" onclick="showAddServerModal()">
+                <i class="fas fa-plus"></i> Add Connection
+            </button>
+            <button class="btn btn-success" onclick="showServerDirectory()">
+                <i class="fas fa-book-open"></i> Server Directory
+            </button>
+            <button class="btn btn-info" onclick="showImportModal()">
+                <i class="fas fa-file-import"></i> Import Config
+            </button>
+            <a href="https://modelcontextprotocol.io/registry" target="_blank" class="btn btn-outline-secondary">
+                <i class="fas fa-external-link-alt"></i> MCP Registry
+            </a>
+            <button class="btn btn-warning float-right" onclick="testAllConnections()">
+                <i class="fas fa-heartbeat"></i> Test All
+            </button>
+        </div>
+    </div>
+
+    <!-- Server Statistics -->
+    <div class="row mb-3">
+        <div class="col-md-3">
+            <div class="card border-primary">
+                <div class="card-body">
+                    <h6 class="card-title text-muted">Total Connections</h6>
+                    <h3 id="totalServers">0</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-success">
+                <div class="card-body">
+                    <h6 class="card-title text-muted">Active</h6>
+                    <h3 class="text-success" id="activeServers">0</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-info">
+                <div class="card-body">
+                    <h6 class="card-title text-muted">Available Tools</h6>
+                    <h3 class="text-info" id="totalTools">0</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-warning">
+                <div class="card-body">
+                    <h6 class="card-title text-muted">Agents Using</h6>
+                    <h3 class="text-warning" id="agentCount">0</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Server List -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Configured Connections</h5>
+                    <div class="float-right d-flex align-items-center">
+                        <small class="mr-2">Filter:</small>
+                        <select class="form-control form-control-sm mr-2" id="filterType" onchange="filterServers()" style="width: 150px;">
+                            <option value="">All Types</option>
+                            <option value="remote">Remote/Hosted</option>
+                            <option value="local">Local</option>
+                        </select>
+                        <input type="text" class="form-control form-control-sm" 
+                               id="searchServers" placeholder="Search..." 
+                               onkeyup="filterServers()" style="width: 200px;">
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th width="50">Type</th>
+                                    <th>Name / Description</th>
+                                    <th>Endpoint</th>
+                                    <th>Category</th>
+                                    <th width="80">Status</th>
+                                    <th width="80">Tools</th>
+                                    <th width="80">Agents</th>
+                                    <th width="150">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="serversTableBody">
+                                <!-- Populated by JavaScript -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="noServersMessage" class="text-center p-5" style="display: none;">
+                        <i class="fas fa-plug fa-3x text-muted mb-3"></i>
+                        <h4>No Server Connections Yet</h4>
+                        <p class="text-muted">Connect to enterprise systems, cloud services, or SaaS platforms</p>
+                        <button class="btn btn-primary" onclick="showAddServerModal()">
+                            <i class="fas fa-plus"></i> Add First Connection
+                        </button>
+                        <button class="btn btn-success ml-2" onclick="showServerDirectory()">
+                            <i class="fas fa-book-open"></i> Browse Directory
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit Server Modal - Remote-First Design -->
+<div class="modal fade" id="serverModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable" role="document">
+        <div class="modal-content">
+            <div class="modal-header bg-light">
+                <h5 class="modal-title" id="serverModalTitle">Add MCP Server Connection</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="serverForm">
+                    <input type="hidden" id="serverId">
+                    
+                    <!-- Connection Type Tabs -->
+                    <ul class="nav nav-tabs mb-3" role="tablist">
+                        <li class="nav-item">
+                            <a class="nav-link active" data-toggle="tab" href="#remoteTab" role="tab">
+                                <i class="fas fa-cloud"></i> Remote/Hosted
+                                <small class="d-block text-muted">Connect to existing service</small>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" data-toggle="tab" href="#localTab" role="tab">
+                                <i class="fas fa-desktop"></i> Local
+                                <small class="d-block text-muted">Start local process</small>
+                            </a>
+                        </li>
+                    </ul>
+                    
+                    <!-- Tab Content -->
+                    <div class="tab-content">
+                        <!-- REMOTE SERVER TAB (Default) -->
+                        <div class="tab-pane fade show active" id="remoteTab" role="tabpanel">
+                            
+                            <!-- Quick Connect Templates -->
+                            <div class="alert alert-success">
+                                <strong>Quick Connect:</strong> Select a known service type
+                                <div class="row mt-2">
+                                    <div class="col-6 col-md-3 mb-2">
+                                        <button type="button" class="btn btn-sm btn-outline-success btn-block" 
+                                                onclick="loadRemoteTemplate('aihub_test')">
+                                            <i class="fas fa-vial"></i> AI Hub Test
+                                        </button>
+                                    </div>
+                                    <div class="col-6 col-md-3 mb-2">
+                                        <button type="button" class="btn btn-sm btn-outline-success btn-block" 
+                                                onclick="loadRemoteTemplate('salesforce')">
+                                            <i class="fab fa-salesforce"></i> Salesforce
+                                        </button>
+                                    </div>
+                                    <div class="col-6 col-md-3 mb-2">
+                                        <button type="button" class="btn btn-sm btn-outline-success btn-block" 
+                                                onclick="loadRemoteTemplate('github')">
+                                            <i class="fab fa-github"></i> GitHub
+                                        </button>
+                                    </div>
+                                    <div class="col-6 col-md-3 mb-2">
+                                        <button type="button" class="btn btn-sm btn-outline-success btn-block" 
+                                                onclick="loadRemoteTemplate('slack')">
+                                            <i class="fab fa-slack"></i> Slack
+                                        </button>
+                                    </div>
+                                    <div class="col-6 col-md-3 mb-2">
+                                        <button type="button" class="btn btn-sm btn-outline-success btn-block" 
+                                                onclick="loadRemoteTemplate('azure')">
+                                            <i class="fab fa-microsoft"></i> Azure
+                                        </button>
+                                    </div>
+                                    <div class="col-6 col-md-3 mb-2">
+                                        <button type="button" class="btn btn-sm btn-outline-success btn-block" 
+                                                onclick="loadRemoteTemplate('aws')">
+                                            <i class="fab fa-aws"></i> AWS
+                                        </button>
+                                    </div>
+                                    <div class="col-6 col-md-3 mb-2">
+                                        <button type="button" class="btn btn-sm btn-outline-success btn-block" 
+                                                onclick="loadRemoteTemplate('openai')">
+                                            <i class="fas fa-brain"></i> OpenAI
+                                        </button>
+                                    </div>
+                                    <div class="col-6 col-md-3 mb-2">
+                                        <button type="button" class="btn btn-sm btn-outline-success btn-block" 
+                                                onclick="loadRemoteTemplate('custom')">
+                                            <i class="fas fa-cog"></i> Custom
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Basic Information -->
+                            <div class="form-group">
+                                <label for="remoteServerName">Connection Name *</label>
+                                <input type="text" class="form-control" id="remoteServerName" 
+                                       placeholder="e.g., Production ERP System" required>
+                                <small class="form-text text-muted">A descriptive name for this connection</small>
+                            </div>
+                            
+                            <div class="form-row">
+                                <div class="form-group col-md-8">
+                                    <label for="serverUrl">MCP Endpoint URL *</label>
+                                    <input type="url" class="form-control" id="serverUrl" 
+                                           placeholder="https://api.example.com/mcp/v1" required>
+                                    <small class="form-text text-muted">The MCP API endpoint provided by the service</small>
+                                </div>
+                                <div class="form-group col-md-4">
+                                    <label for="remoteCategory">Category</label>
+                                    <select class="form-control" id="remoteCategory">
+                                        <option value="">Select...</option>
+                                        <option value="Testing">Testing</option>
+                                        <option value="ERP">ERP System</option>
+                                        <option value="CRM">CRM System</option>
+                                        <option value="Cloud">Cloud Platform</option>
+                                        <option value="Database">Database</option>
+                                        <option value="Communication">Communication</option>
+                                        <option value="Analytics">Analytics</option>
+                                        <option value="Development">Development</option>
+                                        <option value="Custom">Custom/Other</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="remoteDescription">Description</label>
+                                <textarea class="form-control" id="remoteDescription" rows="2"
+                                          placeholder="What capabilities does this connection provide?"></textarea>
+                            </div>
+                            
+                            <!-- Authentication -->
+                            <div class="card bg-light mb-3">
+                                <div class="card-body">
+                                    <h6 class="card-title">Authentication</h6>
+                                    
+                                    <div class="form-group">
+                                        <label for="authType">Authentication Method *</label>
+                                        <select class="form-control" id="authType" onchange="toggleAuthFields()" required>
+                                            <option value="">Select authentication type...</option>
+                                            <option value="none">None (Public endpoint)</option>
+                                            <option value="bearer">Bearer Token / JWT</option>
+                                            <option value="apikey">API Key</option>
+                                            <option value="basic">Basic Authentication</option>
+                                            <option value="oauth2">OAuth 2.0</option>
+                                            <option value="custom">Custom Headers</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <!-- Bearer Token -->
+                                    <div id="authBearer" class="auth-config" style="display: none;">
+                                        <div class="form-group">
+                                            <label for="bearerToken">Bearer Token / JWT</label>
+                                            <div class="input-group">
+                                                <input type="password" class="form-control" id="bearerToken" 
+                                                       placeholder="eyJhbGciOiJIUzI1NiIs...">
+                                                <div class="input-group-append">
+                                                    <button class="btn btn-outline-secondary" type="button" 
+                                                            onclick="togglePasswordVisibility('bearerToken')">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <small class="form-text text-muted">JWT or access token for authorization</small>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- API Key -->
+                                    <div id="authApikey" class="auth-config" style="display: none;">
+                                        <div class="form-group">
+                                            <label for="apiKeyHeader">Header Name</label>
+                                            <input type="text" class="form-control" id="apiKeyHeader" 
+                                                   value="X-API-Key" placeholder="X-API-Key">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="apiKeyValue">API Key Value</label>
+                                            <div class="input-group">
+                                                <input type="password" class="form-control" id="apiKeyValue" 
+                                                       placeholder="sk-...">
+                                                <div class="input-group-append">
+                                                    <button class="btn btn-outline-secondary" type="button" 
+                                                            onclick="togglePasswordVisibility('apiKeyValue')">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Basic Auth -->
+                                    <div id="authBasic" class="auth-config" style="display: none;">
+                                        <div class="form-row">
+                                            <div class="form-group col-md-6">
+                                                <label for="basicUsername">Username</label>
+                                                <input type="text" class="form-control" id="basicUsername">
+                                            </div>
+                                            <div class="form-group col-md-6">
+                                                <label for="basicPassword">Password</label>
+                                                <input type="password" class="form-control" id="basicPassword">
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- OAuth 2.0 -->
+                                    <div id="authOauth2" class="auth-config" style="display: none;">
+                                        <div class="form-group">
+                                            <label for="oauthClientId">Client ID</label>
+                                            <input type="text" class="form-control" id="oauthClientId">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="oauthClientSecret">Client Secret</label>
+                                            <input type="password" class="form-control" id="oauthClientSecret">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="oauthTokenUrl">Token Endpoint</label>
+                                            <input type="url" class="form-control" id="oauthTokenUrl" 
+                                                   placeholder="https://auth.example.com/oauth2/token">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="oauthScope">Scopes (space-separated)</label>
+                                            <input type="text" class="form-control" id="oauthScope" 
+                                                   placeholder="read write admin">
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Custom Headers -->
+                                    <div id="authCustom" class="auth-config" style="display: none;">
+                                        <div class="form-group">
+                                            <label>Custom Headers</label>
+                                            <div id="customHeadersContainer"></div>
+                                            <button type="button" class="btn btn-sm btn-secondary" 
+                                                    onclick="addCustomHeader()">
+                                                <i class="fas fa-plus"></i> Add Header
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Advanced Settings -->
+                            <details class="mb-3">
+                                <summary class="cursor-pointer">Advanced Settings</summary>
+                                <div class="card bg-light mt-2">
+                                    <div class="card-body">
+                                        <div class="form-row">
+                                            <div class="form-group col-md-6">
+                                                <label for="requestTimeout">Request Timeout (seconds)</label>
+                                                <input type="number" class="form-control" id="requestTimeout" 
+                                                       value="30" min="5" max="300">
+                                            </div>
+                                            <div class="form-group col-md-6">
+                                                <label for="maxRetries">Max Retries</label>
+                                                <input type="number" class="form-control" id="maxRetries" 
+                                                       value="3" min="0" max="10">
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <div class="custom-control custom-checkbox">
+                                                <input type="checkbox" class="custom-control-input" id="verifySsl" checked>
+                                                <label class="custom-control-label" for="verifySsl">
+                                                    Verify SSL Certificate
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </details>
+                        </div>
+                        
+                        <!-- LOCAL SERVER TAB -->
+                        <div class="tab-pane fade" id="localTab" role="tabpanel">
+                            <div class="alert alert-warning">
+                                <i class="fas fa-info-circle"></i> Local servers run as subprocesses. For production, consider using remote/hosted servers instead.
+                            </div>
+                            
+                            <!-- Basic Info -->
+                            <div class="form-group">
+                                <label for="localServerName">Server Name *</label>
+                                <input type="text" class="form-control" id="localServerName" 
+                                       placeholder="e.g., Local File System">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="localDescription">Description</label>
+                                <textarea class="form-control" id="localDescription" rows="2"></textarea>
+                            </div>
+                            
+                            <!-- Command Configuration -->
+                            <div class="form-group">
+                                <label for="serverCommand">Start Command *</label>
+                                <input type="text" class="form-control" id="serverCommand" 
+                                       placeholder="python, node, npx, etc.">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="serverArgs">Arguments (one per line)</label>
+                                <textarea class="form-control font-monospace" id="serverArgs" rows="3"></textarea>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Environment Variables</label>
+                                <div id="envVarsContainer"></div>
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="addEnvVar()">
+                                    <i class="fas fa-plus"></i> Add Variable
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Test Connection -->
+                    <div class="alert alert-info">
+                        <strong>Test Connection</strong>
+                        <p class="mb-2 small">Verify the connection works before saving</p>
+                        <button type="button" class="btn btn-primary" id="testBtn" onclick="testConnection()">
+                            <i class="fas fa-plug"></i> Test Connection
+                        </button>
+                        <button type="button" class="btn btn-secondary ml-2" onclick="discoverTools()">
+                            <i class="fas fa-search"></i> Discover Tools
+                        </button>
+                    </div>
+                    
+                    <div id="testResults" style="display: none;">
+                        <!-- Test results appear here -->
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveServer()">
+                    <i class="fas fa-save"></i> Save Connection
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Server Directory Modal -->
+<div class="modal fade" id="directoryModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">MCP Server Directory</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info">
+                    <strong>Available MCP Servers</strong>
+                    <p>These are known MCP endpoints. Click to configure.</p>
+                </div>
+                
+                <h6 class="mt-3">🧪 Testing</h6>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <div class="card cursor-pointer" onclick="configureFromDirectory('aihub_test')">
+                            <div class="card-body">
+                                <h6>AI Hub Test Server</h6>
+                                <small class="text-muted">Your local test server with sample tools</small><br>
+                                <span class="badge badge-info">No Auth</span>
+                                <span class="badge badge-success">10+ test tools</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Other categories as before -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Import Configuration Modal -->
+<div class="modal fade" id="importModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Import Server Configuration</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p>Paste a server configuration JSON or upload a file:</p>
+                <div class="form-group">
+                    <textarea class="form-control font-monospace" id="importJson" rows="10" 
+                              placeholder='{"name": "Server Name", "url": "https://...", ...}'></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Or upload a file:</label>
+                    <input type="file" class="form-control-file" id="importFile" accept=".json">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="importConfiguration()">
+                    Import Configuration
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Assign to Agents Modal -->
+<div class="modal fade" id="assignModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-dialog-scrollable" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Assign Server to Agents</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="assignServerId">
+                <h6 id="assignServerName"></h6>
+                <p class="text-muted">Select which agents can use this MCP server:</p>
+                <div id="agentsList">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveAssignments()">
+                    Save Assignments
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- View Tools Modal -->
+<div class="modal fade" id="toolsModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Available Tools</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="toolsList">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.cursor-pointer {
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.cursor-pointer:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+.nav-tabs .nav-link small {
+    font-size: 0.75rem;
+}
+.font-monospace {
+    font-family: 'Courier New', Consolas, monospace;
+}
+.auth-config {
+    animation: fadeIn 0.3s;
+}
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+.badge { 
+    font-weight: normal;
+    padding: 0.375rem 0.5rem;
+}
+</style>
+
+<script>
+// Server directory with common MCP endpoints
+const serverDirectory = {
+    aihub_test: {
+        name: 'AI Hub Test Server',
+        url: 'http://localhost:8000/sse',
+        authType: 'none',
+        category: 'Testing',
+        description: 'Local test server with sample MCP tools',
+        help: 'Start with: python aihub_mcp_server.py --http'
+    },
+    salesforce: {
+        name: 'Salesforce CRM',
+        url: 'https://{instance}.salesforce.com/services/mcp/v1',
+        authType: 'oauth2',
+        category: 'CRM',
+        description: 'Customer relationship management',
+        placeholder: 'Replace {instance} with your Salesforce instance'
+    },
+    github: {
+        name: 'GitHub',
+        url: 'https://api.github.com/mcp/v1',
+        authType: 'bearer',
+        category: 'Development',
+        description: 'Code repositories and collaboration'
+    },
+    slack: {
+        name: 'Slack Workspace',
+        url: 'https://slack.com/api/mcp',
+        authType: 'oauth2',
+        category: 'Communication',
+        description: 'Team messaging and collaboration'
+    },
+    azure: {
+        name: 'Microsoft Azure',
+        url: 'https://management.azure.com/mcp/v1',
+        authType: 'oauth2',
+        category: 'Cloud',
+        description: 'Azure cloud services and resources'
+    },
+    aws: {
+        name: 'AWS Services',
+        url: 'https://mcp.{region}.amazonaws.com',
+        authType: 'bearer',
+        category: 'Cloud',
+        description: 'Amazon Web Services'
+    },
+    openai: {
+        name: 'OpenAI Platform',
+        url: 'https://api.openai.com/mcp/v1',
+        authType: 'apikey',
+        category: 'AI',
+        description: 'AI models and services'
+    },
+    custom: {
+        name: 'Custom MCP Server',
+        url: 'https://',
+        authType: 'bearer',
+        category: 'Custom',
+        description: 'Configure your own MCP endpoint'
+    }
+};
+
+// Global variables
+let allServers = [];
+let allAgents = [];
+
+// ============================================================================
+// CORE FUNCTIONS - These were missing!
+// ============================================================================
+
+// View tools for a server
+async function viewTools(serverId) {
+    try {
+        const response = await fetch(`/api/mcp/servers/${serverId}/tools`);
+        
+        if (!response.ok) {
+            throw new Error('Failed to fetch tools');
+        }
+        
+        const data = await response.json();
+        const tools = data.tools || [];
+        
+        // Display tools in modal
+        const toolsList = document.getElementById('toolsList');
+        
+        if (tools.length === 0) {
+            toolsList.innerHTML = `
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle"></i> No tools found
+                    <p class="mb-0 small">This server may not be running or configured correctly.</p>
+                </div>
+            `;
+        } else {
+            toolsList.innerHTML = `
+                <div class="alert alert-info">
+                    Found ${tools.length} tools available from this server
+                </div>
+                <div class="list-group">
+                    ${tools.map(tool => `
+                        <div class="list-group-item">
+                            <h6 class="mb-1"><i class="fas fa-wrench"></i> ${tool.name}</h6>
+                            <p class="mb-1">${tool.description || 'No description'}</p>
+                            ${tool.input_schema ? `
+                                <details>
+                                    <summary class="cursor-pointer">Parameters</summary>
+                                    <pre class="mt-2 p-2 bg-light">${JSON.stringify(tool.input_schema, null, 2)}</pre>
+                                </details>
+                            ` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+        
+        $('#toolsModal').modal('show');
+        
+    } catch (error) {
+        showToast(`Error fetching tools: ${error.message}`, 'danger');
+    }
+}
+
+// Test a specific server
+async function testServer(serverId) {
+    try {
+        // Find the server in our list
+        const server = allServers.find(s => s.server_id === serverId);
+        if (!server) {
+            showToast('Server not found', 'danger');
+            return;
+        }
+        
+        // Show loading state
+        showToast('Testing server connection...', 'info');
+        
+        // Prepare test configuration
+        let testConfig = {
+            server_id: serverId
+        };
+        
+        if (server.server_type === 'remote') {
+            testConfig.type = 'remote';
+            testConfig.url = server.server_url;
+            testConfig.authType = server.auth_type;
+            // Note: Auth config would need to be fetched from server
+        } else {
+            testConfig.type = 'local';
+            if (server.connection_config) {
+                const config = JSON.parse(server.connection_config);
+                testConfig.command = config.command;
+                testConfig.args = config.args;
+                testConfig.env_vars = config.env_vars;
+            }
+        }
+        
+        // Test the connection
+        const response = await fetch('/api/mcp/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(testConfig)
+        });
+        
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+            showToast(`✅ ${server.server_name} is working! Found ${result.tool_count || 0} tools`, 'success');
+            // Reload to show updated status
+            loadServers();
+        } else {
+            showToast(`❌ ${server.server_name} test failed: ${result.error}`, 'danger');
+        }
+        
+    } catch (error) {
+        showToast(`Error testing server: ${error.message}`, 'danger');
+    }
+}
+
+// Assign server to agents
+async function assignToAgents(serverId) {
+    try {
+        // Find the server
+        const server = allServers.find(s => s.server_id === serverId);
+        if (!server) {
+            showToast('Server not found', 'danger');
+            return;
+        }
+        
+        // Set modal info
+        document.getElementById('assignServerId').value = serverId;
+        document.getElementById('assignServerName').textContent = server.server_name;
+        
+        // Load agents
+        const response = await fetch('/api/agents');
+        const agents = await response.json();
+        
+        // Get current assignments
+        const assignResponse = await fetch(`/api/mcp/servers/${serverId}/agents`);
+        const currentAssignments = assignResponse.ok ? await assignResponse.json() : [];
+        
+        // Display agents with checkboxes
+        const agentsList = document.getElementById('agentsList');
+        
+        if (agents.length === 0) {
+            agentsList.innerHTML = `
+                <div class="alert alert-warning">
+                    No agents found. Create agents first.
+                </div>
+            `;
+        } else {
+            agentsList.innerHTML = `
+                <div class="list-group">
+                    ${agents.map(agent => `
+                        <label class="list-group-item">
+                            <input type="checkbox" 
+                                   value="${agent.agent_id}" 
+                                   ${currentAssignments.includes(agent.agent_id) ? 'checked' : ''}
+                                   class="mr-2">
+                            <strong>${agent.agent_name}</strong>
+                            <small class="text-muted d-block">${agent.description || 'No description'}</small>
+                        </label>
+                    `).join('')}
+                </div>
+            `;
+        }
+        
+        $('#assignModal').modal('show');
+        
+    } catch (error) {
+        showToast(`Error loading agents: ${error.message}`, 'danger');
+    }
+}
+
+// Save agent assignments
+async function saveAssignments() {
+    try {
+        const serverId = document.getElementById('assignServerId').value;
+        
+        // Get selected agents
+        const selectedAgents = [];
+        document.querySelectorAll('#agentsList input[type="checkbox"]:checked').forEach(checkbox => {
+            selectedAgents.push(parseInt(checkbox.value));
+        });
+        
+        // Save assignments
+        const response = await fetch(`/api/mcp/servers/${serverId}/agents`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ agent_ids: selectedAgents })
+        });
+        
+        if (response.ok) {
+            $('#assignModal').modal('hide');
+            showToast('Agent assignments saved successfully', 'success');
+            loadServers(); // Reload to update agent count
+        } else {
+            throw new Error('Failed to save assignments');
+        }
+        
+    } catch (error) {
+        showToast(`Error saving assignments: ${error.message}`, 'danger');
+    }
+}
+
+// Delete server
+async function deleteServer(serverId) {
+    if (!confirm('Are you sure you want to delete this server connection?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/mcp/servers/${serverId}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            showToast('Server deleted successfully', 'success');
+            loadServers();
+        } else {
+            throw new Error('Failed to delete server');
+        }
+        
+    } catch (error) {
+        showToast(`Error deleting server: ${error.message}`, 'danger');
+    }
+}
+
+// Test all connections
+async function testAllConnections() {
+    if (allServers.length === 0) {
+        showToast('No servers to test', 'warning');
+        return;
+    }
+    
+    showToast(`Testing ${allServers.length} servers...`, 'info');
+    
+    let successCount = 0;
+    let failCount = 0;
+    
+    for (const server of allServers) {
+        try {
+            await testServer(server.server_id);
+            successCount++;
+        } catch (error) {
+            failCount++;
+        }
+        // Small delay between tests
+        await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    
+    showToast(`Test complete: ${successCount} successful, ${failCount} failed`, 
+              failCount > 0 ? 'warning' : 'success');
+}
+
+// Discover tools (similar to test but focuses on tool discovery)
+async function discoverTools() {
+    const activeTab = document.querySelector('.tab-pane.active').id;
+    const isRemote = activeTab === 'remoteTab';
+    
+    if (isRemote) {
+        const url = document.getElementById('serverUrl').value;
+        if (!url) {
+            showToast('Please enter a server URL', 'warning');
+            return;
+        }
+    }
+    
+    // Run test connection which will discover tools
+    await testConnection();
+}
+
+// ============================================================================
+// EXISTING FUNCTIONS (already in the file)
+// ============================================================================
+
+// Load template from directory
+function loadRemoteTemplate(serviceName) {
+    const template = serverDirectory[serviceName];
+    if (!template) return;
+    
+    document.getElementById('remoteServerName').value = template.name;
+    document.getElementById('serverUrl').value = template.url;
+    document.getElementById('authType').value = template.authType;
+    document.getElementById('remoteCategory').value = template.category;
+    document.getElementById('remoteDescription').value = template.description;
+    
+    toggleAuthFields();
+    
+    if (template.help) {
+        showToast(template.help, 'info', 8000);
+    }
+    if (template.placeholder) {
+        showToast(template.placeholder, 'warning', 8000);
+    }
+}
+
+// Show server directory
+function showServerDirectory() {
+    $('#directoryModal').modal('show');
+}
+
+// Configure from directory
+function configureFromDirectory(serviceName) {
+    $('#directoryModal').modal('hide');
+    loadRemoteTemplate(serviceName);
+    $('#serverModal').modal('show');
+}
+
+// Show import modal
+function showImportModal() {
+    $('#importModal').modal('show');
+}
+
+// Import configuration
+async function importConfiguration() {
+    const jsonText = document.getElementById('importJson').value;
+    const fileInput = document.getElementById('importFile');
+    
+    let config;
+    try {
+        if (jsonText) {
+            config = JSON.parse(jsonText);
+        } else if (fileInput.files.length > 0) {
+            const text = await fileInput.files[0].text();
+            config = JSON.parse(text);
+        } else {
+            showToast('Please provide a configuration', 'warning');
+            return;
+        }
+        
+        // Apply imported configuration
+        if (config.url) {
+            document.getElementById('serverUrl').value = config.url;
+            document.getElementById('remoteServerName').value = config.name || '';
+            document.getElementById('authType').value = config.authType || 'bearer';
+            toggleAuthFields();
+        }
+        
+        $('#importModal').modal('hide');
+        $('#serverModal').modal('show');
+        showToast('Configuration imported successfully', 'success');
+        
+    } catch (error) {
+        showToast('Invalid JSON configuration', 'danger');
+    }
+}
+
+// Toggle authentication fields
+function toggleAuthFields() {
+    const authType = document.getElementById('authType').value;
+    
+    // Hide all auth configs
+    document.querySelectorAll('.auth-config').forEach(el => {
+        el.style.display = 'none';
+    });
+    
+    // Show selected auth config
+    if (authType && authType !== 'none') {
+        const authElement = document.getElementById('auth' + 
+            authType.charAt(0).toUpperCase() + authType.slice(1));
+        if (authElement) {
+            authElement.style.display = 'block';
+        }
+    }
+}
+
+// Add custom header
+function addCustomHeader() {
+    const container = document.getElementById('customHeadersContainer');
+    const id = 'header_' + Date.now();
+    
+    const html = `
+        <div class="input-group mb-2" id="${id}">
+            <input type="text" class="form-control" placeholder="Header Name" data-header-name>
+            <input type="text" class="form-control" placeholder="Value" data-header-value>
+            <div class="input-group-append">
+                <button class="btn btn-danger" type="button" onclick="removeElement('${id}')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </div>
+    `;
+    
+    container.insertAdjacentHTML('beforeend', html);
+}
+
+// Add environment variable (for local servers)
+function addEnvVar(key = '', value = '') {
+    const container = document.getElementById('envVarsContainer');
+    const id = 'env_' + Date.now();
+    
+    const html = `
+        <div class="input-group mb-2" id="${id}">
+            <input type="text" class="form-control" placeholder="Variable Name" 
+                   value="${key}" data-env-key>
+            <input type="text" class="form-control" placeholder="Value" 
+                   value="${value}" data-env-value>
+            <div class="input-group-append">
+                <button class="btn btn-danger" type="button" onclick="removeElement('${id}')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </div>
+    `;
+    
+    container.insertAdjacentHTML('beforeend', html);
+}
+
+// Remove element
+function removeElement(id) {
+    document.getElementById(id).remove();
+}
+
+// Toggle password visibility
+function togglePasswordVisibility(inputId) {
+    const input = document.getElementById(inputId);
+    input.type = input.type === 'password' ? 'text' : 'password';
+}
+
+// Test connection
+async function testConnection() {
+    const activeTab = document.querySelector('.tab-pane.active').id;
+    const isRemote = activeTab === 'remoteTab';
+    
+    const testBtn = document.getElementById('testBtn');
+    testBtn.disabled = true;
+    testBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Testing...';
+    
+    let config = {};
+    
+    if (isRemote) {
+        // Get remote server config
+        config = {
+            type: 'remote',
+            url: document.getElementById('serverUrl').value,
+            authType: document.getElementById('authType').value,
+            authConfig: getAuthConfig(),
+            timeout: document.getElementById('requestTimeout').value,
+            verifySsl: document.getElementById('verifySsl').checked
+        };
+    } else {
+        // Get local server config
+        config = {
+            type: 'local',
+            command: document.getElementById('serverCommand').value,
+            args: document.getElementById('serverArgs').value.split('\n').filter(l => l.trim()),
+            env_vars: getEnvVars()
+        };
+    }
+    
+    try {
+        const response = await fetch('/api/mcp/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config)
+        });
+        
+        const result = await response.json();
+        displayTestResults(result);
+        
+    } catch (error) {
+        displayTestResults({
+            status: 'failed',
+            error: error.message
+        });
+    } finally {
+        testBtn.disabled = false;
+        testBtn.innerHTML = '<i class="fas fa-plug"></i> Test Connection';
+    }
+}
+
+// Get authentication configuration
+function getAuthConfig() {
+    const authType = document.getElementById('authType').value;
+    const config = {};
+    
+    switch(authType) {
+        case 'bearer':
+            config.token = document.getElementById('bearerToken').value;
+            break;
+        case 'apikey':
+            config.header = document.getElementById('apiKeyHeader').value;
+            config.key = document.getElementById('apiKeyValue').value;
+            break;
+        case 'basic':
+            config.username = document.getElementById('basicUsername').value;
+            config.password = document.getElementById('basicPassword').value;
+            break;
+        case 'oauth2':
+            config.clientId = document.getElementById('oauthClientId').value;
+            config.clientSecret = document.getElementById('oauthClientSecret').value;
+            config.tokenUrl = document.getElementById('oauthTokenUrl').value;
+            config.scope = document.getElementById('oauthScope').value;
+            break;
+        case 'custom':
+            config.headers = {};
+            document.querySelectorAll('#customHeadersContainer .input-group').forEach(group => {
+                const name = group.querySelector('[data-header-name]').value;
+                const value = group.querySelector('[data-header-value]').value;
+                if (name) config.headers[name] = value;
+            });
+            break;
+    }
+    
+    return config;
+}
+
+// Get environment variables (for local servers)
+function getEnvVars() {
+    const vars = {};
+    document.querySelectorAll('[data-env-key]').forEach((input, idx) => {
+        const key = input.value.trim();
+        const value = document.querySelectorAll('[data-env-value]')[idx].value;
+        if (key) vars[key] = value;
+    });
+    return vars;
+}
+
+// Display test results
+function displayTestResults(result) {
+    const resultsDiv = document.getElementById('testResults');
+    
+    if (result.status === 'success') {
+        resultsDiv.innerHTML = `
+            <div class="alert alert-success">
+                <h6><i class="fas fa-check-circle"></i> Connection Successful!</h6>
+                <p class="mb-2">Successfully connected to MCP server</p>
+                ${result.server_info ? `
+                    <small><strong>Server:</strong> ${result.server_info.name} v${result.server_info.version}</small><br>
+                ` : ''}
+                ${result.tool_count ? `
+                    <small><strong>Available Tools:</strong> ${result.tool_count}</small>
+                ` : ''}
+                ${result.tools && result.tools.length > 0 ? `
+                    <details class="mt-2">
+                        <summary>View Tools (${result.tools.length})</summary>
+                        <div class="mt-2" style="max-height: 200px; overflow-y: auto;">
+                            ${result.tools.map(tool => `
+                                <div class="mb-1">
+                                    <strong>${tool.name}</strong>: ${tool.description || 'No description'}
+                                </div>
+                            `).join('')}
+                        </div>
+                    </details>
+                ` : ''}
+            </div>
+        `;
+    } else {
+        resultsDiv.innerHTML = `
+            <div class="alert alert-danger">
+                <h6><i class="fas fa-times-circle"></i> Connection Failed</h6>
+                <p>${result.error || 'Unable to connect to server'}</p>
+                ${result.details ? `<small class="text-muted">${result.details}</small>` : ''}
+            </div>
+        `;
+    }
+    
+    resultsDiv.style.display = 'block';
+}
+
+// Save server configuration
+async function saveServer() {
+    const serverId = document.getElementById('serverId').value;
+    const isEdit = serverId && serverId !== '';
+    const activeTab = document.querySelector('.tab-pane.active').id;
+    const isRemote = activeTab === 'remoteTab';
+    
+    let serverData = {};
+    
+    if (isRemote) {
+        // Remote server configuration
+        serverData = {
+            server_type: 'remote',
+            server_name: document.getElementById('remoteServerName').value,
+            server_url: document.getElementById('serverUrl').value,
+            auth_type: document.getElementById('authType').value,
+            auth_config: getAuthConfig(),
+            category: document.getElementById('remoteCategory').value,
+            description: document.getElementById('remoteDescription').value,
+            request_timeout: document.getElementById('requestTimeout').value,
+            max_retries: document.getElementById('maxRetries').value,
+            verify_ssl: document.getElementById('verifySsl').checked
+        };
+    } else {
+        // Local server configuration
+        serverData = {
+            server_type: 'local',
+            server_name: document.getElementById('localServerName').value,
+            command: document.getElementById('serverCommand').value,
+            args: document.getElementById('serverArgs').value.split('\n').filter(l => l.trim()),
+            env_vars: getEnvVars(),
+            description: document.getElementById('localDescription').value,
+            category: document.getElementById('localCategory').value || ''
+        };
+    }
+    
+    try {
+        const url = isEdit 
+            ? `/api/mcp/servers/${serverId}` 
+            : '/api/mcp/servers';
+        
+        const response = await fetch(url, {
+            method: isEdit ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(serverData)
+        });
+        
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+            $('#serverModal').modal('hide');
+            loadServers();
+            showToast(
+                isEdit ? 'Server updated successfully' : 'Server created successfully', 
+                'success'
+            );
+        } else {
+            showToast(`Failed to save: ${result.message}`, 'danger');
+        }
+        
+    } catch (error) {
+        showToast(`Error saving server: ${error.message}`, 'danger');
+    }
+}
+
+// Load and display servers
+async function loadServers() {
+    try {
+        const response = await fetch('/api/mcp/servers');
+        const servers = await response.json();
+        
+        // Store globally
+        allServers = servers;
+        
+        const tbody = document.getElementById('serversTableBody');
+        const noServersMsg = document.getElementById('noServersMessage');
+        
+        if (servers.length === 0) {
+            tbody.innerHTML = '';
+            noServersMsg.style.display = 'block';
+        } else {
+            noServersMsg.style.display = 'none';
+            
+            tbody.innerHTML = servers.map(server => {
+                const isRemote = server.server_type === 'remote';
+                const icon = isRemote ? 
+                    '<i class="fas fa-cloud text-primary" title="Remote/Hosted"></i>' : 
+                    '<i class="fas fa-desktop text-secondary" title="Local"></i>';
+                
+                const endpoint = isRemote ? 
+                    `<small><a href="${server.server_url}" target="_blank">${new URL(server.server_url).hostname}</a></small>` :
+                    `<small><code>${server.command}</code></small>`;
+                
+                const statusBadge = server.status === 'active' ?
+                    '<span class="badge badge-success">Active</span>' :
+                    '<span class="badge badge-secondary">Inactive</span>';
+                
+                return `
+                    <tr data-server-type="${isRemote ? 'remote' : 'local'}">
+                        <td class="text-center">${icon}</td>
+                        <td>
+                            <strong>${server.server_name}</strong><br>
+                            <small class="text-muted">${server.description || 'No description'}</small>
+                        </td>
+                        <td>${endpoint}</td>
+                        <td>${server.category || '-'}</td>
+                        <td>${statusBadge}</td>
+                        <td>${server.tool_count || '-'}</td>
+                        <td>${server.agent_count || 0}</td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-secondary" onclick="editServer(${server.server_id})" title="Edit">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-outline-primary" onclick="assignToAgents(${server.server_id})" title="Assign to agents">
+                                    <i class="fas fa-users"></i>
+                                </button>
+                                <button class="btn btn-outline-info" onclick="viewTools(${server.server_id})" title="View tools">
+                                    <i class="fas fa-tools"></i>
+                                </button>
+                                <button class="btn btn-outline-warning" onclick="testServer(${server.server_id})" title="Test">
+                                    <i class="fas fa-plug"></i>
+                                </button>
+                                <button class="btn btn-outline-danger" onclick="deleteServer(${server.server_id})" title="Delete">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+        
+        // Update statistics
+        updateStatistics(servers);
+        
+    } catch (error) {
+        showToast(`Error loading servers: ${error.message}`, 'danger');
+    }
+}
+
+// Update statistics
+function updateStatistics(servers) {
+    document.getElementById('totalServers').textContent = servers.length;
+    document.getElementById('activeServers').textContent = servers.filter(s => s.status === 'active').length;
+    document.getElementById('totalTools').textContent = servers.reduce((sum, s) => sum + (s.tool_count || 0), 0);
+    document.getElementById('agentCount').textContent = servers.reduce((sum, s) => sum + (s.agent_count || 0), 0);
+}
+
+// Filter servers
+function filterServers() {
+    const typeFilter = document.getElementById('filterType').value;
+    const searchTerm = document.getElementById('searchServers').value.toLowerCase();
+    
+    const rows = document.querySelectorAll('#serversTableBody tr');
+    rows.forEach(row => {
+        const matchesType = !typeFilter || row.dataset.serverType === typeFilter;
+        const matchesSearch = !searchTerm || row.textContent.toLowerCase().includes(searchTerm);
+        row.style.display = matchesType && matchesSearch ? '' : 'none';
+    });
+}
+
+// Toast notification
+function showToast(message, type = 'info', duration = 5000) {
+    // Create toast container if it doesn't exist
+    let toastContainer = document.getElementById('toastContainer');
+    if (!toastContainer) {
+        toastContainer = document.createElement('div');
+        toastContainer.id = 'toastContainer';
+        toastContainer.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 9999;';
+        document.body.appendChild(toastContainer);
+    }
+    
+    const toastId = 'toast_' + Date.now();
+    const toastHTML = `
+        <div id="${toastId}" class="alert alert-${type} alert-dismissible fade show" role="alert" 
+             style="min-width: 300px; margin-bottom: 10px; max-width: 500px;">
+            ${message}
+            <button type="button" class="close" data-dismiss="alert">
+                <span>&times;</span>
+            </button>
+        </div>
+    `;
+    
+    toastContainer.insertAdjacentHTML('beforeend', toastHTML);
+    
+    // Auto-dismiss after duration
+    setTimeout(() => {
+        const toast = document.getElementById(toastId);
+        if (toast) {
+            toast.remove();
+        }
+    }, duration);
+}
+
+// Show add server modal
+function showAddServerModal() {
+    // Clear form for new server
+    document.getElementById('serverId').value = '';
+    document.getElementById('serverModalTitle').textContent = 'Add MCP Server Connection';
+    document.getElementById('serverForm').reset();
+    document.getElementById('envVarsContainer').innerHTML = '';
+    document.getElementById('customHeadersContainer').innerHTML = '';
+    document.getElementById('testResults').style.display = 'none';
+    
+    // Default to remote tab
+    $('.nav-tabs a[href="#remoteTab"]').tab('show');
+    
+    $('#serverModal').modal('show');
+}
+
+// Edit server function
+async function editServer(serverId) {
+    try {
+        // Fetch server details
+        const response = await fetch(`/api/mcp/servers/${serverId}`);
+        if (!response.ok) {
+            throw new Error('Failed to fetch server details');
+        }
+        
+        const server = await response.json();
+        
+        // Set form mode to edit
+        document.getElementById('serverId').value = server.server_id;
+        document.getElementById('serverModalTitle').textContent = 'Edit MCP Server Connection';
+        
+        // Determine server type and switch tabs
+        if (server.server_type === 'remote') {
+            // Switch to remote tab
+            $('.nav-tabs a[href="#remoteTab"]').tab('show');
+            
+            // Fill remote server fields
+            document.getElementById('remoteServerName').value = server.server_name || '';
+            document.getElementById('serverUrl').value = server.server_url || '';
+            document.getElementById('authType').value = server.auth_type || 'none';
+            document.getElementById('remoteCategory').value = server.category || '';
+            document.getElementById('remoteDescription').value = server.description || '';
+            document.getElementById('requestTimeout').value = server.request_timeout || 30;
+            document.getElementById('maxRetries').value = server.max_retries || 3;
+            document.getElementById('verifySsl').checked = server.verify_ssl !== false;
+            
+            // Show auth fields
+            toggleAuthFields();
+            
+            // Note: We don't populate auth credentials for security
+            if (server.auth_keys && server.auth_keys.length > 0) {
+                showToast('Note: For security, authentication credentials are not shown. Re-enter if you want to change them.', 'info', 8000);
+            }
+            
+        } else {
+            // Switch to local tab
+            $('.nav-tabs a[href="#localTab"]').tab('show');
+            
+            // Parse connection config
+            let config = {};
+            if (server.connection_config) {
+                try {
+                    config = JSON.parse(server.connection_config);
+                } catch (e) {
+                    console.error('Failed to parse connection config:', e);
+                }
+            }
+            
+            // Fill local server fields
+            document.getElementById('localServerName').value = server.server_name || '';
+            document.getElementById('localDescription').value = server.description || '';
+            document.getElementById('serverCommand').value = config.command || '';
+            document.getElementById('serverArgs').value = (config.args || []).join('\n');
+            
+            // Fill environment variables
+            document.getElementById('envVarsContainer').innerHTML = '';
+            if (config.env_vars) {
+                Object.entries(config.env_vars).forEach(([key, value]) => {
+                    addEnvVar(key, value);
+                });
+            }
+        }
+        
+        // Clear test results
+        document.getElementById('testResults').style.display = 'none';
+        
+        // Show modal
+        $('#serverModal').modal('show');
+        
+    } catch (error) {
+        showToast(`Error loading server: ${error.message}`, 'danger');
+    }
+}
+
+// Initialize
+document.addEventListener('DOMContentLoaded', function() {
+    loadServers();
+    setInterval(loadServers, 30000); // Refresh every 30 seconds
+});
+</script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme(){var p=document.getElementById('docPage'),i=document.getElementById('docThemeIcon'),l=document.getElementById('docThemeLabel');p.classList.toggle('light-mode');var lt=p.classList.contains('light-mode');i.className=lt?'fas fa-sun':'fas fa-moon';l.textContent=lt?'Light':'Dark';localStorage.setItem('docPageTheme',lt?'light':'dark')}
+(function(){var s=localStorage.getItem('docPageTheme');if(s==='light'){var p=document.getElementById('docPage');if(p){p.classList.add('light-mode');var i=document.getElementById('docThemeIcon'),l=document.getElementById('docThemeLabel');if(i)i.className='fas fa-sun';if(l)l.textContent='Light'}}})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}

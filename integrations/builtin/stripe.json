@@ -1,0 +1,224 @@
+{
+  "template_key": "stripe",
+  "platform_name": "Stripe",
+  "platform_category": "Payments",
+  "description": "Connect to Stripe for payment processing, customers, invoices, and subscriptions.",
+  "logo_url": "https://cdn.worldvectorlogo.com/logos/stripe-4.svg",
+  "documentation_url": "https://stripe.com/docs/api",
+  
+  "auth_type": "bearer",
+  "auth_config": {
+    "token_prefix": "Bearer ",
+    "token_field": "api_key"
+  },
+  
+  "base_url": "https://api.stripe.com/v1",
+  
+  "default_headers": {
+    "Content-Type": "application/x-www-form-urlencoded"
+  },
+  
+  "setup_instructions": "## Stripe Setup\n\n1. Log in to your [Stripe Dashboard](https://dashboard.stripe.com/)\n2. Go to Developers → API keys\n3. Copy your Secret key (starts with `sk_live_` or `sk_test_`)\n4. **Important**: Use test keys for development (`sk_test_`)\n5. **Note**: Restricted keys (`rk_test_` or `rk_live_`) require specific resource permissions. For full access, use standard secret keys (`sk_test_` or `sk_live_`)\n6. Enter your API key below",
+  
+  "operations": [
+    {
+      "key": "get_customers",
+      "name": "Get Customers",
+      "description": "Retrieve a list of customers",
+      "method": "GET",
+      "endpoint": "/customers",
+      "parameters": [
+        {
+          "name": "email",
+          "label": "Email",
+          "type": "text",
+          "description": "Filter by customer email"
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 10
+        },
+        {
+          "name": "starting_after",
+          "label": "Starting After",
+          "type": "text",
+          "description": "Cursor for pagination (customer ID)"
+        }
+      ],
+      "output_mapping": {
+        "customers": "$.data",
+        "has_more": "$.has_more"
+      },
+      "category": "read"
+    },
+    {
+      "key": "get_customer_by_id",
+      "name": "Get Customer by ID",
+      "description": "Retrieve a specific customer",
+      "method": "GET",
+      "endpoint": "/customers/{customer_id}",
+      "parameters": [
+        {
+          "name": "customer_id",
+          "label": "Customer ID",
+          "type": "text",
+          "required": true,
+          "description": "Stripe customer ID (cus_...)"
+        }
+      ],
+      "output_mapping": {
+        "customer": "$"
+      },
+      "category": "read"
+    },
+    {
+      "key": "get_payments",
+      "name": "Get Payment Intents",
+      "description": "Retrieve payment intents",
+      "method": "GET",
+      "endpoint": "/payment_intents",
+      "parameters": [
+        {
+          "name": "customer",
+          "label": "Customer ID",
+          "type": "text",
+          "description": "Filter by customer"
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 10
+        }
+      ],
+      "output_mapping": {
+        "payments": "$.data",
+        "has_more": "$.has_more"
+      },
+      "category": "read"
+    },
+    {
+      "key": "get_charges",
+      "name": "Get Charges",
+      "description": "Retrieve charges/transactions",
+      "method": "GET",
+      "endpoint": "/charges",
+      "parameters": [
+        {
+          "name": "customer",
+          "label": "Customer ID",
+          "type": "text"
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 10
+        },
+        {
+          "name": "created[gte]",
+          "label": "Created After (Unix timestamp)",
+          "type": "number"
+        }
+      ],
+      "output_mapping": {
+        "charges": "$.data",
+        "has_more": "$.has_more"
+      },
+      "category": "read"
+    },
+    {
+      "key": "get_invoices",
+      "name": "Get Invoices",
+      "description": "Retrieve invoices",
+      "method": "GET",
+      "endpoint": "/invoices",
+      "parameters": [
+        {
+          "name": "customer",
+          "label": "Customer ID",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "label": "Status",
+          "type": "select",
+          "options": [
+            {"value": "", "label": "All"},
+            {"value": "draft", "label": "Draft"},
+            {"value": "open", "label": "Open"},
+            {"value": "paid", "label": "Paid"},
+            {"value": "void", "label": "Void"},
+            {"value": "uncollectible", "label": "Uncollectible"}
+          ]
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 10
+        }
+      ],
+      "output_mapping": {
+        "invoices": "$.data",
+        "has_more": "$.has_more"
+      },
+      "category": "read"
+    },
+    {
+      "key": "get_subscriptions",
+      "name": "Get Subscriptions",
+      "description": "Retrieve subscriptions",
+      "method": "GET",
+      "endpoint": "/subscriptions",
+      "parameters": [
+        {
+          "name": "customer",
+          "label": "Customer ID",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "label": "Status",
+          "type": "select",
+          "options": [
+            {"value": "", "label": "All"},
+            {"value": "active", "label": "Active"},
+            {"value": "past_due", "label": "Past Due"},
+            {"value": "canceled", "label": "Canceled"},
+            {"value": "trialing", "label": "Trialing"}
+          ]
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 10
+        }
+      ],
+      "output_mapping": {
+        "subscriptions": "$.data",
+        "has_more": "$.has_more"
+      },
+      "category": "read"
+    },
+    {
+      "key": "get_balance",
+      "name": "Get Balance",
+      "description": "Retrieve your Stripe account balance",
+      "method": "GET",
+      "endpoint": "/balance",
+      "parameters": [],
+      "output_mapping": {
+        "available": "$.available",
+        "pending": "$.pending"
+      },
+      "category": "read"
+    }
+  ],
+  
+  "supports_webhooks": true,
+  "webhook_events": ["payment_intent.succeeded", "payment_intent.failed", "invoice.paid", "customer.subscription.updated"]
+}

@@ -1,0 +1,2367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>AI Hub</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}">
+    <script src="{{ url_for('static', filename='vendor/jquery/jquery-3.6.0.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/codemirror/codemirror.min.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/codemirror.min.css') }}">
+    <script src="{{ url_for('static', filename='vendor/codemirror/mode/python/python.min.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <!-- Datepicker -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/tempusdominus/css/tempusdominus-bootstrap-4.min.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/doc_processor.css') }}">
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
+
+    <!-- Shepherd.js for guided tours -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js@10.0.1/dist/css/shepherd.css"/>
+    <!-- Developer onboarding styles -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/onboarding.css') }}">
+    <!-- Data Assistant Checklist styles -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/data_assistant_checklist.css') }}">
+
+    <!-- Sidebar & Top Bar Dark Theme -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/sidebar-theme.css') }}">
+    
+    <!-- Load preferences.js globally -->
+    <script src="{{ url_for('static', filename='js/preferences.js') }}"></script>
+    <!-- Initialize preferences -->
+    <script>
+        // Initialize user preferences when the DOM is loaded
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check if UserPreferences module exists
+            if (typeof UserPreferences !== 'undefined') {
+                // Initialize preferences
+                UserPreferences.init()
+                    .then(() => {
+                        console.log('User preferences initialized successfully');
+                        // You can trigger any UI updates based on preferences here
+                    })
+                    .catch(error => {
+                        console.error('Error initializing preferences:', error);
+                    });
+            } else {
+                console.warn('UserPreferences module not found. Make sure preferences.js is included.');
+            }
+
+
+            // Check if UserPreferences is available (will be after preferences.js loads)
+            if (typeof UserPreferences !== 'undefined') {
+            // Apply theme on initial page load
+            UserPreferences.loadPreferences().then(() => {
+                const theme = UserPreferences.getPreference('theme', 'light');
+                applyTheme(theme);
+                
+                // Set up listener for theme changes
+                UserPreferences.onPreferenceChange('theme', applyTheme);
+            });
+            }
+            
+            function applyTheme(theme) {
+            const body = document.body;
+            // Remove existing theme classes
+            body.classList.remove('theme-light', 'theme-dark', 'theme-auto');
+            
+            // Add the new theme class
+            body.classList.add(`theme-${theme}`);
+            
+            // If using system theme, check system preference
+            if (theme === 'auto') {
+                if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                body.classList.add('theme-dark');
+                body.classList.remove('theme-light');
+                } else {
+                body.classList.add('theme-light');
+                body.classList.remove('theme-dark');
+                }
+                
+                // Listen for system theme changes
+                window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+                if (UserPreferences.getPreference('theme', 'light') === 'auto') {
+                    body.classList.toggle('theme-dark', e.matches);
+                    body.classList.toggle('theme-light', !e.matches);
+                }
+                });
+            }
+            
+            // Store theme in localStorage for fast initial loading
+            //localStorage.setItem('theme', theme);
+            }
+
+
+        });
+    </script>
+
+    <style>
+        body, html {
+            height: 100%;
+            margin: 0;
+        }
+        .container-fluid {
+            height: 100%;
+        }
+        .row {
+            height: 100%;
+        }
+        .sidebar {
+            height: 100%;
+            background-color: var(--bg-elevated, #f8f9fa); /* Background color for the sidebar */
+        }
+        .version-badge {
+            font-size: 0.6rem;
+            background-color: rgba(255, 255, 255, 0.15);
+            color: rgba(255, 255, 255, 0.8);
+            padding: 2px 5px;
+            border-radius: 10px;
+            margin-left: 5px;
+            vertical-align: middle;
+            position: relative;
+            top: -2px;
+            font-weight: 400;
+        }
+
+        /* NEW SIDEBAR STYLES - ENHANCED VERSION */
+        :root {
+            --sidebar-width: 280px;
+            --sidebar-collapsed-width: 70px;
+            --primary-color: #2c3e50;
+            --secondary-color: #34495e;
+            --accent-color: #3498db;
+            --hover-bg: rgba(255, 255, 255, 0.1);
+            --submenu-bg: #1a252f;
+            --transition-speed: 0.3s;
+        }
+
+        .new-sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            width: var(--sidebar-width);
+            background: linear-gradient(180deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            color: white;
+            transition: width var(--transition-speed) ease;
+            z-index: 1000;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .new-sidebar.collapsed {
+            width: var(--sidebar-collapsed-width);
+        }
+
+        /* Header Styling */
+        .new-sidebar-header {
+            padding: 20px 15px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            position: relative;
+            min-height: 80px;
+        }
+
+        .new-sidebar-brand {
+            display: flex;
+            align-items: center;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: white;
+            text-decoration: none;
+            overflow: hidden;
+        }
+
+        .new-sidebar-brand:hover {
+            color: white;
+            text-decoration: none;
+        }
+
+        .new-sidebar-brand .brand-icon {
+            font-size: 2rem;
+            margin-right: 10px;
+            color: var(--accent-color);
+            transition: margin var(--transition-speed) ease;
+        }
+
+        .new-sidebar.collapsed .new-sidebar-brand .brand-icon {
+            margin-right: 0;
+        }
+
+        .new-sidebar-brand .brand-text {
+            opacity: 1;
+            transition: opacity var(--transition-speed) ease;
+            white-space: nowrap;
+        }
+
+        .new-sidebar.collapsed .new-sidebar-brand .brand-text {
+            opacity: 0;
+            width: 0;
+            overflow: hidden;
+        }
+
+        /* Toggle Button */
+        .new-sidebar-toggle {
+            position: absolute;
+            top: 50%;
+            right: -15px;
+            transform: translateY(-50%);
+            background: var(--accent-color);
+            color: white;
+            border: none;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all var(--transition-speed) ease;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            z-index: 1001;
+        }
+
+        .new-sidebar-toggle:hover {
+            background: #2980b9;
+            transform: translateY(-50%) scale(1.1);
+        }
+
+        /* Navigation Container */
+        .new-sidebar-nav {
+            padding: 20px 0;
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        /* When hovering on collapsed sidebar, allow overflow for submenus */
+        .new-sidebar.collapsed:hover .new-sidebar-nav {
+            overflow-x: visible !important;
+            overflow-y: auto !important;
+        }
+
+        .new-sidebar-nav::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .new-sidebar-nav::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.2);
+            border-radius: 3px;
+        }
+
+        .new-sidebar-nav::-webkit-scrollbar-thumb:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        /* Navigation Items */
+        .new-nav-item {
+            margin: 2px 0;
+            position: relative;
+        }
+
+        .new-nav-link,
+        .new-nav-dropdown {
+            display: flex;
+            align-items: center;
+            padding: 12px 20px;
+            color: rgba(255,255,255,0.9);
+            text-decoration: none;
+            transition: all var(--transition-speed) ease;
+            border: none;
+            background: transparent;
+            width: 100%;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .new-nav-link:hover,
+        .new-nav-dropdown:hover {
+            background: var(--hover-bg);
+            color: white;
+            text-decoration: none;
+            padding-left: 25px;
+        }
+
+        .new-nav-link.active {
+            background: var(--accent-color);
+            color: white;
+            box-shadow: 0 2px 8px rgba(52, 152, 219, 0.3);
+        }
+
+        .new-nav-link.active::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+            width: 4px;
+            background: var(--bg-card, white);
+        }
+
+        /* Navigation Icons */
+        .new-nav-icon,
+        .nav-icon {  /* Support both class names */
+            font-size: 1.2rem;
+            width: 30px;
+            text-align: center;
+            margin-right: 12px;
+            flex-shrink: 0;
+            transition: transform var(--transition-speed) ease;
+        }
+
+        .new-nav-link:hover .new-nav-icon,
+        .new-nav-link:hover .nav-icon,
+        .new-nav-dropdown:hover .new-nav-icon,
+        .new-nav-dropdown:hover .nav-icon {
+            transform: translateX(3px);
+        }
+
+        /* Navigation Text */
+        .new-nav-text,
+        .nav-text {  /* Support both class names */
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            opacity: 1;
+            transition: opacity var(--transition-speed) ease;
+        }
+
+        .new-sidebar.collapsed .new-nav-text,
+        .new-sidebar.collapsed .nav-text {
+            opacity: 0;
+            width: 0;
+        }
+
+        /* Dropdown Arrow */
+        .new-nav-arrow,
+        .new-nav-dropdown-arrow {  /* Support both class names */
+            margin-left: auto;
+            transition: transform var(--transition-speed) ease;
+            opacity: 1;
+        }
+
+        /* Rotate arrow when submenu is expanded */
+        .new-nav-dropdown[aria-expanded="true"] .new-nav-arrow,
+        .new-nav-dropdown[aria-expanded="true"] .new-nav-dropdown-arrow {
+            transform: rotate(180deg) !important;
+        }
+
+        .new-sidebar.collapsed .new-nav-arrow,
+        .new-sidebar.collapsed .new-nav-dropdown-arrow {
+            opacity: 0;
+            width: 0;
+        }
+        
+        /* Show arrows when hovering over collapsed sidebar */
+        .new-sidebar.collapsed:hover .new-nav-arrow,
+        .new-sidebar.collapsed:hover .new-nav-dropdown-arrow {
+            opacity: 1 !important;
+            width: auto !important;
+        }
+
+        /* Submenu Styles - Complete Override */
+        .new-nav-submenu {
+            background: var(--submenu-bg);
+            margin: 2px 10px;
+            border-radius: 6px;
+            max-height: 0;
+            opacity: 0;
+            overflow: hidden;
+            transition: all var(--transition-speed) ease;
+        }
+
+        /* CRITICAL FIX: When show class is present, submenu MUST be visible */
+        .new-nav-submenu.show,
+        .new-sidebar .new-nav-submenu.show,
+        .new-sidebar.collapsed:hover .new-nav-submenu.show {
+            max-height: 1000px !important;
+            opacity: 1 !important;
+            margin: 5px 10px !important;
+            overflow: visible !important;
+            display: block !important;
+            visibility: visible !important;
+            height: auto !important;
+            position: relative !important;
+            z-index: 100 !important;
+        }
+        
+        /* Ensure container doesn't clip submenus */
+        .new-sidebar-nav {
+            overflow-y: auto !important;
+            overflow-x: visible !important;
+        }
+        
+        .new-sidebar.collapsed:hover .new-sidebar-nav {
+            overflow-y: auto !important;
+            overflow-x: visible !important;
+        }
+        
+        /* Make sure nav sections don't clip content */
+        .new-nav-section {
+            overflow: visible !important;
+        }
+
+        /* Submenu Items */
+        .new-nav-submenu .new-nav-link {
+            padding: 10px 20px 10px 50px;
+            font-size: 0.9rem;
+        }
+
+        .new-nav-submenu .new-nav-link:hover {
+            padding-left: 55px;
+            background: rgba(255,255,255,0.05);
+        }
+
+        .new-nav-submenu .new-nav-link.active {
+            background: rgba(52, 152, 219, 0.2);
+        }
+
+        /* Collapsed Sidebar - Simplified Hover Expansion */
+        .new-sidebar.collapsed {
+            width: var(--sidebar-collapsed-width);
+        }
+        
+        /* When hovering over collapsed sidebar, temporarily expand it */
+        .new-sidebar.collapsed:hover {
+            width: var(--sidebar-width);
+            transition: width 0.3s ease;
+        }
+        
+        /* Show text when sidebar expands on hover */
+        .new-sidebar.collapsed:hover .new-nav-text,
+        .new-sidebar.collapsed:hover .nav-text,
+        .new-sidebar.collapsed:hover .brand-text {
+            opacity: 1;
+            transition: opacity 0.3s ease 0.1s; /* Slight delay for smooth appearance */
+        }
+
+
+
+
+
+        /* Mobile Overlay */
+        .new-sidebar-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 999;
+            opacity: 0;
+            transition: opacity var(--transition-speed) ease;
+        }
+
+        .new-sidebar-overlay.show {
+            display: block;
+            opacity: 1;
+        }
+
+        /* Main Content Adjustment */
+        .new-main-content {
+            margin-left: var(--sidebar-width);
+            transition: margin-left var(--transition-speed) ease;
+            min-height: 100vh;
+            background: var(--bs-body-bg);
+        }
+
+        body.sidebar-collapsed .new-main-content {
+            margin-left: var(--sidebar-collapsed-width);
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .new-sidebar {
+                transform: translateX(-100%);
+                width: var(--sidebar-width);
+            }
+
+            .new-sidebar.show {
+                transform: translateX(0);
+            }
+
+            .new-sidebar.collapsed {
+                width: var(--sidebar-width);
+            }
+
+            .new-sidebar-toggle {
+                display: none;
+            }
+
+            .new-main-content {
+                margin-left: 0 !important;
+            }
+
+            /* Always show text and arrows on mobile */
+            .new-sidebar .new-nav-text,
+            .new-sidebar.collapsed .new-nav-text {
+                opacity: 1;
+                width: auto;
+            }
+
+            .new-sidebar .new-nav-arrow,
+            .new-sidebar.collapsed .new-nav-arrow {
+                opacity: 1;
+                width: auto;
+            }
+
+            /* Normal submenu behavior on mobile */
+            .new-sidebar.collapsed .new-nav-submenu {
+                position: static !important;
+                width: auto;
+                transform: none;
+                visibility: visible;
+                box-shadow: none;
+                background: var(--submenu-bg);
+                left: auto;
+            }
+
+            .new-sidebar.collapsed .new-nav-submenu::before {
+                display: none;
+            }
+        }
+
+        /* Dark Theme Support */
+        .theme-dark .new-sidebar {
+            background: linear-gradient(180deg, #1a1f2e 0%, #151a27 100%);
+        }
+
+        .theme-dark .new-nav-submenu {
+            background: #0f1419;
+        }
+
+        .theme-dark .new-sidebar.collapsed .new-nav-submenu {
+            background: linear-gradient(135deg, #1a1f2e 0%, #151a27 100%);
+        }
+
+        /* Animations */
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .new-nav-item {
+            animation: slideIn 0.3s ease forwards;
+            animation-delay: calc(var(--item-index, 0) * 0.05s);
+        }
+
+        /* Mobile Menu Toggle */
+        .mobile-menu-toggle {
+            display: none;
+            background: var(--accent-color);
+            color: white;
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            font-size: 1.2rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-right: 15px;
+        }
+
+        .mobile-menu-toggle:hover {
+            background: #2980b9;
+            transform: scale(1.05);
+        }
+
+        .mobile-menu-toggle:active {
+            transform: scale(0.95);
+        }
+
+        @media (max-width: 768px) {
+            .mobile-menu-toggle {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .new-top-bar {
+                padding: 15px;
+            }
+        }
+
+        .new-sidebar-nav::-webkit-scrollbar-track {
+            background: rgba(255,255,255,0.1);
+        }
+
+        .new-sidebar-nav::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.3);
+            border-radius: 3px;
+        }
+
+        .new-nav-section {
+            margin-bottom: 30px;
+            overflow: visible !important; /* Don't clip submenus */
+        }
+
+        .new-nav-section-title {
+            padding: 0 25px 10px 25px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: rgba(255,255,255,0.7);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: all 0.3s ease;
+        }
+
+        .new-sidebar.collapsed .new-nav-section-title {
+            opacity: 0;
+            height: 0;
+            padding: 0;
+            margin: 0;
+        }
+
+        .new-nav-item {
+            margin-bottom: 2px;
+        }
+
+        .new-nav-link {
+            display: flex;
+            align-items: center;
+            padding: 12px 25px;
+            color: rgba(255,255,255,0.9);
+            text-decoration: none;
+            transition: all 0.3s ease;
+            position: relative;
+            border-left: 3px solid transparent;
+        }
+
+        .new-nav-link:hover {
+            background: rgba(255,255,255,0.1);
+            color: white;
+            text-decoration: none;
+            border-left-color: var(--accent-color);
+        }
+
+        .new-nav-link.active {
+            background: rgba(255,255,255,0.15);
+            color: white;
+            border-left-color: var(--accent-color);
+        }
+
+        .new-nav-link .nav-icon {
+            font-size: 1.1rem;
+            margin-right: 15px;
+            width: 20px;
+            text-align: center;
+        }
+
+        .new-nav-link .nav-text {
+            flex: 1;
+            transition: all 0.3s ease;
+        }
+
+        .new-sidebar.collapsed .nav-text {
+            opacity: 0;
+            width: 0;
+        }
+
+
+
+        .new-nav-submenu .new-nav-link {
+            padding-left: 60px;
+            font-size: 0.9rem;
+            border-left: none;
+        }
+
+        .new-nav-submenu .new-nav-link:before {
+            content: '';
+            position: absolute;
+            left: 45px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 4px;
+            height: 4px;
+            background: rgba(255,255,255,0.5);
+            border-radius: 50%;
+        }
+
+        .new-nav-submenu .new-nav-link.active:before {
+            background: var(--accent-color);
+        }
+
+        .new-nav-dropdown-arrow {
+            margin-left: auto;
+            transition: transform 0.3s ease;
+            font-size: 0.8rem;
+        }
+
+        .new-nav-link[aria-expanded="true"] .new-nav-dropdown-arrow {
+            transform: rotate(180deg);
+        }
+
+        .new-main-content {
+            margin-left: var(--sidebar-width);
+            transition: all 0.3s ease;
+            min-height: 100vh;
+        }
+/*
+        .new-sidebar.collapsed + .new-main-content {
+            margin-left: var(--sidebar-collapsed-width);
+        }
+*/
+    /* When sidebar is collapsed, adjust main content margin */
+    body:has(.new-sidebar.collapsed) .new-main-content {
+        margin-left: var(--sidebar-collapsed-width);
+    }
+
+    /* Fallback for browsers that don't support :has() selector */
+    .sidebar-collapsed .new-main-content {
+        margin-left: var(--sidebar-collapsed-width);
+    }
+
+        .new-top-bar {
+            background: var(--bg-card, white);
+            padding: 4px 30px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .new-page-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #2c3e50;
+            margin: 0;
+        }
+
+        .new-top-bar-actions {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .new-user-dropdown .dropdown-toggle {
+            background: none;
+            border: none;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #2c3e50;
+            cursor: pointer;
+            padding: 8px 12px;
+            border-radius: 25px;
+            transition: all 0.3s ease;
+        }
+
+        .new-user-dropdown .dropdown-toggle:hover {
+            background: var(--bg-elevated, #f0f0f0);
+        }
+
+        .new-user-avatar {
+            width: 32px;
+            height: 32px;
+            background: var(--accent-color);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+        }
+
+        /* Sidebar User Section (bottom of nav) */
+        .sidebar-user-section {
+            border-top: 1px solid rgba(255,255,255,0.15);
+            padding: 12px 15px;
+            flex-shrink: 0;
+        }
+
+        .sidebar-user-section .dropdown-toggle {
+            background: rgba(255,255,255,0.08);
+            border: none;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: white;
+            cursor: pointer;
+            padding: 8px 12px;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+            width: 100%;
+            text-align: left;
+        }
+
+        .sidebar-user-section .dropdown-toggle:hover {
+            background: rgba(255,255,255,0.15);
+        }
+
+        .sidebar-user-section .user-name {
+            flex: 1;
+            font-size: 0.85rem;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .sidebar-user-section .dropdown-menu {
+            left: 10px !important;
+            right: auto !important;
+            bottom: 100% !important;
+            top: auto !important;
+            transform: none !important;
+            margin-bottom: 5px;
+            min-width: 200px;
+            border-radius: 8px;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.2);
+        }
+
+        .new-sidebar.collapsed .sidebar-user-section .user-name,
+        .new-sidebar.collapsed .sidebar-user-section .fa-chevron-up {
+            display: none;
+        }
+
+        .new-sidebar.collapsed:hover .sidebar-user-section .user-name,
+        .new-sidebar.collapsed:hover .sidebar-user-section .fa-chevron-up {
+            display: inline;
+        }
+
+        .new-content-area {
+            padding: -1px -1px; /* Was:10px 30px; (adjusted for banners) */
+        }
+
+        .new-sidebar.collapsed .new-nav-link {
+            justify-content: center;
+            padding-left: 25px;
+            padding-right: 25px;
+        }
+
+        .new-sidebar.collapsed .new-nav-dropdown-arrow {
+            display: none;
+        }
+
+        /* Visual indicator for collapsed dropdown items */
+        .new-sidebar.collapsed .new-nav-dropdown::after {
+            content: '\f0da';
+            font-family: 'Font Awesome 5 Free';
+            font-weight: 900;
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 0.7rem;
+            opacity: 0.6;
+        }
+
+        /* Removed old popout submenu code - using hover-expand instead */
+
+        .new-sidebar.collapsed .new-nav-submenu .new-nav-link {
+            padding-left: 20px;
+            justify-content: flex-start;
+        }
+
+        .new-sidebar.collapsed .new-nav-submenu .nav-text {
+            opacity: 1;
+            width: auto;
+        }
+
+        .new-sidebar.collapsed .new-nav-submenu .new-nav-link:before {
+            left: 10px;
+        }
+
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .new-sidebar {
+                transform: translateX(-100%);
+            }
+
+            .new-sidebar.show {
+                transform: translateX(0);
+            }
+
+            .new-main-content {
+                margin-left: 0;
+            }
+
+            .new-sidebar-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.5);
+                z-index: 999;
+                display: none;
+            }
+
+            .new-sidebar-overlay.show {
+                display: block;
+            }
+        }
+
+        .version-badge {
+            transition: all 0.3s ease;  /* Added */
+        }
+
+        .new-sidebar.collapsed .version-badge {
+            opacity: 0;
+            width: 0;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        .tier-info-badge {
+            transition: all 0.3s ease;  /* Added */
+        }
+
+        .new-sidebar.collapsed .tier-info-badge {
+            opacity: 0;
+            height: 0;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        
+        /* FINAL OVERRIDE - Must be last to take precedence over any conflicting rules */
+        .new-sidebar.collapsed:hover .new-nav-submenu.show {
+            max-height: 1000px !important;
+            opacity: 1 !important;
+            display: block !important;
+            visibility: visible !important;
+            overflow: visible !important;
+            position: relative !important;
+        }
+        
+        /* Ensure text is always visible in hover-expanded submenus */
+        .new-sidebar.collapsed:hover .new-nav-submenu .nav-text,
+        .new-sidebar.collapsed:hover .new-nav-submenu .new-nav-link {
+            opacity: 1 !important;
+            visibility: visible !important;
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar Overlay for Mobile -->
+    <div class="new-sidebar-overlay" id="newSidebarOverlay" onclick="toggleNewSidebar()"></div>
+    
+    <!-- NEW SIDEBAR -->
+    <nav class="new-sidebar" id="newSidebar">
+         <!-- Header -->
+        <div class="new-sidebar-header">
+            <a href="{{ url_for('home') }}" class="new-sidebar-brand">
+                <i class="fas fa-brain brand-icon"></i>
+                <span class="brand-text">AI Hub</span>
+                <span class="version-badge brand-text">v{{ APP_VERSION }}</span>
+            </a>
+            
+            <!-- Tier Badge -->
+            {% if current_user.is_authenticated %}
+            <div class="tier-info-badge">
+                <!-- <div class="tier-label">Current Plan</div> -->
+                <div class="tier-name">
+                    {% if IS_DEVELOPER_MODE %}
+                        <i class="fas fa-code mr-1"></i>Developer
+                    {% elif IS_TRIAL %}
+                        <i class="fas fa-clock mr-1"></i>Trial
+                        {% if TRIAL_DAYS_REMAINING is not none %}
+                        <span class="trial-days">({{ TRIAL_DAYS_REMAINING }}d)</span>
+                        {% endif %}
+                    {% else %}
+                        <i class="fas fa-medal mr-1"></i>{{ TIER_DISPLAY_NAME | default('Developer') }}
+                    {% endif %}
+                </div>
+                <!-- Admin-Only Upgrade Banners -->
+                {% if current_user.role >= 3 %}
+                    <a href="/admin/tier" class="tier-link" target="_blank">View Usage →</a>
+                {% endif %}
+            </div>
+            {% endif %}
+            
+            <button class="new-sidebar-toggle" onclick="toggleNewSidebar()">
+                <i class="fas fa-chevron-left"></i>
+            </button>
+        </div>
+
+        <!-- Navigation -->
+        <div class="new-sidebar-nav">
+
+            {% if USE_MODERN_NAV %}
+            {# ══════════════════════════════════════════════════════════ #}
+            {# MODERN NAV: Work / Build / Admin                          #}
+            {# ══════════════════════════════════════════════════════════ #}
+
+            <!-- ── WORK ── What users DO -->
+            <div class="new-nav-section" id="workSection">
+                <div class="new-nav-section-title">Work</div>
+
+                <div class="new-nav-item">
+                    <a href="{{ url_for('home') }}" class="new-nav-link">
+                        <i class="fas fa-tachometer-alt nav-icon"></i>
+                        <span class="nav-text">Dashboard</span>
+                    </a>
+                </div>
+
+                {% if current_user.is_authenticated %}
+                <div class="new-nav-item">
+                    <a href="#" class="new-nav-link new-nav-dropdown" data-target="#agentsSubmenu">
+                        <i class="fas fa-robot nav-icon"></i>
+                        <span class="nav-text">AI Agents</span>
+                        <i class="fas fa-chevron-down new-nav-dropdown-arrow"></i>
+                    </a>
+                    <div class="new-nav-submenu" id="agentsSubmenu">
+                        {% if USE_MODERN_CHAT_UI %}
+                        <a href="{{ url_for('chat_modern') }}" class="new-nav-link">
+                            <span class="nav-text">Agent Chat</span>
+                        </a>
+                        {% if SHOW_LEGACY_DATA_CHAT %}
+                        <a href="{{ url_for('data_chat_modern') }}" class="new-nav-link">
+                            <span class="nav-text">Data Assistant Chat</span>
+                        </a>
+                        {% endif %}
+                        <a href="{{ url_for('data_explorer_bp.data_explorer') }}" class="new-nav-link" target="_blank">
+                            <span class="nav-text">Data Explorer</span>
+                        </a>
+                        {% else %}
+                        <a href="{{ url_for('assistants') }}" class="new-nav-link">
+                            <span class="nav-text">Agent Chat</span>
+                        </a>
+                        {% if SHOW_LEGACY_DATA_CHAT %}
+                        <a href="{{ url_for('data_assistants') }}" class="new-nav-link">
+                            <span class="nav-text">Data Assistant Chat</span>
+                        </a>
+                        {% endif %}
+                        <a href="{{ url_for('data_explorer_bp.data_explorer') }}" class="new-nav-link" target="_blank">
+                            <span class="nav-text">Data Explorer</span>
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if current_user.is_authenticated and current_user.role >= 2 and FLAG_COMMAND_CENTER %}
+                <div class="new-nav-item">
+                    <a href="{{ url_for('command_center_redirect') }}" class="new-nav-link" target="_blank">
+                        <i class="fas fa-satellite-dish nav-icon"></i>
+                        <span class="nav-text">Command Center</span>
+                        <i class="fas fa-flask experimental-icon" title="Experimental"></i>
+                    </a>
+                </div>
+                {% endif %}
+
+                {% if current_user.is_authenticated and current_user.role >= 1 %}
+                <div class="new-nav-item">
+                    <a href="{{ url_for('jobs') }}" class="new-nav-link">
+                        <i class="fas fa-briefcase nav-icon"></i>
+                        <span class="nav-text">Agent Jobs</span>
+                    </a>
+                </div>
+                {% endif %}
+
+                {% if current_user.is_authenticated and current_user.role >= 1 and SHOW_WORKFLOW_FEATURES %}
+                {% if not IS_DEVELOPER_MODE %}
+                <div class="new-nav-item">
+                    <a href="{{ url_for('approvals') }}" class="new-nav-link">
+                        <i class="fas fa-check-circle nav-icon"></i>
+                        <span class="nav-text">My Approvals</span>
+                    </a>
+                </div>
+                {% endif %}
+                {% endif %}
+            </div>
+
+            <!-- ── BUILD ── What admins CREATE -->
+            {% if current_user.is_authenticated and current_user.role >= 2 %}
+            <div class="new-nav-section" id="buildSection">
+                <div class="new-nav-section-title">Build</div>
+
+                <div class="new-nav-item">
+                    <a href="#" class="new-nav-link new-nav-dropdown" data-target="#agentBuildersSubmenu">
+                        <i class="fas fa-robot nav-icon"></i>
+                        <span class="nav-text">Agent Builders</span>
+                        <i class="fas fa-chevron-down new-nav-dropdown-arrow"></i>
+                    </a>
+                    <div class="new-nav-submenu" id="agentBuildersSubmenu">
+                        <a href="{{ url_for('custom_agent_enhanced') }}" class="new-nav-link">
+                            <span class="nav-text">Agent Builder</span>
+                        </a>
+                        <a href="{{ url_for('custom_data_agent') }}" class="new-nav-link">
+                            <span class="nav-text">Data Assistant Builder</span>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="new-nav-item">
+                    <a href="#" class="new-nav-link new-nav-dropdown" data-target="#dataSubmenu">
+                        <i class="fas fa-database nav-icon"></i>
+                        <span class="nav-text">Data & Connections</span>
+                        <i class="fas fa-chevron-down new-nav-dropdown-arrow"></i>
+                    </a>
+                    <div class="new-nav-submenu" id="dataSubmenu">
+                        <a href="{{ url_for('connections') }}" class="new-nav-link">
+                            <span class="nav-text">Database Connections</span>
+                        </a>
+                        <a href="{{ url_for('data_dictionary') }}" class="new-nav-link">
+                            <span class="nav-text">Data Dictionary</span>
+                        </a>
+                        <a href="{{ url_for('local_secrets_page') }}" class="new-nav-link">
+                            <span class="nav-text">Local Secrets</span>
+                        </a>
+                        {% if SHOW_DATA_AGENT_TEST_FEATURES %}
+                        <a href="{{ url_for('agent_communication') }}" class="new-nav-link" target="_blank">
+                            <span class="nav-text">Agent Communication</span>
+                        </a>
+                        <a href="{{ url_for('llm_unit_test') }}" class="new-nav-link">
+                            <span class="nav-text">Data Agent Testing</span>
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="new-nav-item">
+                    <a href="{{ url_for('custom') }}" class="new-nav-link">
+                        <i class="fas fa-wrench nav-icon"></i>
+                        <span class="nav-text">Custom Tools</span>
+                    </a>
+                </div>
+
+                {% if SHOW_DOCUMENT_FEATURES %}
+                <div class="new-nav-item">
+                    <a href="#" class="new-nav-link new-nav-dropdown" data-target="#documentsSubmenu">
+                        <i class="fas fa-file-alt nav-icon"></i>
+                        <span class="nav-text">Documents</span>
+                        <i class="fas fa-chevron-down new-nav-dropdown-arrow"></i>
+                    </a>
+                    <div class="new-nav-submenu" id="documentsSubmenu">
+                        <a href="{{ url_for('document_processor') }}" class="new-nav-link">
+                            <span class="nav-text">Document Processor</span>
+                        </a>
+                        <a href="{{ url_for('document_search_page') }}" class="new-nav-link">
+                            <span class="nav-text">Document Search</span>
+                        </a>
+                        <a href="{{ url_for('document_manager') }}" class="new-nav-link">
+                            <span class="nav-text">Document Manager</span>
+                        </a>
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if SHOW_WORKFLOW_FEATURES %}
+                <div class="new-nav-item">
+                    <a href="#" class="new-nav-link new-nav-dropdown" data-target="#workflowsSubmenu">
+                        <i class="fas fa-project-diagram nav-icon"></i>
+                        <span class="nav-text">Workflows</span>
+                        {% if IS_DEVELOPER_MODE %}
+                        <span class="developer-badge">DEV</span>
+                        {% endif %}
+                        <i class="fas fa-chevron-down new-nav-dropdown-arrow"></i>
+                    </a>
+                    <div class="new-nav-submenu" id="workflowsSubmenu">
+                        {% if IS_DEVELOPER_MODE %}
+                        <div class="developer-notice">
+                            <div class="developer-notice-title">
+                                <i class="fas fa-code mr-1"></i>Development Mode
+                            </div>
+                            <div class="developer-notice-text">
+                                Build and test workflows. Scheduling not available.
+                            </div>
+                        </div>
+                        {% endif %}
+                        <a href="{{ url_for('workflow_tool') }}" class="new-nav-link" target="_blank">
+                            <span class="nav-text">Workflow Designer</span>
+                        </a>
+                        <a href="{{ url_for('monitoring_dashboard') }}" class="new-nav-link" target="_blank">
+                            <span class="nav-text">Workflow Monitor</span>
+                        </a>
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if FLAG_BUILDER %}
+                <div class="new-nav-item">
+                    <a href="{{ url_for('builder_redirect') }}" class="new-nav-link" target="_blank">
+                        <i class="fas fa-hammer nav-icon"></i>
+                        <span class="nav-text">Builder</span>
+                        <i class="fas fa-flask experimental-icon" title="Experimental"></i>
+                    </a>
+                </div>
+                {% endif %}
+
+                {% if AGENT_ENVIRONMENTS_ENABLED and FLAG_ENVIRONMENTS %}
+                <div class="new-nav-item">
+                    <a href="#" class="new-nav-link new-nav-dropdown" data-target="#environmentsSubmenu">
+                        <i class="fas fa-cube nav-icon"></i>
+                        <span class="nav-text">Environments</span>
+                        <i class="fas fa-flask experimental-icon" title="Experimental"></i>
+                        <i class="fas fa-chevron-down new-nav-dropdown-arrow"></i>
+                    </a>
+                    <div class="new-nav-submenu" id="environmentsSubmenu">
+                        <a href="{{ url_for('environments.index') }}" class="new-nav-link">
+                            <span class="nav-text">Agent Environments</span>
+                        </a>
+                        <a href="{{ url_for('environment_assignments') }}" class="new-nav-link">
+                            <span class="nav-text">Agent Assignments</span>
+                        </a>
+                        <a href="{{ url_for('environments.sandbox') }}" class="new-nav-link">
+                            <span class="nav-text">Environment Sandbox</span>
+                        </a>
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if FLAG_MCP_SERVERS %}
+                <div class="new-nav-item">
+                    <a href="{{ url_for('mcp_servers_page') }}" class="new-nav-link">
+                        <i class="fas fa-plug nav-icon"></i>
+                        <span class="nav-text">MCP Servers</span>
+                        <i class="fas fa-flask experimental-icon" title="Experimental"></i>
+                    </a>
+                </div>
+                {% endif %}
+                {% if FLAG_INTEGRATIONS %}
+                <div class="new-nav-item">
+                    <a href="{{ url_for('integrations_page') }}" class="new-nav-link">
+                        <i class="fas fa-link nav-icon"></i>
+                        <span class="nav-text">Integrations</span>
+                        <i class="fas fa-flask experimental-icon" title="Experimental"></i>
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            <!-- ── ADMIN ── What admins MANAGE -->
+            {% if current_user.is_authenticated and current_user.role == 3 %}
+            <div class="new-nav-section" id="adminSection">
+                <div class="new-nav-section-title">Admin</div>
+
+                <div class="new-nav-item">
+                    <a href="#" class="new-nav-link new-nav-dropdown" data-target="#adminSubmenu">
+                        <i class="fas fa-cogs nav-icon"></i>
+                        <span class="nav-text">System Management</span>
+                        <i class="fas fa-chevron-down new-nav-dropdown-arrow"></i>
+                    </a>
+                    <div class="new-nav-submenu" id="adminSubmenu">
+                        {% if SHOW_USER_MANAGEMENT %}
+                        <a href="{{ url_for('users') }}" class="new-nav-link">
+                            <span class="nav-text">Users</span>
+                        </a>
+                        <a href="{{ url_for('groups') }}" class="new-nav-link">
+                            <span class="nav-text">Groups</span>
+                        </a>
+                        {% endif %}
+
+                        {% if SHOW_ENTERPRISE_FEATURES %}
+                        <a href="/email-processing/history" class="new-nav-link">
+                            <span class="nav-text">Email Processing</span>
+                        </a>
+                        {% endif %}
+
+                        <a href="/admin/tier" class="new-nav-link" target="_blank">
+                            <span class="nav-text">Tier & Usage</span>
+                        </a>
+
+                        <a href="{{ url_for('api_keys_config_page') }}" class="new-nav-link">
+                            <span class="nav-text">API Keys (BYOK)</span>
+                        </a>
+
+                        <a href="{{ url_for('identity.identity_settings_page') }}" class="new-nav-link">
+                            <span class="nav-text">Identity & Security</span>
+                        </a>
+
+                        <a href="{{ url_for('system_logs') }}" class="new-nav-link">
+                            <span class="nav-text">System Logs</span>
+                        </a>
+                        {% if not IS_DEVELOPER_MODE %}
+                        <a href="{{ url_for('feedback_analysis') }}" class="new-nav-link">
+                            <span class="nav-text">Feedback Analysis</span>
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% else %}
+            {# ══════════════════════════════════════════════════════════ #}
+            {# LEGACY NAV: Core / Advanced / Experimental / Admin        #}
+            {# ══════════════════════════════════════════════════════════ #}
+
+            <!-- Core Section -->
+            <div class="new-nav-section">
+                <div class="new-nav-section-title">Core</div>
+                
+                <div class="new-nav-item">
+                    <a href="{{ url_for('home') }}" class="new-nav-link">
+                        <i class="fas fa-tachometer-alt nav-icon"></i>
+                        <span class="nav-text">Dashboard</span>
+                    </a>
+                </div>
+
+                {% if current_user.is_authenticated %}
+                <div class="new-nav-item">
+                    <a href="#" class="new-nav-link new-nav-dropdown" data-target="#agentsSubmenu">
+                        <i class="fas fa-robot nav-icon"></i>
+                        <span class="nav-text">AI Agents</span>
+                        <i class="fas fa-chevron-down new-nav-dropdown-arrow"></i>
+                    </a>
+                    <div class="new-nav-submenu" id="agentsSubmenu">
+                        {% if USE_MODERN_CHAT_UI %}
+                        <a href="{{ url_for('chat_modern') }}" class="new-nav-link">
+                            <span class="nav-text">Agent Chat</span>
+                        </a>
+                        {% if SHOW_LEGACY_DATA_CHAT %}
+                        <a href="{{ url_for('data_chat_modern') }}" class="new-nav-link">
+                            <span class="nav-text">Data Assistant Chat</span>
+                        </a>
+                        {% endif %}
+                        <a href="{{ url_for('data_explorer_bp.data_explorer') }}" class="new-nav-link" target="_blank">
+                            <span class="nav-text">Data Explorer</span>
+                        </a>
+                        {% else %}
+                        <a href="{{ url_for('assistants') }}" class="new-nav-link">
+                            <span class="nav-text">Agent Chat</span>
+                        </a>
+                        {% if SHOW_LEGACY_DATA_CHAT %}
+                        <a href="{{ url_for('data_assistants') }}" class="new-nav-link">
+                            <span class="nav-text">Data Assistant Chat</span>
+                        </a>
+                        {% endif %}
+                        <a href="{{ url_for('data_explorer_bp.data_explorer') }}" class="new-nav-link" target="_blank">
+                            <span class="nav-text">Data Explorer</span>
+                        </a>
+                        {% endif %}
+                        {% if current_user.is_authenticated and current_user.role >= 2 %}
+                        <a href="{{ url_for('custom_agent_enhanced') }}" class="new-nav-link">
+                            <span class="nav-text">Agent Builder</span>
+                        </a>
+                        <a href="{{ url_for('custom_data_agent') }}" class="new-nav-link">
+                            <span class="nav-text">Data Assistant Builder</span>
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if current_user.is_authenticated and current_user.role >= 1 %}
+                <div class="new-nav-item">
+                    <a href="{{ url_for('jobs') }}" class="new-nav-link">
+                        <i class="fas fa-briefcase nav-icon"></i>
+                        <span class="nav-text">Agent Jobs</span>
+                    </a>
+                </div>
+                {% endif %}
+
+                {% if current_user.is_authenticated and current_user.role >= 1 and SHOW_WORKFLOW_FEATURES %}
+                {% if not IS_DEVELOPER_MODE %}
+                <div class="new-nav-item">
+                    <a href="{{ url_for('approvals') }}" class="new-nav-link">
+                        <i class="fas fa-check-circle nav-icon"></i>
+                        <span class="nav-text">My Approvals</span>
+                    </a>
+                </div>
+                {% endif %}
+                {% endif %}
+
+                <!-- Data & Connections -->
+                 {% if current_user.is_authenticated and current_user.role >= 2 %}
+                <div class="new-nav-item">
+                    <a href="#" class="new-nav-link new-nav-dropdown" data-target="#dataSubmenu">
+                        <i class="fas fa-database nav-icon"></i>
+                        <span class="nav-text">Data & Connections</span>
+                        <i class="fas fa-chevron-down new-nav-dropdown-arrow"></i>
+                    </a>
+                    <div class="new-nav-submenu" id="dataSubmenu">
+                        <a href="{{ url_for('connections') }}" class="new-nav-link">
+                            <span class="nav-text">Database Connections</span>
+                        </a>
+                        <a href="{{ url_for('data_dictionary') }}" class="new-nav-link">
+                            <span class="nav-text">Data Dictionary</span>
+                        </a>
+                        <a href="{{ url_for('local_secrets_page') }}" class="new-nav-link">
+                            <span class="nav-text">Local Secrets</span>
+                        </a>
+                        {% if SHOW_DATA_AGENT_TEST_FEATURES %}
+                        <a href="{{ url_for('agent_communication') }}" class="new-nav-link" target="_blank">
+                            <span class="nav-text">Agent Communication</span>
+                        </a>
+                        <a href="{{ url_for('llm_unit_test') }}" class="new-nav-link">
+                            <span class="nav-text">Data Agent Testing</span>
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if current_user.is_authenticated and current_user.role in [2, 3] %}
+                <div class="new-nav-item">
+                    <a href="{{ url_for('custom') }}" class="new-nav-link">
+                        <i class="fas fa-wrench nav-icon"></i>
+                        <span class="nav-text">Custom Tools</span>
+                    </a>
+                </div>
+                {% endif %}
+
+            </div>
+
+            <!-- Advanced Features -->
+            {% if current_user.is_authenticated and current_user.role >= 2 %}
+            <div class="new-nav-section" id="advancedSection">
+                <div class="new-nav-section-title">Advanced</div>
+                
+                {% if SHOW_DOCUMENT_FEATURES %}
+                <div class="new-nav-item">
+                    <a href="#" class="new-nav-link new-nav-dropdown" data-target="#documentsSubmenu">
+                        <i class="fas fa-file-alt nav-icon"></i>
+                        <span class="nav-text">Documents</span>
+                        <i class="fas fa-chevron-down new-nav-dropdown-arrow"></i>
+                    </a>
+                    <div class="new-nav-submenu" id="documentsSubmenu">
+                        <a href="{{ url_for('document_processor') }}" class="new-nav-link">
+                            <span class="nav-text">Document Processor</span>
+                        </a>
+                        <a href="{{ url_for('document_search_page') }}" class="new-nav-link">
+                            <span class="nav-text">Document Search</span>
+                        </a>
+                        <a href="{{ url_for('document_manager') }}" class="new-nav-link">
+                            <span class="nav-text">Document Manager</span>
+                        </a>
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if SHOW_WORKFLOW_FEATURES %}
+                <div class="new-nav-item">
+                    <a href="#" class="new-nav-link new-nav-dropdown" data-target="#workflowsSubmenu">
+                        <i class="fas fa-project-diagram nav-icon"></i>
+                        <span class="nav-text">Workflows</span>
+                        {% if IS_DEVELOPER_MODE %}
+                        <span class="developer-badge">DEV</span>
+                        {% endif %}
+                        <i class="fas fa-chevron-down new-nav-dropdown-arrow"></i>
+                    </a>
+                    <div class="new-nav-submenu" id="workflowsSubmenu">
+                        {% if IS_DEVELOPER_MODE %}
+                        <div class="developer-notice">
+                            <div class="developer-notice-title">
+                                <i class="fas fa-code mr-1"></i>Development Mode
+                            </div>
+                            <div class="developer-notice-text">
+                                Build and test workflows. Scheduling not available.
+                            </div>
+                        </div>
+                        {% endif %}
+                        
+                        <a href="{{ url_for('workflow_tool') }}" class="new-nav-link" target="_blank">
+                            <span class="nav-text">Workflow Designer</span>
+                        </a>
+                        <a href="{{ url_for('monitoring_dashboard') }}" class="new-nav-link" target="_blank">
+                            <span class="nav-text">Workflow Monitor</span>
+                        </a>
+                    </div>
+                </div>
+                {% endif %}
+
+            </div>
+            {% endif %}
+
+            <!-- Experimental Features -->
+            {% if current_user.is_authenticated and current_user.role >= 2 and (AGENT_ENVIRONMENTS_ENABLED or FLAG_COMMAND_CENTER or FLAG_BUILDER or FLAG_MCP_SERVERS or FLAG_INTEGRATIONS) %}
+            <div class="new-nav-section" id="experimentalSection">
+                <div class="new-nav-section-title">Experimental</div>
+
+                {% if FLAG_COMMAND_CENTER %}
+                <div class="new-nav-item">
+                    <a href="{{ url_for('command_center_redirect') }}" class="new-nav-link" target="_blank">
+                        <i class="fas fa-satellite-dish nav-icon"></i>
+                        <span class="nav-text">Command Center</span>
+                    </a>
+                </div>
+                {% endif %}
+                {% if FLAG_BUILDER %}
+                <div class="new-nav-item">
+                    <a href="{{ url_for('builder_redirect') }}" class="new-nav-link" target="_blank">
+                        <i class="fas fa-hammer nav-icon"></i>
+                        <span class="nav-text">Builder</span>
+                    </a>
+                </div>
+                {% endif %}
+
+                {% if AGENT_ENVIRONMENTS_ENABLED and FLAG_ENVIRONMENTS %}
+                <div class="new-nav-item">
+                    <a href="#" class="new-nav-link new-nav-dropdown" data-target="#environmentsSubmenu">
+                        <i class="fas fa-cube nav-icon"></i>
+                        <span class="nav-text">Environments</span>
+                        <i class="fas fa-chevron-down new-nav-dropdown-arrow"></i>
+                    </a>
+                    <div class="new-nav-submenu" id="environmentsSubmenu">
+                        <a href="{{ url_for('environments.index') }}" class="new-nav-link">
+                            <span class="nav-text">Agent Environments</span>
+                        </a>
+                        <a href="{{ url_for('environment_assignments') }}" class="new-nav-link">
+                            <span class="nav-text">Agent Assignments</span>
+                        </a>
+                        <a href="{{ url_for('environments.sandbox') }}" class="new-nav-link">
+                            <span class="nav-text">Environment Sandbox</span>
+                        </a>
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if FLAG_MCP_SERVERS %}
+                <div class="new-nav-item">
+                    <a href="{{ url_for('mcp_servers_page') }}" class="new-nav-link">
+                        <i class="fas fa-plug nav-icon"></i>
+                        <span class="nav-text">MCP Servers</span>
+                    </a>
+                </div>
+                {% endif %}
+                {% if FLAG_INTEGRATIONS %}
+                <div class="new-nav-item">
+                    <a href="{{ url_for('integrations_page') }}" class="new-nav-link">
+                        <i class="fas fa-link nav-icon"></i>
+                        <span class="nav-text">Integrations</span>
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            <!-- Administration -->
+            {% if current_user.is_authenticated and current_user.role == 3 %}
+            <div class="new-nav-section" id="adminSection">
+                <div class="new-nav-section-title">Administration</div>
+                
+                <div class="new-nav-item">
+                    <a href="#" class="new-nav-link new-nav-dropdown" data-target="#adminSubmenu">
+                        <i class="fas fa-cogs nav-icon"></i>
+                        <span class="nav-text">System Management</span>
+                        <i class="fas fa-chevron-down new-nav-dropdown-arrow"></i>
+                    </a>
+                    <div class="new-nav-submenu" id="adminSubmenu">
+                        {% if SHOW_USER_MANAGEMENT %}
+                        <a href="{{ url_for('users') }}" class="new-nav-link">
+                            <span class="nav-text">Users</span>
+                        </a>
+                        <a href="{{ url_for('groups') }}" class="new-nav-link">
+                            <span class="nav-text">Groups</span>
+                        </a>
+                        {% endif %}
+
+                        <!-- Email Processing History (Enterprise Feature) -->
+                        {% if SHOW_ENTERPRISE_FEATURES %}
+                        <a href="/email-processing/history" class="new-nav-link">
+                            <span class="nav-text">Email Processing</span>
+                        </a>
+                        {% endif %}
+                        
+                        <a href="/admin/tier" class="new-nav-link" target="_blank">
+                            <span class="nav-text">Tier & Usage</span>
+                        </a>
+
+                        <a href="{{ url_for('api_keys_config_page') }}" class="new-nav-link">
+                            <span class="nav-text">API Keys (BYOK)</span>
+                        </a>
+
+                        <a href="{{ url_for('identity.identity_settings_page') }}" class="new-nav-link">
+                            <span class="nav-text">Identity & Security</span>
+                        </a>
+
+                        <a href="{{ url_for('system_logs') }}" class="new-nav-link">
+                            <span class="nav-text">System Logs</span>
+                        </a>
+                        {% if not IS_DEVELOPER_MODE %}
+                        <a href="{{ url_for('feedback_analysis') }}" class="new-nav-link">
+                            <span class="nav-text">Feedback Analysis</span>
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% endif %}{# end USE_MODERN_NAV #}
+        </div>
+
+        <!-- User Menu (bottom of sidebar) -->
+        {% if current_user.is_authenticated %}
+        <div class="sidebar-user-section dropdown dropup">
+            <button class="dropdown-toggle" data-toggle="dropdown" aria-expanded="false">
+                <div class="new-user-avatar" style="width:28px;height:28px;font-size:0.8rem;">
+                    {{ current_user.name[0]|upper if current_user.name else 'U' }}
+                </div>
+                <span class="user-name">{{ current_user.name or 'User' }}</span>
+                <i class="fas fa-chevron-up" style="font-size:0.65rem;opacity:0.6;"></i>
+            </button>
+            <div class="dropdown-menu">
+                <a class="dropdown-item" href="{{ url_for('preferences.preferences_page') }}">
+                    <i class="fas fa-cog mr-2"></i> Preferences
+                </a>
+                {% if current_user.role >= 3 %}
+                <a class="dropdown-item" href="{{ url_for('telemetry.telemetry_settings') }}">
+                    <i class="fas fa-chart-line mr-2"></i> Telemetry Settings
+                </a>
+                {% endif %}
+                <a class="dropdown-item" href="#" onclick="replayOnboardingTour(); return false;">
+                    <i class="fas fa-graduation-cap mr-2"></i> Take Platform Tour
+                </a>
+                {% if current_user.role >= 3 %}
+                <a class="dropdown-item" href="#" onclick="AIHubUpdater.forceCheck(); return false;">
+                    <i class="fas fa-sync-alt mr-2"></i> Check for Updates
+                </a>
+                {% endif %}
+                <div class="dropdown-divider"></div>
+                <a class="dropdown-item" href="#" data-action="open-feedback">
+                    <i class="fas fa-comment-alt mr-2"></i> Send Feedback
+                </a>
+                <div class="dropdown-divider"></div>
+                <a class="dropdown-item" href="{{ url_for('logout') }}">
+                    <i class="fas fa-sign-out-alt mr-2"></i> Logout
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </nav>
+
+    <!-- Sidebar Overlay for Mobile -->
+    <div class="new-sidebar-overlay" id="newSidebarOverlay" onclick="toggleNewSidebar()"></div>
+
+    
+    
+    <!-- ============================================================ -->
+    <!-- BANNER STYLES -->
+    <!-- ============================================================ -->
+
+    <style>
+        .tier-banner-container {
+        width: 100%;
+        position: relative;
+        margin-left: -30px;  /* Extends to edge of content area */
+        margin-right: -30px; /* Extends to edge of content area */
+        margin-bottom: 15px;
+    }
+
+    .tier-banner {
+        position: relative;
+        padding: 3px 3px;  /* Compensates for negative margins */
+        border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+        animation: slideDown 0.3s ease-out;
+        border-bottom: none;  /* Remove separator lines */
+        margin-bottom: -1px;  /* Overlap borders if kept */
+    }
+
+    @keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .tier-banner-content {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+
+    .tier-banner-icon {
+        font-size: 1.0rem;
+        flex-shrink: 0;
+    }
+
+    .tier-banner-text {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .tier-banner-text strong {
+        font-size: 0.85rem;
+        font-weight: 600;
+    }
+
+    .tier-banner-message {
+        font-size: 0.75rem;
+        opacity: 0.95;
+    }
+
+    .tier-banner-btn {
+        padding: 6px 16px;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        text-decoration: none;
+        transition: all 0.2s;
+        white-space: nowrap;
+        border: 2px solid transparent;
+    }
+
+    .tier-banner-btn:hover {
+        transform: translateY(-1px);
+        text-decoration: none;
+    }
+
+    .tier-banner-btn-outline {
+        background: transparent !important;
+        border: 2px solid currentColor !important;
+    }
+
+    .tier-banner-close {
+        position: absolute; 
+        top: 20%; 
+        right: 15px;
+        background: transparent;
+        border: none;
+        color: inherit;
+        font-size: 1.0rem;
+        cursor: pointer;
+        opacity: 0.6;
+        padding: 4px 8px;
+        border-radius: 4px;
+        transition: all 0.2s;
+    }
+
+    .tier-banner-close:hover {
+        opacity: 1;
+        background: rgba(0, 0, 0, 0.1);
+    }
+
+    /* Trial Banner - Yellow/Orange */
+    .tier-banner-trial {
+        background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+        color: #78350f;
+        border-bottom-color: #f59e0b;
+    }
+
+    .tier-banner-trial .tier-banner-btn {
+        background: #78350f;
+        color: white;
+    }
+
+    .tier-banner-trial .tier-banner-btn:hover {
+        background: #451a03;
+    }
+
+    /* Developer Banner - Green */
+    .tier-banner-developer {
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        color: white;
+        border-bottom-color: #059669;
+    }
+
+    .tier-banner-developer .tier-banner-btn-outline {
+        color: white;
+    }
+
+    /* Warning Banner - Orange */
+    .tier-banner-warning {
+        background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+        color: white;
+        border-bottom-color: #d97706;
+    }
+
+    .tier-banner-warning .tier-banner-btn {
+        background: var(--bg-card, white);
+        color: #d97706;
+    }
+
+    .tier-banner-warning .tier-banner-btn-outline {
+        color: white;
+    }
+
+    /* Error Banner - Red */
+    .tier-banner-error {
+        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        color: white;
+        border-bottom-color: #dc2626;
+    }
+
+    .tier-banner-error .tier-banner-btn {
+        background: var(--bg-card, white);
+        color: #dc2626;
+    }
+
+    /* Info Banner - Blue */
+    .tier-banner-info {
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        color: white;
+        border-bottom-color: #2563eb;
+    }
+
+    .tier-banner-info .tier-banner-btn {
+        background: var(--bg-card, white);
+        color: #2563eb;
+    }
+
+    .tier-banner-info .tier-banner-btn-outline {
+        color: white;
+    }
+
+    /* Mobile responsive */
+    @media (max-width: 768px) {
+        .tier-banner-content {
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .tier-banner-text {
+            flex: 1 1 100%;
+            order: 2;
+        }
+        
+        .tier-banner-btn {
+            order: 3;
+            flex: 1 1 auto;
+        }
+        
+        .tier-banner-close {
+            order: 1;
+            margin-left: auto;
+        }
+    }
+
+
+    /* ===== TIER BANNER STYLES ===== */
+    /* .tier-banner { position: relative; padding: 12px 20px; border-bottom: 1px solid rgba(0, 0, 0, 0.1); animation: slideDown 0.3s ease-out; } */
+    @keyframes slideDown { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
+    .tier-banner-content { display: flex; align-items: center; gap: 15px; max-width: 1400px; margin: 0 auto; }
+    .tier-banner-icon { font-size: 1.5rem; flex-shrink: 0; }
+    .tier-banner-text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+    .tier-banner-text strong { font-size: 0.95rem; font-weight: 600; }
+    .tier-banner-message { font-size: 0.85rem; opacity: 0.95; }
+    .tier-banner-btn { padding: 6px 16px; border-radius: 6px; font-size: 0.85rem; font-weight: 600; text-decoration: none; transition: all 0.2s; white-space: nowrap; border: 2px solid transparent; }
+    .tier-banner-btn:hover { transform: translateY(-1px); text-decoration: none; }
+    .tier-banner-btn-outline { background: transparent !important; border: 2px solid currentColor !important; }
+    .tier-banner-trial { background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%); color: #78350f; border-bottom-color: #f59e0b; }
+    .tier-banner-trial .tier-banner-btn { background: #78350f; color: white; }
+    .tier-banner-trial .tier-banner-btn:hover { background: #451a03; }
+    .tier-banner-developer { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border-bottom-color: #059669; }
+    .tier-banner-developer .tier-banner-btn-outline { color: white; }
+    .tier-banner-warning { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; border-bottom-color: #d97706; }
+    .tier-banner-warning .tier-banner-btn { background: white; color: #d97706; }
+    .tier-banner-warning .tier-banner-btn-outline { color: white; }
+    .tier-banner-error { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border-bottom-color: #dc2626; }
+    .tier-banner-error .tier-banner-btn { background: white; color: #dc2626; }
+    @media (max-width: 768px) {
+        .tier-banner-content { flex-wrap: wrap; gap: 10px; }
+        .tier-banner-text { flex: 1 1 100%; order: 2; }
+        .tier-banner-btn { order: 3; flex: 1 1 auto; }
+    }
+
+    /* ===== TIER BADGE STYLES ===== */
+    .tier-info-badge { padding: 8px 12px; margin: 8px 12px 0 12px; background: rgba(255,255,255,0.1); border-radius: 6px; border-left: 3px solid #667eea; }
+    .tier-label { font-size: 0.7rem; color: rgba(255,255,255,0.7); text-transform: uppercase; letter-spacing: 0.5px; }
+    .tier-name { font-size: 0.85rem; color: white; font-weight: 600; margin-top: 2px; }
+    .trial-days { font-size: 0.75rem; color: #fbbf24; font-weight: 600; }
+    .tier-link { font-size: 0.7rem; color: #667eea; text-decoration: none; margin-top: 4px; display: block; }
+    .tier-link:hover { text-decoration: underline; color: #8b9bff; }
+    .developer-badge { display: inline-block; background: #10b981; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.65rem; font-weight: 600; margin-left: 6px; }
+    .experimental-icon { color: #a78bfa; font-size: 0.6rem; margin-left: 6px; opacity: 0.85; filter: drop-shadow(0 0 3px rgba(167, 139, 250, 0.4)); }
+    .new-sidebar.collapsed .experimental-icon { display: none; }
+    .developer-notice { padding: 8px 12px; background: rgba(16, 185, 129, 0.1); margin: 4px 8px; border-radius: 4px; border-left: 3px solid #10b981; }
+    .developer-notice-title { font-size: 0.75rem; color: rgba(255,255,255,0.9); margin-bottom: 2px; font-weight: 600; }
+    .developer-notice-text { font-size: 0.7rem; color: rgba(255,255,255,0.7); }
+    .usage-counter { font-size: 0.7rem; color: rgba(255,255,255,0.7); margin-left: 8px; }
+    .usage-counter.at-limit { color: #fbbf24; font-weight: 600; }
+    </style>
+
+    <!-- ============================================================ -->
+    <!-- BANNER JAVASCRIPT -->
+    <!-- ============================================================ -->
+
+    <script>
+    // Close tier banner and store in session
+    function closeTierBanner(bannerId) {
+        const banner = event.target.closest('.tier-banner');
+        if (banner) {
+            banner.style.display = 'none';
+            
+            // Store in localStorage so it doesn't show again
+            localStorage.setItem(`banner_closed_${bannerId}`, 'true');
+        }
+    }
+
+    // Check if banners should be shown on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        // Check each banner
+        const banners = document.querySelectorAll('.tier-banner');
+        banners.forEach(banner => {
+            const bannerId = banner.id || banner.className.split(' ').find(c => c.startsWith('tier-banner-'));
+            if (bannerId && localStorage.getItem(`banner_closed_${bannerId}`) === 'true') {
+                banner.style.display = 'none';
+            }
+        });
+        
+        // Show upgrade prompts occasionally (not every page load)
+        const upgradePrompts = document.querySelectorAll('[id^="upgrade-prompt-"]');
+        upgradePrompts.forEach(prompt => {
+            // Show 25% of the time
+            if (Math.random() < 0.25) {
+                const promptId = prompt.id;
+                if (localStorage.getItem(`banner_closed_${promptId}`) !== 'true') {
+                    prompt.style.display = 'block';
+                }
+            }
+        });
+    });
+
+    // Clear banner dismissals when user views tier page (they're thinking about it)
+    if (window.location.pathname === '/admin/tier') {
+        localStorage.removeItem('banner_closed_upgrade-workflows');
+        localStorage.removeItem('banner_closed_upgrade-documents');
+    }
+    </script>
+
+    <!-- Main Content -->
+    <main class="new-main-content">
+        <!-- Top Bar -->
+        <div class="new-top-bar">
+            <!-- Mobile Menu Toggle -->
+            <button class="mobile-menu-toggle d-md-none" onclick="toggleNewSidebar()">
+                <i class="fas fa-bars"></i>
+            </button>
+            <h1 class="new-page-title">{% block page_title %}{% endblock %}</h1>
+            <div class="new-top-bar-actions">
+                {% if not current_user.is_authenticated %}
+                <a href="{{ url_for('login') }}" class="btn btn-primary">
+                    <i class="fas fa-sign-in-alt mr-1"></i> Login
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Content Area -->
+        <div class="new-content-area">
+            <!-- ============================================================ -->
+            <!-- TIER BANNERS -->
+            <!-- ============================================================ -->
+
+            {% if current_user.is_authenticated %}
+
+            <!-- Admin-Only Upgrade Banners -->
+            {% if current_user.role >= 3 %}
+
+            <!-- Trial Banner - Show for trial users -->
+            {% if IS_TRIAL and TRIAL_DAYS_REMAINING is not none %}
+            <div class="tier-banner tier-banner-trial" id="banner-trial">
+                <div class="tier-banner-content">
+                    <div class="tier-banner-icon">
+                        <i class="fas fa-clock"></i>
+                    </div>
+                    <div class="tier-banner-text">
+                        <strong>Trial Account</strong>
+                        <span class="tier-banner-message">
+                            {% if TRIAL_DAYS_REMAINING > 7 %}
+                                Your trial expires in <strong>{{ TRIAL_DAYS_REMAINING }} days</strong>.
+                            {% elif TRIAL_DAYS_REMAINING > 0 %}
+                                ⚠️ Your trial expires in <strong>{{ TRIAL_DAYS_REMAINING }} day{% if TRIAL_DAYS_REMAINING != 1 %}s{% endif %}</strong>!
+                            {% else %}
+                                🔴 Your trial expires today!
+                            {% endif %}
+                            Upgrade to Professional to keep your access.
+                        </span>
+                    </div>
+                    <a href="https://everiai.ai/pricing/" class="tier-banner-btn" target="_blank">
+                        <i class="fas fa-arrow-up mr-1"></i> Upgrade Now
+                    </a>
+                    <button class="tier-banner-close" onclick="closeTierBanner('banner-trial')">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Developer Mode Banner -->
+            {% if IS_DEVELOPER_MODE and not IS_TRIAL %}
+            <div class="tier-banner tier-banner-developer" id="banner-developer">
+                <div class="tier-banner-content">
+                    <div class="tier-banner-icon">
+                        <i class="fas fa-code"></i>
+                    </div>
+                    <div class="tier-banner-text">
+                        <strong>Developer Mode</strong>
+                        <span class="tier-banner-message">
+                            You're in the free developer tier. Perfect for building and testing. 
+                            Limited to {{ tier_limit('requests') | default('100') }} requests/month. 
+                            Upgrade to Basic for production use with multi-user support.
+                        </span>
+                    </div>
+                    <a href="https://everiai.ai/pricing/" class="tier-banner-btn tier-banner-btn-outline" target="_blank">
+                        View Plans
+                    </a>
+                    <button class="tier-banner-close" onclick="closeTierBanner('banner-developer')">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Usage Warning Banners -->
+
+            <!-- Agents Limit Warning (at 80% or above) -->
+            {% if not is_unlimited('agents') and usage_percent('agents') >= 90 %}
+            <div class="tier-banner {% if at_limit('agents') %}tier-banner-error{% else %}tier-banner-warning{% endif %}" id="banner-agents-limit">
+                <div class="tier-banner-content">
+                    <div class="tier-banner-icon">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <div class="tier-banner-text">
+                        <strong>Agent Limit {% if at_limit('agents') %}Reached{% else %}Warning{% endif %}</strong>
+                        <span class="tier-banner-message">
+                            You're using {{ CURRENT_USAGE.get('agents', 0) }} of {{ tier_limit('agents') }} agents 
+                            ({{ usage_percent('agents') }}%).
+                            {% if at_limit('agents') %}
+                                Upgrade for more free agents.
+                            {% else %}
+                                Consider upgrading for more agents.
+                            {% endif %}
+                        </span>
+                    </div>
+                    {% if at_limit('agents') %}
+                    <a href="https://everiai.ai/pricing/" class="tier-banner-btn" target="_blank">
+                        <i class="fas fa-arrow-up mr-1"></i> Upgrade
+                    </a>
+                    {% else %}
+                    <a href="/admin/tier" class="tier-banner-btn tier-banner-btn-outline" target="_blank">
+                        View Usage
+                    </a>
+                    {% endif %}
+                    <button class="tier-banner-close" onclick="closeTierBanner('banner-agents-limit')">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Environments Limit Warning (at 80% or above) -->
+            {% if not is_unlimited('environments') and usage_percent('environments') >= 90 %}
+            <div class="tier-banner {% if at_limit('environments') %}tier-banner-error{% else %}tier-banner-warning{% endif %}" id="banner-envs-limit">
+                <div class="tier-banner-content">
+                    <div class="tier-banner-icon">
+                        <i class="fas fa-cube"></i>
+                    </div>
+                    <div class="tier-banner-text">
+                        <strong>Environment Limit {% if at_limit('environments') %}Reached{% else %}Warning{% endif %}</strong>
+                        <span class="tier-banner-message">
+                            You're using {{ CURRENT_USAGE.get('environments', 0) }} of {{ tier_limit('environments') }} environments 
+                            ({{ usage_percent('environments') }}%).
+                            {% if at_limit('environments') %}
+                                Upgrade to create more environments.
+                            {% else %}
+                                Consider upgrading for more environments.
+                            {% endif %}
+                        </span>
+                    </div>
+                    {% if at_limit('environments') %}
+                    <a href="https://everiai.ai/pricing/" class="tier-banner-btn">
+                        <i class="fas fa-arrow-up mr-1"></i> Upgrade
+                    </a>
+                    {% else %}
+                    <a href="/admin/tier" class="tier-banner-btn tier-banner-btn-outline">
+                        View Usage
+                    </a>
+                    {% endif %}
+                    <button class="tier-banner-close" onclick="closeTierBanner('banner-envs-limit')">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Users Limit Warning (at 100% - only for multi-user tiers) -->
+            {% if SHOW_USER_MANAGEMENT and not is_unlimited('users') and at_limit('users') %}
+            <div class="tier-banner tier-banner-error" id="banner-users-limit">
+                <div class="tier-banner-content">
+                    <div class="tier-banner-icon">
+                        <i class="fas fa-users"></i>
+                    </div>
+                    <div class="tier-banner-text">
+                        <strong>User Limit Reached</strong>
+                        <span class="tier-banner-message">
+                            You have {{ CURRENT_USAGE.get('users', 0) }} of {{ tier_limit('users') }} users.
+                            Upgrade to add more users to your team.
+                        </span>
+                    </div>
+                    <a href="https://everiai.ai/pricing/" class="tier-banner-btn">
+                        <i class="fas fa-arrow-up mr-1"></i> Upgrade
+                    </a>
+                    <button class="tier-banner-close" onclick="closeTierBanner('banner-users-limit')">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            {% endif %}
+            {% endif %} {# End admin-only check #}
+
+            <!-- Feature Upgrade Prompts (show occasionally, not always) -->
+            <!-- Basic tier - prompt for workflows -->
+            {% if CURRENT_TIER == 'basic' and request.path.startswith('/agents') %}
+            <div class="tier-banner tier-banner-info" id="upgrade-prompt-workflows" style="display: none;">
+                <div class="tier-banner-content">
+                    <div class="tier-banner-icon">
+                        <i class="fas fa-project-diagram"></i>
+                    </div>
+                    <div class="tier-banner-text">
+                        <strong>Automate with Workflows</strong>
+                        <span class="tier-banner-message">
+                            Upgrade to Professional to automate your agents with powerful workflow capabilities.
+                        </span>
+                    </div>
+                    <a href="https://everiai.ai/pricing/" class="tier-banner-btn tier-banner-btn-outline">
+                        Learn More
+                    </a>
+                    <button class="tier-banner-close" onclick="closeTierBanner('upgrade-prompt-workflows')">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            {% endif %}
+
+            {% endif %} {# End authenticated check #}
+            
+            <!-- Flash Messages -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    <div class="mb-3">
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                                {{ message }}
+                                <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                                    <span aria-hidden="true">&times;</span>
+                                </button>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
+
+            <!-- Page Content -->
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    <!-- ORIGINAL SCRIPTS - UNTOUCHED -->
+    <script src="{{ url_for('static', filename='vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+
+    <!-- TODO: Below was conflicting and causing dropdown menu to stop working along with users page .getJSON() -->
+    <!-- <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script> -->
+
+    <!-- Datepicker -->
+    <script src="{{ url_for('static', filename='vendor/moment/moment.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/tempusdominus/js/tempusdominus-bootstrap-4.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/doc_processor.js') }}"></script>
+
+    <!-- Shepherd.js library -->
+    <script src="https://cdn.jsdelivr.net/npm/shepherd.js@10.0.1/dist/js/shepherd.min.js"></script>
+    <!-- Developer onboarding system -->
+    <script src="{{ url_for('static', filename='js/onboarding.js') }}"></script>
+    <!-- Data Assistant Checklist -->
+    <script src="{{ url_for('static', filename='js/data_assistant_checklist.js') }}"></script>
+
+    <!-- NEW SIDEBAR JAVASCRIPT - ENHANCED VERSION -->
+    <script>
+        // Global functions - defined at top level so they're accessible from onclick attributes
+        
+        // Enhanced Sidebar toggle functionality
+        function toggleNewSidebar() {
+            const sidebar = document.getElementById('newSidebar');
+            const overlay = document.getElementById('newSidebarOverlay');
+            const mainContent = document.querySelector('.new-main-content');
+
+            if (window.innerWidth <= 768) {
+                // Mobile behavior
+                sidebar.classList.toggle('show');
+                overlay.classList.toggle('show');
+            } else {
+                // Desktop behavior
+                sidebar.classList.toggle('collapsed');
+
+                // Update submenu behavior based on collapsed state
+                updateSubmenuBehavior();
+
+                // Add/remove class to body for CSS fallback
+                document.body.classList.toggle('sidebar-collapsed', sidebar.classList.contains('collapsed'));
+
+                // Directly adjust main content margin
+                if (sidebar.classList.contains('collapsed')) {
+                    mainContent.style.marginLeft = 'var(--sidebar-collapsed-width)';
+                } else {
+                    mainContent.style.marginLeft = 'var(--sidebar-width)';
+                }
+
+                // Update toggle icon
+                const toggleIcon = sidebar.querySelector('.new-sidebar-toggle i');
+                if (sidebar.classList.contains('collapsed')) {
+                    toggleIcon.className = 'fas fa-chevron-right';
+                } else {
+                    toggleIcon.className = 'fas fa-chevron-left';
+                }
+
+                // Save state in localStorage
+                localStorage.setItem('newSidebarCollapsed', sidebar.classList.contains('collapsed'));
+            }
+        }
+
+        // Update submenu behavior based on sidebar state
+        function updateSubmenuBehavior() {
+            const sidebar = document.getElementById('newSidebar');
+            const isCollapsed = sidebar.classList.contains('collapsed');
+            
+            // When toggling, close all open submenus
+            if (typeof $ !== 'undefined' && typeof jQuery !== 'undefined') {
+                $('.new-nav-submenu').removeClass('show');
+                $('.new-nav-dropdown').attr('aria-expanded', 'false');
+            }
+        }
+
+        // Initialize Enhanced Navigation
+        $(document).ready(function() {
+            // Restore sidebar state
+            const sidebarCollapsed = localStorage.getItem('newSidebarCollapsed') === 'true';
+            const sidebar = document.getElementById('newSidebar');
+            const mainContent = document.querySelector('.new-main-content');
+
+            if (sidebarCollapsed && window.innerWidth > 768) {
+                sidebar.classList.add('collapsed');
+                document.querySelector('.new-sidebar-toggle i').className = 'fas fa-chevron-right';
+                document.body.classList.add('sidebar-collapsed');
+                mainContent.style.marginLeft = 'var(--sidebar-collapsed-width)';
+                updateSubmenuBehavior();
+            }
+
+            // Handle submenu toggles
+            $(document).on('click', 'a.new-nav-dropdown, .new-nav-dropdown', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const targetId = $(this).data('target');
+                const target = $(targetId);
+                
+                if (!target.length) {
+                    console.error('Submenu not found:', targetId);
+                    return false;
+                }
+                
+                const isVisible = target.hasClass('show');
+
+                // Close other open submenus
+                $('.new-nav-submenu.show').not(target).removeClass('show').css({
+                    'max-height': '',
+                    'opacity': '',
+                    'display': ''
+                });
+                $('.new-nav-dropdown[aria-expanded="true"]').not(this).attr('aria-expanded', 'false');
+
+                // Toggle current submenu
+                if (isVisible) {
+                    target.removeClass('show').css({
+                        'max-height': '',
+                        'opacity': '',
+                        'display': ''
+                    });
+                    $(this).attr('aria-expanded', 'false');
+                } else {
+                    target.addClass('show');
+                    // Force visibility with inline styles as backup
+                    target.css({
+                        'max-height': '1000px',
+                        'opacity': '1',
+                        'display': 'block'
+                    });
+                    $(this).attr('aria-expanded', 'true');
+                }
+                
+                return false;
+            });
+
+            // Set active navigation based on current page
+            const currentPath = window.location.pathname;
+            $('.new-nav-link').removeClass('active');
+            
+            // Find exact match first
+            let activeLink = $('.new-nav-link[href="' + currentPath + '"]');
+            if (activeLink.length === 0) {
+                // Try to find partial match for routes with parameters
+                activeLink = $('.new-nav-link').filter(function() {
+                    const href = $(this).attr('href');
+                    return href && currentPath.startsWith(href) && href !== '/';
+                });
+            }
+            
+            activeLink.first().addClass('active');
+
+            // Show parent submenu if child is active
+            const activeSubmenuLink = $('.new-nav-submenu .new-nav-link.active');
+
+            if (activeSubmenuLink.length > 0 && !$(sidebar).hasClass('collapsed')) {
+                const activeSubmenu = activeSubmenuLink.closest('.new-nav-submenu');
+                activeSubmenu.addClass('show');
+                activeSubmenu.prev('.new-nav-dropdown').attr('aria-expanded', 'true');
+            }
+
+            // Handle responsive behavior
+            function handleResize() {
+                const sidebar = document.getElementById('newSidebar');
+                const overlay = document.getElementById('newSidebarOverlay');
+                
+                if (window.innerWidth > 768) {
+                    sidebar.classList.remove('show');
+                    overlay.classList.remove('show');
+                    updateSubmenuBehavior();
+                } else {
+                    // Reset collapsed state on mobile
+                    sidebar.classList.remove('collapsed');
+                }
+            }
+
+            window.addEventListener('resize', handleResize);
+
+            // Auto-collapse sidebar on mobile after navigation
+            $('.new-nav-submenu .new-nav-link').on('click', function() {
+                if (window.innerWidth <= 768) {
+                    setTimeout(() => {
+                        toggleNewSidebar();
+                    }, 300);
+                }
+            });
+
+        });
+    </script>
+
+    <div class="doc-processor-toast-container"></div>
+    {# Data Assistant Setup Checklist - shows when active #}
+    {% if current_user.is_authenticated %}
+        {% include 'components/data_assistant_checklist.html' %}
+    {% endif %}
+
+    <!-- Universal Assistant Widget -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/universal_assistant.css') }}">
+    <script src="{{ url_for('static', filename='js/universal_assistant.js') }}"></script>
+    
+    <!-- Pass user role to updater -->
+    <script>
+        window.AIHUB_USER_ROLE = {{ current_user.role if current_user.is_authenticated else 0 }};
+    </script>
+    <script src="{{ url_for('static', filename='js/updater.js') }}"></script>
+
+    <!-- Feedback Widget -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/feedback_widget.css') }}">
+    <script src="{{ url_for('static', filename='js/feedback_widget.js') }}"></script>
+</body>
+</html>

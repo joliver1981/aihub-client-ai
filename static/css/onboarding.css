@@ -1,0 +1,619 @@
+/**
+ * AI Hub Developer Onboarding Styles
+ * Styles for developer quick start modal, guided tours, and first-run experience
+ */
+
+/* ==========================================================================
+   Welcome Modal - Developer Theme
+   ========================================================================== */
+
+.welcome-modal-content {
+    border-radius: 12px;
+    border: none;
+    box-shadow: 0 25px 80px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+}
+
+/* Developer Icon */
+.welcome-icon-container {
+    display: inline-block;
+}
+
+.welcome-icon-bg {
+    width: 90px;
+    height: 90px;
+    border-radius: 20px;
+    background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto;
+}
+
+.welcome-icon-bg.developer-icon {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+}
+
+.welcome-icon-bg.developer-icon i {
+    color: #00d9ff !important;
+}
+
+.welcome-title {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: #212529;
+    margin-bottom: 0.5rem;
+}
+
+.welcome-subtitle {
+    font-size: 1rem;
+    line-height: 1.5;
+}
+
+/* Platform Highlights */
+.platform-highlights {
+    background: #f8f9fa;
+    border-radius: 10px;
+    padding: 20px 15px 10px;
+}
+
+.highlight-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+}
+
+.highlight-stat i {
+    font-size: 1.4rem;
+}
+
+.highlight-stat span {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #495057;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+
+/* ==========================================================================
+   Build Path Cards
+   ========================================================================== */
+
+.build-path-card {
+    display: flex;
+    align-items: flex-start;
+    padding: 16px;
+    border: 2px solid #e9ecef;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: #fff;
+    height: 100%;
+}
+
+.build-path-card:hover {
+    border-color: #007bff;
+    background: rgba(0, 123, 255, 0.02);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.build-path-card.selected {
+    border-color: #007bff;
+    background: rgba(0, 123, 255, 0.05);
+    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.15);
+}
+
+.build-path-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 1.1rem;
+    margin-right: 14px;
+    flex-shrink: 0;
+}
+
+.build-path-content {
+    flex: 1;
+    text-align: left;
+}
+
+.build-path-content h5 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #212529;
+    margin-bottom: 4px;
+}
+
+.build-path-content p {
+    line-height: 1.4;
+    margin-bottom: 8px;
+}
+
+.build-path-content .badge {
+    font-weight: 500;
+    padding: 4px 8px;
+}
+
+
+/* ==========================================================================
+   Quick Start Steps
+   ========================================================================== */
+
+.path-icon-sm {
+    width: 56px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+}
+
+.quickstart-steps {
+    max-width: 400px;
+    margin: 0 auto;
+}
+
+.quickstart-step {
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 16px;
+}
+
+.quickstart-step:last-child {
+    margin-bottom: 0;
+}
+
+.step-number {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.9rem;
+    margin-right: 14px;
+    flex-shrink: 0;
+}
+
+.step-content {
+    flex: 1;
+    padding-top: 4px;
+}
+
+.step-content strong {
+    display: block;
+    font-size: 0.95rem;
+    color: #212529;
+    margin-bottom: 2px;
+}
+
+.step-content .text-muted {
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+
+.quickstart-sample {
+    border-left: 3px solid #ffc107;
+}
+
+.quickstart-sample code {
+    background: #fff;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+
+/* ==========================================================================
+   Import Includes Grid
+   ========================================================================== */
+
+.import-includes {
+    padding: 20px 0;
+}
+
+.import-item {
+    padding: 16px;
+}
+
+.import-item i {
+    display: block;
+    margin-bottom: 8px;
+}
+
+
+/* ==========================================================================
+   Explore Features List
+   ========================================================================== */
+
+.explore-features {
+    max-width: 350px;
+    margin: 0 auto;
+}
+
+.explore-item {
+    padding: 10px 0;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 0.95rem;
+}
+
+.explore-item:last-child {
+    border-bottom: none;
+}
+
+
+/* ==========================================================================
+   Welcome Step Animations
+   ========================================================================== */
+
+.welcome-step {
+    animation: fadeInUp 0.3s ease;
+}
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(15px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+
+/* ==========================================================================
+   Shepherd.js Tour Customizations - Developer Theme
+   ========================================================================== */
+
+.shepherd-element {
+    max-width: 420px;
+    border-radius: 10px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+    border: none;
+}
+
+.shepherd-content {
+    border-radius: 10px;
+    padding: 0;
+}
+
+.shepherd-header {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    padding: 14px 18px;
+    border-radius: 10px 10px 0 0;
+}
+
+.shepherd-title {
+    color: #00d9ff;
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin: 0;
+    font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+}
+
+.shepherd-cancel-icon {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 1.5rem;
+}
+
+.shepherd-cancel-icon:hover {
+    color: #fff;
+}
+
+.shepherd-text {
+    padding: 18px;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    color: #495057;
+}
+
+.shepherd-text h5 {
+    color: #212529;
+    font-weight: 600;
+    margin-bottom: 8px;
+    font-size: 1rem;
+}
+
+.shepherd-text p {
+    margin-bottom: 10px;
+}
+
+.shepherd-text p:last-child {
+    margin-bottom: 0;
+}
+
+.shepherd-text ul {
+    margin: 10px 0 0;
+    padding-left: 20px;
+}
+
+.shepherd-text li {
+    margin-bottom: 6px;
+}
+
+.shepherd-text code {
+    background: #f1f3f4;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    color: #d63384;
+}
+
+.shepherd-text .tip {
+    background: #fff3cd;
+    border-left: 3px solid #ffc107;
+    padding: 10px 12px;
+    margin-top: 12px;
+    border-radius: 0 6px 6px 0;
+    font-size: 0.85rem;
+}
+
+.shepherd-text .tip i {
+    color: #856404;
+    margin-right: 6px;
+}
+
+.shepherd-footer {
+    padding: 12px 18px 16px;
+    border-top: 1px solid #e9ecef;
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.shepherd-button {
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.shepherd-button-primary {
+    background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+    color: #fff;
+}
+
+.shepherd-button-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+}
+
+.shepherd-button-secondary {
+    background: #f8f9fa;
+    color: #495057;
+    border: 1px solid #dee2e6;
+}
+
+.shepherd-button-secondary:hover {
+    background: #e9ecef;
+}
+
+/* Modal overlay */
+.shepherd-modal-overlay-container {
+    background: rgba(0, 0, 0, 0.6);
+}
+
+/* Highlighted element */
+.shepherd-enabled.shepherd-target {
+    box-shadow: 0 0 0 4px rgba(0, 217, 255, 0.4);
+    border-radius: 6px;
+}
+
+
+/* ==========================================================================
+   Page Tour Prompt
+   ========================================================================== */
+
+.page-tour-prompt {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 1040;
+    animation: slideInRight 0.4s ease;
+}
+
+@keyframes slideInRight {
+    from {
+        opacity: 0;
+        transform: translateX(100px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.tour-prompt-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #fff;
+    padding: 16px 20px;
+    border-radius: 10px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+    border: 1px solid #e9ecef;
+    max-width: 400px;
+    position: relative;
+}
+
+.tour-prompt-close {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    background: none;
+    border: none;
+    color: #adb5bd;
+    cursor: pointer;
+    padding: 4px;
+    line-height: 1;
+    font-size: 0.9rem;
+}
+
+.tour-prompt-close:hover {
+    color: #6c757d;
+}
+
+.tour-prompt-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #00d9ff;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+}
+
+.tour-prompt-text {
+    flex: 1;
+    font-size: 0.875rem;
+    color: #495057;
+    line-height: 1.4;
+    padding-right: 10px;
+}
+
+.tour-prompt-text strong {
+    display: block;
+    color: #212529;
+    margin-bottom: 2px;
+}
+
+
+/* ==========================================================================
+   Empty States - Developer Style
+   ========================================================================== */
+
+.empty-state {
+    padding: 50px 20px;
+    background: #f8f9fa;
+    border-radius: 10px;
+    border: 2px dashed #dee2e6;
+    text-align: center;
+}
+
+.empty-state-icon {
+    opacity: 0.3;
+    margin-bottom: 16px;
+}
+
+.empty-state-title {
+    color: #495057;
+    font-weight: 600;
+    margin-bottom: 8px;
+    font-size: 1.1rem;
+}
+
+.empty-state-description {
+    max-width: 400px;
+    margin: 0 auto 16px;
+    color: #6c757d;
+    font-size: 0.9rem;
+}
+
+.empty-state .btn-primary {
+    background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+    border: none;
+}
+
+.empty-state code {
+    background: #fff;
+    padding: 2px 8px;
+    border-radius: 4px;
+    display: inline-block;
+    margin-top: 8px;
+    font-size: 0.85rem;
+}
+
+
+/* ==========================================================================
+   Code Snippets in Tours
+   ========================================================================== */
+
+.tour-code-block {
+    background: #1a1a2e;
+    border-radius: 6px;
+    padding: 12px;
+    margin: 12px 0;
+    overflow-x: auto;
+}
+
+.tour-code-block code {
+    color: #00d9ff;
+    background: none;
+    padding: 0;
+    font-size: 0.8rem;
+    font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+}
+
+.tour-code-block .comment {
+    color: #6c757d;
+}
+
+.tour-code-block .string {
+    color: #98c379;
+}
+
+.tour-code-block .keyword {
+    color: #c678dd;
+}
+
+
+/* ==========================================================================
+   Responsive Adjustments
+   ========================================================================== */
+
+@media (max-width: 576px) {
+    .welcome-modal-content {
+        margin: 10px;
+    }
+    
+    .welcome-title {
+        font-size: 1.3rem;
+    }
+    
+    .build-path-card {
+        padding: 14px;
+    }
+    
+    .build-path-icon {
+        width: 38px;
+        height: 38px;
+        font-size: 1rem;
+    }
+    
+    .build-path-content h5 {
+        font-size: 0.9rem;
+    }
+    
+    .shepherd-element {
+        max-width: calc(100vw - 30px);
+        margin: 0 15px;
+    }
+    
+    .page-tour-prompt {
+        bottom: 16px;
+        right: 16px;
+        left: 16px;
+    }
+    
+    .tour-prompt-content {
+        max-width: none;
+        flex-wrap: wrap;
+    }
+}

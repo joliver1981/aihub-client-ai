@@ -1,0 +1,1308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Environment Sandbox - AI Hub</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/monokai.min.css">
+    
+    <style>
+        /* ===== STYLES FROM ASSISTANTS.HTML FOR CONSISTENCY ===== */
+        body {
+            background: #f5f5f5;
+        }
+        
+        .compact-header {
+            background: linear-gradient(135deg, #2980b9 0%, #34495e 100%);
+            color: white;
+            padding: 0.5rem 1rem;
+            margin-bottom: 1rem;
+            border-radius: 0.5rem;
+        }
+        
+        /* Original sandbox header - now compact */
+        .sandbox-header {
+            background: linear-gradient(135deg, #2980b9 0%, #34495e 100%);
+            color: white;
+            padding: 0.75rem 0;
+            margin-bottom: 1rem;
+        }
+        
+        .sandbox-header h2 {
+            font-size: 1.25rem;
+            margin-bottom: 0.25rem;
+        }
+        
+        .sandbox-header p {
+            font-size: 0.85rem;
+            margin-bottom: 0;
+        }
+        
+        /* Make cards more compact */
+        .card {
+            margin-bottom: 0.75rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            border-radius: 0.5rem;
+        }
+        
+        .card-header {
+            padding: 0.5rem 0.75rem;
+            font-size: 0.9rem;
+            font-weight: 600;
+            background-color: #f8f9fa;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+        }
+        
+        .card-body {
+            padding: 0.75rem;
+        }
+        
+        .card-title {
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+        
+        .card-footer {
+            padding: 0.5rem 0.75rem;
+            background-color: #f8f9fa;
+        }
+        
+        h5 {
+            font-size: 1rem;
+            margin-bottom: 0;
+        }
+        
+        h6 {
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+        
+        /* Button size consistency */
+        .btn {
+            font-size: 0.9rem;
+            padding: 0.375rem 0.75rem;
+        }
+        
+        .btn-sm {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.875rem;
+        }
+        
+        .btn-block {
+            margin-bottom: 0.5rem;
+        }
+        
+        .quick-test-btn {
+            margin: 0.25rem;
+            font-size: 0.8rem;
+            padding: 0.2rem 0.5rem;
+        }
+        
+        /* Form controls */
+        .form-control, .custom-select {
+            font-size: 0.9rem;
+            padding: 0.375rem 0.75rem;
+        }
+        
+        .form-control-sm {
+            font-size: 0.875rem;
+            padding: 0.25rem 0.5rem;
+        }
+        
+        .form-group {
+            margin-bottom: 0.75rem;
+        }
+        
+        .form-group label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+        
+        /* Environment cards */
+        .environment-card {
+            cursor: pointer;
+            transition: all 0.3s;
+            border: 2px solid transparent;
+        }
+        
+        .environment-card:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 3px 8px rgba(0,0,0,0.1);
+        }
+        
+        .environment-card.selected {
+            border-color: #2980b9;
+            background: #f8f9ff;
+        }
+        
+        .environment-card .card-title {
+            font-size: 0.9rem;
+        }
+        
+        .environment-card .card-text {
+            font-size: 0.8rem;
+        }
+        
+        /* Code editor adjustments */
+        .code-editor-container {
+            border: 1px solid #ddd;
+            border-radius: 0.25rem;
+            overflow: hidden;
+        }
+        
+        .CodeMirror {
+            height: 300px; /* Reduced from 400px */
+            font-size: 0.875rem;
+        }
+        
+        /* Output console */
+        .output-console {
+            background: #1e1e1e;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            padding: 0.75rem;
+            min-height: 150px; /* Reduced from 200px */
+            max-height: 300px; /* Reduced from 400px */
+            overflow-y: auto;
+            border-radius: 0.25rem;
+            white-space: pre-wrap;
+            word-break: break-all;
+            font-size: 0.85rem;
+        }
+        
+        .output-console.error {
+            color: #f44336;
+        }
+        
+        /* Package badge */
+        .package-badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            margin: 0.125rem;
+            background: #e3f2fd;
+            color: #1976d2;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+        }
+        
+        /* Status indicator */
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 0.25rem;
+        }
+        
+        .status-active { background: #4caf50; }
+        .status-pending { background: #ff9800; }
+        .status-error { background: #f44336; }
+        
+        /* Modal styling */
+        .modal-header {
+            background-color: #f8f9fa;
+            padding: 0.75rem 1rem;
+        }
+        
+        .modal-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+        
+        .modal-body {
+            padding: 0.75rem;
+            font-size: 0.9rem;
+        }
+        
+        .modal-footer {
+            padding: 0.75rem;
+        }
+        
+        /* Chat interface */
+        .chat-box {
+            border: 1px solid #dee2e6;
+            border-radius: 0.25rem;
+        }
+        
+        #chat-window {
+            height: 350px !important; /* Reduced from 400px */
+        }
+        
+        .message-bubble {
+            max-width: 70%;
+            padding: 0.5rem 0.75rem;
+            border-radius: 1rem;
+            word-wrap: break-word;
+            font-size: 0.85rem;
+        }
+        
+        .user-bubble {
+            background-color: #007bff;
+            color: white;
+            border-bottom-right-radius: 0.25rem;
+        }
+        
+        .agent-bubble {
+            background-color: #f1f3f4;
+            color: #333;
+            border-bottom-left-radius: 0.25rem;
+        }
+        
+        .system-message {
+            padding: 0.25rem;
+            font-style: italic;
+            font-size: 0.8rem;
+        }
+        
+        .typing-indicator {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.5rem 0.75rem;
+            background-color: #f1f3f4;
+            border-radius: 1rem;
+            border-bottom-left-radius: 0.25rem;
+        }
+        
+        .typing-indicator span {
+            height: 6px;
+            width: 6px;
+            background-color: #999;
+            border-radius: 50%;
+            display: inline-block;
+            margin: 0 2px;
+            animation: typing 1.4s infinite;
+        }
+        
+        .typing-indicator span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+        
+        .typing-indicator span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+        
+        @keyframes typing {
+            0%, 60%, 100% {
+                transform: translateY(0);
+                opacity: 0.5;
+            }
+            30% {
+                transform: translateY(-8px);
+                opacity: 1;
+            }
+        }
+        
+        .package-tags {
+            max-height: 80px;
+            overflow-y: auto;
+            font-size: 0.85rem;
+        }
+        
+        /* Badge adjustments */
+        .badge {
+            font-size: 0.75rem;
+            padding: 0.25em 0.5em;
+        }
+        
+        /* Spinner adjustments */
+        .spinner-border {
+            width: 2rem;
+            height: 2rem;
+            border-width: 0.2em;
+        }
+        
+        /* Input group */
+        .input-group .form-control {
+            font-size: 0.875rem;
+        }
+        
+        .input-group-append .btn {
+            font-size: 0.875rem;
+            padding: 0.375rem 0.75rem;
+        }
+        
+        /* Alert adjustments */
+        .alert {
+            padding: 0.5rem 0.75rem;
+            font-size: 0.85rem;
+        }
+        
+        /* Small text */
+        small, .small {
+            font-size: 0.8rem;
+        }
+        
+        .text-muted {
+            font-size: 0.85rem;
+        }
+        
+        /* Container adjustments */
+        .container {
+            padding: 0 1rem;
+        }
+        
+        /* Row spacing */
+        .row {
+            margin-bottom: 0.75rem;
+        }
+        
+        /* Loading overlay */
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255,255,255,0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        
+        /* Split view responsive */
+        @media (max-width: 992px) {
+            .split-view {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    {% extends "base.html" %}
+    {% block content %}
+    <!-- Header -->
+    <div class="sandbox-header">
+        <div class="container">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <h2>
+                        <i class="fas fa-flask"></i> Environment Sandbox
+                    </h2>
+                    <p class="mb-0">Test and experiment with Python environments and agent integrations</p>
+                </div>
+                <div class="col-md-4 text-right">
+                    <a href="{{ url_for('environments.index') }}" class="btn btn-sm btn-light">
+                        <i class="fas fa-cubes"></i> Manage
+                    </a>
+                    <a href="{{ url_for('home') }}" class="btn btn-sm btn-outline-light">
+                        <i class="fas fa-times"></i> Close
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Environment Selection -->
+        <div class="row mb-3">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-cube"></i> Select Environment
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row" id="environmentList">
+                            <div class="col-12 text-center">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="sr-only">Loading environments...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Sandbox Area -->
+        <div class="row" id="sandboxArea" style="display: none;">
+            <div class="col-md-8">
+                <!-- Code Editor -->
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">
+                            <i class="fas fa-code"></i> Test Code
+                        </h6>
+                        <div>
+                            <button class="btn btn-sm btn-success" onclick="runTest()">
+                                <i class="fas fa-play"></i> Run
+                            </button>
+                            <button class="btn btn-sm btn-secondary" onclick="clearCode()">
+                                <i class="fas fa-eraser"></i> Clear
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="code-editor-container">
+                            <textarea id="codeEditor"></textarea>
+                        </div>
+                    </div>
+                    <div class="card-footer">
+                        <strong>Quick Tests:</strong>
+                        <button class="btn btn-sm btn-outline-primary quick-test-btn" 
+                                onclick="loadQuickTest('packages')">
+                            Check Packages
+                        </button>
+                        <button class="btn btn-sm btn-outline-primary quick-test-btn" 
+                                onclick="loadQuickTest('pandas')">
+                            Test Pandas
+                        </button>
+                        <button class="btn btn-sm btn-outline-primary quick-test-btn" 
+                                onclick="loadQuickTest('numpy')">
+                            Test NumPy
+                        </button>
+                        <button class="btn btn-sm btn-outline-primary quick-test-btn" 
+                                onclick="loadQuickTest('ml')">
+                            Test ML
+                        </button>
+                        <button class="btn btn-sm btn-outline-primary quick-test-btn" 
+                                onclick="loadQuickTest('agent')">
+                            Agent Template
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Output Console -->
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">
+                            <i class="fas fa-terminal"></i> Output
+                        </h6>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="clearOutput()">
+                            <i class="fas fa-trash"></i> Clear
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="output-console" id="outputConsole">
+                            Ready for testing...
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <!-- Agent Testing -->
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-robot"></i> Agent Testing
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label>Select Agent:</label>
+                            <select class="form-control form-control-sm" id="agentSelect">
+                                <option value="">-- Select Agent --</option>
+                                {% for agent in agents %}
+                                <option value="{{ agent.id }}">{{ agent.description }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <button class="btn btn-sm btn-primary btn-block" onclick="assignToAgent()">
+                            <i class="fas fa-link"></i> Assign to Agent
+                        </button>
+                        <button class="btn btn-sm btn-info btn-block" onclick="testWithAgent()">
+                            <i class="fas fa-vial"></i> Test with Agent
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Package Manager -->
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-box"></i> Quick Package Install
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="input-group input-group-sm mb-2">
+                            <input type="text" class="form-control" id="packageName" 
+                                   placeholder="Package name">
+                            <div class="input-group-append">
+                                <button class="btn btn-primary" onclick="installPackage()">
+                                    Install
+                                </button>
+                            </div>
+                        </div>
+                        <div id="packageInfo"></div>
+                    </div>
+                </div>
+
+                <!-- Environment Details -->
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-info-circle"></i> Environment Details
+                        </h6>
+                    </div>
+                    <div class="card-body" id="environmentDetails">
+                        <p class="text-muted">Select an environment to view details</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Agent Chat Modal -->
+    <div class="modal fade" id="agentChatModal" tabindex="-1" role="dialog" aria-labelledby="agentChatModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="agentChatModalLabel">
+                        <i class="fas fa-robot"></i> Test Agent with Environment
+                    </h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-8">
+                            <!-- Chat Interface -->
+                            <div class="card">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <h6 class="mb-0">Chat Interface</h6>
+                                    <div>
+                                        <span class="badge badge-info" id="environmentBadge"></span>
+                                        <span class="badge badge-primary" id="agentBadge"></span>
+                                        <button type="button" class="btn btn-danger btn-sm ml-2" id="reset-chat-btn">
+                                            <i class="fas fa-sync-alt"></i> Reset
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0">
+                                    <div id="chat-window" class="chat-box p-3 bg-light" style="overflow-y: auto;">
+                                        <div id="chat-content" class="chat-container"></div>
+                                    </div>
+                                </div>
+                                <div class="card-footer bg-white">
+                                    <div class="input-group input-group-sm">
+                                        <input type="text" id="chat-input" class="form-control" placeholder="Type your message...">
+                                        <div class="input-group-append">
+                                            <button type="button" class="btn btn-primary" id="send-message-btn">
+                                                <i class="fas fa-paper-plane"></i> Send
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <!-- Environment & Agent Info -->
+                            <div class="card mb-2">
+                                <div class="card-header">
+                                    <h6 class="mb-0">Test Configuration</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-2">
+                                        <label class="font-weight-bold small">Environment:</label>
+                                        <p class="mb-1 small" id="modalEnvName"></p>
+                                        <small class="text-muted" id="modalEnvDesc"></small>
+                                    </div>
+                                    <div class="mb-2">
+                                        <label class="font-weight-bold small">Agent:</label>
+                                        <p class="mb-1 small" id="modalAgentName"></p>
+                                        <small class="text-muted" id="modalAgentObjective"></small>
+                                    </div>
+                                    <div>
+                                        <label class="font-weight-bold small">Available Packages:</label>
+                                        <div id="modalPackageList" class="package-tags"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Test Status -->
+                            <div class="card">
+                                <div class="card-header">
+                                    <h6 class="mb-0">Environment Status</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div id="environmentStatus" class="small">
+                                        <p class="mb-1"><i class="fas fa-check-circle text-success"></i> Environment Active</p>
+                                        <p class="mb-1"><i class="fas fa-check-circle text-success"></i> Packages Loaded</p>
+                                        <p class="mb-0"><i class="fas fa-check-circle text-success"></i> Agent Connected</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-sm btn-info" onclick="exportChatHistory()">
+                        <i class="fas fa-download"></i> Export Chat
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js"></script>
+    
+    <script>
+        let editor;
+        let selectedEnvironment = null;
+        let environments = [];
+
+        let chatHistory = [];
+        let currentAgentId = null;
+        let currentEnvironmentId = null;
+        let agentData = [];
+        
+        // Initialize CodeMirror
+        $(document).ready(function() {
+            editor = CodeMirror.fromTextArea(document.getElementById('codeEditor'), {
+                mode: 'python',
+                theme: 'monokai',
+                lineNumbers: true,
+                indentUnit: 4,
+                lineWrapping: true,
+                autofocus: true
+            });
+
+            // Load agents data from the select dropdown
+            loadAgentData();
+            
+            // Load environments
+            loadEnvironments();
+            
+            // Set default code
+            loadQuickTest('packages');
+
+             // Send message on Enter key
+            $('#chat-input').on('keypress', function(e) {
+                if (e.which === 13) {
+                    sendChatMessage();
+                }
+            });
+            
+            // Send button click
+            $('#send-message-btn').on('click', sendChatMessage);
+            
+            // Reset chat
+            $('#reset-chat-btn').on('click', function() {
+                if (confirm('Are you sure you want to reset the conversation?')) {
+                    chatHistory = [];
+                    $('#chat-content').html('');
+                    addSystemMessage('Conversation reset. Starting fresh.');
+                }
+            });
+        });
+
+        function loadAgentData() {
+            // Build agentData from the existing select options
+            agentData = [];
+            $('#agentSelect option').each(function() {
+                if ($(this).val()) {
+                    agentData.push({
+                        id: $(this).val(),
+                        description: $(this).text(),
+                        objective: $(this).data('objective') || ''
+                    });
+                }
+            });
+            
+            // If you want to fetch full agent details from the server
+            $.ajax({
+                url: '/api/assignments/agents/list',
+                method: 'GET',
+                success: function(response) {
+                    if (response.agents) {
+                        agentData = response.agents;
+                    }
+                },
+                error: function() {
+                    console.log('Using basic agent data from select options');
+                }
+            });
+        }
+        
+        function loadEnvironments() {
+            $.ajax({
+                url: '/environments/api/list',
+                method: 'GET',
+                success: function(response) {
+                    if (response.status === 'success') {
+                        environments = response.environments;
+                        renderEnvironments();
+                    }
+                },
+                error: function(xhr) {
+                    console.error('Failed to load environments:', xhr);
+                    $('#environmentList').html(
+                        '<div class="col-12"><div class="alert alert-danger">Failed to load environments</div></div>'
+                    );
+                }
+            });
+        }
+        
+        function renderEnvironments() {
+            const container = $('#environmentList');
+            container.empty();
+            
+            if (environments.length === 0) {
+                container.html(
+                    '<div class="col-12">' +
+                    '<div class="alert alert-info">' +
+                    'No environments found. <a href="/environments/">Create one</a> to get started.' +
+                    '</div></div>'
+                );
+                return;
+            }
+            
+            environments.forEach(env => {
+                const card = $(`
+                    <div class="col-md-4 mb-2">
+                        <div class="card environment-card" data-env-id="${env.environment_id}">
+                            <div class="card-body p-2">
+                                <h6 class="card-title mb-1">
+                                    <span class="status-indicator status-${env.status}"></span>
+                                    ${env.name}
+                                </h6>
+                                <p class="card-text small text-muted mb-1">${env.description || 'No description'}</p>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <small>${env.package_count} packages</small>
+                                    <button class="btn btn-sm btn-primary" onclick="selectEnvironment('${env.environment_id}')">
+                                        Select
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `);
+                container.append(card);
+            });
+        }
+        
+        function selectEnvironment(envId) {
+            selectedEnvironment = environments.find(e => e.environment_id === envId);
+            
+            // Update UI
+            $('.environment-card').removeClass('selected');
+            $(`.environment-card[data-env-id="${envId}"]`).addClass('selected');
+            
+            // Show sandbox area
+            $('#sandboxArea').show();
+            
+            // Load environment details
+            loadEnvironmentDetails(envId);
+            
+            // Update output
+            $('#outputConsole').text(`Environment "${selectedEnvironment.name}" selected. Ready for testing...`);
+        }
+        
+        function loadEnvironmentDetails(envId) {
+            $.ajax({
+                url: `/environments/api/${envId}/packages`,
+                method: 'GET',
+                success: function(response) {
+                    if (response.status === 'success') {
+                        let html = `
+                            <h6 class="mb-1">${selectedEnvironment.name}</h6>
+                            <p class="small text-muted mb-2">${selectedEnvironment.description || 'No description'}</p>
+                            <hr class="my-2">
+                            <strong class="small">Installed Packages (${response.packages.length}):</strong>
+                            <div class="mt-1">
+                        `;
+                        
+                        response.packages.forEach(pkg => {
+                            html += `<span class="package-badge">${pkg.name} ${pkg.version}</span>`;
+                        });
+                        
+                        html += '</div>';
+                        $('#environmentDetails').html(html);
+                    }
+                }
+            });
+        }
+        
+        function runTest() {
+            if (!selectedEnvironment) {
+                alert('Please select an environment first');
+                return;
+            }
+            
+            const code = editor.getValue();
+            if (!code.trim()) {
+                alert('Please enter some code to test');
+                return;
+            }
+            
+            $('#outputConsole').html('<i class="fas fa-spinner fa-spin"></i> Running test...');
+            
+            $.ajax({
+                url: '/environments/api/sandbox/test',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    environment_id: selectedEnvironment.environment_id,
+                    code: code,
+                    test_type: 'simple'
+                }),
+                success: function(response) {
+                    let output = '';
+                    
+                    if (response.stdout) {
+                        output += response.stdout;
+                    }
+                    
+                    if (response.stderr) {
+                        output += '\n=== ERRORS ===\n' + response.stderr;
+                        $('#outputConsole').addClass('error');
+                    } else {
+                        $('#outputConsole').removeClass('error');
+                    }
+                    
+                    if (response.returncode !== 0) {
+                        output += '\n\nProcess exited with code: ' + response.returncode;
+                    }
+                    
+                    $('#outputConsole').text(output || 'No output');
+                },
+                error: function(xhr) {
+                    $('#outputConsole').addClass('error').text('Error: ' + (xhr.responseJSON?.message || 'Test failed'));
+                }
+            });
+        }
+        
+        function clearCode() {
+            editor.setValue('');
+        }
+        
+        function clearOutput() {
+            $('#outputConsole').removeClass('error').text('Ready for testing...');
+        }
+        
+        function loadQuickTest(type) {
+            const tests = {
+                packages: `# List all installed packages
+import pkg_resources
+
+installed_packages = pkg_resources.working_set
+packages = sorted([f"{pkg.key}=={pkg.version}" for pkg in installed_packages])
+
+print("Installed packages in this environment:")
+print("=" * 40)
+for package in packages:
+    print(package)
+print(f"\\nTotal: {len(packages)} packages")`,
+                
+                pandas: `# Test pandas functionality
+import pandas as pd
+import numpy as np
+
+# Create sample data
+data = {
+    'Name': ['Alice', 'Bob', 'Charlie', 'David'],
+    'Age': [25, 30, 35, 28],
+    'Score': [85, 92, 78, 95]
+}
+
+df = pd.DataFrame(data)
+
+print("DataFrame created successfully!")
+print("\\nDataFrame contents:")
+print(df)
+print("\\nDataFrame info:")
+print(df.info())
+print("\\nBasic statistics:")
+print(df.describe())`,
+                
+                numpy: `# Test NumPy functionality
+import numpy as np
+
+# Create arrays
+arr1 = np.array([1, 2, 3, 4, 5])
+arr2 = np.random.randn(3, 3)
+
+print("NumPy version:", np.__version__)
+print("\\n1D Array:", arr1)
+print("Mean:", arr1.mean())
+print("Std:", arr1.std())
+
+print("\\n3x3 Random Matrix:")
+print(arr2)
+print("\\nMatrix operations:")
+print("Transpose:")
+print(arr2.T)
+print("\\nDeterminant:", np.linalg.det(arr2))`,
+                
+                ml: `# Test ML libraries
+try:
+    import sklearn
+    print(f"scikit-learn version: {sklearn.__version__}")
+    from sklearn.linear_model import LinearRegression
+    print("✓ scikit-learn imported successfully")
+except ImportError as e:
+    print(f"✗ scikit-learn not available: {e}")
+
+try:
+    import tensorflow as tf
+    print(f"\\nTensorFlow version: {tf.__version__}")
+    print("✓ TensorFlow imported successfully")
+except ImportError as e:
+    print(f"\\n✗ TensorFlow not available: {e}")
+
+try:
+    import torch
+    print(f"\\nPyTorch version: {torch.__version__}")
+    print("✓ PyTorch imported successfully")
+except ImportError as e:
+    print(f"\\n✗ PyTorch not available: {e}")`,
+                
+                agent: `# Agent-style function template
+def main():
+    """Main function that an agent would call"""
+    
+    # Import required libraries
+    import json
+    import datetime
+    
+    # Your agent logic here
+    result = {
+        'status': 'success',
+        'timestamp': datetime.datetime.now().isoformat(),
+        'environment': 'custom',
+        'message': 'Agent test completed successfully'
+    }
+    
+    return result
+
+# Run the main function
+if __name__ == "__main__":
+    result = main()
+    print("Agent execution result:")
+    print("-" * 40)
+    for key, value in result.items():
+        print(f"{key}: {value}")`
+            };
+            
+            editor.setValue(tests[type] || '# Custom test code');
+        }
+        
+        function installPackage() {
+            if (!selectedEnvironment) {
+                alert('Please select an environment first');
+                return;
+            }
+            
+            const packageName = $('#packageName').val().trim();
+            if (!packageName) {
+                alert('Please enter a package name');
+                return;
+            }
+            
+            $('#packageInfo').html('<i class="fas fa-spinner fa-spin"></i> Installing...');
+            
+            $.ajax({
+                url: `/environments/api/${selectedEnvironment.environment_id}/packages`,
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    package: packageName
+                }),
+                success: function(response) {
+                    $('#packageInfo').html(
+                        '<div class="alert alert-success">Package installed successfully!</div>'
+                    );
+                    $('#packageName').val('');
+                    
+                    // Reload environment details
+                    loadEnvironmentDetails(selectedEnvironment.environment_id);
+                    
+                    // Reload environments list
+                    loadEnvironments();
+                },
+                error: function(xhr) {
+                    $('#packageInfo').html(
+                        '<div class="alert alert-danger">Error: ' + 
+                        (xhr.responseJSON?.message || 'Installation failed') + 
+                        '</div>'
+                    );
+                }
+            });
+        }
+        
+        function assignToAgent() {
+            if (!selectedEnvironment) {
+                alert('Please select an environment first');
+                return;
+            }
+            
+            const agentId = $('#agentSelect').val();
+            if (!agentId) {
+                alert('Please select an agent');
+                return;
+            }
+            
+            $.ajax({
+                url: '/environments/api/sandbox/assign',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    environment_id: selectedEnvironment.environment_id,
+                    agent_id: agentId
+                }),
+                success: function(response) {
+                    alert('Environment assigned to agent successfully!');
+                },
+                error: function(xhr) {
+                    alert('Error: ' + (xhr.responseJSON?.message || 'Assignment failed'));
+                }
+            });
+        }
+        
+        function testWithAgent() {
+            const agentId = $('#agentSelect').val();
+            if (!agentId) {
+                alert('Please select an agent first');
+                return;
+            }
+            
+            if (!selectedEnvironment) {
+                alert('Please select an environment first');
+                return;
+            }
+            
+            // Set current context
+            currentAgentId = agentId;
+            currentEnvironmentId = selectedEnvironment.environment_id;
+            
+            // Reset chat history
+            chatHistory = [];
+            $('#chat-content').html('');
+            
+            // Update modal information
+            $('#environmentBadge').text(`Env: ${selectedEnvironment.name}`);
+            $('#agentBadge').text(`Agent: ${$('#agentSelect option:selected').text()}`);
+            $('#modalEnvName').text(selectedEnvironment.name);
+            $('#modalEnvDesc').text(selectedEnvironment.description || 'No description');
+            $('#modalAgentName').text($('#agentSelect option:selected').text());
+            
+            // Get agent objective if available
+            const selectedAgent = agentData.find(a => a.id == agentId);
+            if (selectedAgent && selectedAgent.objective) {
+                $('#modalAgentObjective').text(selectedAgent.objective);
+            } else {
+                const objective = $('#agentSelect option:selected').data('objective');
+                $('#modalAgentObjective').text(objective || 'No objective defined');
+            }
+            
+            // Fetch actual package details for this environment
+            $.ajax({
+                url: `/environments/api/${selectedEnvironment.environment_id}/packages`,
+                method: 'GET',
+                success: function(response) {
+                    if (response.status === 'success' && response.packages && response.packages.length > 0) {
+                        // Build package HTML from the fetched packages
+                        const packageHtml = response.packages.map(pkg => {
+                            // Handle different response formats
+                            const packageName = pkg.name || pkg.package_name || pkg.package;
+                            const packageVersion = pkg.version || '';
+                            return `<span class="badge badge-secondary mr-1 mb-1">${packageName}${packageVersion ? '==' + packageVersion : ''}</span>`;
+                        }).join('');
+                        $('#modalPackageList').html(packageHtml);
+                    } else {
+                        // No packages or error fetching
+                        $('#modalPackageList').html('<span class="text-muted">No packages installed</span>');
+                    }
+                },
+                error: function(xhr) {
+                    console.error('Failed to fetch packages:', xhr);
+                    // Fallback display
+                    if (selectedEnvironment.package_count && selectedEnvironment.package_count > 0) {
+                        $('#modalPackageList').html(`<span class="text-muted">${selectedEnvironment.package_count} packages installed (details unavailable)</span>`);
+                    } else {
+                        $('#modalPackageList').html('<span class="text-muted">No packages installed</span>');
+                    }
+                }
+            });
+            
+            // Show the modal
+            $('#agentChatModal').modal('show');
+            
+            // Add initial system message
+            addSystemMessage('Environment loaded. Agent is ready to chat with custom environment support.');
+        }
+
+        function sendChatMessage() {
+            const message = $('#chat-input').val().trim();
+            if (!message) return;
+            
+            // Add user message to chat
+            addUserMessage(message);
+            
+            // Clear input
+            $('#chat-input').val('');
+            
+            // Show typing indicator
+            showTypingIndicator();
+            
+            // Send message to backend with environment context
+            $.ajax({
+                url: '/chat/general_system',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    agent_id: currentAgentId,
+                    prompt: message,
+                    hist: chatHistory,
+                    environment_id: currentEnvironmentId,
+                    use_environment: true
+                }),
+                success: function(response) {
+                    removeTypingIndicator();
+                    
+                    if (response.response) {
+                        addAgentMessage(response.response);
+                        
+                        // Show if custom environment was used
+                        if (response.used_custom_environment) {
+                            addSystemMessage('Response generated using custom environment packages.');
+                        }
+                    } else {
+                        addAgentMessage('Sorry, I encountered an error processing your request.');
+                    }
+                },
+                error: function(xhr) {
+                    removeTypingIndicator();
+                    addSystemMessage('Error: ' + (xhr.responseJSON?.message || 'Failed to get response'));
+                }
+            });
+        }
+
+        function addUserMessage(message) {
+            const messageHtml = `
+                <div class="user-message mb-2 d-flex align-items-start justify-content-end">
+                    <div class="message-bubble user-bubble">${escapeHtml(message)}</div>
+                    <i class="fas fa-user ml-2 mt-1"></i>
+                </div>
+            `;
+            $('#chat-content').append(messageHtml);
+            chatHistory.push({ role: 'user', content: message });
+            scrollChatToBottom();
+        }
+
+        function addAgentMessage(message) {
+            const messageHtml = `
+                <div class="agent-message mb-2 d-flex align-items-start justify-content-start">
+                    <i class="fas fa-robot mr-2 mt-1"></i>
+                    <div class="message-bubble agent-bubble">${formatMessage(message)}</div>
+                </div>
+            `;
+            $('#chat-content').append(messageHtml);
+            chatHistory.push({ role: 'assistant', content: message });
+            scrollChatToBottom();
+        }
+
+        function addSystemMessage(message) {
+            const messageHtml = `
+                <div class="system-message text-center mb-2">
+                    <small class="text-muted"><i class="fas fa-info-circle"></i> ${message}</small>
+                </div>
+            `;
+            $('#chat-content').append(messageHtml);
+            scrollChatToBottom();
+        }
+
+        function showTypingIndicator() {
+            const typingHtml = `
+                <div id="typing-indicator" class="agent-message mb-2 d-flex align-items-center justify-content-start">
+                    <i class="fas fa-robot mr-2"></i>
+                    <div class="typing-indicator">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                </div>
+            `;
+            $('#chat-content').append(typingHtml);
+            scrollChatToBottom();
+        }
+
+        function removeTypingIndicator() {
+            $('#typing-indicator').remove();
+        }
+
+        function scrollChatToBottom() {
+            const chatWindow = $('#chat-window')[0];
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+
+        function formatMessage(message) {
+            return escapeHtml(message)
+                .replace(/```(.*?)```/gs, '<pre><code>$1</code></pre>')
+                .replace(/`(.*?)`/g, '<code>$1</code>')
+                .replace(/\n/g, '<br>');
+        }
+
+        function exportChatHistory() {
+            const exportData = {
+                environment: selectedEnvironment.name,
+                agent: $('#agentSelect option:selected').text(),
+                timestamp: new Date().toISOString(),
+                messages: chatHistory
+            };
+            
+            const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `chat_export_${Date.now()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function loadEnvironmentDetailsWithPackages(envId) {
+            $.ajax({
+                url: `/environments/api/${envId}/packages`,
+                method: 'GET',
+                success: function(response) {
+                    if (response.status === 'success') {
+                        // Cache the packages in the selectedEnvironment object
+                        selectedEnvironment.packages = response.packages;
+                        
+                        let html = `
+                            <h6 class="mb-1">${selectedEnvironment.name}</h6>
+                            <p class="small text-muted mb-2">${selectedEnvironment.description || 'No description'}</p>
+                            <hr class="my-2">
+                            <strong class="small">Installed Packages (${response.packages.length}):</strong>
+                            <div class="mt-1">
+                        `;
+                        
+                        response.packages.forEach(pkg => {
+                            html += `<span class="package-badge">${pkg.name} ${pkg.version}</span>`;
+                        });
+                        
+                        html += '</div>';
+                        $('#environmentDetails').html(html);
+                    }
+                }
+            });
+        }
+    </script>
+    {% endblock %}
+</body>
+</html>

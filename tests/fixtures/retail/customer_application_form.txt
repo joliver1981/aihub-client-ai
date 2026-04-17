@@ -1,0 +1,65 @@
+WHOLESALE CUSTOMER APPLICATION
+================================
+Metro Retail Group — New Account Setup
+Application Date: 2026-03-01
+
+SECTION A: COMPANY INFORMATION
+  Legal Business Name:  Sunrise Home & Garden LLC
+  DBA (if different):   Sunrise Living
+  Business Type:        LLC
+  Year Established:     2019
+  Federal Tax ID (EIN): 84-3291056
+  State Tax ID:         TX-20190847321
+  DUNS Number:          08-412-5673
+  Website:              www.sunriseliving.com
+
+SECTION B: PRIMARY CONTACT
+  Name:           Maria Chen
+  Title:          Purchasing Director
+  Phone:          (512) 555-0234
+  Email:          maria.chen@sunriseliving.com
+  Mobile:         (512) 555-0235
+
+SECTION C: BILLING INFORMATION
+  Billing Address:  4200 Riverside Drive, Suite 110
+  City/State/Zip:   Austin, TX 78704
+  AP Contact:       Linda Torres
+  AP Email:         ap@sunriseliving.com
+  AP Phone:         (512) 555-0240
+  Preferred Terms:  Net 30
+
+SECTION D: SHIPPING INFORMATION
+  Ship-to Address:  7800 Warehouse Row, Bldg C
+  City/State/Zip:   Round Rock, TX 78681
+  Receiving Contact: Dave Wilson
+  Receiving Phone:   (512) 555-0250
+  Dock Hours:        7:00 AM - 3:30 PM, Mon-Fri
+  Forklift Available: Yes
+  Max Pallet Height:  60 inches
+
+SECTION E: TRADE REFERENCES
+  Reference 1:
+    Company:  Pacific Coast Distributors
+    Contact:  Tom Bradley
+    Phone:    (503) 555-0312
+    Account#: PCD-44821
+
+  Reference 2:
+    Company:  National Supply Co.
+    Contact:  Angela Ross
+    Phone:    (214) 555-0178
+    Account#: NSC-90234
+
+SECTION F: PRODUCT INTEREST
+  Categories:     Home & Kitchen, Office, Beauty
+  Estimated Monthly Volume: $15,000 - $25,000
+  Sales Channels: E-commerce (Shopify), 2 retail locations
+  Target Launch:  April 2026
+
+SECTION G: ACKNOWLEDGMENTS
+  [X] I agree to Metro Retail Group's Terms & Conditions
+  [X] I agree to the Vendor Code of Conduct
+  [X] I certify all information is accurate and complete
+
+  Authorized Signature: Maria Chen
+  Date: 2026-03-01

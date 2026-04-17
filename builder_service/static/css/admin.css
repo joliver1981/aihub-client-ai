@@ -1,0 +1,850 @@
+/**
+ * Admin UI Styles
+ * ================
+ * Styles for the Builder Agent configuration interface.
+ */
+
+/* ─── Flow Navigation ───────────────────────────────────────────────────── */
+
+.flow-nav {
+    position: relative;
+}
+
+.flow-step {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 12px;
+    border-radius: 8px;
+    background: transparent;
+    border: 1px solid transparent;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.flow-step:hover {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.05);
+}
+
+.flow-step.active {
+    background: rgba(6, 182, 212, 0.1);
+    border-color: rgba(6, 182, 212, 0.3);
+}
+
+.flow-step-number {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.05);
+    font-size: 11px;
+    font-weight: 600;
+    color: #71717a;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+}
+
+.flow-step.active .flow-step-number {
+    background: rgba(6, 182, 212, 0.2);
+    color: #06b6d4;
+}
+
+.flow-step-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.flow-step-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: #e4e4e7;
+    margin-bottom: 2px;
+}
+
+.flow-step-desc {
+    font-size: 11px;
+    color: #71717a;
+}
+
+.flow-step-arrow {
+    width: 16px;
+    height: 16px;
+    color: #3f3f46;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.flow-step:hover .flow-step-arrow,
+.flow-step.active .flow-step-arrow {
+    opacity: 1;
+}
+
+.flow-step.active .flow-step-arrow {
+    color: #06b6d4;
+}
+
+.flow-connector {
+    width: 2px;
+    height: 12px;
+    margin-left: 23px;
+    background: linear-gradient(to bottom, rgba(113, 113, 122, 0.3), rgba(113, 113, 122, 0.1));
+    border-radius: 1px;
+}
+
+
+/* ─── Config Cards ──────────────────────────────────────────────────────── */
+
+.config-card {
+    background: rgba(24, 24, 27, 0.5);
+    border: 1px solid rgba(63, 63, 70, 0.5);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.config-card-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(63, 63, 70, 0.3);
+}
+
+.config-card-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: #fafafa;
+    margin-bottom: 4px;
+}
+
+.config-card-desc {
+    font-size: 12px;
+    color: #71717a;
+}
+
+.config-card-body {
+    padding: 20px;
+}
+
+
+/* ─── Form Elements ─────────────────────────────────────────────────────── */
+
+.config-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #a1a1aa;
+    margin-bottom: 8px;
+}
+
+.config-textarea {
+    width: 100%;
+    padding: 12px 14px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(63, 63, 70, 0.5);
+    border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    color: #e4e4e7;
+    resize: vertical;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.config-textarea:focus {
+    outline: none;
+    border-color: rgba(6, 182, 212, 0.5);
+    box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.1);
+}
+
+.config-textarea:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.config-textarea::placeholder {
+    color: #52525b;
+}
+
+.config-input {
+    width: 100%;
+    padding: 10px 12px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(63, 63, 70, 0.5);
+    border-radius: 6px;
+    font-size: 13px;
+    color: #e4e4e7;
+    transition: border-color 0.2s ease;
+}
+
+.config-input:focus {
+    outline: none;
+    border-color: rgba(6, 182, 212, 0.5);
+}
+
+.config-input:read-only {
+    background: rgba(0, 0, 0, 0.5);
+    color: #a1a1aa;
+}
+
+.config-select {
+    width: 100%;
+    padding: 10px 12px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(63, 63, 70, 0.5);
+    border-radius: 6px;
+    font-size: 13px;
+    color: #e4e4e7;
+    cursor: pointer;
+}
+
+.config-select:focus {
+    outline: none;
+    border-color: rgba(6, 182, 212, 0.5);
+}
+
+.config-help {
+    margin-top: 8px;
+    font-size: 11px;
+    color: #52525b;
+}
+
+
+/* ─── Intent List ───────────────────────────────────────────────────────── */
+
+.intent-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.intent-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+}
+
+.intent-code {
+    padding: 4px 8px;
+    background: rgba(6, 182, 212, 0.1);
+    border: 1px solid rgba(6, 182, 212, 0.2);
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: #06b6d4;
+    flex-shrink: 0;
+}
+
+.intent-desc {
+    font-size: 12px;
+    color: #a1a1aa;
+}
+
+
+/* ─── Capabilities List ─────────────────────────────────────────────────── */
+
+.capabilities-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.capability-item {
+    padding: 12px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(63, 63, 70, 0.3);
+    border-radius: 8px;
+}
+
+.capability-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.capability-id {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: #06b6d4;
+}
+
+.capability-category {
+    padding: 2px 6px;
+    background: rgba(167, 139, 250, 0.1);
+    border-radius: 4px;
+    font-size: 10px;
+    color: #a78bfa;
+    text-transform: uppercase;
+}
+
+.capability-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: #e4e4e7;
+    margin-bottom: 4px;
+}
+
+.capability-desc {
+    font-size: 12px;
+    color: #71717a;
+}
+
+.capability-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 8px;
+}
+
+.capability-tags .tag {
+    padding: 2px 6px;
+    background: rgba(63, 63, 70, 0.5);
+    border-radius: 3px;
+    font-size: 10px;
+    color: #a1a1aa;
+}
+
+
+/* ─── Fields List ───────────────────────────────────────────────────────── */
+
+.fields-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.field-item,
+.mapping-item {
+    padding: 10px 12px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(63, 63, 70, 0.3);
+    border-radius: 6px;
+}
+
+.field-header,
+.mapping-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.field-name,
+.mapping-output,
+.mapping-source {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: #06b6d4;
+}
+
+.field-type {
+    padding: 2px 6px;
+    background: rgba(113, 113, 122, 0.2);
+    border-radius: 4px;
+    font-size: 10px;
+    color: #a1a1aa;
+    text-transform: uppercase;
+}
+
+.field-required {
+    padding: 2px 6px;
+    background: rgba(239, 68, 68, 0.1);
+    border-radius: 4px;
+    font-size: 10px;
+    color: #ef4444;
+}
+
+.field-optional {
+    padding: 2px 6px;
+    background: rgba(113, 113, 122, 0.1);
+    border-radius: 4px;
+    font-size: 10px;
+    color: #71717a;
+}
+
+.field-desc,
+.mapping-desc {
+    font-size: 11px;
+    color: #71717a;
+}
+
+.field-default {
+    margin-top: 4px;
+    font-size: 11px;
+    color: #52525b;
+}
+
+.field-default code {
+    color: #a78bfa;
+}
+
+.mapping-arrow {
+    color: #52525b;
+    font-size: 14px;
+}
+
+
+/* ─── Corrections List ──────────────────────────────────────────────────── */
+
+.corrections-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.correction-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.correction-wrong,
+.correction-correct {
+    flex: 1;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(63, 63, 70, 0.5);
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: #e4e4e7;
+}
+
+.correction-wrong:focus,
+.correction-correct:focus {
+    outline: none;
+    border-color: rgba(6, 182, 212, 0.5);
+}
+
+.correction-arrow {
+    color: #52525b;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.correction-delete {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: #71717a;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.correction-delete:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+}
+
+
+/* ─── Context Lookups ───────────────────────────────────────────────────── */
+
+.context-lookups {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.lookup-item {
+    padding: 12px 14px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(63, 63, 70, 0.3);
+    border-radius: 8px;
+}
+
+.lookup-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+
+.lookup-checkbox {
+    width: 16px;
+    height: 16px;
+    accent-color: #06b6d4;
+    cursor: pointer;
+}
+
+.lookup-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: #e4e4e7;
+    cursor: pointer;
+}
+
+.lookup-desc {
+    font-size: 11px;
+    color: #71717a;
+    margin-left: 26px;
+}
+
+
+/* ─── Toast Notifications ───────────────────────────────────────────────── */
+
+.toast {
+    padding: 12px 16px;
+    background: rgba(24, 24, 27, 0.95);
+    border: 1px solid rgba(63, 63, 70, 0.5);
+    border-radius: 8px;
+    font-size: 13px;
+    color: #e4e4e7;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    animation: toast-in 0.3s ease;
+}
+
+.toast-success {
+    border-color: rgba(34, 197, 94, 0.3);
+    background: rgba(34, 197, 94, 0.1);
+}
+
+.toast-error {
+    border-color: rgba(239, 68, 68, 0.3);
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.toast-fade {
+    opacity: 0;
+    transform: translateX(20px);
+    transition: all 0.3s ease;
+}
+
+@keyframes toast-in {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+
+/* ─── Route Section ─────────────────────────────────────────────────────── */
+
+.route-section {
+    padding: 16px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(63, 63, 70, 0.3);
+    border-radius: 8px;
+}
+
+.route-section h4 {
+    margin-bottom: 12px;
+}
+
+
+/* ─── Modal Dialogs ─────────────────────────────────────────────────────── */
+
+.modal {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+
+.modal.hidden {
+    display: none;
+}
+
+.modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+}
+
+.modal-content {
+    position: relative;
+    width: 100%;
+    max-width: 480px;
+    max-height: 90vh;
+    overflow-y: auto;
+    background: #18181b;
+    border: 1px solid rgba(63, 63, 70, 0.5);
+    border-radius: 12px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    animation: modal-in 0.2s ease;
+}
+
+.modal-content-sm {
+    max-width: 360px;
+}
+
+.modal-content-lg {
+    max-width: 560px;
+}
+
+@keyframes modal-in {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(63, 63, 70, 0.3);
+}
+
+.modal-title {
+    font-size: 16px;
+    font-weight: 500;
+    color: #fafafa;
+}
+
+.modal-close {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    font-size: 20px;
+    color: #71717a;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.modal-close:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: #a1a1aa;
+}
+
+.modal-body {
+    padding: 20px;
+}
+
+.modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 16px 20px;
+    border-top: 1px solid rgba(63, 63, 70, 0.3);
+}
+
+.modal-btn-cancel {
+    padding: 8px 16px;
+    background: transparent;
+    border: 1px solid rgba(63, 63, 70, 0.5);
+    border-radius: 6px;
+    font-size: 13px;
+    color: #a1a1aa;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.modal-btn-cancel:hover {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(63, 63, 70, 0.8);
+    color: #e4e4e7;
+}
+
+.modal-btn-confirm {
+    padding: 8px 16px;
+    background: rgba(6, 182, 212, 0.2);
+    border: 1px solid rgba(6, 182, 212, 0.5);
+    border-radius: 6px;
+    font-size: 13px;
+    color: #06b6d4;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.modal-btn-confirm:hover {
+    background: rgba(6, 182, 212, 0.3);
+}
+
+.modal-btn-confirm:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.modal-btn-danger {
+    padding: 8px 16px;
+    background: rgba(239, 68, 68, 0.2);
+    border: 1px solid rgba(239, 68, 68, 0.5);
+    border-radius: 6px;
+    font-size: 13px;
+    color: #ef4444;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.modal-btn-danger:hover {
+    background: rgba(239, 68, 68, 0.3);
+}
+
+
+/* ─── Item Actions (Edit/Delete Buttons) ───────────────────────────────── */
+
+.capability-item,
+.field-item,
+.mapping-item {
+    position: relative;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.capability-item:hover,
+.field-item:hover,
+.mapping-item:hover {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.item-actions {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.capability-item:hover .item-actions,
+.field-item:hover .item-actions,
+.mapping-item:hover .item-actions {
+    opacity: 1;
+}
+
+.item-actions .btn-edit,
+.item-actions .btn-delete {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: #52525b;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.item-actions .btn-edit:hover {
+    background: rgba(6, 182, 212, 0.1);
+    color: #06b6d4;
+}
+
+.item-actions .btn-delete:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+}
+
+/* Legacy single delete button support */
+.capability-item .capability-delete,
+.field-item .field-delete,
+.mapping-item .mapping-delete {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: #52525b;
+    cursor: pointer;
+    opacity: 0;
+    transition: all 0.2s ease;
+}
+
+.mapping-item:hover .mapping-delete {
+    opacity: 1;
+}
+
+.mapping-item .mapping-delete:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+}
+
+
+/* ─── Flow Diagram (Agent Registry) ─────────────────────────────────────── */
+
+.flow-diagram {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 16px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 8px;
+}
+
+.flow-step-mini {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: rgba(6, 182, 212, 0.1);
+    border: 1px solid rgba(6, 182, 212, 0.2);
+    border-radius: 6px;
+}
+
+.flow-step-num {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    background: rgba(6, 182, 212, 0.2);
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #06b6d4;
+}
+
+.flow-step-text {
+    font-size: 12px;
+    color: #e4e4e7;
+}
+
+.flow-arrow {
+    color: #52525b;
+    font-size: 18px;
+}
+
+@media (max-width: 768px) {
+    .flow-diagram {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .flow-arrow {
+        transform: rotate(90deg);
+        align-self: center;
+    }
+}

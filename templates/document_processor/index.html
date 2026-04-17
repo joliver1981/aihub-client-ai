@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<style>
+    /* ===== DOCUMENT PROCESSOR SPECIFIC ===== */
+    .doc-page .card-header .row {
+        font-weight: 600;
+        font-size: 0.82rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .doc-page a.text-decoration-none {
+        color: var(--cyber-cyan);
+    }
+
+    .doc-page a.text-decoration-none:hover {
+        color: var(--cyber-violet);
+    }
+</style>
+
+<div class="doc-page" id="docPage">
+<div class="container-fluid">
+
+    <!-- Page Header -->
+    <div class="doc-page-header">
+        <div>
+            <h4 class="doc-page-header-title"><i class="fas fa-cogs"></i> Document Processor Jobs</h4>
+        </div>
+        <div class="doc-page-header-actions">
+            <a href="{{ url_for('document_processor_new_job') }}" class="btn btn-primary btn-sm">
+                <i class="fas fa-plus mr-1"></i> Create New Job
+            </a>
+            <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+                <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+            </button>
+        </div>
+    </div>
+    
+    <div class="doc-processor">
+        <div class="row">
+            <div class="col-12">
+                {% if jobs %}
+                    <div class="card">
+                        <div class="card-header doc-card-header">
+                            <div class="row">
+                                <div class="col-md-4">Job Name</div>
+                                <div class="col-md-3">Status</div>
+                                <div class="col-md-3">Last/Next Run</div>
+                                <div class="col-md-2">Actions</div>
+                            </div>
+                        </div>
+                        <ul class="list-group list-group-flush">
+                            {% for job in jobs %}
+                                <li class="list-group-item">
+                                    <div class="row align-items-center">
+                                        <div class="col-md-4">
+                                            <strong>
+                                                <a href="{{ url_for('document_processor_view_job', job_id=job.JobID) }}" class="text-decoration-none">
+                                                    {{ job.JobName }}
+                                                </a>
+                                            </strong>
+                                            {% if job.Description %}
+                                                <div class="small text-muted">{{ job.Description }}</div>
+                                            {% endif %}
+                                        </div>
+                                        <div class="col-md-3">
+                                            {% if job.IsActive %}
+                                                <span class="badge badge-success">Active</span>
+                                            {% else %}
+                                                <span class="badge badge-secondary">Inactive</span>
+                                            {% endif %}
+                                            <div class="small text-muted mt-1">
+                                                Created by {{ job.CreatedBy }} on 
+                                                <span class="created-at-date" data-utc="{{ job.CreatedAt.isoformat() }}Z"></span>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            {% if job.LastRunAt %}
+                                                <div class="small">
+                                                    <strong>Last run:</strong>
+                                                    <span class="last-run-at" data-utc="{{ job.LastRunAt.isoformat() }}Z"></span>
+                                                </div>
+                                            {% else %}
+                                                <div class="small text-muted">Never run</div>
+                                            {% endif %}
+                                            
+                                            {% if job.NextScheduledRunAt %}
+                                                <div class="small">
+                                                    <strong>Next run:</strong>
+                                                    <span class="next-run-at" data-utc="{{ job.NextScheduledRunAt.isoformat() }}Z"></span>
+                                                </div>
+                                            {% endif %}
+                                        </div>
+                                        <div class="col-md-2">
+                                            <div class="btn-group btn-group-sm">
+                                                <a href="{{ url_for('document_processor_view_job', job_id=job.JobID) }}" class="btn btn-outline-primary" data-toggle="tooltip" title="View details">
+                                                    <i class="fas fa-eye"></i>
+                                                </a>
+                                                <a href="{{ url_for('document_processor_edit_job', job_id=job.JobID) }}" class="btn btn-outline-secondary" data-toggle="tooltip" title="Edit job">
+                                                    <i class="fas fa-edit"></i>
+                                                </a>
+                                                <a href="{{ url_for('document_processor_view_job', job_id=job.JobID) }}#schedule" class="btn btn-outline-info" data-toggle="tooltip" title="View and schedule">
+                                                    <i class="fas fa-calendar-alt"></i>
+                                                </a>
+                                                <button type="button" class="btn btn-outline-danger confirm-action" 
+                                                        data-toggle="tooltip" title="Delete job"
+                                                        data-confirm-message="Are you sure you want to delete this job?"
+                                                        onclick="document.getElementById('delete-form-{{ job.JobID }}').submit();">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                                <form id="delete-form-{{ job.JobID }}" action="{{ url_for('document_processor_delete_job', job_id=job.JobID) }}" method="POST" class="d-none">
+                                                    <!-- You might want to add CSRF protection here -->
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                {% else %}
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle mr-2"></i> No jobs have been created yet.
+                        <a href="{{ url_for('document_processor_new_job') }}" class="alert-link">Create your first job</a>.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    const page = document.getElementById('docPage');
+    const icon = document.getElementById('docThemeIcon');
+    const label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    const isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    const saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        const page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            const icon = document.getElementById('docThemeIcon');
+            const label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+
+<script>
+    function convertUtcToLocalString(utcString) {
+        const date = new Date(utcString);
+        if (isNaN(date)) return '';
+        return date.toLocaleString(); // keeps time for everything except created-at
+    }
+
+    function formatDateOnlyLocal(date) {
+        return date.getFullYear() + '-' +
+               String(date.getMonth() + 1).padStart(2, '0') + '-' +
+               String(date.getDate()).padStart(2, '0');
+    }
+
+    // Update all UTC -> Local displays
+    document.querySelectorAll('[data-utc]').forEach(el => {
+        const utc = el.dataset.utc;
+        if (!utc) return;
+
+        const date = new Date(utc);
+        if (isNaN(date)) return;
+
+        if (el.classList.contains('created-at-date')) {
+            el.textContent = formatDateOnlyLocal(date);
+        } else {
+            el.textContent = convertUtcToLocalString(utc);
+        }
+    });
+</script>
+</div><!-- /.container-fluid -->
+</div><!-- /.doc-page -->
+{% endblock %}

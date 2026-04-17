@@ -1,0 +1,1239 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Builder Agent - Configuration</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+    <!-- Tailwind CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'cyber-cyan': '#06b6d4',
+                        'cyber-violet': '#a78bfa',
+                    },
+                    fontFamily: {
+                        'outfit': ['Outfit', 'sans-serif'],
+                        'mono': ['JetBrains Mono', 'monospace'],
+                    },
+                }
+            }
+        }
+    </script>
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/app.css">
+    <link rel="stylesheet" href="/static/css/admin.css">
+</head>
+<body class="h-full bg-black font-outfit text-white overflow-hidden">
+
+    <!-- Noise texture overlay -->
+    <svg class="noise-overlay" xmlns="http://www.w3.org/2000/svg">
+        <filter id="noise">
+            <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="4" stitchTiles="stitch"/>
+        </filter>
+        <rect width="100%" height="100%" filter="url(#noise)"/>
+    </svg>
+
+    <!-- Main layout -->
+    <div class="flex h-full">
+
+        <!-- Left Sidebar - Flow Navigation -->
+        <aside class="w-[280px] min-w-[280px] border-r border-zinc-800 bg-black flex flex-col">
+            <!-- Header -->
+            <div class="flex items-center justify-between px-4 py-4 border-b border-zinc-800">
+                <div class="flex items-center gap-2">
+                    <svg class="w-5 h-5 text-cyber-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    </svg>
+                    <span class="text-sm font-medium">Builder Configuration</span>
+                </div>
+                <a href="/" class="icon-btn w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-800 transition-colors" title="Back to Builder">
+                    <svg class="w-4 h-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </a>
+            </div>
+
+            <!-- Flow Navigation -->
+            <div class="flex-1 overflow-y-auto custom-scrollbar p-4">
+                <div class="section-label mb-3">PROCESS FLOW</div>
+
+                <!-- Flow Steps -->
+                <div class="flow-nav flex flex-col gap-1">
+
+                    <!-- 1. Intent Classification -->
+                    <button class="flow-step" data-section="intent">
+                        <div class="flow-step-number">1</div>
+                        <div class="flow-step-content">
+                            <div class="flow-step-title">Intent Classification</div>
+                            <div class="flow-step-desc">Route user messages</div>
+                        </div>
+                        <svg class="flow-step-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                        </svg>
+                    </button>
+
+                    <div class="flow-connector"></div>
+
+                    <!-- 2. System Personality -->
+                    <button class="flow-step" data-section="personality">
+                        <div class="flow-step-number">2</div>
+                        <div class="flow-step-content">
+                            <div class="flow-step-title">System Personality</div>
+                            <div class="flow-step-desc">Agent tone & style</div>
+                        </div>
+                        <svg class="flow-step-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                        </svg>
+                    </button>
+
+                    <div class="flow-connector"></div>
+
+                    <!-- 3. Platform Knowledge -->
+                    <button class="flow-step" data-section="knowledge">
+                        <div class="flow-step-number">3</div>
+                        <div class="flow-step-content">
+                            <div class="flow-step-title">Platform Knowledge</div>
+                            <div class="flow-step-desc">Static rules & guidance</div>
+                        </div>
+                        <svg class="flow-step-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                        </svg>
+                    </button>
+
+                    <div class="flow-connector"></div>
+
+                    <!-- 4. Domain Registry -->
+                    <button class="flow-step" data-section="domains">
+                        <div class="flow-step-number">4</div>
+                        <div class="flow-step-content">
+                            <div class="flow-step-title">Domain Registry</div>
+                            <div class="flow-step-desc">What capabilities exist</div>
+                        </div>
+                        <svg class="flow-step-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                        </svg>
+                    </button>
+
+                    <div class="flow-connector"></div>
+
+                    <!-- 5. Action Registry -->
+                    <button class="flow-step" data-section="actions">
+                        <div class="flow-step-number">5</div>
+                        <div class="flow-step-content">
+                            <div class="flow-step-title">Action Registry</div>
+                            <div class="flow-step-desc">How to execute (routes)</div>
+                        </div>
+                        <svg class="flow-step-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                        </svg>
+                    </button>
+
+                    <div class="flow-connector"></div>
+
+                    <!-- 6. Planning Prompt -->
+                    <button class="flow-step" data-section="planning">
+                        <div class="flow-step-number">6</div>
+                        <div class="flow-step-content">
+                            <div class="flow-step-title">Planning Prompt</div>
+                            <div class="flow-step-desc">How to create plans</div>
+                        </div>
+                        <svg class="flow-step-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                        </svg>
+                    </button>
+
+                    <div class="flow-connector"></div>
+
+                    <!-- 7. Step Extraction -->
+                    <button class="flow-step" data-section="extraction">
+                        <div class="flow-step-number">7</div>
+                        <div class="flow-step-content">
+                            <div class="flow-step-title">Step Extraction</div>
+                            <div class="flow-step-desc">Parse plan to steps</div>
+                        </div>
+                        <svg class="flow-step-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                        </svg>
+                    </button>
+
+                    <div class="flow-connector"></div>
+
+                    <!-- 8. Parameter Enrichment -->
+                    <button class="flow-step" data-section="enrichment">
+                        <div class="flow-step-number">8</div>
+                        <div class="flow-step-content">
+                            <div class="flow-step-title">Parameter Enrichment</div>
+                            <div class="flow-step-desc">Fill missing params</div>
+                        </div>
+                        <svg class="flow-step-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                        </svg>
+                    </button>
+
+                    <div class="flow-connector"></div>
+
+                    <!-- 9. Context Gatherer -->
+                    <button class="flow-step" data-section="context">
+                        <div class="flow-step-number">9</div>
+                        <div class="flow-step-content">
+                            <div class="flow-step-title">Context Gatherer</div>
+                            <div class="flow-step-desc">Dynamic lookups & validation</div>
+                        </div>
+                        <svg class="flow-step-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                        </svg>
+                    </button>
+
+                    <div class="flow-connector"></div>
+
+                    <!-- 10. Agent Registry -->
+                    <button class="flow-step" data-section="agents">
+                        <div class="flow-step-number">10</div>
+                        <div class="flow-step-content">
+                            <div class="flow-step-title">Agent Registry</div>
+                            <div class="flow-step-desc">Specialist agents to delegate to</div>
+                        </div>
+                        <svg class="flow-step-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                        </svg>
+                    </button>
+
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="px-4 py-3 border-t border-zinc-800">
+                <button id="btn-save-all" class="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-cyber-cyan/20 border border-cyber-cyan/50 text-sm text-cyber-cyan hover:bg-cyber-cyan/30 transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/>
+                    </svg>
+                    Save All Changes
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
+
+            <!-- Content Header -->
+            <header class="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
+                <div>
+                    <h1 id="section-title" class="text-lg font-medium text-white">Intent Classification</h1>
+                    <p id="section-desc" class="text-sm text-zinc-500 mt-0.5">Configure how user messages are routed</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span id="save-status" class="text-xs text-zinc-500"></span>
+                    <button id="btn-save-section" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-300 hover:bg-zinc-700 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                        </svg>
+                        Save Section
+                    </button>
+                </div>
+            </header>
+
+            <!-- Dynamic Content Area -->
+            <div id="content-area" class="flex-1 overflow-y-auto custom-scrollbar p-6">
+
+                <!-- Section: Intent Classification -->
+                <section id="section-intent" class="config-section">
+                    <div class="config-card">
+                        <div class="config-card-header">
+                            <h3 class="config-card-title">Intent Classification Prompt</h3>
+                            <p class="config-card-desc">This prompt tells the mini LLM how to classify user messages into intents.</p>
+                        </div>
+                        <div class="config-card-body">
+                            <label class="config-label">Prompt Template</label>
+                            <textarea id="intent-prompt" class="config-textarea" rows="12" data-file="builder_config" data-var="INTENT_CLASSIFICATION_PROMPT"></textarea>
+                            <p class="config-help">Available variables: {has_pending_confirmation}, {has_active_plan}, {is_executing}</p>
+                        </div>
+                    </div>
+
+                    <div class="config-card mt-4">
+                        <div class="config-card-header">
+                            <h3 class="config-card-title">Valid Intents</h3>
+                            <p class="config-card-desc">The intents that the classifier can return.</p>
+                        </div>
+                        <div class="config-card-body">
+                            <div class="intent-list">
+                                <div class="intent-item">
+                                    <code class="intent-code">build</code>
+                                    <span class="intent-desc">User wants to create, configure, or modify something</span>
+                                </div>
+                                <div class="intent-item">
+                                    <code class="intent-code">chat</code>
+                                    <span class="intent-desc">General question or conversation</span>
+                                </div>
+                                <div class="intent-item">
+                                    <code class="intent-code">confirm_yes</code>
+                                    <span class="intent-desc">User is approving a plan</span>
+                                </div>
+                                <div class="intent-item">
+                                    <code class="intent-code">confirm_no</code>
+                                    <span class="intent-desc">User is rejecting or wants changes</span>
+                                </div>
+                                <div class="intent-item">
+                                    <code class="intent-code">provide_context</code>
+                                    <span class="intent-desc">User is answering a clarifying question</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Section: System Personality -->
+                <section id="section-personality" class="config-section hidden">
+                    <div class="config-card">
+                        <div class="config-card-header">
+                            <h3 class="config-card-title">Builder System Prompt</h3>
+                            <p class="config-card-desc">Defines the agent's personality, tone, and high-level capabilities.</p>
+                        </div>
+                        <div class="config-card-body">
+                            <label class="config-label">System Prompt</label>
+                            <textarea id="system-prompt" class="config-textarea" rows="20" data-file="builder_config" data-var="BUILDER_SYSTEM_PROMPT"></textarea>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Section: Platform Knowledge -->
+                <section id="section-knowledge" class="config-section hidden">
+                    <div class="config-card">
+                        <div class="config-card-header">
+                            <h3 class="config-card-title">Platform Overview</h3>
+                            <p class="config-card-desc">High-level description of platform entities.</p>
+                        </div>
+                        <div class="config-card-body">
+                            <textarea id="platform-overview" class="config-textarea" rows="10" data-file="platform_knowledge" data-var="PLATFORM_OVERVIEW"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="config-card mt-4">
+                        <div class="config-card-header">
+                            <h3 class="config-card-title">Dynamic Context Guidance</h3>
+                            <p class="config-card-desc">How to use system-provided values.</p>
+                        </div>
+                        <div class="config-card-body">
+                            <textarea id="context-guidance" class="config-textarea" rows="6" data-file="platform_knowledge" data-var="DYNAMIC_CONTEXT_GUIDANCE"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="config-card mt-4">
+                        <div class="config-card-header">
+                            <h3 class="config-card-title">Valid Capabilities</h3>
+                            <p class="config-card-desc">List of all valid capability IDs the agent can use.</p>
+                        </div>
+                        <div class="config-card-body">
+                            <textarea id="valid-capabilities" class="config-textarea font-mono text-xs" rows="25" data-file="platform_knowledge" data-var="VALID_CAPABILITIES"></textarea>
+                            <p class="config-help">Format: domain.action - Description. Keep in sync with domain registry.</p>
+                        </div>
+                    </div>
+
+                    <div class="config-card mt-4">
+                        <div class="config-card-header">
+                            <h3 class="config-card-title">Planning Rules</h3>
+                            <p class="config-card-desc">Guidelines for creating good plans.</p>
+                        </div>
+                        <div class="config-card-body">
+                            <textarea id="planning-rules" class="config-textarea" rows="12" data-file="platform_knowledge" data-var="PLANNING_RULES"></textarea>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Section: Domain Registry -->
+                <section id="section-domains" class="config-section hidden">
+                    <div class="config-card">
+                        <div class="config-card-header flex items-center justify-between">
+                            <div>
+                                <h3 class="config-card-title">Domain Registry</h3>
+                                <p class="config-card-desc">Defines all domains and their capabilities. Each domain describes what can be done in that area.</p>
+                            </div>
+                            <button id="btn-add-domain" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-cyber-cyan/20 border border-cyber-cyan/50 text-sm text-cyber-cyan hover:bg-cyber-cyan/30 transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                                </svg>
+                                Add Domain
+                            </button>
+                        </div>
+                        <div class="config-card-body">
+                            <div class="mb-4">
+                                <label class="config-label">Select Domain</label>
+                                <select id="domain-select" class="config-select">
+                                    <option value="">-- Select a domain --</option>
+                                </select>
+                            </div>
+
+                            <div id="domain-editor" class="hidden">
+                                <div class="grid grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <label class="config-label">Domain ID</label>
+                                        <input type="text" id="domain-id" class="config-input" readonly>
+                                    </div>
+                                    <div>
+                                        <label class="config-label">Name</label>
+                                        <input type="text" id="domain-name" class="config-input">
+                                    </div>
+                                </div>
+
+                                <div class="mb-4">
+                                    <label class="config-label">Description</label>
+                                    <textarea id="domain-description" class="config-textarea" rows="3"></textarea>
+                                </div>
+
+                                <div class="mb-4">
+                                    <label class="config-label">Context Notes</label>
+                                    <textarea id="domain-context" class="config-textarea" rows="3"></textarea>
+                                    <p class="config-help">Implementation details the LLM should know.</p>
+                                </div>
+
+                                <div class="mb-4">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <label class="config-label mb-0">Capabilities</label>
+                                        <button id="btn-add-capability" class="flex items-center gap-1 px-2 py-1 rounded text-xs text-cyber-cyan hover:bg-cyber-cyan/10 transition-colors">
+                                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                                            </svg>
+                                            Add Capability
+                                        </button>
+                                    </div>
+                                    <div id="capabilities-list" class="capabilities-list">
+                                        <!-- Capabilities rendered dynamically -->
+                                    </div>
+                                </div>
+
+                                <div class="mb-4">
+                                    <label class="config-label flex items-center gap-2">
+                                        <input type="checkbox" id="domain-enabled" class="w-4 h-4 rounded border-zinc-600 bg-zinc-800 text-cyber-cyan focus:ring-cyber-cyan focus:ring-offset-0">
+                                        Enabled
+                                    </label>
+                                    <p class="config-help">When disabled, this domain and its capabilities are hidden from the planner.</p>
+                                </div>
+
+                                <div class="flex items-center justify-between pt-4 border-t border-zinc-800">
+                                    <button id="btn-delete-domain" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-sm text-red-400 hover:bg-red-500/20 transition-colors">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                        </svg>
+                                        Delete Domain
+                                    </button>
+                                    <button id="btn-save-domain" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-300 hover:bg-zinc-700 transition-colors">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                                        </svg>
+                                        Save Domain
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Section: Action Registry -->
+                <section id="section-actions" class="config-section hidden">
+                    <div class="config-card">
+                        <div class="config-card-header flex items-center justify-between">
+                            <div>
+                                <h3 class="config-card-title">Action Registry</h3>
+                                <p class="config-card-desc">Maps capabilities to actual API routes, methods, and parameters.</p>
+                            </div>
+                            <button id="btn-add-action" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-cyber-cyan/20 border border-cyber-cyan/50 text-sm text-cyber-cyan hover:bg-cyber-cyan/30 transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                                </svg>
+                                Add Action
+                            </button>
+                        </div>
+                        <div class="config-card-body">
+                            <div class="mb-4">
+                                <label class="config-label">Select Action</label>
+                                <select id="action-select" class="config-select">
+                                    <option value="">-- Select an action --</option>
+                                </select>
+                            </div>
+
+                            <div id="action-editor" class="hidden">
+                                <div class="grid grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <label class="config-label">Capability ID</label>
+                                        <input type="text" id="action-capability-id" class="config-input" readonly>
+                                    </div>
+                                    <div>
+                                        <label class="config-label">Domain</label>
+                                        <input type="text" id="action-domain" class="config-input" readonly>
+                                    </div>
+                                </div>
+
+                                <div class="mb-4">
+                                    <label class="config-label">Description</label>
+                                    <textarea id="action-description" class="config-textarea" rows="2"></textarea>
+                                </div>
+
+                                <div class="route-section mb-4">
+                                    <h4 class="text-sm font-medium text-zinc-300 mb-3">Primary Route</h4>
+                                    <div class="grid grid-cols-3 gap-4 mb-3">
+                                        <div>
+                                            <label class="config-label">Method</label>
+                                            <select id="route-method" class="config-select">
+                                                <option value="GET">GET</option>
+                                                <option value="POST">POST</option>
+                                                <option value="PUT">PUT</option>
+                                                <option value="DELETE">DELETE</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-span-2">
+                                            <label class="config-label">Path</label>
+                                            <input type="text" id="route-path" class="config-input font-mono">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="mb-4">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <label class="config-label mb-0">Input Fields</label>
+                                        <button id="btn-add-input-field" class="flex items-center gap-1 px-2 py-1 rounded text-xs text-cyber-cyan hover:bg-cyber-cyan/10 transition-colors">
+                                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                                            </svg>
+                                            Add Field
+                                        </button>
+                                    </div>
+                                    <div id="input-fields-list" class="fields-list">
+                                        <!-- Input fields rendered dynamically -->
+                                    </div>
+                                </div>
+
+                                <div class="mb-4">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <label class="config-label mb-0">Response Mappings</label>
+                                        <button id="btn-add-response-mapping" class="flex items-center gap-1 px-2 py-1 rounded text-xs text-cyber-cyan hover:bg-cyber-cyan/10 transition-colors">
+                                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                                            </svg>
+                                            Add Mapping
+                                        </button>
+                                    </div>
+                                    <div id="response-mappings-list" class="fields-list">
+                                        <!-- Response mappings rendered dynamically -->
+                                    </div>
+                                </div>
+
+                                <div class="flex items-center justify-between pt-4 border-t border-zinc-800">
+                                    <button id="btn-delete-action" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-sm text-red-400 hover:bg-red-500/20 transition-colors">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                        </svg>
+                                        Delete Action
+                                    </button>
+                                    <button id="btn-save-action" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-300 hover:bg-zinc-700 transition-colors">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                                        </svg>
+                                        Save Action
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Section: Planning Prompt -->
+                <section id="section-planning" class="config-section hidden">
+                    <div class="config-card">
+                        <div class="config-card-header">
+                            <h3 class="config-card-title">Plan System Prompt</h3>
+                            <p class="config-card-desc">The prompt used when generating execution plans. Combines with platform knowledge.</p>
+                        </div>
+                        <div class="config-card-body">
+                            <textarea id="plan-prompt" class="config-textarea" rows="15" data-file="nodes" data-var="PLAN_SYSTEM_PROMPT"></textarea>
+                            <p class="config-help">Note: get_planning_knowledge() is automatically appended to this prompt.</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Section: Step Extraction -->
+                <section id="section-extraction" class="config-section hidden">
+                    <div class="config-card">
+                        <div class="config-card-header">
+                            <h3 class="config-card-title">Step Extraction Prompt</h3>
+                            <p class="config-card-desc">Tells the mini LLM how to extract structured steps from a plan.</p>
+                        </div>
+                        <div class="config-card-body">
+                            <textarea id="extract-prompt" class="config-textarea" rows="20" data-file="nodes" data-var="EXTRACT_STEPS_PROMPT"></textarea>
+                            <p class="config-help">Variable: {response_text} - The plan text to extract from. get_capability_list() is automatically injected.</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Section: Parameter Enrichment -->
+                <section id="section-enrichment" class="config-section hidden">
+                    <div class="config-card">
+                        <div class="config-card-header">
+                            <h3 class="config-card-title">Parameter Extraction Prompt</h3>
+                            <p class="config-card-desc">Fills in missing parameters based on action definitions and step descriptions.</p>
+                        </div>
+                        <div class="config-card-body">
+                            <textarea id="params-prompt" class="config-textarea" rows="15" data-file="nodes" data-var="EXTRACT_PARAMS_PROMPT"></textarea>
+                            <p class="config-help">Variables: {capability_id}, {description}, {required_fields}, {optional_fields}, {current_params}</p>
+                        </div>
+                    </div>
+
+                    <div class="config-card mt-4">
+                        <div class="config-card-header">
+                            <h3 class="config-card-title">Field Name Corrections</h3>
+                            <p class="config-card-desc">Common mistakes the LLM makes with field names, and their corrections.</p>
+                        </div>
+                        <div class="config-card-body">
+                            <div id="field-corrections" class="corrections-list">
+                                <!-- Field corrections rendered dynamically -->
+                            </div>
+                            <button id="btn-add-correction" class="mt-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-400 hover:text-white transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                                </svg>
+                                Add Correction
+                            </button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Section: Context Gatherer -->
+                <section id="section-context" class="config-section hidden">
+                    <div class="config-card">
+                        <div class="config-card-header">
+                            <h3 class="config-card-title">Context Gathering Configuration</h3>
+                            <p class="config-card-desc">Configure which lookups are performed before planning.</p>
+                        </div>
+                        <div class="config-card-body">
+                            <div class="context-lookups">
+                                <div class="lookup-item">
+                                    <div class="lookup-header">
+                                        <input type="checkbox" id="lookup-tools" checked class="lookup-checkbox">
+                                        <label for="lookup-tools" class="lookup-label">Tools Lookup</label>
+                                    </div>
+                                    <p class="lookup-desc">Fetches available tools from /api/tools/by-category</p>
+                                </div>
+                                <div class="lookup-item">
+                                    <div class="lookup-header">
+                                        <input type="checkbox" id="lookup-agents" checked class="lookup-checkbox">
+                                        <label for="lookup-agents" class="lookup-label">Agents Lookup</label>
+                                    </div>
+                                    <p class="lookup-desc">Fetches existing agents for reference</p>
+                                </div>
+                                <div class="lookup-item">
+                                    <div class="lookup-header">
+                                        <input type="checkbox" id="lookup-connections" class="lookup-checkbox">
+                                        <label for="lookup-connections" class="lookup-label">Connections Lookup</label>
+                                    </div>
+                                    <p class="lookup-desc">Fetches database connections for data agents</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="config-card mt-4">
+                        <div class="config-card-header">
+                            <h3 class="config-card-title">Fuzzy Matching Threshold</h3>
+                            <p class="config-card-desc">Minimum similarity score for auto-correcting values.</p>
+                        </div>
+                        <div class="config-card-body">
+                            <div class="flex items-center gap-4">
+                                <input type="range" id="fuzzy-threshold" min="0.5" max="1.0" step="0.05" value="0.7" class="flex-1">
+                                <span id="fuzzy-value" class="text-sm font-mono text-zinc-400">0.70</span>
+                            </div>
+                            <p class="config-help mt-2">Higher = stricter matching. Lower = more lenient corrections.</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Section: Agent Registry -->
+                <section id="section-agents" class="config-section hidden">
+                    <div class="config-card">
+                        <div class="config-card-header flex items-center justify-between">
+                            <div>
+                                <h3 class="config-card-title">Agent Registry</h3>
+                                <p class="config-card-desc">Specialized AI agents that the Builder can delegate tasks to. When a user request matches an agent's specializations, the Builder will hand off the task.</p>
+                            </div>
+                            <button id="btn-add-agent" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-cyber-cyan/20 border border-cyber-cyan/50 text-sm text-cyber-cyan hover:bg-cyber-cyan/30 transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                                </svg>
+                                Add Agent
+                            </button>
+                        </div>
+                        <div class="config-card-body">
+                            <div class="mb-4">
+                                <label class="config-label">Select Agent</label>
+                                <select id="agent-select" class="config-select">
+                                    <option value="">-- Select an agent --</option>
+                                </select>
+                            </div>
+
+                            <div id="agent-editor" class="hidden">
+                                <div class="grid grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <label class="config-label">Agent ID</label>
+                                        <input type="text" id="agent-id" class="config-input" readonly>
+                                    </div>
+                                    <div>
+                                        <label class="config-label">Name</label>
+                                        <input type="text" id="agent-name" class="config-input">
+                                    </div>
+                                </div>
+
+                                <div class="mb-4">
+                                    <label class="config-label">Description</label>
+                                    <textarea id="agent-description" class="config-textarea" rows="2"></textarea>
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <label class="config-label">Protocol</label>
+                                        <select id="agent-protocol" class="config-select">
+                                            <option value="text_chat">Text Chat</option>
+                                            <option value="workflow_builder">Workflow Builder (HTTP API)</option>
+                                            <option value="structured">Structured JSON</option>
+                                            <option value="function_call">Function Call</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="config-label">Timeout (seconds)</label>
+                                        <input type="number" id="agent-timeout" class="config-input" value="120" min="10" max="600">
+                                    </div>
+                                </div>
+
+                                <div class="mb-4">
+                                    <label class="config-label">Endpoint URL</label>
+                                    <input type="text" id="agent-endpoint" class="config-input font-mono" placeholder="/api/agents/workflow/chat">
+                                    <p class="config-help">The URL or path to reach this agent's chat endpoint.</p>
+                                </div>
+
+                                <div class="mb-4">
+                                    <label class="config-label">Specializations (comma-separated)</label>
+                                    <input type="text" id="agent-specializations" class="config-input" placeholder="workflow, automation, trigger, pipeline">
+                                    <p class="config-help">Keywords that trigger delegation to this agent.</p>
+                                </div>
+
+                                <div class="mb-4">
+                                    <label class="config-label">System Prompt</label>
+                                    <textarea id="agent-system-prompt" class="config-textarea" rows="4" placeholder="You are a specialist agent that..."></textarea>
+                                    <p class="config-help">Context provided when starting conversations with this agent.</p>
+                                </div>
+
+                                <div class="mb-4">
+                                    <label class="config-label flex items-center gap-2">
+                                        <input type="checkbox" id="agent-enabled" class="w-4 h-4 rounded border-zinc-600 bg-zinc-800 text-cyber-cyan focus:ring-cyber-cyan focus:ring-offset-0">
+                                        Enabled
+                                    </label>
+                                    <p class="config-help">When disabled, this agent won't receive delegated tasks.</p>
+                                </div>
+
+                                <div class="flex items-center justify-between pt-4 border-t border-zinc-800">
+                                    <div class="flex items-center gap-2">
+                                        <button id="btn-delete-agent" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-sm text-red-400 hover:bg-red-500/20 transition-colors">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                            </svg>
+                                            Delete
+                                        </button>
+                                        <button id="btn-test-agent" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-400 hover:text-white transition-colors">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                                            </svg>
+                                            Test Connection
+                                        </button>
+                                    </div>
+                                    <button id="btn-save-agent" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-300 hover:bg-zinc-700 transition-colors">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                                        </svg>
+                                        Save Agent
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- First-Class Agent Execution Info -->
+                    <div class="config-card mt-4">
+                        <div class="config-card-header">
+                            <h3 class="config-card-title">First-Class Agent Execution</h3>
+                            <p class="config-card-desc">Agents are treated as equal execution options alongside direct API actions.</p>
+                        </div>
+                        <div class="config-card-body">
+                            <div class="flow-diagram">
+                                <div class="flow-step-mini">
+                                    <span class="flow-step-num">1</span>
+                                    <span class="flow-step-text">User sends a "build" request</span>
+                                </div>
+                                <div class="flow-arrow">→</div>
+                                <div class="flow-step-mini">
+                                    <span class="flow-step-num">2</span>
+                                    <span class="flow-step-text">Planner sees APIs + Agents as options</span>
+                                </div>
+                                <div class="flow-arrow">→</div>
+                                <div class="flow-step-mini">
+                                    <span class="flow-step-num">3</span>
+                                    <span class="flow-step-text">Plan includes agent steps: {domain: "agent"}</span>
+                                </div>
+                                <div class="flow-arrow">→</div>
+                                <div class="flow-step-mini">
+                                    <span class="flow-step-num">4</span>
+                                    <span class="flow-step-text">Execute calls agents during plan execution</span>
+                                </div>
+                            </div>
+                            <div class="mt-4 p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
+                                <h4 class="text-sm font-medium text-zinc-300 mb-2">How the Planner Chooses</h4>
+                                <ul class="text-sm text-zinc-400 space-y-1">
+                                    <li>• <strong>Simple CRUD operations</strong> → Direct API actions (agents.create, workflows.create)</li>
+                                    <li>• <strong>Complex design tasks</strong> → Delegate to specialized agents (workflow_agent, report_agent)</li>
+                                    <li>• <strong>Mixed tasks</strong> → Plan can include both API calls and agent delegations</li>
+                                </ul>
+                            </div>
+                            <p class="config-help mt-3">Agent specializations help the planner understand when to delegate. Agents can have multi-turn conversations to gather requirements.</p>
+                        </div>
+                    </div>
+                </section>
+
+            </div>
+        </main>
+
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container" class="fixed bottom-4 right-4 flex flex-col gap-2 z-50"></div>
+
+    <!-- Modal: Add Domain -->
+    <div id="modal-add-domain" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Add New Domain</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-4">
+                    <label class="config-label">Domain ID</label>
+                    <input type="text" id="new-domain-id" class="config-input" placeholder="e.g., workflow">
+                    <p class="config-help">Lowercase, no spaces. Used as unique identifier.</p>
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Name</label>
+                    <input type="text" id="new-domain-name" class="config-input" placeholder="e.g., Workflow Management">
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Description</label>
+                    <textarea id="new-domain-description" class="config-textarea" rows="3" placeholder="Describe what this domain covers..."></textarea>
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Context Notes (Optional)</label>
+                    <textarea id="new-domain-context" class="config-textarea" rows="2" placeholder="Implementation details for the LLM..."></textarea>
+                </div>
+                <div class="mb-4">
+                    <label class="config-label flex items-center gap-2">
+                        <input type="checkbox" id="new-domain-enabled" class="w-4 h-4 rounded border-zinc-600 bg-zinc-800 text-cyber-cyan focus:ring-cyber-cyan focus:ring-offset-0" checked>
+                        Enabled
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn-cancel">Cancel</button>
+                <button id="btn-confirm-add-domain" class="modal-btn-confirm">Add Domain</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Add Capability -->
+    <div id="modal-add-capability" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Add New Capability</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-4">
+                    <label class="config-label">Capability ID</label>
+                    <input type="text" id="new-cap-id" class="config-input" placeholder="e.g., create_workflow">
+                    <p class="config-help">Lowercase with underscores. Will be prefixed with domain ID.</p>
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Name</label>
+                    <input type="text" id="new-cap-name" class="config-input" placeholder="e.g., Create Workflow">
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Category</label>
+                    <select id="new-cap-category" class="config-select">
+                        <option value="create">Create</option>
+                        <option value="update">Update</option>
+                        <option value="delete">Delete</option>
+                        <option value="read">Read</option>
+                        <option value="configure">Configure</option>
+                        <option value="execute">Execute</option>
+                    </select>
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Description</label>
+                    <textarea id="new-cap-description" class="config-textarea" rows="3" placeholder="Describe what this capability does..."></textarea>
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Tags (comma-separated)</label>
+                    <input type="text" id="new-cap-tags" class="config-input" placeholder="e.g., workflow, automation, create">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn-cancel">Cancel</button>
+                <button id="btn-confirm-add-capability" class="modal-btn-confirm">Add Capability</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Add Action -->
+    <div id="modal-add-action" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content modal-content-lg">
+            <div class="modal-header">
+                <h3 class="modal-title">Add New Action</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="config-label">Domain</label>
+                        <select id="new-action-domain" class="config-select">
+                            <option value="">-- Select domain --</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="config-label">Capability ID</label>
+                        <input type="text" id="new-action-capability" class="config-input" placeholder="e.g., create_workflow">
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Description</label>
+                    <textarea id="new-action-description" class="config-textarea" rows="2" placeholder="Describe the action..."></textarea>
+                </div>
+                <div class="route-section mb-4">
+                    <h4 class="text-sm font-medium text-zinc-300 mb-3">Route</h4>
+                    <div class="grid grid-cols-3 gap-4">
+                        <div>
+                            <label class="config-label">Method</label>
+                            <select id="new-action-method" class="config-select">
+                                <option value="POST">POST</option>
+                                <option value="GET">GET</option>
+                                <option value="PUT">PUT</option>
+                                <option value="DELETE">DELETE</option>
+                            </select>
+                        </div>
+                        <div class="col-span-2">
+                            <label class="config-label">Path</label>
+                            <input type="text" id="new-action-path" class="config-input font-mono" placeholder="/api/...">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn-cancel">Cancel</button>
+                <button id="btn-confirm-add-action" class="modal-btn-confirm">Add Action</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Add Input Field -->
+    <div id="modal-add-field" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Add Input Field</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-4">
+                    <label class="config-label">Field Name</label>
+                    <input type="text" id="new-field-name" class="config-input" placeholder="e.g., agent_name">
+                </div>
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="config-label">Type</label>
+                        <select id="new-field-type" class="config-select">
+                            <option value="string">string</option>
+                            <option value="integer">integer</option>
+                            <option value="boolean">boolean</option>
+                            <option value="array">array</option>
+                            <option value="object">object</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="config-label">Required</label>
+                        <select id="new-field-required" class="config-select">
+                            <option value="true">Yes</option>
+                            <option value="false">No</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Description</label>
+                    <textarea id="new-field-description" class="config-textarea" rows="2" placeholder="Describe this field..."></textarea>
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Default Value (Optional, JSON)</label>
+                    <input type="text" id="new-field-default" class="config-input font-mono" placeholder='e.g., "default_value" or null'>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn-cancel">Cancel</button>
+                <button id="btn-confirm-add-field" class="modal-btn-confirm">Add Field</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Add Response Mapping -->
+    <div id="modal-add-mapping" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Add Response Mapping</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-4">
+                    <label class="config-label">Output Name</label>
+                    <input type="text" id="new-mapping-output" class="config-input" placeholder="e.g., agent_id">
+                    <p class="config-help">The key name in the execution result.</p>
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Source Path</label>
+                    <input type="text" id="new-mapping-source" class="config-input font-mono" placeholder="e.g., response.id">
+                    <p class="config-help">JSON path to extract from API response.</p>
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Description</label>
+                    <textarea id="new-mapping-description" class="config-textarea" rows="2" placeholder="Describe this mapping..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn-cancel">Cancel</button>
+                <button id="btn-confirm-add-mapping" class="modal-btn-confirm">Add Mapping</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Edit Capability -->
+    <div id="modal-edit-capability" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Edit Capability</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-cap-original-id">
+                <div class="mb-4">
+                    <label class="config-label">Capability ID</label>
+                    <input type="text" id="edit-cap-id" class="config-input" readonly>
+                    <p class="config-help">ID cannot be changed after creation.</p>
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Name</label>
+                    <input type="text" id="edit-cap-name" class="config-input">
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Category</label>
+                    <select id="edit-cap-category" class="config-select">
+                        <option value="create">Create</option>
+                        <option value="update">Update</option>
+                        <option value="delete">Delete</option>
+                        <option value="read">Read</option>
+                        <option value="configure">Configure</option>
+                        <option value="execute">Execute</option>
+                    </select>
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Description</label>
+                    <textarea id="edit-cap-description" class="config-textarea" rows="3"></textarea>
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Tags (comma-separated)</label>
+                    <input type="text" id="edit-cap-tags" class="config-input">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn-cancel">Cancel</button>
+                <button id="btn-confirm-edit-capability" class="modal-btn-confirm">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Edit Input Field -->
+    <div id="modal-edit-field" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Edit Input Field</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-field-original-name">
+                <div class="mb-4">
+                    <label class="config-label">Field Name</label>
+                    <input type="text" id="edit-field-name" class="config-input" readonly>
+                    <p class="config-help">Name cannot be changed after creation.</p>
+                </div>
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="config-label">Type</label>
+                        <select id="edit-field-type" class="config-select">
+                            <option value="string">string</option>
+                            <option value="integer">integer</option>
+                            <option value="boolean">boolean</option>
+                            <option value="array">array</option>
+                            <option value="object">object</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="config-label">Required</label>
+                        <select id="edit-field-required" class="config-select">
+                            <option value="true">Yes</option>
+                            <option value="false">No</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Description</label>
+                    <textarea id="edit-field-description" class="config-textarea" rows="2"></textarea>
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Default Value (Optional, JSON)</label>
+                    <input type="text" id="edit-field-default" class="config-input font-mono">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn-cancel">Cancel</button>
+                <button id="btn-confirm-edit-field" class="modal-btn-confirm">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Edit Response Mapping -->
+    <div id="modal-edit-mapping" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Edit Response Mapping</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-mapping-original-output">
+                <div class="mb-4">
+                    <label class="config-label">Output Name</label>
+                    <input type="text" id="edit-mapping-output" class="config-input" readonly>
+                    <p class="config-help">Output name cannot be changed after creation.</p>
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Source Path</label>
+                    <input type="text" id="edit-mapping-source" class="config-input font-mono">
+                    <p class="config-help">JSON path to extract from API response.</p>
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Description</label>
+                    <textarea id="edit-mapping-description" class="config-textarea" rows="2"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn-cancel">Cancel</button>
+                <button id="btn-confirm-edit-mapping" class="modal-btn-confirm">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Add Agent -->
+    <div id="modal-add-agent" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content modal-content-lg">
+            <div class="modal-header">
+                <h3 class="modal-title">Add New Agent</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="config-label">Agent ID</label>
+                        <input type="text" id="new-agent-id" class="config-input" placeholder="e.g., workflow_agent">
+                        <p class="config-help">Lowercase with underscores. Unique identifier.</p>
+                    </div>
+                    <div>
+                        <label class="config-label">Name</label>
+                        <input type="text" id="new-agent-name" class="config-input" placeholder="e.g., Workflow Agent">
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Description</label>
+                    <textarea id="new-agent-description" class="config-textarea" rows="2" placeholder="Describe what this agent specializes in..."></textarea>
+                </div>
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="config-label">Protocol</label>
+                        <select id="new-agent-protocol" class="config-select">
+                            <option value="text_chat">Text Chat</option>
+                            <option value="workflow_builder">Workflow Builder (HTTP API)</option>
+                            <option value="structured">Structured JSON</option>
+                            <option value="function_call">Function Call</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="config-label">Timeout (seconds)</label>
+                        <input type="number" id="new-agent-timeout" class="config-input" value="120" min="10" max="600">
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Endpoint URL</label>
+                    <input type="text" id="new-agent-endpoint" class="config-input font-mono" placeholder="/api/agents/workflow/chat">
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">Specializations (comma-separated)</label>
+                    <input type="text" id="new-agent-specializations" class="config-input" placeholder="workflow, automation, trigger, pipeline">
+                    <p class="config-help">Keywords that trigger delegation to this agent.</p>
+                </div>
+                <div class="mb-4">
+                    <label class="config-label">System Prompt</label>
+                    <textarea id="new-agent-system-prompt" class="config-textarea" rows="3" placeholder="You are a specialist agent that..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn-cancel">Cancel</button>
+                <button id="btn-confirm-add-agent" class="modal-btn-confirm">Add Agent</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Confirm Delete -->
+    <div id="modal-confirm-delete" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content modal-content-sm">
+            <div class="modal-header">
+                <h3 class="modal-title">Confirm Delete</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="delete-confirm-message" class="text-zinc-300">Are you sure you want to delete this item?</p>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn-cancel">Cancel</button>
+                <button id="btn-confirm-delete" class="modal-btn-danger">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JS -->
+    <script type="module" src="/static/js/admin.js?v=2"></script>
+</body>
+</html>

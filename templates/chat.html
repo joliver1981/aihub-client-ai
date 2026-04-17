@@ -1,0 +1,1805 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+    theme: {
+        extend: {
+            colors: {
+                'cyber-cyan': '#06b6d4',
+                'cyber-violet': '#a78bfa'
+            },
+            fontFamily: {
+                'outfit': ['Outfit', 'sans-serif'],
+                'jetbrains': ['JetBrains Mono', 'monospace']
+            }
+        }
+    }
+}
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<!-- Theme + Rich Content CSS -->
+<link rel="stylesheet" href="/static/css/chat-theme.css">
+<link rel="stylesheet" href="/static/css/richContent.css">
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<!-- Prism syntax highlighting -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+
+<!-- Chat Page -->
+<div class="chat-page" id="chatPage">
+
+    <!-- Header -->
+    <div class="chat-header">
+        <div style="display:flex;align-items:center;gap:0.75rem;">
+            <i class="fas fa-robot" style="font-size:1.25rem;color:var(--cyber-cyan,#06b6d4);"></i>
+            <h1 style="margin:0;font-size:1.1rem;font-weight:600;font-family:'Outfit',sans-serif;" id="headerAgentName">Agent Chat</h1>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+            <button class="chat-icon-btn" onclick="toggleHistorySidebar()" title="Conversation history">
+                <i class="fas fa-history"></i>
+            </button>
+            <button class="chat-icon-btn" id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle theme">
+                <i class="fas fa-moon" id="themeIcon"></i>
+            </button>
+            <button class="chat-icon-btn" id="reset-conversation-btn" title="Reset conversation">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Layout -->
+    <div class="chat-layout">
+
+        <!-- Left Sidebar -->
+        <div class="chat-sidebar">
+
+            <!-- Agent Selection -->
+            <div class="sidebar-section">
+                <div class="sidebar-section-title"><i class="fas fa-user-cog"></i> Agent Selection</div>
+                <label class="sidebar-label" for="agent-dropdown">Select Agent:</label>
+                <select id="agent-dropdown" class="chat-select">
+                    <option value="">Select an agent</option>
+                </select>
+                <label class="sidebar-label" for="objective" style="margin-top:0.5rem;">Objective:</label>
+                <textarea readonly id="objective" class="chat-textarea-sm" rows="3" placeholder="Agent objective will appear here"></textarea>
+                <input type="hidden" id="agent_id" name="agent_id" value="">
+                <input type="hidden" id="user_id" name="user_id" value="{{ current_user.id }}">
+            </div>
+
+            <!-- Quick Actions (hidden until agent selected) -->
+            <div class="sidebar-section" id="agentQuickActions" style="display:none;">
+                <div class="sidebar-section-title"><i class="fas fa-bolt"></i> Quick Actions</div>
+                <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+                    <a href="#" id="editAgentBtn" class="chat-btn-sm" title="Edit Agent"><i class="fas fa-edit"></i> Edit</a>
+                    <a href="#" id="agentEmailSettingsBtn" class="chat-btn-sm" title="Email Settings"><i class="fas fa-envelope-open-text"></i> Email</a>
+                    <a href="#" id="agentInboxBtn" class="chat-btn-sm" title="Email Inbox" style="position:relative;">
+                        <i class="fas fa-inbox"></i> Inbox
+                        <span class="chat-badge" id="agentInboxBadge" style="display:none;">0</span>
+                    </a>
+                </div>
+                <div style="margin-top:0.5rem;">
+                    <small id="agentEmailStatus" style="color:var(--text-tertiary,#71717a);font-size:0.75rem;">
+                        <i class="fas fa-circle" id="emailStatusIcon" style="font-size:8px;color:var(--text-tertiary,#71717a);"></i>
+                        <span id="emailStatusText">Email not configured</span>
+                    </small>
+                </div>
+            </div>
+
+            <!-- Document Context (collapsible) -->
+            <div id="documentUploadCard" style="display:none;">
+                <div class="sidebar-section">
+                    <div class="sidebar-collapse-header" onclick="toggleCollapse('documentUpload')">
+                        <span class="sidebar-label" style="margin-bottom:0;"><i class="fas fa-file-upload" style="margin-right:0.4rem;"></i>Document Context</span>
+                        <i class="fas fa-chevron-down sidebar-collapse-arrow" id="documentUploadIcon"></i>
+                    </div>
+                    <div id="documentUploadContent" class="sidebar-collapse-body show">
+                        <!-- Compact Upload Zone -->
+                        <div class="doc-upload-zone" id="documentUploadZone">
+                            <i class="fas fa-cloud-upload-alt"></i>
+                            <p>Drop files here or browse</p>
+                            <input type="file" id="contextFileInput" multiple
+                                accept=".pdf,.docx,.doc,.xlsx,.xls,.txt,.csv,.jpg,.jpeg,.png"
+                                style="display:none;">
+                            <small>PDF, Word, Excel, Text, Images</small>
+                        </div>
+
+                        <!-- Upload Queue -->
+                        <div class="upload-queue" id="uploadQueue" style="display:none;margin-top:0.75rem;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+                                <span style="font-size:0.8rem;font-weight:600;">Queue (<span id="queueCount">0</span>)</span>
+                                <div style="display:flex;gap:0.3rem;">
+                                    <button class="chat-btn-sm chat-btn-success" onclick="processUploadQueue()">
+                                        <i class="fas fa-upload"></i> Upload
+                                    </button>
+                                    <button class="chat-btn-sm chat-btn-danger" onclick="clearUploadQueue()">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="queueItems" class="queue-items-container"></div>
+                        </div>
+
+                        <!-- Upload Progress -->
+                        <div id="uploadProgress" style="display:none;margin-top:0.75rem;">
+                            <div class="upload-progress-bar-wrap">
+                                <i class="fas fa-spinner fa-spin"></i>
+                                <span style="font-size:0.8rem;">Uploading: <span id="currentUpload"></span></span>
+                                <div class="upload-progress-track">
+                                    <div class="upload-progress-fill" id="uploadProgressBar" style="width:0%"></div>
+                                </div>
+                                <small style="color:var(--text-muted);">
+                                    Processed: <span id="processedCount">0</span> / <span id="totalCount">0</span>
+                                </small>
+                            </div>
+                        </div>
+
+                        <!-- Upload Results / Existing Documents -->
+                        <div id="uploadResults" style="display:none;margin-top:0.75rem;">
+                            <div id="resultsList" class="results-container"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MCP Servers (collapsible, hidden) -->
+            <div id="mcpServersCard" style="display:none;">
+                <div class="sidebar-section">
+                    <div class="sidebar-collapse-header" onclick="toggleCollapse('mcpServers')">
+                        <span class="sidebar-label" style="margin-bottom:0;"><i class="fas fa-plug" style="margin-right:0.4rem;"></i>MCP Servers</span>
+                        <i class="fas fa-chevron-down sidebar-collapse-arrow" id="mcpServersIcon"></i>
+                    </div>
+                    <div id="mcpServersContent" class="sidebar-collapse-body">
+                        <div id="mcpServersList"></div>
+                    </div>
+                </div>
+            </div>
+
+        </div><!-- /chat-sidebar -->
+
+        <!-- History Sidebar (collapsible) -->
+        <div id="history-sidebar" class="history-sidebar" style="display:none;">
+            <div class="history-header">
+                <span><i class="fas fa-history"></i> History</span>
+                <button class="btn btn-sm btn-link history-close-btn" onclick="toggleHistorySidebar()" title="Close">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="history-actions">
+                <button class="btn btn-sm btn-outline-primary w-100" onclick="startNewChat()">
+                    <i class="fas fa-plus"></i> New Chat
+                </button>
+            </div>
+            <div class="history-search">
+                <input type="text" id="history-search-input" class="form-control form-control-sm"
+                       placeholder="Search conversations..." oninput="filterHistoryList()">
+            </div>
+            <div id="history-pinned" class="history-section" style="display:none;">
+                <div class="history-section-label"><i class="fas fa-thumbtack"></i> Pinned</div>
+                <div id="history-pinned-list"></div>
+            </div>
+            <div class="history-section">
+                <div class="history-section-label"><i class="fas fa-clock"></i> Recent</div>
+                <div id="history-recent-list"></div>
+            </div>
+            <div id="history-empty" class="history-empty" style="display:none;">
+                <i class="fas fa-comments" style="font-size:2rem;opacity:0.3;"></i>
+                <p>No conversations yet</p>
+            </div>
+        </div>
+
+        <!-- Main Chat Area -->
+        <div class="chat-main">
+            <div class="chat-messages" id="chat-window">
+                <div class="chat-messages-inner" id="chat-content">
+                    <!-- Welcome state -->
+                    <div class="chat-welcome" id="welcome-state">
+                        <div class="chat-welcome-icon"><i class="fas fa-robot"></i></div>
+                        <h2>Agent Chat</h2>
+                        <p>Select an agent and start a conversation. Ask questions, analyze data, or get help with tasks.</p>
+                        <div class="welcome-chips">
+                            <div class="welcome-chip" onclick="insertChip('Summarize the latest data')">Summarize the latest data</div>
+                            <div class="welcome-chip" onclick="insertChip('Help me write a report')">Help me write a report</div>
+                            <div class="welcome-chip" onclick="insertChip('What can you help me with?')">What can you help me with?</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="chat-input-area">
+                <div class="chat-input-wrap">
+                    <button class="chat-attach-btn" id="attach-btn" title="Attach files" style="display:none;" onclick="document.getElementById('contextFileInput').click()">
+                        <i class="fas fa-paperclip"></i>
+                    </button>
+                    <textarea class="chat-input" id="user-input" placeholder="Type your message..." rows="1"></textarea>
+                    <button class="chat-send-btn" id="send-btn" onclick="sendMessage()"><i class="fas fa-paper-plane"></i></button>
+                </div>
+            </div>
+        </div><!-- /chat-main -->
+
+    </div><!-- /chat-layout -->
+
+    <!-- Right Panel (hidden) -->
+    <div class="chat-panel-overlay" id="chat-panel-overlay"></div>
+    <div class="chat-panel" id="chat-panel">
+        <div class="chat-panel-header">
+            <h3>Detail</h3>
+            <button class="chat-panel-close"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="chat-panel-body"></div>
+        <div class="chat-panel-actions"></div>
+    </div>
+
+    <!-- Full-page drag & drop overlay -->
+    <div class="drop-overlay" id="dropOverlay">
+        <div class="drop-overlay-content">
+            <i class="fas fa-cloud-upload-alt"></i>
+            <p>Drop files to add context</p>
+            <small>PDF, Word, Excel, Text, Images</small>
+        </div>
+    </div>
+
+</div><!-- /chat-page -->
+
+<!-- External JS -->
+<script src="/static/js/richContentRenderer.js"></script>
+<script src="/static/js/chat-skeleton.js"></script>
+<script src="/static/js/chat-panel.js"></script>
+<script src="/static/js/chat-charts.js"></script>
+
+<script>
+// ===================================================================
+// Global State
+// ===================================================================
+let agentData = [];
+let chatHistory = [];
+let uploadQueue = [];
+let currentUserId = null;
+let currentAgentId = null;
+let existingDocuments = [];
+let currentConversationId = null;
+
+// ===================================================================
+// Theme: apply from localStorage on load
+// ===================================================================
+(function applyInitialTheme() {
+    var theme = localStorage.getItem('chat-theme') || 'dark';
+    if (theme === 'light') {
+        document.body.classList.add('light-mode');
+        var page = document.getElementById('chatPage');
+        if (page) page.classList.add('light-mode');
+    }
+    // Update icon after DOM ready
+    document.addEventListener('DOMContentLoaded', function () {
+        var icon = document.getElementById('themeIcon');
+        if (icon) {
+            icon.className = theme === 'light' ? 'fas fa-sun' : 'fas fa-moon';
+        }
+    });
+})();
+
+function toggleTheme() {
+    var isLight = document.body.classList.toggle('light-mode');
+    var page = document.getElementById('chatPage');
+    if (page) page.classList.toggle('light-mode', isLight);
+    localStorage.setItem('chat-theme', isLight ? 'light' : 'dark');
+    var icon = document.getElementById('themeIcon');
+    if (icon) icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+}
+
+// ===================================================================
+// Collapsible sidebar sections
+// ===================================================================
+function toggleCollapse(section) {
+    var content = document.getElementById(section + 'Content');
+    var icon = document.getElementById(section + 'Icon');
+    if (!content || !icon) return;
+    if (content.classList.contains('show')) {
+        content.classList.remove('show');
+        icon.className = 'fas fa-chevron-right sidebar-collapse-arrow';
+    } else {
+        content.classList.add('show');
+        icon.className = 'fas fa-chevron-down sidebar-collapse-arrow';
+    }
+}
+
+// ===================================================================
+// Full-page drag & drop
+// ===================================================================
+(function () {
+    var dragCounter = 0;
+    var overlay = document.getElementById('dropOverlay');
+
+    document.addEventListener('dragenter', function (e) {
+        e.preventDefault();
+        // Only show overlay when a file is being dragged and doc upload is visible
+        if (!e.dataTransfer || !e.dataTransfer.types.includes('Files')) return;
+        if (document.getElementById('documentUploadCard').style.display === 'none') return;
+        dragCounter++;
+        if (dragCounter === 1) overlay.classList.add('visible');
+    });
+
+    document.addEventListener('dragleave', function (e) {
+        e.preventDefault();
+        dragCounter--;
+        if (dragCounter <= 0) {
+            dragCounter = 0;
+            overlay.classList.remove('visible');
+        }
+    });
+
+    document.addEventListener('dragover', function (e) {
+        e.preventDefault();
+    });
+
+    document.addEventListener('drop', function (e) {
+        e.preventDefault();
+        dragCounter = 0;
+        overlay.classList.remove('visible');
+        if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+            if (document.getElementById('documentUploadCard').style.display !== 'none') {
+                addFilesToQueue(e.dataTransfer.files);
+            }
+        }
+    });
+})();
+
+// ===================================================================
+// Welcome chips
+// ===================================================================
+function insertChip(text) {
+    var input = document.getElementById('user-input');
+    if (input) {
+        input.value = text;
+        input.focus();
+    }
+}
+
+// ===================================================================
+// Conversation API
+// ===================================================================
+async function createNewConversation(agentId) {
+    try {
+        var response = await fetch('/api/conversations/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ agent_id: agentId })
+        });
+        var data = await response.json();
+        if (data.status === 'success') {
+            currentConversationId = data.conversation_id;
+            console.log('New conversation created:', currentConversationId);
+            return currentConversationId;
+        } else {
+            console.error('Failed to create conversation:', data.message);
+            currentConversationId = null;
+            return null;
+        }
+    } catch (error) {
+        console.error('Error creating conversation:', error);
+        currentConversationId = null;
+        return null;
+    }
+}
+
+// ===================================================================
+// DOMContentLoaded — main init
+// ===================================================================
+document.addEventListener('DOMContentLoaded', function () {
+    var userId = document.getElementById('user_id').value;
+    currentUserId = userId;
+
+    var preselectedAgentId = getUrlParameter('agent');
+    var conversationId = getUrlParameter('conversation');
+    console.log('Preselected agent ID from URL:', preselectedAgentId);
+    console.log('Conversation ID from URL:', conversationId);
+
+    fetch('/get/user_agents/' + userId)
+        .then(function (response) {
+            if (!response.ok) throw new Error('Network response was not ok ' + response.statusText);
+            return response.json();
+        })
+        .then(function (data) {
+            agentData = data['data'];
+            populateForm(agentData, preselectedAgentId, conversationId);
+            if (conversationId) {
+                loadConversation(conversationId);
+            }
+        })
+        .catch(function (error) {
+            console.error('Error fetching agents:', error);
+        });
+
+    // Agent dropdown change
+    document.getElementById('agent-dropdown').addEventListener('change', function () {
+        var selectedAgentId = this.value;
+        var selectedAgent = agentData.find(function (a) { return a.agent_id == selectedAgentId; });
+        if (selectedAgent) {
+            updateFormFields(selectedAgent);
+            initializeDocumentUpload(selectedAgentId);
+            showAgentQuickActions(selectedAgentId);
+            createNewConversation(selectedAgentId).then(function (convId) {
+                if (convId) {
+                    document.getElementById('chat-content').innerHTML = '';
+                    chatHistory = [];
+                    showWelcomeState();
+                    console.log('Chat cleared for new conversation:', convId);
+                }
+            });
+        } else {
+            document.getElementById('documentUploadCard').style.display = 'none';
+            document.getElementById('attach-btn').style.display = 'none';
+            hideAgentQuickActions();
+            currentConversationId = null;
+        }
+    });
+
+    // Enter key on textarea — send on Enter, shift+Enter for newline
+    document.getElementById('user-input').addEventListener('keydown', function (event) {
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            sendMessage();
+        }
+    });
+
+    // Auto-grow textarea
+    document.getElementById('user-input').addEventListener('input', function () {
+        this.style.height = '24px';
+        this.style.height = Math.min(this.scrollHeight, 150) + 'px';
+        this.style.overflowY = this.scrollHeight > 150 ? 'auto' : 'hidden';
+    });
+
+    // Reset button
+    document.getElementById('reset-conversation-btn').addEventListener('click', function () {
+        resetConversation();
+    });
+
+    // Init ChatPanel
+    if (typeof ChatPanel !== 'undefined') {
+        ChatPanel.init();
+    }
+});
+
+// ===================================================================
+// URL parameters
+// ===================================================================
+function getUrlParameter(name) {
+    name = name.replace(/[\[]/, '\\[').replace(/[\]]/, '\\]');
+    var regex = new RegExp('[\\?&]' + name + '=([^&#]*)');
+    var results = regex.exec(location.search);
+    return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));
+}
+
+// ===================================================================
+// Populate agent dropdown
+// ===================================================================
+function populateForm(data, preselectedAgentId, existingConversationId) {
+    var agentSelect = document.getElementById('agent-dropdown');
+    agentSelect.innerHTML = '<option value="">Select an agent</option>';
+
+    var agentToSelect = null;
+
+    data.forEach(function (agent) {
+        var option = document.createElement('option');
+        option.value = agent.agent_id;
+        option.textContent = agent.agent_description;
+        agentSelect.appendChild(option);
+        if (preselectedAgentId && agent.agent_id == preselectedAgentId) {
+            agentToSelect = agent;
+        }
+    });
+
+    if (agentToSelect) {
+        agentSelect.value = agentToSelect.agent_id;
+        updateFormFields(agentToSelect);
+        showAgentQuickActions(agentToSelect.agent_id);
+        if (!existingConversationId) {
+            createNewConversation(agentToSelect.agent_id);
+        }
+        console.log('Preselected agent:', agentToSelect.agent_description);
+    } else if (data.length > 0) {
+        agentSelect.selectedIndex = 1;
+        updateFormFields(data[0]);
+        showAgentQuickActions(data[0].agent_id);
+        if (!existingConversationId) {
+            createNewConversation(data[0].agent_id);
+        }
+    }
+
+    if (agentToSelect) {
+        initializeDocumentUpload(agentToSelect.agent_id);
+    } else if (data.length > 0) {
+        initializeDocumentUpload(data[0].agent_id);
+    }
+}
+
+function updateFormFields(agent) {
+    document.getElementById('objective').value = agent.agent_objective;
+    document.getElementById('agent_id').value = agent.agent_id;
+    currentAgentId = agent.agent_id;
+    var headerName = document.getElementById('headerAgentName');
+    if (headerName) headerName.textContent = agent.agent_description || 'Agent Chat';
+}
+
+// ===================================================================
+// Quick Actions
+// ===================================================================
+function showAgentQuickActions(agentId) {
+    var quickActions = document.getElementById('agentQuickActions');
+    var editBtn = document.getElementById('editAgentBtn');
+    var emailSettingsBtn = document.getElementById('agentEmailSettingsBtn');
+    var inboxBtn = document.getElementById('agentInboxBtn');
+    var inboxBadge = document.getElementById('agentInboxBadge');
+    var statusText = document.getElementById('emailStatusText');
+    var statusIcon = document.getElementById('emailStatusIcon');
+
+    editBtn.href = '/custom_agent_enhanced?agent=' + agentId;
+    emailSettingsBtn.href = '/agent-email/config/' + agentId;
+    inboxBtn.href = '/agent-email/inbox/' + agentId;
+
+    quickActions.style.display = 'block';
+
+    statusText.textContent = 'Loading...';
+    statusIcon.className = 'fas fa-circle';
+    statusIcon.style.fontSize = '8px';
+    statusIcon.style.color = 'var(--text-tertiary,#71717a)';
+    inboxBadge.style.display = 'none';
+
+    loadAgentEmailStatusForChat(agentId);
+}
+
+function hideAgentQuickActions() {
+    document.getElementById('agentQuickActions').style.display = 'none';
+}
+
+async function loadAgentEmailStatusForChat(agentId) {
+    var statusText = document.getElementById('emailStatusText');
+    var statusIcon = document.getElementById('emailStatusIcon');
+    var inboxBadge = document.getElementById('agentInboxBadge');
+
+    try {
+        var response = await fetch('/api/agent-email/config/' + agentId);
+        var data = await response.json();
+
+        if (data.success && data.configured) {
+            var config = data.config;
+            if (config.is_active && config.inbound_enabled) {
+                statusText.textContent = 'Email active (inbound enabled)';
+                statusIcon.style.color = '#22c55e';
+                loadAgentInboxCount(agentId);
+            } else if (config.is_active) {
+                statusText.textContent = 'Email active (outbound only)';
+                statusIcon.style.color = '#06b6d4';
+            } else {
+                statusText.textContent = 'Email configured but disabled';
+                statusIcon.style.color = '#eab308';
+            }
+        } else {
+            statusText.textContent = 'Email not configured';
+            statusIcon.style.color = 'var(--text-tertiary,#71717a)';
+        }
+    } catch (error) {
+        console.log('Could not load email status:', error);
+        statusText.textContent = 'Email not configured';
+        statusIcon.style.color = 'var(--text-tertiary,#71717a)';
+    }
+}
+
+async function loadAgentInboxCount(agentId) {
+    var inboxBadge = document.getElementById('agentInboxBadge');
+    try {
+        var response = await fetch('/api/agent-email/inbox/' + agentId + '?limit=50');
+        var data = await response.json();
+        if (data.success && data.new_count > 0) {
+            inboxBadge.textContent = data.new_count > 99 ? '99+' : data.new_count;
+            inboxBadge.style.display = 'inline-block';
+        } else {
+            inboxBadge.style.display = 'none';
+        }
+    } catch (error) {
+        console.log('Could not load inbox count:', error);
+        inboxBadge.style.display = 'none';
+    }
+}
+
+// ===================================================================
+// Dataframe display mode
+// ===================================================================
+function getDataframeDisplayMode() {
+    if (typeof UserPreferences !== 'undefined') {
+        return UserPreferences.getPreference('dataframe_display_mode', 'expanded');
+    }
+    return 'expanded';
+}
+
+// ===================================================================
+// Welcome state helpers
+// ===================================================================
+function hideWelcomeState() {
+    var ws = document.getElementById('welcome-state');
+    if (ws) ws.style.display = 'none';
+}
+
+function showWelcomeState() {
+    var ws = document.getElementById('welcome-state');
+    if (ws) ws.style.display = '';
+}
+
+// ===================================================================
+// sendMessage — uses skeleton loading
+// ===================================================================
+function sendMessage() {
+    var userMessage = document.getElementById('user-input').value;
+    if (userMessage.trim() === '') return;
+
+    hideWelcomeState();
+
+    var chatWindow = document.getElementById('chat-window');
+    var chatContent = document.getElementById('chat-content');
+
+    // User message row
+    var userRow = document.createElement('div');
+    userRow.className = 'msg-row user-row';
+    userRow.innerHTML =
+        '<div class="msg-avatar user-avatar"><i class="fas fa-user"></i></div>' +
+        '<div class="msg-bubble user-bubble">' + escapeHtml(userMessage) + '</div>';
+    chatContent.appendChild(userRow);
+
+    chatHistory.push({ role: 'user', content: userMessage });
+
+    document.getElementById('user-input').value = '';
+    document.getElementById('user-input').style.height = '24px';
+
+    // AI skeleton row
+    var aiRow = document.createElement('div');
+    aiRow.className = 'msg-row ai-row';
+    aiRow.id = 'ai-pending-row';
+    var avatarDiv = document.createElement('div');
+    avatarDiv.className = 'msg-avatar ai-avatar';
+    avatarDiv.innerHTML = '<i class="fas fa-robot"></i>';
+    aiRow.appendChild(avatarDiv);
+
+    var skeleton = ChatSkeleton.create('text');
+    aiRow.appendChild(skeleton.element);
+    chatContent.appendChild(aiRow);
+
+    chatWindow.scrollTop = chatWindow.scrollHeight;
+
+    // Build payload
+    var payload = {
+        agent_id: document.getElementById('agent_id').value,
+        prompt: userMessage,
+        hist: chatHistory,
+        conversation_id: currentConversationId
+    };
+
+    fetch('/chat/general', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    })
+    .then(function (response) { return response.json(); })
+    .then(function (data) {
+        // Track conversation_id from response
+        if (data.conversation_id && !currentConversationId) {
+            currentConversationId = data.conversation_id;
+            console.log('Conversation ID received from server:', currentConversationId);
+        }
+
+        // Destroy skeleton
+        skeleton.destroy();
+
+        // Remove the pending row
+        var pendingRow = document.getElementById('ai-pending-row');
+        if (pendingRow) pendingRow.remove();
+
+        var responseContent = data.response;
+        var isRichContent = false;
+
+        if (responseContent && typeof responseContent === 'object') {
+            if (responseContent.type === 'rich_content' || responseContent.blocks) {
+                isRichContent = true;
+            }
+        }
+        if (data.response_type === 'rich_content') {
+            isRichContent = true;
+        }
+
+        var newAiRow = document.createElement('div');
+        newAiRow.className = 'msg-row ai-row';
+
+        if (isRichContent) {
+            try {
+                if (window.richContentRenderer) {
+                    var richContent = window.richContentRenderer.render(responseContent);
+                    newAiRow.innerHTML =
+                        '<div class="msg-avatar ai-avatar"><i class="fas fa-robot"></i></div>' +
+                        '<div class="ai-rich-content">' + richContent + '</div>';
+                } else {
+                    console.warn('Rich content renderer not loaded, falling back to text');
+                    var textContent = JSON.stringify(responseContent);
+                    newAiRow.innerHTML =
+                        '<div class="msg-avatar ai-avatar"><i class="fas fa-robot"></i></div>' +
+                        '<div class="msg-bubble ai-bubble"><pre>' + escapeHtml(textContent) + '</pre></div>';
+                }
+            } catch (renderError) {
+                console.error('Error rendering rich content:', renderError);
+                var textContent2 = JSON.stringify(responseContent);
+                newAiRow.innerHTML =
+                    '<div class="msg-avatar ai-avatar"><i class="fas fa-robot"></i></div>' +
+                    '<div class="msg-bubble ai-bubble"><pre>' + escapeHtml(textContent2) + '</pre></div>';
+            }
+        } else {
+            var textResponse = '';
+            if (typeof responseContent === 'string') {
+                textResponse = responseContent;
+            } else if (responseContent && typeof responseContent === 'object') {
+                textResponse = responseContent.content || responseContent.text || JSON.stringify(responseContent);
+            } else {
+                textResponse = String(responseContent || 'No response received');
+            }
+
+            var formattedText = convertLinksAndPaths(textResponse);
+            var formatted = smartFormatText(formattedText);
+
+            newAiRow.innerHTML =
+                '<div class="msg-avatar ai-avatar"><i class="fas fa-robot"></i></div>' +
+                '<div class="msg-bubble ai-bubble">' + formatted.text + '</div>';
+        }
+
+        chatContent.appendChild(newAiRow);
+
+        // Store in chat history
+        if (isRichContent) {
+            chatHistory.push({ role: 'assistant', content: JSON.stringify(responseContent) });
+        } else {
+            chatHistory.push({ role: 'assistant', content: data.response });
+        }
+
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+    })
+    .catch(function (error) {
+        console.error('Error:', error);
+
+        skeleton.destroy();
+        var pendingRow = document.getElementById('ai-pending-row');
+        if (pendingRow) pendingRow.remove();
+
+        var errorRow = document.createElement('div');
+        errorRow.className = 'msg-row ai-row';
+        errorRow.innerHTML =
+            '<div class="msg-avatar ai-avatar"><i class="fas fa-robot"></i></div>' +
+            '<div class="msg-bubble ai-bubble error-bubble">' +
+            '<i class="fas fa-exclamation-triangle"></i> Sorry, an error occurred: ' +
+            escapeHtml(error.message || 'Unknown error') + '</div>';
+        chatContent.appendChild(errorRow);
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+    });
+}
+
+// ===================================================================
+// escapeHtml
+// ===================================================================
+function escapeHtml(unsafe) {
+    if (typeof unsafe !== 'string') {
+        unsafe = String(unsafe);
+    }
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+// ===================================================================
+// convertLinksAndPaths
+// ===================================================================
+function convertLinksAndPaths(text) {
+    if (text === null || text === undefined) return '';
+
+    if (typeof text !== 'string') {
+        console.warn('convertLinksAndPaths received non-string:', typeof text, text);
+        text = typeof text === 'object' ? JSON.stringify(text) : String(text);
+    }
+
+    // Protect markdown links
+    var markdownLinkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
+    var protectedLinks = [];
+    var result = text.replace(markdownLinkRegex, function (match, linkText, linkUrl) {
+        var placeholder = '__PROTECTED_LINK_' + protectedLinks.length + '__';
+        protectedLinks.push({ text: linkText, url: linkUrl });
+        return placeholder;
+    });
+
+    // Escape HTML
+    result = result.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    // URLs
+    var urlRegex = /(https?:\/\/|ftp:\/\/)(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi;
+    result = result.replace(urlRegex, function (url) {
+        return '<a href="' + url + '" target="_blank" class="chat-link">' + url + '</a>';
+    });
+
+    // UNC paths
+    var uncPathRegex = /(\\\\[a-zA-Z0-9_.-]+\\[a-zA-Z0-9_.\-\\]+(?:\\[a-zA-Z0-9_.\-\\]+)*)/gi;
+    result = result.replace(uncPathRegex, function (path) {
+        return '<a href="#" class="chat-link file-link" data-path="' + path + '" onclick="handleFileClick(this); return false;">' + path + '</a>';
+    });
+
+    // Document serve paths
+    var docServeRegex = /(\/document\/serve\/[^\s<>"]+)/gi;
+    result = result.replace(docServeRegex, function (path) {
+        var pathPart = path.substring('/document/serve/'.length);
+        var windowsPath = pathPart.replace(/\//g, '\\');
+        if (!windowsPath.startsWith('\\\\')) {
+            windowsPath = '\\\\' + windowsPath;
+        }
+        var encodedPath = encodeURIComponent(windowsPath);
+        var properUrl = '/document/serve?path=' + encodedPath;
+        return '<a href="' + properUrl + '" target="_blank" class="chat-link file-link">' + path + '</a>';
+    });
+
+    // Restore protected markdown links
+    protectedLinks.forEach(function (link, index) {
+        var placeholder = '__PROTECTED_LINK_' + index + '__';
+        var htmlLink;
+        if (link.url.startsWith('/document/serve/')) {
+            var pathPart = link.url.substring('/document/serve/'.length);
+            var windowsPath = pathPart.replace(/\//g, '\\');
+            if (!windowsPath.startsWith('\\\\')) {
+                windowsPath = '\\\\' + windowsPath;
+            }
+            var encodedPath = encodeURIComponent(windowsPath);
+            var properUrl = '/document/serve?path=' + encodedPath;
+            htmlLink = '<a href="' + properUrl + '" target="_blank" class="chat-link file-link">' + link.text + '</a>';
+        } else {
+            htmlLink = '<a href="' + link.url + '" target="_blank" class="chat-link file-link">' + link.text + '</a>';
+        }
+        result = result.replace(placeholder, htmlLink);
+    });
+
+    return result;
+}
+
+// ===================================================================
+// handleFileClick / handleFilePath
+// ===================================================================
+function handleFileClick(el) {
+    var rawPath = el.dataset.path;
+    handleFilePath(rawPath);
+}
+
+function handleFilePath(encodedPath) {
+    console.log('Variable input path:', encodedPath);
+    var path = decodeURIComponent(encodedPath);
+    console.log('Decoded file path clicked:', path);
+    path = path.replace(/\//g, '\\\\');
+    if (!path.startsWith('\\\\\\\\')) {
+        path = path.replace(/^\\+/, '');
+        path = '\\\\\\\\' + path;
+    }
+    var formattedPath = path.replace(/\\/g, '%5C');
+    console.log('Formatted path:', formattedPath);
+    var serviceUrl = '/document/serve?path=' + formattedPath;
+    window.open(serviceUrl, '_blank');
+}
+
+// ===================================================================
+// smartFormatText
+// ===================================================================
+function smartFormatText(text) {
+    if (typeof window.smartFormatText === 'function') {
+        return window.smartFormatText(text);
+    }
+
+    var lines = text.split('\n');
+    var processedLines = [];
+
+    for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        var docLinkPattern = /\ud83d\udcc4\s*(\/document\/serve\/[^\s]+)/g;
+        var processedLine = line.replace(docLinkPattern, function (match, path) {
+            return '\ud83d\udcc4 <a href="' + path + '" target="_blank" class="chat-link file-link">' + path + '</a>';
+        });
+        processedLines.push(processedLine);
+    }
+
+    var processedText = processedLines.join('\n');
+    var tableLines = processedLines.filter(function (l) { return l.includes('|'); }).length;
+
+    return {
+        text: processedText,
+        hasTable: tableLines >= 2
+    };
+}
+
+// ===================================================================
+// resetConversation
+// ===================================================================
+function resetConversation() {
+    var agentId = document.getElementById('agent_id').value;
+    chatHistory = [];
+    var chatContent = document.getElementById('chat-content');
+    chatContent.innerHTML = '';
+
+    // Re-add welcome state
+    chatContent.innerHTML =
+        '<div class="chat-welcome" id="welcome-state">' +
+        '<div class="chat-welcome-icon"><i class="fas fa-robot"></i></div>' +
+        '<h2>Agent Chat</h2>' +
+        '<p>Select an agent and start a conversation. Ask questions, analyze data, or get help with tasks.</p>' +
+        '<div class="welcome-chips">' +
+        '<div class="welcome-chip" onclick="insertChip(\'Summarize the latest data\')">Summarize the latest data</div>' +
+        '<div class="welcome-chip" onclick="insertChip(\'Help me write a report\')">Help me write a report</div>' +
+        '<div class="welcome-chip" onclick="insertChip(\'What can you help me with?\')">What can you help me with?</div>' +
+        '</div></div>';
+
+    if (agentId) {
+        createNewConversation(agentId).then(function (convId) {
+            var resetMsg = document.createElement('div');
+            resetMsg.className = 'chat-system-msg';
+            resetMsg.innerHTML = '<em>Conversation reset</em>';
+            chatContent.insertBefore(resetMsg, chatContent.firstChild);
+            console.log('Conversation reset. New conversation:', convId);
+        });
+    } else {
+        currentConversationId = null;
+        var resetMsg = document.createElement('div');
+        resetMsg.className = 'chat-system-msg';
+        resetMsg.innerHTML = '<em>Conversation reset</em>';
+        chatContent.insertBefore(resetMsg, chatContent.firstChild);
+    }
+
+    var chatWindow = document.getElementById('chat-window');
+    chatWindow.scrollTop = 0;
+
+    var url = new URL(window.location);
+    url.searchParams.delete('conversation');
+    window.history.replaceState({}, '', url);
+}
+
+// ===================================================================
+// loadConversation
+// ===================================================================
+async function loadConversation(conversationId) {
+    try {
+        console.log('Loading conversation:', conversationId);
+
+        var response = await fetch('/api/history/conversations/' + conversationId);
+
+        if (!response.ok) {
+            if (response.status === 404) {
+                console.warn('Conversation not found:', conversationId);
+                showToast('Conversation not found', 'warning');
+                return;
+            }
+            throw new Error('Failed to load conversation: ' + response.statusText);
+        }
+
+        var conversation = await response.json();
+        console.log('Loaded conversation:', conversation);
+
+        if (!conversation.messages || conversation.messages.length === 0) {
+            console.log('No messages in conversation');
+            return;
+        }
+
+        currentConversationId = conversationId;
+
+        // Select the agent from this conversation (without triggering change event)
+        var convAgentId = conversation.agent_id;
+        if (convAgentId) {
+            var dropdown = document.getElementById('agent-dropdown');
+            var agent = agentData.find(function (a) { return String(a.agent_id) === String(convAgentId); });
+            if (agent) {
+                dropdown.value = agent.agent_id;
+                updateFormFields(agent);
+                initializeDocumentUpload(agent.agent_id);
+                showAgentQuickActions(agent.agent_id);
+            }
+        }
+
+        hideWelcomeState();
+
+        var chatContent = document.getElementById('chat-content');
+        chatContent.innerHTML = '';
+        chatHistory = [];
+
+        // Header
+        var headerMsg = document.createElement('div');
+        headerMsg.className = 'chat-system-msg';
+        headerMsg.innerHTML = '<em>Continuing conversation from ' + formatTimeAgo(conversation.created_at) + '</em>';
+        chatContent.appendChild(headerMsg);
+
+        // Render each message
+        conversation.messages.forEach(function (msg) {
+            var msgContent = msg.content;
+            var parsedContent = null;
+            var isRichContent = false;
+
+            if (typeof msgContent === 'object' && msgContent !== null) {
+                parsedContent = msgContent;
+                isRichContent = parsedContent.type === 'rich_content' || !!parsedContent.blocks;
+            } else if (typeof msgContent === 'string' && msgContent) {
+                try {
+                    var parsed = JSON.parse(msgContent);
+                    if (parsed && (parsed.type === 'rich_content' || parsed.blocks)) {
+                        parsedContent = parsed;
+                        isRichContent = true;
+                    }
+                } catch (e) {
+                    // Not JSON
+                }
+            }
+
+            var textContent = typeof msgContent === 'string'
+                ? msgContent
+                : (msgContent === null || msgContent === undefined ? '' : JSON.stringify(msgContent));
+
+            if (msg.role === 'user') {
+                var userRow = document.createElement('div');
+                userRow.className = 'msg-row user-row';
+                userRow.innerHTML =
+                    '<div class="msg-avatar user-avatar"><i class="fas fa-user"></i></div>' +
+                    '<div class="msg-bubble user-bubble">' + escapeHtml(textContent) + '</div>';
+                chatContent.appendChild(userRow);
+                chatHistory.push({ role: 'user', content: textContent });
+
+            } else if (msg.role === 'assistant') {
+                var aiRow = document.createElement('div');
+                aiRow.className = 'msg-row ai-row';
+                var displayContent;
+
+                if (isRichContent && parsedContent) {
+                    if (window.richContentRenderer) {
+                        displayContent = window.richContentRenderer.render(parsedContent);
+                    } else {
+                        displayContent = escapeHtml(textContent);
+                    }
+                    aiRow.innerHTML =
+                        '<div class="msg-avatar ai-avatar"><i class="fas fa-robot"></i></div>' +
+                        '<div class="ai-rich-content">' + displayContent + '</div>';
+                } else {
+                    var converted = convertLinksAndPaths(textContent);
+                    var formatted = smartFormatText(converted);
+                    aiRow.innerHTML =
+                        '<div class="msg-avatar ai-avatar"><i class="fas fa-robot"></i></div>' +
+                        '<div class="msg-bubble ai-bubble">' + formatted.text + '</div>';
+                }
+
+                chatContent.appendChild(aiRow);
+                chatHistory.push({ role: 'assistant', content: textContent });
+            }
+        });
+
+        var chatWindow = document.getElementById('chat-window');
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+        console.log('Conversation loaded successfully with', conversation.messages.length, 'messages');
+
+    } catch (error) {
+        console.error('Error loading conversation:', error);
+        showToast('Failed to load conversation history', 'error');
+    }
+}
+
+// ===================================================================
+// formatTimeAgo
+// ===================================================================
+function formatTimeAgo(timestamp) {
+    if (!timestamp) return 'unknown time';
+    var date = new Date(timestamp);
+    var now = new Date();
+    var diffMs = now - date;
+    var diffMins = Math.floor(diffMs / 60000);
+    var diffHours = Math.floor(diffMs / 3600000);
+    var diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return diffMins + ' minute' + (diffMins !== 1 ? 's' : '') + ' ago';
+    if (diffHours < 24) return diffHours + ' hour' + (diffHours !== 1 ? 's' : '') + ' ago';
+    if (diffDays < 7) return diffDays + ' day' + (diffDays !== 1 ? 's' : '') + ' ago';
+    return date.toLocaleDateString();
+}
+
+// ===================================================================
+// Document Upload
+// ===================================================================
+function initializeDocumentUpload(agentId) {
+    document.getElementById('documentUploadCard').style.display = 'block';
+    document.getElementById('attach-btn').style.display = '';
+    setupDocumentUploadZone();
+    uploadQueue = [];
+    updateUploadQueue();
+    loadExistingDocuments(agentId);
+}
+
+function setupDocumentUploadZone() {
+    var uploadZone = document.getElementById('documentUploadZone');
+    var fileInput = document.getElementById('contextFileInput');
+    if (!uploadZone || !fileInput) return;
+
+    // Remove existing listeners by cloning
+    uploadZone.replaceWith(uploadZone.cloneNode(true));
+    var newUploadZone = document.getElementById('documentUploadZone');
+
+    newUploadZone.addEventListener('click', function (e) {
+        if (e.target === newUploadZone || e.target.parentElement === newUploadZone) {
+            fileInput.click();
+        }
+    });
+
+    newUploadZone.addEventListener('dragover', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.classList.add('dragover');
+    });
+
+    newUploadZone.addEventListener('dragleave', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.classList.remove('dragover');
+    });
+
+    newUploadZone.addEventListener('drop', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.classList.remove('dragover');
+        addFilesToQueue(e.dataTransfer.files);
+    });
+
+    fileInput.addEventListener('change', function (e) {
+        addFilesToQueue(e.target.files);
+        this.value = '';
+    });
+}
+
+function addFilesToQueue(files) {
+    var agentId = currentAgentId;
+    if (!agentId) {
+        showToast('Please select an agent first', 'warning');
+        return;
+    }
+
+    var addedCount = 0;
+    for (var i = 0; i < files.length; i++) {
+        var file = files[i];
+        if (isFileSupported(file)) {
+            if (!uploadQueue.some(function (item) { return item.file.name === file.name; })) {
+                uploadQueue.push({
+                    id: 'file_' + Date.now() + '_' + i,
+                    file: file,
+                    status: 'pending'
+                });
+                addedCount++;
+            }
+        } else {
+            showToast('Unsupported file type: ' + file.name, 'warning');
+        }
+    }
+
+    if (addedCount > 0) {
+        // Option A: auto-upload on drop/browse (remove the confusing second manual step)
+        showToast('Uploading ' + addedCount + ' file(s)...', 'info');
+        updateUploadQueue();
+
+        // Kick off upload immediately if not already uploading
+        var uploadButton = document.querySelector('button[onclick="processUploadQueue()"]');
+        var alreadyUploading = uploadButton && uploadButton.disabled;
+        if (!alreadyUploading) {
+            // Fire and forget; UI updates/progress are handled inside processUploadQueue()
+            processUploadQueue();
+        }
+    }
+}
+
+function isFileSupported(file) {
+    var supportedExtensions = ['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.txt', '.csv', '.jpg', '.jpeg', '.png'];
+    var fileName = file.name.toLowerCase();
+    return supportedExtensions.some(function (ext) { return fileName.endsWith(ext); });
+}
+
+function updateUploadQueue() {
+    var queueContainer = document.getElementById('uploadQueue');
+    var queueItems = document.getElementById('queueItems');
+    var queueCount = document.getElementById('queueCount');
+
+    if (uploadQueue.length === 0) {
+        queueContainer.style.display = 'none';
+        return;
+    }
+
+    queueContainer.style.display = 'block';
+    queueCount.textContent = uploadQueue.length;
+    queueItems.innerHTML = '';
+
+    uploadQueue.forEach(function (item, index) {
+        var queueItem = document.createElement('div');
+        queueItem.className = 'queue-item';
+        queueItem.innerHTML =
+            '<div class="file-icon">' + getFileIcon(item.file.name) + '</div>' +
+            '<div class="file-info">' +
+            '<div class="file-name">' + item.file.name + '</div>' +
+            '<div class="file-size">' + formatFileSize(item.file.size) + '</div>' +
+            '</div>' +
+            '<div class="remove-btn" onclick="removeFromQueue(' + index + ')">' +
+            '<i class="fas fa-times"></i></div>';
+        queueItems.appendChild(queueItem);
+    });
+}
+
+function removeFromQueue(index) {
+    uploadQueue.splice(index, 1);
+    updateUploadQueue();
+}
+
+function clearUploadQueue() {
+    uploadQueue = [];
+    updateUploadQueue();
+    document.getElementById('uploadResults').style.display = 'none';
+}
+
+function generateBatchId() {
+    return 'batch_' + Date.now();
+}
+
+async function processUploadQueue() {
+    var agentId = currentAgentId;
+    if (!agentId) {
+        showToast('Please select an agent first', 'warning');
+        return;
+    }
+    if (uploadQueue.length === 0) {
+        showToast('No files to upload', 'warning');
+        return;
+    }
+
+    var hasLargeFiles = uploadQueue.some(function (item) { return item.file.size > 5 * 1024 * 1024; });
+    if (hasLargeFiles) {
+        showToast('Large documents detected — processing may take several minutes.', 'info');
+    }
+
+    var uploadButton = document.querySelector('button[onclick="processUploadQueue()"]');
+    if (uploadButton) {
+        uploadButton.disabled = true;
+        uploadButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+    }
+
+    var progressDiv = document.getElementById('uploadProgress');
+    var progressBar = document.getElementById('uploadProgressBar');
+    var currentUpload = document.getElementById('currentUpload');
+    var processedCount = document.getElementById('processedCount');
+    var totalCount = document.getElementById('totalCount');
+
+    progressDiv.style.display = 'block';
+    totalCount.textContent = uploadQueue.length;
+
+    var results = [];
+    var batchId = generateBatchId();
+
+    for (var i = 0; i < uploadQueue.length; i++) {
+        var item = uploadQueue[i];
+        var sizeMB = (item.file.size / (1024 * 1024)).toFixed(1);
+        var sizeHint = item.file.size > 5 * 1024 * 1024 ? ' (' + sizeMB + ' MB)' : '';
+        currentUpload.textContent = item.file.name + sizeHint;
+        processedCount.textContent = i;
+        progressBar.style.width = ((i / uploadQueue.length) * 100) + '%';
+
+        try {
+            var result = await uploadSingleDocumentWithRetry(item.file, agentId, batchId);
+            results.push({
+                filename: item.file.name,
+                success: result.success,
+                message: result.message
+            });
+            if (i < uploadQueue.length - 1) {
+                await delay(1000);
+            }
+        } catch (error) {
+            console.error('Error processing ' + item.file.name + ':', error);
+            results.push({
+                filename: item.file.name,
+                success: false,
+                message: 'Upload failed: ' + error.message
+            });
+        }
+    }
+
+    processedCount.textContent = uploadQueue.length;
+    progressBar.style.width = '100%';
+
+    if (uploadButton) {
+        uploadButton.disabled = false;
+        uploadButton.innerHTML = '<i class="fas fa-upload"></i> Upload';
+    }
+
+    setTimeout(function () {
+        progressDiv.style.display = 'none';
+        uploadQueue = [];
+        updateUploadQueue();
+
+        var successCount = results.filter(function (r) { return r.success; }).length;
+        var failCount = results.filter(function (r) { return !r.success; }).length;
+
+        if (successCount > 0 && failCount === 0) {
+            showToast('Successfully uploaded ' + successCount + ' document(s)', 'success');
+        } else if (successCount > 0 && failCount > 0) {
+            showToast('Uploaded ' + successCount + ' document(s), ' + failCount + ' failed', 'warning');
+        } else {
+            showToast('Failed to upload documents', 'danger');
+        }
+
+        if (failCount > 0) {
+            showUploadResults(results);
+        }
+
+        if (successCount > 0) {
+            setTimeout(function () {
+                loadExistingDocuments(agentId);
+            }, 500);
+        }
+    }, 1000);
+}
+
+async function uploadSingleDocumentWithRetry(file, agentId, batchId, maxRetries) {
+    if (maxRetries === undefined) maxRetries = 2;
+    var lastError = null;
+
+    for (var attempt = 0; attempt <= maxRetries; attempt++) {
+        if (attempt > 0) {
+            console.log('Retry attempt ' + attempt + ' for ' + file.name);
+            await delay(2000 * attempt);
+        }
+
+        try {
+            var formData = new FormData();
+            formData.append('file', file);
+            formData.append('agent_id', agentId);
+            formData.append('description', file.name);
+            formData.append('batch_id', batchId);
+
+            if (currentUserId) {
+                formData.append('user_id', currentUserId);
+            }
+
+            var docTimeoutMinutes = {{ DOC_PROCESSING_TIMEOUT_MINUTES | default(30) }};
+            var controller = new AbortController();
+            var timeoutId = setTimeout(function () { controller.abort(); }, docTimeoutMinutes * 60 * 1000);
+
+            var response = await fetch('/add/agent_knowledge', {
+                method: 'POST',
+                body: formData,
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
+            var result = await response.json();
+
+            if (result.status === 'success') {
+                return { success: true, message: 'Uploaded successfully' };
+            } else {
+                lastError = result.message || 'Upload failed';
+                if (!result.message || !result.message.includes('duplicate key')) {
+                    return { success: false, message: lastError };
+                }
+            }
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                console.error('Processing timed out for ' + file.name);
+                return {
+                    success: false,
+                    message: 'Document processing timed out. The file may be too large.'
+                };
+            }
+            console.error('Attempt ' + (attempt + 1) + ' failed for ' + file.name + ':', error);
+            lastError = error.message;
+        }
+    }
+
+    return { success: false, message: lastError || 'Upload failed after retries' };
+}
+
+function delay(ms) {
+    return new Promise(function (resolve) { setTimeout(resolve, ms); });
+}
+
+function getFileIcon(filename) {
+    var ext = filename.split('.').pop().toLowerCase();
+    var iconMap = {
+        'pdf': '<i class="fas fa-file-pdf" style="color:#ef4444;"></i>',
+        'doc': '<i class="fas fa-file-word" style="color:#3b82f6;"></i>',
+        'docx': '<i class="fas fa-file-word" style="color:#3b82f6;"></i>',
+        'xls': '<i class="fas fa-file-excel" style="color:#22c55e;"></i>',
+        'xlsx': '<i class="fas fa-file-excel" style="color:#22c55e;"></i>',
+        'txt': '<i class="fas fa-file-alt" style="color:#71717a;"></i>',
+        'csv': '<i class="fas fa-file-csv" style="color:#06b6d4;"></i>',
+        'jpg': '<i class="fas fa-file-image" style="color:#eab308;"></i>',
+        'jpeg': '<i class="fas fa-file-image" style="color:#eab308;"></i>',
+        'png': '<i class="fas fa-file-image" style="color:#eab308;"></i>'
+    };
+    return iconMap[ext] || '<i class="fas fa-file" style="color:#71717a;"></i>';
+}
+
+function formatFileSize(bytes) {
+    if (!bytes || bytes === 0) return '0 B';
+    var sizes = ['B', 'KB', 'MB', 'GB'];
+    var i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
+}
+
+function showToast(message, type) {
+    if (!type) type = 'info';
+    var colorMap = {
+        'info': '#06b6d4',
+        'success': '#22c55e',
+        'warning': '#eab308',
+        'danger': '#ef4444',
+        'error': '#ef4444'
+    };
+    var bgColor = colorMap[type] || '#06b6d4';
+
+    var toast = document.createElement('div');
+    toast.style.cssText =
+        'position:fixed;top:20px;right:20px;z-index:9999;min-width:250px;max-width:400px;' +
+        'padding:0.75rem 1rem;border-radius:0.5rem;font-size:0.85rem;font-family:Outfit,sans-serif;' +
+        'color:#fff;background:' + bgColor + ';box-shadow:0 4px 12px rgba(0,0,0,0.3);' +
+        'animation:skeletonFadeIn 0.3s ease-out;';
+    toast.textContent = message;
+    document.body.appendChild(toast);
+
+    setTimeout(function () {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.3s ease';
+        setTimeout(function () { toast.remove(); }, 300);
+    }, 3000);
+}
+
+async function loadExistingDocuments(agentId) {
+    try {
+        var response = await fetch('/get/agent_knowledge_user/' + agentId);
+        var knowledgeItems = await response.json();
+        existingDocuments = knowledgeItems;
+        displayExistingDocuments();
+    } catch (error) {
+        console.error('Error loading existing documents:', error);
+        existingDocuments = [];
+    }
+}
+
+function displayExistingDocuments() {
+    var resultsDiv = document.getElementById('uploadResults');
+
+    if (existingDocuments.length === 0) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    resultsDiv.style.display = 'block';
+    resultsDiv.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">' +
+        '<span style="font-size:0.8rem;font-weight:600;">Documents (' + existingDocuments.length + ')</span>' +
+        '<button class="chat-btn-sm chat-btn-danger" onclick="deleteAllDocuments()"><i class="fas fa-trash-alt"></i> All</button>' +
+        '</div>' +
+        '<div id="resultsList" class="results-container"></div>';
+
+    var newResultsList = document.getElementById('resultsList');
+    newResultsList.innerHTML = '';
+
+    existingDocuments.forEach(function (doc) {
+        var docItem = document.createElement('div');
+        docItem.className = 'existing-doc-item';
+
+        var truncatedFilename = truncateText(doc.filename, 40);
+        var truncatedDescription = truncateText(doc.description, 38);
+
+        var isExcel = doc.filename && (doc.filename.toLowerCase().endsWith('.xlsx') || doc.filename.toLowerCase().endsWith('.xls'));
+        var liveBadge = isExcel ? '<span class="doc-live-badge">Live</span>' : '';
+        var sizeDisplay = isExcel && doc.total_rows
+            ? Number(doc.total_rows).toLocaleString() + ' rows'
+            : (doc.page_count || 0) + ' pages';
+
+        docItem.innerHTML =
+            '<div style="display:flex;align-items:center;justify-content:space-between;">' +
+            '<div style="display:flex;align-items:center;gap:0.4rem;">' +
+            getFileIcon(doc.filename) + liveBadge +
+            (doc.description ? '<small style="color:var(--text-tertiary,#71717a);" title="' + escapeHtml(doc.description) + '">' + escapeHtml(truncatedDescription) + '</small>' : '') +
+            '</div>' +
+            '<div style="display:flex;align-items:center;gap:0.4rem;">' +
+            '<small style="color:var(--text-tertiary,#71717a);">' + sizeDisplay + '</small>' +
+            '<button class="chat-btn-sm chat-btn-danger" onclick="deleteDocument(' + doc.knowledge_id + ',\'' + escapeHtml(doc.filename).replace(/'/g, "\\'") + '\')">' +
+            '<i class="fas fa-trash"></i></button>' +
+            '</div></div>';
+        newResultsList.appendChild(docItem);
+    });
+}
+
+async function deleteDocument(knowledgeId, filename) {
+    if (!confirm('Are you sure you want to remove "' + filename + '" from the agent\'s context?')) return;
+
+    try {
+        var response = await fetch('/delete/agent_knowledge/' + knowledgeId, { method: 'POST' });
+        var result = await response.json();
+
+        if (result.status === 'success') {
+            showToast('Removed ' + filename + ' from context', 'success');
+            existingDocuments = existingDocuments.filter(function (doc) { return doc.knowledge_id !== knowledgeId; });
+            displayExistingDocuments();
+        } else {
+            showToast('Failed to remove ' + filename, 'danger');
+        }
+    } catch (error) {
+        console.error('Error deleting document:', error);
+        showToast('Error deleting document', 'danger');
+    }
+}
+
+async function deleteAllDocuments() {
+    var agentId = currentAgentId;
+    var docCount = existingDocuments.length;
+
+    if (docCount === 0) {
+        showToast('No documents to delete', 'info');
+        return;
+    }
+
+    if (!confirm('Are you sure you want to remove ALL ' + docCount + ' document(s) from this agent\'s context? This action cannot be undone.')) return;
+
+    showToast('Deleting all documents...', 'info');
+
+    var successCount = 0;
+    var failCount = 0;
+
+    for (var i = 0; i < existingDocuments.length; i++) {
+        var doc = existingDocuments[i];
+        try {
+            var response = await fetch('/delete/agent_knowledge/' + doc.knowledge_id, { method: 'POST' });
+            var result = await response.json();
+            if (result.status === 'success') {
+                successCount++;
+            } else {
+                failCount++;
+            }
+        } catch (error) {
+            console.error('Error deleting document ' + doc.filename + ':', error);
+            failCount++;
+        }
+    }
+
+    if (successCount > 0 && failCount === 0) {
+        showToast('Successfully deleted all ' + successCount + ' document(s)', 'success');
+    } else if (successCount > 0 && failCount > 0) {
+        showToast('Deleted ' + successCount + ' document(s), ' + failCount + ' failed', 'warning');
+    } else {
+        showToast('Failed to delete documents', 'danger');
+    }
+
+    loadExistingDocuments(agentId);
+}
+
+function truncateText(text, maxLength) {
+    if (!maxLength) maxLength = 40;
+    if (!text) return '';
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + '...';
+}
+
+function showUploadResults(results) {
+    var failedResults = results.filter(function (r) { return !r.success; });
+    if (failedResults.length === 0) return;
+
+    var html = '<div style="margin-bottom:0.5rem;padding:0.5rem;border-radius:0.4rem;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);font-size:0.8rem;">' +
+        '<strong>Upload Errors:</strong><ul style="margin:0.25rem 0 0 1rem;padding:0;">';
+    failedResults.forEach(function (r) {
+        html += '<li>' + escapeHtml(r.filename) + ': ' + escapeHtml(r.message) + '</li>';
+    });
+    html += '</ul></div>';
+
+    var resultsDiv = document.getElementById('uploadResults');
+    resultsDiv.style.display = 'block';
+    var tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+    resultsDiv.insertBefore(tempDiv.firstChild, resultsDiv.firstChild);
+}
+
+function toggleDocumentUpload() {
+    var body = document.getElementById('documentUploadContent');
+    var icon = document.getElementById('documentUploadIcon');
+    if (!body || !icon) return;
+
+    if (body.classList.contains('show')) {
+        body.classList.remove('show');
+        icon.className = 'fas fa-chevron-right';
+    } else {
+        body.classList.add('show');
+        icon.className = 'fas fa-chevron-down';
+    }
+}
+
+// ===================================================================
+// MCP Servers (placeholder)
+// ===================================================================
+async function loadAgentMCPServers(agentId) {
+    var response = await fetch('/api/agents/' + agentId + '/mcp-servers');
+    var servers = await response.json();
+
+    var container = document.getElementById('mcpServersList');
+    container.innerHTML = '';
+
+    if (servers.length === 0) {
+        container.innerHTML = '<p style="color:var(--text-tertiary,#71717a);font-size:0.8rem;">No MCP servers assigned</p>';
+        return;
+    }
+
+    servers.forEach(function (server) {
+        container.innerHTML +=
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">' +
+            '<div><i class="fas fa-plug" style="color:#22c55e;"></i> ' +
+            '<small>' + escapeHtml(server.server_name) + '</small><br>' +
+            '<small style="color:var(--text-tertiary,#71717a);">' + (server.tool_count || 0) + ' tools</small></div>' +
+            '<button class="chat-btn-sm chat-btn-danger" onclick="unassignMCPServer(' + server.server_id + ')">' +
+            '<i class="fas fa-unlink"></i></button></div>';
+    });
+}
+
+// ===================================================================
+// Conversation History Sidebar
+// ===================================================================
+let _historyConversations = [];
+let _historySidebarOpen = false;
+
+function toggleHistorySidebar() {
+    const sidebar = document.getElementById('history-sidebar');
+    _historySidebarOpen = !_historySidebarOpen;
+    sidebar.style.display = _historySidebarOpen ? 'flex' : 'none';
+    if (_historySidebarOpen) loadHistoryList();
+}
+
+async function loadHistoryList() {
+    // Show all conversations regardless of currently selected agent
+    const url = '/api/history/conversations?limit=50';
+    try {
+        const resp = await fetch(url);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        _historyConversations = data.conversations || [];
+        renderHistoryList();
+    } catch(e) { console.error('History load error:', e); }
+}
+
+function renderHistoryList(filter) {
+    const pinnedList = document.getElementById('history-pinned-list');
+    const recentList = document.getElementById('history-recent-list');
+    const pinnedSection = document.getElementById('history-pinned');
+    const emptyEl = document.getElementById('history-empty');
+
+    pinnedList.innerHTML = '';
+    recentList.innerHTML = '';
+
+    let items = _historyConversations;
+    if (filter) {
+        const q = filter.toLowerCase();
+        items = items.filter(function(c) {
+            return (c.title || '').toLowerCase().includes(q) || (c.first_message || '').toLowerCase().includes(q);
+        });
+    }
+
+    const pinned = items.filter(function(c) { return c.is_pinned; });
+    const recent = items.filter(function(c) { return !c.is_pinned; });
+
+    pinnedSection.style.display = pinned.length ? '' : 'none';
+    emptyEl.style.display = items.length === 0 ? 'flex' : 'none';
+
+    pinned.forEach(function(c) { pinnedList.appendChild(createHistoryItem(c)); });
+    recent.forEach(function(c) { recentList.appendChild(createHistoryItem(c)); });
+}
+
+function createHistoryItem(conv) {
+    const div = document.createElement('div');
+    div.className = 'history-item' + (conv.id === currentConversationId ? ' active' : '');
+    const title = conv.title || conv.first_message || 'New conversation';
+    const truncTitle = title.length > 45 ? title.substring(0, 45) + '\u2026' : title;
+    const timeStr = conv.updated_at ? formatTimeAgo(conv.updated_at) : '';
+    const msgCount = conv.message_count || 0;
+    // Look up agent name from loaded agentData
+    var agentMatch = conv.agent_id ? agentData.find(function(a) { return String(a.agent_id) === String(conv.agent_id); }) : null;
+    const agentName = agentMatch ? agentMatch.agent_description : (conv.agent_name || '');
+
+    div.innerHTML =
+        '<div class="history-item-content" onclick="resumeConversation(\'' + conv.id + '\')">' +
+            '<div class="history-item-title">' + escapeHtml(truncTitle) + '</div>' +
+            '<div class="history-item-meta">' + msgCount + ' msg \u00b7 ' + timeStr + (agentName ? ' \u00b7 ' + escapeHtml(agentName) : '') + '</div>' +
+        '</div>' +
+        '<div class="history-item-actions">' +
+            '<button onclick="event.stopPropagation();togglePinConversation(\'' + conv.id + '\',' + !conv.is_pinned + ')" ' +
+                'class="' + (conv.is_pinned ? 'pinned' : '') + '" title="' + (conv.is_pinned ? 'Unpin' : 'Pin') + '">' +
+                '<i class="fas fa-thumbtack"></i>' +
+            '</button>' +
+            '<button onclick="event.stopPropagation();deleteHistoryConversation(\'' + conv.id + '\')" title="Delete">' +
+                '<i class="fas fa-trash-alt"></i>' +
+            '</button>' +
+        '</div>';
+    return div;
+}
+
+function filterHistoryList() {
+    const q = document.getElementById('history-search-input')?.value || '';
+    renderHistoryList(q || null);
+}
+
+async function resumeConversation(conversationId) {
+    if (typeof loadConversation === 'function') {
+        await loadConversation(conversationId);
+        // Highlight active item
+        document.querySelectorAll('.history-item').forEach(function(el) { el.classList.remove('active'); });
+        document.querySelectorAll('.history-item').forEach(function(el) {
+            if (el.querySelector('[onclick*="' + conversationId + '"]')) el.classList.add('active');
+        });
+    }
+}
+
+async function togglePinConversation(conversationId, pin) {
+    try {
+        await fetch('/api/history/conversations/' + conversationId, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({is_pinned: pin})
+        });
+        await loadHistoryList();
+    } catch(e) { console.error('Pin error:', e); }
+}
+
+async function deleteHistoryConversation(conversationId) {
+    if (!confirm('Delete this conversation? This cannot be undone.')) return;
+    try {
+        await fetch('/api/history/conversations/' + conversationId, { method: 'DELETE' });
+        if (conversationId === currentConversationId) {
+            resetConversation();
+        }
+        await loadHistoryList();
+    } catch(e) { console.error('Delete error:', e); }
+}
+
+function startNewChat() {
+    resetConversation();
+    document.querySelectorAll('.history-item').forEach(function(el) { el.classList.remove('active'); });
+}
+
+// Auto-refresh history when new messages are added
+(function() {
+    const chatContent = document.getElementById('chat-content');
+    if (chatContent) {
+        const observer = new MutationObserver(function() {
+            if (_historySidebarOpen) {
+                clearTimeout(window._historyRefreshTimer);
+                window._historyRefreshTimer = setTimeout(loadHistoryList, 2000);
+            }
+        });
+        observer.observe(chatContent, { childList: true });
+    }
+
+    // Refresh history when agent changes
+    const agentDropdown = document.getElementById('agent-dropdown');
+    if (agentDropdown) {
+        agentDropdown.addEventListener('change', function() {
+            if (_historySidebarOpen) loadHistoryList();
+        });
+    }
+
+    // Close history sidebar when clicking outside of it
+    document.addEventListener('click', function(e) {
+        if (!_historySidebarOpen) return;
+        var sidebar = document.getElementById('history-sidebar');
+        if (!sidebar) return;
+        // Ignore clicks inside the sidebar itself or on the history toggle button
+        if (sidebar.contains(e.target) || e.target.closest('[onclick*="toggleHistorySidebar"]')) return;
+        toggleHistorySidebar();
+    });
+})();
+</script>
+
+{% endblock %}

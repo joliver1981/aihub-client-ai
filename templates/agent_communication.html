@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Agent Communication Manager</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        body { background: #0a0a0a; color: #fff; font-family: 'Outfit', sans-serif; }
+        .communication-log {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid var(--border-subtle, #ddd);
+            padding: 10px;
+            background-color: var(--bg-elevated, #f8f9fa);
+        }
+        .agent-card {
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .agent-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .workflow-step {
+            border-left: 3px solid #007bff;
+            padding-left: 15px;
+            margin-bottom: 15px;
+        }
+    </style>
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+</head>
+<body><div class="doc-page" id="docPage">
+<div style="position:fixed;bottom:20px;right:20px;z-index:9999;"><button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme"><i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span></button></div>
+    <div class="container mt-4">
+        <h2>Agent Communication Manager</h2>
+        
+        <!-- Tab Navigation -->
+        <ul class="nav nav-tabs" role="tablist">
+            <li class="nav-item">
+                <a class="nav-link active" data-toggle="tab" href="#direct-comm">Direct Communication</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-toggle="tab" href="#workflows">Workflows</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-toggle="tab" href="#history">Communication History</a>
+            </li>
+        </ul>
+        
+        <!-- Tab Content -->
+        <div class="tab-content mt-3">
+            <!-- Direct Communication Tab -->
+            <div id="direct-comm" class="tab-pane fade show active">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h4>Active Agents</h4>
+                        <div id="agent-list" class="row"></div>
+                    </div>
+                    <div class="col-md-6">
+                        <h4>Send Message</h4>
+                        <form id="communication-form">
+                            <div class="form-group">
+                                <label>From Agent:</label>
+                                <select class="form-control" id="from-agent" required></select>
+                            </div>
+                            <div class="form-group">
+                                <label>To Agent:</label>
+                                <select class="form-control" id="to-agent" required></select>
+                            </div>
+                            <div class="form-group">
+                                <label>Message:</label>
+                                <textarea class="form-control" id="message" rows="3" required></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label>Context (JSON):</label>
+                                <textarea class="form-control" id="context" rows="2">{}</textarea>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Send Message</button>
+                        </form>
+                        
+                        <div id="communication-result" class="mt-3"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Workflows Tab -->
+            <div id="workflows" class="tab-pane fade">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h4>Create Workflow</h4>
+                        <form id="workflow-form">
+                            <div class="form-group">
+                                <label>Workflow Name:</label>
+                                <input type="text" class="form-control" id="workflow-name" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Description:</label>
+                                <textarea class="form-control" id="workflow-description" rows="2"></textarea>
+                            </div>
+                            <div id="workflow-steps">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <h5>Steps:</h5>
+                                    <button type="button" class="btn btn-link btn-sm" onclick="refreshWorkflowAgents()">
+                                        <i class="fas fa-sync"></i> Refresh Agents
+                                    </button>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="addWorkflowStep()">Add Step</button>
+                            <button type="submit" class="btn btn-primary">Create Workflow</button>
+                        </form>
+                    </div>
+                    <div class="col-md-6">
+                        <h4>Saved Workflows</h4>
+                        <div id="workflow-list"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- History Tab -->
+            <div id="history" class="tab-pane fade">
+                <h4>Communication History</h4>
+                <div class="form-group">
+                    <label>Filter by Agent:</label>
+                    <select class="form-control" id="history-filter">
+                        <option value="">All Agents</option>
+                    </select>
+                </div>
+                <div class="communication-log" id="communication-history"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <script>
+        let activeAgents = [];
+        let workflowStepCount = 0;
+        
+        // Load active agents
+        function loadAgents() {
+            $.get('/get/agents', function(response) {
+                console.log('Agents response:', response); // Debug log
+                
+                if (response.status === 'success') {
+                    activeAgents = response.data;
+                    
+                    // Debug: Log first agent structure
+                    if (activeAgents.length > 0) {
+                        console.log('First agent structure:', activeAgents[0]);
+                        console.log('Agent properties:', Object.keys(activeAgents[0]));
+                    }
+                    
+                    updateAgentSelects();
+                    displayAgents();
+                } else {
+                    console.error('Failed to load agents:', response);
+                    activeAgents = [];
+                    updateAgentSelects();
+                    displayAgents();
+                }
+            }).fail(function(xhr, status, error) {
+                console.error('Error loading agents:', status, error);
+                activeAgents = [];
+                updateAgentSelects();
+                displayAgents();
+            });
+        }
+        
+        // Update agent select dropdowns
+        function updateAgentSelects() {
+            const selects = ['#from-agent', '#to-agent', '#history-filter'];
+            selects.forEach(selectId => {
+                const $select = $(selectId);
+                const currentValue = $select.val();
+                $select.empty();
+                
+                if (selectId === '#history-filter') {
+                    $select.append('<option value="">All Agents</option>');
+                }
+                
+                if (!activeAgents || activeAgents.length === 0) {
+                    if (selectId !== '#history-filter') {
+                        $select.append('<option value="">No agents available</option>');
+                    }
+                } else {
+                    activeAgents.forEach(agent => {
+                        if (agent.agent_enabled) {
+                            const agentName = agent.agent_description || `Agent ${agent.agent_id}`;
+                            $select.append(`<option value="${agent.agent_id}">${agentName}</option>`);
+                        }
+                    });
+                }
+                
+                // Restore previous value if it still exists
+                if (currentValue && $select.find(`option[value="${currentValue}"]`).length > 0) {
+                    $select.val(currentValue);
+                }
+            });
+        }
+        
+        // Display agent cards
+        function displayAgents() {
+            const $agentList = $('#agent-list');
+            $agentList.empty();
+            
+            activeAgents.forEach(agent => {
+                if (agent.agent_enabled) {
+                    // Handle different possible structures for tools
+                    let tools = 'No tools';
+                    
+                    // Check if tools exist and handle different formats
+                    if (agent.tools && Array.isArray(agent.tools)) {
+                        // If tools is an array of objects with tool_name property
+                        if (agent.tools.length > 0 && agent.tools[0].tool_name) {
+                            tools = agent.tools.map(t => t.tool_name).join(', ');
+                        } 
+                        // If tools is an array of strings
+                        else if (agent.tools.length > 0 && typeof agent.tools[0] === 'string') {
+                            tools = agent.tools.join(', ');
+                        }
+                    } 
+                    // Check if tool_names exists (alternative structure)
+                    else if (agent.tool_names && Array.isArray(agent.tool_names)) {
+                        tools = agent.tool_names.join(', ');
+                    }
+                    
+                    $agentList.append(`
+                        <div class="col-12 mb-3">
+                            <div class="card agent-card">
+                                <div class="card-body">
+                                    <h5 class="card-title">${agent.agent_description || 'No description'}</h5>
+                                    <p class="card-text"><small>${agent.agent_objective || 'No objective'}</small></p>
+                                    <p class="card-text"><small class="text-muted">Tools: ${tools}</small></p>
+                                </div>
+                            </div>
+                        </div>
+                    `);
+                }
+            });
+            
+            if (activeAgents.length === 0) {
+                $agentList.append(`
+                    <div class="col-12">
+                        <div class="alert alert-info">
+                            No active agents found. Please create some agents first.
+                        </div>
+                    </div>
+                `);
+            }
+        }
+        
+        // Send communication
+        $('#communication-form').submit(function(e) {
+            e.preventDefault();
+            
+            // Validate form
+            const fromAgent = $('#from-agent').val();
+            const toAgent = $('#to-agent').val();
+            const message = $('#message').val();
+            
+            if (!fromAgent || !toAgent || !message) {
+                $('#communication-result').html(`
+                    <div class="alert alert-warning">
+                        Please fill in all required fields.
+                    </div>
+                `);
+                return;
+            }
+            
+            if (fromAgent === toAgent) {
+                $('#communication-result').html(`
+                    <div class="alert alert-warning">
+                        An agent cannot send a message to itself. Please select different agents.
+                    </div>
+                `);
+                return;
+            }
+            
+            // Parse context
+            let contextData = {};
+            try {
+                const contextValue = $('#context').val().trim();
+                if (contextValue) {
+                    contextData = JSON.parse(contextValue);
+                }
+            } catch (e) {
+                $('#communication-result').html(`
+                    <div class="alert alert-danger">
+                        Invalid JSON in context field: ${e.message}
+                    </div>
+                `);
+                return;
+            }
+            
+            const data = {
+                from_agent_id: parseInt(fromAgent),
+                to_agent_id: parseInt(toAgent),
+                message: message,
+                context: contextData
+            };
+            
+            console.log('Sending communication data:', data);
+            $('#communication-result').html('<div class="alert alert-info"><i class="fas fa-spinner fa-spin"></i> Sending message...</div>');
+            
+            // Disable form while sending
+            $('#communication-form').find('button[type="submit"]').prop('disabled', true);
+            
+            $.ajax({
+                url: '/api/agent/communication/test',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(data),
+                success: function(response) {
+                    console.log('Communication response:', response);
+                    if (response.status === 'success') {
+                        const result = response.result;
+                        $('#communication-result').html(`
+                            <div class="alert alert-success">
+                                <h5>Response from Agent ${result.from_agent}:</h5>
+                                <pre>${JSON.stringify(result.response, null, 2)}</pre>
+                                <small>Execution time: ${result.execution_time}</small>
+                            </div>
+                        `);
+                        // Clear form
+                        $('#message').val('');
+                        $('#context').val('{}');
+                        loadCommunicationHistory();
+                    } else {
+                        $('#communication-result').html(`
+                            <div class="alert alert-danger">
+                                <strong>Error:</strong> ${response.message || 'Unknown error occurred'}
+                            </div>
+                        `);
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('Communication error:', status, error);
+                    let errorMessage = 'Failed to send message';
+                    try {
+                        const errorData = JSON.parse(xhr.responseText);
+                        errorMessage = errorData.message || errorMessage;
+                    } catch (e) {
+                        errorMessage = xhr.responseText || errorMessage;
+                    }
+                    $('#communication-result').html(`
+                        <div class="alert alert-danger">
+                            <strong>Error:</strong> ${errorMessage}
+                        </div>
+                    `);
+                },
+                complete: function() {
+                    // Re-enable form
+                    $('#communication-form').find('button[type="submit"]').prop('disabled', false);
+                }
+            });
+        });
+        
+        // Add workflow step
+        function addWorkflowStep() {
+            workflowStepCount++;
+            
+            // Generate options HTML from activeAgents
+            let agentOptions = '';
+            if (activeAgents && activeAgents.length > 0) {
+                activeAgents.filter(a => a.agent_enabled).forEach(agent => {
+                    const agentName = agent.agent_description || `Agent ${agent.agent_id}`;
+                    agentOptions += `<option value="${agent.agent_id}">${agentName}</option>`;
+                });
+            } else {
+                agentOptions = '<option value="">No agents available</option>';
+            }
+            
+            $('#workflow-steps').append(`
+                <div class="workflow-step" id="step-${workflowStepCount}">
+                    <div class="form-group">
+                        <label>Step ${workflowStepCount} - Agent:</label>
+                        <select class="form-control step-agent" required>
+                            ${agentOptions}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Task:</label>
+                        <textarea class="form-control step-task" rows="2" required></textarea>
+                    </div>
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input step-pass-result" checked>
+                        <label class="form-check-label">Pass result to next step</label>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="removeWorkflowStep(${workflowStepCount})">Remove</button>
+                </div>
+            `);
+        }
+        
+        // Refresh workflow agents
+        function refreshWorkflowAgents() {
+            // Reload agents
+            loadAgents();
+            
+            // Update all existing step dropdowns
+            $('.step-agent').each(function() {
+                const $select = $(this);
+                const currentValue = $select.val();
+                $select.empty();
+                
+                if (activeAgents && activeAgents.length > 0) {
+                    activeAgents.filter(a => a.agent_enabled).forEach(agent => {
+                        const agentName = agent.agent_description || `Agent ${agent.agent_id}`;
+                        $select.append(`<option value="${agent.agent_id}">${agentName}</option>`);
+                    });
+                    
+                    // Restore previous selection if possible
+                    if (currentValue && $select.find(`option[value="${currentValue}"]`).length > 0) {
+                        $select.val(currentValue);
+                    }
+                } else {
+                    $select.append('<option value="">No agents available</option>');
+                }
+            });
+        }
+        
+        // Remove workflow step
+        function removeWorkflowStep(stepId) {
+            $(`#step-${stepId}`).remove();
+        }
+        
+        // Create workflow
+        $('#workflow-form').submit(function(e) {
+            e.preventDefault();
+            
+            const steps = [];
+            $('.workflow-step').each(function() {
+                steps.push({
+                    agent_id: parseInt($(this).find('.step-agent').val()),
+                    task: $(this).find('.step-task').val(),
+                    pass_result_to_next: $(this).find('.step-pass-result').is(':checked')
+                });
+            });
+            
+            const data = {
+                name: $('#workflow-name').val(),
+                description: $('#workflow-description').val(),
+                workflow_definition: { steps: steps }
+            };
+            
+            $.ajax({
+                url: '/api/agent/workflows',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(data),
+                success: function(response) {
+                    alert('Workflow created successfully!');
+                    $('#workflow-form')[0].reset();
+                    $('#workflow-steps').empty();
+                    workflowStepCount = 0;
+                    loadWorkflows();
+                },
+                error: function(xhr) {
+                    alert('Error creating workflow: ' + xhr.responseText);
+                }
+            });
+        });
+        
+        // Load workflows
+        function loadWorkflows() {
+            $.get('/api/agent/workflows', function(response) {
+                if (response.status === 'success') {
+                    const $list = $('#workflow-list');
+                    $list.empty();
+                    
+                    response.workflows.forEach(workflow => {
+                        $list.append(`
+                            <div class="card mb-2">
+                                <div class="card-body">
+                                    <h5>${workflow.name}</h5>
+                                    <p>${workflow.description}</p>
+                                    <small class="text-muted">
+                                        Created by ${workflow.created_by.name} on ${new Date(workflow.created_date).toLocaleDateString()}
+                                        <br>Executed ${workflow.execution_count} times
+                                    </small>
+                                </div>
+                            </div>
+                        `);
+                    });
+                }
+            });
+        }
+        
+        // Load communication history
+        function loadCommunicationHistory() {
+            const agentId = $('#history-filter').val();
+            const url = '/api/agent/communications/history' + (agentId ? `?agent_id=${agentId}` : '');
+            
+            $.get(url, function(response) {
+                if (response.status === 'success') {
+                    const $history = $('#communication-history');
+                    $history.empty();
+                    
+                    response.communications.forEach(comm => {
+                        const status = comm.status === 'success' ? 'success' : 'danger';
+                        $history.append(`
+                            <div class="alert alert-${status} mb-2">
+                                <strong>${comm.from_agent.name} → ${comm.to_agent.name}</strong>
+                                <br>Message: ${comm.message}
+                                <br><small>${new Date(comm.created_date).toLocaleString()}</small>
+                                ${comm.execution_time_ms ? `<br><small>Execution: ${comm.execution_time_ms}ms</small>` : ''}
+                            </div>
+                        `);
+                    });
+                }
+            });
+        }
+        
+        // Initialize
+        $(document).ready(function() {
+            // Load agents and wait for completion
+            $.when(loadAgents()).done(function() {
+                // Add first workflow step after agents are loaded
+                setTimeout(addWorkflowStep, 2000);
+                //addWorkflowStep();
+            });
+            loadWorkflows();
+            loadCommunicationHistory();
+            
+            // Add first workflow step by default
+            //addWorkflowStep();
+            
+            // Refresh history on filter change
+            $('#history-filter').change(loadCommunicationHistory);
+        });
+    </script>
+<script>
+function toggleDocTheme(){var p=document.getElementById('docPage'),i=document.getElementById('docThemeIcon'),l=document.getElementById('docThemeLabel');p.classList.toggle('light-mode');var lt=p.classList.contains('light-mode');i.className=lt?'fas fa-sun':'fas fa-moon';l.textContent=lt?'Light':'Dark';localStorage.setItem('docPageTheme',lt?'light':'dark')}
+(function(){var s=localStorage.getItem('docPageTheme');if(s==='light'){var p=document.getElementById('docPage');if(p){p.classList.add('light-mode');var i=document.getElementById('docThemeIcon'),l=document.getElementById('docThemeLabel');if(i)i.className='fas fa-sun';if(l)l.textContent='Light'}}})();
+</script>
+</div><!-- /.doc-page -->
+</body>
+</html>

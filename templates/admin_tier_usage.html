@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tier & Usage - Admin</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+    <style>
+        body { background: #000000; color: #ffffff; font-family: 'Outfit', sans-serif; }
+        
+        .page-header {
+            background: linear-gradient(135deg, rgba(6, 182, 212, 0.15) 0%, rgba(167, 139, 250, 0.15) 100%);
+            border-bottom: 1px solid #27272a;
+            color: white;
+            padding: 2rem 0;
+            margin-bottom: 2rem;
+        }
+        .page-header p { color: #a1a1aa; }
+        .page-header .btn-light {
+            background: #18181b; border: 1px solid #27272a; color: #a1a1aa;
+        }
+        .page-header .btn-light:hover { background: #1c1c1f; color: #fff; }
+        
+        .tier-card {
+            background: #0a0a0a;
+            border: 1px solid #27272a;
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: none;
+            color: #ffffff;
+        }
+        .tier-card h4, .tier-card h5 { color: #ffffff; }
+        .tier-card strong { color: #ffffff; }
+        .tier-card span { color: #a1a1aa; }
+        
+        .license-key {
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
+            font-size: 1.1rem;
+            padding: 1rem;
+            background: #111111;
+            border-radius: 8px;
+            border: 1px dashed #3f3f46;
+            color: #06b6d4;
+        }
+        
+        .tier-badge { display: inline-block; padding: 0.5rem 1.5rem; border-radius: 20px; font-weight: bold; font-size: 1.1rem; }
+        .tier-free { background: rgba(113, 113, 122, 0.2); color: #a1a1aa; border: 1px solid #3f3f46; }
+        .tier-basic { background: rgba(6, 182, 212, 0.15); color: #06b6d4; border: 1px solid rgba(6, 182, 212, 0.3); }
+        .tier-pro { background: rgba(6, 182, 212, 0.2); color: #06b6d4; border: 1px solid rgba(6, 182, 212, 0.4); }
+        .tier-professional { background: linear-gradient(135deg, rgba(6, 182, 212, 0.2), rgba(167, 139, 250, 0.2)); color: #a78bfa; border: 1px solid rgba(167, 139, 250, 0.3); }
+        .tier-enterprise { background: rgba(167, 139, 250, 0.2); color: #a78bfa; border: 1px solid rgba(167, 139, 250, 0.3); }
+        
+        .usage-item {
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            background: #111111;
+            border: 1px solid #27272a;
+            border-radius: 10px;
+            color: #ffffff;
+        }
+        .usage-item .text-primary { color: #06b6d4 !important; }
+        
+        .usage-bar { height: 8px; background: #27272a; border-radius: 4px; overflow: hidden; margin-top: 0.5rem; }
+        .usage-fill { height: 100%; transition: width 0.3s ease; border-radius: 4px; }
+        .usage-low { background: #34d399; }
+        .usage-medium { background: #fbbf24; }
+        .usage-high { background: #fb923c; }
+        .usage-over { background: #fb7185; }
+        
+        .feature-badge { padding: 0.3rem 0.85rem; border-radius: 8px; font-size: 0.85rem; margin: 0.25rem; display: inline-block; }
+        .feature-enabled { background: rgba(52, 211, 153, 0.15); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.3); }
+        .feature-disabled { background: rgba(251, 113, 133, 0.15); color: #fb7185; border: 1px solid rgba(251, 113, 133, 0.3); }
+        
+        .user-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-top: 1rem; }
+        .stat-box { text-align: center; padding: 1rem; background: #111111; border: 1px solid #27272a; border-radius: 10px; }
+        .stat-value { font-size: 2rem; font-weight: bold; color: #ffffff; }
+        .stat-label { font-size: 0.82rem; color: #71717a; text-transform: uppercase; letter-spacing: 0.5px; }
+        
+        .users-table { max-height: 400px; overflow-y: auto; }
+        .table { color: #ffffff; }
+        .table thead th, .sticky-top { background: #111111 !important; color: #a1a1aa; border-bottom: 1px solid #27272a; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em; }
+        .table td { border-top: 1px solid #27272a; color: #ffffff; }
+        .table-hover tbody tr:hover { background: #1c1c1f; color: #ffffff; }
+        .bg-white { background: #111111 !important; color: #ffffff !important; }
+        .bg-light { background: #111111 !important; color: #ffffff !important; }
+        
+        .role-badge { padding: 0.25rem 0.6rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; }
+        .role-admin { background: rgba(167, 139, 250, 0.2); color: #a78bfa; }
+        .role-developer { background: rgba(6, 182, 212, 0.2); color: #06b6d4; }
+        .role-user { background: rgba(113, 113, 122, 0.2); color: #a1a1aa; }
+        
+        .text-muted { color: #71717a !important; }
+        .text-primary { color: #06b6d4 !important; }
+        .text-danger { color: #fb7185 !important; }
+        a { color: #06b6d4; }
+        .btn-outline-primary { border-color: #06b6d4; color: #06b6d4; }
+        .btn-outline-primary:hover { background: rgba(6, 182, 212, 0.15); color: #06b6d4; border-color: #06b6d4; }
+        .btn-outline-secondary { border-color: #3f3f46; color: #a1a1aa; }
+        .btn-outline-secondary:hover { background: #1c1c1f; color: #fff; border-color: #3f3f46; }
+        .alert-danger { background: rgba(251, 113, 133, 0.08); border: 1px solid rgba(251, 113, 133, 0.2); color: #fb7185; }
+        .spinner-border { color: #06b6d4 !important; }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="page-header">
+        <div class="container">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h1><i class="fas fa-crown me-3"></i>Tier & Usage</h1>
+                    <p class="mb-0">View your subscription tier, license key, and platform usage</p>
+                </div>
+                <div>
+                    <button class="btn btn-light" onclick="location.reload()">
+                        <i class="fas fa-sync-alt me-2"></i>Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- License Key Section -->
+        <div class="tier-card">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <h4 class="mb-3">License Key</h4>
+                    <div class="license-key" id="licenseKey">
+                        <div class="spinner-border spinner-border-sm me-2"></div>
+                        Loading...
+                    </div>
+                </div>
+                <div class="col-md-4 text-md-end mt-3 mt-md-0">
+                    <div id="tierBadge"></div>
+                    <div class="mt-2 text-muted" id="tierPrice" style="display: none;"></div>
+                    <div class="mt-1 text-muted small" id="nextBilling" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Usage vs Limits -->
+        <div class="tier-card">
+            <h4 class="mb-4">Current Usage vs Limits</h4>
+            <div id="usageContainer">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary"></div>
+                    <div class="mt-2">Loading usage data...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- User Statistics -->
+        <div class="tier-card">
+            <h4 class="mb-3">User Statistics</h4>
+            <div class="user-stats-grid" id="userStatsGrid">
+                <!-- Will be populated by JavaScript -->
+            </div>
+            
+            <div class="mt-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5>User List</h5>
+                    <button class="btn btn-sm btn-outline-primary" onclick="loadUsersList()">
+                        <i class="fas fa-users me-1"></i>View All Users
+                    </button>
+                </div>
+                <div id="usersListContainer" style="display: none;">
+                    <div class="users-table">
+                        <table class="table table-sm table-hover">
+                            <thead class="sticky-top bg-white">
+                                <tr>
+                                    <th>Username</th>
+                                    <th>Name</th>
+                                    <th>Email</th>
+                                    <th>Phone</th>
+                                    <th>Role</th>
+                                </tr>
+                            </thead>
+                            <tbody id="usersTableBody">
+                                <!-- Will be populated -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Features -->
+        <div class="tier-card">
+            <h4 class="mb-3">Available Features</h4>
+            <div id="featuresContainer">
+                <!-- Features will be loaded here -->
+            </div>
+        </div>
+
+        <!-- Feature Management (Admin) -->
+        <div class="tier-card" id="featureManagementCard">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h4 class="mb-0"><i class="fas fa-flask me-2" style="color: #a78bfa;"></i>Feature Management</h4>
+                <span class="feature-badge" style="background: rgba(167, 139, 250, 0.15); color: #a78bfa; border: 1px solid rgba(167, 139, 250, 0.3);">Admin Only</span>
+            </div>
+            <p class="text-muted mb-4">Control which features are available to users. Features use two-tier resolution: the SaaS provider can disable features at the cloud level, and platform admins can independently disable them locally.</p>
+            
+            <div id="featureFlagsContainer">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary"></div>
+                    <div class="mt-2">Loading feature flags...</div>
+                </div>
+            </div>
+            
+            <div id="featureFlagsSaveStatus" class="mt-3" style="display: none;"></div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        let allData = null;
+        
+        // Load data on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadTierData();
+            loadFeatureFlags();
+        });
+
+        function loadTierData() {
+            fetch('/admin/tier/api/stats')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        allData = data;
+                        displayTierInfo(data);
+                        displayUsage(data);
+                        displayUserStatistics(data.user_statistics);
+                        displayFeatures(data.features);
+                    } else {
+                        showError('Failed to load tier data');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showError('Error loading data');
+                });
+        }
+
+        function displayTierInfo(data) {
+            // License key
+            document.getElementById('licenseKey').innerHTML = `
+                <i class="fas fa-key me-2"></i>
+                ${data.tier.license_key}
+                <button class="btn btn-sm btn-outline-secondary float-end" onclick="copyLicenseKey('${data.tier.license_key}')">
+                    <i class="fas fa-copy"></i> Copy
+                </button>
+            `;
+            
+            // Tier badge
+            document.getElementById('tierBadge').innerHTML = `
+                <span class="tier-badge tier-${data.tier.tier_name.toLowerCase()}">
+                    ${data.tier.display_name}
+                </span>
+            `;
+            
+            // Price
+            const priceText = data.tier.monthly_price > 0 ? 
+                `$${data.tier.monthly_price.toFixed(2)}/month` : 'Free';
+            document.getElementById('tierPrice').textContent = priceText;
+            
+            // Next billing
+            if (data.tier.next_billing) {
+                document.getElementById('nextBilling').textContent = 
+                    `Next billing: ${formatDate(data.tier.next_billing)}`;
+            }
+        }
+
+        function displayUsage(data) {
+            const container = document.getElementById('usageContainer');
+            const items = [
+                { key: 'users', label: 'Users', icon: 'fa-users' },
+                { key: 'agents', label: 'Agents', icon: 'fa-robot' },
+                { key: 'custom_tools', label: 'Custom Tools', icon: 'fa-tools' },
+                { key: 'environments', label: 'Environments', icon: 'fa-cube' },
+                { key: 'requests', label: 'Requests', icon: 'fa-exchange-alt' }
+            ];
+            
+            container.innerHTML = items.map(item => {
+                const usage = data.usage[item.key];
+                const limit = data.limits[item.key];
+                const percentage = limit === -1 ? 0 : (limit > 0 ? (usage / limit) * 100 : 0);
+                const limitText = limit === -1 ? 'Unlimited' : limit;
+                const usageClass = getUsageClass(percentage);
+                
+                return `
+                    <div class="usage-item">
+                        <div class="row align-items-center">
+                            <div class="col-auto">
+                                <i class="fas ${item.icon} fa-2x text-primary"></i>
+                            </div>
+                            <div class="col">
+                                <div class="d-flex justify-content-between mb-1">
+                                    <strong>${item.label}</strong>
+                                    <span>${usage} / ${limitText}</span>
+                                </div>
+                                <div class="usage-bar">
+                                    <div class="usage-fill ${usageClass}" style="width: ${Math.min(percentage, 100)}%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function displayUserStatistics(stats) {
+            const container = document.getElementById('userStatsGrid');
+            
+            container.innerHTML = `
+                <div class="stat-box">
+                    <div class="stat-value">${stats.total}</div>
+                    <div class="stat-label">Total Users</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value">${stats.by_role.admins}</div>
+                    <div class="stat-label">Admins</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value">${stats.by_role.developers}</div>
+                    <div class="stat-label">Developers</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value">${stats.by_role.users}</div>
+                    <div class="stat-label">Regular Users</div>
+                </div>
+            `;
+        }
+
+        function loadUsersList() {
+            const container = document.getElementById('usersListContainer');
+            const tbody = document.getElementById('usersTableBody');
+            
+            if (container.style.display === 'none') {
+                container.style.display = 'block';
+                
+                fetch('/admin/tier/api/users/list')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            tbody.innerHTML = data.users.map(user => `
+                                <tr>
+                                    <td>${user.username}</td>
+                                    <td>${user.full_name}</td>
+                                    <td>${user.email}</td>
+                                    <td>${user.phone}</td>
+                                    <td><span class="role-badge role-${user.role.toLowerCase()}">${user.role}</span></td>
+                                </tr>
+                            `).join('');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error loading users:', error);
+                        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-danger">Error loading users</td></tr>';
+                    });
+            } else {
+                container.style.display = 'none';
+            }
+        }
+
+        function displayFeatures(features) {
+            const container = document.getElementById('featuresContainer');
+            const featureNames = {
+                'environments': 'Agent Environments',
+                'workflows': 'Workflows',
+                'documents': 'Document Processing',
+                'enterprise_features': 'Enterprise Features'
+            };
+            
+            container.innerHTML = Object.keys(features).map(key => {
+                const enabled = features[key];
+                const className = enabled ? 'feature-enabled' : 'feature-disabled';
+                const icon = enabled ? 'fa-check' : 'fa-times';
+                
+                return `
+                    <span class="feature-badge ${className}">
+                        <i class="fas ${icon} me-1"></i>
+                        ${featureNames[key] || key}
+                    </span>
+                `;
+            }).join('');
+        }
+
+        function getUsageClass(percentage) {
+            if (percentage >= 100) return 'usage-over';
+            if (percentage >= 80) return 'usage-high';
+            if (percentage >= 60) return 'usage-medium';
+            return 'usage-low';
+        }
+
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('en-US', { 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric' 
+            });
+        }
+
+        function copyLicenseKey(key) {
+            navigator.clipboard.writeText(key).then(() => {
+                const btn = event.target.closest('button');
+                const originalHtml = btn.innerHTML;
+                btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+                btn.classList.add('btn-success');
+                btn.classList.remove('btn-outline-secondary');
+                
+                setTimeout(() => {
+                    btn.innerHTML = originalHtml;
+                    btn.classList.remove('btn-success');
+                    btn.classList.add('btn-outline-secondary');
+                }, 2000);
+            });
+        }
+
+        function showError(message) {
+            document.getElementById('usageContainer').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    ${message}
+                </div>
+            `;
+        }
+
+        // ── Feature Flags Management ──────────────────────────────────────
+        let featureFlagsData = null;
+
+        function loadFeatureFlags() {
+            fetch('/admin/tier/api/feature-flags')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        featureFlagsData = data.flags;
+                        renderFeatureFlags(data.flags);
+                    } else {
+                        document.getElementById('featureFlagsContainer').innerHTML =
+                            '<div class="alert alert-danger">Failed to load feature flags</div>';
+                    }
+                })
+                .catch(err => {
+                    console.error('Feature flags error:', err);
+                    document.getElementById('featureFlagsContainer').innerHTML =
+                        '<div class="alert alert-danger">Error loading feature flags</div>';
+                });
+        }
+
+        function renderFeatureFlags(flags) {
+            const container = document.getElementById('featureFlagsContainer');
+
+            // Group by category
+            const experimental = [];
+            const capability = [];
+            for (const [key, info] of Object.entries(flags)) {
+                if (info.category === 'experimental') experimental.push([key, info]);
+                else capability.push([key, info]);
+            }
+
+            function renderGroup(title, icon, items) {
+                let html = `<h5 class="mb-3" style="color:#a1a1aa;"><i class="fas ${icon} me-2"></i>${title}</h5>`;
+                html += '<div class="mb-4">';
+                for (const [key, info] of items) {
+                    const cloudDisabled = !info.cloud;
+                    const isOn = info.effective;
+                    const localOn = info.local;
+                    const toggleDisabled = cloudDisabled ? 'disabled' : '';
+                    const checkedAttr = localOn ? 'checked' : '';
+
+                    html += `
+                    <div class="d-flex align-items-center justify-content-between py-2 px-3 mb-2"
+                         style="background:#111; border:1px solid #27272a; border-radius:8px;">
+                        <div>
+                            <strong style="color:#fff;">${info.label}</strong>
+                            ${cloudDisabled
+                                ? '<span class="ms-2 badge" style="background:rgba(251,113,133,0.15);color:#fb7185;border:1px solid rgba(251,113,133,0.3);font-size:0.7rem;">Disabled by provider</span>'
+                                : ''}
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="me-2" style="font-size:0.8rem;color:${isOn ? '#34d399' : '#fb7185'};">
+                                ${isOn ? 'Enabled' : 'Disabled'}
+                            </span>
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" role="switch"
+                                       id="flag_${key}" data-flag="${key}"
+                                       ${checkedAttr} ${toggleDisabled}
+                                       onchange="onFlagToggle(this)"
+                                       style="cursor:${cloudDisabled ? 'not-allowed' : 'pointer'};">
+                            </div>
+                        </div>
+                    </div>`;
+                }
+                html += '</div>';
+                return html;
+            }
+
+            container.innerHTML =
+                renderGroup('Experimental Features', 'fa-flask', experimental) +
+                renderGroup('Platform Capabilities', 'fa-cogs', capability);
+        }
+
+        function onFlagToggle(el) {
+            const key = el.dataset.flag;
+            const value = el.checked;
+            const statusDiv = document.getElementById('featureFlagsSaveStatus');
+            statusDiv.style.display = 'block';
+            statusDiv.innerHTML = '<span style="color:#a1a1aa;"><i class="fas fa-spinner fa-spin me-1"></i>Saving...</span>';
+
+            fetch('/admin/tier/api/feature-flags', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ [key]: value })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    featureFlagsData = data.flags;
+                    renderFeatureFlags(data.flags);
+                    statusDiv.innerHTML = '<span style="color:#34d399;"><i class="fas fa-check me-1"></i>Saved</span>';
+                    setTimeout(() => { statusDiv.style.display = 'none'; }, 2000);
+                } else {
+                    statusDiv.innerHTML = '<span style="color:#fb7185;">Failed to save</span>';
+                    el.checked = !el.checked;  // revert
+                }
+            })
+            .catch(err => {
+                console.error('Save error:', err);
+                statusDiv.innerHTML = '<span style="color:#fb7185;">Error saving</span>';
+                el.checked = !el.checked;
+            });
+        }
+    </script>
+</body>
+</html>

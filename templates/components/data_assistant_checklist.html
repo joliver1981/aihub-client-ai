@@ -1,0 +1,110 @@
+{# 
+    Data Assistant Setup Checklist
+    A floating progress tracker for the multi-step Data Assistant setup flow.
+    
+    Include in base.html: include 'components/data_assistant_checklist.html'
+#}
+
+<!-- Data Assistant Setup Checklist -->
+<div id="dataAssistantChecklist" class="setup-checklist d-none">
+    <div class="checklist-container">
+        <!-- Header - click to expand/collapse -->
+        <div class="checklist-header" onclick="toggleChecklist()">
+            <div class="checklist-title">
+                <i class="fas fa-database mr-2"></i>
+                <span>Data Assistant Setup</span>
+            </div>
+            <div class="checklist-progress">
+                <span id="checklistProgressText">0 of 3</span>
+                <i class="fas fa-chevron-up checklist-toggle-icon"></i>
+            </div>
+        </div>
+        
+        <!-- Progress bar -->
+        <div class="checklist-progress-bar">
+            <div class="checklist-progress-fill" id="checklistProgressFill" style="width: 0%"></div>
+        </div>
+        
+        <!-- Steps -->
+        <div class="checklist-body">
+            <div class="checklist-steps">
+                <!-- Step 1: Database Connection -->
+                <div class="checklist-step" data-step="connection">
+                    <div class="step-status">
+                        <i class="fas fa-circle step-pending"></i>
+                        <i class="fas fa-check-circle step-complete d-none"></i>
+                    </div>
+                    <div class="step-content">
+                        <div class="step-title">Create database connection</div>
+                        <div class="step-subtitle">Connect to SQL Server, PostgreSQL, MySQL, etc.</div>
+                    </div>
+                    <a href="/connections" class="step-action btn btn-sm btn-outline-primary">
+                        <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+                
+                <!-- Step 2: Data Dictionary -->
+                <div class="checklist-step" data-step="dictionary">
+                    <div class="step-status">
+                        <i class="fas fa-circle step-pending"></i>
+                        <i class="fas fa-check-circle step-complete d-none"></i>
+                    </div>
+                    <div class="step-content">
+                        <div class="step-title">Build data dictionary</div>
+                        <div class="step-subtitle">Help AI understand your schema</div>
+                    </div>
+                    <a href="/data_dictionary" class="step-action btn btn-sm btn-outline-primary">
+                        <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+                
+                <!-- Step 3: Create Data Agent -->
+                <div class="checklist-step" data-step="agent">
+                    <div class="step-status">
+                        <i class="fas fa-circle step-pending"></i>
+                        <i class="fas fa-check-circle step-complete d-none"></i>
+                    </div>
+                    <div class="step-content">
+                        <div class="step-title">Create data agent</div>
+                        <div class="step-subtitle">Configure your NLQ assistant</div>
+                    </div>
+                    <a href="/custom_data_agent" class="step-action btn btn-sm btn-outline-primary">
+                        <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+            </div>
+            
+            <!-- Continue Button -->
+            <div class="checklist-footer">
+                <button class="btn btn-primary btn-block" id="btnChecklistContinue" onclick="continueDataAssistantSetup()">
+                    <span id="continueButtonText">Start Setup</span>
+                    <i class="fas fa-arrow-right ml-2"></i>
+                </button>
+                <button class="btn btn-link btn-sm btn-block text-muted mt-2" onclick="dismissDataAssistantChecklist()">
+                    I'll do this later
+                </button>
+            </div>
+        </div>
+        
+        <!-- Collapsed state hint -->
+        <div class="checklist-collapsed-hint d-none">
+            Click to expand
+        </div>
+    </div>
+</div>
+
+<!-- Completion Celebration (shows when all steps done) -->
+<div id="dataAssistantComplete" class="setup-complete-toast d-none">
+    <div class="complete-toast-content">
+        <div class="complete-icon">
+            <i class="fas fa-check-circle"></i>
+        </div>
+        <div class="complete-text">
+            <strong>Data Assistant Ready!</strong>
+            <span>You can now query your database with natural language.</span>
+        </div>
+        <button class="btn btn-sm btn-success" onclick="goToDataAssistantChat()">
+            <i class="fas fa-comments mr-1"></i> Start Chatting
+        </button>
+    </div>
+</div>

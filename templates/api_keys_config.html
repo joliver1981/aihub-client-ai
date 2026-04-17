@@ -1,0 +1,781 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<div style="position:fixed;bottom:20px;right:20px;z-index:100;">
+    <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+        <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+    </button>
+</div>
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="mb-1">
+                <i class="fas fa-key text-primary mr-2"></i>
+                API Keys Configuration
+            </h2>
+            <p class="text-muted mb-0">Use your own OpenAI and Anthropic API keys</p>
+        </div>
+        <div>
+            <span class="badge badge-pill px-3 py-2" id="statusBadge" style="font-size: 0.9rem;">
+                <i class="fas fa-spinner fa-spin mr-1"></i>
+                Loading...
+            </span>
+        </div>
+    </div>
+
+    <!-- Info Alert -->
+    <div class="alert alert-info mb-4">
+        <div class="d-flex align-items-start">
+            <i class="fas fa-info-circle mr-3 mt-1" style="font-size: 1.2rem;"></i>
+            <div>
+                <strong>Bring Your Own Key (BYOK)</strong>
+                <p class="mb-0 mt-1">
+                    Configure your own API keys to use AI Hub without usage limits. Your keys are stored 
+                    locally on this machine using encrypted storage and are never transmitted to external servers.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Left Column: Key Configuration -->
+        <div class="col-lg-8">
+            
+            <!-- Master Toggle -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-body py-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="mr-4">
+                            <h5 class="mb-1">Enable BYOK</h5>
+                            <p class="text-muted mb-0 small">
+                                When enabled, your configured API keys will be used instead of system keys.
+                            </p>
+                        </div>
+                        <div class="custom-control custom-switch" style="transform: scale(1.3);">
+                            <input type="checkbox" class="custom-control-input" id="byokEnabled">
+                            <label class="custom-control-label" for="byokEnabled"></label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- OpenAI Configuration -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="fas fa-brain mr-2 text-success"></i>
+                        OpenAI API Key
+                    </h5>
+                    <span class="badge badge-pill px-3 py-2" id="openaiStatusBadge">
+                        <i class="fas fa-times-circle mr-1"></i> Not Configured
+                    </span>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small mb-3">
+                        Used for AI Agents and chat functionality. Get your API key from 
+                        <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI Platform <i class="fas fa-external-link-alt fa-xs"></i></a>
+                    </p>
+                    
+                    <!-- Current Key Display (shown when configured) -->
+                    <div id="openaiCurrentKey" class="mb-3" style="display: none;">
+                        <label class="small text-muted">Current Key</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control bg-light" id="openaiKeyPreview" readonly>
+                            <div class="input-group-append">
+                                <button class="btn btn-outline-danger" type="button" onclick="deleteOpenAIKey()" title="Delete this key">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <small id="openaiActiveNote" class="text-success" style="display: none;">
+                            <i class="fas fa-check-circle mr-1"></i>This key is active and being used
+                        </small>
+                        <small id="openaiInactiveNote" class="text-muted" style="display: none;">
+                            <i class="fas fa-pause-circle mr-1"></i>Enable BYOK above to use this key
+                        </small>
+                    </div>
+                    
+                    <!-- New Key Input -->
+                    <div id="openaiNewKeySection">
+                        <label class="small text-muted" id="openaiInputLabel">API Key</label>
+                        <div class="input-group mb-2">
+                            <input type="password" class="form-control" id="openaiApiKey" 
+                                   placeholder="sk-..." autocomplete="off">
+                            <div class="input-group-append">
+                                <button class="btn btn-outline-secondary" type="button" 
+                                        onclick="togglePasswordVisibility('openaiApiKey', this)" title="Show/hide key">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <small class="form-text text-muted mb-3">
+                            Your key should start with <code>sk-</code>
+                        </small>
+                    </div>
+                    
+                    <div class="d-flex justify-content-end">
+                        <button class="btn btn-outline-primary mr-2" onclick="testOpenAIKey()" id="openaiTestBtn">
+                            <i class="fas fa-vial mr-1"></i> Test Key
+                        </button>
+                        <button class="btn btn-primary" onclick="saveOpenAIKey()" id="openaiSaveBtn">
+                            <i class="fas fa-save mr-1"></i> Save Key
+                        </button>
+                    </div>
+                    
+                    <div id="openaiTestResult" class="mt-3" style="display: none;"></div>
+                </div>
+            </div>
+
+            <!-- Anthropic Configuration -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="fas fa-file-alt mr-2 text-warning"></i>
+                        Anthropic (Claude) API Key
+                    </h5>
+                    <span class="badge badge-pill px-3 py-2" id="anthropicStatusBadge">
+                        <i class="fas fa-times-circle mr-1"></i> Not Configured
+                    </span>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small mb-3">
+                        Used for document processing and analysis. Get your API key from 
+                        <a href="https://console.anthropic.com/settings/keys" target="_blank">Anthropic Console <i class="fas fa-external-link-alt fa-xs"></i></a>
+                    </p>
+                    
+                    <!-- Current Key Display (shown when configured) -->
+                    <div id="anthropicCurrentKey" class="mb-3" style="display: none;">
+                        <label class="small text-muted">Current Key</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control bg-light" id="anthropicKeyPreview" readonly>
+                            <div class="input-group-append">
+                                <button class="btn btn-outline-danger" type="button" onclick="deleteAnthropicKey()" title="Delete this key">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <small id="anthropicActiveNote" class="text-success" style="display: none;">
+                            <i class="fas fa-check-circle mr-1"></i>This key is active and being used
+                        </small>
+                        <small id="anthropicInactiveNote" class="text-muted" style="display: none;">
+                            <i class="fas fa-pause-circle mr-1"></i>Enable BYOK above to use this key
+                        </small>
+                    </div>
+                    
+                    <!-- New Key Input -->
+                    <div id="anthropicNewKeySection">
+                        <label class="small text-muted" id="anthropicInputLabel">API Key</label>
+                        <div class="input-group mb-2">
+                            <input type="password" class="form-control" id="anthropicApiKey" 
+                                   placeholder="sk-ant-..." autocomplete="off">
+                            <div class="input-group-append">
+                                <button class="btn btn-outline-secondary" type="button" 
+                                        onclick="togglePasswordVisibility('anthropicApiKey', this)" title="Show/hide key">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <small class="form-text text-muted mb-3">
+                            Your key should start with <code>sk-ant-</code>
+                        </small>
+                    </div>
+                    
+                    <div class="d-flex justify-content-end">
+                        <button class="btn btn-outline-primary mr-2" onclick="testAnthropicKey()" id="anthropicTestBtn">
+                            <i class="fas fa-vial mr-1"></i> Test Key
+                        </button>
+                        <button class="btn btn-primary" onclick="saveAnthropicKey()" id="anthropicSaveBtn">
+                            <i class="fas fa-save mr-1"></i> Save Key
+                        </button>
+                    </div>
+                    
+                    <div id="anthropicTestResult" class="mt-3" style="display: none;"></div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Right Column: Info & Status -->
+        <div class="col-lg-4">
+            
+            <!-- Current Status -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white">
+                    <h6 class="mb-0">
+                        <i class="fas fa-info-circle mr-2"></i>
+                        Current Status
+                    </h6>
+                </div>
+                <div class="card-body" id="statusPanel">
+                    <div class="text-center py-3">
+                        <i class="fas fa-spinner fa-spin"></i>
+                        Loading status...
+                    </div>
+                </div>
+            </div>
+
+            <!-- How It Works -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white">
+                    <h6 class="mb-0">
+                        <i class="fas fa-question-circle mr-2"></i>
+                        How It Works
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <strong><i class="fas fa-brain text-success mr-1"></i> OpenAI</strong>
+                        <p class="text-muted small mb-0">
+                            Powers AI Agents and chat functionality. When BYOK is enabled, 
+                            requests go directly to OpenAI using your account.
+                        </p>
+                    </div>
+                    <div class="mb-3">
+                        <strong><i class="fas fa-file-alt text-warning mr-1"></i> Anthropic (Claude)</strong>
+                        <p class="text-muted small mb-0">
+                            Powers document processing and intelligent extraction. 
+                            Uses Claude's vision capabilities for PDF analysis.
+                        </p>
+                    </div>
+                    <hr>
+                    <div class="alert alert-warning small mb-0 py-2">
+                        <i class="fas fa-exclamation-triangle mr-1"></i>
+                        <strong>Note:</strong> You will be billed directly by OpenAI/Anthropic for API usage when using your own keys.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Security Info -->
+            <div class="card shadow-sm mb-4 border-success">
+                <div class="card-header bg-success text-white py-2">
+                    <h6 class="mb-0">
+                        <i class="fas fa-shield-alt mr-2"></i>
+                        Security
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <ul class="list-unstyled mb-0 small">
+                        <li class="mb-2">
+                            <i class="fas fa-check text-success mr-2"></i>
+                            Keys stored locally with encryption
+                        </li>
+                        <li class="mb-2">
+                            <i class="fas fa-check text-success mr-2"></i>
+                            Keys never leave this machine
+                        </li>
+                        <li class="mb-2">
+                            <i class="fas fa-check text-success mr-2"></i>
+                            Tied to machine-specific encryption key
+                        </li>
+                        <li>
+                            <i class="fas fa-check text-success mr-2"></i>
+                            You maintain full control
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .card {
+        border-radius: 10px;
+    }
+    .card-header {
+        border-radius: 10px 10px 0 0 !important;
+        padding: 1rem 1.25rem;
+    }
+    #statusBadge {
+        font-weight: 500;
+    }
+    .custom-switch .custom-control-input:checked ~ .custom-control-label::before {
+        background-color: #28a745;
+        border-color: #28a745;
+    }
+</style>
+
+<script>
+    // Initialize on page load
+    $(document).ready(function() {
+        loadStatus();
+        
+        // Handle toggle change
+        $('#byokEnabled').change(function() {
+            toggleBYOK(this.checked);
+        });
+    });
+
+    // Load current status
+    async function loadStatus() {
+        try {
+            const response = await fetch('/api/api-keys/status');
+            const data = await response.json();
+            
+            if (data.success) {
+                updateUI(data.status);
+            } else {
+                showToast('Error loading status: ' + data.error, 'error');
+            }
+        } catch (error) {
+            console.error('Error loading status:', error);
+            showToast('Failed to load status', 'error');
+        }
+    }
+
+    // Toggle BYOK enabled/disabled
+    async function toggleBYOK(enabled) {
+        try {
+            const response = await fetch('/api/api-keys/toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: enabled })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                showToast(data.message, 'success');
+                updateUI(data.status);
+            } else {
+                showToast('Error: ' + data.error, 'error');
+                // Revert toggle
+                $('#byokEnabled').prop('checked', !enabled);
+            }
+        } catch (error) {
+            console.error('Error toggling BYOK:', error);
+            showToast('Failed to update setting', 'error');
+            $('#byokEnabled').prop('checked', !enabled);
+        }
+    }
+
+    // Update entire UI based on status
+    function updateUI(status) {
+        // Update master toggle
+        $('#byokEnabled').prop('checked', status.byok_enabled);
+        
+        // Update OpenAI section
+        if (status.openai_configured) {
+            $('#openaiStatusBadge')
+                .removeClass('badge-secondary')
+                .addClass(status.byok_enabled ? 'badge-success' : 'badge-warning')
+                .html(status.byok_enabled 
+                    ? '<i class="fas fa-check-circle mr-1"></i> Active' 
+                    : '<i class="fas fa-pause-circle mr-1"></i> Configured');
+            $('#openaiKeyPreview').val(status.openai_key_preview);
+            $('#openaiCurrentKey').show();
+            $('#openaiInputLabel').text('Replace with New Key');
+            $('#openaiActiveNote').toggle(status.byok_enabled);
+            $('#openaiInactiveNote').toggle(!status.byok_enabled);
+        } else {
+            $('#openaiStatusBadge')
+                .removeClass('badge-success badge-warning')
+                .addClass('badge-secondary')
+                .html('<i class="fas fa-times-circle mr-1"></i> Not Configured');
+            $('#openaiCurrentKey').hide();
+            $('#openaiInputLabel').text('API Key');
+        }
+        
+        // Update Anthropic section
+        if (status.anthropic_configured) {
+            $('#anthropicStatusBadge')
+                .removeClass('badge-secondary')
+                .addClass(status.byok_enabled ? 'badge-success' : 'badge-warning')
+                .html(status.byok_enabled 
+                    ? '<i class="fas fa-check-circle mr-1"></i> Active' 
+                    : '<i class="fas fa-pause-circle mr-1"></i> Configured');
+            $('#anthropicKeyPreview').val(status.anthropic_key_preview);
+            $('#anthropicCurrentKey').show();
+            $('#anthropicInputLabel').text('Replace with New Key');
+            $('#anthropicActiveNote').toggle(status.byok_enabled);
+            $('#anthropicInactiveNote').toggle(!status.byok_enabled);
+        } else {
+            $('#anthropicStatusBadge')
+                .removeClass('badge-success badge-warning')
+                .addClass('badge-secondary')
+                .html('<i class="fas fa-times-circle mr-1"></i> Not Configured');
+            $('#anthropicCurrentKey').hide();
+            $('#anthropicInputLabel').text('API Key');
+        }
+        
+        // Update main status badge and panel
+        updateMainStatusBadge(status);
+        updateStatusPanel(status);
+    }
+
+    // Update main status badge
+    function updateMainStatusBadge(status) {
+        const badge = $('#statusBadge');
+        
+        if (status.byok_enabled && (status.openai_configured || status.anthropic_configured)) {
+            badge.removeClass('badge-secondary badge-warning')
+                 .addClass('badge-success')
+                 .html('<i class="fas fa-check-circle mr-1"></i> BYOK Active');
+        } else if (status.openai_configured || status.anthropic_configured) {
+            badge.removeClass('badge-secondary badge-success')
+                 .addClass('badge-warning')
+                 .html('<i class="fas fa-pause-circle mr-1"></i> Keys Ready (BYOK Off)');
+        } else {
+            badge.removeClass('badge-success badge-warning')
+                 .addClass('badge-secondary')
+                 .html('<i class="fas fa-circle mr-1"></i> Using System Keys');
+        }
+    }
+
+    // Update status panel
+    function updateStatusPanel(status) {
+        let byokStatus, openaiStatus, anthropicStatus;
+        
+        if (status.byok_enabled) {
+            byokStatus = '<span class="text-success"><i class="fas fa-toggle-on mr-1"></i> Enabled</span>';
+        } else {
+            byokStatus = '<span class="text-muted"><i class="fas fa-toggle-off mr-1"></i> Disabled</span>';
+        }
+        
+        if (status.openai_configured && status.byok_enabled) {
+            openaiStatus = '<span class="text-success"><i class="fas fa-check-circle mr-1"></i> Your Key (Active)</span>';
+        } else if (status.openai_configured) {
+            openaiStatus = '<span class="text-warning"><i class="fas fa-pause-circle mr-1"></i> Your Key (Inactive)</span>';
+        } else {
+            openaiStatus = '<span class="text-muted"><i class="fas fa-server mr-1"></i> System Key</span>';
+        }
+        
+        if (status.anthropic_configured && status.byok_enabled) {
+            anthropicStatus = '<span class="text-success"><i class="fas fa-check-circle mr-1"></i> Your Key (Active)</span>';
+        } else if (status.anthropic_configured) {
+            anthropicStatus = '<span class="text-warning"><i class="fas fa-pause-circle mr-1"></i> Your Key (Inactive)</span>';
+        } else {
+            anthropicStatus = '<span class="text-muted"><i class="fas fa-server mr-1"></i> System Key</span>';
+        }
+        
+        const html = `
+            <table class="table table-sm table-borderless mb-0">
+                <tr>
+                    <td class="py-2"><strong>BYOK:</strong></td>
+                    <td class="py-2">${byokStatus}</td>
+                </tr>
+                <tr>
+                    <td class="py-2"><strong>OpenAI:</strong></td>
+                    <td class="py-2">${openaiStatus}</td>
+                </tr>
+                <tr>
+                    <td class="py-2"><strong>Anthropic:</strong></td>
+                    <td class="py-2">${anthropicStatus}</td>
+                </tr>
+            </table>
+        `;
+        $('#statusPanel').html(html);
+    }
+
+    // Save OpenAI key
+    async function saveOpenAIKey() {
+        const apiKey = $('#openaiApiKey').val().trim();
+        
+        if (!apiKey) {
+            showToast('Please enter an API key', 'warning');
+            return;
+        }
+        
+        if (!apiKey.startsWith('sk-')) {
+            showToast('OpenAI API keys should start with sk-', 'warning');
+            return;
+        }
+        
+        setButtonLoading('openaiSaveBtn', true);
+        
+        try {
+            const response = await fetch('/api/api-keys/openai', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ api_key: apiKey })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                showToast(data.message, 'success');
+                $('#openaiApiKey').val('');
+                updateUI(data.status);
+            } else {
+                showToast('Error: ' + data.error, 'error');
+            }
+        } catch (error) {
+            console.error('Error saving key:', error);
+            showToast('Failed to save API key', 'error');
+        } finally {
+            setButtonLoading('openaiSaveBtn', false);
+        }
+    }
+
+    // Save Anthropic key
+    async function saveAnthropicKey() {
+        const apiKey = $('#anthropicApiKey').val().trim();
+        
+        if (!apiKey) {
+            showToast('Please enter an API key', 'warning');
+            return;
+        }
+        
+        if (!apiKey.startsWith('sk-ant-')) {
+            showToast('Anthropic API keys should start with sk-ant-', 'warning');
+            return;
+        }
+        
+        setButtonLoading('anthropicSaveBtn', true);
+        
+        try {
+            const response = await fetch('/api/api-keys/anthropic', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ api_key: apiKey })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                showToast(data.message, 'success');
+                $('#anthropicApiKey').val('');
+                updateUI(data.status);
+            } else {
+                showToast('Error: ' + data.error, 'error');
+            }
+        } catch (error) {
+            console.error('Error saving key:', error);
+            showToast('Failed to save API key', 'error');
+        } finally {
+            setButtonLoading('anthropicSaveBtn', false);
+        }
+    }
+
+    // Delete OpenAI key
+    async function deleteOpenAIKey() {
+        if (!confirm('Are you sure you want to delete your OpenAI API key?')) {
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/api-keys/openai', { method: 'DELETE' });
+            const data = await response.json();
+            
+            if (data.success) {
+                showToast(data.message, 'success');
+                updateUI(data.status);
+            } else {
+                showToast('Error: ' + data.error, 'error');
+            }
+        } catch (error) {
+            console.error('Error deleting key:', error);
+            showToast('Failed to delete API key', 'error');
+        }
+    }
+
+    // Delete Anthropic key
+    async function deleteAnthropicKey() {
+        if (!confirm('Are you sure you want to delete your Anthropic API key?')) {
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/api-keys/anthropic', { method: 'DELETE' });
+            const data = await response.json();
+            
+            if (data.success) {
+                showToast(data.message, 'success');
+                updateUI(data.status);
+            } else {
+                showToast('Error: ' + data.error, 'error');
+            }
+        } catch (error) {
+            console.error('Error deleting key:', error);
+            showToast('Failed to delete API key', 'error');
+        }
+    }
+
+    // Test OpenAI key
+    async function testOpenAIKey() {
+        const apiKey = $('#openaiApiKey').val().trim();
+        const resultDiv = $('#openaiTestResult');
+        
+        resultDiv.html('<div class="alert alert-info py-2"><i class="fas fa-spinner fa-spin mr-2"></i>Testing API key...</div>').show();
+        setButtonLoading('openaiTestBtn', true);
+        
+        try {
+            const body = apiKey ? { api_key: apiKey } : {};
+            const response = await fetch('/api/api-keys/openai/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                if (data.valid === true) {
+                    resultDiv.html(`<div class="alert alert-success py-2"><i class="fas fa-check-circle mr-2"></i>${data.message}</div>`);
+                } else if (data.valid === false) {
+                    resultDiv.html(`<div class="alert alert-danger py-2"><i class="fas fa-times-circle mr-2"></i>${data.message}</div>`);
+                } else {
+                    resultDiv.html(`<div class="alert alert-warning py-2"><i class="fas fa-exclamation-circle mr-2"></i>${data.message}</div>`);
+                }
+            } else {
+                resultDiv.html(`<div class="alert alert-danger py-2"><i class="fas fa-times-circle mr-2"></i>${data.error}</div>`);
+            }
+        } catch (error) {
+            console.error('Error testing key:', error);
+            resultDiv.html('<div class="alert alert-danger py-2"><i class="fas fa-times-circle mr-2"></i>Failed to test API key</div>');
+        } finally {
+            setButtonLoading('openaiTestBtn', false);
+        }
+    }
+
+    // Test Anthropic key
+    async function testAnthropicKey() {
+        const apiKey = $('#anthropicApiKey').val().trim();
+        const resultDiv = $('#anthropicTestResult');
+        
+        resultDiv.html('<div class="alert alert-info py-2"><i class="fas fa-spinner fa-spin mr-2"></i>Testing API key... (this may take a moment)</div>').show();
+        setButtonLoading('anthropicTestBtn', true);
+        
+        try {
+            const body = apiKey ? { api_key: apiKey } : {};
+            const response = await fetch('/api/api-keys/anthropic/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                if (data.valid === true) {
+                    resultDiv.html(`<div class="alert alert-success py-2"><i class="fas fa-check-circle mr-2"></i>${data.message}</div>`);
+                } else if (data.valid === false) {
+                    resultDiv.html(`<div class="alert alert-danger py-2"><i class="fas fa-times-circle mr-2"></i>${data.message}</div>`);
+                } else {
+                    resultDiv.html(`<div class="alert alert-warning py-2"><i class="fas fa-exclamation-circle mr-2"></i>${data.message}</div>`);
+                }
+            } else {
+                resultDiv.html(`<div class="alert alert-danger py-2"><i class="fas fa-times-circle mr-2"></i>${data.error}</div>`);
+            }
+        } catch (error) {
+            console.error('Error testing key:', error);
+            resultDiv.html('<div class="alert alert-danger py-2"><i class="fas fa-times-circle mr-2"></i>Failed to test API key</div>');
+        } finally {
+            setButtonLoading('anthropicTestBtn', false);
+        }
+    }
+
+    // Toggle password visibility
+    function togglePasswordVisibility(inputId, button) {
+        const input = document.getElementById(inputId);
+        const icon = button.querySelector('i');
+        
+        if (input.type === 'password') {
+            input.type = 'text';
+            icon.classList.remove('fa-eye');
+            icon.classList.add('fa-eye-slash');
+        } else {
+            input.type = 'password';
+            icon.classList.remove('fa-eye-slash');
+            icon.classList.add('fa-eye');
+        }
+    }
+
+    // Set button loading state
+    function setButtonLoading(buttonId, loading) {
+        const btn = $(`#${buttonId}`);
+        if (loading) {
+            btn.prop('disabled', true);
+            btn.data('original-html', btn.html());
+            btn.html('<i class="fas fa-spinner fa-spin mr-1"></i> Processing...');
+        } else {
+            btn.prop('disabled', false);
+            btn.html(btn.data('original-html'));
+        }
+    }
+
+    // Toast notification
+    function showToast(message, type = 'info') {
+        let container = document.querySelector('.toast-container-custom');
+        if (!container) {
+            container = document.createElement('div');
+            container.className = 'toast-container-custom';
+            container.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 9999;';
+            document.body.appendChild(container);
+        }
+        
+        const bgColor = {
+            'success': '#28a745',
+            'error': '#dc3545',
+            'warning': '#ffc107',
+            'info': '#17a2b8'
+        }[type] || '#17a2b8';
+        
+        const textColor = type === 'warning' ? '#212529' : '#fff';
+        
+        const toast = document.createElement('div');
+        toast.style.cssText = `
+            background: ${bgColor};
+            color: ${textColor};
+            padding: 12px 20px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            animation: toastSlideIn 0.3s ease;
+            max-width: 350px;
+        `;
+        toast.innerHTML = message;
+        
+        container.appendChild(toast);
+        
+        setTimeout(() => {
+            toast.style.animation = 'toastSlideOut 0.3s ease';
+            setTimeout(() => toast.remove(), 300);
+        }, 4000);
+    }
+</script>
+
+<style>
+    @keyframes toastSlideIn {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes toastSlideOut {
+        from { transform: translateX(0); opacity: 1; }
+        to { transform: translateX(100%); opacity: 0; }
+    }
+</style>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}

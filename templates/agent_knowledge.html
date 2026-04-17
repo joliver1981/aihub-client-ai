@@ -1,0 +1,647 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<div style="position:fixed;bottom:20px;right:20px;z-index:100;">
+    <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+        <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+    </button>
+</div>
+<div class="agent-knowledge">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1>Agent Knowledge Management</h1>
+                <button type="button" class="btn btn-primary" id="backToAgentBtn">
+                    <i class="fas fa-arrow-left mr-1"></i> Back to Agents
+                </button>
+            </div>
+            
+            <div class="row mb-4">
+                <div class="col-md-8">
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Knowledge Documents</h5>
+                        </div>
+                        <div class="card-body p-0">
+                            <div id="knowledge-list" class="list-group">
+                                <!-- Knowledge items will be populated here dynamically -->
+                                <div class="text-center py-4" id="loading-indicator">
+                                    <i class="fas fa-spinner fa-spin"></i> Loading knowledge...
+                                </div>
+                                <div class="text-center py-4 d-none" id="no-knowledge-message">
+                                    <p>No knowledge documents added yet.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-4">
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Agent Information</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="agent-info">
+                                <div class="form-group">
+                                    <label for="agent-name"><strong>Agent Name:</strong></label>
+                                    <input type="text" id="agent-name" class="form-control" readonly>
+                                </div>
+                                <div class="form-group mb-0">
+                                    <label for="agent-objective"><strong>Agent Objective:</strong></label>
+                                    <textarea id="agent-objective" class="form-control" rows="3" readonly></textarea>
+                                </div>
+                                <input type="hidden" id="agent-id" value="{{ agent_id }}">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Add Knowledge</h5>
+                        </div>
+                        <div class="card-body">
+                            <form id="add-knowledge-form" enctype="multipart/form-data">
+                                <div class="form-group">
+                                    <label for="knowledge-description"><strong>Description:</strong></label>
+                                    <textarea id="knowledge-description" name="description" class="form-control" rows="2" placeholder="Describe what information this document contains"></textarea>
+                                </div>
+                                <div class="form-group">
+                                    <label for="knowledge-file"><strong>Document:</strong></label>
+                                    <div class="custom-file">
+                                        <input type="file" class="custom-file-input" id="knowledge-file" name="file" accept=".pdf,.docx,.xlsx,.txt,.jpg,.jpeg,.png">
+                                        <label class="custom-file-label" for="knowledge-file">Choose file...</label>
+                                    </div>
+                                    <small class="form-text text-muted">Supported formats: PDF, DOCX, XLSX, TXT, JPG, PNG</small>
+                                </div>
+                                <button type="submit" class="btn btn-success btn-block" id="add-knowledge-btn">
+                                    <i class="fas fa-plus mr-1"></i> Add Document
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Edit Knowledge Modal -->
+    <div class="modal fade" id="edit-knowledge-modal" tabindex="-1" role="dialog" aria-labelledby="editKnowledgeModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editKnowledgeModalLabel">Edit Knowledge Description</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <form id="edit-knowledge-form">
+                        <div class="form-group">
+                            <label for="edit-knowledge-description"><strong>Description:</strong></label>
+                            <textarea id="edit-knowledge-description" name="description" class="form-control" rows="3"></textarea>
+                            <input type="hidden" id="edit-knowledge-id">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="save-knowledge-btn">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Delete Confirmation Modal -->
+    <div class="modal fade" id="delete-knowledge-modal" tabindex="-1" role="dialog" aria-labelledby="deleteKnowledgeModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="deleteKnowledgeModalLabel">Confirm Delete</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete this knowledge document? This action cannot be undone.</p>
+                    <p id="delete-knowledge-name" class="font-weight-bold"></p>
+                    <input type="hidden" id="delete-knowledge-id">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-danger" id="confirm-delete-btn">Delete</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Toast container for notifications -->
+    <div class="toast-container position-fixed bottom-0 right-0 p-3" style="z-index: 5; right: 0; bottom: 0;">
+        <!-- Toast notifications will be added here dynamically -->
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const agentId = document.getElementById('agent-id').value;
+        
+        // Load agent info
+        loadAgentInfo(agentId);
+        
+        // Load knowledge documents
+        loadKnowledgeDocuments(agentId);
+        
+        // Set up event listeners
+        document.getElementById('backToAgentBtn').addEventListener('click', function() {
+            window.location.href = '/custom_agent_enhanced';
+        });
+        
+        // File input change event to show selected filename
+        document.getElementById('knowledge-file').addEventListener('change', function(e) {
+            const fileName = e.target.files[0]?.name || 'Choose file...';
+            document.querySelector('.custom-file-label').textContent = fileName;
+        });
+        
+        // Add knowledge form submission
+        document.getElementById('add-knowledge-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            addKnowledgeDocument(agentId);
+        });
+        
+        // Edit knowledge save button
+        document.getElementById('save-knowledge-btn').addEventListener('click', function() {
+            updateKnowledgeDescription();
+        });
+        
+        // Delete knowledge confirm button
+        document.getElementById('confirm-delete-btn').addEventListener('click', function() {
+            deleteKnowledgeDocument();
+        });
+    });
+    
+    function loadAgentInfo(agentId) {
+        fetch(`/get/agents`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    const agent = data.data.find(a => a.agent_id == agentId);
+                    if (agent) {
+                        document.getElementById('agent-name').value = agent.agent_description;
+                        document.getElementById('agent-objective').value = agent.agent_objective;
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error loading agent info:', error);
+                showToast('Error loading agent information', 'error');
+            });
+    }
+    
+    function loadKnowledgeDocuments(agentId) {
+        const knowledgeList = document.getElementById('knowledge-list');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const noKnowledgeMessage = document.getElementById('no-knowledge-message');
+        
+        fetch(`/get/agent_knowledge/${agentId}`)
+            .then(response => response.json())
+            .then(data => {
+                if (loadingIndicator) loadingIndicator.classList.add('d-none');
+
+                if (data.length === 0) {
+                    console.log(`No knowledge list, displaying message... ${data.length}`);
+                    if (noKnowledgeMessage) 
+                        noKnowledgeMessage.classList.remove('d-none');
+                    else {
+                        knowledgeList.innerHTML = `
+                                <!-- Knowledge items will be populated here dynamically -->
+                                <div class="text-center py-4 d-none" id="loading-indicator">
+                                    <i class="fas fa-spinner fa-spin"></i> Loading knowledge...
+                                </div>
+                                <div class="text-center py-4" id="no-knowledge-message">
+                                    <p>No knowledge documents added yet.</p>
+                                </div>
+                        `;
+                    }
+                        
+                } else {
+                    if (noKnowledgeMessage) noKnowledgeMessage.classList.add('d-none');
+                    console.log(`Clearing knowledge list before adding knowledge... ${data.length}`);
+                    // Clear existing content
+                    knowledgeList.innerHTML = '';
+                    
+                    // Add each knowledge document
+                    data.forEach(item => {
+                        const knowledgeItem = document.createElement('div');
+                        knowledgeItem.className = 'list-group-item';
+                        knowledgeItem.innerHTML = `
+                            <div class="d-flex w-100 justify-content-between">
+                                <h5 class="mb-1">${item.filename}</h5>
+                                <small>Added: ${new Date(item.added_date).toLocaleDateString()}</small>
+                            </div>
+                            <p class="mb-1">${item.description || 'No description provided'}</p>
+                            <small>Type: ${item.document_type || 'Unknown'} | Pages: ${item.page_count || 'N/A'}</small>
+                            <div class="mt-2">
+                                <button class="btn btn-sm btn-outline-primary edit-knowledge-btn" data-id="${item.knowledge_id}" data-description="${item.description || ''}">
+                                    <i class="fas fa-edit"></i> Edit
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger delete-knowledge-btn" data-id="${item.knowledge_id}" data-name="${item.filename}">
+                                    <i class="fas fa-trash"></i> Delete
+                                </button>
+                            </div>
+                        `;
+                        knowledgeList.appendChild(knowledgeItem);
+                    });
+                    
+                    // Add event listeners for edit and delete buttons
+                    document.querySelectorAll('.edit-knowledge-btn').forEach(btn => {
+                        btn.addEventListener('click', function() {
+                            const knowledgeId = this.getAttribute('data-id');
+                            const description = this.getAttribute('data-description');
+                            openEditModal(knowledgeId, description);
+                        });
+                    });
+                    
+                    document.querySelectorAll('.delete-knowledge-btn').forEach(btn => {
+                        btn.addEventListener('click', function() {
+                            const knowledgeId = this.getAttribute('data-id');
+                            const filename = this.getAttribute('data-name');
+                            openDeleteModal(knowledgeId, filename);
+                        });
+                    });
+                }
+            })
+            .catch(error => {
+                console.log(`Error loading knowledge documents: ${error}`);
+                loadingIndicator.classList.add('d-none');
+                console.error('Error loading knowledge documents:', error);
+                showToast('Error loading knowledge documents', 'error');
+            });
+    }
+    
+    function addKnowledgeDocument(agentId) {
+        const form = document.getElementById('add-knowledge-form');
+        const fileInput = document.getElementById('knowledge-file');
+        const descriptionInput = document.getElementById('knowledge-description');
+        const addButton = document.getElementById('add-knowledge-btn');
+        
+        // Validate inputs
+        if (!fileInput.files[0]) {
+            showToast('Please select a file to upload', 'warning');
+            return;
+        }
+        
+        // Prepare form data
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('agent_id', agentId);
+        formData.append('description', descriptionInput.value.trim() || fileInput.files[0].name);
+        
+        // Disable button and show loading state
+        addButton.disabled = true;
+        addButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+        console.log(`Adding agent knowledge...`);
+        console.log('Uploading file:', fileInput.files[0]);
+
+        // Submit form
+        fetch('/add/agent_knowledge', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log(`Here is the data: ${data.message}`);
+            console.log(`Here is the status: ${data.status}`);
+            if (data.status === 'success') {
+                showToast('Knowledge document added successfully', 'success');
+                console.log(`Added agent knowledge, reseting form and loading knowledge documents...`);
+                // Reset form
+                form.reset();
+                document.querySelector('.custom-file-label').textContent = 'Choose file...';
+                
+                // Reload knowledge list
+                loadKnowledgeDocuments(agentId);
+            } else {
+                showToast(data.message || 'Failed to add knowledge document', 'error');
+            }
+        })
+        .catch(error => {
+            console.log(`Error adding knowledge document...`);
+            console.error('Error adding knowledge document:', error);
+            showToast('Error adding knowledge document', 'error');
+        })
+        .finally(() => {
+            console.log(`Exiting add knowledge...`);
+            // Reset button state
+            addButton.disabled = false;
+            addButton.innerHTML = '<i class="fas fa-plus mr-1"></i> Add Document';
+        });
+    }
+    
+    function openEditModal(knowledgeId, description) {
+        document.getElementById('edit-knowledge-id').value = knowledgeId;
+        document.getElementById('edit-knowledge-description').value = description;
+        $('#edit-knowledge-modal').modal('show');
+    }
+    
+    function updateKnowledgeDescription() {
+        const knowledgeId = document.getElementById('edit-knowledge-id').value;
+        const description = document.getElementById('edit-knowledge-description').value;
+        const saveButton = document.getElementById('save-knowledge-btn');
+        
+        // Disable button and show loading state
+        saveButton.disabled = true;
+        saveButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+        
+        fetch(`/update/agent_knowledge/${knowledgeId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ description: description })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                $('#edit-knowledge-modal').modal('hide');
+                showToast('Knowledge description updated successfully', 'success');
+                
+                // Reload knowledge list
+                const agentId = document.getElementById('agent-id').value;
+                loadKnowledgeDocuments(agentId);
+            } else {
+                showToast(data.message || 'Failed to update knowledge description', 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error updating knowledge description:', error);
+            showToast('Error updating knowledge description', 'error');
+        })
+        .finally(() => {
+            // Reset button state
+            saveButton.disabled = false;
+            saveButton.innerHTML = 'Save Changes';
+        });
+    }
+    
+    function openDeleteModal(knowledgeId, filename) {
+        document.getElementById('delete-knowledge-id').value = knowledgeId;
+        document.getElementById('delete-knowledge-name').textContent = filename;
+        $('#delete-knowledge-modal').modal('show');
+    }
+    
+    function deleteKnowledgeDocument() {
+        const knowledgeId = document.getElementById('delete-knowledge-id').value;
+        const deleteButton = document.getElementById('confirm-delete-btn');
+        
+        // Disable button and show loading state
+        deleteButton.disabled = true;
+        deleteButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting...';
+        
+        fetch(`/delete/agent_knowledge/${knowledgeId}`, {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                $('#delete-knowledge-modal').modal('hide');
+                showToast('Knowledge document deleted successfully', 'success');
+                
+                // Reload knowledge list
+                const agentId = document.getElementById('agent-id').value;
+                console.log('Waiting before knowledge list reload...');
+                setTimeout(500);
+                console.log('Reloading list...');
+                loadKnowledgeDocuments(agentId);
+                console.log('Done.');
+            } else {
+                showToast(data.message || 'Failed to delete knowledge document', 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error deleting knowledge document:', error);
+            showToast('Error deleting knowledge document', 'error');
+        })
+        .finally(() => {
+            // Reset button state
+            deleteButton.disabled = false;
+            deleteButton.innerHTML = 'Delete';
+        });
+    }
+    
+    function showToast(message, type = 'info') {
+        const toastContainer = document.querySelector('.toast-container');
+        
+        // Create toast element
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.setAttribute('role', 'alert');
+        toast.setAttribute('aria-live', 'assertive');
+        toast.setAttribute('aria-atomic', 'true');
+        toast.setAttribute('data-delay', '5000'); // Auto-hide after 5 seconds
+        
+        // Set toast color based on type
+        let bgClass = 'bg-info text-white';
+        let icon = 'info-circle';
+        
+        if (type === 'success') {
+            bgClass = 'bg-success text-white';
+            icon = 'check-circle';
+        } else if (type === 'warning') {
+            bgClass = 'bg-warning';
+            icon = 'exclamation-triangle';
+        } else if (type === 'error') {
+            bgClass = 'bg-danger text-white';
+            icon = 'exclamation-circle';
+        }
+        
+        // Set toast content
+        toast.innerHTML = `
+            <div class="toast-header ${bgClass}">
+                <i class="fas fa-${icon} mr-2"></i>
+                <strong class="mr-auto">Notification</strong>
+                <button type="button" class="ml-2 mb-1 close" data-dismiss="toast" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="toast-body">
+                ${message}
+            </div>
+        `;
+        
+        // Add toast to container
+        toastContainer.appendChild(toast);
+        
+        // Initialize and show the toast
+        $(toast).toast('show');
+        
+        // Remove toast from DOM after it's hidden
+        $(toast).on('hidden.bs.toast', function() {
+            this.remove();
+        });
+    }
+
+
+window.assistantPageContext = {
+    page: 'agent_knowledge',
+    pageName: 'Agent Knowledge',
+    
+    getPageData: function() {
+        const data = {
+            // Agent info
+            agent: {
+                id: $('#agent-id').val() || null,
+                name: $('#agent-name').val() || '',
+                objective: $('#agent-objective').val() || ''
+            },
+            
+            // Knowledge documents
+            knowledge: {
+                total: 0,
+                items: []
+            },
+            
+            // Upload form state
+            uploadForm: {
+                description: $('#knowledge-description').val() || '',
+                hasFile: false,
+                fileName: '',
+                isUploading: false
+            },
+            
+            // Modal states
+            modals: {
+                editOpen: $('#edit-knowledge-modal').hasClass('show') || 
+                         $('#edit-knowledge-modal').is(':visible'),
+                deleteOpen: $('#delete-knowledge-modal').hasClass('show') || 
+                           $('#delete-knowledge-modal').is(':visible'),
+                editingId: $('#edit-knowledge-id').val() || null
+            },
+            
+            // Loading state
+            isLoading: $('#loading-indicator').is(':visible'),
+            isEmpty: $('#no-knowledge-message').is(':visible'),
+            
+            // Available actions
+            availableActions: []
+        };
+        
+        // Get knowledge items
+        $('#knowledge-list .list-group-item').each(function() {
+            const item = $(this);
+            // Skip loading and empty message divs
+            if (item.attr('id') === 'loading-indicator' || 
+                item.attr('id') === 'no-knowledge-message') {
+                return;
+            }
+            
+            const knowledge = {
+                id: item.data('knowledge-id'),
+                filename: item.find('.knowledge-filename, .font-weight-bold').text().trim(),
+                description: item.find('.knowledge-description, .text-muted').text().trim(),
+                fileType: item.find('.file-type-badge, .badge').text().trim(),
+                status: item.find('.status-badge').text().trim() || 'Ready'
+            };
+            
+            if (knowledge.filename || knowledge.id) {
+                data.knowledge.items.push(knowledge);
+            }
+        });
+        
+        data.knowledge.total = data.knowledge.items.length;
+        
+        // Check upload form state
+        const fileInput = $('#knowledge-file');
+        if (fileInput.length && fileInput[0].files && fileInput[0].files.length > 0) {
+            data.uploadForm.hasFile = true;
+            data.uploadForm.fileName = fileInput[0].files[0].name;
+        }
+        
+        // Check for custom-file-label showing filename
+        const fileLabel = $('.custom-file-label');
+        if (fileLabel.length && fileLabel.text() !== 'Choose file...') {
+            data.uploadForm.hasFile = true;
+            data.uploadForm.fileName = fileLabel.text().trim();
+        }
+        
+        // Check if uploading
+        data.uploadForm.isUploading = $('#add-knowledge-btn').prop('disabled') ||
+                                      $('#add-knowledge-btn .spinner-border').length > 0;
+        
+        // Determine available actions
+        if (data.modals.editOpen) {
+            data.availableActions.push('Update knowledge description');
+            data.availableActions.push('Save changes');
+            data.availableActions.push('Cancel editing');
+        } else if (data.modals.deleteOpen) {
+            data.availableActions.push('Confirm deletion');
+            data.availableActions.push('Cancel deletion');
+        } else if (data.isLoading) {
+            data.availableActions.push('Wait for knowledge to load');
+        } else {
+            // Normal state
+            data.availableActions.push('Add new knowledge document');
+            data.availableActions.push('Enter document description');
+            data.availableActions.push('Select file to upload');
+            
+            if (data.knowledge.total > 0) {
+                data.availableActions.push('Edit existing knowledge');
+                data.availableActions.push('Delete knowledge document');
+                data.availableActions.push('View document details');
+            }
+            
+            data.availableActions.push('Return to agent configuration');
+        }
+        
+        // Add upload-ready action if form is filled
+        if (data.uploadForm.hasFile && data.uploadForm.description) {
+            data.availableActions.unshift('Upload the selected document');
+        } else if (data.uploadForm.hasFile && !data.uploadForm.description) {
+            data.availableActions.unshift('Add description before uploading');
+        }
+        
+        // File type guidance
+        data.supportedFileTypes = [
+            { extension: '.pdf', description: 'PDF documents' },
+            { extension: '.docx', description: 'Word documents' },
+            { extension: '.xlsx', description: 'Excel spreadsheets' },
+            { extension: '.txt', description: 'Text files' },
+            { extension: '.jpg/.png', description: 'Images' }
+        ];
+        
+        return data;
+    }
+};
+
+console.log('Agent Knowledge assistant context loaded');
+</script>
+
+<style>
+    .toast-container {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        z-index: 1050;
+    }
+    
+    .toast {
+        min-width: 300px;
+        margin-bottom: 10px;
+        box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.1);
+    }
+    
+    #add-agent-popup .row {
+        display: none !important;
+    }
+</style>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme(){var p=document.getElementById('docPage'),i=document.getElementById('docThemeIcon'),l=document.getElementById('docThemeLabel');p.classList.toggle('light-mode');var lt=p.classList.contains('light-mode');i.className=lt?'fas fa-sun':'fas fa-moon';l.textContent=lt?'Light':'Dark';localStorage.setItem('docPageTheme',lt?'light':'dark')}
+(function(){var s=localStorage.getItem('docPageTheme');if(s==='light'){var p=document.getElementById('docPage');if(p){p.classList.add('light-mode');var i=document.getElementById('docThemeIcon'),l=document.getElementById('docThemeLabel');if(i)i.className='fas fa-sun';if(l)l.textContent='Light'}}})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}

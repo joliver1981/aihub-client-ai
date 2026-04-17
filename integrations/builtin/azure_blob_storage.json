@@ -1,0 +1,232 @@
+{
+  "template_key": "azure_blob_storage",
+  "platform_name": "Azure Blob Storage",
+  "platform_category": "Cloud Storage",
+  "description": "Connect to Azure Blob Storage to read, write, and manage files in containers. Upload data exports, download reports, generate shareable links, and more.",
+  "logo_url": null,
+  "documentation_url": "https://learn.microsoft.com/en-us/azure/storage/blobs/",
+
+  "auth_type": "cloud_storage",
+  "execution_type": "cloud_storage",
+  "cloud_provider": "azure_blob",
+  "auth_config": {
+    "credential_fields": [
+      {
+        "field": "connection_string",
+        "label": "Connection String",
+        "type": "password",
+        "required": true,
+        "help": "Found in Azure Portal \u2192 Storage Account \u2192 Access keys"
+      }
+    ]
+  },
+
+  "operations": [
+    {
+      "key": "list_containers",
+      "name": "List Containers",
+      "description": "List all blob containers in the storage account",
+      "method": "POST",
+      "category": "Containers",
+      "parameters": []
+    },
+    {
+      "key": "list_objects",
+      "name": "List Files",
+      "description": "List files in a container, optionally filtered by prefix (folder path)",
+      "method": "POST",
+      "category": "Files",
+      "parameters": [
+        {
+          "name": "container",
+          "label": "Container Name",
+          "type": "text",
+          "required": true,
+          "description": "The blob container to list files from"
+        },
+        {
+          "name": "prefix",
+          "label": "Folder/Prefix",
+          "type": "text",
+          "required": false,
+          "description": "Optional path prefix to filter results (e.g., 'reports/2024/')"
+        },
+        {
+          "name": "max_results",
+          "label": "Max Results",
+          "type": "number",
+          "required": false,
+          "default": 100,
+          "description": "Maximum number of files to return (max 5000)"
+        }
+      ]
+    },
+    {
+      "key": "upload_object",
+      "name": "Upload File",
+      "description": "Upload content to a file in a container. For text files (CSV, JSON, etc.), pass content directly. For binary files, pass base64-encoded content with encoding='base64'.",
+      "method": "POST",
+      "category": "Files",
+      "parameters": [
+        {
+          "name": "container",
+          "label": "Container Name",
+          "type": "text",
+          "required": true,
+          "description": "The blob container to upload to"
+        },
+        {
+          "name": "object_name",
+          "label": "File Path/Name",
+          "type": "text",
+          "required": true,
+          "description": "Destination path for the file (e.g., 'reports/output.csv')"
+        },
+        {
+          "name": "content",
+          "label": "File Content",
+          "type": "text",
+          "required": true,
+          "description": "The file content to upload"
+        },
+        {
+          "name": "content_type",
+          "label": "Content Type",
+          "type": "text",
+          "required": false,
+          "default": "application/octet-stream",
+          "description": "MIME type (e.g., 'text/csv', 'application/json')"
+        },
+        {
+          "name": "encoding",
+          "label": "Content Encoding",
+          "type": "select",
+          "required": false,
+          "default": "text",
+          "options": [
+            {"value": "text", "label": "Text (UTF-8)"},
+            {"value": "base64", "label": "Base64 Encoded"}
+          ],
+          "description": "How the content is encoded"
+        }
+      ]
+    },
+    {
+      "key": "download_object",
+      "name": "Download File",
+      "description": "Download a file's content from a container. Text files are returned as text, binary files as base64.",
+      "method": "POST",
+      "category": "Files",
+      "parameters": [
+        {
+          "name": "container",
+          "label": "Container Name",
+          "type": "text",
+          "required": true,
+          "description": "The blob container to download from"
+        },
+        {
+          "name": "object_name",
+          "label": "File Path/Name",
+          "type": "text",
+          "required": true,
+          "description": "Path of the file to download"
+        }
+      ]
+    },
+    {
+      "key": "delete_object",
+      "name": "Delete File",
+      "description": "Delete a file from a container",
+      "method": "POST",
+      "category": "Files",
+      "parameters": [
+        {
+          "name": "container",
+          "label": "Container Name",
+          "type": "text",
+          "required": true,
+          "description": "The blob container"
+        },
+        {
+          "name": "object_name",
+          "label": "File Path/Name",
+          "type": "text",
+          "required": true,
+          "description": "Path of the file to delete"
+        }
+      ]
+    },
+    {
+      "key": "get_object_metadata",
+      "name": "Get File Info",
+      "description": "Get metadata for a file including size, content type, last modified date, and etag",
+      "method": "POST",
+      "category": "Files",
+      "parameters": [
+        {
+          "name": "container",
+          "label": "Container Name",
+          "type": "text",
+          "required": true,
+          "description": "The blob container"
+        },
+        {
+          "name": "object_name",
+          "label": "File Path/Name",
+          "type": "text",
+          "required": true,
+          "description": "Path of the file"
+        }
+      ]
+    },
+    {
+      "key": "generate_sas_url",
+      "name": "Generate Shareable URL",
+      "description": "Generate a time-limited SAS URL for direct access to a file. Useful for sharing files or allowing direct downloads.",
+      "method": "POST",
+      "category": "Files",
+      "parameters": [
+        {
+          "name": "container",
+          "label": "Container Name",
+          "type": "text",
+          "required": true,
+          "description": "The blob container"
+        },
+        {
+          "name": "object_name",
+          "label": "File Path/Name",
+          "type": "text",
+          "required": true,
+          "description": "Path of the file"
+        },
+        {
+          "name": "expiry_hours",
+          "label": "URL Expiry (hours)",
+          "type": "number",
+          "required": false,
+          "default": 1,
+          "description": "How long the URL should be valid (max 24 hours)"
+        },
+        {
+          "name": "permission",
+          "label": "Permission",
+          "type": "select",
+          "required": false,
+          "default": "read",
+          "options": [
+            {"value": "read", "label": "Read Only"},
+            {"value": "write", "label": "Write"}
+          ],
+          "description": "Access level for the URL"
+        }
+      ]
+    }
+  ],
+
+  "setup_instructions": "## Azure Blob Storage Setup\n\n### Step 1: Get Connection String\n1. Go to [Azure Portal](https://portal.azure.com)\n2. Navigate to your **Storage Account**\n3. Click **Access keys** under Security + networking\n4. Copy the **Connection string** for key1\n\n### Step 2: Configure in AI Hub\n1. Paste the connection string\n2. Test the connection\n\nThe connection string contains the account name, key, and endpoint \u2014 no other configuration needed.",
+
+  "supports_webhooks": false,
+  "is_builtin": true
+}

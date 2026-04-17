@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Command Center Inspector</title>
+  <link rel="stylesheet" href="/static/css/command-center.css" />
+  <link rel="stylesheet" href="/static/css/inspect.css?v=4" />
+</head>
+<body>
+  <div class="cc-inspector">
+    <header class="cc-inspector-header">
+      <div>
+        <div class="cc-inspector-title">Execution Inspector</div>
+        <div class="cc-inspector-sub" id="inspector-sub">Loading trace...</div>
+      </div>
+      <div class="cc-inspector-actions">
+        <button class="cc-inspector-btn" id="btn-refresh">Refresh</button>
+        <button class="cc-inspector-btn" id="btn-toggle-state">State</button>
+        <button class="cc-inspector-btn" id="btn-close" onclick="window.close()">Close</button>
+      </div>
+    </header>
+
+    <div class="cc-stats-bar" id="stats-bar"></div>
+
+    <main class="cc-inspector-main">
+      <section class="cc-inspector-flow">
+        <div class="cc-flow-title">Flow</div>
+        <div id="flow-nodes" class="cc-flow-nodes"></div>
+      </section>
+
+      <section class="cc-inspector-detail">
+        <div class="cc-detail-title" id="detail-title">Select a node...</div>
+        <div class="cc-detail-body" id="detail-body"></div>
+      </section>
+
+      <section class="cc-inspector-state" id="state-panel">
+        <div class="cc-state-title">State</div>
+        <div class="cc-state-body" id="state-body">
+          <div class="cc-state-empty">Select an event to view state</div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/js/cc-inspector.js?v=6"></script>
+</body>
+</html>

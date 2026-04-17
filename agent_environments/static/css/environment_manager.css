@@ -1,0 +1,33 @@
+/* Custom styles for environment manager */
+.environment-card {
+    transition: transform 0.2s;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.environment-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.premium-badge {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    display: inline-block;
+}
+
+.env-status-active {
+    color: #28a745;
+}
+
+.env-status-pending {
+    color: #ffc107;
+}
+
+.env-status-error {
+    color: #dc3545;
+}

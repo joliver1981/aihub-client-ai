@@ -1,0 +1,117 @@
+{
+  "template_key": "custom_rest_api",
+  "platform_name": "Custom REST API",
+  "platform_category": "Custom",
+  "description": "Connect to any REST API with customizable authentication and operations.",
+  "logo_url": null,
+  
+  "auth_type": "api_key",
+  "auth_config": {
+    "api_key_location": "header",
+    "api_key_header": "Authorization",
+    "api_key_prefix": "Bearer"
+  },
+  
+  "base_url": "",
+  
+  "default_headers": {
+    "Accept": "application/json",
+    "Content-Type": "application/json"
+  },
+  
+  "setup_instructions": "## Custom API Setup\n\nUse this template to connect to any REST API.\n\n1. Enter the base URL of the API\n2. Configure authentication (API key, Bearer token, Basic auth)\n3. Add custom operations for the endpoints you need\n\n**Tips:**\n- Use `{variable}` syntax in URLs and bodies for dynamic values\n- Set output mappings using JSONPath to extract specific data\n- Test each operation before using in workflows",
+  
+  "operations": [
+    {
+      "key": "custom_get",
+      "name": "Custom GET Request",
+      "description": "Make a GET request to any endpoint",
+      "method": "GET",
+      "endpoint": "/{endpoint}",
+      "parameters": [
+        {
+          "name": "endpoint",
+          "label": "Endpoint Path",
+          "type": "text",
+          "required": true,
+          "placeholder": "/api/v1/resource"
+        },
+        {
+          "name": "query_params",
+          "label": "Query Parameters (JSON)",
+          "type": "json",
+          "placeholder": "{\"limit\": 10, \"offset\": 0}"
+        }
+      ],
+      "category": "read"
+    },
+    {
+      "key": "custom_post",
+      "name": "Custom POST Request",
+      "description": "Make a POST request to any endpoint",
+      "method": "POST",
+      "endpoint": "/{endpoint}",
+      "parameters": [
+        {
+          "name": "endpoint",
+          "label": "Endpoint Path",
+          "type": "text",
+          "required": true,
+          "placeholder": "/api/v1/resource"
+        },
+        {
+          "name": "body",
+          "label": "Request Body (JSON)",
+          "type": "json",
+          "required": true,
+          "placeholder": "{\"key\": \"value\"}"
+        }
+      ],
+      "body_template": "{body}",
+      "category": "write"
+    },
+    {
+      "key": "custom_put",
+      "name": "Custom PUT Request",
+      "description": "Make a PUT request to any endpoint",
+      "method": "PUT",
+      "endpoint": "/{endpoint}",
+      "parameters": [
+        {
+          "name": "endpoint",
+          "label": "Endpoint Path",
+          "type": "text",
+          "required": true,
+          "placeholder": "/api/v1/resource/123"
+        },
+        {
+          "name": "body",
+          "label": "Request Body (JSON)",
+          "type": "json",
+          "required": true
+        }
+      ],
+      "body_template": "{body}",
+      "category": "write"
+    },
+    {
+      "key": "custom_delete",
+      "name": "Custom DELETE Request",
+      "description": "Make a DELETE request to any endpoint",
+      "method": "DELETE",
+      "endpoint": "/{endpoint}",
+      "parameters": [
+        {
+          "name": "endpoint",
+          "label": "Endpoint Path",
+          "type": "text",
+          "required": true,
+          "placeholder": "/api/v1/resource/123"
+        }
+      ],
+      "category": "write"
+    }
+  ],
+  
+  "supports_webhooks": false
+}

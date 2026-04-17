@@ -1,0 +1,168 @@
+============================================================
+  PredictiveForecast - Test Data & Testing Guide
+============================================================
+
+This folder contains 3 pairs of datasets (train + test) for
+validating the application. Each covers a different use case
+with a mix of numerical and categorical features.
+
+
+FILES
+-----
+  retail_sales_train.csv    (800 rows, 15 columns, ~65 KB)
+  retail_sales_test.csv     (200 rows, 15 columns, ~17 KB)
+
+  housing_train.csv         (600 rows, 12 columns, ~39 KB)
+  housing_test.csv          (150 rows, 12 columns, ~10 KB)
+
+  energy_train.csv          (1000 rows, 13 columns, ~69 KB)
+  energy_test.csv           (250 rows,  13 columns, ~17 KB)
+
+  generate_test_data.py     Script to regenerate datasets
+
+
+============================================================
+  TEST SCENARIO 1: Retail Sales Forecasting
+============================================================
+Mirrors your original apparel/retail domain.
+
+  Target Column:  SlsUnitsCnt  (average per-store sales units)
+
+  Recommended Features (select all of these):
+    DivId, DeptId, ItmClsId, Brand, Fabric, Season, Tier,
+    Treatment, Color, Silhouette, WeekNum, StoreCnt,
+    BasePrice, PromoDiscount
+
+  Steps:
+    1. Open http://localhost:5005
+    2. Select algorithm: LightGBM Regressor (good starting point)
+    3. Upload: retail_sales_train.csv
+    4. On the column selection page:
+       - Enter model name: retail_lgbm_v1
+       - Set target to: SlsUnitsCnt
+       - Select all other columns as features
+    5. Click Train
+    6. After training, go back to Dashboard
+    7. Select model "retail_lgbm_v1" in the Test section
+    8. Upload: retail_sales_test.csv
+    9. Click Run Test
+   10. Review accuracy, then click "Run Feature Analysis"
+
+  Expected Results:
+    - Tree-based models (LightGBM, RF, XGBoost) should achieve
+      R2 > 0.75 on this dataset since the data generation has
+      clear causal factors (tier, fabric, promo, season, price)
+    - Feature analysis should rank PromoDiscount, StoreCnt, Tier,
+      and Season among the top features
+
+
+============================================================
+  TEST SCENARIO 2: Housing Price Prediction
+============================================================
+Classic regression problem. Good for testing the Neural Network.
+
+  Target Column:  Price
+
+  Recommended Features (select all of these):
+    SquareFeet, Bedrooms, Bathrooms, YearBuilt, LotSize,
+    Neighborhood, HouseType, Condition, GarageType,
+    HasPool, Stories
+
+  Steps:
+    1. Select algorithm: Neural Network (Keras DNN)
+    2. Upload: housing_train.csv
+    3. Model name: housing_nn_v1
+    4. Target: Price
+    5. Select all other columns as features
+    6. (Optional) Open Advanced Hyperparameters:
+       - Epochs: 150
+       - Batch Size: 32
+       - Dropout: 0.2
+    7. Train, then test with housing_test.csv
+
+  Expected Results:
+    - Neural Network should achieve R2 > 0.80
+    - SquareFeet, Neighborhood, YearBuilt, and LotSize should
+      dominate feature importance
+    - Try also with Random Forest for comparison
+
+
+============================================================
+  TEST SCENARIO 3: Energy Consumption Forecast
+============================================================
+Higher row count with weather features. Good for comparing
+algorithms side by side.
+
+  Target Column:  EnergyConsumption  (kWh)
+
+  Recommended Features (select all of these):
+    Month, Hour, DayType, BuildingType, HVACType, Insulation,
+    FloorArea, Occupancy, OutdoorTemp, Humidity,
+    SolarRadiation, WindSpeed
+
+  Steps:
+    Train 3 models using different algorithms to compare:
+
+    Model A: energy_lgbm       (LightGBM Regressor)
+    Model B: energy_rf         (Random Forest Regressor)
+    Model C: energy_nn         (Neural Network)
+
+    Test each with energy_test.csv and compare R2/MSE on the
+    Dashboard model cards.
+
+  Expected Results:
+    - All algorithms should achieve R2 > 0.70
+    - FloorArea, Occupancy, OutdoorTemp, and Hour should be
+      the top features
+    - Tree-based models typically outperform on this type of
+      tabular data
+
+
+============================================================
+  TESTING THE FULL WORKFLOW
+============================================================
+
+  1. UPLOAD & PREVIEW
+     - Verify the data preview table shows first 10 rows
+     - Verify column types are detected (num/cat badges)
+     - Verify column search/filter works
+     - Verify target dropdown only shows numeric columns
+
+  2. TRAINING
+     - Verify spinner shows during training
+     - Verify metrics display on completion
+     - Verify K-fold details shown (for Neural Network)
+     - Verify model appears on Dashboard after training
+
+  3. TESTING
+     - Verify accuracy color coding (Excellent/Good/Fair/Poor)
+     - Verify confidence categories (High/Medium/Low)
+     - Verify the results table is scrollable with many columns
+
+  4. FEATURE ANALYSIS
+     - Verify the async analysis starts and status updates
+     - Verify feature importance bar chart renders
+     - Verify cumulative importance chart renders
+
+  5. MODEL MANAGEMENT
+     - Verify models are listed on Dashboard with metrics
+     - Verify Delete button removes a model
+     - Verify deleted model is removed from the test dropdown
+
+  6. API ENDPOINTS (optional, via curl or Postman)
+     GET  /api/models           - list all models
+     GET  /api/models/<name>    - get model config
+     GET  /api/algorithms       - list available algorithms
+     DELETE /api/models/<name>  - delete a model
+     POST /api/train            - train via JSON API
+     POST /api/test             - test via JSON API
+
+
+============================================================
+  REGENERATING TEST DATA
+============================================================
+  python test_data/generate_test_data.py
+
+  The script uses seed=42 for reproducibility. Modify the
+  seed or row counts in the script to create different
+  variations.

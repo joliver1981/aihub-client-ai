@@ -1,0 +1,1214 @@
+<!-- monitoring-dashboard.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workflow Monitoring</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/monitoring.css') }}" rel="stylesheet">
+    
+    <style>
+        /* ===== STYLES FROM ASSISTANTS.HTML FOR CONSISTENCY ===== */
+        .compact-header {
+            background: linear-gradient(135deg, #2980b9 0%, #34495e 100%);
+            color: white;
+            padding: 0.5rem 1rem;
+            margin-bottom: 1rem;
+            border-radius: 0.5rem;
+        }
+        
+        /* Adjust sidebar to match assistant pages */
+        .sidebar {
+            background-color: var(--bg-elevated, #f8f9fa);
+            min-height: calc(100vh - 80px);
+            padding-top: 0.5rem;
+        }
+        
+        .sidebar h4 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #495057;
+        }
+        
+        /* Make cards more compact like in assistant pages */
+        .card {
+            margin-bottom: 0.75rem;
+        }
+        
+        .card-header {
+            padding: 0.5rem 0.75rem;
+            font-size: 0.9rem;
+            font-weight: 600;
+            background-color: var(--bg-elevated, #f8f9fa);
+        }
+        
+        .card-body {
+            padding: 0.75rem;
+        }
+        
+        /* Status cards - make them more compact */
+        .status-card .card-body {
+            padding: 1rem;
+        }
+        
+        .status-card h5 {
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .status-card h2 {
+            font-size: 1.75rem;
+            margin-bottom: 0;
+        }
+        
+        /* Table adjustments for consistency */
+        .table {
+            font-size: 0.9rem;
+        }
+        
+        .table th {
+            font-weight: 600;
+            background-color: var(--bg-elevated, #f8f9fa);
+            font-size: 0.85rem;
+        }
+        
+        /* Button size consistency */
+        .btn-sm {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.875rem;
+        }
+        
+        /* Nav pills styling to match */
+        .nav-pills .nav-link {
+            color: #495057;
+            padding: 0.5rem 0.75rem;
+            font-size: 0.9rem;
+        }
+        
+        .nav-pills .nav-link.active {
+            background-color: #2980b9;
+        }
+        
+        .nav-pills .nav-link:hover {
+            background-color: var(--border-subtle, #e9ecef);
+        }
+        
+        /* Tab content area */
+        .content {
+            background-color: var(--bg-card, white);
+            min-height: calc(100vh - 80px);
+        }
+        
+        /* Badge styling */
+        .badge {
+            font-size: 0.75rem;
+            padding: 0.25em 0.5em;
+        }
+        
+        /* Modal header consistency */
+        .modal-header {
+            background-color: var(--bg-elevated, #f8f9fa);
+            padding: 0.75rem 1rem;
+        }
+        
+        .modal-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+    </style>
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+</head>
+<body style="background:#0a0a0a;color:#fff;"><div class="doc-page" id="docPage">
+<div style="position:fixed;bottom:20px;right:20px;z-index:9999;"><button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme"><i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span></button></div>
+    <div class="container-fluid px-3 py-2">
+        <!-- Compact Header Bar (NEW - matching assistants.html style) -->
+        <div class="compact-header d-flex justify-content-between align-items-center">
+            <h4 class="mb-0"><i class="bi bi-diagram-3 me-2"></i>Workflow Monitor</h4>
+            <div>
+                <a href="/workflow_tool" target="_blank" class="btn btn-sm btn-light">
+                    <i class="bi bi-pencil-square me-1"></i>Workflow Designer
+                </a>
+            </div>
+        </div>
+        
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-2 sidebar">
+                <div class="d-flex flex-column p-3">
+                    <ul class="nav nav-pills flex-column mb-auto">
+                        <li class="nav-item">
+                            <a href="#dashboard" class="nav-link active" data-bs-toggle="tab">
+                                <i class="bi bi-speedometer2 me-2"></i>
+                                Dashboard
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#executions" class="nav-link" data-bs-toggle="tab">
+                                <i class="bi bi-list-check me-2"></i>
+                                Executions
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#approvals" class="nav-link" data-bs-toggle="tab">
+                                <i class="bi bi-check2-square me-2"></i>
+                                Approvals <span id="approval-count" class="badge bg-danger rounded-pill ms-2">0</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#analytics" class="nav-link" data-bs-toggle="tab">
+                                <i class="bi bi-graph-up me-2"></i>
+                                Analytics
+                            </a>
+                        </li>
+                        {% if not IS_DEVELOPER_MODE %}
+                        <li class="nav-item">
+                            <a href="#schedules" class="nav-link" data-bs-toggle="tab">
+                                <i class="bi bi-calendar2-week me-2"></i>
+                                Schedules
+                            </a>
+                        </li>
+                        {% endif %}
+                        <li class="nav-item">
+                            <a href="#logs" class="nav-link" data-bs-toggle="tab">
+                                <i class="bi bi-journal-text me-2"></i>
+                                Logs
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Main content area -->
+            <div class="col-md-10 content">
+                <div class="tab-content p-3">
+                    <!-- Dashboard Tab -->
+                    <div class="tab-pane fade show active" id="dashboard">
+                        <h5 class="mb-3">Dashboard Overview</h5>
+                        
+                        <!-- Status cards -->
+                        <div class="row mb-4">
+                            <div class="col-md-3">
+                                <div class="card bg-primary text-white status-card">
+                                    <div class="card-body">
+                                        <h5 class="card-title">Active Workflows</h5>
+                                        <h2 id="active-workflows-count">0</h2>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card bg-warning text-dark status-card">
+                                    <div class="card-body">
+                                        <h5 class="card-title">Paused Workflows</h5>
+                                        <h2 id="paused-workflows-count">0</h2>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card bg-success text-white status-card">
+                                    <div class="card-body">
+                                        <h5 class="card-title">Completed Today</h5>
+                                        <h2 id="completed-workflows-count">0</h2>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card bg-danger text-white status-card">
+                                    <div class="card-body">
+                                        <h5 class="card-title">Failed Today</h5>
+                                        <h2 id="failed-workflows-count">0</h2>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+
+
+                        
+                        <!-- Recent executions -->
+                        <div class="card mb-4">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0">Recent Workflow Executions</h6>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="refreshDashboard()">
+                                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th>ID</th>
+                                                <th>Workflow</th>
+                                                <th>Status</th>
+                                                <th>Started</th>
+                                                <th>Duration</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="recent-executions-table">
+                                            <!-- Populated dynamically -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Pending approvals -->
+                        <div class="card">
+                            <div class="card-header">
+                                <h6 class="mb-0">Pending Approvals</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th>Workflow</th>
+                                                <th>Title</th>
+                                                <th>Requested</th>
+                                                <th>Assigned To</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="pending-approvals-table">
+                                            <!-- Populated dynamically -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Executions Tab -->
+                    <div class="tab-pane fade" id="executions">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0">Workflow Executions</h6>
+                                <div>
+                                    <div class="input-group">
+                                        <select id="status-filter" class="form-control form-control-sm">
+                                            <option value="">All Statuses</option>
+                                            <option value="Running">Running</option>
+                                            <option value="Paused">Paused</option>
+                                            <option value="Completed">Completed</option>
+                                            <option value="Failed">Failed</option>
+                                            <option value="Cancelled">Cancelled</option>
+                                        </select>
+                                        <div class="input-group-append">
+                                            <button class="btn btn-sm btn-outline-secondary" id="refresh-executions-btn">
+                                                <i class="bi bi-arrow-clockwise"></i> Refresh
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-hover" id="executions-table">
+                                        <thead>
+                                            <tr>
+                                                <th>ID</th>
+                                                <th>Workflow</th>
+                                                <th>Started</th>
+                                                <th>Completed</th>
+                                                <th>Status</th>
+                                                <th>Initiated By</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="executions-table-body">
+                                            <!-- Executions will be populated here -->
+                                            <tr>
+                                                <td colspan="7" class="text-center">Loading executions...</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center mt-3">
+                                    <div>
+                                        <span id="executions-count">0</span> execution(s) found
+                                    </div>
+                                    <nav aria-label="Execution pagination">
+                                        <ul class="pagination pagination-sm" id="executions-pagination">
+                                            <!-- Pagination will be populated here -->
+                                        </ul>
+                                    </nav>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                                        
+                   <!-- Approvals Tab Content -->
+                    <div class="tab-pane fade" id="approvals">
+                        <div class="content-header">
+                            <h5 class="mb-3">Workflow Approvals</h5>
+                            <div class="d-flex justify-content-between align-items-center mb-4">
+                                <div class="filters">
+                                    <div class="btn-group" role="group">
+                                        <button type="button" class="btn btn-outline-primary active" data-filter="pending">Pending</button>
+                                        <button type="button" class="btn btn-outline-primary" data-filter="approved">Approved</button>
+                                        <button type="button" class="btn btn-outline-primary" data-filter="rejected">Rejected</button>
+                                        <button type="button" class="btn btn-outline-primary" data-filter="all">All</button>
+                                    </div>
+                                </div>
+                                <div class="actions">
+                                    <button class="btn btn-outline-secondary" id="refresh-approvals-btn">
+                                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="card">
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th>Workflow</th>
+                                                <th>Title</th>
+                                                <th>Requested</th>
+                                                <th>Status</th>
+                                                <th>Assigned To</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="approvals-table">
+                                            <!-- Approval rows will be populated here -->
+                                            <tr>
+                                                <td colspan="6" class="text-center">Loading approvals...</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Pagination -->
+                        <nav aria-label="Approvals pagination" class="mt-3">
+                            <ul class="pagination justify-content-center" id="approvals-pagination">
+                                <!-- Pagination links will be added here -->
+                            </ul>
+                        </nav>
+                    </div>
+                    
+                    <!-- Analytics Tab Content -->
+                    <div class="tab-pane fade" id="analytics">
+                        <h5 class="mb-3">Workflow Analytics</h5>
+                        
+                        <!-- Filter Options -->
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h6 class="mb-0">Filter Options</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <div class="form-group">
+                                            <label for="analytics-date-range" class="small">Time Range</label>
+                                            <select class="form-control form-control-sm" id="analytics-date-range">
+                                                <option value="7">Last 7 Days</option>
+                                                <option value="30" selected>Last 30 Days</option>
+                                                <option value="90">Last 90 Days</option>
+                                                <option value="365">Last Year</option>
+                                                <option value="custom">Custom Range</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6" id="custom-date-range" style="display: none;">
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <div class="form-group">
+                                                    <label for="analytics-start-date" class="small">Start Date</label>
+                                                    <input type="date" class="form-control form-control-sm" id="analytics-start-date">
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div class="form-group">
+                                                    <label for="analytics-end-date" class="small">End Date</label>
+                                                    <input type="date" class="form-control form-control-sm" id="analytics-end-date">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="form-group">
+                                            <label for="analytics-workflow-select" class="small">Workflow</label>
+                                            <select class="form-control form-control-sm" id="analytics-workflow-select">
+                                                <option value="all">All Workflows</option>
+                                                <!-- Workflows will be populated here -->
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3 d-flex align-items-end">
+                                        <button class="btn btn-primary btn-sm" id="apply-analytics-filters">
+                                            <i class="bi bi-filter"></i> Apply Filters
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Overview Stats -->
+                        <div class="row mb-4">
+                            <div class="col-md-3">
+                                <div class="card bg-primary text-white h-100 status-card">
+                                    <div class="card-body">
+                                        <h5 class="card-title">Total Executions</h5>
+                                        <h2 id="total-executions-count">0</h2>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card bg-success text-white h-100 status-card">
+                                    <div class="card-body">
+                                        <h5 class="card-title">Success Rate</h5>
+                                        <h2 id="success-rate">0%</h2>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card bg-info text-white h-100 status-card">
+                                    <div class="card-body">
+                                        <h5 class="card-title">Avg. Duration</h5>
+                                        <h2 id="avg-duration">0s</h2>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card bg-warning text-dark h-100 status-card">
+                                    <div class="card-body">
+                                        <h5 class="card-title">Pending Approvals</h5>
+                                        <h2 id="pending-approvals-analytics">0</h2>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Charts -->
+                        <div class="row mb-4">
+                            <div class="col-md-8">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h6 class="mb-0">Execution Trends</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <canvas id="execution-trend-chart" style="height: 300px;"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h6 class="mb-0">Status Distribution</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <canvas id="status-distribution-chart" style="height: 300px;"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h6 class="mb-0">Top Workflows by Execution Count</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <canvas id="top-workflows-chart" style="height: 300px;"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h6 class="mb-0">Average Duration by Workflow</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <canvas id="duration-chart" style="height: 300px;"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Performance Table -->
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0">Workflow Performance</h6>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="exportPerformanceData()">
+                                    <i class="bi bi-download"></i> Export
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th>Workflow</th>
+                                                <th>Executions</th>
+                                                <th>Success Rate</th>
+                                                <th>Avg. Duration</th>
+                                                <th>Last Execution</th>
+                                                <th>Trend</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="performance-table-body">
+                                            <!-- Data will be populated here -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Workflow Schedule Tab Content -->
+                    <div class="tab-pane fade" id="schedules">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0">Workflow Schedules</h6>
+                                <button class="btn btn-primary btn-sm" id="addWorkflowScheduleBtn">
+                                    <i class="bi bi-plus-circle"></i> Add Schedule
+                                </button>
+                            </div>
+                            <div class="card-body" id="workflowSchedulesContainer">
+                                <div class="text-center py-3" id="schedulesLoadingIndicator">
+                                    <div class="spinner-border text-primary" role="status">
+                                        <span class="visually-hidden">Loading schedules...</span>
+                                    </div>
+                                </div>
+                                <div id="workflowSchedulesList"></div>
+                            </div>
+                        </div>
+                    </div>
+                                        
+                    <!-- Logs Tab Content -->
+                    <div class="tab-pane fade" id="logs">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0">Workflow Execution Logs</h6>
+                                <div class="d-flex">
+                                    <button class="btn btn-sm btn-outline-secondary me-2" id="refresh-logs-btn">
+                                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-primary" id="export-logs-btn">
+                                        <i class="bi bi-download"></i> Export
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <!-- Filter controls -->
+                                <div class="row mb-3">
+                                    <div class="col-md-3">
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text">Execution</span>
+                                            <select class="form-select" id="log-execution-select">
+                                                <option value="">All Executions</option>
+                                                <!-- Options will be populated dynamically -->
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text">Level</span>
+                                            <select class="form-select" id="log-level-filter">
+                                                <option value="">All Levels</option>
+                                                <option value="info">Info</option>
+                                                <option value="warning">Warning</option>
+                                                <option value="error">Error</option>
+                                                <option value="debug">Debug</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text">Search</span>
+                                            <input type="text" class="form-control" id="log-search-filter" placeholder="Search message content...">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text">Date Range</span>
+                                            <input type="date" class="form-control" id="log-date-from">
+                                            <input type="date" class="form-control" id="log-date-to">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Logs table -->
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th width="160">Timestamp</th>
+                                                <th width="80">Level</th>
+                                                <th>Message</th>
+                                                <th width="180">Execution ID</th>
+                                                <th width="120">Step</th>
+                                                <th width="100">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="logs-table-body">
+                                            <!-- Log entries will be populated here -->
+                                            <tr>
+                                                <td colspan="6" class="text-center py-3">
+                                                    <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                                        <span class="visually-hidden">Loading...</span>
+                                                    </div>
+                                                    <span class="ms-2">Loading logs...</span>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <!-- Pagination -->
+                                <div class="d-flex justify-content-between align-items-center mt-3">
+                                    <div>
+                                        <select class="form-select form-select-sm" id="logs-page-size" style="width: 80px;">
+                                            <option value="25">25</option>
+                                            <option value="50" selected>50</option>
+                                            <option value="100">100</option>
+                                            <option value="200">200</option>
+                                        </select>
+                                    </div>
+                                    <nav aria-label="Log pagination" id="logs-pagination">
+                                        <ul class="pagination pagination-sm">
+                                            <li class="page-item disabled">
+                                                <a class="page-link" href="#" aria-label="Previous">
+                                                    <span aria-hidden="true">&laquo;</span>
+                                                </a>
+                                            </li>
+                                            <li class="page-item active"><a class="page-link" href="#">1</a></li>
+                                            <li class="page-item disabled">
+                                                <a class="page-link" href="#" aria-label="Next">
+                                                    <span aria-hidden="true">&raquo;</span>
+                                                </a>
+                                            </li>
+                                        </ul>
+                                    </nav>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Log Details Modal -->
+                        <div class="modal fade" id="logDetailsModal" tabindex="-1" aria-labelledby="logDetailsModalLabel" aria-hidden="true">
+                            <div class="modal-dialog modal-lg">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title" id="logDetailsModalLabel">Log Entry Details</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <dl class="row">
+                                            <dt class="col-sm-3">Timestamp</dt>
+                                            <dd class="col-sm-9" id="detail-timestamp"></dd>
+                                            
+                                            <dt class="col-sm-3">Level</dt>
+                                            <dd class="col-sm-9"><span id="detail-level-badge" class="badge"></span></dd>
+                                            
+                                            <dt class="col-sm-3">Execution ID</dt>
+                                            <dd class="col-sm-9" id="detail-execution-id"></dd>
+                                            
+                                            <dt class="col-sm-3">Step</dt>
+                                            <dd class="col-sm-9" id="detail-step"></dd>
+                                            
+                                            <dt class="col-sm-3">Message</dt>
+                                            <dd class="col-sm-9" id="detail-message"></dd>
+                                        </dl>
+                                        
+                                        <div id="detail-json-container">
+                                            <h6>Additional Details</h6>
+                                            <pre id="detail-json" class="bg-light p-3 rounded"></pre>
+                                        </div>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Approval Modal (UPDATED) -->
+    <div class="modal fade" id="approvalModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="approval-title">Approval Request</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="approval-info mb-4">
+                        <h6>Workflow Information</h6>
+                        <dl class="row">
+                            <dt class="col-sm-3">Workflow:</dt>
+                            <dd class="col-sm-9" id="approval-workflow-name">-</dd>
+                            
+                            <dt class="col-sm-3">Execution ID:</dt>
+                            <dd class="col-sm-9" id="approval-execution-id">-</dd>
+                            
+                            <dt class="col-sm-3">Started:</dt>
+                            <dd class="col-sm-9" id="approval-started-at">-</dd>
+                            
+                            <dt class="col-sm-3">Step:</dt>
+                            <dd class="col-sm-9" id="approval-step-name">-</dd>
+                        </dl>
+                    </div>
+                    
+                    <div class="approval-request mb-4">
+                        <h6>Approval Request</h6>
+                        <p id="approval-description" class="mb-3">-</p>
+                        
+                        <h6>Context Data</h6>
+                        <pre id="approval-data" class="bg-light p-3 rounded">-</pre>
+                    </div>
+                    
+                    <div class="approval-response">
+                        <h6>Your Response</h6>
+                        <div class="mb-3">
+                            <label for="approval-comments" class="form-label">Comments</label>
+                            <textarea id="approval-comments" class="form-control" rows="3" placeholder="Add optional comments about your decision"></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <input type="hidden" id="approval-request-id" value="">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" id="reject-btn" class="btn btn-danger" onclick="respondToApproval('rejected')">Reject</button>
+                    <button type="button" id="approve-btn" class="btn btn-success" onclick="respondToApproval('approved')">Approve</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Execution Detail Modal -->
+    <div class="modal fade" id="executionDetailModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Workflow Execution Details</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <h6>Execution Information</h6>
+                            <dl class="row">
+                                <dt class="col-sm-4">Workflow:</dt>
+                                <dd class="col-sm-8" id="detail-workflow-name">-</dd>
+                                
+                                <dt class="col-sm-4">Execution ID:</dt>
+                                <dd class="col-sm-8" id="detail-execution-id">-</dd>
+                                
+                                <dt class="col-sm-4">Status:</dt>
+                                <dd class="col-sm-8" id="detail-status">-</dd>
+                                
+                                <dt class="col-sm-4">Started:</dt>
+                                <dd class="col-sm-8" id="detail-started-at">-</dd>
+                                
+                                <dt class="col-sm-4">Completed:</dt>
+                                <dd class="col-sm-8" id="detail-completed-at">-</dd>
+                                
+                                <dt class="col-sm-4">Initiated By:</dt>
+                                <dd class="col-sm-8" id="detail-initiated-by">-</dd>
+                            </dl>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Current State</h6>
+                            <dl class="row">
+                                <dt class="col-sm-4">Active Node:</dt>
+                                <dd class="col-sm-8" id="detail-active-node">-</dd>
+                                
+                                <dt class="col-sm-4">Step Status:</dt>
+                                <dd class="col-sm-8" id="detail-step-status">-</dd>
+                                
+                                <dt class="col-sm-4">Waiting for:</dt>
+                                <dd class="col-sm-8" id="detail-waiting-for">-</dd>
+                            </dl>
+                            
+                            <div class="d-flex gap-2 mt-3">
+                                <button id="detail-pause-btn" class="btn btn-warning" onclick="pauseExecution()">
+                                    <i class="bi bi-pause-fill"></i> Pause
+                                </button>
+                                <button id="detail-resume-btn" class="btn btn-primary" onclick="resumeExecution()">
+                                    <i class="bi bi-play-fill"></i> Resume
+                                </button>
+                                <button id="detail-cancel-btn" class="btn btn-danger" onclick="cancelExecution()">
+                                    <i class="bi bi-x-circle"></i> Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <ul class="nav nav-tabs" id="executionDetailTabs">
+                        <li class="nav-item">
+                            <a class="nav-link active" data-bs-toggle="tab" href="#execution-steps">Steps</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" data-bs-toggle="tab" href="#execution-variables">Variables</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" data-bs-toggle="tab" href="#execution-logs">Logs</a>
+                        </li>
+                    </ul>
+                    
+                    <div class="tab-content p-3 border border-top-0 rounded-bottom">
+                        <div class="tab-pane fade show active" id="execution-steps">
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Step</th>
+                                            <th>Type</th>
+                                            <th>Status</th>
+                                            <th>Started</th>
+                                            <th>Completed</th>
+                                            <th>Duration</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="execution-steps-table">
+                                        <!-- Populated dynamically -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="execution-variables">
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>Type</th>
+                                            <th>Value</th>
+                                            <th>Last Updated</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="execution-variables-table">
+                                        <!-- Populated dynamically -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="execution-logs">
+                            <div class="log-filter mb-3">
+                                <div class="row g-2">
+                                    <div class="col-md-3">
+                                        <select id="log-level-filter" class="form-select">
+                                            <option value="">All Levels</option>
+                                            <option value="info">Info</option>
+                                            <option value="warning">Warning</option>
+                                            <option value="error">Error</option>
+                                            <option value="debug">Debug</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-7">
+                                        <input type="text" id="log-search" class="form-control" placeholder="Search logs...">
+                                    </div>
+                                    <div class="col-md-2">
+                                        <button class="btn btn-outline-secondary w-100" onclick="refreshLogs()">
+                                            <i class="bi bi-search"></i> Filter
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="execution-log-viewer">
+                                <pre id="execution-logs-content" class="bg-dark text-light p-3 rounded">Loading logs...</pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Step Detail Modal -->
+    <div class="modal fade" id="stepDetailModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Step Execution Details</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <h6>Step Information</h6>
+                            <dl class="row">
+                                <dt class="col-sm-4">Node Name:</dt>
+                                <dd class="col-sm-8" id="step-detail-node-name">-</dd>
+                                
+                                <dt class="col-sm-4">Node Type:</dt>
+                                <dd class="col-sm-8" id="step-detail-node-type">-</dd>
+                                
+                                <dt class="col-sm-4">Status:</dt>
+                                <dd class="col-sm-8" id="step-detail-status">-</dd>
+                            </dl>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Timing</h6>
+                            <dl class="row">
+                                <dt class="col-sm-4">Started:</dt>
+                                <dd class="col-sm-8" id="step-detail-started-at">-</dd>
+                                
+                                <dt class="col-sm-4">Completed:</dt>
+                                <dd class="col-sm-8" id="step-detail-completed-at">-</dd>
+                                
+                                <dt class="col-sm-4">Duration:</dt>
+                                <dd class="col-sm-8" id="step-detail-duration">-</dd>
+                            </dl>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <h6>Input Data</h6>
+                        <pre id="step-detail-input" class="bg-light p-3 rounded">No input data available</pre>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <h6>Output Data</h6>
+                        <pre id="step-detail-output" class="bg-light p-3 rounded">No output data available</pre>
+                    </div>
+                    
+                    <div>
+                        <h6>Error Messages</h6>
+                        <pre id="step-detail-error" class="bg-light p-3 rounded text-danger">No errors</pre>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Add Schedule Modal -->
+    <div class="modal fade" id="addWorkflowScheduleModal" tabindex="-1" aria-labelledby="addWorkflowScheduleModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="addWorkflowScheduleModalLabel">Add Workflow Schedule</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="workflowScheduleForm">
+                        <input type="hidden" id="scheduleWorkflowId" name="scheduleWorkflowId">
+                        
+                        <div class="mb-3">
+                            <label for="workflowSelect" class="form-label">Select Workflow</label>
+                            <select class="form-select" id="workflowSelect" name="workflowSelect" required>
+                                <option value="">-- Select a workflow --</option>
+                                <!-- Workflows will be populated here -->
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="scheduleType" class="form-label">Schedule Type</label>
+                            <select class="form-select" id="scheduleType" name="scheduleType" required>
+                                <option value="">-- Select a schedule type --</option>
+                                <option value="interval">Interval</option>
+                                <option value="cron">Cron Expression</option>
+                                <option value="date">One-time Execution</option>
+                            </select>
+                        </div>
+                        
+                        <!-- Interval Settings -->
+                        <div id="intervalSettings" style="display: none;">
+                            <div class="row mb-3">
+                                <div class="col-md-4">
+                                    <label for="intervalSeconds" class="form-label">Seconds</label>
+                                    <input type="number" class="form-control" id="intervalSeconds" name="intervalSeconds" min="0">
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="intervalMinutes" class="form-label">Minutes</label>
+                                    <input type="number" class="form-control" id="intervalMinutes" name="intervalMinutes" min="0">
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="intervalHours" class="form-label">Hours</label>
+                                    <input type="number" class="form-control" id="intervalHours" name="intervalHours" min="0">
+                                </div>
+                            </div>
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="intervalDays" class="form-label">Days</label>
+                                    <input type="number" class="form-control" id="intervalDays" name="intervalDays" min="0">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="intervalWeeks" class="form-label">Weeks</label>
+                                    <input type="number" class="form-control" id="intervalWeeks" name="intervalWeeks" min="0">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Cron Settings -->
+                        <div id="cronSettings" style="display: none;">
+                            <div class="mb-3">
+                                <label for="cronExpression" class="form-label">Cron Expression</label>
+                                <input type="text" class="form-control" id="cronExpression" name="cronExpression" 
+                                    placeholder="e.g., 0 0 * * * (daily at midnight)">
+                                <small class="form-text text-muted">
+                                    Format: Minute Hour Day Month DayOfWeek (e.g., "0 0 * * *" for daily at midnight)
+                                </small>
+                            </div>
+                        </div>
+                        
+                        <!-- Date/Time Settings -->
+                        <div class="mb-3">
+                            <label for="startDate" class="form-label">Start Date/Time</label>
+                            <input type="datetime-local" class="form-control" id="startDate" name="startDate">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="endDate" class="form-label">End Date/Time (Optional)</label>
+                            <input type="datetime-local" class="form-control" id="endDate" name="endDate">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="maxRuns" class="form-label">Maximum Executions (Optional)</label>
+                            <input type="number" class="form-control" id="maxRuns" name="maxRuns" min="1">
+                            <small class="form-text text-muted">Leave empty for unlimited executions</small>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input" id="isActive" name="isActive" checked>
+                                <label class="form-check-label" for="isActive">Active</label>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="saveWorkflowScheduleBtn">Save Schedule</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Schedule Modal -->
+    <div class="modal fade" id="editWorkflowScheduleModal" tabindex="-1" aria-labelledby="editWorkflowScheduleModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editWorkflowScheduleModalLabel">Edit Workflow Schedule</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="editWorkflowScheduleForm">
+                        <input type="hidden" id="editScheduleId" name="editScheduleId">
+                        <input type="hidden" id="editScheduleWorkflowId" name="editScheduleWorkflowId">
+                        
+                        <div class="mb-3">
+                            <label for="editWorkflowName" class="form-label">Workflow</label>
+                            <input type="text" class="form-control" id="editWorkflowName" readonly>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="editScheduleType" class="form-label">Schedule Type</label>
+                            <select class="form-select" id="editScheduleType" name="editScheduleType" required disabled>
+                                <option value="">-- Select a schedule type --</option>
+                                <option value="interval">Interval</option>
+                                <option value="cron">Cron Expression</option>
+                                <option value="date">One-time Execution</option>
+                            </select>
+                            <small class="form-text text-muted">Schedule type cannot be changed after creation</small>
+                        </div>
+                        
+                        <!-- Interval Settings -->
+                        <div id="editIntervalSettings" style="display: none;">
+                            <div class="row mb-3">
+                                <div class="col-md-4">
+                                    <label for="editIntervalSeconds" class="form-label">Seconds</label>
+                                    <input type="number" class="form-control" id="editIntervalSeconds" name="editIntervalSeconds" min="0">
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="editIntervalMinutes" class="form-label">Minutes</label>
+                                    <input type="number" class="form-control" id="editIntervalMinutes" name="editIntervalMinutes" min="0">
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="editIntervalHours" class="form-label">Hours</label>
+                                    <input type="number" class="form-control" id="editIntervalHours" name="editIntervalHours" min="0">
+                                </div>
+                            </div>
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="editIntervalDays" class="form-label">Days</label>
+                                    <input type="number" class="form-control" id="editIntervalDays" name="editIntervalDays" min="0">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="editIntervalWeeks" class="form-label">Weeks</label>
+                                    <input type="number" class="form-control" id="editIntervalWeeks" name="editIntervalWeeks" min="0">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Cron Settings -->
+                        <div id="editCronSettings" style="display: none;">
+                            <div class="mb-3">
+                                <label for="editCronExpression" class="form-label">Cron Expression</label>
+                                <input type="text" class="form-control" id="editCronExpression" name="editCronExpression" 
+                                    placeholder="e.g., 0 0 * * * (daily at midnight)">
+                                <small class="form-text text-muted">
+                                    Format: Minute Hour Day Month DayOfWeek (e.g., "0 0 * * *" for daily at midnight)
+                                </small>
+                            </div>
+                        </div>
+                        
+                        <!-- Date/Time Settings -->
+                        <div class="mb-3">
+                            <label for="editStartDate" class="form-label">Start Date/Time</label>
+                            <input type="datetime-local" class="form-control" id="editStartDate" name="editStartDate">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="editEndDate" class="form-label">End Date/Time (Optional)</label>
+                            <input type="datetime-local" class="form-control" id="editEndDate" name="editEndDate">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="editMaxRuns" class="form-label">Maximum Executions (Optional)</label>
+                            <input type="number" class="form-control" id="editMaxRuns" name="editMaxRuns" min="1">
+                            <small class="form-text text-muted">Leave empty for unlimited executions</small>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input" id="editIsActive" name="editIsActive">
+                                <label class="form-check-label" for="editIsActive">Active</label>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="updateWorkflowScheduleBtn">Update Schedule</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment-timezone/0.5.43/moment-timezone-with-data.min.js"></script>
+    <script src="{{ url_for('static', filename='js/monitoring.js') }}"></script>
+<script>
+function toggleDocTheme(){var p=document.getElementById('docPage'),i=document.getElementById('docThemeIcon'),l=document.getElementById('docThemeLabel');p.classList.toggle('light-mode');var lt=p.classList.contains('light-mode');i.className=lt?'fas fa-sun':'fas fa-moon';l.textContent=lt?'Light':'Dark';localStorage.setItem('docPageTheme',lt?'light':'dark')}
+(function(){var s=localStorage.getItem('docPageTheme');if(s==='light'){var p=document.getElementById('docPage');if(p){p.classList.add('light-mode');var i=document.getElementById('docThemeIcon'),l=document.getElementById('docThemeLabel');if(i)i.className='fas fa-sun';if(l)l.textContent='Light'}}})();
+</script>
+</div><!-- /.doc-page -->
+</body>
+</html>

@@ -1,0 +1,343 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<div style="position:fixed;bottom:20px;right:20px;z-index:100;">
+    <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+        <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+    </button>
+</div>
+<div class="user-preferences">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1>User Preferences</h1>
+                <button class="btn btn-outline-secondary" id="resetDefaultsBtn">
+                    <i class="fas fa-undo mr-1"></i> Reset to Defaults
+                </button>
+            </div>
+            
+            <div class="alert alert-info alert-dismissible fade show mb-4" role="alert">
+                <i class="fas fa-info-circle mr-2"></i>
+                Preferences are saved automatically when changed.
+                <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            
+            <div class="row mb-4" id="preferenceCategoriesContainer">
+                <!-- Category cards will be added here dynamically -->
+                <div class="col-12 text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="sr-only">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading preferences...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Feedback container for notifications -->
+    <div class="feedback-container" id="feedbackContainer"></div>
+</div>
+
+<style>
+    .preference-card {
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        border-radius: 0.5rem;
+        margin-bottom: 1.5rem;
+    }
+    
+    .preference-card .card-header {
+        background-color: var(--bg-elevated, #f8f9fa);
+        border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+        padding: 0.75rem 1.25rem;
+    }
+    
+    .preference-item {
+        padding: 1rem 0;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    
+    .preference-item:last-child {
+        border-bottom: none;
+    }
+    
+    .feedback-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1050;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+    }
+    
+    .feedback-alert {
+        margin-top: 10px;
+        display: flex;
+        align-items: center;
+        box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.1);
+        min-width: 300px;
+    }
+    
+    .feedback-alert i {
+        margin-right: 10px;
+    }
+</style>
+<!-- Make sure this script tag is present and has the correct path -->
+<!-- <script src="{{ url_for('static', filename='js/preferences.js') }}"></script> -->
+<script>
+    $(document).ready(function() {
+        // Render the preference UI based on categories
+        function renderPreferenceUI() {
+            const container = $('#preferenceCategoriesContainer');
+            container.empty();
+            
+            // Get preferences and definitions
+            const preferences = UserPreferences.getPreference();
+            const definitions = UserPreferences.getDefinitions();
+            
+            if (!definitions) {
+                container.html(`
+                    <div class="col-12">
+                        <div class="alert alert-warning">
+                            <i class="fas fa-exclamation-triangle mr-2"></i>
+                            Failed to load preference definitions. Please try refreshing the page.
+                        </div>
+                    </div>
+                `);
+                return;
+            }
+            
+            // Group definitions by category
+            const categories = {};
+            Object.entries(definitions).forEach(([key, def]) => {
+                if (!categories[def.category]) {
+                    categories[def.category] = [];
+                }
+                categories[def.category].push({key, ...def});
+            });
+            
+            // Create a card for each category
+            Object.entries(categories).forEach(([category, prefsList]) => {
+                const categoryId = category.toLowerCase().replace(/\s+/g, '-');
+                const card = $(`
+                    <div class="col-md-6">
+                        <div class="card preference-card">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">${category}</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="${categoryId}-prefs">
+                                    <!-- Preferences will be added here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `);
+                
+                const prefsContainer = card.find(`#${categoryId}-prefs`);
+                
+                // Add each preference in this category
+                prefsList.forEach(pref => {
+                    const prefItem = createPreferenceControl(pref);
+                    prefsContainer.append(prefItem);
+                });
+                
+                container.append(card);
+            });
+            
+            // Initialize tooltips
+            $('[data-toggle="tooltip"]').tooltip();
+        }
+        
+        // Create a UI control for a preference based on its type
+        function createPreferenceControl(pref) {
+            const { key, display_name, description, ui_component, ui_options, data_type } = pref;
+            const value = UserPreferences.getPreference(key, pref.default_value);
+            
+            const container = $(`
+                <div class="preference-item">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="font-weight-bold mb-0" for="pref-${key}">${display_name}</label>
+                        <div id="control-${key}">
+                            <!-- Control will be added here -->
+                        </div>
+                    </div>
+                    <p class="text-muted small mb-0">${description}</p>
+                </div>
+            `);
+            
+            const controlContainer = container.find(`#control-${key}`);
+            
+            // Create different controls based on ui_component
+            switch (ui_component) {
+                case 'switch':
+                    controlContainer.html(`
+                        <div class="custom-control custom-switch">
+                            <input type="checkbox" class="custom-control-input" id="pref-${key}" 
+                                ${value ? 'checked' : ''}>
+                            <label class="custom-control-label" for="pref-${key}"></label>
+                        </div>
+                    `);
+                    
+                    controlContainer.find(`#pref-${key}`).on('change', function() {
+                        updatePreference(key, this.checked);
+                    });
+                    break;
+                    
+                case 'select':
+                    const options = ui_options?.options || [];
+                    const select = $(`<select class="form-control" id="pref-${key}"></select>`);
+                    
+                    options.forEach(option => {
+                        select.append(`<option value="${option.value}" ${value == option.value ? 'selected' : ''}>${option.label}</option>`);
+                    });
+                    
+                    controlContainer.html(select);
+                    
+                    select.on('change', function() {
+                        let newValue = $(this).val();
+                        // Convert to appropriate type
+                        if (data_type === 'integer') {
+                            newValue = parseInt(newValue);
+                        } else if (data_type === 'boolean') {
+                            newValue = newValue === 'true';
+                        }
+                        updatePreference(key, newValue);
+                    });
+                    break;
+                    
+                case 'input':
+                    controlContainer.html(`
+                        <input type="text" class="form-control" id="pref-${key}" value="${value}">
+                    `);
+                    
+                    const input = controlContainer.find(`#pref-${key}`);
+                    input.on('blur', function() {
+                        updatePreference(key, $(this).val());
+                    });
+                    
+                    // Add enter key handler
+                    input.on('keypress', function(e) {
+                        if (e.which === 13) { // Enter key
+                            updatePreference(key, $(this).val());
+                            input.blur();
+                        }
+                    });
+                    break;
+                    
+                // Add more control types as needed
+            }
+            
+            return container;
+        }
+        
+        // Save a preference to the server
+        function updatePreference(key, value) {
+            return UserPreferences.setPreference(key, value)
+                .then(() => {
+                    const definitions = UserPreferences.getDefinitions();
+                    showFeedback(`"${definitions[key].display_name}" updated`, true);
+                })
+                .catch(error => {
+                    console.error('Error saving preference:', error);
+                    showFeedback('Error saving preference: ' + error.message, false);
+                });
+        }
+        
+        // Reset all preferences to defaults
+        $('#resetDefaultsBtn').on('click', function() {
+            if (confirm('Are you sure you want to reset all preferences to their default values?')) {
+                UserPreferences.resetAllPreferences()
+                    .then(() => {
+                        showFeedback('All preferences reset to defaults', true);
+                        renderPreferenceUI();
+                    })
+                    .catch(error => {
+                        console.error('Error resetting preferences:', error);
+                        showFeedback('Error resetting preferences: ' + error.message, false);
+                    });
+            }
+        });
+        
+        // Show feedback notifications
+        function showFeedback(message, isSuccess) {
+            const feedbackContainer = document.getElementById('feedbackContainer');
+            const feedback = document.createElement('div');
+            feedback.className = `alert ${isSuccess ? 'alert-success' : 'alert-danger'} feedback-alert`;
+            feedback.role = 'alert';
+
+            const icon = document.createElement('i');
+            icon.className = isSuccess ? 'fas fa-check-circle' : 'fas fa-times-circle';
+            feedback.appendChild(icon);
+
+            const textNode = document.createTextNode(` ${message}`);
+            feedback.appendChild(textNode);
+
+            feedbackContainer.appendChild(feedback);
+
+            // Add animation
+            feedback.style.opacity = '0';
+            feedback.style.transform = 'translateX(20px)';
+            feedback.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+            
+            setTimeout(() => {
+                feedback.style.opacity = '1';
+                feedback.style.transform = 'translateX(0)';
+            }, 10);
+
+            setTimeout(() => {
+                feedback.style.opacity = '0';
+                feedback.style.transform = 'translateX(20px)';
+                
+                setTimeout(() => {
+                    feedback.remove();
+                }, 300);
+            }, 3000);
+        }
+        
+        // Initialize
+        UserPreferences.loadPreferences()
+            .then(() => {
+                renderPreferenceUI();
+            })
+            .catch(error => {
+                console.error('Error loading preferences:', error);
+                showFeedback('Failed to load preferences: ' + error.message, false);
+            });
+    });
+</script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}

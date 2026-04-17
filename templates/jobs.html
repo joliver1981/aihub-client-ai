@@ -1,0 +1,1414 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<style>
+    /* ===== STYLES FROM ASSISTANTS.HTML FOR CONSISTENCY ===== */
+    .compact-header {
+        background: linear-gradient(135deg, #2980b9 0%, #34495e 100%);
+        color: white;
+        padding: 0.5rem 1rem;
+        margin-bottom: 1rem;
+        border-radius: 0.5rem;
+    }
+    
+    /* Make cards more compact like in assistant pages */
+    .card {
+        margin-bottom: 0.75rem;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        border-radius: 0.5rem;
+    }
+    
+    .card-header {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.9rem;
+        font-weight: 600;
+        background-color: var(--bg-elevated, #f8f9fa);
+        border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+    }
+    
+    .card-body {
+        padding: 0.75rem;
+    }
+    
+    .card-title {
+        font-size: 1rem;
+        margin-bottom: 0;
+    }
+    
+    /* Form controls - make them smaller to match */
+    .form-control, .custom-select {
+        font-size: 0.9rem;
+        padding: 0.25rem 0.75rem;
+    }
+    
+    textarea.form-control {
+        font-size: 0.9rem;
+    }
+    
+    .form-group {
+        margin-bottom: 0.75rem;
+    }
+    
+    .form-group label {
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+    }
+    
+    .form-text {
+        font-size: 0.8rem;
+        margin-top: 0.25rem;
+    }
+    
+    /* Button size consistency */
+    .btn {
+        font-size: 0.9rem;
+        padding: 0.375rem 0.75rem;
+    }
+    
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+    }
+    
+    .btn-group > .btn {
+        padding: 0.375rem 0.75rem;
+        font-size: 0.9rem;
+    }
+    
+    /* Alert styling consistency */
+    .alert {
+        padding: 0.75rem;
+        font-size: 0.9rem;
+    }
+    
+    /* Small text consistency */
+    .small {
+        font-size: 0.8rem;
+    }
+    
+    /* Modal styling consistency */
+    .modal-header {
+        background-color: var(--bg-elevated, #f8f9fa);
+        padding: 0.75rem 1rem;
+    }
+    
+    .modal-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+    }
+    
+    .modal-body .form-control {
+        font-size: 0.9rem;
+        padding: 0.375rem 0.75rem;
+    }
+    
+    .modal-footer {
+        padding: 0.75rem;
+    }
+    
+    .modal-footer .btn {
+        font-size: 0.9rem;
+        padding: 0.375rem 0.75rem;
+    }
+    
+    /* Custom switch smaller */
+    .custom-control-label {
+        font-size: 0.9rem;
+    }
+    
+    .custom-control {
+        padding-left: 2.5rem;
+    }
+    
+    /* Table in modal */
+    .table {
+        font-size: 0.9rem;
+    }
+    
+    .table th {
+        padding: 0.5rem;
+        font-size: 0.85rem;
+    }
+    
+    .table td {
+        padding: 0.5rem;
+    }
+
+    /* Job history container */
+    #jobHistoryResultsContainer {
+        max-height: 50vh;
+        overflow-y: auto;
+    }
+
+    /* Feedback container */
+    .feedback-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1050;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+    }
+
+    .feedback-alert {
+        margin-top: 10px;
+        display: flex;
+        align-items: center;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        min-width: 250px;
+        font-size: 0.9rem;
+        padding: 0.5rem 0.75rem;
+    }
+
+    .feedback-alert i {
+        margin-right: 8px;
+        font-size: 1rem;
+    }
+
+    /* Test result styling */
+    #test_result {
+        display: inline-block;
+        margin-left: 10px;
+        font-style: italic;
+        font-size: 0.85rem;
+    }
+    
+    /* Input group styling */
+    .input-group-text {
+        font-size: 0.9rem;
+        padding: 0.375rem 0.75rem;
+    }
+    
+    .datetimepicker-input {
+        font-size: 0.9rem;
+        padding: 0.375rem 0.75rem;
+    }
+</style>
+
+<div class="container-fluid px-3 py-2">
+    <!-- Compact Header Bar (NEW - matching assistants.html style) -->
+    <div class="doc-page-header">
+        <h4 class="mb-0"><i class="fas fa-tasks mr-2"></i>Intelligent Jobs</h4>
+        <div class="btn-group">
+            <button type="button" class="btn btn-sm btn-light" data-toggle="modal" data-target="#scheduleJobModal">
+                <i class="fas fa-calendar-alt mr-1"></i> Schedule Job
+            </button>
+            <button type="button" class="btn btn-sm btn-light" data-toggle="modal" data-target="#jobHistoryModal">
+                <i class="fas fa-history mr-1"></i> View Job History
+            </button>
+        </div>
+    </div>
+    
+    <div class="doc-processor">
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">Job Configuration</h6>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" action="/add/quickjob" class="needs-validation" novalidate>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label for="job_name"><strong>Job Name:</strong></label>
+                                        <select class="form-control form-control-sm" id="job_name" name="job_name" required>
+                                            <option value="" disabled selected>Select a job</option>
+                                            <!-- Job options will be populated here -->
+                                        </select>
+                                        <div class="invalid-feedback">
+                                            Please select a job name.
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label for="agent-dropdown"><strong>Agent:</strong></label>
+                                        <select id="agent-dropdown" name="agent-dropdown" class="form-control form-control-sm">
+                                            <option value="">Select an agent</option>
+                                            <!-- Agents options will be populated here dynamically -->
+                                        </select>
+                                        <input type="hidden" id="agent_id" name="agent_id" value="">
+                                        <input type="hidden" id="user_id" name="user_id" value="{{ current_user.id }}">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="description"><strong>Agent Instructions:</strong></label>
+                                <textarea class="form-control form-control-sm" id="description" name="description" rows="3" required></textarea>
+                                <div class="invalid-feedback">
+                                    Please provide a description.
+                                </div>
+                            </div>
+
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <div class="custom-control custom-switch">
+                                            <input type="checkbox" class="custom-control-input" id="is_on">
+                                            <label class="custom-control-label" for="is_on"><strong>On/Off</strong></label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="card">
+                                        <div class="card-header doc-card-header">
+                                            <h6 class="mb-0">Test</h6>
+                                        </div>
+                                        <div class="card-body">
+                                            <button type="button" class="btn btn-sm btn-warning" onclick="testJob()">
+                                                <i class="fas fa-play mr-1"></i> Run
+                                            </button>
+                                            <span id="test_result" name="test_result" class="ml-2"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <input type="hidden" id="job_id" name="job_id" value=""> <!-- This will be populated with the job ID -->
+                            <div class="d-flex justify-content-between">
+                                <div>
+                                    <button type="button" class="btn btn-sm btn-primary" onclick="addJob()">
+                                        <i class="fas fa-save mr-1"></i> Save
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-secondary" data-toggle="modal" data-target="#newJobModal">
+                                        <i class="fas fa-plus mr-1"></i> New Job
+                                    </button>
+                                </div>
+                                <div>
+                                    <button type="button" class="btn btn-sm btn-outline-danger confirm-action" onclick="deleteJob()" data-confirm-message="Are you sure you want to delete this job?">
+                                        <i class="fas fa-trash mr-1"></i> Delete
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal for New Job -->
+<div class="modal fade" id="newJobModal" tabindex="-1" role="dialog" aria-labelledby="newJobModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="newJobModalLabel">New Job</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="newJobForm">
+                    <div class="form-group">
+                        <label for="newJobName"><strong>Job Name</strong></label>
+                        <input type="text" class="form-control form-control-sm" id="newJobName" placeholder="Enter job name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="agent-dropdown"><strong>Agent</strong></label>
+                        <select id="new-agent-dropdown" name="new-agent-dropdown" class="form-control form-control-sm" required>
+                            <option value="">Select an agent</option>
+                            <!-- Agents options will be populated here dynamically -->
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="newJobDescription"><strong>Agent Instructions</strong></label>
+                        <textarea class="form-control form-control-sm" id="newJobDescription" rows="3" placeholder="Enter job description" required></textarea>
+                    </div>
+                    <div class="form-group">
+                        <div class="custom-control custom-switch">
+                            <input type="checkbox" class="custom-control-input" id="newJobSwitch">
+                            <label class="custom-control-label" for="newJobSwitch"><strong>On/Off</strong></label>
+                            <small class="form-text text-muted">Toggle this switch to set job as active or inactive</small>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-sm btn-primary" id="saveNewJobButton">
+                    <i class="fas fa-save mr-1"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Schedule Job Modal -->
+<div class="modal fade" id="scheduleJobModal" tabindex="-1" aria-labelledby="scheduleJobModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="scheduleJobModalLabel">Schedule Job</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="scheduleForm">
+                    <input type="hidden" class="form-control" id="schedule_id" name="schedule_id">
+                    <div class="form-group">
+                        <label for="schedule_name"><strong>Schedule Name</strong></label>
+                        <input type="text" class="form-control form-control-sm" id="schedule_name" name="schedule_name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="schedule_datetime"><strong>Date and Time</strong></label>
+                        <div class="input-group date" id="schedule_datetime" data-target-input="nearest">
+                            <input type="text" class="form-control form-control-sm datetimepicker-input" data-target="#schedule_datetime" required />
+                            <div class="input-group-append" data-target="#schedule_datetime" data-toggle="datetimepicker">
+                                <div class="input-group-text"><i class="fa fa-calendar"></i></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="schedule_frequency"><strong>Frequency</strong></label>
+                        <select class="form-control form-control-sm" id="schedule_frequency" name="schedule_frequency" required>
+                            <option value="Hourly">Hourly</option>
+                            <option value="Daily">Daily</option>
+                            <option value="Weekly">Weekly</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <div class="custom-control custom-switch">
+                            <input type="checkbox" class="custom-control-input" id="schedule_enabled">
+                            <label class="custom-control-label" for="schedule_enabled"><strong>Enabled</strong></label>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-sm btn-primary" onclick="saveSchedule()">
+                    <i class="fas fa-save mr-1"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal for Viewing Job History -->
+<div class="modal fade" id="jobHistoryModal" tabindex="-1" role="dialog" aria-labelledby="jobHistoryModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="jobHistoryModalLabel">Job History</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="jobHistoryForm" class="mb-3">
+                    <div class="row">
+                        <div class="col-md-8">
+                            <div class="form-group">
+                                <label for="historyDate"><strong>Select Date</strong></label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control form-control-sm datetimepicker-input" id="historyDate" data-toggle="datetimepicker" data-target="#historyDate" required />
+                                    <div class="input-group-append">
+                                        <button type="button" class="btn btn-sm btn-primary" id="searchJobHistoryButton">
+                                            <i class="fas fa-search mr-1"></i> Search
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+                <div id="jobHistoryResultsContainer">
+                    <div class="card">
+                        <div class="card-header doc-card-header">
+                            <h6 class="mb-0">Results</h6>
+                        </div>
+                        <div class="card-body">
+                            <div id="jobHistoryResults">
+                                <!-- Job history results will be displayed here -->
+                                <p class="text-muted">Select a date and click Search to view job history.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="feedback-container" id="feedbackContainer"></div>
+
+<script>
+let jobsData = [];
+
+document.addEventListener('DOMContentLoaded', function () {
+    // Load the list of agents
+    loadAgents();
+
+    // Initialize form controls as disabled
+    disableFormControls();
+
+    // Fetch job data when the page loads
+    fetch('/get/quickjobs')
+        .then(response => {
+            console.log('Response received:', response); // Debugging
+            if (!response.ok) {
+                throw new Error('Network response was not ok ' + response.statusText);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Fetched job data:', data); // Debugging
+            data = JSON.parse(data);
+            jobsData = data; // Store the fetched data in a global variable
+            populateForm(data);
+        })
+        .catch(error => {
+            console.error('Error fetching jobs:', error); // Debugging
+            disableFormControls(); // Ensure controls remain disabled on error
+        });
+
+    // Add event listener to the job select dropdown
+    document.getElementById('job_name').addEventListener('change', function () {
+        const selectedJobId = this.value;
+        if (selectedJobId === '' || selectedJobId === null) {
+            disableFormControls();
+            clearFormFields();
+            clearJobHistoryResults();
+        } else {
+            const selectedJob = jobsData.find(job => job.id == selectedJobId);
+            if (selectedJob) {
+                enableFormControls();
+                updateFormFields(selectedJob);
+                clearJobHistoryResults();
+            }
+        }
+    });
+
+    // Example starter JavaScript for disabling form submissions if there are invalid fields
+    'use strict';
+    window.addEventListener('load', function () {
+        var forms = document.getElementsByClassName('needs-validation');
+        var validation = Array.prototype.filter.call(forms, function (form) {
+            form.addEventListener('submit', function (event) {
+                if (form.checkValidity() === false) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                }
+                form.classList.add('was-validated');
+            }, false);
+        });
+    }, false);
+
+    // Event listener for the save button in the modal
+    document.getElementById('saveNewJobButton').addEventListener('click', function() {
+        saveNewJob();
+    });
+
+    // Clear job history results when the job history modal is opened
+    $('#jobHistoryModal').on('show.bs.modal', function() {
+        clearJobHistoryResults();
+    });
+});
+
+// Function to disable form controls
+function disableFormControls() {
+    // Disable main form controls
+    document.getElementById('agent-dropdown').disabled = true;
+    document.getElementById('description').disabled = true;
+    document.getElementById('is_on').disabled = true;
+    
+    // Disable action buttons
+    const saveButton = document.querySelector('button[onclick="addJob()"]');
+    const deleteButton = document.querySelector('button[onclick="deleteJob()"]');
+    const testButton = document.querySelector('button[onclick="testJob()"]');
+    const scheduleButton = document.querySelector('button[data-target="#scheduleJobModal"]');
+    const historyButton = document.querySelector('button[data-target="#jobHistoryModal"]');
+    
+    if (saveButton) saveButton.disabled = true;
+    if (deleteButton) deleteButton.disabled = true;
+    if (testButton) testButton.disabled = true;
+    if (scheduleButton) scheduleButton.disabled = true;
+    if (historyButton) historyButton.disabled = true;
+    
+    // Clear test results
+    document.getElementById('test_result').innerHTML = '';
+}
+
+// Function to enable form controls
+function enableFormControls() {
+    // Enable main form controls
+    document.getElementById('agent-dropdown').disabled = false;
+    document.getElementById('description').disabled = false;
+    document.getElementById('is_on').disabled = false;
+    
+    // Enable action buttons
+    const saveButton = document.querySelector('button[onclick="addJob()"]');
+    const deleteButton = document.querySelector('button[onclick="deleteJob()"]');
+    const testButton = document.querySelector('button[onclick="testJob()"]');
+    const scheduleButton = document.querySelector('button[data-target="#scheduleJobModal"]');
+    const historyButton = document.querySelector('button[data-target="#jobHistoryModal"]');
+    
+    if (saveButton) saveButton.disabled = false;
+    if (deleteButton) deleteButton.disabled = false;
+    if (testButton) testButton.disabled = false;
+    if (scheduleButton) scheduleButton.disabled = false;
+    if (historyButton) historyButton.disabled = false;
+}
+
+// Function to clear form fields
+function clearFormFields() {
+    document.getElementById('description').value = '';
+    document.getElementById('job_id').value = '';
+    document.getElementById('is_on').checked = false;
+    document.getElementById('agent-dropdown').selectedIndex = 0;
+    document.getElementById('test_result').innerHTML = '';
+}
+
+// Function to clear job history results
+function clearJobHistoryResults() {
+    document.getElementById('jobHistoryResults').innerHTML = '<p class="text-muted">Select a date and click Search to view job history.</p>';
+}
+
+// Load agents dropdown
+function loadAgents() {
+    userId = document.getElementById('user_id').value;
+    fetch('/get/user_agents/' + userId)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok ' + response.statusText);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    agentData = data['data'];
+                    populateAgents(agentData);
+                })
+                .catch(error => {
+                    console.error('Error fetching agents:', error);
+                });
+}
+
+function loadAgents_deprecated() {
+    fetch('/get/agents')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok ' + response.statusText);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    agentData = data['data'];
+                    populateAgents(agentData);
+                })
+                .catch(error => {
+                    console.error('Error fetching agents:', error);
+                });
+}
+
+function populateAgents(data) {
+            const agentSelect = document.getElementById('agent-dropdown');
+            agentSelect.innerHTML = '';
+            data.forEach(agent => {
+                const option = document.createElement('option');
+                option.value = agent.agent_id;
+                option.textContent = agent.agent_description;
+                agentSelect.appendChild(option);
+            });
+            const agentNewSelect = document.getElementById('new-agent-dropdown');
+            agentNewSelect.innerHTML = '';
+            data.forEach(agent => {
+                const option = document.createElement('option');
+                option.value = agent.agent_id;
+                option.textContent = agent.agent_description;
+                agentNewSelect.appendChild(option);
+            });
+        }
+
+
+// Reload all jobs
+function refreshJobs() {
+    // Fetch job data when the page loads
+    fetch('/get/quickjobs')
+        .then(response => {
+            console.log('Response received:', response); // Debugging
+            if (!response.ok) {
+                throw new Error('Network response was not ok ' + response.statusText);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Fetched job data:', data); // Debugging
+            data = JSON.parse(data);
+            jobsData = data; // Store the fetched data in a global variable
+            populateForm(data);
+        })
+        .catch(error => {
+            console.error('Error fetching jobs:', error); // Debugging
+        });
+}
+
+// Reload all jobs - returns a Promise for when we need to wait for completion
+function refreshJobsAsync() {
+    return fetch('/get/quickjobs')
+        .then(response => {
+            console.log('Response received:', response); // Debugging
+            if (!response.ok) {
+                throw new Error('Network response was not ok ' + response.statusText);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Fetched job data:', data); // Debugging
+            data = JSON.parse(data);
+            jobsData = data; // Store the fetched data in a global variable
+            populateForm(data);
+            return data; // Return the data for further use
+        })
+        .catch(error => {
+            console.error('Error fetching jobs:', error); // Debugging
+            throw error; // Re-throw to allow caller to handle
+        });
+}
+
+function refreshJobs_ChooseLast() {
+    refreshJobs();
+        // Automatically select the first job and update the form fields
+        const jobSelect = document.getElementById('job_name');
+        if (jobsData.length > 0) {
+            lastIndex = jobsData.length-1;
+            jobSelect.selectedIndex = lastIndex;
+            updateFormFields(jobsData[lastIndex]);
+    }
+}
+
+function refreshJobs_ChooseFirst() {
+    refreshJobs();
+        // Automatically select the first job and update the form fields
+        const jobSelect = document.getElementById('job_name');
+        if (jobsData.length > 0) {
+            jobSelect.selectedIndex = 0;
+            updateFormFields(jobsData[0]);
+    }
+}
+
+function populateForm(data) {
+    const jobSelect = document.getElementById('job_name');
+    jobSelect.innerHTML = ''; // Clear any existing options
+
+    // Add default option
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = 'Select a job';
+    defaultOption.disabled = true;
+    defaultOption.selected = true;
+    jobSelect.appendChild(defaultOption);
+
+    if (data.length === 0) {
+        // No jobs available
+        disableFormControls();
+        clearFormFields();
+        console.log('No jobs available'); // Debugging
+        return;
+    }
+
+    data.forEach(job => {
+        const option = document.createElement('option');
+        option.value = job.id; // Use job.id for the value
+        option.textContent = job.description; // Use job.description for the display text
+        jobSelect.appendChild(option);
+    });
+
+    // Keep controls disabled until user selects a job
+    disableFormControls();
+    clearFormFields();
+
+    // Populate other form fields if needed
+    console.log('Form populated with job data'); // Debugging
+}
+
+// Update fields whern dropdown changes
+function updateFormFields(job) {
+    document.getElementById('description').value = job.ai_system;
+    document.getElementById('job_id').value = job.id;
+    document.getElementById('is_on').checked = job.enabled;
+
+    // Add logic here to iterate over agent-dropdown and select the option where the job.agent_id equals the options value
+    var agentDropdown = document.getElementById('agent-dropdown');
+    for (var i = 0; i < agentDropdown.options.length; i++) {
+        if (agentDropdown.options[i].value == job.agent_id) {
+            agentDropdown.selectedIndex = i;
+            break;
+        }
+    }
+
+    // Load the schedule, if it exists
+    getSchedule();
+}
+
+function deleteJob() {
+    const jobId = document.getElementById('job_id').value;
+    if (!jobId) {
+        showFeedback('No job selected for deletion.', false);
+        return;
+    }
+    
+    if (confirm('Are you sure you want to delete this job?')) {
+        fetch('/delete/quickjob', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ job_id: jobId })
+        })
+        .then(response => {
+            console.log('Delete response received:', response); // Debugging
+            return response.json();
+        })
+        .then(data => {
+            if (data.status == 'success') {
+                //alert('Job deleted successfully');
+                showFeedback('Job deleted successfully.', true);
+                // Update the page
+                // Remove the deleted job from the jobsData array
+                jobsData = jobsData.filter(job => job.id != jobId);
+                // Re-populate the form with the updated jobsData
+                populateForm(jobsData);
+                // Clear the form fields and disable controls
+                clearFormFields();
+                disableFormControls();
+                
+                // Reset job selector to default
+                document.getElementById('job_name').selectedIndex = 0;
+            } else {
+                //alert('Failed to delete job');
+                showFeedback('Failed to delete job.', false);
+            }
+        })
+        .catch(error => console.error('Error:', error));
+    }
+}
+
+function addJob() {
+    const jobId = document.getElementById('job_id').value;
+    var jobDescDropdown = document.getElementById('job_name');
+    const jobDesc = jobDescDropdown.options[jobDescDropdown.selectedIndex].text;
+    const jobSys = document.getElementById('description').value;
+    const jobEnabled = document.getElementById('is_on').checked;
+    var agentDropdown = document.getElementById('agent-dropdown');
+    const agentId = agentDropdown.options[agentDropdown.selectedIndex].value;
+    
+    if (!agentId) {
+        showFeedback('Please select an agent.', false);
+        return;
+    }
+    
+    if (true) {
+        fetch('/add/quickjob', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ job_id: jobId,
+                                    job_desc: jobDesc,
+                                    ai_system: jobSys,
+                                    enabled: jobEnabled,
+                                    collection_id: 0,
+                                    agent_id: agentId,
+             })
+        })
+        .then(response => {
+            console.log('Add response received:', response); // Debugging
+            return response.json();
+        })
+        .then(data => {
+            if (data.status == 'success') {
+                //alert('Job updated successfully');
+                showFeedback('Job updated successfully.', true);
+                
+                // Get the current job ID before refreshing
+                const currentJobId = document.getElementById('job_id').value;
+                
+                // Refresh the jobs data to keep UI in sync with database
+                refreshJobsAsync()
+                    .then(() => {
+                        // Re-select the current job to show updated data
+                        if (currentJobId) {
+                            document.getElementById('job_name').value = currentJobId;
+                            const selectedJob = jobsData.find(job => job.id == currentJobId);
+                            if (selectedJob) {
+                                enableFormControls();
+                                updateFormFields(selectedJob);
+                            }
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error refreshing jobs after save:', error);
+                        showFeedback('Job saved but failed to refresh display.', false);
+                    });
+            } else {
+                //alert('Failed to update job');
+                showFeedback('Failed to update job.', false);
+            }
+        })
+        .catch(error => console.error('Error:', error));
+    }
+}
+
+function saveNewJob() {
+    const jobId = 0;
+    const newJobName = document.getElementById('newJobName').value;
+    const newJobDescription = document.getElementById('newJobDescription').value;
+    const newJobSwitch = document.getElementById('newJobSwitch').checked;
+    var agentDropdown = document.getElementById('new-agent-dropdown');
+    const agentId = agentDropdown.options[agentDropdown.selectedIndex].value;
+    if (true) {
+        fetch('/add/quickjob', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ job_id: jobId,
+                                    job_desc: newJobName,
+                                    ai_system: newJobDescription,
+                                    enabled: newJobSwitch,
+                                    collection_id: 0,
+                                    agent_id: agentId,
+             })
+        })
+        .then(response => {
+            console.log('Add response received:', response); // Debugging
+            return response.json();
+        })
+        .then(data => {
+            if (data.status == 'success') {
+                //alert('Job created successfully');
+                showFeedback('Job created successfully.', true);
+                
+                // Close the modal after saving
+                $('#newJobModal').modal('hide');
+                // Automatically select the last job and update the form fields
+                refreshJobs();
+            } else {
+                //alert('Failed to create job');
+                showFeedback('Failed to create job.', false);
+            }
+        })
+        .catch(error => console.error('Error:', error));
+    }
+}
+
+function testJob() {
+            const userMessage = document.getElementById('description').value;
+            if (userMessage.trim() === '') {
+                showFeedback('Please enter agent instructions before testing.', false);
+                return;
+            }
+            
+            const chatHistory = [];
+
+            var agentDropdown = document.getElementById('agent-dropdown');
+            const agentId = agentDropdown.options[agentDropdown.selectedIndex].value;
+            
+            if (!agentId) {
+                showFeedback('Please select an agent before testing.', false);
+                return;
+            }
+            
+            console.log('Agent ID: ', agentId);
+
+            // Show loading indicator
+            const testResultElement = document.getElementById('test_result');
+            testResultElement.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Processing...';
+
+            fetch('/chat/general_system', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    agent_id: agentId,
+                    prompt: userMessage,
+                    hist: chatHistory,
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Test Response: ', data.response);
+                
+                // Update test result with formatted response
+                testResultElement.innerHTML = formatResponse(data.response);
+
+                const formattedResponse = data.response.replace(/\n/g, '<br>');
+                console.log('Formatted Response:', formattedResponse);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                testResultElement.innerHTML = '<span class="text-danger">Error: Could not complete test</span>';
+            });
+        }
+
+        function formatResponse(response) {
+            return response.replace(/(?:\r\n|\r|\n)/g, '<br>');
+        }
+
+        $(function () {
+            $('#schedule_datetime').datetimepicker({
+                format: 'YYYY-MM-DD HH:mm'
+            });
+        });
+
+        function getSchedule() {
+            var job_id = document.getElementById('job_name').value;
+            if (!job_id) {
+                // Clear schedule fields when no job is selected
+                document.getElementById('schedule_name').value = '';
+                $('#schedule_datetime').datetimepicker('clear');
+                document.getElementById('schedule_frequency').value = '';
+                document.getElementById('schedule_enabled').checked = false;
+                document.getElementById('schedule_id').value = '';
+                return;
+            }
+            
+            if (job_id) {
+                $.getJSON('/get/schedules/' + job_id, function(data) {
+                    console.log('Raw Data:', data);
+                    data = JSON.parse(data);
+                    data = data[0];
+                    console.log('Schedule Data:', data);
+
+                    if (data && data.task_name) {
+                        document.getElementById('schedule_name').value = data.task_name;
+                    } else {
+                        document.getElementById('schedule_name').value = '';
+                        console.log('No task_name found in the response');
+                    }
+
+                    if (data && data.start_time) {
+                        $('#schedule_datetime').datetimepicker('date', moment(data.start_time));
+                    } else {
+                        $('#schedule_datetime').datetimepicker('clear');
+                        console.log('No datetime found in the response');
+                    }
+
+                    if (data && data.frequency) {
+                        document.getElementById('schedule_frequency').value = data.frequency;
+                    } else {
+                        document.getElementById('schedule_frequency').value = '';
+                        console.log('No frequency found in the response');
+                    }
+
+                    if (data) {
+                        document.getElementById('schedule_enabled').checked = data.enabled;
+                        document.getElementById('schedule_id').value = data.id;
+                    }
+                })
+                .fail(function(jqXHR, textStatus, errorThrown) {
+                    // Handle errors
+                    console.error('Error fetching schedules:', textStatus, errorThrown);
+                    document.getElementById('schedule_name').value = '';
+                });
+            } 
+        }
+
+
+        function saveSchedule() {
+            var id = document.getElementById('schedule_id').value;
+            var job_id = document.getElementById('job_name').value;
+            
+            if (!job_id) {
+                showFeedback('No job selected for scheduling.', false);
+                return;
+            }
+            
+            var schedule_name = document.getElementById('schedule_name').value;
+            //var start_time = document.getElementById('#schedule_datetime').value;
+            let start_time = $('#schedule_datetime').find('input').val();
+            var frequency = document.getElementById('schedule_frequency').value;
+            var enabled = document.getElementById('schedule_enabled').checked;
+            
+            if (!schedule_name.trim()) {
+                showFeedback('Please enter a schedule name.', false);
+                return;
+            }
+            
+            if (!start_time) {
+                showFeedback('Please select a date and time.', false);
+                return;
+            }
+            
+            console.log('start_time', start_time);
+            fetch('/schedule/quickjob', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    id: id,
+                    job_id: job_id,
+                    task_name: schedule_name,
+                    start_time: start_time,
+                    frequency: frequency,
+                    enabled: enabled,
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Response: ', data.response);
+                console.log('Status: ', data.response.status);
+                if (data.status == 'success') {
+                    $('#scheduleJobModal').modal('hide');
+                    showFeedback('Schedule saved successfully.', true);
+                } else {
+                    showFeedback('Failed to save schedule.', false);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+        }
+
+        $(function () {
+        $('#historyDate').datetimepicker({
+            format: 'YYYY-MM-DD',
+            defaultDate: moment()
+        });
+    });
+
+    document.getElementById('searchJobHistoryButton').addEventListener('click', function () {
+        const jobId = document.getElementById('job_id').value;
+        const date = $('#historyDate').data('date') || $('#historyDate').find('input').val();
+
+        if (!jobId) {
+            showFeedback('No job selected for history search.', false);
+            return;
+        }
+
+        console.log('jobId:', jobId);
+        console.log('date:', date);
+
+        // Show loading indicator
+        document.getElementById('jobHistoryResults').innerHTML = '<div class="text-center"><i class="fas fa-spinner fa-spin mr-1"></i> Loading history...</div>';
+
+        fetch('/get/quickjoblog', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+                job_id: jobId, 
+                date: date,
+                timezone_offset_minutes: new Date().getTimezoneOffset()
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            displayJobHistoryResults(data);
+        })
+        .catch(error => {
+            console.error('Error fetching job history:', error);
+            document.getElementById('jobHistoryResults').innerHTML = '<div class="alert alert-danger">Error loading job history</div>';
+        });
+    });
+
+function displayJobHistoryResults(data) {
+    const resultsContainer = document.getElementById('jobHistoryResults');
+    resultsContainer.innerHTML = '';
+
+    // Ensure data is an array
+    if (typeof data === 'string') {
+        data = JSON.parse(data);
+    }
+
+    if (!Array.isArray(data) || data.length === 0) {
+        resultsContainer.innerHTML = '<div class="alert alert-info"><i class="fas fa-info-circle mr-2"></i> No job history found for the selected date.</div>';
+        return;
+    }
+
+    data.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    const table = document.createElement('table');
+    table.classList.add('table', 'table-striped', 'table-hover');
+
+    const thead = document.createElement('thead');
+    const headerRow = document.createElement('tr');
+    const headers = ['Time', 'Message'];
+    headers.forEach(headerText => {
+        const header = document.createElement('th');
+        header.textContent = headerText;
+        headerRow.appendChild(header);
+    });
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    data.forEach(entry => {
+        const row = document.createElement('tr');
+        const dateCell = document.createElement('td');
+        
+        // Convert UTC timestamp to local timezone
+        let localDateTime;
+        
+        try {
+            // Parse the date string and extract components
+            let dateStr = entry.date;
+            let year, month, day, hour, minute, second;
+            
+            if (dateStr.includes('T')) {
+                // ISO format: 2023-12-25T14:30:00 or 2023-12-25T14:30:00Z
+                const parts = dateStr.replace('Z', '').split('T');
+                const datePart = parts[0].split('-');
+                const timePart = parts[1].split(':');
+                
+                year = parseInt(datePart[0]);
+                month = parseInt(datePart[1]) - 1; // Month is 0-indexed
+                day = parseInt(datePart[2]);
+                hour = parseInt(timePart[0]);
+                minute = parseInt(timePart[1]);
+                second = parseInt(timePart[2]) || 0;
+            } else {
+                // SQL format: 2023-12-25 14:30:00
+                const parts = dateStr.split(' ');
+                const datePart = parts[0].split('-');
+                const timePart = parts[1].split(':');
+                
+                year = parseInt(datePart[0]);
+                month = parseInt(datePart[1]) - 1; // Month is 0-indexed
+                day = parseInt(datePart[2]);
+                hour = parseInt(timePart[0]);
+                minute = parseInt(timePart[1]);
+                second = parseInt(timePart[2]) || 0;
+            }
+            
+            // Create Date object using UTC methods to ensure it's treated as UTC time
+            const utcDate = new Date(Date.UTC(year, month, day, hour, minute, second));
+            
+            // Format as local time
+            localDateTime = utcDate.toLocaleString();
+            
+            // Debug output
+            console.log('Original DB date:', entry.date);
+            console.log('Parsed as UTC:', utcDate.toISOString());
+            console.log('Converted to local:', localDateTime);
+            console.log('Your timezone offset (hours):', utcDate.getTimezoneOffset() / 60);
+            console.log('---');
+            
+        } catch (error) {
+            console.error('Error parsing date:', error);
+            localDateTime = entry.date;
+        }
+        
+        dateCell.textContent = localDateTime;
+        
+        const messageCell = document.createElement('td');
+        messageCell.textContent = entry.message;
+        row.appendChild(dateCell);
+        row.appendChild(messageCell);
+        tbody.appendChild(row);
+    });
+    table.appendChild(tbody);
+
+    resultsContainer.appendChild(table);
+}
+
+function showFeedback(message, isSuccess) {
+    const feedbackContainer = document.getElementById('feedbackContainer');
+    const feedback = document.createElement('div');
+    feedback.className = `alert ${isSuccess ? 'alert-success' : 'alert-danger'} feedback-alert`;
+    feedback.role = 'alert';
+
+    const icon = document.createElement('i');
+    icon.className = isSuccess ? 'fas fa-check-circle' : 'fas fa-times-circle';
+    feedback.appendChild(icon);
+
+    const textNode = document.createTextNode(` ${message}`);
+    feedback.appendChild(textNode);
+
+    feedbackContainer.appendChild(feedback);
+
+    // Add animation for a smoother appearance
+    feedback.style.opacity = '0';
+    feedback.style.transform = 'translateX(20px)';
+    feedback.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+    
+    // Trigger animation
+    setTimeout(() => {
+        feedback.style.opacity = '1';
+        feedback.style.transform = 'translateX(0)';
+    }, 10);
+
+    // Remove after delay
+    setTimeout(() => {
+        // Exit animation
+        feedback.style.opacity = '0';
+        feedback.style.transform = 'translateX(20px)';
+        
+        // Remove from DOM after animation completes
+        setTimeout(() => {
+            feedback.remove();
+        }, 300);
+    }, 3000);
+}
+
+
+window.assistantPageContext = {
+    page: 'jobs',
+    pageName: 'Intelligent Jobs',
+    
+    getPageData: function() {
+        const data = {
+            // Current job
+            job: {
+                id: $('#job_id').val() || null,
+                name: $('#job_name option:selected').text().trim() || '',
+                description: $('#description').val() || '',
+                isEnabled: $('#is_on').is(':checked'),
+                isNew: !$('#job_id').val()
+            },
+            
+            // Selected agent
+            agent: {
+                id: $('#agent_id').val() || $('#agent-dropdown').val() || null,
+                name: $('#agent-dropdown option:selected').text().trim() || 'None selected'
+            },
+            
+            // Available jobs
+            availableJobs: [],
+            
+            // Available agents
+            availableAgents: [],
+            
+            // Modal states
+            modals: {
+                newJobOpen: $('#newJobModal').hasClass('show') || $('#newJobModal').is(':visible'),
+                scheduleOpen: $('#scheduleJobModal').hasClass('show') || $('#scheduleJobModal').is(':visible'),
+                historyOpen: $('#jobHistoryModal').hasClass('show') || $('#jobHistoryModal').is(':visible')
+            },
+            
+            // Schedule info (if available)
+            schedule: {
+                isScheduled: false,
+                frequency: null,
+                nextRun: null
+            },
+            
+            // Last test result
+            lastTestResult: $('#test_result').text().trim() || null,
+            
+            // Form validation
+            validation: {
+                isValid: true,
+                errors: []
+            },
+            
+            // Available actions
+            availableActions: []
+        };
+        
+        // Get available jobs
+        $('#job_name option').each(function() {
+            const val = $(this).val();
+            const text = $(this).text().trim();
+            if (val && text && !$(this).is(':disabled')) {
+                data.availableJobs.push({
+                    id: val,
+                    name: text
+                });
+            }
+        });
+        
+        // Get available agents
+        $('#agent-dropdown option, #new-agent-dropdown option').each(function() {
+            const val = $(this).val();
+            const text = $(this).text().trim();
+            if (val && text && val !== '') {
+                data.availableAgents.push({
+                    id: val,
+                    name: text
+                });
+            }
+        });
+        
+        // Validation
+        if (!data.job.name && !data.job.isNew) {
+            data.validation.errors.push('Job name is required');
+            data.validation.isValid = false;
+        }
+        if (!data.agent.id && data.job.name) {
+            data.validation.errors.push('Agent selection is required');
+            data.validation.isValid = false;
+        }
+        if (!data.job.description && data.job.name) {
+            data.validation.errors.push('Agent instructions are required');
+            data.validation.isValid = false;
+        }
+        
+        // Determine available actions based on state
+        if (data.modals.newJobOpen) {
+            data.availableActions.push('Enter job name');
+            data.availableActions.push('Select an agent');
+            data.availableActions.push('Write agent instructions');
+            data.availableActions.push('Save new job');
+        } else if (data.modals.scheduleOpen) {
+            data.availableActions.push('Select schedule frequency');
+            data.availableActions.push('Set specific time');
+            data.availableActions.push('Save schedule');
+        } else if (data.modals.historyOpen) {
+            data.availableActions.push('View past executions');
+            data.availableActions.push('Filter by date');
+            data.availableActions.push('View execution details');
+        } else if (data.job.isNew || !data.job.id) {
+            data.availableActions.push('Select existing job to edit');
+            data.availableActions.push('Create new job');
+        } else {
+            data.availableActions.push('Edit job instructions');
+            data.availableActions.push('Change agent');
+            data.availableActions.push('Test run the job');
+            data.availableActions.push('Schedule the job');
+            data.availableActions.push('View job history');
+            data.availableActions.push('Enable/disable job');
+            data.availableActions.push('Delete job');
+        }
+        
+        return data;
+    }
+};
+
+console.log('Jobs assistant context loaded');
+</script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}

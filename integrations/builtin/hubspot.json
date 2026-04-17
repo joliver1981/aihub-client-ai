@@ -1,0 +1,224 @@
+{
+  "template_key": "hubspot",
+  "platform_name": "HubSpot",
+  "platform_category": "CRM",
+  "description": "Connect to HubSpot CRM for contacts, companies, deals, and marketing automation.",
+  "logo_url": "https://cdn.worldvectorlogo.com/logos/hubspot-1.svg",
+  "documentation_url": "https://developers.hubspot.com/docs/api/crm/contacts",
+  
+  "auth_type": "oauth2",
+  "auth_config": {
+    "authorization_url": "https://app.hubspot.com/oauth/authorize",
+    "token_url": "https://api.hubapi.com/oauth/v1/token",
+    "scopes": [
+      "crm.objects.contacts.read",
+      "crm.objects.contacts.write",
+      "crm.objects.companies.read",
+      "crm.objects.deals.read"
+    ]
+  },
+  
+  "base_url": "https://api.hubapi.com",
+  
+  "default_headers": {
+    "Accept": "application/json",
+    "Content-Type": "application/json"
+  },
+  
+  "setup_instructions": "## HubSpot Setup\n\n1. Go to [HubSpot Developer Portal](https://developers.hubspot.com/)\n2. Create a new app in your developer account\n3. Configure OAuth scopes for CRM access\n4. Add your redirect URI: `{callback_url}`\n5. Store your Client ID and Secret in Local Secrets:\n   - `OAUTH_HUBSPOT_CLIENT_ID`\n   - `OAUTH_HUBSPOT_CLIENT_SECRET`\n6. Click Connect and authorize access to your HubSpot account",
+  
+  "operations": [
+    {
+      "key": "get_contacts",
+      "name": "Get Contacts",
+      "description": "Retrieve CRM contacts",
+      "method": "GET",
+      "endpoint": "/crm/v3/objects/contacts",
+      "parameters": [
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100
+        },
+        {
+          "name": "properties",
+          "label": "Properties",
+          "type": "text",
+          "default": "firstname,lastname,email,phone,company",
+          "description": "Comma-separated list of properties to return"
+        },
+        {
+          "name": "after",
+          "label": "After (Cursor)",
+          "type": "text",
+          "description": "Pagination cursor from previous response"
+        }
+      ],
+      "output_mapping": {
+        "contacts": "$.results",
+        "paging": "$.paging"
+      },
+      "category": "read"
+    },
+    {
+      "key": "get_contact_by_id",
+      "name": "Get Contact by ID",
+      "description": "Retrieve a specific contact",
+      "method": "GET",
+      "endpoint": "/crm/v3/objects/contacts/{contact_id}",
+      "parameters": [
+        {
+          "name": "contact_id",
+          "label": "Contact ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "properties",
+          "label": "Properties",
+          "type": "text",
+          "default": "firstname,lastname,email,phone,company"
+        }
+      ],
+      "output_mapping": {
+        "contact": "$"
+      },
+      "category": "read"
+    },
+    {
+      "key": "create_contact",
+      "name": "Create Contact",
+      "description": "Create a new CRM contact",
+      "method": "POST",
+      "endpoint": "/crm/v3/objects/contacts",
+      "parameters": [
+        {
+          "name": "email",
+          "label": "Email",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "firstname",
+          "label": "First Name",
+          "type": "text"
+        },
+        {
+          "name": "lastname",
+          "label": "Last Name",
+          "type": "text"
+        },
+        {
+          "name": "phone",
+          "label": "Phone",
+          "type": "text"
+        },
+        {
+          "name": "company",
+          "label": "Company",
+          "type": "text"
+        }
+      ],
+      "body_template": {
+        "properties": {
+          "email": "{email}",
+          "firstname": "{firstname}",
+          "lastname": "{lastname}",
+          "phone": "{phone}",
+          "company": "{company}"
+        }
+      },
+      "output_mapping": {
+        "contact": "$"
+      },
+      "category": "write"
+    },
+    {
+      "key": "get_companies",
+      "name": "Get Companies",
+      "description": "Retrieve CRM companies",
+      "method": "GET",
+      "endpoint": "/crm/v3/objects/companies",
+      "parameters": [
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100
+        },
+        {
+          "name": "properties",
+          "label": "Properties",
+          "type": "text",
+          "default": "name,domain,industry,phone,city"
+        }
+      ],
+      "output_mapping": {
+        "companies": "$.results",
+        "paging": "$.paging"
+      },
+      "category": "read"
+    },
+    {
+      "key": "get_deals",
+      "name": "Get Deals",
+      "description": "Retrieve CRM deals/opportunities",
+      "method": "GET",
+      "endpoint": "/crm/v3/objects/deals",
+      "parameters": [
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100
+        },
+        {
+          "name": "properties",
+          "label": "Properties",
+          "type": "text",
+          "default": "dealname,amount,dealstage,closedate,pipeline"
+        }
+      ],
+      "output_mapping": {
+        "deals": "$.results",
+        "paging": "$.paging"
+      },
+      "category": "read"
+    },
+    {
+      "key": "search_contacts",
+      "name": "Search Contacts",
+      "description": "Search contacts using filters",
+      "method": "POST",
+      "endpoint": "/crm/v3/objects/contacts/search",
+      "parameters": [
+        {
+          "name": "query",
+          "label": "Search Query",
+          "type": "text",
+          "description": "Search term for name, email, etc."
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 10
+        }
+      ],
+      "body_template": {
+        "query": "{query}",
+        "limit": "{limit}",
+        "properties": ["firstname", "lastname", "email", "phone", "company"]
+      },
+      "output_mapping": {
+        "contacts": "$.results",
+        "total": "$.total"
+      },
+      "category": "read"
+    }
+  ],
+  
+  "supports_webhooks": true,
+  "webhook_events": ["contact.creation", "contact.propertyChange", "deal.creation", "deal.propertyChange"]
+}

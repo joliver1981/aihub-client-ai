@@ -1,0 +1,1377 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<style>
+    /* ===== COMPACT HEADER FROM ASSISTANTS.HTML ===== */
+    .compact-header {
+        background: linear-gradient(135deg, #2980b9 0%, #34495e 100%);
+        color: white;
+        padding: 0.5rem 1rem;
+        margin-bottom: 1rem;
+        border-radius: 0.5rem;
+    }
+    
+    /* ===== ORIGINAL STYLES PRESERVED ===== */
+    .message-bubble {
+        padding: 10px 15px;
+        border-radius: 20px;
+        max-width: 90%;
+        word-wrap: break-word;
+        margin: 5px 0;
+        font-size: 14px;
+        line-height: 1.5;
+    }
+
+    .user-bubble {
+        background-color: #007bff;
+        color: #fff;
+    }
+
+    .agent-bubble {
+        background-color: var(--border-subtle, #e9ecef);
+        color: var(--text-primary, #333);
+    }
+
+    .user-message {
+        justify-content: flex-end;
+    }
+
+    .agent-message {
+        justify-content: flex-start;
+    }
+
+    .chat-container {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .dataframe {
+        width: 100%;
+        margin: 20px 0;
+        border-collapse: collapse;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
+    }
+
+    .dataframe thead {
+        background-color: #343a40;
+        color: white;
+    }
+
+    .dataframe th, .dataframe td {
+        padding: 12px 15px;
+        text-align: left;
+        border: 1px solid var(--border-subtle, #ddd);
+    }
+
+    .dataframe tbody tr:nth-of-type(even) {
+        background-color: var(--bg-elevated, #f3f3f3);
+    }
+
+    .dataframe tbody tr:hover {
+        background-color: var(--bg-elevated, #f1f1f1);
+    }
+
+    .chart-container img {
+        max-width: 100%;
+        height: auto;
+    }
+
+    .show-query-container {
+        margin-top: 10px;
+        margin-bottom: 15px;
+        margin-left: 35px;
+    }
+
+    .temporary-message {
+        padding: 10px 20px;
+        border-radius: 5px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        animation: fadeInOut 3s ease-in-out;
+    }
+
+    @keyframes fadeInOut {
+        0% { opacity: 0; transform: translateY(-20px); }
+        20% { opacity: 1; transform: translateY(0); }
+        80% { opacity: 1; transform: translateY(0); }
+        100% { opacity: 0; transform: translateY(-20px); }
+    }
+    
+    /* Feedback System Styles */
+    .feedback-container {
+        background-color: var(--bg-elevated, #f8f9fa);
+        border-radius: 0.5rem;
+        padding: 10px;
+        margin-left: 40px;
+    }
+    
+    .rating {
+        display: inline-flex;
+        flex-direction: row-reverse;
+        margin-bottom: 10px;
+    }
+    
+    .rating input {
+        display: none;
+    }
+    
+    .rating label {
+        cursor: pointer;
+        color: #ccc;
+        font-size: 1.5rem;
+        padding: 0 0.1rem;
+    }
+    
+    .rating input:checked ~ label {
+        color: #ffca08;
+    }
+    
+    .rating label:hover,
+    .rating label:hover ~ label {
+        color: #ffca08;
+    }
+    
+    .low-confidence-warning {
+        background-color: rgba(255, 202, 8, 0.2);
+        border-left: 3px solid #ffca08;
+    }
+
+
+    /* Make data grid tables tighter inside the chat */
+    .agent-bubble table.dataframe {
+        font-size: 0.85rem;
+        border-collapse: collapse;
+        width: 100%;
+    }
+
+    .agent-bubble table.dataframe th,
+    .agent-bubble table.dataframe td {
+        padding: 4px 6px !important;
+        border: 1px solid #ccc;
+        vertical-align: middle;
+    }
+
+
+/* New dataframe styles */
+
+/* New styles for compact mode */
+.dataframe-compact {
+    width: auto; /* Instead of 100% width */
+    max-width: 100%; /* Still prevent overflow */
+}
+
+.dataframe-compact table.dataframe {
+    width: auto !important; /* Force table to be only as wide as its content */
+    max-width: 100%; /* Still prevent overflow */
+}
+
+.dataframe-compact table.dataframe th,
+.dataframe-compact table.dataframe td {
+    white-space: nowrap; /* Prevent text wrapping in cells */
+    padding: 2px 6px !important; /* Tighter padding */
+}
+
+/* Styles for the toggle button */
+.toggle-display-mode-btn {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.5rem;
+    background-color: var(--bg-elevated, #f8f9fa);
+    border-color: var(--border-subtle, #dee2e6);
+    color: #495057;
+}
+
+.toggle-display-mode-btn:hover {
+    background-color: var(--border-subtle, #e9ecef);
+}
+
+/* Force the table to stay compact when the class is applied */
+.dataframe-compact .dataframe {
+    width: auto !important;
+    border-collapse: collapse;
+}
+
+/* Ensure the table fits its container in expanded mode */
+.dataframe-wrapper:not(.dataframe-compact) .dataframe {
+    width: 100%;
+}
+
+
+
+/* Multiple dataframes */
+
+.dataframe-section {
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-subtle, #eee);
+}
+
+.dataframe-section h5 {
+    margin-top: 0;
+    margin-bottom: 8px;
+    font-size: 16px;
+    color: #495057;
+    background-color: var(--bg-elevated, #f8f9fa);
+    padding: 6px 10px;
+    border-radius: 4px;
+}
+
+.dataframe-section:last-child {
+    border-bottom: none;
+}
+
+</style>
+
+<div class="container-fluid px-3 py-2">
+    <!-- Compact Header Bar (NEW - FROM ASSISTANTS.HTML) -->
+    <div class="doc-page-header">
+        <h4 class="mb-0"><i class="fas fa-database mr-2"></i>Data Agent Chat</h4>
+        <button type="button" class="btn btn-sm btn-light" id="reset-conversation-btn">
+            <i class="fas fa-sync-alt mr-1"></i> Reset
+        </button>
+    </div>
+    
+    <div class="row">
+        <div class="col-12">
+            <!-- ADJUSTED COLUMN WIDTHS: Changed from col-md-8 to col-md-9 for chat, col-md-4 to col-md-3 for sidebar -->
+            <div class="row mb-4">
+                <div class="col-md-9">
+                    <div id="conversation-max-banner" class="alert alert-warning" style="display: none;">
+                        <i class="fas fa-exclamation-triangle mr-2"></i>
+                        You've reached the maximum conversation length. Please start a new conversation.
+                    </div>
+                    <div class="card mb-3">
+                        <div class="card-body p-0">
+                            <div id="chat-window" class="chat-box p-3 bg-white" style="height: 70vh; overflow-y: scroll;">
+                                <div id="chat-content" class="chat-container">
+                                    <!-- Chat content will be appended here -->
+                                </div>
+                                <!-- Spinner for loading indication -->
+                                <div id="loading-spinner" class="text-center my-3" style="display: none;">
+                                    <div class="spinner-border text-primary" role="status">
+                                        <span class="sr-only">Loading...</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-footer bg-white">
+                            <div class="input-group">
+                                <input type="text" id="user-input" name="user-input" class="form-control" placeholder="Type your message here...">
+                                <div class="input-group-append">
+                                    <button type="button" class="btn btn-primary" onclick="sendMessage()">
+                                        <i class="fas fa-paper-plane mr-1"></i> Send
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div id="explain-container" name="explain-container" class="mt-2 text-right" style="display: none;">
+                                <a id="explain-link" name="explain-link" href="javascript:void(0);" onclick="explain()" class="small text-muted">
+                                    <i class="fas fa-info-circle mr-1"></i> Want me to explain?
+                                </a>
+                                <div id="loading-spinner-explain" name="loading-spinner-explain" class="text-center my-2" style="display: none;">
+                                    <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                        <span class="sr-only">Loading...</span>
+                                    </div>
+                                </div>
+                                <div id="explain-content" name="explain-content" class="text-muted small mt-1 p-2 bg-light rounded" style="text-align: left;">
+                                    <!-- Explanation content will be appended here -->
+                                </div>            
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-3">
+                    <!-- Agent Selection Card -->
+                    <div class="card mb-3">
+                        <div class="card-header py-2">
+                            <h6 class="card-title mb-0">Agent Selection</h6>
+                        </div>
+                        <div class="card-body p-2">
+                            <div class="form-group mb-0">
+                                <label for="agent-dropdown" class="small"><strong>Select Agent:</strong></label>
+                                <select id="agent-dropdown" name="agent-dropdown" class="form-control form-control-sm custom-select">
+                                    <option value="">Select an agent</option>
+                                    <!-- Agents options will be populated here dynamically -->
+                                </select>
+                                <input type="hidden" id="agent_id" name="agent_id" value="">
+                                <input type="hidden" id="user_id" name="user_id" value="{{ current_user.id }}">
+
+                                <div class="card-body p-2">
+                                    <div class="form-group mb-0">
+                                        <label for="objective" class="small"><strong>Agent Objective:</strong></label>
+                                        <textarea readonly id="objective" name="objective" class="form-control form-control-sm bg-light" rows="3" placeholder="Agent objective will appear here"></textarea>
+                                    </div>
+                                </div>
+
+                            </div>
+                        </div>
+                    </div>
+                    
+                    {% if ENABLE_CAUTION_SYSTEM %}
+                    <!-- Caution Level Card -->
+                    <div class="card mb-3">
+                        <div class="card-header py-2">
+                            <h6 class="card-title mb-0">AI Cautiousness</h6>
+                        </div>
+                        <div class="card-body p-2">
+                            <div class="form-group mb-0">
+                                <label for="caution-level-setting" class="small"><strong>Caution Level:</strong></label>
+                                <select id="caution-level-setting" name="caution-level-setting" class="form-control form-control-sm custom-select">
+                                    <option value="low">Low - More assumptions, fewer questions</option>
+                                    <option value="medium" selected>Medium - Balanced approach</option>
+                                    <option value="high">High - More verification, fewer assumptions</option>
+                                    <option value="very_high">Very High - Maximum verification</option>
+                                </select>
+                                <small class="form-text text-muted">
+                                    Adjust how cautious the AI should be with its answers.
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Error Modal -->
+<div class="modal fade" id="errorModal" tabindex="-1" role="dialog" aria-labelledby="errorModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="errorModalLabel">Error</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p id="errorModalText"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<link rel="stylesheet" href="/static/css/richContent.css">
+<script src="{{ url_for('static', filename='js/richContentRenderer.js') }}"></script>
+<script>
+    let agentData = [];
+    let chatHistory = [];
+    let richContentRenderer = null;
+
+    document.addEventListener('DOMContentLoaded', function () {
+        userId = document.getElementById('user_id').value;
+        fetch('/get/user_data_agents')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok ' + response.statusText);
+                }
+                return response.json();
+            })
+            .then(data => {
+                data = data['data'];
+                data = JSON.parse(data);
+                agentData = data;
+                populateForm(agentData);
+
+                // Check if we need to restore a previous agent selection
+                const preservedAgentId = sessionStorage.getItem('preserved_agent_id');
+                const preservedAgentDropdown = sessionStorage.getItem('preserved_agent_dropdown');
+
+                if (preservedAgentId && preservedAgentDropdown) {
+                    // Restore the agent selection
+                    const agentDropdown = document.getElementById('agent-dropdown');
+                    
+                    // Check if the agent still exists in the dropdown
+                    const optionExists = Array.from(agentDropdown.options).some(
+                        option => option.value === preservedAgentDropdown
+                    );
+                    
+                    if (optionExists) {
+                        // Set the dropdown value
+                        agentDropdown.value = preservedAgentDropdown;
+                        
+                        // Trigger the change event to load agent details
+                        const selectedAgent = agentData.find(agent => agent.agent_id == preservedAgentDropdown);
+                        if (selectedAgent) {
+                            updateFormFields(selectedAgent);
+                        }
+                        
+                        // Show a message that the agent was preserved
+                        console.log('Restored agent selection:', preservedAgentDropdown);
+                        
+                        // Show a subtle notification
+                        //showTemporaryMessage('Agent selection restored');
+                    }
+                    
+                    // Clean up sessionStorage after restoring
+                    sessionStorage.removeItem('preserved_agent_id');
+                    sessionStorage.removeItem('preserved_agent_dropdown');
+                }
+
+            })
+            .catch(error => {
+                console.error('Error fetching agents:', error);
+                showErrorModal('Failed to load agents. Please try refreshing the page.');
+            });
+
+        document.getElementById('agent-dropdown').addEventListener('change', function () {
+            const selectedAgentId = this.value;
+            const selectedAgent = agentData.find(agent => agent.agent_id == selectedAgentId);
+            if (selectedAgent) {
+                updateFormFields(selectedAgent);
+            }
+        });
+
+        document.getElementById('user-input').addEventListener('keydown', function (event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                sendMessage();
+            }
+        });
+
+        document.getElementById('reset-conversation-btn').addEventListener('click', function() {
+            resetConversation();
+        });
+        
+        // Load user's caution level setting
+        loadUserCautionLevel();
+        
+        // Add event listener for caution level setting change
+        const cautionLevelSetting = document.getElementById('caution-level-setting');
+        if (cautionLevelSetting) {
+            cautionLevelSetting.addEventListener('change', function() {
+                setUserCautionLevel(this.value);
+            });
+        }
+
+        if (typeof RichContentRenderer !== 'undefined') {
+            richContentRenderer = new RichContentRenderer();
+            console.log('Rich content renderer initialized');
+        } else {
+            console.log('Rich content renderer not available - using traditional rendering');
+        }
+
+    });
+
+    // Function to check if we should show SQL queries
+    function shouldShowSqlQueries() {
+        // If UserPreferences is loaded, use the preference
+        if (typeof UserPreferences !== 'undefined') {
+            console.log(`User preference show_sql_queries: ${UserPreferences.getPreference('show_sql_queries', false)}.`);
+            return UserPreferences.getPreference('show_sql_queries', false);
+        }
+        // Otherwise default to false
+        console.log(`WARNING: User preferences not loaded.`);
+        return false;
+    }
+
+    function populateForm(data) {
+        const agentSelect = document.getElementById('agent-dropdown');
+        agentSelect.innerHTML = '<option value="">Select an agent</option>';
+        data.forEach(agent => {
+            const option = document.createElement('option');
+            option.value = agent.agent_id;
+            option.textContent = agent.agent_description;
+            agentSelect.appendChild(option);
+        });
+
+        if (data.length > 0) {
+            agentSelect.selectedIndex = 1; // Select first agent (after the placeholder)
+            updateFormFields(data[0]);
+        }
+    }
+
+    function updateFormFields(agent) {
+        document.getElementById('objective').value = agent.agent_objective;
+        document.getElementById('agent_id').value = agent.agent_id;
+    }
+
+    function escapeHtml(unsafe) {
+        return unsafe.replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
+    }
+
+    function escapeJavaScriptString(str) {
+        return str.replace(/\\/g, '\\\\')
+                .replace(/'/g, '\\\'')
+                .replace(/"/g, '\\"')
+                .replace(/\n/g, '\\n')
+                .replace(/\r/g, '\\r')
+                .replace(/\t/g, '\\t')
+                .replace(/\b/g, '\\b')
+                .replace(/\f/g, '\\f');
+    }
+
+    function sendMessage() {
+        const userMessage = document.getElementById('user-input').value;
+        if (userMessage.trim() === '') return;
+
+        const chatWindow = document.getElementById('chat-window');
+        const chatContent = document.getElementById('chat-content');
+        const userMessageElement = document.createElement('div');
+        userMessageElement.className = 'user-message mb-2 d-flex align-items-center justify-content-end';
+        userMessageElement.innerHTML = `<div class="message-bubble user-bubble">${userMessage}</div><i class="fas fa-user ml-2"></i>`;
+        chatContent.appendChild(userMessageElement);
+
+        chatHistory.push({ role: 'Q', content: userMessage });
+
+        document.getElementById('user-input').value = '';
+
+        document.getElementById('loading-spinner').style.display = 'block';
+
+        chatWindow.scrollTo({
+            top: chatWindow.scrollHeight,
+            behavior: 'smooth'
+        });
+
+        // Get caution level - safely with null checking
+        const cautionLevelElement = document.getElementById('caution-level-setting');
+        const cautionLevel = cautionLevelElement ? cautionLevelElement.value : 'medium';
+
+        fetch('/chat/data', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                agent_id: document.getElementById('agent_id').value,
+                question: userMessage,
+                history: chatHistory,
+                format_table_as_json: false,
+                caution_level: cautionLevel
+                // Note: No need to send enable_rich_content - it's controlled by backend config
+            })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Request failed with status ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            const agentMessageElement = document.createElement('div');
+            agentMessageElement.className = 'agent-message mb-2 d-flex align-items-center justify-content-start';
+            
+            // Add question ID and confidence score as data attributes for feedback
+            const questionId = data.question_id || Date.now().toString();
+            const confidenceScore = data.confidence || 1.0;
+            
+            // Add data attributes for feedback
+            agentMessageElement.dataset.questionId = questionId;
+            agentMessageElement.dataset.confidenceScore = confidenceScore;
+
+            // ===== NEW: CHECK FOR RICH CONTENT =====
+            // Check if rich content is available and renderer is loaded
+            if (data.rich_content_enabled && data.rich_content && richContentRenderer) {
+                try {
+                    console.log('Rendering rich content with', data.rich_content.blocks ? data.rich_content.blocks.length : 0, 'blocks');
+                    
+                    // Use the rich content renderer
+                    let renderedContent;
+                    if (data.answer_type === 'chart' && data.special_message.includes("<img")) {
+                        console.log(`Chart image in base64 format detected, displaying...`);
+                        const chartBlock = {
+                            type: 'chart',
+                            content: data.special_message,
+                            metadata: {
+                                title: data.chart_title || '',
+                                downloadable: true
+                            }
+                        };
+                        renderedContent = window.richContentRenderer.render({
+                            type: 'rich_content',
+                            blocks: [chartBlock]
+                        });
+                    } else {
+                        renderedContent = richContentRenderer.render(data.rich_content);
+                    }
+                    
+                    // Create the message element with rich content
+                    agentMessageElement.innerHTML = `
+                        <i class="fas fa-robot mr-2"></i>
+                        <div class="rich-content-message" style="max-width: 90%; background: var(--bg-card, white); border-radius: 8px; padding: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                            ${renderedContent}
+                        </div>
+                    `;
+                    
+                    // Initialize interactive features after rendering
+                    setTimeout(() => {
+                        initializeRichContentInteractivity(agentMessageElement);
+                    }, 100);
+                    
+                    // Store the rich content in chat history
+                    chatHistory.push({ 
+                        role: 'A', 
+                        content: data.answer,
+                        rich_content: data.rich_content  // Store rich content for potential replay
+                    });
+                    
+                } catch (error) {
+                    console.error('Rich content rendering failed:', error);
+                    // Fallback to traditional rendering
+                    renderTraditionalMessage(agentMessageElement, data);
+                    chatHistory.push({ role: 'A', content: data.answer });
+                }
+            } else {
+                // ===== ORIGINAL RENDERING LOGIC (unchanged) =====
+                renderTraditionalMessage(agentMessageElement, data);
+                chatHistory.push({ role: 'A', content: data.answer });
+            }
+
+            chatContent.appendChild(agentMessageElement);
+
+            // Add feedback component (unchanged)
+            if (typeof UserPreferences === 'undefined' || UserPreferences.getPreference('show_user_feedback', true)) {
+                const feedbackComponent = createFeedbackComponent(
+                    questionId,
+                    document.getElementById('agent_id').value,
+                    userMessage,
+                    data.answer,
+                    confidenceScore,
+                    data.query || ''
+                );
+                const feedbackElement = document.createElement('div');
+                feedbackElement.innerHTML = feedbackComponent;
+                chatContent.appendChild(feedbackElement);
+            }
+
+            // Handle query display (unchanged)
+            if (data.query !== '') {
+                const additionalMessageElement = document.createElement('div');
+                if (shouldShowSqlQueries()) {
+                    additionalMessageElement.innerHTML = `
+                    <div class="show-query-container">
+                        <a href="javascript:void(0);" onclick="toggleQuery(this)" class="small text-muted"><i class="fas fa-code mr-1"></i>Show Query</a>
+                        <div class="query-content small text-light mt-2 p-2 rounded" style="display:none; background-color: #343a40;">${data.query.replace(/\n/g, '<br>')}</div>
+                    </div>`;
+                } else {
+                    additionalMessageElement.innerHTML = ``;
+                }
+                chatContent.appendChild(additionalMessageElement);
+
+                document.getElementById('explain-container').style.display = 'block';
+            } else {
+                document.getElementById('explain-container').style.display = 'none';
+            }
+
+            clearExplanation();
+
+            document.getElementById('loading-spinner').style.display = 'none';
+
+            chatWindow.scrollTo({
+                top: chatWindow.scrollHeight,
+                behavior: 'smooth'
+            });
+
+            checkConversationStatus();
+
+            // Mark complete on first successful query
+            if (typeof markDataAssistantStep === 'function') {
+                markDataAssistantStep('query');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            document.getElementById('loading-spinner').style.display = 'none';
+            showErrorModal('Failed to get a response. Please try again or contact support if the problem persists.');
+        });
+    }
+
+    // Helper function to handle traditional rendering (extracted from original code)
+    function renderTraditionalMessage(element, data) {
+        if (data.answer_type === 'chart') {
+            element.innerHTML = `<i class="fas fa-robot mr-2"></i><div class="chart-container">${data.special_message.replace(/\n/g, '<br>')}</div>`;
+        } else if (data.answer_type === 'dataframe') {
+            // Check if this is a "too large" case that needs a download link
+            if (data.answer.startsWith("Results too large")) {
+                // Keep the original bubble-style display for download links
+                element.innerHTML = `<i class="fas fa-robot mr-2"></i>
+                <div class="message-bubble agent-bubble">
+                    ${data.answer}
+                    <div class="mt-2">
+                        <a href="javascript:void(0);" class="btn btn-sm btn-outline-primary" 
+                        onclick="openHandsontablePopup('${escapeJavaScriptString(encodeURIComponent(data.special_message))}')">
+                            <i class="fas fa-edit mr-1"></i>Edit
+                        </a>
+                    </div>
+                </div>`;
+            } else if (data.answer_type === 'multi_dataframe') {
+                // Display the combined dataframes from special_message
+                const displayMode = getDataframeDisplayMode();
+                element.innerHTML = `<i class="fas fa-robot mr-2"></i>
+                <div class="dataframe-wrapper">
+                    ${data.special_message}
+                    <div class="d-flex justify-content-between align-items-center mt-2">
+                        <button class="btn btn-sm btn-outline-secondary toggle-display-mode-btn" 
+                            onclick="toggleDataframeDisplayMode(this)">
+                            <i class="fas fa-${displayMode === 'compact' ? 'expand' : 'compress'} mr-1"></i>
+                            ${displayMode === 'compact' ? 'Expand' : 'Compact'}
+                        </button>
+                        <a href="javascript:void(0);" class="btn btn-sm btn-outline-primary" 
+                            onclick="openHandsontablePopup('${encodeURIComponent(data.special_message)}')">
+                            <i class="fas fa-edit mr-1"></i>Edit
+                        </a>
+                    </div>
+                </div>`;
+            } else {
+                // Display dataframe directly without any message bubble
+                const displayMode = getDataframeDisplayMode();
+                const displayModeClass = displayMode === 'compact' ? 'dataframe-wrapper dataframe-compact' : 'dataframe-wrapper';
+                
+                element.innerHTML = `<i class="fas fa-robot mr-2"></i>
+                <div class="${displayModeClass}">
+                    ${data.answer}
+                    <div class="d-flex justify-content-between align-items-center mt-2">
+                        <button class="btn btn-sm btn-outline-secondary toggle-display-mode-btn" 
+                            onclick="toggleDataframeDisplayMode(this)">
+                            <i class="fas fa-${displayMode === 'compact' ? 'expand' : 'compress'} mr-1"></i>
+                            ${displayMode === 'compact' ? 'Expand' : 'Compact'}
+                        </button>
+                        <a href="javascript:void(0);" class="btn btn-sm btn-outline-primary" 
+                            onclick="openHandsontablePopup('${encodeURIComponent(data.answer)}')">
+                            <i class="fas fa-edit mr-1"></i>Edit
+                        </a>
+                    </div>
+                </div>`;
+            }
+        } else if (data.answer_type === 'file') {
+            element.innerHTML = `<i class="fas fa-robot mr-2"></i><div class="message-bubble agent-bubble">The result set is large. <a href="${data.file_url}" target="_blank" class="btn btn-sm btn-outline-primary"><i class="fas fa-download mr-1"></i>Download File</a></div>`;
+        } else {
+            // Add low confidence warning if present
+            let answerHtml = data.answer.replace(/\n/g, '<br>');
+            
+            if (data.low_confidence) {
+                answerHtml += `<div class="low-confidence-warning mt-2 p-2 bg-warning text-dark rounded">
+                    <i class="fas fa-exclamation-triangle mr-1"></i> 
+                    Note: I'm not entirely confident in this answer. Please verify this information.
+                </div>`;
+            }
+            
+            element.innerHTML = `<i class="fas fa-robot mr-2"></i><div class="message-bubble agent-bubble">${answerHtml}</div>`;
+        }
+    }
+
+    function toggleQuery(element) {
+        const queryContent = element.nextElementSibling;
+        queryContent.style.display = queryContent.style.display === 'none' ? 'block' : 'none';
+    }
+
+    function explain() {
+        clearExplanation();
+        
+        document.getElementById('loading-spinner-explain').style.display = 'block';
+
+        fetch('/chat/data/explain')
+        .then(response => response.json())
+        .then(data => {
+            console.log('explain -> data --=-=-=->>>', data['explanation']);
+            const explanation = data['explanation'];
+            
+            if (explanation !== '') {
+                const explainContentContainer = document.getElementById('explain-content');
+                const explainValue = document.createElement('div');
+                explainValue.innerHTML = `<div>${explanation.replace(/\n/g, '<br>')}</div>`;
+                explainContentContainer.appendChild(explainValue);
+            }
+        })
+        .catch(error => console.error('Error fetching explanation:', error))
+        .finally(() => {
+            document.getElementById('loading-spinner-explain').style.display = 'none';
+        });
+    }
+
+    function clearExplanation() {
+        document.getElementById('explain-content').innerHTML = '';
+    }
+
+    function openHandsontablePopup(htmlString) {
+        const width = 800;
+        const height = 600;
+        const left = (screen.width / 2) - (width / 2);
+        const top = (screen.height / 2) - (height / 2);
+
+        const popup = window.open('', 'Edit Data', `width=${width},height=${height},top=${top},left=${left}`);
+        popup.document.write('<html><head><title>Edit Data</title>');
+        popup.document.write('<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.js"><\/script>');
+        popup.document.write('<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/handsontable/dist/languages/all.js"><\/script>');
+        popup.document.write('<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.css" \/>');
+        popup.document.write('<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" \/>');
+        popup.document.write('<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" \/>');
+        popup.document.write('<style>body { padding: 20px; font-family: Arial, sans-serif; } #export-csv { margin-top: 10px; }</style>');
+        popup.document.write('</head><body>');
+        popup.document.write('<h4>Data Editor</h4>');
+        popup.document.write('<div id="handsontable-container" class="mb-3"></div>');
+        popup.document.write('<button id="export-csv" class="btn btn-primary"><i class="fas fa-download mr-1"></i>Export Data<\/button>');
+        popup.document.write('<script>');
+        popup.document.write(`
+            function htmlTableToHandsontable(htmlString, containerId) {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(htmlString, 'text/html');
+                const table = doc.querySelector('table');
+                
+                if (!table) {
+                    throw new Error("No table element provided");
+                }
+                
+                const handsontableData = [];
+                const rows = table.rows;
+                
+                for (let i = 0; i < rows.length; i++) {
+                    const row = rows[i];
+                    const rowData = [];
+                    
+                    for (let j = 0; j < row.cells.length; j++) {
+                        const cell = row.cells[j];
+                        rowData.push(cell.textContent);
+                    }
+                    
+                    handsontableData.push(rowData);
+                }
+                
+                var data = handsontableData;
+                
+                const hyperformulaInstance = HyperFormula.buildEmpty({
+                    licenseKey: 'internal-use-in-handsontable'
+                });
+                
+                const container = document.getElementById(containerId);
+                if (!container) {
+                    throw new Error("No container element found with the provided ID");
+                }
+                
+                var hot = new Handsontable(container, {
+                    data: data,
+                    rowHeaders: true,
+                    colHeaders: true,
+                    filters: true,
+                    dropdownMenu: true,
+                    formulas: {
+                        engine: hyperformulaInstance
+                    },
+                    contextMenu: ['row_above', 'row_below', 'col_left', 'col_right', 'remove_row', 'remove_col', 'copy', 'cut', 'paste'],
+                    language: 'en-US',
+                    licenseKey: 'non-commercial-and-evaluation'
+                });
+                
+                hot.updateSettings({
+                    afterCreateRow: function(index, amount) {
+                        for (let i = 0; i < amount; i++) {
+                            hyperformulaInstance.addRows(hot.countRows() + i, 1);
+                        }
+                    },
+                    afterCreateCol: function(index, amount) {
+                        for (let i = 0; i < amount; i++) {
+                            hyperformulaInstance.addColumns(hot.countCols() + i, 1);
+                        }
+                    }
+                });
+
+                document.getElementById('export-csv').addEventListener('click', function() {
+                    const exportPlugin = hot.getPlugin('exportFile');
+                    exportPlugin.downloadFile('csv', { filename: 'data' });
+                });
+
+                return hot;
+            }
+            const htmlString = decodeURIComponent('${htmlString}');
+            const hotInstance = htmlTableToHandsontable(htmlString, 'handsontable-container');
+        `);
+        popup.document.write('<\/script>');
+        popup.document.write('</body></html>');
+        popup.document.close();
+    }
+
+    function resetConversation() {
+        // Store the current agent selection before resetting
+        const currentAgentId = document.getElementById('agent_id').value;
+        const currentAgentDropdownValue = document.getElementById('agent-dropdown').value;
+        
+        // Store in sessionStorage (survives page reload but not tab close)
+        if (currentAgentId && currentAgentDropdownValue) {
+            sessionStorage.setItem('preserved_agent_id', currentAgentId);
+            sessionStorage.setItem('preserved_agent_dropdown', currentAgentDropdownValue);
+        }
+
+        fetch('/chat/data/reset', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                // Clear the chat history displayed
+                document.getElementById('chat-content').innerHTML = '';
+                chatHistory = [];
+                
+                // Hide the max conversation banner if it was showing
+                document.getElementById('conversation-max-banner').style.display = 'none';
+                
+                // Re-enable the input
+                document.getElementById('user-input').disabled = false;
+                document.querySelector('button[onclick="sendMessage()"]').disabled = false;
+                
+                // Show success message (optional)
+                showTemporaryMessage('Conversation has been reset');
+                location.reload(); // Quick fix - TODO reload from server side
+            } else {
+                console.error('Error resetting conversation:', data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+        });
+    }
+
+    function checkConversationStatus() {
+        fetch('/chat/data/status')
+        .then(response => response.json())
+        .then(data => {
+            console.log(`max_length: ${data.max_length}`);
+            const conversationLength = chatHistory.length / 2;
+            console.log(`conversation_length: ${conversationLength}`);
+            let is_max_reached = false;
+            if (conversationLength >= data.max_length) {
+                is_max_reached = true;
+            }
+            console.log(`is_max_reached: ${is_max_reached}`);
+            
+            if (is_max_reached) {
+                // Show the banner and disable input
+                console.log(`Max length of conversation reached...`);
+                document.getElementById('conversation-max-banner').style.display = 'block';
+                document.getElementById('user-input').disabled = true;
+                document.querySelector('button[onclick="sendMessage()"]').disabled = true;
+            }
+        })
+        .catch(error => {
+            console.error('Error checking conversation status:', error);
+        });
+    }
+
+    function showTemporaryMessage(message) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'alert alert-success temporary-message';
+        messageDiv.textContent = message;
+        messageDiv.style.position = 'fixed';
+        messageDiv.style.top = '20px';
+        messageDiv.style.right = '20px';
+        messageDiv.style.zIndex = '1060';
+        
+        document.body.appendChild(messageDiv);
+        
+        setTimeout(() => {
+            messageDiv.remove();
+        }, 3000);
+    }
+    
+    function showErrorModal(message) {
+        const errorModal = document.getElementById('errorModal');
+        const errorText = document.getElementById('errorModalText');
+        
+        errorText.textContent = message;
+        
+        // Use jQuery to show the modal
+        $('#errorModal').modal('show');
+    }
+    
+    // Function to create feedback component
+    function createFeedbackComponent(questionId, agentId, originalQuestion, originalAnswer, confidenceScore, sqlQuery) {
+        // Store the original values as data attributes instead of trying to pass them through onclick
+        const feedbackHtml = `
+        <div class="feedback-container mt-2 mb-4" id="feedback-${questionId}"
+            data-original-question="${encodeURIComponent(originalQuestion)}"
+            data-original-answer="${encodeURIComponent(originalAnswer)}"
+            data-agent-id="${agentId}"
+            data-confidence-score="${confidenceScore}"
+            data-sql-query="${encodeURIComponent(sqlQuery || '')}">
+            <div class="initial-feedback" id="initial-feedback-${questionId}">
+                <small class="text-muted">Was this response helpful?</small>
+                <div class="btn-group ml-2" role="group">
+                    <button type="button" class="btn btn-sm btn-outline-success feedback-btn" 
+                            onclick="submitQuickFeedback('${questionId}', 'positive')">
+                        <i class="fas fa-thumbs-up"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-danger feedback-btn" 
+                            onclick="submitQuickFeedback('${questionId}', 'negative')">
+                        <i class="fas fa-thumbs-down"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="detailed-feedback mt-2" id="detailed-feedback-${questionId}" style="display:none;">
+                <form id="feedback-form-${questionId}">
+                    <div class="form-group">
+                        <label for="feedback-rating-${questionId}">Rate this response (1-5):</label>
+                        <div class="rating">
+                            ${[5, 4, 3, 2, 1].map(num => `
+                                <input type="radio" id="star${num}-${questionId}" name="rating" value="${num}" />
+                                <label for="star${num}-${questionId}"><i class="fas fa-star"></i></label>
+                            `).join('')}
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="feedback-details-${questionId}">What was wrong with this response?</label>
+                        <textarea class="form-control" id="feedback-details-${questionId}" rows="2" 
+                                placeholder="Please describe the issue..."></textarea>
+                    </div>
+                    <button type="button" class="btn btn-primary btn-sm" 
+                            onclick="submitDetailedFeedback('${questionId}')">
+                        Submit Feedback
+                    </button>
+                    <button type="button" class="btn btn-link btn-sm" 
+                            onclick="cancelFeedback('${questionId}')">
+                        Cancel
+                    </button>
+                </form>
+            </div>
+            <div class="feedback-thanks mt-2" id="feedback-thanks-${questionId}" style="display:none;">
+                <div class="alert alert-success py-1">Thank you for your feedback!</div>
+            </div>
+        </div>
+        `;
+        
+        return feedbackHtml;
+    }
+    
+    // Submit quick feedback (thumbs up/down)
+    function submitQuickFeedback(questionId, feedbackType) {
+        // For negative feedback, show detailed form
+        if (feedbackType === 'negative') {
+            document.getElementById(`detailed-feedback-${questionId}`).style.display = 'block';
+            document.getElementById(`initial-feedback-${questionId}`).style.display = 'none';
+            return;
+        }
+        
+        // For positive feedback, submit directly
+        const feedbackData = {
+            session_id: getSessionId(),
+            question_id: questionId,
+            agent_id: getCurrentAgentId(),
+            original_question: getCurrentQuestion(questionId),
+            original_answer: getAnswerText(questionId),
+            feedback_type: feedbackType,
+            rating: feedbackType === 'positive' ? 5 : 1,
+            confidence_score: getConfidenceScore(questionId),
+            caution_level: getCautionLevel(),
+            user_id: document.getElementById('user_id').value,
+            sql_query: getSqlQuery(questionId)
+        };
+        
+        // Submit the feedback
+        fetch('/api/feedback', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(feedbackData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Show thank you message
+            document.getElementById(`initial-feedback-${questionId}`).style.display = 'none';
+            document.getElementById(`feedback-thanks-${questionId}`).style.display = 'block';
+            
+            // Log success
+            console.log('Feedback submitted successfully:', data);
+        })
+        .catch(error => {
+            console.error('Error submitting feedback:', error);
+            showErrorModal('There was an error submitting your feedback. Please try again.');
+        });
+    }
+    
+    // Submit detailed feedback
+    function submitDetailedFeedback(questionId) {
+        // Get the container with all the data attributes
+        const container = document.getElementById(`feedback-${questionId}`);
+        if (!container) return;
+        
+        // Get form values
+        const rating = document.querySelector(`input[name="rating"]:checked`)?.value || 1;
+        const details = document.getElementById(`feedback-details-${questionId}`).value;
+        
+        // Read from data attributes
+        const agentId = container.dataset.agentId;
+        const originalQuestion = decodeURIComponent(container.dataset.originalQuestion);
+        const originalAnswer = decodeURIComponent(container.dataset.originalAnswer);
+        const confidenceScore = parseFloat(container.dataset.confidenceScore);
+        
+        // Create feedback data object
+        const feedbackData = {
+            session_id: getSessionId(),
+            question_id: questionId,
+            agent_id: agentId,
+            original_question: originalQuestion,
+            original_answer: originalAnswer,
+            feedback_type: 'negative',
+            feedback_details: details,
+            rating: parseInt(rating),
+            confidence_score: confidenceScore,
+            caution_level: getCautionLevel(),
+            user_id: document.getElementById('user_id').value,
+            sql_query: decodeURIComponent(container.dataset.sqlQuery || '')
+        };
+        
+        // Submit the feedback
+        fetch('/api/feedback', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(feedbackData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Show thank you message
+            document.getElementById(`detailed-feedback-${questionId}`).style.display = 'none';
+            document.getElementById(`feedback-thanks-${questionId}`).style.display = 'block';
+            
+            // Log success
+            console.log('Detailed feedback submitted successfully:', data);
+        })
+        .catch(error => {
+            console.error('Error submitting feedback:', error);
+            showErrorModal('There was an error submitting your feedback. Please try again.');
+        });
+    }
+    
+    // Cancel feedback submission
+    function cancelFeedback(questionId) {
+        // Reset and hide detailed form
+        document.getElementById(`feedback-form-${questionId}`).reset();
+        document.getElementById(`detailed-feedback-${questionId}`).style.display = 'none';
+        
+        // Show initial feedback options again
+        document.getElementById(`initial-feedback-${questionId}`).style.display = 'block';
+    }
+    
+    // Utility functions
+    function getSessionId() {
+        // Get or create a session ID
+        let sessionId = sessionStorage.getItem('sessionId');
+        if (!sessionId) {
+            sessionId = 'session_' + Math.random().toString(36).substr(2, 9);
+            sessionStorage.setItem('sessionId', sessionId);
+        }
+        return sessionId;
+    }
+    
+    function getCurrentAgentId() {
+        return document.getElementById('agent_id').value;
+    }
+    
+    function getCurrentQuestion(questionId) {
+    // First try to get the question from the data attribute
+    const feedbackContainer = document.getElementById(`feedback-${questionId}`);
+    if (feedbackContainer && feedbackContainer.dataset.originalQuestion) {
+        return decodeURIComponent(feedbackContainer.dataset.originalQuestion);
+    }
+    
+    // Fall back to the input field if needed
+    return document.getElementById('user-input').value;
+}
+    
+    function getAnswerText(questionId) {
+        // Find the answer element associated with this question
+        const messageElement = document.querySelector(`[data-question-id="${questionId}"]`);
+        return messageElement ? messageElement.textContent : '';
+    }
+    
+    function getConfidenceScore(questionId) {
+        // Get confidence score from data attribute (if available)
+        const messageElement = document.querySelector(`[data-question-id="${questionId}"]`);
+        return messageElement ? parseFloat(messageElement.dataset.confidenceScore || '0') : 0;
+    }
+    
+    function getCautionLevel() {
+        // Get the current caution level setting
+        return document.getElementById('caution-level-setting')?.value || 'medium';
+    }
+
+    function getSqlQuery(questionId) {
+        // Get the SQL query from the feedback container data attribute
+        const feedbackContainer = document.getElementById(`feedback-${questionId}`);
+        if (feedbackContainer && feedbackContainer.dataset.sqlQuery) {
+            return decodeURIComponent(feedbackContainer.dataset.sqlQuery);
+        }
+        return '';
+    }
+    
+    /**
+     * Load user's caution level setting
+     */
+    function loadUserCautionLevel() {
+        const userId = document.getElementById('user_id')?.value;
+        if (!userId) return;
+        
+        fetch(`/api/caution/user?user_id=${userId}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // Set the caution level selector
+                    const selector = document.getElementById('caution-level-setting');
+                    if (selector) {
+                        selector.value = data.level_name;
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error loading user caution level:', error);
+            });
+    }
+    
+    /**
+     * Set user's caution level
+     */
+    function setUserCautionLevel(levelName) {
+        const userId = document.getElementById('user_id')?.value;
+        if (!userId) return;
+        
+        fetch('/api/caution/user', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                user_id: userId,
+                level_name: levelName
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showTemporaryMessage(`Caution level set to "${levelName}"`);
+            }
+        })
+        .catch(error => {
+            console.error('Error setting user caution level:', error);
+        });
+    }
+
+
+    // Custom data grid display
+
+// Function to get dataframe display mode from user preferences
+function getDataframeDisplayMode() {
+    // If UserPreferences is loaded, use the preference
+    if (typeof UserPreferences !== 'undefined') {
+        return UserPreferences.getPreference('dataframe_display_mode', 'expanded');
+    }
+    // Otherwise default to expanded
+    return 'expanded';
+}
+
+// Function to apply dataframe display mode based on user preference
+function applyDataframeDisplayMode(dataframeElement) {
+    const displayMode = getDataframeDisplayMode();
+    if (displayMode === 'compact') {
+        dataframeElement.classList.add('dataframe-compact');
+    } else {
+        dataframeElement.classList.remove('dataframe-compact');
+    }
+}
+
+// Function to toggle display mode for a specific dataframe
+function toggleDataframeDisplayMode(buttonElement) {
+    // Find the closest dataframe wrapper
+    const wrapper = buttonElement.closest('.dataframe-wrapper');
+    if (!wrapper) return;
+    
+    // Toggle the class
+    wrapper.classList.toggle('dataframe-compact');
+    
+    // Update the button text and icon
+    const isCompact = wrapper.classList.contains('dataframe-compact');
+    buttonElement.innerHTML = isCompact ? 
+        '<i class="fas fa-expand mr-1"></i>Expand' : 
+        '<i class="fas fa-compress mr-1"></i>Compact';
+    
+    // If UserPreferences is available, save the preference for future messages
+    if (typeof UserPreferences !== 'undefined') {
+        UserPreferences.setPreference('dataframe_display_mode', isCompact ? 'compact' : 'expanded');
+    }
+}
+
+// Function to initialize interactive features in rich content
+function initializeRichContentInteractivity(element) {
+    // Initialize collapsible sections
+    element.querySelectorAll('.collapsible-header').forEach(header => {
+        header.addEventListener('click', function() {
+            const content = this.nextElementSibling;
+            if (content) {
+                content.classList.toggle('expanded');
+                const icon = this.querySelector('.collapse-icon');
+                if (icon) {
+                    icon.classList.toggle('fa-chevron-down');
+                    icon.classList.toggle('fa-chevron-up');
+                }
+            }
+        });
+    });
+    
+    // Initialize copy buttons for code blocks
+    element.querySelectorAll('.copy-code-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const codeBlock = this.closest('.block-code').querySelector('pre, code');
+            if (codeBlock) {
+                const code = codeBlock.textContent;
+                navigator.clipboard.writeText(code).then(() => {
+                    const originalText = this.innerHTML;
+                    this.innerHTML = '<i class="fas fa-check"></i> Copied!';
+                    setTimeout(() => {
+                        this.innerHTML = originalText;
+                    }, 2000);
+                }).catch(err => {
+                    console.error('Failed to copy:', err);
+                });
+            }
+        });
+    });
+    
+    // Initialize table features if richContentRenderer has them
+    if (richContentRenderer && richContentRenderer.initializeTableFeatures) {
+        richContentRenderer.initializeTableFeatures(element);
+    }
+}
+</script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}

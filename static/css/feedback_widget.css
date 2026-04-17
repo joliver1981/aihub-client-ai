@@ -1,0 +1,506 @@
+/**
+ * Feedback Widget Styles
+ * ======================
+ * Styles for the in-app feedback system including:
+ * - Modal dialog
+ * - Form elements
+ * - Toast notifications
+ */
+
+/* ===========================================
+   CSS Variables
+   =========================================== */
+:root {
+    --feedback-primary: #3498db;
+    --feedback-primary-hover: #2980b9;
+    --feedback-success: #27ae60;
+    --feedback-error: #e74c3c;
+    --feedback-warning: #f39c12;
+    --feedback-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    --feedback-shadow-hover: 0 6px 25px rgba(0, 0, 0, 0.2);
+    --feedback-border-radius: 8px;
+    --feedback-transition: all 0.3s ease;
+}
+
+/* ===========================================
+   Modal
+   =========================================== */
+.feedback-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+.feedback-modal.show {
+    opacity: 1;
+    visibility: visible;
+}
+
+.feedback-modal-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(2px);
+}
+
+.feedback-modal-content {
+    position: relative;
+    background: white;
+    border-radius: var(--feedback-border-radius);
+    box-shadow: var(--feedback-shadow-hover);
+    width: 100%;
+    max-width: 520px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    transform: translateY(20px);
+    transition: transform 0.3s ease;
+    margin: 16px;
+}
+
+.feedback-modal.show .feedback-modal-content {
+    transform: translateY(0);
+}
+
+.feedback-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid #eee;
+}
+
+.feedback-modal-header h5 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+.feedback-modal-close {
+    background: none;
+    border: none;
+    font-size: 18px;
+    color: #95a5a6;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: var(--feedback-transition);
+}
+
+.feedback-modal-close:hover {
+    background: #f5f5f5;
+    color: #7f8c8d;
+}
+
+.feedback-modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.feedback-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 16px 20px;
+    border-top: 1px solid #eee;
+    background: #fafafa;
+    border-radius: 0 0 var(--feedback-border-radius) var(--feedback-border-radius);
+}
+
+/* ===========================================
+   Feedback Type Selector
+   =========================================== */
+.feedback-type-selector {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.feedback-type-option {
+    margin: 0;
+    cursor: pointer;
+}
+
+.feedback-type-option input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.feedback-type-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 8px;
+    border: 2px solid #e0e0e0;
+    border-radius: var(--feedback-border-radius);
+    transition: var(--feedback-transition);
+    text-align: center;
+}
+
+.feedback-type-card i {
+    font-size: 24px;
+    margin-bottom: 6px;
+    color: #7f8c8d;
+    transition: var(--feedback-transition);
+}
+
+.feedback-type-card span {
+    font-size: 12px;
+    font-weight: 500;
+    color: #7f8c8d;
+    transition: var(--feedback-transition);
+}
+
+.feedback-type-option:hover .feedback-type-card {
+    border-color: var(--feedback-primary);
+    background: rgba(52, 152, 219, 0.05);
+}
+
+.feedback-type-option input:checked + .feedback-type-card {
+    border-color: var(--feedback-primary);
+    background: rgba(52, 152, 219, 0.1);
+}
+
+.feedback-type-option input:checked + .feedback-type-card i,
+.feedback-type-option input:checked + .feedback-type-card span {
+    color: var(--feedback-primary);
+}
+
+/* Type-specific colors */
+.feedback-type-option[data-type="bug"] input:checked + .feedback-type-card {
+    border-color: var(--feedback-error);
+    background: rgba(231, 76, 60, 0.1);
+}
+.feedback-type-option[data-type="bug"] input:checked + .feedback-type-card i,
+.feedback-type-option[data-type="bug"] input:checked + .feedback-type-card span {
+    color: var(--feedback-error);
+}
+
+.feedback-type-option[data-type="feature"] input:checked + .feedback-type-card {
+    border-color: var(--feedback-warning);
+    background: rgba(243, 156, 18, 0.1);
+}
+.feedback-type-option[data-type="feature"] input:checked + .feedback-type-card i,
+.feedback-type-option[data-type="feature"] input:checked + .feedback-type-card span {
+    color: var(--feedback-warning);
+}
+
+.feedback-type-option[data-type="question"] input:checked + .feedback-type-card {
+    border-color: #9b59b6;
+    background: rgba(155, 89, 182, 0.1);
+}
+.feedback-type-option[data-type="question"] input:checked + .feedback-type-card i,
+.feedback-type-option[data-type="question"] input:checked + .feedback-type-card span {
+    color: #9b59b6;
+}
+
+/* ===========================================
+   Form Styles
+   =========================================== */
+.feedback-modal .form-group {
+    margin-bottom: 16px;
+}
+
+.feedback-modal .form-group label {
+    display: block;
+    font-weight: 500;
+    margin-bottom: 6px;
+    color: #2c3e50;
+    font-size: 14px;
+}
+
+.feedback-modal .form-control {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+    transition: var(--feedback-transition);
+}
+
+.feedback-modal .form-control:focus {
+    outline: none;
+    border-color: var(--feedback-primary);
+    box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.15);
+}
+
+.feedback-modal textarea.form-control {
+    resize: vertical;
+    min-height: 120px;
+}
+
+.feedback-modal select.form-control {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236c757d' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 36px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+    cursor: pointer;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.5;
+    height: auto;
+    min-height: 44px;
+}
+
+.feedback-modal select.form-control option {
+    padding: 8px 12px;
+    white-space: normal;
+    word-wrap: break-word;
+}
+
+.feedback-modal .form-text {
+    font-size: 12px;
+    margin-top: 4px;
+}
+
+/* Custom Checkbox */
+.feedback-modal .custom-control-label {
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.feedback-modal .custom-control-label::before {
+    border-radius: 4px;
+}
+
+/* ===========================================
+   Diagnostics Preview
+   =========================================== */
+.feedback-diagnostics-preview {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    padding: 12px;
+    margin-top: 8px;
+    font-size: 13px;
+}
+
+.feedback-diagnostics-header {
+    font-weight: 500;
+    color: #6c757d;
+    margin-bottom: 8px;
+}
+
+.feedback-diagnostics-header i {
+    margin-right: 6px;
+}
+
+.feedback-diagnostics-list {
+    margin: 0;
+    padding-left: 20px;
+    color: #495057;
+}
+
+.feedback-diagnostics-list li {
+    margin-bottom: 4px;
+}
+
+.feedback-diagnostics-list strong {
+    color: #6c757d;
+}
+
+/* ===========================================
+   Toast Notifications
+   =========================================== */
+.feedback-toast {
+    position: fixed;
+    top: 24px;
+    right: 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    background: white;
+    border-radius: var(--feedback-border-radius);
+    box-shadow: var(--feedback-shadow-hover);
+    z-index: 10000;
+    max-width: 380px;
+    transform: translateX(calc(100% + 30px));
+    opacity: 0;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.feedback-toast.show {
+    transform: translateX(0);
+    opacity: 1;
+}
+
+.feedback-toast-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+}
+
+.feedback-toast-message {
+    flex: 1;
+    font-size: 14px;
+    color: #2c3e50;
+}
+
+.feedback-toast-close {
+    background: none;
+    border: none;
+    color: #95a5a6;
+    cursor: pointer;
+    padding: 4px;
+    font-size: 14px;
+}
+
+.feedback-toast-close:hover {
+    color: #7f8c8d;
+}
+
+/* Toast Types */
+.feedback-toast-success {
+    border-left: 4px solid var(--feedback-success);
+}
+
+.feedback-toast-success .feedback-toast-icon {
+    color: var(--feedback-success);
+}
+
+.feedback-toast-error {
+    border-left: 4px solid var(--feedback-error);
+}
+
+.feedback-toast-error .feedback-toast-icon {
+    color: var(--feedback-error);
+}
+
+/* ===========================================
+   Responsive Styles
+   =========================================== */
+@media (max-width: 576px) {
+    .feedback-modal-content {
+        margin: 8px;
+        max-height: 95vh;
+    }
+
+    .feedback-type-selector {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .feedback-type-card {
+        padding: 10px 6px;
+    }
+
+    .feedback-type-card i {
+        font-size: 20px;
+    }
+
+    .feedback-toast {
+        left: 16px;
+        right: 16px;
+        top: 16px;
+        max-width: none;
+    }
+}
+
+/* ===========================================
+   Dark Theme Support
+   =========================================== */
+.theme-dark .feedback-modal-content {
+    background: #2c3e50;
+    color: #ecf0f1;
+}
+
+.theme-dark .feedback-modal-header {
+    border-bottom-color: #34495e;
+}
+
+.theme-dark .feedback-modal-header h5 {
+    color: #ecf0f1;
+}
+
+.theme-dark .feedback-modal-close {
+    color: #95a5a6;
+}
+
+.theme-dark .feedback-modal-close:hover {
+    background: #34495e;
+    color: #bdc3c7;
+}
+
+.theme-dark .feedback-modal-footer {
+    background: #243342;
+    border-top-color: #34495e;
+}
+
+.theme-dark .feedback-type-card {
+    border-color: #4a6278;
+    background: transparent;
+}
+
+.theme-dark .feedback-type-card i,
+.theme-dark .feedback-type-card span {
+    color: #95a5a6;
+}
+
+.theme-dark .feedback-modal .form-group label {
+    color: #ecf0f1;
+}
+
+.theme-dark .feedback-modal .form-control {
+    background: #34495e;
+    border-color: #4a6278;
+    color: #ecf0f1;
+}
+
+.theme-dark .feedback-modal .form-control::placeholder {
+    color: #7f8c8d;
+}
+
+.theme-dark .feedback-modal .form-control:focus {
+    border-color: var(--feedback-primary);
+    box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.25);
+}
+
+.theme-dark .feedback-diagnostics-preview {
+    background: #34495e;
+    border-color: #4a6278;
+}
+
+.theme-dark .feedback-diagnostics-header,
+.theme-dark .feedback-diagnostics-list,
+.theme-dark .feedback-diagnostics-list strong {
+    color: #bdc3c7;
+}
+
+.theme-dark .feedback-toast {
+    background: #34495e;
+}
+
+.theme-dark .feedback-toast-message {
+    color: #ecf0f1;
+}
+
+/* ===========================================
+   Print Styles
+   =========================================== */
+@media print {
+    .feedback-modal,
+    .feedback-toast {
+        display: none !important;
+    }
+}

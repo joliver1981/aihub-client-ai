@@ -1,0 +1,1235 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Tailwind CDN with custom config -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+    tailwind.config = {
+        theme: {
+            extend: {
+                colors: {
+                    'cyber-cyan': '#06b6d4',
+                    'cyber-violet': '#a78bfa'
+                },
+                fontFamily: {
+                    'outfit': ['Outfit', 'sans-serif'],
+                    'jetbrains': ['JetBrains Mono', 'monospace']
+                }
+            }
+        }
+    };
+</script>
+
+<!-- Chat Theme CSS -->
+<link rel="stylesheet" href="/static/css/chat-theme.css">
+<link rel="stylesheet" href="/static/css/richContent.css">
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<!-- Prism syntax highlighting (Tomorrow theme) -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+
+<!-- Rich content & chat JS modules -->
+<script src="{{ url_for('static', filename='js/richContentRenderer.js') }}"></script>
+<script src="{{ url_for('static', filename='js/chat-skeleton.js') }}"></script>
+<script src="{{ url_for('static', filename='js/chat-panel.js') }}"></script>
+<script src="{{ url_for('static', filename='js/chat-charts.js') }}"></script>
+
+<div class="chat-page" id="chatPage">
+    <!-- Header -->
+    <div class="chat-header">
+        <div class="chat-header-title">
+            <i class="fas fa-database"></i>
+            <span>Data Assistant Chat</span>
+        </div>
+        <div class="chat-header-actions">
+            <button class="theme-toggle" onclick="toggleTheme()">
+                <i class="fas fa-moon" id="theme-icon"></i>
+                <span id="theme-label">Dark</span>
+            </button>
+            <button class="chat-btn" onclick="resetConversation()">
+                <i class="fas fa-sync-alt"></i>
+                <span>Reset</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Layout: sidebar + main + panel -->
+    <div class="chat-layout">
+        <!-- Left Sidebar -->
+        <div class="chat-sidebar">
+            <!-- Agent Selection -->
+            <div class="sidebar-section">
+                <div class="sidebar-label">Agent Selection</div>
+                <select id="agent-dropdown" class="chat-select">
+                    <option value="">Select an agent</option>
+                </select>
+                <textarea readonly id="objective" class="chat-textarea-sm" rows="3" placeholder="Agent objective will appear here" style="margin-top:0.5rem;"></textarea>
+                <input type="hidden" id="agent_id" value="">
+                <input type="hidden" id="user_id" value="{{ current_user.id }}">
+            </div>
+
+            {% if ENABLE_CAUTION_SYSTEM %}
+            <!-- Caution Level -->
+            <div class="sidebar-section">
+                <div class="sidebar-label">AI Cautiousness</div>
+                <select id="caution-level-setting" class="chat-select">
+                    <option value="low">Low - More assumptions</option>
+                    <option value="medium" selected>Medium - Balanced</option>
+                    <option value="high">High - More verification</option>
+                    <option value="very_high">Very High - Maximum verification</option>
+                </select>
+                <div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.35rem;">Adjust how cautious the AI should be.</div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Main Chat Area -->
+        <div class="chat-main">
+            <div id="conversation-max-banner" class="conversation-max-banner">
+                <i class="fas fa-exclamation-triangle" style="margin-right:0.4rem;"></i>
+                You've reached the maximum conversation length. Please start a new conversation.
+            </div>
+
+            <div class="chat-messages" id="chat-window">
+                <div class="chat-messages-inner" id="chat-content">
+                    <!-- Welcome State -->
+                    <div class="chat-welcome" id="welcome-state">
+                        <div class="chat-welcome-icon"><i class="fas fa-database"></i></div>
+                        <h2>Data Assistant</h2>
+                        <p>Ask questions about your data in plain English. Get tables, charts, and insights.</p>
+                        <div class="welcome-chips">
+                            <div class="welcome-chip" onclick="insertChip('Show me the top 10 records')">Show me top 10 records</div>
+                            <div class="welcome-chip" onclick="insertChip('What tables are available?')">What tables are available?</div>
+                            <div class="welcome-chip" onclick="insertChip('Create a chart of monthly trends')">Chart monthly trends</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="chat-input-area">
+                <div class="chat-input-wrap">
+                    <textarea class="chat-input" id="user-input" placeholder="Ask about your data..." rows="1"></textarea>
+                    <button class="chat-send-btn" id="send-btn" onclick="sendMessage()"><i class="fas fa-paper-plane"></i></button>
+                </div>
+                <div class="explain-area" id="explain-container" style="display:none;">
+                    <a class="explain-link" id="explain-link" onclick="explain()"><i class="fas fa-info-circle"></i> Want me to explain?</a>
+                    <div id="loading-spinner-explain" style="display:none;">
+                        <span class="skeleton-orb" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--cyber-cyan);animation:orbPulse 1.5s ease-in-out infinite;"></span>
+                    </div>
+                    <div class="explain-content" id="explain-content" style="display:none;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Panel Overlay -->
+    <div class="chat-panel-overlay" id="chat-panel-overlay"></div>
+    <!-- Right Panel -->
+    <div class="chat-panel" id="chat-panel">
+        <div class="chat-panel-header">
+            <h3>Detail</h3>
+            <button class="chat-panel-close"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="chat-panel-body"></div>
+        <div class="chat-panel-actions"></div>
+    </div>
+</div>
+
+<!-- Error Modal -->
+<div class="modal fade" id="errorModal" tabindex="-1" role="dialog" aria-labelledby="errorModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content" style="background:var(--bg-card,#0a0a0a);border:1px solid var(--border-subtle,#27272a);color:var(--text-primary,#fff);">
+            <div class="modal-header" style="border-bottom:1px solid var(--border-subtle,#27272a);background:rgba(251,113,133,0.1);">
+                <h5 class="modal-title" id="errorModalLabel" style="color:var(--status-error,#fb7185);">
+                    <i class="fas fa-exclamation-circle" style="margin-right:0.4rem;"></i>Error
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color:var(--text-muted,#71717a);text-shadow:none;opacity:0.8;">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p id="errorModalText" style="margin:0;"></p>
+            </div>
+            <div class="modal-footer" style="border-top:1px solid var(--border-subtle,#27272a);">
+                <button type="button" class="chat-btn" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ============================================================
+    //  Global State
+    // ============================================================
+    let agentData = [];
+    let chatHistory = [];
+    let richContentRenderer = null;
+
+    // ============================================================
+    //  DOM Content Loaded — Initialization
+    // ============================================================
+    document.addEventListener('DOMContentLoaded', function () {
+        // Apply saved theme
+        var savedTheme = localStorage.getItem('chat-theme');
+        if (savedTheme === 'light') {
+            document.body.classList.add('light-mode');
+            document.getElementById('chatPage').classList.add('light-mode');
+            updateThemeButton(true);
+        }
+
+        var userId = document.getElementById('user_id').value;
+
+        // Fetch agents
+        fetch('/get/user_data_agents')
+            .then(function (response) {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok ' + response.statusText);
+                }
+                return response.json();
+            })
+            .then(function (data) {
+                data = data['data'];
+                data = JSON.parse(data);
+                agentData = data;
+                populateForm(agentData);
+
+                // Restore previous agent selection from sessionStorage
+                var preservedAgentId = sessionStorage.getItem('preserved_agent_id');
+                var preservedAgentDropdown = sessionStorage.getItem('preserved_agent_dropdown');
+
+                if (preservedAgentId && preservedAgentDropdown) {
+                    var agentDropdown = document.getElementById('agent-dropdown');
+                    var optionExists = Array.from(agentDropdown.options).some(function (option) {
+                        return option.value === preservedAgentDropdown;
+                    });
+
+                    if (optionExists) {
+                        agentDropdown.value = preservedAgentDropdown;
+                        var selectedAgent = agentData.find(function (agent) {
+                            return agent.agent_id == preservedAgentDropdown;
+                        });
+                        if (selectedAgent) {
+                            updateFormFields(selectedAgent);
+                        }
+                        console.log('Restored agent selection:', preservedAgentDropdown);
+                    }
+
+                    sessionStorage.removeItem('preserved_agent_id');
+                    sessionStorage.removeItem('preserved_agent_dropdown');
+                }
+            })
+            .catch(function (error) {
+                console.error('Error fetching agents:', error);
+                showErrorModal('Failed to load agents. Please try refreshing the page.');
+            });
+
+        // Agent dropdown change handler
+        document.getElementById('agent-dropdown').addEventListener('change', function () {
+            var selectedAgentId = this.value;
+            var selectedAgent = agentData.find(function (agent) {
+                return agent.agent_id == selectedAgentId;
+            });
+            if (selectedAgent) {
+                updateFormFields(selectedAgent);
+            }
+        });
+
+        // Enter key in textarea sends message (Shift+Enter for newline)
+        document.getElementById('user-input').addEventListener('keydown', function (event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
+        });
+
+        // Auto-grow textarea
+        document.getElementById('user-input').addEventListener('input', function () {
+            this.style.height = '24px';
+            this.style.height = Math.min(this.scrollHeight, 150) + 'px';
+            this.style.overflowY = this.scrollHeight > 150 ? 'auto' : 'hidden';
+        });
+
+        // Load user's caution level setting
+        loadUserCautionLevel();
+
+        // Caution level change listener
+        var cautionLevelSetting = document.getElementById('caution-level-setting');
+        if (cautionLevelSetting) {
+            cautionLevelSetting.addEventListener('change', function () {
+                setUserCautionLevel(this.value);
+            });
+        }
+
+        // Initialize rich content renderer
+        if (typeof RichContentRenderer !== 'undefined') {
+            richContentRenderer = new RichContentRenderer();
+            console.log('Rich content renderer initialized');
+        } else {
+            console.log('Rich content renderer not available - using traditional rendering');
+        }
+
+        // Initialize ChatPanel
+        if (typeof ChatPanel !== 'undefined') {
+            ChatPanel.init();
+        }
+    });
+
+    // ============================================================
+    //  Theme Toggle
+    // ============================================================
+    function toggleTheme() {
+        var isLight = document.body.classList.toggle('light-mode');
+        document.getElementById('chatPage').classList.toggle('light-mode');
+        localStorage.setItem('chat-theme', isLight ? 'light' : 'dark');
+        updateThemeButton(isLight);
+    }
+
+    function updateThemeButton(isLight) {
+        var icon = document.getElementById('theme-icon');
+        var label = document.getElementById('theme-label');
+        if (isLight) {
+            icon.className = 'fas fa-sun';
+            label.textContent = 'Light';
+        } else {
+            icon.className = 'fas fa-moon';
+            label.textContent = 'Dark';
+        }
+    }
+
+    // ============================================================
+    //  Welcome Chip
+    // ============================================================
+    function insertChip(text) {
+        var input = document.getElementById('user-input');
+        input.value = text;
+        input.focus();
+        input.style.height = 'auto';
+        input.style.height = Math.min(input.scrollHeight, 150) + 'px';
+    }
+
+    // ============================================================
+    //  Agent Form
+    // ============================================================
+    function populateForm(data) {
+        var agentSelect = document.getElementById('agent-dropdown');
+        agentSelect.innerHTML = '<option value="">Select an agent</option>';
+        data.forEach(function (agent) {
+            var option = document.createElement('option');
+            option.value = agent.agent_id;
+            option.textContent = agent.agent_description;
+            agentSelect.appendChild(option);
+        });
+
+        if (data.length > 0) {
+            agentSelect.selectedIndex = 1;
+            updateFormFields(data[0]);
+        }
+    }
+
+    function updateFormFields(agent) {
+        document.getElementById('objective').value = agent.agent_objective;
+        document.getElementById('agent_id').value = agent.agent_id;
+    }
+
+    // ============================================================
+    //  Utility — Escaping
+    // ============================================================
+    function escapeHtml(unsafe) {
+        return unsafe.replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
+    }
+
+    function escapeJavaScriptString(str) {
+        return str.replace(/\\/g, '\\\\')
+                .replace(/'/g, '\\\'')
+                .replace(/"/g, '\\"')
+                .replace(/\n/g, '\\n')
+                .replace(/\r/g, '\\r')
+                .replace(/\t/g, '\\t')
+                .replace(/\b/g, '\\b')
+                .replace(/\f/g, '\\f');
+    }
+
+    // ============================================================
+    //  shouldShowSqlQueries
+    // ============================================================
+    function shouldShowSqlQueries() {
+        if (typeof UserPreferences !== 'undefined') {
+            console.log('User preference show_sql_queries: ' + UserPreferences.getPreference('show_sql_queries', false) + '.');
+            return UserPreferences.getPreference('show_sql_queries', false);
+        }
+        console.log('WARNING: User preferences not loaded.');
+        return false;
+    }
+
+    // ============================================================
+    //  Send Message
+    // ============================================================
+    function sendMessage() {
+        var userMessage = document.getElementById('user-input').value;
+        if (userMessage.trim() === '') return;
+
+        var chatWindow = document.getElementById('chat-window');
+        var chatContent = document.getElementById('chat-content');
+
+        // Hide welcome state on first message
+        var welcomeState = document.getElementById('welcome-state');
+        if (welcomeState) {
+            welcomeState.style.display = 'none';
+        }
+
+        // Render user message
+        var userMessageElement = document.createElement('div');
+        userMessageElement.className = 'msg-row user-row';
+        userMessageElement.innerHTML = '<div class="msg-avatar user-avatar"><i class="fas fa-user"></i></div><div class="msg-bubble user-bubble">' + escapeHtml(userMessage) + '</div>';
+        chatContent.appendChild(userMessageElement);
+
+        chatHistory.push({ role: 'Q', content: userMessage });
+
+        document.getElementById('user-input').value = '';
+        document.getElementById('user-input').style.height = '24px';
+
+        // Show skeleton loading indicator
+        var skeleton = null;
+        if (typeof ChatSkeleton !== 'undefined') {
+            var aiRow = document.createElement('div');
+            aiRow.className = 'msg-row ai-row';
+            aiRow.id = 'ai-pending-row';
+            var avatarDiv = document.createElement('div');
+            avatarDiv.className = 'msg-avatar ai-avatar';
+            avatarDiv.innerHTML = '<i class="fas fa-database"></i>';
+            aiRow.appendChild(avatarDiv);
+            skeleton = ChatSkeleton.create('text');
+            aiRow.appendChild(skeleton.element);
+            chatContent.appendChild(aiRow);
+        }
+
+        chatWindow.scrollTo({
+            top: chatWindow.scrollHeight,
+            behavior: 'smooth'
+        });
+
+        // Get caution level
+        var cautionLevelElement = document.getElementById('caution-level-setting');
+        var cautionLevel = cautionLevelElement ? cautionLevelElement.value : 'medium';
+
+        fetch('/chat/data', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                agent_id: document.getElementById('agent_id').value,
+                question: userMessage,
+                history: chatHistory,
+                format_table_as_json: false,
+                caution_level: cautionLevel
+            })
+        })
+        .then(function (response) {
+            if (!response.ok) {
+                throw new Error('Request failed with status ' + response.status);
+            }
+            return response.json();
+        })
+        .then(function (data) {
+            // Destroy skeleton
+            if (skeleton) {
+                skeleton.destroy();
+            }
+            var pendingRow = document.getElementById('ai-pending-row');
+            if (pendingRow) pendingRow.remove();
+
+            var agentMessageElement = document.createElement('div');
+
+            // Add question ID and confidence score as data attributes
+            var questionId = data.question_id || Date.now().toString();
+            var confidenceScore = data.confidence || 1.0;
+            agentMessageElement.dataset.questionId = questionId;
+            agentMessageElement.dataset.confidenceScore = confidenceScore;
+
+            // Check for rich content
+            if (data.rich_content_enabled && data.rich_content && richContentRenderer) {
+                try {
+                    console.log('Rendering rich content with', data.rich_content.blocks ? data.rich_content.blocks.length : 0, 'blocks');
+
+                    var renderedContent;
+                    if (data.answer_type === 'chart' && data.special_message.includes("<img")) {
+                        console.log('Chart image in base64 format detected, displaying...');
+                        var chartBlock = {
+                            type: 'chart',
+                            content: data.special_message,
+                            metadata: {
+                                title: data.chart_title || '',
+                                downloadable: true
+                            }
+                        };
+                        renderedContent = richContentRenderer.render({
+                            type: 'rich_content',
+                            blocks: [chartBlock]
+                        });
+                    } else {
+                        renderedContent = richContentRenderer.render(data.rich_content);
+                    }
+
+                    agentMessageElement.className = 'msg-row ai-row';
+                    agentMessageElement.innerHTML = '<div class="msg-avatar ai-avatar"><i class="fas fa-database"></i></div><div class="ai-rich-content">' + renderedContent + '</div>';
+
+                    // Initialize interactive features
+                    setTimeout(function () {
+                        initializeRichContentInteractivity(agentMessageElement);
+                    }, 100);
+
+                    chatHistory.push({
+                        role: 'A',
+                        content: data.answer,
+                        rich_content: data.rich_content
+                    });
+
+                } catch (error) {
+                    console.error('Rich content rendering failed:', error);
+                    renderTraditionalMessage(agentMessageElement, data);
+                    chatHistory.push({ role: 'A', content: data.answer });
+                }
+            } else {
+                // Traditional rendering
+                renderTraditionalMessage(agentMessageElement, data);
+                chatHistory.push({ role: 'A', content: data.answer });
+            }
+
+            chatContent.appendChild(agentMessageElement);
+
+            // Make chart containers clickable for panel expansion
+            agentMessageElement.querySelectorAll('.chart-container img').forEach(function (img) {
+                img.style.cursor = 'pointer';
+                img.addEventListener('click', function () {
+                    var imgHtml = '<img src="' + img.src + '" style="max-width:100%;height:auto;border-radius:6px;">';
+                    if (typeof ChatCharts !== 'undefined' && ChatCharts.expandImageToPanel) {
+                        ChatCharts.expandImageToPanel(imgHtml, 'Chart Detail');
+                    } else if (typeof ChatPanel !== 'undefined') {
+                        ChatPanel.open('Chart Detail', imgHtml);
+                    }
+                });
+            });
+
+            // Add feedback component
+            if (typeof UserPreferences === 'undefined' || UserPreferences.getPreference('show_user_feedback', true)) {
+                var feedbackComponent = createFeedbackComponent(
+                    questionId,
+                    document.getElementById('agent_id').value,
+                    userMessage,
+                    data.answer,
+                    confidenceScore,
+                    data.query || ''
+                );
+                var feedbackElement = document.createElement('div');
+                feedbackElement.innerHTML = feedbackComponent;
+                chatContent.appendChild(feedbackElement);
+            }
+
+            // Handle query display
+            if (data.query !== '') {
+                var additionalMessageElement = document.createElement('div');
+                if (shouldShowSqlQueries()) {
+                    additionalMessageElement.innerHTML =
+                        '<div class="show-query-container">' +
+                            '<a href="javascript:void(0);" onclick="toggleQuery(this)" class="sql-query-toggle"><i class="fas fa-code" style="margin-right:0.3rem;"></i>Show Query</a>' +
+                            '<div class="sql-query-content">' + data.query.replace(/\n/g, '<br>') + '</div>' +
+                        '</div>';
+                } else {
+                    additionalMessageElement.innerHTML = '';
+                }
+                chatContent.appendChild(additionalMessageElement);
+
+                document.getElementById('explain-container').style.display = '';
+            } else {
+                document.getElementById('explain-container').style.display = 'none';
+            }
+
+            clearExplanation();
+
+            chatWindow.scrollTo({
+                top: chatWindow.scrollHeight,
+                behavior: 'smooth'
+            });
+
+            checkConversationStatus();
+
+            // Mark complete on first successful query (guided setup)
+            if (typeof markDataAssistantStep === 'function') {
+                markDataAssistantStep('query');
+            }
+        })
+        .catch(function (error) {
+            console.error('Error:', error);
+            // Destroy skeleton on error
+            if (skeleton) {
+                skeleton.destroy();
+            }
+            var pendingRow = document.getElementById('ai-pending-row');
+            if (pendingRow) pendingRow.remove();
+            showErrorModal('Failed to get a response. Please try again or contact support if the problem persists.');
+        });
+    }
+
+    // ============================================================
+    //  Traditional Message Rendering
+    // ============================================================
+    function renderTraditionalMessage(element, data) {
+        if (data.answer_type === 'chart') {
+            element.className = 'msg-row ai-row';
+            element.innerHTML = '<div class="msg-avatar ai-avatar"><i class="fas fa-database"></i></div>' +
+                '<div class="ai-rich-content"><div class="chart-container">' + data.special_message.replace(/\n/g, '<br>') + '<div class="chart-expand-hint"><i class="fas fa-expand-alt"></i> Click to expand</div></div></div>';
+        } else if (data.answer_type === 'dataframe') {
+            // "Too large" case
+            if (data.answer.startsWith("Results too large")) {
+                element.className = 'msg-row ai-row';
+                element.innerHTML = '<div class="msg-avatar ai-avatar"><i class="fas fa-database"></i></div>' +
+                    '<div class="msg-bubble ai-bubble">' +
+                        data.answer +
+                        '<div style="margin-top:0.5rem;">' +
+                            '<a href="javascript:void(0);" class="chat-btn" onclick="openHandsontablePopup(\'' + escapeJavaScriptString(encodeURIComponent(data.special_message)) + '\')">' +
+                                '<i class="fas fa-edit" style="margin-right:0.3rem;"></i>Edit' +
+                            '</a>' +
+                        '</div>' +
+                    '</div>';
+            } else if (data.answer_type === 'multi_dataframe') {
+                var displayMode = getDataframeDisplayMode();
+                element.className = 'msg-row ai-row';
+                element.innerHTML = '<div class="msg-avatar ai-avatar"><i class="fas fa-database"></i></div>' +
+                    '<div class="ai-rich-content"><div class="dataframe-wrapper">' +
+                        data.special_message +
+                        '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.5rem;">' +
+                            '<button class="chat-btn toggle-display-mode-btn" onclick="toggleDataframeDisplayMode(this)">' +
+                                '<i class="fas fa-' + (displayMode === 'compact' ? 'expand' : 'compress') + '" style="margin-right:0.3rem;"></i>' +
+                                (displayMode === 'compact' ? 'Expand' : 'Compact') +
+                            '</button>' +
+                            '<a href="javascript:void(0);" class="chat-btn" onclick="openHandsontablePopup(\'' + encodeURIComponent(data.special_message) + '\')">' +
+                                '<i class="fas fa-edit" style="margin-right:0.3rem;"></i>Edit' +
+                            '</a>' +
+                        '</div>' +
+                    '</div></div>';
+            } else {
+                var displayMode2 = getDataframeDisplayMode();
+                var displayModeClass = displayMode2 === 'compact' ? 'dataframe-wrapper dataframe-compact' : 'dataframe-wrapper';
+
+                element.className = 'msg-row ai-row';
+                element.innerHTML = '<div class="msg-avatar ai-avatar"><i class="fas fa-database"></i></div>' +
+                    '<div class="ai-rich-content"><div class="' + displayModeClass + '">' +
+                        data.answer +
+                        '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.5rem;">' +
+                            '<button class="chat-btn toggle-display-mode-btn" onclick="toggleDataframeDisplayMode(this)">' +
+                                '<i class="fas fa-' + (displayMode2 === 'compact' ? 'expand' : 'compress') + '" style="margin-right:0.3rem;"></i>' +
+                                (displayMode2 === 'compact' ? 'Expand' : 'Compact') +
+                            '</button>' +
+                            '<a href="javascript:void(0);" class="chat-btn" onclick="openHandsontablePopup(\'' + encodeURIComponent(data.answer) + '\')">' +
+                                '<i class="fas fa-edit" style="margin-right:0.3rem;"></i>Edit' +
+                            '</a>' +
+                        '</div>' +
+                    '</div></div>';
+            }
+        } else if (data.answer_type === 'multi_dataframe') {
+            var displayMode3 = getDataframeDisplayMode();
+            element.className = 'msg-row ai-row';
+            element.innerHTML = '<div class="msg-avatar ai-avatar"><i class="fas fa-database"></i></div>' +
+                '<div class="ai-rich-content"><div class="dataframe-wrapper">' +
+                    data.special_message +
+                    '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.5rem;">' +
+                        '<button class="chat-btn toggle-display-mode-btn" onclick="toggleDataframeDisplayMode(this)">' +
+                            '<i class="fas fa-' + (displayMode3 === 'compact' ? 'expand' : 'compress') + '" style="margin-right:0.3rem;"></i>' +
+                            (displayMode3 === 'compact' ? 'Expand' : 'Compact') +
+                        '</button>' +
+                        '<a href="javascript:void(0);" class="chat-btn" onclick="openHandsontablePopup(\'' + encodeURIComponent(data.special_message) + '\')">' +
+                            '<i class="fas fa-edit" style="margin-right:0.3rem;"></i>Edit' +
+                        '</a>' +
+                    '</div>' +
+                '</div></div>';
+        } else if (data.answer_type === 'file') {
+            element.className = 'msg-row ai-row';
+            element.innerHTML = '<div class="msg-avatar ai-avatar"><i class="fas fa-database"></i></div>' +
+                '<div class="msg-bubble ai-bubble">The result set is large. <a href="' + data.file_url + '" target="_blank" class="chat-btn-primary" style="display:inline-flex;padding:0.3rem 0.6rem;border-radius:6px;text-decoration:none;font-size:0.82rem;"><i class="fas fa-download" style="margin-right:0.3rem;"></i>Download File</a></div>';
+        } else {
+            // Text response
+            var answerHtml = data.answer.replace(/\n/g, '<br>');
+
+            if (data.low_confidence) {
+                answerHtml += '<div class="confidence-warning">' +
+                    '<i class="fas fa-exclamation-triangle" style="margin-right:0.3rem;"></i> ' +
+                    'Note: I\'m not entirely confident in this answer. Please verify this information.' +
+                '</div>';
+            }
+
+            element.className = 'msg-row ai-row';
+            element.innerHTML = '<div class="msg-avatar ai-avatar"><i class="fas fa-database"></i></div><div class="msg-bubble ai-bubble">' + answerHtml + '</div>';
+        }
+    }
+
+    // ============================================================
+    //  Toggle Query
+    // ============================================================
+    function toggleQuery(element) {
+        var queryContent = element.nextElementSibling;
+        if (queryContent) {
+            queryContent.classList.toggle('show');
+        }
+    }
+
+    // ============================================================
+    //  Explain
+    // ============================================================
+    function explain() {
+        clearExplanation();
+
+        document.getElementById('loading-spinner-explain').style.display = '';
+
+        fetch('/chat/data/explain')
+        .then(function (response) { return response.json(); })
+        .then(function (data) {
+            console.log('explain -> data --=-=-=->>>', data['explanation']);
+            var explanation = data['explanation'];
+
+            if (explanation !== '') {
+                var explainContentContainer = document.getElementById('explain-content');
+                explainContentContainer.style.display = '';
+                var explainValue = document.createElement('div');
+                explainValue.innerHTML = '<div>' + explanation.replace(/\n/g, '<br>') + '</div>';
+                explainContentContainer.appendChild(explainValue);
+            }
+        })
+        .catch(function (error) { console.error('Error fetching explanation:', error); })
+        .finally(function () {
+            document.getElementById('loading-spinner-explain').style.display = 'none';
+        });
+    }
+
+    function clearExplanation() {
+        var el = document.getElementById('explain-content');
+        el.innerHTML = '';
+        el.style.display = 'none';
+    }
+
+    // ============================================================
+    //  Handsontable Popup
+    // ============================================================
+    function openHandsontablePopup(htmlString) {
+        var width = 800;
+        var height = 600;
+        var left = (screen.width / 2) - (width / 2);
+        var top = (screen.height / 2) - (height / 2);
+
+        var popup = window.open('', 'Edit Data', 'width=' + width + ',height=' + height + ',top=' + top + ',left=' + left);
+        popup.document.write('<html><head><title>Edit Data</title>');
+        popup.document.write('<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.js"><\/script>');
+        popup.document.write('<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/handsontable/dist/languages/all.js"><\/script>');
+        popup.document.write('<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.css" \/>');
+        popup.document.write('<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" \/>');
+        popup.document.write('<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" \/>');
+        popup.document.write('<style>body { padding: 20px; font-family: Arial, sans-serif; } #export-csv { margin-top: 10px; }</style>');
+        popup.document.write('</head><body>');
+        popup.document.write('<h4>Data Editor</h4>');
+        popup.document.write('<div id="handsontable-container" class="mb-3"></div>');
+        popup.document.write('<button id="export-csv" class="btn btn-primary"><i class="fas fa-download mr-1"></i>Export Data<\/button>');
+        popup.document.write('<script>');
+        popup.document.write(
+            'function htmlTableToHandsontable(htmlString, containerId) {' +
+                'var parser = new DOMParser();' +
+                'var doc = parser.parseFromString(htmlString, "text/html");' +
+                'var table = doc.querySelector("table");' +
+                'if (!table) { throw new Error("No table element provided"); }' +
+                'var handsontableData = [];' +
+                'var rows = table.rows;' +
+                'for (var i = 0; i < rows.length; i++) {' +
+                    'var row = rows[i];' +
+                    'var rowData = [];' +
+                    'for (var j = 0; j < row.cells.length; j++) {' +
+                        'var cell = row.cells[j];' +
+                        'rowData.push(cell.textContent);' +
+                    '}' +
+                    'handsontableData.push(rowData);' +
+                '}' +
+                'var data = handsontableData;' +
+                'var hyperformulaInstance = HyperFormula.buildEmpty({ licenseKey: "internal-use-in-handsontable" });' +
+                'var container = document.getElementById(containerId);' +
+                'if (!container) { throw new Error("No container element found with the provided ID"); }' +
+                'var hot = new Handsontable(container, {' +
+                    'data: data,' +
+                    'rowHeaders: true,' +
+                    'colHeaders: true,' +
+                    'filters: true,' +
+                    'dropdownMenu: true,' +
+                    'formulas: { engine: hyperformulaInstance },' +
+                    'contextMenu: ["row_above", "row_below", "col_left", "col_right", "remove_row", "remove_col", "copy", "cut", "paste"],' +
+                    'language: "en-US",' +
+                    'licenseKey: "non-commercial-and-evaluation"' +
+                '});' +
+                'hot.updateSettings({' +
+                    'afterCreateRow: function(index, amount) {' +
+                        'for (var i = 0; i < amount; i++) {' +
+                            'hyperformulaInstance.addRows(hot.countRows() + i, 1);' +
+                        '}' +
+                    '},' +
+                    'afterCreateCol: function(index, amount) {' +
+                        'for (var i = 0; i < amount; i++) {' +
+                            'hyperformulaInstance.addColumns(hot.countCols() + i, 1);' +
+                        '}' +
+                    '}' +
+                '});' +
+                'document.getElementById("export-csv").addEventListener("click", function() {' +
+                    'var exportPlugin = hot.getPlugin("exportFile");' +
+                    'exportPlugin.downloadFile("csv", { filename: "data" });' +
+                '});' +
+                'return hot;' +
+            '}' +
+            'var htmlString = decodeURIComponent(\'' + htmlString + '\');' +
+            'var hotInstance = htmlTableToHandsontable(htmlString, "handsontable-container");'
+        );
+        popup.document.write('<\/script>');
+        popup.document.write('</body></html>');
+        popup.document.close();
+    }
+
+    // ============================================================
+    //  Reset Conversation
+    // ============================================================
+    function resetConversation() {
+        var currentAgentId = document.getElementById('agent_id').value;
+        var currentAgentDropdownValue = document.getElementById('agent-dropdown').value;
+
+        if (currentAgentId && currentAgentDropdownValue) {
+            sessionStorage.setItem('preserved_agent_id', currentAgentId);
+            sessionStorage.setItem('preserved_agent_dropdown', currentAgentDropdownValue);
+        }
+
+        fetch('/chat/data/reset', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(function (response) { return response.json(); })
+        .then(function (data) {
+            if (data.status === 'success') {
+                document.getElementById('chat-content').innerHTML = '';
+                chatHistory = [];
+
+                document.getElementById('conversation-max-banner').style.display = 'none';
+
+                document.getElementById('user-input').disabled = false;
+                document.getElementById('send-btn').disabled = false;
+
+                showTemporaryMessage('Conversation has been reset');
+                location.reload();
+            } else {
+                console.error('Error resetting conversation:', data.message);
+            }
+        })
+        .catch(function (error) {
+            console.error('Error:', error);
+        });
+    }
+
+    // ============================================================
+    //  Conversation Status
+    // ============================================================
+    function checkConversationStatus() {
+        fetch('/chat/data/status')
+        .then(function (response) { return response.json(); })
+        .then(function (data) {
+            console.log('max_length: ' + data.max_length);
+            var conversationLength = chatHistory.length / 2;
+            console.log('conversation_length: ' + conversationLength);
+            var is_max_reached = false;
+            if (conversationLength >= data.max_length) {
+                is_max_reached = true;
+            }
+            console.log('is_max_reached: ' + is_max_reached);
+
+            if (is_max_reached) {
+                console.log('Max length of conversation reached...');
+                document.getElementById('conversation-max-banner').style.display = 'block';
+                document.getElementById('user-input').disabled = true;
+                document.getElementById('send-btn').disabled = true;
+            }
+        })
+        .catch(function (error) {
+            console.error('Error checking conversation status:', error);
+        });
+    }
+
+    // ============================================================
+    //  Toast Notification
+    // ============================================================
+    function showTemporaryMessage(message) {
+        var messageDiv = document.createElement('div');
+        messageDiv.style.cssText = 'position:fixed;top:20px;right:20px;z-index:1060;padding:0.6rem 1.2rem;border-radius:10px;font-size:0.85rem;font-family:Outfit,sans-serif;animation:fadeInOut 3s ease-in-out forwards;background:rgba(6,182,212,0.15);border:1px solid rgba(6,182,212,0.3);color:var(--cyber-cyan,#06b6d4);backdrop-filter:blur(8px);';
+        messageDiv.textContent = message;
+        document.body.appendChild(messageDiv);
+
+        setTimeout(function () {
+            messageDiv.remove();
+        }, 3000);
+    }
+
+    // ============================================================
+    //  Error Modal
+    // ============================================================
+    function showErrorModal(message) {
+        var errorText = document.getElementById('errorModalText');
+        errorText.textContent = message;
+        $('#errorModal').modal('show');
+    }
+
+    // ============================================================
+    //  Feedback Component
+    // ============================================================
+    function createFeedbackComponent(questionId, agentId, originalQuestion, originalAnswer, confidenceScore, sqlQuery) {
+        var feedbackHtml =
+        '<div class="feedback-modern" id="feedback-' + questionId + '"' +
+            ' data-original-question="' + encodeURIComponent(originalQuestion) + '"' +
+            ' data-original-answer="' + encodeURIComponent(originalAnswer) + '"' +
+            ' data-agent-id="' + agentId + '"' +
+            ' data-confidence-score="' + confidenceScore + '"' +
+            ' data-sql-query="' + encodeURIComponent(sqlQuery || '') + '">' +
+            '<div class="initial-feedback" id="initial-feedback-' + questionId + '" style="display:flex;align-items:center;gap:0.4rem;">' +
+                '<span style="font-size:0.75rem;color:var(--text-muted);">Helpful?</span>' +
+                '<button type="button" class="chat-btn" style="padding:0.2rem 0.45rem;font-size:0.78rem;" onclick="submitQuickFeedback(\'' + questionId + '\', \'positive\')">' +
+                    '<i class="fas fa-thumbs-up"></i>' +
+                '</button>' +
+                '<button type="button" class="chat-btn" style="padding:0.2rem 0.45rem;font-size:0.78rem;" onclick="submitQuickFeedback(\'' + questionId + '\', \'negative\')">' +
+                    '<i class="fas fa-thumbs-down"></i>' +
+                '</button>' +
+            '</div>' +
+            '<div class="detailed-feedback" id="detailed-feedback-' + questionId + '" style="display:none;margin-top:0.4rem;">' +
+                '<form id="feedback-form-' + questionId + '" style="display:flex;flex-direction:column;gap:0.4rem;">' +
+                    '<div style="display:flex;align-items:center;gap:0.3rem;">' +
+                        '<span style="font-size:0.75rem;color:var(--text-muted);margin-right:0.3rem;">Rate:</span>' +
+                        '<div class="rating" style="display:inline-flex;flex-direction:row-reverse;">' +
+                            [5, 4, 3, 2, 1].map(function (num) {
+                                return '<input type="radio" id="star' + num + '-' + questionId + '" name="rating" value="' + num + '" style="display:none;" />' +
+                                    '<label for="star' + num + '-' + questionId + '" class="star" style="cursor:pointer;color:var(--border-accent);font-size:0.9rem;padding:0 0.1rem;transition:color 0.15s;">' +
+                                        '<i class="fas fa-star"></i>' +
+                                    '</label>';
+                            }).join('') +
+                        '</div>' +
+                    '</div>' +
+                    '<textarea class="chat-textarea-sm" id="feedback-details-' + questionId + '" rows="2" placeholder="What was wrong with this response?" style="font-size:0.8rem;"></textarea>' +
+                    '<div style="display:flex;gap:0.4rem;">' +
+                        '<button type="button" class="chat-btn-primary" style="padding:0.3rem 0.6rem;border-radius:6px;font-size:0.78rem;border:none;cursor:pointer;" onclick="submitDetailedFeedback(\'' + questionId + '\')">Submit</button>' +
+                        '<button type="button" class="chat-btn" style="padding:0.3rem 0.6rem;font-size:0.78rem;" onclick="cancelFeedback(\'' + questionId + '\')">Cancel</button>' +
+                    '</div>' +
+                '</form>' +
+            '</div>' +
+            '<div class="feedback-thanks" id="feedback-thanks-' + questionId + '" style="display:none;">' +
+                '<span style="font-size:0.78rem;color:var(--status-success);">Thank you for your feedback!</span>' +
+            '</div>' +
+        '</div>';
+
+        return feedbackHtml;
+    }
+
+    // Submit quick feedback (thumbs up/down)
+    function submitQuickFeedback(questionId, feedbackType) {
+        if (feedbackType === 'negative') {
+            document.getElementById('detailed-feedback-' + questionId).style.display = 'block';
+            document.getElementById('initial-feedback-' + questionId).style.display = 'none';
+            return;
+        }
+
+        var feedbackData = {
+            session_id: getSessionId(),
+            question_id: questionId,
+            agent_id: getCurrentAgentId(),
+            original_question: getCurrentQuestion(questionId),
+            original_answer: getAnswerText(questionId),
+            feedback_type: feedbackType,
+            rating: feedbackType === 'positive' ? 5 : 1,
+            confidence_score: getConfidenceScore(questionId),
+            caution_level: getCautionLevel(),
+            user_id: document.getElementById('user_id').value,
+            sql_query: getSqlQuery(questionId)
+        };
+
+        fetch('/api/feedback', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(feedbackData)
+        })
+        .then(function (response) { return response.json(); })
+        .then(function (data) {
+            document.getElementById('initial-feedback-' + questionId).style.display = 'none';
+            document.getElementById('feedback-thanks-' + questionId).style.display = 'block';
+            console.log('Feedback submitted successfully:', data);
+        })
+        .catch(function (error) {
+            console.error('Error submitting feedback:', error);
+            showErrorModal('There was an error submitting your feedback. Please try again.');
+        });
+    }
+
+    // Submit detailed feedback
+    function submitDetailedFeedback(questionId) {
+        var container = document.getElementById('feedback-' + questionId);
+        if (!container) return;
+
+        var ratingInput = document.querySelector('#feedback-form-' + questionId + ' input[name="rating"]:checked');
+        var rating = ratingInput ? ratingInput.value : 1;
+        var details = document.getElementById('feedback-details-' + questionId).value;
+
+        var agentId = container.dataset.agentId;
+        var originalQuestion = decodeURIComponent(container.dataset.originalQuestion);
+        var originalAnswer = decodeURIComponent(container.dataset.originalAnswer);
+        var confidenceScore = parseFloat(container.dataset.confidenceScore);
+
+        var feedbackData = {
+            session_id: getSessionId(),
+            question_id: questionId,
+            agent_id: agentId,
+            original_question: originalQuestion,
+            original_answer: originalAnswer,
+            feedback_type: 'negative',
+            feedback_details: details,
+            rating: parseInt(rating),
+            confidence_score: confidenceScore,
+            caution_level: getCautionLevel(),
+            user_id: document.getElementById('user_id').value,
+            sql_query: decodeURIComponent(container.dataset.sqlQuery || '')
+        };
+
+        fetch('/api/feedback', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(feedbackData)
+        })
+        .then(function (response) { return response.json(); })
+        .then(function (data) {
+            document.getElementById('detailed-feedback-' + questionId).style.display = 'none';
+            document.getElementById('feedback-thanks-' + questionId).style.display = 'block';
+            console.log('Detailed feedback submitted successfully:', data);
+        })
+        .catch(function (error) {
+            console.error('Error submitting feedback:', error);
+            showErrorModal('There was an error submitting your feedback. Please try again.');
+        });
+    }
+
+    // Cancel feedback submission
+    function cancelFeedback(questionId) {
+        document.getElementById('feedback-form-' + questionId).reset();
+        document.getElementById('detailed-feedback-' + questionId).style.display = 'none';
+        document.getElementById('initial-feedback-' + questionId).style.display = 'flex';
+    }
+
+    // ============================================================
+    //  Utility — Feedback Helpers
+    // ============================================================
+    function getSessionId() {
+        var sessionId = sessionStorage.getItem('sessionId');
+        if (!sessionId) {
+            sessionId = 'session_' + Math.random().toString(36).substr(2, 9);
+            sessionStorage.setItem('sessionId', sessionId);
+        }
+        return sessionId;
+    }
+
+    function getCurrentAgentId() {
+        return document.getElementById('agent_id').value;
+    }
+
+    function getCurrentQuestion(questionId) {
+        var feedbackContainer = document.getElementById('feedback-' + questionId);
+        if (feedbackContainer && feedbackContainer.dataset.originalQuestion) {
+            return decodeURIComponent(feedbackContainer.dataset.originalQuestion);
+        }
+        return document.getElementById('user-input').value;
+    }
+
+    function getAnswerText(questionId) {
+        var messageElement = document.querySelector('[data-question-id="' + questionId + '"]');
+        return messageElement ? messageElement.textContent : '';
+    }
+
+    function getConfidenceScore(questionId) {
+        var messageElement = document.querySelector('[data-question-id="' + questionId + '"]');
+        return messageElement ? parseFloat(messageElement.dataset.confidenceScore || '0') : 0;
+    }
+
+    function getCautionLevel() {
+        var el = document.getElementById('caution-level-setting');
+        return el ? el.value : 'medium';
+    }
+
+    function getSqlQuery(questionId) {
+        var feedbackContainer = document.getElementById('feedback-' + questionId);
+        if (feedbackContainer && feedbackContainer.dataset.sqlQuery) {
+            return decodeURIComponent(feedbackContainer.dataset.sqlQuery);
+        }
+        return '';
+    }
+
+    // ============================================================
+    //  Caution Level
+    // ============================================================
+    function loadUserCautionLevel() {
+        var userIdEl = document.getElementById('user_id');
+        var userId = userIdEl ? userIdEl.value : null;
+        if (!userId) return;
+
+        fetch('/api/caution/user?user_id=' + userId)
+            .then(function (response) { return response.json(); })
+            .then(function (data) {
+                if (data.status === 'success') {
+                    var selector = document.getElementById('caution-level-setting');
+                    if (selector) {
+                        selector.value = data.level_name;
+                    }
+                }
+            })
+            .catch(function (error) {
+                console.error('Error loading user caution level:', error);
+            });
+    }
+
+    function setUserCautionLevel(levelName) {
+        var userIdEl = document.getElementById('user_id');
+        var userId = userIdEl ? userIdEl.value : null;
+        if (!userId) return;
+
+        fetch('/api/caution/user', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                user_id: userId,
+                level_name: levelName
+            })
+        })
+        .then(function (response) { return response.json(); })
+        .then(function (data) {
+            if (data.status === 'success') {
+                showTemporaryMessage('Caution level set to "' + levelName + '"');
+            }
+        })
+        .catch(function (error) {
+            console.error('Error setting user caution level:', error);
+        });
+    }
+
+    // ============================================================
+    //  Dataframe Display Mode
+    // ============================================================
+    function getDataframeDisplayMode() {
+        if (typeof UserPreferences !== 'undefined') {
+            return UserPreferences.getPreference('dataframe_display_mode', 'expanded');
+        }
+        return 'expanded';
+    }
+
+    function applyDataframeDisplayMode(dataframeElement) {
+        var displayMode = getDataframeDisplayMode();
+        if (displayMode === 'compact') {
+            dataframeElement.classList.add('dataframe-compact');
+        } else {
+            dataframeElement.classList.remove('dataframe-compact');
+        }
+    }
+
+    function toggleDataframeDisplayMode(buttonElement) {
+        var wrapper = buttonElement.closest('.dataframe-wrapper');
+        if (!wrapper) return;
+
+        wrapper.classList.toggle('dataframe-compact');
+
+        var isCompact = wrapper.classList.contains('dataframe-compact');
+        buttonElement.innerHTML = isCompact ?
+            '<i class="fas fa-expand" style="margin-right:0.3rem;"></i>Expand' :
+            '<i class="fas fa-compress" style="margin-right:0.3rem;"></i>Compact';
+
+        if (typeof UserPreferences !== 'undefined') {
+            UserPreferences.setPreference('dataframe_display_mode', isCompact ? 'compact' : 'expanded');
+        }
+    }
+
+    // ============================================================
+    //  Rich Content Interactivity
+    // ============================================================
+    function initializeRichContentInteractivity(element) {
+        // Initialize collapsible sections
+        element.querySelectorAll('.collapsible-header').forEach(function (header) {
+            header.addEventListener('click', function () {
+                var content = this.nextElementSibling;
+                if (content) {
+                    content.classList.toggle('expanded');
+                    var icon = this.querySelector('.collapse-icon');
+                    if (icon) {
+                        icon.classList.toggle('fa-chevron-down');
+                        icon.classList.toggle('fa-chevron-up');
+                    }
+                }
+            });
+        });
+
+        // Initialize copy buttons for code blocks
+        element.querySelectorAll('.copy-code-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var codeBlock = this.closest('.block-code').querySelector('pre, code');
+                if (codeBlock) {
+                    var code = codeBlock.textContent;
+                    navigator.clipboard.writeText(code).then(function () {
+                        var originalText = btn.innerHTML;
+                        btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+                        setTimeout(function () {
+                            btn.innerHTML = originalText;
+                        }, 2000);
+                    }).catch(function (err) {
+                        console.error('Failed to copy:', err);
+                    });
+                }
+            });
+        });
+
+        // Initialize table features if richContentRenderer has them
+        if (richContentRenderer && richContentRenderer.initializeTableFeatures) {
+            richContentRenderer.initializeTableFeatures(element);
+        }
+    }
+</script>
+
+<style>
+    /* fadeInOut for toast notifications */
+    @keyframes fadeInOut {
+        0% { opacity: 0; transform: translateY(-20px); }
+        15% { opacity: 1; transform: translateY(0); }
+        85% { opacity: 1; transform: translateY(0); }
+        100% { opacity: 0; transform: translateY(-20px); }
+    }
+
+    /* Star rating hover in feedback */
+    .rating label:hover,
+    .rating label:hover ~ label {
+        color: #fbbf24 !important;
+    }
+    .rating input:checked ~ label {
+        color: #fbbf24 !important;
+    }
+
+    /* Override base.html body background so the chat page fills fully */
+    body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+    }
+</style>
+{% endblock %}

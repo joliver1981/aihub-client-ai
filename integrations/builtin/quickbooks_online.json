@@ -1,0 +1,216 @@
+{
+  "template_key": "quickbooks_online",
+  "platform_name": "QuickBooks Online",
+  "platform_category": "Accounting",
+  "description": "Connect to QuickBooks Online for invoices, customers, payments, and more.",
+  "logo_url": "https://cdn.worldvectorlogo.com/logos/quickbooks-2.svg",
+  "documentation_url": "https://developer.intuit.com/app/developer/qbo/docs/api/accounting/all-entities/account",
+  
+  "auth_type": "oauth2",
+  "auth_config": {
+    "authorization_url": "https://appcenter.intuit.com/connect/oauth2",
+    "token_url": "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+    "scopes": ["com.intuit.quickbooks.accounting"],
+    "requires_instance_id": true,
+    "instance_id_field": "realmId",
+    "instance_id_label": "Company ID (Realm ID)",
+    "instance_id_help": "Found in your QuickBooks URL after /app/"
+  },
+  
+  "base_url": "https://quickbooks.api.intuit.com/v3/company/{realmId}",
+  
+  "default_headers": {
+    "Accept": "application/json",
+    "Content-Type": "application/json"
+  },
+  
+  "setup_instructions": "## QuickBooks Online Setup\n\n1. Go to [Intuit Developer Portal](https://developer.intuit.com/)\n2. Create an app and get your Client ID and Secret\n3. Add your redirect URI: `{callback_url}`\n4. Store your Client ID and Secret in Local Secrets:\n   - `OAUTH_QUICKBOOKS_ONLINE_CLIENT_ID`\n   - `OAUTH_QUICKBOOKS_ONLINE_CLIENT_SECRET`\n5. Click Connect and authorize access to your QuickBooks company",
+  
+  "operations": [
+    {
+      "key": "get_invoices",
+      "name": "Get Invoices",
+      "description": "Retrieve invoices with optional filters",
+      "method": "GET",
+      "endpoint": "/query",
+      "parameters": [
+        {
+          "name": "status",
+          "label": "Status",
+          "type": "select",
+          "options": [
+            {"value": "", "label": "All"},
+            {"value": "Unpaid", "label": "Unpaid"},
+            {"value": "Paid", "label": "Paid"},
+            {"value": "Overdue", "label": "Overdue"}
+          ]
+        },
+        {
+          "name": "date_from",
+          "label": "From Date",
+          "type": "date"
+        },
+        {
+          "name": "date_to",
+          "label": "To Date",
+          "type": "date"
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100
+        }
+      ],
+      "query_builder": "SELECT * FROM Invoice WHERE TxnDate >= '{date_from}' AND TxnDate <= '{date_to}' MAXRESULTS {limit}",
+      "output_mapping": {
+        "invoices": "$.QueryResponse.Invoice",
+        "count": "$.QueryResponse.maxResults"
+      },
+      "category": "read"
+    },
+    {
+      "key": "get_invoice_by_id",
+      "name": "Get Invoice by ID",
+      "description": "Retrieve a specific invoice",
+      "method": "GET",
+      "endpoint": "/invoice/{invoice_id}",
+      "parameters": [
+        {
+          "name": "invoice_id",
+          "label": "Invoice ID",
+          "type": "text",
+          "required": true
+        }
+      ],
+      "output_mapping": {
+        "invoice": "$.Invoice"
+      },
+      "category": "read"
+    },
+    {
+      "key": "create_invoice",
+      "name": "Create Invoice",
+      "description": "Create a new invoice",
+      "method": "POST",
+      "endpoint": "/invoice",
+      "parameters": [
+        {
+          "name": "customer_id",
+          "label": "Customer ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "line_items",
+          "label": "Line Items (JSON)",
+          "type": "json",
+          "required": true,
+          "placeholder": "[{\"Amount\": 100, \"Description\": \"Service\"}]"
+        },
+        {
+          "name": "due_date",
+          "label": "Due Date",
+          "type": "date"
+        }
+      ],
+      "body_template": {
+        "CustomerRef": {"value": "{customer_id}"},
+        "Line": "{line_items}",
+        "DueDate": "{due_date}"
+      },
+      "output_mapping": {
+        "invoice": "$.Invoice"
+      },
+      "category": "write"
+    },
+    {
+      "key": "get_customers",
+      "name": "Get Customers",
+      "description": "Retrieve all customers",
+      "method": "GET",
+      "endpoint": "/query",
+      "parameters": [
+        {
+          "name": "active_only",
+          "label": "Active Only",
+          "type": "checkbox",
+          "default": true
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100
+        }
+      ],
+      "query_builder": "SELECT * FROM Customer WHERE Active = {active_only} MAXRESULTS {limit}",
+      "output_mapping": {
+        "customers": "$.QueryResponse.Customer"
+      },
+      "category": "read"
+    },
+    {
+      "key": "create_customer",
+      "name": "Create Customer",
+      "description": "Create a new customer",
+      "method": "POST",
+      "endpoint": "/customer",
+      "parameters": [
+        {
+          "name": "display_name",
+          "label": "Display Name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "email",
+          "label": "Email",
+          "type": "text"
+        },
+        {
+          "name": "phone",
+          "label": "Phone",
+          "type": "text"
+        }
+      ],
+      "body_template": {
+        "DisplayName": "{display_name}",
+        "PrimaryEmailAddr": {"Address": "{email}"},
+        "PrimaryPhone": {"FreeFormNumber": "{phone}"}
+      },
+      "output_mapping": {
+        "customer": "$.Customer"
+      },
+      "category": "write"
+    },
+    {
+      "key": "get_payments",
+      "name": "Get Payments",
+      "description": "Retrieve payment records",
+      "method": "GET",
+      "endpoint": "/query",
+      "parameters": [
+        {
+          "name": "date_from",
+          "label": "From Date",
+          "type": "date"
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100
+        }
+      ],
+      "query_builder": "SELECT * FROM Payment WHERE TxnDate >= '{date_from}' MAXRESULTS {limit}",
+      "output_mapping": {
+        "payments": "$.QueryResponse.Payment"
+      },
+      "category": "read"
+    }
+  ],
+  
+  "supports_webhooks": true,
+  "webhook_events": ["Invoice.Create", "Invoice.Update", "Payment.Create", "Customer.Create"]
+}

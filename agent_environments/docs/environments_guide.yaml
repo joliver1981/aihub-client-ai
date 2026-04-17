@@ -1,0 +1,271 @@
+# Agent Environments Documentation
+# This file can be edited without changing any code
+
+title: "Agent Environments Documentation"
+version: "1.0"
+last_updated: "2025-09-05"
+
+sections:
+  - id: "overview"
+    title: "Overview"
+    icon: "fas fa-info-circle"
+    content: |
+      Agent Environments allow you to create isolated Python environments for your AI agents, 
+      each with its own set of packages and dependencies. This ensures that different agents 
+      can run with different package versions without conflicts.
+    
+    features:
+      - "Create multiple isolated Python environments"
+      - "Install custom packages for each environment"
+      - "Assign environments to specific agents"
+      - "Test code in sandbox before deployment"
+      - "Clone environments for quick setup"
+      - "Export requirements for sharing"
+
+  - id: "getting_started"
+    title: "Getting Started"
+    icon: "fas fa-rocket"
+    content: |
+      Follow these steps to create your first environment and assign it to an agent.
+    
+    steps:
+      - title: "Create an Environment"
+        description: "Click 'Create New' and provide a name and description for your environment."
+        note: "Choose descriptive names like 'data-science-env' or 'web-scraping-env'"
+        
+      - title: "Add Packages"
+        description: "Click on the environment to open the editor, then add required packages."
+        note: "Start with common packages like pandas, numpy, or requests"
+        
+      - title: "Test in Sandbox"
+        description: "Use the Environment Sandbox to test your code with the installed packages."
+        note: "The sandbox provides a safe testing environment"
+        
+      - title: "Assign to Agent"
+        description: "In the agent configuration, select your environment from the dropdown."
+        note: "Agents will use the Python interpreter from their assigned environment"
+
+  - id: "package_management"
+    title: "Package Management"
+    icon: "fas fa-box"
+    content: |
+      Learn how to manage Python packages within your environments.
+    
+    subsections:
+      - title: "Installing Packages"
+        content: |
+          You can install packages in three ways:
+          1. Quick Install: Click on pre-approved package badges
+          2. Search Install: Enter package name and optional version
+          3. Bulk Install: Use the requirements.txt import feature
+        
+      - title: "Allowed Packages"
+        content: |
+          For security reasons, only pre-approved packages can be installed.
+          Contact your administrator to request additional packages.
+        
+      - title: "Version Management"
+        content: |
+          - Specify exact versions: pandas==2.0.0
+          - Use version ranges: requests>=2.28.0
+          - Leave blank for latest version
+          
+      - title: "Common Package Groups"
+        packages:
+          data_science:
+            title: "Data Science"
+            items: ["pandas", "numpy", "matplotlib", "seaborn", "scikit-learn"]
+          web_scraping:
+            title: "Web Scraping"
+            items: ["requests", "beautifulsoup4", "lxml", "selenium"]
+          machine_learning:
+            title: "Machine Learning"
+            items: ["tensorflow", "torch", "transformers", "xgboost"]
+          automation:
+            title: "Automation"
+            items: ["pyautogui", "schedule", "watchdog", "python-dotenv"]
+
+  - id: "sandbox"
+    title: "Environment Sandbox"
+    icon: "fas fa-flask"
+    content: |
+      The sandbox provides a safe testing environment for your code.
+    
+    features:
+      - title: "Code Editor"
+        description: "Full Python editor with syntax highlighting"
+        
+      - title: "Quick Tests"
+        description: "Pre-built test scripts for common scenarios"
+        
+      - title: "Real-time Output"
+        description: "See execution results immediately"
+        
+      - title: "Package Testing"
+        description: "Verify packages work before deploying to agents"
+    
+    code_examples:
+      - title: "Test Data Processing"
+        code: |
+          import pandas as pd
+          import numpy as np
+          
+          # Create sample data
+          data = pd.DataFrame({
+              'values': np.random.randn(100)
+          })
+          
+          print(f"Mean: {data['values'].mean():.2f}")
+          print(f"Std: {data['values'].std():.2f}")
+      
+      - title: "Test Web Requests"
+        code: |
+          import requests
+          
+          response = requests.get('https://api.github.com')
+          print(f"Status: {response.status_code}")
+          print(f"Headers: {dict(response.headers)}")
+
+  - id: "best_practices"
+    title: "Best Practices"
+    icon: "fas fa-check-circle"
+    content: |
+      Follow these best practices for optimal environment management.
+    
+    practices:
+      - title: "Environment Naming"
+        points:
+          - "Use descriptive names that indicate purpose"
+          - "Include version numbers if needed (ml-env-v2)"
+          - "Avoid spaces and special characters"
+          
+      - title: "Package Management"
+        points:
+          - "Pin important package versions for reproducibility"
+          - "Test packages in sandbox before production use"
+          - "Keep environments minimal - only install what's needed"
+          - "Document package requirements in environment description"
+          
+      - title: "Resource Management"
+        points:
+          - "Delete unused environments to free resources"
+          - "Clone environments instead of recreating from scratch"
+          - "Export requirements.txt for backup and sharing"
+          
+      - title: "Security"
+        points:
+          - "Only install packages from trusted sources"
+          - "Review package dependencies"
+          - "Keep packages updated for security patches"
+
+  - id: "troubleshooting"
+    title: "Troubleshooting"
+    icon: "fas fa-wrench"
+    content: |
+      Common issues and their solutions.
+    
+    issues:
+      - problem: "Package installation fails"
+        solutions:
+          - "Check if package name is spelled correctly"
+          - "Verify package is in allowed list"
+          - "Try without version specification"
+          - "Check for conflicting dependencies"
+          
+      - problem: "Environment not showing in agent dropdown"
+        solutions:
+          - "Ensure environment status is 'active'"
+          - "Refresh the page"
+          - "Check your permissions"
+          
+      - problem: "Code works in sandbox but not in agent"
+        solutions:
+          - "Verify agent is assigned correct environment"
+          - "Check import statements match exactly"
+          - "Ensure all required packages are installed"
+          
+      - problem: "Cannot delete environment"
+        solutions:
+          - "Unassign from all agents first"
+          - "Check if you have owner permissions"
+          - "Contact administrator if needed"
+
+  - id: "limits"
+    title: "Subscription Limits"
+    icon: "fas fa-tachometer-alt"
+    content: |
+      Your subscription tier determines available resources.
+    
+    tiers:
+      - name: "Basic"
+        limits:
+          environments: 3
+          packages_per_env: 20
+          sandbox_access: "Limited"
+          
+      - name: "Professional"
+        limits:
+          environments: 10
+          packages_per_env: 50
+          sandbox_access: "Full"
+          
+      - name: "Enterprise"
+        limits:
+          environments: "Unlimited"
+          packages_per_env: "Unlimited"
+          sandbox_access: "Full"
+          custom_packages: "Yes"
+
+  - id: "api_reference"
+    title: "API Reference"
+    icon: "fas fa-code"
+    content: |
+      For advanced users who want to manage environments programmatically.
+    
+    endpoints:
+      - method: "GET"
+        path: "/environments/api/list"
+        description: "List all environments"
+        
+      - method: "POST"
+        path: "/environments/api/create"
+        description: "Create new environment"
+        body: |
+          {
+            "name": "my-env",
+            "description": "Description"
+          }
+          
+      - method: "POST"
+        path: "/environments/api/{env_id}/packages"
+        description: "Add package to environment"
+        body: |
+          {
+            "package": "pandas",
+            "version": "2.0.0"
+          }
+          
+      - method: "DELETE"
+        path: "/environments/api/{env_id}/packages/{package_name}"
+        description: "Remove package from environment"
+
+faqs:
+  - question: "How many environments can I create?"
+    answer: "This depends on your subscription tier. Basic allows 3, Professional 10, and Enterprise unlimited."
+    
+  - question: "Can I share environments between agents?"
+    answer: "Yes, multiple agents can use the same environment. However, each agent can only have one environment assigned at a time."
+    
+  - question: "What happens if I exceed my package limit?"
+    answer: "You'll need to remove existing packages or upgrade your subscription to add more."
+    
+  - question: "Can I use custom packages not in the allowed list?"
+    answer: "Enterprise customers can request custom packages. Contact your administrator."
+    
+  - question: "How do I backup my environments?"
+    answer: "Use the Export Requirements feature to save package lists, then recreate environments using these files."
+
+support:
+  email: "sales@everiai.ai"
+  docs_url: "https://everiai.ai/docs/agent-environments"
+  video_tutorial: "https://www.youtube.com/watch?v=mvegr96zl-4"

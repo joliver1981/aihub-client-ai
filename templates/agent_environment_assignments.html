@@ -1,0 +1,1107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent-Environment Assignments</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <style>
+        /* ===== STYLES FROM ASSISTANTS.HTML FOR CONSISTENCY ===== */
+        .compact-header {
+            background: linear-gradient(135deg, #2980b9 0%, #34495e 100%);
+            color: white;
+            padding: 0.5rem 1rem;
+            margin-bottom: 1rem;
+            border-radius: 0.5rem;
+        }
+        
+        /* Cards - more compact */
+        .card {
+            margin-bottom: 0.75rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            border-radius: 0.5rem;
+        }
+        
+        .card-header {
+            padding: 0.5rem 0.75rem;
+            font-size: 0.9rem;
+            font-weight: 600;
+            background-color: var(--bg-elevated, #f8f9fa);
+            border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+        }
+        
+        .card-body {
+            padding: 0.75rem;
+        }
+        
+        .card-title {
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+        
+        h1 {
+            font-size: 1.25rem;
+        }
+        
+        h4 {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+        
+        h5 {
+            font-size: 0.95rem;
+        }
+        
+        h6 {
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+        
+        /* Form controls */
+        .form-control, .custom-select {
+            font-size: 0.9rem;
+            padding: 0.375rem 0.75rem;
+        }
+        
+        .form-control-sm {
+            font-size: 0.875rem;
+            padding: 0.25rem 0.5rem;
+        }
+        
+        .form-group {
+            margin-bottom: 0.75rem;
+        }
+        
+        .form-group label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+        
+        /* Button consistency */
+        .btn {
+            font-size: 0.9rem;
+            padding: 0.375rem 0.75rem;
+        }
+        
+        .btn-sm {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.875rem;
+        }
+        
+        .btn-group-sm > .btn {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.875rem;
+        }
+        
+        /* Assignment specific styles - adjusted */
+        .assignment-card {
+            border: 1px solid var(--border-subtle, #dee2e6);
+            border-radius: 0.5rem;
+            padding: 0.75rem;
+            margin-bottom: 0.75rem;
+            transition: all 0.3s ease;
+        }
+        
+        .assignment-card:hover {
+            box-shadow: 0 3px 6px rgba(0, 0, 0, 0.1);
+            transform: translateY(-1px);
+        }
+        
+        .agent-item {
+            background: var(--bg-elevated, #f8f9fa);
+            border-radius: 0.375rem;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            border-left: 3px solid #007bff;
+            font-size: 0.9rem;
+        }
+        
+        .environment-item {
+            background: var(--bg-elevated, #f8f9fa);
+            border-radius: 0.375rem;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            border-left: 3px solid #28a745;
+            font-size: 0.9rem;
+        }
+        
+        .unassigned-item {
+            border-left-color: #ffc107;
+        }
+        
+        /* Badges */
+        .badge {
+            font-size: 0.75rem;
+            padding: 0.25em 0.5em;
+        }
+        
+        .status-badge {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+        }
+        
+        /* Action buttons */
+        .action-buttons {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+        
+        /* Matrix table */
+        .assignment-matrix {
+            overflow-x: auto;
+        }
+        
+        .matrix-table {
+            min-width: 600px;
+            font-size: 0.875rem;
+        }
+        
+        .matrix-table th {
+            padding: 0.5rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            background-color: var(--bg-elevated, #f8f9fa);
+        }
+        
+        .matrix-table td {
+            padding: 0.5rem;
+            vertical-align: middle;
+        }
+        
+        .matrix-cell {
+            text-align: center;
+            vertical-align: middle;
+        }
+        
+        .assigned-check {
+            color: #28a745;
+            font-size: 1rem;
+        }
+        
+        /* Filter section */
+        .filter-section {
+            background: var(--bg-elevated, #f8f9fa);
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        /* Stats cards - more compact */
+        .stats-card {
+            text-align: center;
+            padding: 1rem;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .stats-number {
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+        
+        .stats-card div:last-child {
+            font-size: 0.85rem;
+        }
+        
+        /* Modal adjustments */
+        .modal-header {
+            background-color: var(--bg-elevated, #f8f9fa);
+            padding: 0.75rem 1rem;
+        }
+        
+        .modal-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+        
+        .modal-body {
+            padding: 0.75rem 1rem;
+            font-size: 0.9rem;
+        }
+        
+        .modal-footer {
+            padding: 0.75rem 1rem;
+        }
+        
+        /* Tabs */
+        .nav-tabs {
+            font-size: 0.9rem;
+        }
+        
+        .nav-link {
+            padding: 0.5rem 1rem;
+        }
+        
+        /* Alert */
+        .alert {
+            padding: 0.5rem 0.75rem;
+            font-size: 0.85rem;
+        }
+        
+        /* Small text */
+        small, .small {
+            font-size: 0.8rem;
+        }
+        
+        .text-muted {
+            font-size: 0.85rem;
+        }
+        
+        /* Container adjustments */
+        .container-fluid {
+            padding: 0 1rem;
+        }
+        
+        /* Row spacing */
+        .row {
+            margin-bottom: 0.75rem;
+        }
+    </style>
+</head>
+<body>
+    {% extends "base.html" %}
+    {% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+    
+    <div class="container-fluid px-3 py-2">
+        <!-- Compact Header Bar (NEW - matching assistants.html style) -->
+        <div class="doc-page-header">
+            <h4 class="mb-0"><i class="fas fa-link mr-2"></i>Agent-Environment Assignments</h4>
+            <div>
+                <button class="btn btn-sm btn-light" onclick="showAssignmentModal()">
+                    <i class="fas fa-plus"></i> New Assignment
+                </button>
+                <button class="btn btn-sm btn-outline-light" onclick="toggleView()">
+                    <i class="fas fa-th"></i> Switch View
+                </button>
+            </div>
+        </div>
+        
+        <!-- Statistics Row -->
+        <div class="row">
+            <div class="col-md-3">
+                <div class="stats-card">
+                    <div class="stats-number" id="totalAgents">0</div>
+                    <div>Total Agents</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stats-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                    <div class="stats-number" id="totalEnvironments">0</div>
+                    <div>Total Environments</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stats-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
+                    <div class="stats-number" id="activeAssignments">0</div>
+                    <div>Active Assignments</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stats-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);">
+                    <div class="stats-number" id="unassignedAgents">0</div>
+                    <div>Unassigned Agents</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Filter Section -->
+        <div class="filter-section">
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="form-group mb-2">
+                        <label>Filter by Status:</label>
+                        <select class="form-control form-control-sm" id="statusFilter" onchange="applyFilters()">
+                            <option value="all">All</option>
+                            <option value="assigned">Assigned</option>
+                            <option value="unassigned">Unassigned</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="form-group mb-2">
+                        <label>Search Agents:</label>
+                        <input type="text" class="form-control form-control-sm" id="agentSearch" placeholder="Type to search..." onkeyup="applyFilters()">
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="form-group mb-2">
+                        <label>Search Environments:</label>
+                        <input type="text" class="form-control form-control-sm" id="envSearch" placeholder="Type to search..." onkeyup="applyFilters()">
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-12 mt-1">
+                    <button class="btn btn-sm btn-secondary" id="resetFiltersBtn" onclick="resetFilters()">
+                        <i class="fas fa-undo"></i> Reset Filters
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Tab Navigation -->
+        <ul class="nav nav-tabs" id="viewTabs" role="tablist">
+            <li class="nav-item">
+                <a class="nav-link active" id="list-tab" data-toggle="tab" href="#listView" role="tab">
+                    <i class="fas fa-list"></i> List View
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" id="matrix-tab" data-toggle="tab" href="#matrixView" role="tab">
+                    <i class="fas fa-table"></i> Matrix View
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" id="cards-tab" data-toggle="tab" href="#cardsView" role="tab">
+                    <i class="fas fa-th-large"></i> Cards View
+                </a>
+            </li>
+        </ul>
+        
+        <!-- Tab Content -->
+        <div class="tab-content mt-2" id="viewTabContent">
+            <!-- List View -->
+            <div class="tab-pane fade show active" id="listView" role="tabpanel">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h4>Agents</h4>
+                        <div id="agentsList"></div>
+                    </div>
+                    <div class="col-md-6">
+                        <h4>Environments</h4>
+                        <div id="environmentsList"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Matrix View -->
+            <div class="tab-pane fade" id="matrixView" role="tabpanel">
+                <div class="assignment-matrix">
+                    <table class="table table-bordered matrix-table">
+                        <thead>
+                            <tr>
+                                <th>Agent / Environment</th>
+                                <!-- Environment columns will be added dynamically -->
+                            </tr>
+                        </thead>
+                        <tbody id="matrixBody">
+                            <!-- Matrix rows will be added dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Cards View -->
+            <div class="tab-pane fade" id="cardsView" role="tabpanel">
+                <div class="row" id="assignmentCards">
+                    <!-- Assignment cards will be added dynamically -->
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Assignment Modal -->
+    <div class="modal fade" id="assignmentModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Create Assignment</h5>
+                    <button type="button" class="close" data-dismiss="modal">
+                        <span>&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Select Agent:</label>
+                        <select class="form-control form-control-sm" id="modalAgentSelect">
+                            <option value="">-- Select Agent --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Select Environment:</label>
+                        <select class="form-control form-control-sm" id="modalEnvSelect">
+                            <option value="">-- Select Environment --</option>
+                        </select>
+                    </div>
+                    <div class="alert alert-info" id="assignmentInfo" style="display: none;">
+                        <i class="fas fa-info-circle"></i> <span id="infoText"></span>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-primary" onclick="createAssignment()">
+                        <i class="fas fa-link"></i> Create
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Edit Assignment Modal -->
+    <div class="modal fade" id="editAssignmentModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit Assignment</h5>
+                    <button type="button" class="close" data-dismiss="modal">
+                        <span>&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Agent:</label>
+                        <input type="text" class="form-control form-control-sm" id="editAgentName" readonly>
+                        <input type="hidden" id="editAgentId">
+                    </div>
+                    <div class="form-group">
+                        <label>Change Environment:</label>
+                        <select class="form-control form-control-sm" id="editEnvSelect">
+                            <option value="">-- No Environment (Remove Assignment) --</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-danger" onclick="removeAssignment()">
+                        <i class="fas fa-unlink"></i> Remove
+                    </button>
+                    <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-primary" onclick="updateAssignment()">
+                        <i class="fas fa-save"></i> Update
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    
+    <script>
+        let agents = [];
+        let environments = [];
+        let assignments = [];
+        // Global filter state
+        let currentFilters = {
+            status: 'all',
+            agentSearch: '',
+            envSearch: ''
+        };
+        
+        // Initialize on page load
+        $(document).ready(function() {
+            loadData();
+        });
+        
+        function loadData() {
+            // Load agents
+            $.ajax({
+                url: '/api/assignments/agents/list',
+                method: 'GET',
+                success: function(response) {
+                    agents = response.agents || [];
+                    loadEnvironments();
+                },
+                error: function() {
+                    console.error('Failed to load agents');
+                    agents = [];
+                    loadEnvironments();
+                }
+            });
+        }
+        
+        function loadEnvironments() {
+            $.ajax({
+                url: '/environments/api/list',
+                method: 'GET',
+                success: function(response) {
+                    environments = response.environments || [];
+                    loadAssignments();
+                },
+                error: function() {
+                    console.error('Failed to load environments');
+                    environments = [];
+                    loadAssignments();
+                }
+            });
+        }
+        
+        function loadAssignments() {
+            $.ajax({
+                url: '/api/assignments/list',
+                method: 'GET',
+                success: function(response) {
+                    assignments = response.assignments || [];
+                    updateUI();
+                },
+                error: function() {
+                    console.error('Failed to load assignments');
+                    assignments = [];
+                    updateUI();
+                }
+            });
+        }
+
+        function updateUI() {
+            // Apply filters to get filtered data
+            const filteredAgents = filterAgents(agents);
+            const filteredEnvironments = filterEnvironments(environments);
+            const filteredAssignments = filterAssignments(assignments);
+            
+            // Update statistics with filtered data
+            updateStatistics(filteredAgents, filteredEnvironments, filteredAssignments);
+            
+            // Update views with filtered data
+            updateListView(filteredAgents, filteredEnvironments, filteredAssignments);
+            updateMatrixView(filteredAgents, filteredEnvironments, filteredAssignments);
+            updateCardsView(filteredAgents, filteredEnvironments, filteredAssignments);
+            populateModals();
+        }
+
+        function updateListView(filteredAgents, filteredEnvironments, filteredAssignments) {
+            // Update agents list
+            const agentsList = $('#agentsList');
+            agentsList.empty();
+            
+            if (filteredAgents.length === 0) {
+                agentsList.append('<div class="text-muted">No agents found matching the filters.</div>');
+            } else {
+                filteredAgents.forEach(agent => {
+                    const assignment = filteredAssignments.find(a => a.agent_id === agent.id && a.is_active);
+                    const itemClass = assignment ? 'agent-item' : 'agent-item unassigned-item';
+                    
+                    const agentHtml = `
+                        <div class="${itemClass}">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="mb-1">${agent.description}</h6>
+                                    <small class="text-muted">ID: ${agent.id}</small>
+                                    ${assignment ? 
+                                        `<div class="mt-1">
+                                            <span class="badge badge-success">
+                                                <i class="fas fa-link"></i> ${getEnvironmentName(assignment.environment_id)}
+                                            </span>
+                                        </div>` : 
+                                        '<div class="mt-1"><span class="badge badge-warning">Unassigned</span></div>'
+                                    }
+                                </div>
+                                <button class="btn btn-sm btn-outline-primary" onclick="editAssignment(${agent.id})">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    agentsList.append(agentHtml);
+                });
+            }
+            
+            // Update environments list
+            const envsList = $('#environmentsList');
+            envsList.empty();
+            
+            if (filteredEnvironments.length === 0) {
+                envsList.append('<div class="text-muted">No environments found matching the filters.</div>');
+            } else {
+                filteredEnvironments.forEach(env => {
+                    const assignedAgents = filteredAssignments.filter(a => 
+                        a.environment_id === env.environment_id && a.is_active
+                    );
+                    
+                    const envHtml = `
+                        <div class="environment-item">
+                            <h6 class="mb-1">${env.name}</h6>
+                            <small class="text-muted">${env.description || 'No description'}</small>
+                            <div class="mt-1">
+                                <span class="badge badge-info">
+                                    <i class="fas fa-robot"></i> ${assignedAgents.length} agent(s)
+                                </span>
+                                ${assignedAgents.length > 0 ? 
+                                    `<div class="mt-1">
+                                        ${assignedAgents.map(a => 
+                                            `<small class="d-block">• ${getAgentName(a.agent_id)}</small>`
+                                        ).join('')}
+                                    </div>` : ''
+                                }
+                            </div>
+                        </div>
+                    `;
+                    envsList.append(envHtml);
+                });
+            }
+        }
+        
+        function updateMatrixView(filteredAgents, filteredEnvironments, filteredAssignments) {
+            const matrixTable = $('.matrix-table tbody');
+            matrixTable.empty();
+            
+            if (filteredAgents.length === 0 || filteredEnvironments.length === 0) {
+                matrixTable.append(`
+                    <tr>
+                        <td colspan="${filteredEnvironments.length + 1}" class="text-center text-muted">
+                            No data to display based on current filters.
+                        </td>
+                    </tr>
+                `);
+                return;
+            }
+            
+            // Update matrix header with filtered environments
+            const matrixHeader = $('.matrix-table thead tr');
+            matrixHeader.empty();
+            matrixHeader.append('<th>Agent / Environment</th>');
+            filteredEnvironments.forEach(env => {
+                matrixHeader.append(`<th class="text-center">${env.name}</th>`);
+            });
+            
+            // Add rows for each filtered agent
+            filteredAgents.forEach(agent => {
+                let row = `<tr><td><strong>${agent.description}</strong></td>`;
+                
+                filteredEnvironments.forEach(env => {
+                    const isAssigned = filteredAssignments.some(a => 
+                        a.agent_id === agent.id && 
+                        a.environment_id === env.environment_id && 
+                        a.is_active
+                    );
+                    
+                    if (isAssigned) {
+                        row += `
+                            <td class="text-center">
+                                <span class="badge badge-success">
+                                    <i class="fas fa-check"></i>
+                                </span>
+                                <br>
+                                <button class="btn btn-sm btn-link p-0 mt-1" onclick="removeAssignmentDirect(${agent.id})">
+                                    <small><i class="fas fa-unlink"></i></small>
+                                </button>
+                            </td>
+                        `;
+                    } else {
+                        row += `
+                            <td class="text-center">
+                                <button class="btn btn-sm btn-outline-secondary" 
+                                        onclick="quickAssign(${agent.id}, '${env.environment_id}')">
+                                    <i class="fas fa-plus"></i>
+                                </button>
+                            </td>
+                        `;
+                    }
+                });
+                
+                row += '</tr>';
+                matrixTable.append(row);
+            });
+        }
+
+        function updateCardsView(filteredAgents, filteredEnvironments, filteredAssignments) {
+            const cardsContainer = $('#assignmentCards');
+            cardsContainer.empty();
+            
+            if (filteredAssignments.length === 0) {
+                cardsContainer.append(`
+                    <div class="col-12">
+                        <div class="text-center text-muted">
+                            <i class="fas fa-inbox fa-3x mb-3"></i>
+                            <p>No active assignments found based on current filters.</p>
+                        </div>
+                    </div>
+                `);
+                return;
+            }
+            
+            filteredAssignments.forEach(assignment => {
+                const agent = agents.find(a => a.id === assignment.agent_id);
+                const env = environments.find(e => e.environment_id === assignment.environment_id);
+                
+                if (!agent || !env) return;
+                
+                const cardHtml = `
+                    <div class="col-md-6 col-lg-4 mb-2">
+                        <div class="assignment-card">
+                            <h6 class="mb-2">${agent.description}</h6>
+                            <p class="mb-2 small">
+                                <strong>Environment:</strong> ${env.name}<br>
+                                <strong>Assigned:</strong> ${formatDate(assignment.assigned_date)}
+                            </p>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-info" onclick="testAssignment(${agent.id}, '${env.environment_id}')">
+                                    <i class="fas fa-play"></i> Test
+                                </button>
+                                <button class="btn btn-warning" onclick="editAssignment(${agent.id})">
+                                    <i class="fas fa-edit"></i> Edit
+                                </button>
+                                <button class="btn btn-danger" onclick="confirmRemoveAssignment(${agent.id})">
+                                    <i class="fas fa-trash"></i> Remove
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                cardsContainer.append(cardHtml);
+            });
+        }
+        
+        function populateModals() {
+            // Populate agent select
+            const agentSelect = $('#modalAgentSelect');
+            agentSelect.empty();
+            agentSelect.append('<option value="">-- Select Agent --</option>');
+            agents.forEach(agent => {
+                agentSelect.append(`<option value="${agent.id}">${agent.description}</option>`);
+            });
+            
+            // Populate environment selects
+            const envSelect = $('#modalEnvSelect');
+            const editEnvSelect = $('#editEnvSelect');
+            
+            envSelect.empty();
+            envSelect.append('<option value="">-- Select Environment --</option>');
+            
+            editEnvSelect.empty();
+            editEnvSelect.append('<option value="">-- No Environment (Remove Assignment) --</option>');
+            
+            environments.forEach(env => {
+                const option = `<option value="${env.environment_id}">${env.name}</option>`;
+                envSelect.append(option);
+                editEnvSelect.append(option);
+            });
+        }
+        
+        function showAssignmentModal() {
+            $('#assignmentModal').modal('show');
+            $('#assignmentInfo').hide();
+        }
+        
+        function createAssignment() {
+            const agentId = $('#modalAgentSelect').val();
+            const envId = $('#modalEnvSelect').val();
+            
+            if (!agentId || !envId) {
+                alert('Please select both an agent and an environment');
+                return;
+            }
+            
+            $.ajax({
+                url: '/api/agents/' + agentId + '/environment',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    environment_id: envId
+                }),
+                success: function(response) {
+                    $('#assignmentModal').modal('hide');
+                    loadData();
+                    showSuccessMessage('Assignment created successfully');
+                },
+                error: function(xhr) {
+                    alert('Error: ' + (xhr.responseJSON?.message || 'Failed to create assignment'));
+                }
+            });
+        }
+        
+        function editAssignment(agentId) {
+            const agent = agents.find(a => a.id === agentId);
+            const assignment = assignments.find(a => a.agent_id === agentId && a.is_active);
+            
+            $('#editAgentName').val(agent.description);
+            $('#editAgentId').val(agentId);
+            
+            if (assignment) {
+                $('#editEnvSelect').val(assignment.environment_id);
+            } else {
+                $('#editEnvSelect').val('');
+            }
+            
+            $('#editAssignmentModal').modal('show');
+        }
+        
+        function updateAssignment() {
+            const agentId = $('#editAgentId').val();
+            const envId = $('#editEnvSelect').val();
+            
+            $.ajax({
+                url: '/api/agents/' + agentId + '/environment',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    environment_id: envId || null
+                }),
+                success: function(response) {
+                    $('#editAssignmentModal').modal('hide');
+                    loadData();
+                    showSuccessMessage(envId ? 'Assignment updated successfully' : 'Assignment removed successfully');
+                },
+                error: function(xhr) {
+                    alert('Error: ' + (xhr.responseJSON?.message || 'Failed to update assignment'));
+                }
+            });
+        }
+        
+        function removeAssignment() {
+            const agentId = $('#editAgentId').val();
+            
+            if (confirm('Are you sure you want to remove this assignment?')) {
+                $.ajax({
+                    url: '/api/agents/' + agentId + '/environment',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        environment_id: null
+                    }),
+                    success: function(response) {
+                        $('#editAssignmentModal').modal('hide');
+                        loadData();
+                        showSuccessMessage('Assignment removed successfully');
+                    },
+                    error: function(xhr) {
+                        alert('Error: ' + (xhr.responseJSON?.message || 'Failed to remove assignment'));
+                    }
+                });
+            }
+        }
+        
+        function removeAssignmentDirect(agentId) {
+            if (confirm('Are you sure you want to remove this assignment?')) {
+                $.ajax({
+                    url: '/api/agents/' + agentId + '/environment',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        environment_id: null
+                    }),
+                    success: function(response) {
+                        loadData();
+                        showSuccessMessage('Assignment removed successfully');
+                    },
+                    error: function(xhr) {
+                        alert('Error: ' + (xhr.responseJSON?.message || 'Failed to remove assignment'));
+                    }
+                });
+            }
+        }
+        
+        function confirmRemoveAssignment(agentId) {
+            if (confirm('Are you sure you want to remove this assignment?')) {
+                $.ajax({
+                    url: '/api/agents/' + agentId + '/environment',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        environment_id: null
+                    }),
+                    success: function(response) {
+                        loadData();
+                        showSuccessMessage('Assignment removed successfully');
+                    },
+                    error: function(xhr) {
+                        alert('Error: ' + (xhr.responseJSON?.message || 'Failed to remove assignment'));
+                    }
+                });
+            }
+        }
+        
+        function quickAssign(agentId, envId) {
+            if (confirm('Assign this environment to the agent?')) {
+                $.ajax({
+                    url: '/api/agents/' + agentId + '/environment',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        environment_id: envId
+                    }),
+                    success: function(response) {
+                        loadData();
+                        showSuccessMessage('Assignment created successfully');
+                    },
+                    error: function(xhr) {
+                        alert('Error: ' + (xhr.responseJSON?.message || 'Failed to create assignment'));
+                    }
+                });
+            }
+        }
+        
+        function testAssignment(agentId, envId) {
+            // Redirect to sandbox with pre-selected agent and environment
+            window.location.href = `/environments/sandbox?env=${envId}&agent=${agentId}`;
+        }
+        
+        function applyFilters() {
+            // Update filter state
+            currentFilters.status = $('#statusFilter').val();
+            currentFilters.agentSearch = $('#agentSearch').val().toLowerCase();
+            currentFilters.envSearch = $('#envSearch').val().toLowerCase();
+            
+            // Update UI with filters applied
+            updateUI();
+        }
+
+        function toggleView() {
+            // Cycle through tabs
+            const activeTab = $('.nav-tabs .active').attr('id');
+            let nextTab;
+            
+            if (activeTab === 'list-tab') {
+                nextTab = 'matrix-tab';
+            } else if (activeTab === 'matrix-tab') {
+                nextTab = 'cards-tab';
+            } else {
+                nextTab = 'list-tab';
+            }
+            
+            $(`#${nextTab}`).tab('show');
+        }
+        
+        function getAgentName(agentId) {
+            const agent = agents.find(a => a.id === agentId);
+            return agent ? agent.description : 'Unknown Agent';
+        }
+        
+        function getEnvironmentName(envId) {
+            const env = environments.find(e => e.environment_id === envId);
+            return env ? env.name : 'Unknown Environment';
+        }
+        
+        function showSuccessMessage(message) {
+            console.log(message);
+        }
+        
+        // Check agent on modal change to show if already assigned
+        $('#modalAgentSelect').on('change', function() {
+            const agentId = parseInt($(this).val());
+            if (agentId) {
+                const existingAssignment = assignments.find(a => a.agent_id === agentId && a.is_active);
+                if (existingAssignment) {
+                    $('#assignmentInfo').show();
+                    $('#infoText').text(`This agent is currently assigned to: ${getEnvironmentName(existingAssignment.environment_id)}. Creating a new assignment will replace the existing one.`);
+                } else {
+                    $('#assignmentInfo').hide();
+                }
+            } else {
+                $('#assignmentInfo').hide();
+            }
+        });
+
+        function filterAgents(agentList) {
+            return agentList.filter(agent => {
+                // Filter by search term
+                if (currentFilters.agentSearch && 
+                    !agent.description.toLowerCase().includes(currentFilters.agentSearch) &&
+                    !agent.id.toString().includes(currentFilters.agentSearch)) {
+                    return false;
+                }
+                
+                // Filter by assignment status
+                if (currentFilters.status !== 'all') {
+                    const isAssigned = assignments.some(a => 
+                        a.agent_id === agent.id && a.is_active
+                    );
+                    
+                    if (currentFilters.status === 'assigned' && !isAssigned) {
+                        return false;
+                    }
+                    if (currentFilters.status === 'unassigned' && isAssigned) {
+                        return false;
+                    }
+                }
+                
+                return true;
+            });
+        }
+
+        function filterEnvironments(envList) {
+            return envList.filter(env => {
+                // Filter by search term
+                if (currentFilters.envSearch && 
+                    !env.name.toLowerCase().includes(currentFilters.envSearch) &&
+                    !(env.description && env.description.toLowerCase().includes(currentFilters.envSearch))) {
+                    return false;
+                }
+                
+                return true;
+            });
+        }
+
+        function filterAssignments(assignmentList) {
+            return assignmentList.filter(assignment => {
+                // Only show assignments for filtered agents and environments
+                const agentFiltered = filterAgents([agents.find(a => a.id === assignment.agent_id)]).length > 0;
+                const envFiltered = filterEnvironments([environments.find(e => e.environment_id === assignment.environment_id)]).length > 0;
+                
+                return agentFiltered && envFiltered && assignment.is_active;
+            });
+        }
+
+        function updateStatistics(filteredAgents, filteredEnvironments, filteredAssignments) {
+            $('#totalAgents').text(filteredAgents.length);
+            $('#totalEnvironments').text(filteredEnvironments.length);
+            $('#activeAssignments').text(filteredAssignments.filter(a => a.is_active).length);
+            
+            const assignedAgentIds = filteredAssignments.filter(a => a.is_active).map(a => a.agent_id);
+            const unassignedCount = filteredAgents.filter(a => !assignedAgentIds.includes(a.id)).length;
+            $('#unassignedAgents').text(unassignedCount);
+        }
+
+        // Helper function to format dates
+        function formatDate(dateString) {
+            if (!dateString) return 'N/A';
+            const date = new Date(dateString);
+            return date.toLocaleDateString();
+        }
+
+        // Reset filters function
+        function resetFilters() {
+            $('#statusFilter').val('all');
+            $('#agentSearch').val('');
+            $('#envSearch').val('');
+            
+            currentFilters = {
+                status: 'all',
+                agentSearch: '',
+                envSearch: ''
+            };
+            
+            updateUI();
+        }
+    </script>
+    
+    
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}
+</body>
+</html>

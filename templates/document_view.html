@@ -1,0 +1,368 @@
+{% extends "base.html" %}
+{% block title %}{{ document.filename }} - Page {{ page.page_number }}{% endblock %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<style>
+    .doc-page .input-group-text { background: var(--bg-elevated); border: 1px solid var(--border-subtle); color: var(--text-secondary); font-size: 0.85rem; }
+    .doc-page .input-group .form-control { border-radius: 0; }
+    .doc-page .input-group .btn { border-radius: 0 8px 8px 0; }
+    .doc-page #document-content { font-size: 0.9rem; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--bg-elevated) !important; color: var(--text-primary); }
+    .doc-page #document-content mark { background-color: rgba(6, 182, 212, 0.25); color: var(--text-primary); padding: 0.1rem 0.2rem; border-radius: 2px; }
+    .doc-page .table-borderless th { color: var(--text-muted); font-size: 0.82rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+    .doc-page .table-borderless td { color: var(--text-primary); font-size: 0.88rem; }
+    .doc-page .table-primary th { background: rgba(6, 182, 212, 0.1) !important; color: var(--cyber-cyan) !important; border: none; }
+    @media print {
+        .doc-page-header, .doc-theme-toggle, .btn { display: none !important; }
+        .doc-page { background: #fff !important; color: #000 !important; }
+        #document-content { height: auto !important; overflow: visible !important; border: none !important; background: none !important; color: #000 !important; }
+    }
+</style>
+
+<div class="doc-page" id="docPage">
+<div class="container-fluid">
+
+    <!-- Document Actions Bar -->
+    <div class="card mb-3">
+        <div class="card-header doc-card-header d-flex justify-content-between align-items-center">
+            <span><i class="fas fa-tools" style="color:var(--cyber-cyan);margin-right:0.5rem;"></i> Document Actions</span>
+            <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+                <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+            </button>
+        </div>
+        <div class="card-body py-2">
+            <div class="row align-items-center">
+                <!-- Return to search -->
+                <div class="col-md-2 mb-2 mb-md-0">
+                    <a href="{{ return_url }}" class="btn btn-outline-secondary btn-block">
+                        <i class="fas fa-arrow-left mr-1"></i> Back to Search
+                    </a>
+                </div>
+                
+                <!-- Document navigation -->
+                <div class="col-md-3 mb-2 mb-md-0">
+                    <div class="btn-group w-100">
+                        {% if has_prev_page %}
+                            <a href="{{ url_for('document_view_page', document_id=document.document_id, page=current_page-1, highlight=search_query, return_url=return_url) }}" class="btn btn-outline-primary">
+                                <i class="fas fa-chevron-left"></i> Previous
+                            </a>
+                        {% else %}
+                            <button type="button" class="btn btn-outline-primary disabled">
+                                <i class="fas fa-chevron-left"></i> Previous
+                            </button>
+                        {% endif %}
+                        
+                        {% if has_next_page %}
+                            <a href="{{ url_for('document_view_page', document_id=document.document_id, page=current_page+1, highlight=search_query, return_url=return_url) }}" class="btn btn-outline-primary">
+                                Next <i class="fas fa-chevron-right"></i>
+                            </a>
+                        {% else %}
+                            <button type="button" class="btn btn-outline-primary disabled">
+                                Next <i class="fas fa-chevron-right"></i>
+                            </button>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <!-- Page selector -->
+                <div class="col-md-3 mb-2 mb-md-0">
+                    <form action="{{ url_for('document_view_page', document_id=document.document_id) }}" method="GET" class="m-0">
+                        <div class="input-group">
+                            <span class="input-group-text">Page</span>
+                            <input type="number" name="page" class="form-control" min="1" max="{{ document.page_count }}" value="{{ current_page }}">
+                            <span class="input-group-text">of {{ document.page_count }}</span>
+                            <input type="hidden" name="highlight" value="{{ search_query }}">
+                            <input type="hidden" name="return_url" value="{{ return_url }}">
+                            <button type="submit" class="btn btn-outline-primary">Go</button>
+                        </div>
+                    </form>
+                </div>
+                
+                <!-- Additional actions -->
+                <div class="col-md-4">
+                    <div class="btn-group w-100">
+                        <button type="button" class="btn btn-outline-secondary" id="toggleHighlight">
+                            <i class="fas fa-highlighter mr-1"></i> Toggle Highlights
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="window.print();">
+                            <i class="fas fa-print mr-1"></i> Print
+                        </button>
+                        {% if document.archived_path %}
+                            <button type="button" class="btn btn-outline-primary" id="viewOriginalBtn" data-document-id="{{ document.document_id }}" data-original-path="{{ document.archived_path }}">
+                                <i class="fas fa-file-pdf mr-1"></i> Open PDF
+                            </button>
+                        {% else %}
+                            <button disabled type="button" class="btn btn-outline-primary" id="viewOriginalBtn" data-document-id="{{ document.document_id }}" data-original-path="{{ document.original_path }}">
+                                <i class="fas fa-file-pdf mr-1"></i> Open PDF
+                            </button>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="row">
+        <!-- Document Info Sidebar -->
+        <div class="col-md-4">
+            <div class="card mb-3">
+                <div class="card-header doc-card-header">
+                    <i class="fas fa-info-circle" style="color:var(--cyber-cyan);margin-right:0.5rem;"></i> Document Information
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm table-borderless">
+                        <tbody>
+                            <tr>
+                                <th>Filename:</th>
+                                <td>{{ document.filename }}</td>
+                            </tr>
+                            <tr>
+                                <th>Document Type:</th>
+                                <td>{{ document.document_type }}</td>
+                            </tr>
+                            <tr>
+                                <th>Reference #:</th>
+                                <td>{{ document.reference_number or 'N/A' }}</td>
+                            </tr>
+                            <tr>
+                                <th>Date:</th>
+                                <td>{{ document.document_date or 'N/A' }}</td>
+                            </tr>
+                            <tr>
+                                <th>Customer ID:</th>
+                                <td>{{ document.customer_id or 'N/A' }}</td>
+                            </tr>
+                            <tr>
+                                <th>Vendor ID:</th>
+                                <td>{{ document.vendor_id or 'N/A' }}</td>
+                            </tr>
+                            <tr>
+                                <th>Pages:</th>
+                                <td>{{ page.page_number }} of {{ document.page_count }}</td>
+                            </tr>
+                            <tr>
+                                <th>Processed:</th>
+                                <td>{{ document.processed_at }}</td>
+                            </tr>
+                            {% if document.archived_path %}
+                            <tr>
+                                <th>Archived File:</th>
+                                <td>
+                                    <a href="#" class="text-primary" id="viewOriginalLink" data-document-id="{{ document.document_id }}" data-original-path="{{ document.archived_path }}">
+                                        <i class="fas fa-file-pdf mr-1"></i> View Original
+                                    </a>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <th>Original File:</th>
+                                <td>
+                                    {{ document.original_path }}
+                                </td>
+                            </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Extracted Fields -->
+            <div class="card">
+                <div class="card-header doc-card-header">
+                    <i class="fas fa-tags" style="color:var(--cyber-cyan);margin-right:0.5rem;"></i> Extracted Fields
+                </div>
+                <div class="card-body p-0">
+                    <!-- Existing fields table content -->
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0">
+                            <!-- Your existing table code here -->
+                            <thead>
+                                <tr>
+                                    <th>Field</th>
+                                    <th>Value</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% if page.fields %}
+                                    {% set grouped_fields = {} %}
+                                    
+                                    {% for field in page.fields %}
+                                        {% set path = field.path or field.name %}
+                                        {% set parts = path.split('.') %}
+                                        
+                                        {% if parts|length > 1 %}
+                                            {% set group_key = parts[0] %}
+                                            {% if group_key not in grouped_fields %}
+                                                {% set _ = grouped_fields.update({group_key: []}) %}
+                                            {% endif %}
+                                            {% set _ = grouped_fields[group_key].append(field) %}
+                                        {% else %}
+                                            {% if '_top' not in grouped_fields %}
+                                                {% set _ = grouped_fields.update({'_top': []}) %}
+                                            {% endif %}
+                                            {% set _ = grouped_fields['_top'].append(field) %}
+                                        {% endif %}
+                                    {% endfor %}
+                                    
+                                    <!-- Top-level fields first -->
+                                    {% if '_top' in grouped_fields %}
+                                        {% for field in grouped_fields['_top'] %}
+                                            <tr>
+                                                <th>{{ field.name }}</th>
+                                                <td>{{ field.value or '' }}</td>
+                                            </tr>
+                                        {% endfor %}
+                                    {% endif %}
+                                    
+                                    <!-- Then grouped fields -->
+                                    {% for group in grouped_fields %}
+                                        {% if group != '_top' %}
+                                            <tr class="table-primary">
+                                                <th colspan="2">{{ group }}</th>
+                                            </tr>
+                                            
+                                            {% for field in grouped_fields[group] %}
+                                                {% set parts = field.path.split('.') %}
+                                                {% set display_name = parts[1:]|join('.') if parts|length > 1 else field.name %}
+                                                <tr>
+                                                    <th class="pl-3">{{ display_name }}</th>
+                                                    <td>{{ field.value or '' }}</td>
+                                                </tr>
+                                            {% endfor %}
+                                        {% endif %}
+                                    {% endfor %}
+                                    
+                                {% else %}
+                                    <tr>
+                                        <td colspan="2" class="text-center">No extracted fields available</td>
+                                    </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Document Content -->
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header doc-card-header d-flex justify-content-between align-items-center">
+                    <span><i class="fas fa-file-alt" style="color:var(--cyber-cyan);margin-right:0.5rem;"></i> Document Content</span>
+                    <span class="badge badge-primary">
+                        Page {{ page.page_number }} of {{ document.page_count }}
+                    </span>
+                </div>
+                <div class="card-body">
+                    <div id="document-content" class="p-3 overflow-auto" style="height: 75vh; white-space: pre-wrap; font-family: 'JetBrains Mono', monospace; line-height: 1.6; font-size: 0.88rem;">
+                        {{ page.content|safe }}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    const page = document.getElementById('docPage');
+    const icon = document.getElementById('docThemeIcon');
+    const label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    const isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    const saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        const page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            const icon = document.getElementById('docThemeIcon');
+            const label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Toggle highlighting
+        const toggleHighlightBtn = document.getElementById('toggleHighlight');
+        if (toggleHighlightBtn) {
+            toggleHighlightBtn.addEventListener('click', function() {
+                const content = document.getElementById('document-content');
+                const marks = content.querySelectorAll('mark');
+                
+                marks.forEach(mark => {
+                    if (mark.style.backgroundColor === 'transparent') {
+                        mark.style.backgroundColor = '';
+                        mark.style.color = '';
+                    } else {
+                        mark.style.backgroundColor = 'transparent';
+                        mark.style.color = 'inherit';
+                    }
+                });
+            });
+        }
+        
+        // Handle keyboard navigation
+        document.addEventListener('keydown', function(e) {
+            // Left arrow - previous page
+            if (e.key === 'ArrowLeft' && {{ has_prev_page|lower }}) {
+                window.location.href = "{{ url_for('document_view_page', document_id=document.document_id, page=current_page-1, highlight=search_query, return_url=return_url) }}";
+            }
+            
+            // Right arrow - next page
+            if (e.key === 'ArrowRight' && {{ has_next_page|lower }}) {
+                window.location.href = "{{ url_for('document_view_page', document_id=document.document_id, page=current_page+1, highlight=search_query, return_url=return_url) }}";
+            }
+        });
+        
+        // View Original Document functionality
+        function viewOriginalDocument(documentId, originalPath) {
+            // Escape backslashes for JavaScript
+            const escapedPath = originalPath.replace(/\\/g, '\\\\');
+            
+            // Check if docProcessor is available (global object from the other page)
+            if (typeof docProcessor !== 'undefined' && docProcessor.viewDocument) {
+                // Use the docProcessor if available
+                docProcessor.viewDocument(documentId, escapedPath);
+            } else {
+                // Fallback if docProcessor is not available
+                const viewerUrl = `/document/serve/${encodeURIComponent(originalPath)}`;
+                window.open(viewerUrl, '_blank');
+            }
+        }
+        
+        // Set up click handlers for the view original document button and link
+        const viewOriginalBtn = document.getElementById('viewOriginalBtn');
+        const viewOriginalLink = document.getElementById('viewOriginalLink');
+        
+        if (viewOriginalBtn) {
+            viewOriginalBtn.addEventListener('click', function() {
+                const documentId = this.getAttribute('data-document-id');
+                const originalPath = this.getAttribute('data-original-path');
+                viewOriginalDocument(documentId, originalPath);
+            });
+        }
+        
+        if (viewOriginalLink) {
+            viewOriginalLink.addEventListener('click', function(e) {
+                e.preventDefault();
+                const documentId = this.getAttribute('data-document-id');
+                const originalPath = this.getAttribute('data-original-path');
+                viewOriginalDocument(documentId, originalPath);
+            });
+        }
+    });
+</script>
+</div><!-- /.container-fluid -->
+</div><!-- /.doc-page -->
+{% endblock %}

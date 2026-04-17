@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Tailwind CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+    tailwind.config = {
+        theme: {
+            extend: {
+                colors: {
+                    'cyber-cyan': '#06b6d4',
+                    'cyber-violet': '#a78bfa',
+                    'explorer-accent': '#3b82f6',
+                    'explorer-surface': '#111827',
+                    'explorer-card': '#1f2937',
+                },
+                fontFamily: {
+                    'outfit': ['Outfit', 'sans-serif'],
+                    'jetbrains': ['JetBrains Mono', 'monospace']
+                }
+            }
+        }
+    };
+</script>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<!-- Gridstack.js for dashboard grid -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridstack@10.3.1/dist/gridstack.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridstack@10.3.1/dist/gridstack-extra.min.css">
+<script src="https://cdn.jsdelivr.net/npm/gridstack@10.3.1/dist/gridstack-all.js"></script>
+
+<!-- Prism syntax highlighting -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+
+<!-- Data Explorer CSS -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/data-explorer.css') }}">
+
+<!-- Data Explorer JS modules -->
+<script src="{{ url_for('static', filename='js/data-explorer-tables.js') }}"></script>
+<script src="{{ url_for('static', filename='js/data-explorer-charts.js') }}"></script>
+<script src="{{ url_for('static', filename='js/data-explorer-dashboard.js') }}"></script>
+<script src="{{ url_for('static', filename='js/data-explorer.js') }}"></script>
+
+<div class="de-page" id="explorerPage">
+
+    <!-- ─── Sidebar ──────────────────────────────────────────── -->
+    <aside class="de-sidebar" id="explorerSidebar">
+        <div class="de-sidebar-header">
+            <i class="fas fa-compass"></i>
+            <span>Data Explorer</span>
+        </div>
+
+        <!-- Agent Selector -->
+        <div class="de-sidebar-section">
+            <label class="de-sidebar-label">Data Source</label>
+            <select id="agentDropdown" class="de-select">
+                <option value="">Loading agents...</option>
+            </select>
+            <div id="agentObjective" class="de-agent-objective"></div>
+        </div>
+
+        <!-- Dashboards -->
+        <div class="de-sidebar-section">
+            <div class="de-sidebar-label-row">
+                <label class="de-sidebar-label">Dashboards</label>
+                <button onclick="DataExplorer.newDashboard()" class="de-btn de-btn-sm de-btn-ghost" title="New dashboard">
+                    <i class="fas fa-plus"></i>
+                </button>
+            </div>
+            <div id="savedDashboardsList" class="de-saved-list">
+                <div class="de-saved-empty">No saved dashboards</div>
+            </div>
+        </div>
+
+        <!-- Settings -->
+        <div class="de-sidebar-section de-sidebar-bottom">
+            <button onclick="DataExplorer.toggleTheme()" class="de-btn de-btn-ghost de-btn-full">
+                <i class="fas fa-moon" id="themeIcon"></i> <span id="themeLabel">Dark Mode</span>
+            </button>
+            <button onclick="DataExplorer.resetSession()" class="de-btn de-btn-ghost de-btn-full">
+                <i class="fas fa-redo"></i> New Session
+            </button>
+        </div>
+    </aside>
+
+    <!-- ─── Main Content ─────────────────────────────────────── -->
+    <main class="de-main">
+
+        <!-- Right tab strip removed — dashboard opens from sidebar -->
+
+        <!-- ─── Welcome State ────────────────────────────────── -->
+        <div class="de-welcome" id="welcomeState">
+            <div class="de-welcome-icon">
+                <i class="fas fa-chart-line"></i>
+            </div>
+            <h2 class="de-welcome-title">Data Explorer</h2>
+            <p class="de-welcome-subtitle">Ask questions about your data, build charts, and create dashboards — all through conversation.</p>
+            <div class="de-welcome-chips">
+                <button class="de-chip" onclick="DataExplorer.askSuggestion(this)">Show me total sales by month</button>
+                <button class="de-chip" onclick="DataExplorer.askSuggestion(this)">What are the top 10 customers?</button>
+                <button class="de-chip" onclick="DataExplorer.askSuggestion(this)">Compare this quarter vs last quarter</button>
+                <button class="de-chip" onclick="DataExplorer.askSuggestion(this)">Give me a summary of the data</button>
+            </div>
+        </div>
+
+        <!-- ─── Chat Area (bottom, grows up) ─────────────────── -->
+        <div class="de-chat-area" id="chatArea">
+            <div class="de-chat-messages" id="chatMessages">
+                <!-- Messages rendered here -->
+            </div>
+        </div>
+
+        <!-- ─── Input Bar (fixed bottom) ─────────────────────── -->
+        <div class="de-input-bar">
+            <div class="de-input-container">
+                <div class="de-status-indicator" id="statusIndicator" style="display: none;">
+                    <div class="de-status-orb"></div>
+                    <span id="statusLabel">Thinking...</span>
+                </div>
+                <div class="de-input-row">
+                    <textarea
+                        id="userInput"
+                        class="de-textarea"
+                        placeholder="Ask a question about your data..."
+                        rows="1"
+                        autofocus
+                    ></textarea>
+                    <button id="sendBtn" class="de-send-btn" onclick="DataExplorer.sendMessage()">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- ─── Dashboard Slide-out Panel (from left) ──────────── -->
+    <div class="de-dash-overlay" id="dashOverlay" onclick="DataExplorer.toggleDashboardPanel()"></div>
+    <div class="de-dash-panel" id="dashPanel">
+        <div class="de-dash-panel-header">
+            <span class="de-dashboard-title" id="dashboardTitle">
+                <i class="fas fa-th-large"></i> <span id="dashboardTitleText">Dashboard</span>
+            </span>
+            <div class="de-dashboard-toolbar-actions">
+                <button onclick="DataExplorer.refreshDashboard()" class="de-btn de-btn-sm de-btn-ghost" title="Refresh data">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+                <button onclick="DataExplorer.saveDashboard()" class="de-btn de-btn-sm de-btn-primary" title="Save dashboard">
+                    <i class="fas fa-save"></i> Save
+                </button>
+                <button onclick="DataExplorer.toggleDashboardPanel()" class="de-btn de-btn-sm de-btn-ghost" title="Close">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </div>
+        <div class="de-dash-panel-body">
+            <div class="grid-stack" id="dashboardGrid"></div>
+        </div>
+    </div>
+
+    <!-- ─── Detail Panel (slide-out right) ───────────────────── -->
+    <div class="de-panel-overlay" id="panelOverlay" onclick="DataExplorer.closePanel()"></div>
+    <aside class="de-panel" id="detailPanel">
+        <div class="de-panel-header">
+            <span class="de-panel-title" id="panelTitle">Details</span>
+            <button class="de-panel-close" onclick="DataExplorer.closePanel()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="de-panel-body" id="panelBody">
+            <!-- Panel content rendered here -->
+        </div>
+        <div class="de-panel-actions" id="panelActions"></div>
+    </aside>
+</div>
+
+<!-- Save Dashboard Modal -->
+<div class="de-modal-overlay" id="saveDashboardModal" style="display: none;">
+    <div class="de-modal">
+        <div class="de-modal-header">
+            <h3>Save Dashboard</h3>
+            <button onclick="DataExplorer.closeSaveModal()" class="de-panel-close">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="de-modal-body">
+            <label class="de-sidebar-label">Dashboard Name</label>
+            <input type="text" id="dashboardNameInput" class="de-input" placeholder="e.g., Q1 Sales Overview" />
+        </div>
+        <div class="de-modal-footer">
+            <button onclick="DataExplorer.closeSaveModal()" class="de-btn de-btn-ghost">Cancel</button>
+            <button onclick="DataExplorer.confirmSaveDashboard()" class="de-btn de-btn-primary">Save</button>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

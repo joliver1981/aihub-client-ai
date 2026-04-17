@@ -1,0 +1,291 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<style>
+    .doc-page .custom-control-label { text-transform: none; letter-spacing: normal; font-weight: 400; font-size: 0.88rem; color: var(--text-primary); }
+    .doc-page .custom-control-input:checked ~ .custom-control-label::before { background-color: var(--cyber-cyan); border-color: var(--cyber-cyan); }
+    .doc-page .custom-switch .custom-control-label::before { background-color: var(--bg-elevated); border-color: var(--border-accent); }
+    .doc-page .input-group-append .btn { border-radius: 0 8px 8px 0; }
+    .doc-page .input-group-text { background: var(--bg-elevated); border: 1px solid var(--border-subtle); color: var(--text-secondary); }
+    .doc-page h5.card-title { color: var(--cyber-cyan); font-size: 0.95rem; font-weight: 600; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 0.03em; }
+    .doc-page .breadcrumb { background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 8px; }
+    .doc-page .breadcrumb-item a { color: var(--cyber-cyan); }
+    .doc-page .breadcrumb-item.active { color: var(--text-muted); }
+    .doc-page .spinner-border { color: var(--cyber-cyan) !important; }
+</style>
+
+<div class="doc-page" id="docPage">
+<div class="container-fluid">
+
+    <!-- Page Header -->
+    <div class="doc-page-header">
+        <div>
+            <h4 class="doc-page-header-title"><i class="fas fa-{% if job %}edit{% else %}plus-circle{% endif %}"></i> {% if job %}Edit Job: {{ job.JobName }}{% else %}Create New Job{% endif %}</h4>
+        </div>
+        <div class="doc-page-header-actions">
+            <a href="{{ url_for('document_processor') }}" class="btn btn-secondary btn-sm">
+                <i class="fas fa-arrow-left mr-1"></i> Back to Jobs
+            </a>
+            <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+                <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+            </button>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            
+            <div class="card">
+                <div class="card-header doc-card-header">
+                    <i class="fas fa-file-signature" style="color:var(--cyber-cyan);margin-right:0.5rem;"></i> Job Configuration
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('document_processor_save_job') }}" method="POST">
+                        {% if job %}
+                            <input type="hidden" name="JobID" value="{{ job.JobID }}">
+                        {% endif %}
+                        
+                        <div class="row mb-4">
+                            <div class="col-md-8">
+                                <h5 class="card-title">Basic Information</h5>
+                                
+                                <div class="form-group">
+                                    <label for="JobName">Job Name <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" id="JobName" name="JobName" required
+                                           value="{{ job.JobName if job else '' }}">
+                                    <small class="form-text text-muted">Give your job a descriptive name.</small>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="Description">Description</label>
+                                    <textarea class="form-control" id="Description" name="Description" rows="2">{{ job.Description if job else '' }}</textarea>
+                                    <small class="form-text text-muted">Optional description of what this job does.</small>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="CreatedBy">Created By <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" id="CreatedBy" name="CreatedBy" required
+                                           value="{{ job.CreatedBy if job else current_user.username }}">
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-4">
+                                <div class="card">
+                                    <div class="card-header doc-card-header">Status</div>
+                                    <div class="card-body">
+                                        <div class="custom-control custom-switch">
+                                            <input type="checkbox" class="custom-control-input" id="IsActive" name="IsActive"
+                                                   {% if job is none or job.IsActive %}checked{% endif %}>
+                                            <label class="custom-control-label" for="IsActive">Active</label>
+                                        </div>
+                                        <small class="form-text text-muted">
+                                            Inactive jobs won't be processed automatically.
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <h5 class="card-title">Directories and Files</h5>
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="InputDirectory">Input Directory <span class="text-danger">*</span></label>
+                                    <div class="input-group">
+                                        <input type="text" class="form-control" id="InputDirectory" name="InputDirectory" required
+                                               value="{{ job.InputDirectory if job else '' }}">
+                                        <div class="input-group-append">
+                                            <button class="btn btn-outline-secondary" type="button" id="browseInputBtn">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <small class="form-text text-muted">Directory containing files to process.</small>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="ArchiveDirectory">Archive Directory</label>
+                                    <div class="input-group">
+                                        <input type="text" class="form-control" id="ArchiveDirectory" name="ArchiveDirectory"
+                                               value="{{ job.ArchiveDirectory if job else '' }}">
+                                        <div class="input-group-append">
+                                            <button class="btn btn-outline-secondary" type="button" id="browseArchiveBtn">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <small class="form-text text-muted">Directory where processed files will be moved (optional).</small>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="FilePattern">File Pattern</label>
+                                    <input type="text" class="form-control" id="FilePattern" name="FilePattern"
+                                           value="{{ job.FilePattern if job else '*.pdf' }}">
+                                    <small class="form-text text-muted">Pattern to match files (e.g., *.pdf, invoice*.pdf).</small>
+                                </div>
+                                
+                                <div class="form-group mt-4">
+                                    <div class="custom-control custom-checkbox">
+                                        <input type="checkbox" class="custom-control-input" id="ProcessSubdirectories" name="ProcessSubdirectories"
+                                               {% if job and job.ProcessSubdirectories %}checked{% endif %}>
+                                        <label class="custom-control-label" for="ProcessSubdirectories">Process Subdirectories</label>
+                                    </div>
+                                    <small class="form-text text-muted">If checked, will also process files in subdirectories.</small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <h5 class="card-title">Processing Options</h5>
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="DefaultDocumentType">Default Document Type</label>
+                                    <input type="text" class="form-control" id="DefaultDocumentType" name="DefaultDocumentType"
+                                           value="{{ job.DefaultDocumentType if job else '' }}">
+                                    <small class="form-text text-muted">Type assigned to documents if not detected automatically.</small>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <div class="custom-control custom-checkbox">
+                                        <input type="checkbox" class="custom-control-input" id="ForceAIExtraction" name="ForceAIExtraction"  checked disabled 
+                                               {% if job and job.ForceAIExtraction %}checked{% endif %}>
+                                        <label class="custom-control-label" for="ForceAIExtraction">Force AI Extraction</label>
+                                    </div>
+                                    <small class="form-text text-muted">Use AI to determine document structure even with known types.</small>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <div class="custom-control custom-checkbox">
+                                        <input type="checkbox" class="custom-control-input" id="UseBatchProcessing" name="UseBatchProcessing"
+                                               {% if job and job.UseBatchProcessing %}checked{% endif %}>
+                                        <label class="custom-control-label" for="UseBatchProcessing">Use Batch Processing</label>
+                                    </div>
+                                    <small class="form-text text-muted">Process multiple pages in a single request.</small>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="BatchSize">Batch Size</label>
+                                    <input type="number" class="form-control" id="BatchSize" name="BatchSize" min="1" max="10"
+                                           value="{{ job.BatchSize if job else '3' }}">
+                                    <small class="form-text text-muted">Number of pages to process in each batch (1-10).</small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <h5 class="card-title">Notifications</h5>
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <div class="custom-control custom-checkbox">
+                                        <input type="checkbox" class="custom-control-input" id="NotifyOnCompletion" name="NotifyOnCompletion"
+                                               {% if job and job.NotifyOnCompletion %}checked{% endif %}>
+                                        <label class="custom-control-label" for="NotifyOnCompletion">Notify on Completion</label>
+                                    </div>
+                                    <small class="form-text text-muted">Send email notification when job completes.</small>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="NotificationEmail">Notification Email</label>
+                                    <input type="email" class="form-control" id="NotificationEmail" name="NotificationEmail"
+                                           value="{{ job.NotificationEmail if job else '' }}">
+                                    <small class="form-text text-muted">Email address to receive notifications.</small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="d-flex justify-content-between mt-4">
+                            <a href="{{ url_for('document_processor') }}" class="btn btn-outline-secondary">Cancel</a>
+                            <button type="submit" class="btn btn-primary">
+                                {% if job %}Save Changes{% else %}Create Job{% endif %}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+        </div><!-- /.col-12 -->
+    </div><!-- /.row -->
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    const page = document.getElementById('docPage');
+    const icon = document.getElementById('docThemeIcon');
+    const label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    const isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    const saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        const page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            const icon = document.getElementById('docThemeIcon');
+            const label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+
+<!-- Directory browser modal -->
+<div class="modal fade" id="directoryBrowserModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Select Directory</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="input-group mb-2">
+                    <input type="text" class="form-control" id="directoryPathInput"
+                           placeholder="Type a path (e.g. \\server\share or C:\folder)">
+                    <div class="input-group-append">
+                        <button class="btn btn-outline-primary" type="button" id="directoryPathGoBtn">
+                            <i class="fas fa-arrow-right"></i> Go
+                        </button>
+                    </div>
+                </div>
+                <nav aria-label="Directory breadcrumb">
+                    <ol class="breadcrumb" id="directoryBreadcrumb">
+                        <li class="breadcrumb-item"><a href="#" data-path="/">Root</a></li>
+                    </ol>
+                </nav>
+                
+                <div class="directory-picker" id="directoryPicker">
+                    <div class="d-flex justify-content-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="sr-only">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="selectDirectoryBtn">Select Directory</button>
+            </div>
+        </div>
+    </div>
+</div>
+</div><!-- /.container-fluid -->
+</div><!-- /.doc-page -->
+{% endblock %}

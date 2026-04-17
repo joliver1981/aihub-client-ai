@@ -1,0 +1,590 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<div style="position:fixed;bottom:20px;right:20px;z-index:100;">
+    <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+        <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+    </button>
+</div>
+<style>
+    .compact-header {
+        background: linear-gradient(135deg, #2980b9 0%, #34495e 100%);
+        color: white;
+        padding: 0.5rem 1rem;
+        margin-bottom: 1rem;
+        border-radius: 0.5rem;
+    }
+    .card {
+        margin-bottom: 0.75rem;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        border-radius: 0.5rem;
+    }
+    .card-header {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.9rem;
+        font-weight: 600;
+        background-color: #f8f9fa;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+    }
+    .card-body {
+        padding: 0.75rem;
+    }
+    .form-control, .custom-select {
+        font-size: 0.9rem;
+        padding: 0.25rem 0.75rem;
+    }
+    .form-group {
+        margin-bottom: 0.75rem;
+    }
+    .form-group label {
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+    }
+    .form-text {
+        font-size: 0.8rem;
+        margin-top: 0.25rem;
+    }
+    .btn {
+        font-size: 0.9rem;
+        padding: 0.375rem 0.75rem;
+    }
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+    }
+    .alert {
+        padding: 0.75rem;
+        font-size: 0.9rem;
+    }
+    .status-badge {
+        font-size: 0.8rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 0.25rem;
+    }
+    .provider-card {
+        border-left: 4px solid #6c757d;
+        transition: border-color 0.2s;
+    }
+    .provider-card.enabled {
+        border-left-color: #28a745;
+    }
+    .provider-card.disabled {
+        border-left-color: #dc3545;
+    }
+    #groupMappingContainer .mapping-row {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+        align-items: center;
+    }
+    #groupMappingContainer .mapping-row input {
+        flex: 1;
+    }
+    #groupMappingContainer .mapping-row select {
+        width: 140px;
+    }
+</style>
+
+<div class="container-fluid px-3 py-2">
+    <!-- Header -->
+    <div class="compact-header d-flex justify-content-between align-items-center">
+        <div>
+            <h5 class="mb-0">Identity & Security</h5>
+            <small class="opacity-75">Configure enterprise identity providers (LDAP/Active Directory)</small>
+        </div>
+    </div>
+
+    <!-- Alert area -->
+    <div id="alertArea"></div>
+
+    <!-- Provider List -->
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span>Identity Providers</span>
+            <button class="btn btn-sm btn-primary" onclick="showAddProviderForm()">
+                + Add Provider
+            </button>
+        </div>
+        <div class="card-body">
+            <div id="providerList">
+                <p class="text-muted" id="noProvidersMsg">Loading...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Provider Configuration Form (hidden by default) -->
+    <div class="card" id="providerFormCard" style="display: none;">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span id="formTitle">Add Identity Provider</span>
+            <button class="btn btn-sm btn-outline-secondary" onclick="hideProviderForm()">Cancel</button>
+        </div>
+        <div class="card-body">
+            <form id="providerForm" onsubmit="saveProvider(event)">
+                <input type="hidden" id="providerId" value="0">
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label for="providerType">Provider Type</label>
+                            <select class="custom-select" id="providerType" onchange="onProviderTypeChange()">
+                                <option value="ldap">LDAP / Active Directory</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label for="providerName">Display Name</label>
+                            <input type="text" class="form-control" id="providerName" placeholder="e.g., Company Active Directory" required>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LDAP Configuration -->
+                <div id="ldapConfig">
+                    <hr>
+                    <h6 class="mb-3">LDAP Connection</h6>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="ldapServer">Server Hostname</label>
+                                <input type="text" class="form-control" id="ldapServer" placeholder="dc01.company.com" required>
+                                <small class="form-text text-muted">LDAP server hostname or IP address</small>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="form-group">
+                                <label for="ldapPort">Port</label>
+                                <input type="number" class="form-control" id="ldapPort" value="389">
+                                <small class="form-text text-muted">389 (LDAP) or 636 (LDAPS)</small>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="form-group">
+                                <label for="ldapUseSSL">Use SSL/TLS</label>
+                                <div class="custom-control custom-switch mt-1">
+                                    <input type="checkbox" class="custom-control-input" id="ldapUseSSL" onchange="onSSLChange()">
+                                    <label class="custom-control-label" for="ldapUseSSL">Enable SSL</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="ldapBaseDN">Base DN</label>
+                                <input type="text" class="form-control" id="ldapBaseDN" placeholder="DC=company,DC=com" required>
+                                <small class="form-text text-muted">Base Distinguished Name for user searches</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="ldapBindTemplate">Bind Template</label>
+                                <input type="text" class="form-control" id="ldapBindTemplate" placeholder="{username}@company.com">
+                                <small class="form-text text-muted">Use <code>{username}</code> as placeholder. Examples: <code>{username}@domain.com</code> or <code>CN={username},OU=Users,DC=company,DC=com</code></small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="ldapSearchFilter">User Search Filter</label>
+                                <input type="text" class="form-control" id="ldapSearchFilter" value="(sAMAccountName={username})">
+                                <small class="form-text text-muted">LDAP filter to find users. Use <code>{username}</code> as placeholder.</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="ldapSearchBase">User Search Base</label>
+                                <input type="text" class="form-control" id="ldapSearchBase" placeholder="Leave blank to use Base DN">
+                                <small class="form-text text-muted">Override the base DN for user searches (optional)</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-2">
+                        <button type="button" class="btn btn-sm btn-outline-info" onclick="testConnection()">
+                            <span id="testSpinner" class="spinner-border spinner-border-sm d-none" role="status"></span>
+                            Test Connection
+                        </button>
+                        <span id="testResult" class="ml-2"></span>
+                    </div>
+                </div>
+
+                <hr>
+                <h6 class="mb-3">User Provisioning</h6>
+
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="autoProvision">Auto-Provision Users</label>
+                            <div class="custom-control custom-switch mt-1">
+                                <input type="checkbox" class="custom-control-input" id="autoProvision" checked>
+                                <label class="custom-control-label" for="autoProvision">Create new users on first login</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="defaultRole">Default Role</label>
+                            <select class="custom-select" id="defaultRole">
+                                <option value="1">User</option>
+                                <option value="2">Developer</option>
+                                <option value="3">Admin</option>
+                            </select>
+                            <small class="form-text text-muted">Role for new auto-provisioned users</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="isEnabled">Enable Provider</label>
+                            <div class="custom-control custom-switch mt-1">
+                                <input type="checkbox" class="custom-control-input" id="isEnabled">
+                                <label class="custom-control-label" for="isEnabled">Active</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <h6 class="mb-2">Group-to-Role Mapping <small class="text-muted">(optional)</small></h6>
+                <p class="form-text text-muted mb-2">Map AD group names to AI Hub roles. Users will get the highest matched role.</p>
+                <div id="groupMappingContainer"></div>
+                <button type="button" class="btn btn-sm btn-outline-secondary mb-3" onclick="addMappingRow()">+ Add Mapping</button>
+
+                <hr>
+                <div class="d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-danger" id="deleteBtn" style="display: none;" onclick="deleteProvider()">Delete Provider</button>
+                    <div>
+                        <button type="button" class="btn btn-secondary mr-2" onclick="hideProviderForm()">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Provider</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentProviderId = 0;
+
+    // Load providers on page load
+    document.addEventListener('DOMContentLoaded', loadProviders);
+
+    function showAlert(message, type) {
+        const alertArea = document.getElementById('alertArea');
+        alertArea.innerHTML = `
+            <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                ${message}
+                <button type="button" class="close" data-dismiss="alert"><span>&times;</span></button>
+            </div>`;
+        setTimeout(() => { alertArea.innerHTML = ''; }, 5000);
+    }
+
+    async function loadProviders() {
+        try {
+            const response = await fetch('/admin/identity/providers');
+            const data = await response.json();
+
+            const list = document.getElementById('providerList');
+            const noMsg = document.getElementById('noProvidersMsg');
+
+            if (data.providers && data.providers.length > 0) {
+                noMsg.style.display = 'none';
+                list.innerHTML = data.providers.map(p => `
+                    <div class="card provider-card ${p.is_enabled ? 'enabled' : 'disabled'} mb-2">
+                        <div class="card-body d-flex justify-content-between align-items-center py-2">
+                            <div>
+                                <strong>${escapeHtml(p.provider_name)}</strong>
+                                <span class="badge badge-${p.is_enabled ? 'success' : 'secondary'} status-badge ml-2">
+                                    ${p.is_enabled ? 'Enabled' : 'Disabled'}
+                                </span>
+                                <br>
+                                <small class="text-muted">
+                                    Type: ${escapeHtml(p.provider_type.toUpperCase())}
+                                    ${p.config && p.config.server ? ' | Server: ' + escapeHtml(p.config.server) : ''}
+                                    ${p.auto_provision ? ' | Auto-provision: On' : ' | Auto-provision: Off'}
+                                </small>
+                            </div>
+                            <button class="btn btn-sm btn-outline-primary" onclick="editProvider(${p.id})">Edit</button>
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                noMsg.textContent = 'No identity providers configured. Click "Add Provider" to set up LDAP/Active Directory.';
+                noMsg.style.display = 'block';
+                list.querySelectorAll('.provider-card').forEach(el => el.remove());
+            }
+        } catch (e) {
+            document.getElementById('noProvidersMsg').textContent = 'Error loading providers.';
+            console.error('Error loading providers:', e);
+        }
+    }
+
+    function showAddProviderForm() {
+        currentProviderId = 0;
+        document.getElementById('formTitle').textContent = 'Add Identity Provider';
+        document.getElementById('providerId').value = '0';
+        document.getElementById('deleteBtn').style.display = 'none';
+
+        // Reset form
+        document.getElementById('providerForm').reset();
+        document.getElementById('ldapPort').value = '389';
+        document.getElementById('ldapSearchFilter').value = '(sAMAccountName={username})';
+        document.getElementById('autoProvision').checked = true;
+        document.getElementById('defaultRole').value = '1';
+        document.getElementById('isEnabled').checked = false;
+        document.getElementById('groupMappingContainer').innerHTML = '';
+        document.getElementById('testResult').textContent = '';
+
+        document.getElementById('providerFormCard').style.display = 'block';
+        document.getElementById('providerFormCard').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    async function editProvider(id) {
+        try {
+            const response = await fetch('/admin/identity/providers');
+            const data = await response.json();
+            const provider = data.providers.find(p => p.id === id);
+            if (!provider) return;
+
+            currentProviderId = id;
+            document.getElementById('formTitle').textContent = 'Edit Identity Provider';
+            document.getElementById('providerId').value = id;
+            document.getElementById('deleteBtn').style.display = 'block';
+            document.getElementById('testResult').textContent = '';
+
+            // Populate form
+            document.getElementById('providerType').value = provider.provider_type;
+            document.getElementById('providerName').value = provider.provider_name;
+            document.getElementById('isEnabled').checked = provider.is_enabled;
+            document.getElementById('autoProvision').checked = provider.auto_provision;
+            document.getElementById('defaultRole').value = provider.default_role || 1;
+
+            // LDAP config
+            const config = provider.config || {};
+            document.getElementById('ldapServer').value = config.server || '';
+            document.getElementById('ldapPort').value = config.port || 389;
+            document.getElementById('ldapUseSSL').checked = config.use_ssl || false;
+            document.getElementById('ldapBaseDN').value = config.base_dn || '';
+            document.getElementById('ldapBindTemplate').value = config.bind_template || '';
+            document.getElementById('ldapSearchFilter').value = config.user_search_filter || '(sAMAccountName={username})';
+            document.getElementById('ldapSearchBase').value = config.user_search_base || '';
+
+            // Group role mapping
+            const container = document.getElementById('groupMappingContainer');
+            container.innerHTML = '';
+            const mapping = provider.group_role_mapping || {};
+            if (typeof mapping === 'object') {
+                Object.entries(mapping).forEach(([group, role]) => {
+                    addMappingRow(group, role);
+                });
+            }
+
+            onProviderTypeChange();
+            document.getElementById('providerFormCard').style.display = 'block';
+            document.getElementById('providerFormCard').scrollIntoView({ behavior: 'smooth' });
+        } catch (e) {
+            showAlert('Error loading provider details.', 'danger');
+            console.error(e);
+        }
+    }
+
+    function hideProviderForm() {
+        document.getElementById('providerFormCard').style.display = 'none';
+    }
+
+    function onProviderTypeChange() {
+        const type = document.getElementById('providerType').value;
+        document.getElementById('ldapConfig').style.display = type === 'ldap' ? 'block' : 'none';
+    }
+
+    function onSSLChange() {
+        const useSSL = document.getElementById('ldapUseSSL').checked;
+        const portField = document.getElementById('ldapPort');
+        if (useSSL && portField.value === '389') {
+            portField.value = '636';
+        } else if (!useSSL && portField.value === '636') {
+            portField.value = '389';
+        }
+    }
+
+    function addMappingRow(groupName, role) {
+        const container = document.getElementById('groupMappingContainer');
+        const row = document.createElement('div');
+        row.className = 'mapping-row';
+        row.innerHTML = `
+            <input type="text" class="form-control form-control-sm mapping-group" placeholder="AD Group Name" value="${escapeHtml(groupName || '')}">
+            <select class="custom-select custom-select-sm mapping-role">
+                <option value="1" ${role == 1 ? 'selected' : ''}>User</option>
+                <option value="2" ${role == 2 ? 'selected' : ''}>Developer</option>
+                <option value="3" ${role == 3 ? 'selected' : ''}>Admin</option>
+            </select>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.parentElement.remove()">&times;</button>
+        `;
+        container.appendChild(row);
+    }
+
+    function getGroupRoleMapping() {
+        const mapping = {};
+        document.querySelectorAll('.mapping-row').forEach(row => {
+            const group = row.querySelector('.mapping-group').value.trim();
+            const role = parseInt(row.querySelector('.mapping-role').value);
+            if (group) {
+                mapping[group] = role;
+            }
+        });
+        return mapping;
+    }
+
+    function buildConfigFromForm() {
+        const type = document.getElementById('providerType').value;
+        if (type === 'ldap') {
+            return {
+                server: document.getElementById('ldapServer').value.trim(),
+                port: parseInt(document.getElementById('ldapPort').value) || 389,
+                use_ssl: document.getElementById('ldapUseSSL').checked,
+                base_dn: document.getElementById('ldapBaseDN').value.trim(),
+                bind_template: document.getElementById('ldapBindTemplate').value.trim(),
+                user_search_filter: document.getElementById('ldapSearchFilter').value.trim() || '(sAMAccountName={username})',
+                user_search_base: document.getElementById('ldapSearchBase').value.trim(),
+                attributes: ['displayName', 'mail', 'memberOf', 'sAMAccountName'],
+                connect_timeout: 10,
+                receive_timeout: 10
+            };
+        }
+        return {};
+    }
+
+    async function testConnection() {
+        const spinner = document.getElementById('testSpinner');
+        const result = document.getElementById('testResult');
+        spinner.classList.remove('d-none');
+        result.textContent = 'Testing...';
+        result.className = 'ml-2 text-muted';
+
+        try {
+            const config = buildConfigFromForm();
+            const response = await fetch('/admin/identity/providers/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    provider_type: document.getElementById('providerType').value,
+                    config: config
+                })
+            });
+            const data = await response.json();
+
+            if (data.connected) {
+                result.textContent = data.message;
+                result.className = 'ml-2 text-success';
+            } else {
+                result.textContent = data.message;
+                result.className = 'ml-2 text-danger';
+            }
+        } catch (e) {
+            result.textContent = 'Connection test failed: ' + e.message;
+            result.className = 'ml-2 text-danger';
+        } finally {
+            spinner.classList.add('d-none');
+        }
+    }
+
+    async function saveProvider(event) {
+        event.preventDefault();
+
+        const payload = {
+            id: parseInt(document.getElementById('providerId').value) || 0,
+            provider_type: document.getElementById('providerType').value,
+            provider_name: document.getElementById('providerName').value.trim(),
+            is_enabled: document.getElementById('isEnabled').checked,
+            is_default: false,
+            auto_provision: document.getElementById('autoProvision').checked,
+            default_role: parseInt(document.getElementById('defaultRole').value) || 1,
+            config: buildConfigFromForm(),
+            group_role_mapping: getGroupRoleMapping()
+        };
+
+        try {
+            const response = await fetch('/admin/identity/providers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+
+            if (data.status === 'success') {
+                showAlert('Provider saved successfully.', 'success');
+                hideProviderForm();
+                loadProviders();
+            } else {
+                showAlert(data.message || 'Failed to save provider.', 'danger');
+            }
+        } catch (e) {
+            showAlert('Error saving provider: ' + e.message, 'danger');
+        }
+    }
+
+    async function deleteProvider() {
+        if (!confirm('Are you sure you want to delete this identity provider?')) return;
+
+        try {
+            const response = await fetch(`/admin/identity/providers/${currentProviderId}`, {
+                method: 'DELETE'
+            });
+            const data = await response.json();
+
+            if (data.status === 'success') {
+                showAlert('Provider deleted.', 'success');
+                hideProviderForm();
+                loadProviders();
+            } else {
+                showAlert(data.message || 'Failed to delete provider.', 'danger');
+            }
+        } catch (e) {
+            showAlert('Error deleting provider: ' + e.message, 'danger');
+        }
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+</script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}

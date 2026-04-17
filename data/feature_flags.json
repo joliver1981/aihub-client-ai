@@ -1,0 +1,9 @@
+{
+  "command_center_enabled": true,
+  "builder_enabled": true,
+  "environments_enabled": true,
+  "mcp_servers_enabled": true,
+  "integrations_enabled": true,
+  "image_gen_enabled": true,
+  "web_search_enabled": true
+}

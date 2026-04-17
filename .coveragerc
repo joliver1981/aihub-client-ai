@@ -1,0 +1,40 @@
+[run]
+source = .
+omit =
+    tests/*
+    **/tests/*
+    agent_environments/*
+    wsgi*.py
+    run*.py
+    run_app*.py
+    app.py
+    app_*.py
+    *_routes.py
+    copy_onnxruntime.py
+    download_vendor_assets.py
+    prepare_python_bundle.py
+    force_imports.py
+    *.spec
+    MCP/*
+    dist/*
+    venv/*
+    .venv/*
+    __pycache__/*
+    *.egg-info/*
+    setup.py
+    conftest.py
+
+[report]
+fail_under = 0
+show_missing = true
+skip_empty = true
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    if __name__ == .__main__.:
+    raise NotImplementedError
+    pass
+    except ImportError
+
+[html]
+directory = htmlcov

@@ -1,0 +1,462 @@
+{
+  "template_key": "walmart_marketplace",
+  "platform_name": "Walmart Marketplace",
+  "platform_category": "E-Commerce",
+  "description": "Connect to Walmart's Marketplace APIs for 3P sellers. Manage orders, inventory, items, shipping, and returns via Seller Center.",
+  "logo_url": null,
+  "documentation_url": "https://developer.walmart.com/doc/us/mp/us-mp-items/",
+
+  "auth_type": "oauth2",
+  "auth_config": {
+    "grant_type": "client_credentials",
+    "token_url": "https://marketplace.walmartapis.com/v3/token",
+    "token_auth_method": "client_secret_basic",
+    "token_header": "WM_SEC.ACCESS_TOKEN",
+    "token_prefix": "",
+    "token_headers": {
+      "WM_QOS.CORRELATION_ID": "{{uuid}}",
+      "WM_SVC.NAME": "Walmart Marketplace"
+    }
+  },
+
+  "requires_instance_id": false,
+  "additional_instance_fields": [
+    {
+      "field": "channel_type",
+      "label": "Channel Type (GUID)",
+      "placeholder": "e.g., 0f3e4dd4-0514-4346-b39d-af1234567890",
+      "required": true,
+      "help": "Found in Seller Center \u2192 Settings \u2192 Consumer IDs & Secret Keys"
+    }
+  ],
+
+  "base_url": "https://marketplace.walmartapis.com",
+
+  "default_headers": {
+    "Accept": "application/json",
+    "Content-Type": "application/json",
+    "WM_SVC.NAME": "Walmart Marketplace",
+    "WM_QOS.CORRELATION_ID": "{{uuid}}",
+    "WM_CONSUMER.CHANNEL.TYPE": "{channel_type}"
+  },
+
+  "operations": [
+    {
+      "key": "get_orders",
+      "name": "Get Orders",
+      "description": "Retrieve orders with optional filters for status and date range",
+      "method": "GET",
+      "endpoint": "/v3/orders",
+      "category": "Orders",
+      "parameters": [
+        {
+          "name": "status",
+          "label": "Order Status",
+          "type": "select",
+          "required": false,
+          "options": [
+            {"value": "Created", "label": "Created (New)"},
+            {"value": "Acknowledged", "label": "Acknowledged"},
+            {"value": "Shipped", "label": "Shipped"},
+            {"value": "Delivered", "label": "Delivered"},
+            {"value": "Cancelled", "label": "Cancelled"}
+          ],
+          "description": "Filter by order status"
+        },
+        {
+          "name": "createdStartDate",
+          "label": "Created After",
+          "type": "datetime",
+          "required": false,
+          "description": "Filter orders created after this date (ISO 8601)"
+        },
+        {
+          "name": "createdEndDate",
+          "label": "Created Before",
+          "type": "datetime",
+          "required": false,
+          "description": "Filter orders created before this date (ISO 8601)"
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "required": false,
+          "default": 100,
+          "description": "Maximum number of orders to return (max 200)"
+        }
+      ],
+      "output_mapping": {
+        "orders": "$.list.elements",
+        "total_count": "$.list.meta.totalCount",
+        "next_cursor": "$.list.meta.nextCursor"
+      }
+    },
+    {
+      "key": "get_released_orders",
+      "name": "Get Released Orders",
+      "description": "Retrieve orders that are released and ready to ship",
+      "method": "GET",
+      "endpoint": "/v3/orders/released",
+      "category": "Orders",
+      "parameters": [
+        {
+          "name": "createdStartDate",
+          "label": "Created After",
+          "type": "datetime",
+          "required": false,
+          "description": "Filter orders created after this date (ISO 8601)"
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "required": false,
+          "default": 100,
+          "description": "Maximum number of orders to return"
+        }
+      ],
+      "output_mapping": {
+        "orders": "$.list.elements",
+        "total_count": "$.list.meta.totalCount"
+      }
+    },
+    {
+      "key": "get_order",
+      "name": "Get Order by ID",
+      "description": "Retrieve a specific order by its Purchase Order ID",
+      "method": "GET",
+      "endpoint": "/v3/orders/{purchaseOrderId}",
+      "category": "Orders",
+      "parameters": [
+        {
+          "name": "purchaseOrderId",
+          "label": "Purchase Order ID",
+          "type": "text",
+          "required": true,
+          "description": "The Walmart Purchase Order ID"
+        }
+      ]
+    },
+    {
+      "key": "acknowledge_order",
+      "name": "Acknowledge Order",
+      "description": "Acknowledge receipt of an order",
+      "method": "POST",
+      "endpoint": "/v3/orders/{purchaseOrderId}/acknowledge",
+      "category": "Orders",
+      "parameters": [
+        {
+          "name": "purchaseOrderId",
+          "label": "Purchase Order ID",
+          "type": "text",
+          "required": true,
+          "description": "The Purchase Order ID to acknowledge"
+        }
+      ]
+    },
+    {
+      "key": "cancel_order_lines",
+      "name": "Cancel Order Lines",
+      "description": "Cancel one or more lines on an order",
+      "method": "POST",
+      "endpoint": "/v3/orders/{purchaseOrderId}/cancel",
+      "category": "Orders",
+      "parameters": [
+        {
+          "name": "purchaseOrderId",
+          "label": "Purchase Order ID",
+          "type": "text",
+          "required": true,
+          "description": "The Purchase Order ID"
+        },
+        {
+          "name": "lineNumber",
+          "label": "Line Number",
+          "type": "text",
+          "required": true,
+          "description": "The order line number to cancel"
+        },
+        {
+          "name": "cancelReason",
+          "label": "Cancel Reason",
+          "type": "select",
+          "required": true,
+          "options": [
+            {"value": "CANCEL_BY_SELLER", "label": "Cancelled by Seller"},
+            {"value": "CUSTOMER_REQUESTED_SELLER", "label": "Customer Requested"}
+          ],
+          "description": "Reason for cancellation"
+        }
+      ],
+      "body_template": {
+        "orderCancellation": {
+          "orderLines": [{
+            "lineNumber": "{lineNumber}",
+            "orderLineStatuses": {
+              "orderLineStatus": [{
+                "status": "Cancelled",
+                "cancellationReason": "{cancelReason}",
+                "statusQuantity": {
+                  "unitOfMeasurement": "EACH",
+                  "amount": "1"
+                }
+              }]
+            }
+          }]
+        }
+      }
+    },
+    {
+      "key": "ship_order",
+      "name": "Ship Order",
+      "description": "Update shipping information for an order",
+      "method": "POST",
+      "endpoint": "/v3/orders/{purchaseOrderId}/shipping",
+      "category": "Shipping",
+      "parameters": [
+        {
+          "name": "purchaseOrderId",
+          "label": "Purchase Order ID",
+          "type": "text",
+          "required": true,
+          "description": "The Purchase Order ID"
+        },
+        {
+          "name": "carrierName",
+          "label": "Carrier",
+          "type": "select",
+          "required": true,
+          "options": [
+            {"value": "UPS", "label": "UPS"},
+            {"value": "FedEx", "label": "FedEx"},
+            {"value": "USPS", "label": "USPS"},
+            {"value": "OnTrac", "label": "OnTrac"},
+            {"value": "DHL", "label": "DHL"},
+            {"value": "Other", "label": "Other"}
+          ],
+          "description": "Shipping carrier"
+        },
+        {
+          "name": "trackingNumber",
+          "label": "Tracking Number",
+          "type": "text",
+          "required": true,
+          "description": "Shipment tracking number"
+        },
+        {
+          "name": "shipDateTime",
+          "label": "Ship Date/Time",
+          "type": "datetime",
+          "required": true,
+          "description": "When the shipment left your facility (ISO 8601)"
+        }
+      ],
+      "body_template": {
+        "orderShipment": {
+          "orderLines": [{
+            "lineNumber": "all",
+            "orderLineStatuses": {
+              "orderLineStatus": [{
+                "status": "Shipped",
+                "statusQuantity": {
+                  "unitOfMeasurement": "EACH",
+                  "amount": "all"
+                },
+                "trackingInfo": {
+                  "shipDateTime": "{shipDateTime}",
+                  "carrierName": {"carrier": "{carrierName}"},
+                  "trackingNumber": "{trackingNumber}"
+                }
+              }]
+            }
+          }]
+        }
+      }
+    },
+    {
+      "key": "refund_order",
+      "name": "Refund Order Lines",
+      "description": "Issue a refund for order lines",
+      "method": "POST",
+      "endpoint": "/v3/orders/{purchaseOrderId}/refund",
+      "category": "Orders",
+      "parameters": [
+        {
+          "name": "purchaseOrderId",
+          "label": "Purchase Order ID",
+          "type": "text",
+          "required": true,
+          "description": "The Purchase Order ID to refund"
+        },
+        {
+          "name": "lineNumber",
+          "label": "Line Number",
+          "type": "text",
+          "required": true,
+          "description": "The order line number to refund"
+        },
+        {
+          "name": "refundReason",
+          "label": "Refund Reason",
+          "type": "select",
+          "required": true,
+          "options": [
+            {"value": "CUSTOMER_RETURN", "label": "Customer Return"},
+            {"value": "DAMAGED_IN_TRANSIT", "label": "Damaged in Transit"},
+            {"value": "MISSING_ITEM", "label": "Missing Item"},
+            {"value": "WRONG_ITEM", "label": "Wrong Item"}
+          ],
+          "description": "Reason for refund"
+        }
+      ],
+      "body_template": {
+        "orderRefund": {
+          "orderLines": [{
+            "lineNumber": "{lineNumber}",
+            "refunds": [{
+              "refundReason": "{refundReason}"
+            }]
+          }]
+        }
+      }
+    },
+    {
+      "key": "get_inventory",
+      "name": "Get Inventory",
+      "description": "Retrieve current inventory levels",
+      "method": "GET",
+      "endpoint": "/v3/inventory",
+      "category": "Inventory",
+      "parameters": [
+        {
+          "name": "sku",
+          "label": "SKU",
+          "type": "text",
+          "required": false,
+          "description": "Filter by specific SKU"
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "required": false,
+          "default": 50,
+          "description": "Maximum items to return"
+        }
+      ]
+    },
+    {
+      "key": "update_inventory",
+      "name": "Update Inventory",
+      "description": "Update inventory quantity for a single SKU",
+      "method": "PUT",
+      "endpoint": "/v3/inventory",
+      "category": "Inventory",
+      "parameters": [
+        {
+          "name": "sku",
+          "label": "SKU",
+          "type": "text",
+          "required": true,
+          "description": "Item SKU to update"
+        },
+        {
+          "name": "quantity",
+          "label": "Quantity",
+          "type": "number",
+          "required": true,
+          "description": "New inventory quantity"
+        },
+        {
+          "name": "fulfillmentLagTime",
+          "label": "Fulfillment Lag Time",
+          "type": "number",
+          "required": false,
+          "default": 1,
+          "description": "Days to ship after order received"
+        }
+      ],
+      "body_template": {
+        "sku": "{sku}",
+        "quantity": {
+          "unit": "EACH",
+          "amount": "{quantity}"
+        },
+        "fulfillmentLagTime": "{fulfillmentLagTime}"
+      }
+    },
+    {
+      "key": "get_items",
+      "name": "Get Items",
+      "description": "Retrieve your item catalog",
+      "method": "GET",
+      "endpoint": "/v3/items",
+      "category": "Catalog",
+      "parameters": [
+        {
+          "name": "sku",
+          "label": "SKU",
+          "type": "text",
+          "required": false,
+          "description": "Filter by specific SKU"
+        },
+        {
+          "name": "lifecycleStatus",
+          "label": "Lifecycle Status",
+          "type": "select",
+          "required": false,
+          "options": [
+            {"value": "ACTIVE", "label": "Active"},
+            {"value": "ARCHIVED", "label": "Archived"},
+            {"value": "RETIRED", "label": "Retired"}
+          ],
+          "description": "Filter by item status"
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "required": false,
+          "default": 50,
+          "description": "Maximum items to return"
+        }
+      ]
+    },
+    {
+      "key": "get_returns",
+      "name": "Get Returns",
+      "description": "Retrieve return requests",
+      "method": "GET",
+      "endpoint": "/v3/returns",
+      "category": "Returns",
+      "parameters": [
+        {
+          "name": "returnStatus",
+          "label": "Return Status",
+          "type": "select",
+          "required": false,
+          "options": [
+            {"value": "INITIATED", "label": "Initiated"},
+            {"value": "RECEIVED", "label": "Received"},
+            {"value": "REFUNDED", "label": "Refunded"}
+          ],
+          "description": "Filter by return status"
+        },
+        {
+          "name": "limit",
+          "label": "Limit",
+          "type": "number",
+          "required": false,
+          "default": 50,
+          "description": "Maximum returns to retrieve"
+        }
+      ]
+    }
+  ],
+
+  "setup_instructions": "## Walmart Marketplace API Setup\n\n### Step 1: Get API Credentials\n1. Log into [Walmart Seller Center](https://seller.walmart.com)\n2. Click the gear icon \u2192 **General Settings**\n3. Go to **Consumer IDs & Secret Keys**\n4. Generate your **Client ID** and **Client Secret**\n\n### Step 2: Find Your Channel Type\n1. On the same API page in Seller Center\n2. Your **Channel Type** GUID is displayed at the bottom\n3. Copy the full GUID value\n\n### Step 3: Configure in AI Hub\n1. Enter your Client ID and Client Secret\n2. Enter your Channel Type GUID\n3. Test the connection\n\nNeed help? See the [Walmart Developer Portal](https://developer.walmart.com) for full documentation.",
+
+  "supports_webhooks": false,
+  "is_builtin": true
+}

@@ -1,0 +1,239 @@
+/* monitoring.css */
+.sidebar {
+    background-color: #f8f9fa;
+    min-height: 100vh;
+    padding: 0;
+    border-right: 1px solid #dee2e6;
+}
+
+.content {
+    min-height: 100vh;
+    padding: 20px;
+}
+
+.nav-pills .nav-link {
+    color: #495057;
+}
+
+.nav-pills .nav-link.active {
+    background-color: #007bff;
+    color: white;
+}
+
+.card {
+    margin-bottom: 1rem;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+.table th {
+    background-color: #f8f9fa;
+}
+
+.execution-log-viewer {
+    height: 400px;
+    overflow-y: auto;
+}
+
+.log-filter {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background-color: #fff;
+}
+
+/* Badge for approval count */
+.badge.rounded-pill {
+    position: relative;
+    top: -1px;
+}
+
+/* Step details */
+.step-details pre {
+    background-color: #f8f9fa;
+    padding: 10px;
+    border-radius: 5px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+/* Status colors */
+.status-running { color: #007bff; }
+.status-paused { color: #ffc107; }
+.status-completed { color: #28a745; }
+.status-failed { color: #dc3545; }
+
+/* Analytics charts */
+.chart-container {
+    position: relative;
+    height: 300px;
+    margin-bottom: 2rem;
+}
+
+
+/* Approvals Tab Styles */
+
+/* Filter buttons */
+.filters .btn-group {
+    margin-bottom: 1rem;
+}
+
+/* Table styles */
+#approvals-table td {
+    vertical-align: middle;
+}
+
+/* Status badges */
+#approvals-table .badge {
+    font-size: 85%;
+    padding: 0.35em 0.65em;
+}
+
+/* Approval modal */
+#approval-data {
+    max-height: 300px;
+    overflow-y: auto;
+    font-size: 0.9rem;
+}
+
+/* Pagination styling */
+.pagination .page-item.active .page-link {
+    background-color: #007bff;
+    border-color: #007bff;
+}
+
+.pagination .page-link {
+    color: #007bff;
+}
+
+.pagination .page-link:hover {
+    color: #0056b3;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .filters .btn-group {
+        display: flex;
+        flex-wrap: wrap;
+    }
+    
+    .filters .btn-group .btn {
+        flex: 1 0 auto;
+        margin-bottom: 0.5rem;
+    }
+}
+
+
+/* Logs tab styles */
+#logs .card {
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    margin-bottom: 1.5rem;
+}
+
+#logs .table thead th {
+    background-color: #f8f9fa;
+    border-top: none;
+    font-weight: 600;
+    font-size: 0.825rem;
+    color: #495057;
+}
+
+#logs .table tbody tr:hover {
+    background-color: rgba(0, 123, 255, 0.03);
+}
+
+/* Log level badges */
+#logs .badge.bg-info {
+    background-color: #17a2b8 !important;
+}
+
+#logs .badge.bg-warning {
+    background-color: #ffc107 !important;
+    color: #212529;
+}
+
+#logs .badge.bg-danger {
+    background-color: #dc3545 !important;
+}
+
+#logs .badge.bg-secondary {
+    background-color: #6c757d !important;
+}
+
+/* Pagination styles */
+#logs .pagination {
+    margin-bottom: 0;
+}
+
+#logs .page-link {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+}
+
+/* Log details modal */
+#logDetailsModal .modal-body {
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+#logDetailsModal pre {
+    overflow-x: auto;
+    white-space: pre-wrap;
+    font-size: 0.875rem;
+    max-height: 300px;
+}
+
+#logDetailsModal dl dd {
+    margin-bottom: 0.5rem;
+    word-break: break-word;
+}
+
+/* Loading indicator */
+#logs .spinner-border {
+    width: 1.25rem;
+    height: 1.25rem;
+    border-width: 0.15em;
+}
+
+/* Dropdown and input improvements */
+#logs .input-group-sm > .form-control,
+#logs .input-group-sm > .input-group-text {
+    font-size: 0.875rem;
+}
+
+#logs .input-group-text {
+    background-color: #f8f9fa;
+    min-width: 80px;
+    justify-content: center;
+}
+
+/* Date input width control */
+#logs #log-date-from,
+#logs #log-date-to {
+    min-width: 110px;
+}
+
+/* Export button styling */
+#logs #export-logs-btn:hover {
+    background-color: #f8f9fa;
+}
+
+/* Status color coding for execution ID dropdown */
+#logs .status-completed {
+    color: #28a745;
+}
+
+#logs .status-failed {
+    color: #dc3545;
+}
+
+#logs .status-running {
+    color: #007bff;
+}
+
+#logs .status-paused {
+    color: #ffc107;
+}
+
+#logs .status-cancelled {
+    color: #6c757d;
+}

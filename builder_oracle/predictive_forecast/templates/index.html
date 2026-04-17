@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PredictiveForecast</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<div class="app-shell">
+
+  <!-- ── Sidebar ────────────────────────────────────────────────────────── -->
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <h1>PredictiveForecast</h1>
+      <span>ML Model Studio</span>
+    </div>
+    <div class="sidebar-nav">
+      <div class="nav-item active" data-nav="dashboard">
+        <span class="icon">&#9776;</span> Dashboard
+      </div>
+      <div class="nav-item" data-nav="train">
+        <span class="icon">&#9881;</span> Train Model
+      </div>
+      <div class="nav-item" data-nav="test">
+        <span class="icon">&#9889;</span> Test Model
+      </div>
+      <div class="nav-item" data-nav="models">
+        <span class="icon">&#128202;</span> My Models
+      </div>
+    </div>
+    <div class="sidebar-footer">PredictiveForecast v1.0</div>
+  </nav>
+
+  <!-- ── Main viewport ──────────────────────────────────────────────────── -->
+  <div class="main">
+
+    <!-- ═══ PAGE: Dashboard ═══ -->
+    <div id="page-dashboard" class="page active">
+      <h2 class="page-title">Dashboard</h2>
+      <p class="page-subtitle">Your ML model training studio. Upload data, train models, and analyze predictions.</p>
+
+      <div class="metrics-row" id="dash-stats">
+        <div class="metric"><div class="metric-label">Models Trained</div><div class="metric-value" id="stat-models">0</div></div>
+        <div class="metric"><div class="metric-label">Best R&sup2;</div><div class="metric-value" id="stat-best-r2">&mdash;</div></div>
+        <div class="metric"><div class="metric-label">Best Algorithm</div><div class="metric-value text-sm" id="stat-best-algo">&mdash;</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">Quick Actions</div>
+        <div class="card-body" style="display:flex;gap:12px;">
+          <button class="btn btn-primary btn-lg" onclick="App.nav('train')">Train New Model</button>
+          <button class="btn btn-ghost btn-lg" onclick="App.nav('test')">Test a Model</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header flex flex-between">Recent Models <span class="text-muted text-sm" id="dash-model-count"></span></div>
+        <div class="card-body" id="dash-models-list"></div>
+      </div>
+    </div>
+
+    <!-- ═══ PAGE: Train (Wizard) ═══ -->
+    <div id="page-train" class="page">
+      <h2 class="page-title">Train a New Model</h2>
+      <p class="page-subtitle">Upload your data, profile it, select features, and train.</p>
+
+      <!-- Stepper -->
+      <div class="stepper" id="train-stepper">
+        <div class="step active" data-step="1"><div class="step-num">1</div> Upload</div>
+        <div class="step-line"></div>
+        <div class="step" data-step="2"><div class="step-num">2</div> Profile &amp; Configure</div>
+        <div class="step-line"></div>
+        <div class="step" data-step="3"><div class="step-num">3</div> Select Features</div>
+        <div class="step-line"></div>
+        <div class="step" data-step="4"><div class="step-num">4</div> Training</div>
+        <div class="step-line"></div>
+        <div class="step" data-step="5"><div class="step-num">5</div> Results</div>
+      </div>
+
+      <!-- Step 1: Upload -->
+      <div id="train-step-1" class="train-step">
+        <div class="card">
+          <div class="card-body">
+            <div class="drop-zone" id="train-dropzone">
+              <input type="file" id="train-file-input" accept=".csv,.xlsx,.xls">
+              <div class="dz-icon">&#128193;</div>
+              <div class="dz-title">Drag &amp; drop your training data here</div>
+              <div class="dz-sub">CSV, XLSX, or XLS &mdash; up to 500 MB</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2: Profile & Configure -->
+      <div id="train-step-2" class="train-step" style="display:none">
+        <div class="card">
+          <div class="card-header flex flex-between">
+            Data Profile
+            <span class="text-muted text-sm" id="profile-info"></span>
+          </div>
+          <div class="card-body">
+            <div class="profile-table-wrap" id="profile-table-container"></div>
+          </div>
+        </div>
+
+        <div class="grid grid-2 mt-md">
+          <div class="card">
+            <div class="card-header">Model Settings</div>
+            <div class="card-body">
+              <div class="form-group">
+                <label class="form-label">Model Name</label>
+                <input type="text" id="cfg-model-name" class="form-input" placeholder="e.g. sales_forecast_v1">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Algorithm</label>
+                <select id="cfg-algorithm" class="form-select"></select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Feature Scaler</label>
+                <select id="cfg-scaler" class="form-select">
+                  <option value="minmax">Min-Max Scaler</option>
+                  <option value="standard">Standard Scaler</option>
+                  <option value="robust">Robust Scaler</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">Target Column</div>
+            <div class="card-body">
+              <p class="text-dim text-sm mb-md">Select the numeric column you want to predict.</p>
+              <select id="cfg-target" class="form-select"></select>
+              <div class="mt-md">
+                <div class="collapse-header" onclick="this.classList.toggle('open'); document.getElementById('hp-section').classList.toggle('open')">
+                  Advanced Hyperparameters <span>&#9660;</span>
+                </div>
+                <div id="hp-section" class="collapse-body">
+                  <div class="grid grid-2" style="gap:12px" id="hp-fields"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="mt-md flex gap-sm">
+          <button class="btn btn-ghost" onclick="App.trainStep(1)">&#8592; Back</button>
+          <button class="btn btn-primary" onclick="App.trainStep(3)">Continue to Features &#8594;</button>
+        </div>
+      </div>
+
+      <!-- Step 3: Feature Selection -->
+      <div id="train-step-3" class="train-step" style="display:none">
+        <div class="card">
+          <div class="card-header flex flex-between">
+            Select Feature Columns
+            <span class="text-muted text-sm"><span id="feat-count">0</span> / <span id="feat-total">0</span> selected</span>
+          </div>
+          <div class="card-body">
+            <div class="col-picker-controls">
+              <input type="text" class="col-picker-search" id="feat-search" placeholder="Search columns...">
+              <button class="btn btn-ghost btn-sm" onclick="App.featSelectAll()">Select All</button>
+              <button class="btn btn-ghost btn-sm" onclick="App.featDeselectAll()">Deselect All</button>
+            </div>
+            <div class="col-grid" id="feat-grid"></div>
+          </div>
+        </div>
+        <div class="mt-md flex gap-sm">
+          <button class="btn btn-ghost" onclick="App.trainStep(2)">&#8592; Back</button>
+          <button class="btn btn-primary btn-lg" id="btn-start-train" onclick="App.startTraining()">Train Model</button>
+        </div>
+      </div>
+
+      <!-- Step 4: Training in progress -->
+      <div id="train-step-4" class="train-step" style="display:none">
+        <div class="card">
+          <div class="card-body loading-box">
+            <div class="spinner"></div>
+            <p id="train-status-msg">Training model&hellip; This may take a few minutes.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 5: Results -->
+      <div id="train-step-5" class="train-step" style="display:none">
+        <div id="train-result-area"></div>
+        <div class="mt-md flex gap-sm">
+          <button class="btn btn-primary" onclick="App.nav('dashboard')">Back to Dashboard</button>
+          <button class="btn btn-ghost" onclick="App.resetTrain()">Train Another</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ PAGE: Test ═══ -->
+    <div id="page-test" class="page">
+      <h2 class="page-title">Test a Model</h2>
+      <p class="page-subtitle">Upload test data against a trained model to see accuracy and predictions.</p>
+
+      <div id="test-form-area">
+        <div class="grid grid-2">
+          <div class="card">
+            <div class="card-header">Select Model</div>
+            <div class="card-body">
+              <select id="test-model-select" class="form-select"></select>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">Test Data</div>
+            <div class="card-body">
+              <div class="drop-zone" id="test-dropzone" style="padding:28px 20px;">
+                <input type="file" id="test-file-input" accept=".csv,.xlsx,.xls">
+                <div class="dz-title">Drop test CSV / Excel here</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="mt-md">
+          <button class="btn btn-success btn-lg" id="btn-run-test" onclick="App.runTest()" disabled>Run Test</button>
+        </div>
+      </div>
+
+      <div id="test-loading" style="display:none">
+        <div class="card"><div class="card-body loading-box"><div class="spinner"></div><p>Running predictions&hellip;</p></div></div>
+      </div>
+
+      <div id="test-result-area" style="display:none"></div>
+    </div>
+
+    <!-- ═══ PAGE: Models ═══ -->
+    <div id="page-models" class="page">
+      <h2 class="page-title">My Models</h2>
+      <p class="page-subtitle">Manage and compare your trained models.</p>
+      <div id="models-list-area"></div>
+    </div>
+
+  </div>
+</div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>

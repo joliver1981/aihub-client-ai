@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to AI Hub - Initial Setup</title>
+    
+    <!-- Bootstrap 4 CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    
+    <style>
+        :root {
+            --primary-color: #4a90d9;
+            --primary-hover: #357abd;
+            --success-color: #28a745;
+            --danger-color: #dc3545;
+            --bg-gradient-start: #667eea;
+            --bg-gradient-end: #764ba2;
+        }
+        
+        body {
+            min-height: 100vh;
+            background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .setup-container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            width: 100%;
+            margin: 20px;
+            overflow: hidden;
+        }
+        
+        .setup-header {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .setup-header h1 {
+            font-size: 1.8rem;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+        
+        .setup-header p {
+            margin: 0;
+            opacity: 0.9;
+            font-size: 0.95rem;
+        }
+        
+        .setup-header .logo-icon {
+            font-size: 3rem;
+            margin-bottom: 15px;
+            display: block;
+        }
+        
+        .setup-body {
+            padding: 35px;
+        }
+        
+        .form-group label {
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 8px;
+        }
+        
+        .form-control {
+            border-radius: 8px;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            transition: all 0.3s ease;
+        }
+        
+        .form-control:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.15);
+        }
+        
+        .input-group-text {
+            border-radius: 8px 0 0 8px;
+            border: 2px solid #e0e0e0;
+            border-right: none;
+            background: #f8f9fa;
+        }
+        
+        .input-group .form-control {
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .btn-setup {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
+            border: none;
+            border-radius: 8px;
+            padding: 14px 30px;
+            font-weight: 600;
+            font-size: 1.05rem;
+            width: 100%;
+            margin-top: 10px;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-setup:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(74, 144, 217, 0.4);
+        }
+        
+        .btn-setup:disabled {
+            opacity: 0.7;
+            transform: none;
+        }
+        
+        .password-requirements {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 10px;
+            font-size: 0.85rem;
+        }
+        
+        .password-requirements h6 {
+            margin-bottom: 10px;
+            color: #2c3e50;
+            font-weight: 600;
+        }
+        
+        .requirement {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+            color: #6c757d;
+        }
+        
+        .requirement i {
+            margin-right: 8px;
+            font-size: 0.9rem;
+        }
+        
+        .requirement.valid {
+            color: var(--success-color);
+        }
+        
+        .requirement.invalid {
+            color: #6c757d;
+        }
+        
+        .alert {
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .password-toggle {
+            cursor: pointer;
+            position: absolute;
+            right: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #6c757d;
+            z-index: 10;
+        }
+        
+        .password-wrapper {
+            position: relative;
+        }
+        
+        .password-wrapper .form-control {
+            padding-right: 45px;
+        }
+        
+        .setup-footer {
+            text-align: center;
+            padding: 20px 35px 30px;
+            background: #f8f9fa;
+            border-top: 1px solid #e9ecef;
+        }
+        
+        .setup-footer p {
+            margin: 0;
+            color: #6c757d;
+            font-size: 0.85rem;
+        }
+        
+        .spinner-border {
+            width: 1.2rem;
+            height: 1.2rem;
+            margin-right: 8px;
+        }
+        
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+        
+        .shake {
+            animation: shake 0.3s ease-in-out;
+        }
+    </style>
+</head>
+<body>
+    <div class="setup-container">
+        <div class="setup-header">
+            <i class="fas fa-robot logo-icon"></i>
+            <h1>Welcome to AI Hub</h1>
+            <p>Customize your admin account to get started</p>
+        </div>
+        
+        <div class="setup-body">
+            <div id="alertContainer"></div>
+            
+            <form id="setupForm" novalidate>
+                <div class="form-group">
+                    <label for="username">
+                        <i class="fas fa-user mr-1"></i> Username
+                    </label>
+                    <div class="input-group">
+                        <div class="input-group-prepend">
+                            <span class="input-group-text"><i class="fas fa-at"></i></span>
+                        </div>
+                        <input type="text" 
+                               class="form-control" 
+                               id="username" 
+                               name="username" 
+                               placeholder="Enter your username"
+                               autocomplete="username"
+                               required>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="name">
+                        <i class="fas fa-id-card mr-1"></i> Display Name <small class="text-muted">(optional)</small>
+                    </label>
+                    <input type="text" 
+                           class="form-control" 
+                           id="name" 
+                           name="name" 
+                           placeholder="Your full name">
+                </div>
+                
+                <div class="form-group">
+                    <label for="email">
+                        <i class="fas fa-envelope mr-1"></i> Email <small class="text-muted">(optional)</small>
+                    </label>
+                    <input type="email" 
+                           class="form-control" 
+                           id="email" 
+                           name="email" 
+                           placeholder="your@email.com"
+                           autocomplete="email">
+                </div>
+                
+                <div class="form-group">
+                    <label for="password">
+                        <i class="fas fa-lock mr-1"></i> Password
+                    </label>
+                    <div class="password-wrapper">
+                        <input type="password" 
+                               class="form-control" 
+                               id="password" 
+                               name="password" 
+                               placeholder="Create a strong password"
+                               autocomplete="new-password"
+                               required>
+                        <i class="fas fa-eye password-toggle" id="togglePassword"></i>
+                    </div>
+                    
+                    <div class="password-requirements" id="passwordRequirements">
+                        <h6><i class="fas fa-shield-alt mr-1"></i> Password Requirements</h6>
+                        <div class="requirement" id="req-length">
+                            <i class="fas fa-circle"></i> At least 8 characters
+                        </div>
+                        <div class="requirement" id="req-upper">
+                            <i class="fas fa-circle"></i> One uppercase letter
+                        </div>
+                        <div class="requirement" id="req-lower">
+                            <i class="fas fa-circle"></i> One lowercase letter
+                        </div>
+                        <div class="requirement" id="req-number">
+                            <i class="fas fa-circle"></i> One number
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="confirmPassword">
+                        <i class="fas fa-lock mr-1"></i> Confirm Password
+                    </label>
+                    <div class="password-wrapper">
+                        <input type="password" 
+                               class="form-control" 
+                               id="confirmPassword" 
+                               name="confirm_password" 
+                               placeholder="Re-enter your password"
+                               autocomplete="new-password"
+                               required>
+                        <i class="fas fa-eye password-toggle" id="toggleConfirmPassword"></i>
+                    </div>
+                    <small id="passwordMatch" class="form-text" style="display: none;"></small>
+                </div>
+                
+                <button type="submit" class="btn btn-primary btn-setup" id="submitBtn">
+                    <i class="fas fa-rocket mr-2"></i> Complete Setup
+                </button>
+            </form>
+        </div>
+        
+        <div class="setup-footer">
+            <p><i class="fas fa-info-circle mr-1"></i> This setup only needs to be done once</p>
+        </div>
+    </div>
+    
+    <!-- jQuery and Bootstrap JS -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        $(document).ready(function() {
+            const $password = $('#password');
+            const $confirmPassword = $('#confirmPassword');
+            const $submitBtn = $('#submitBtn');
+            const $form = $('#setupForm');
+            
+            // Password visibility toggle
+            $('#togglePassword').click(function() {
+                const type = $password.attr('type') === 'password' ? 'text' : 'password';
+                $password.attr('type', type);
+                $(this).toggleClass('fa-eye fa-eye-slash');
+            });
+            
+            $('#toggleConfirmPassword').click(function() {
+                const type = $confirmPassword.attr('type') === 'password' ? 'text' : 'password';
+                $confirmPassword.attr('type', type);
+                $(this).toggleClass('fa-eye fa-eye-slash');
+            });
+            
+            // Password validation
+            function validatePassword(password) {
+                const requirements = {
+                    length: password.length >= 8,
+                    upper: /[A-Z]/.test(password),
+                    lower: /[a-z]/.test(password),
+                    number: /\d/.test(password)
+                };
+                
+                // Update UI
+                Object.keys(requirements).forEach(key => {
+                    const $req = $(`#req-${key}`);
+                    const $icon = $req.find('i');
+                    
+                    if (requirements[key]) {
+                        $req.removeClass('invalid').addClass('valid');
+                        $icon.removeClass('fa-circle').addClass('fa-check-circle');
+                    } else {
+                        $req.removeClass('valid').addClass('invalid');
+                        $icon.removeClass('fa-check-circle').addClass('fa-circle');
+                    }
+                });
+                
+                return Object.values(requirements).every(v => v);
+            }
+            
+            // Check password match
+            function checkPasswordMatch() {
+                const password = $password.val();
+                const confirm = $confirmPassword.val();
+                const $match = $('#passwordMatch');
+                
+                if (confirm.length === 0) {
+                    $match.hide();
+                    return false;
+                }
+                
+                if (password === confirm) {
+                    $match.text('✓ Passwords match').removeClass('text-danger').addClass('text-success').show();
+                    return true;
+                } else {
+                    $match.text('✗ Passwords do not match').removeClass('text-success').addClass('text-danger').show();
+                    return false;
+                }
+            }
+            
+            $password.on('input', function() {
+                validatePassword($(this).val());
+                if ($confirmPassword.val()) {
+                    checkPasswordMatch();
+                }
+            });
+            
+            $confirmPassword.on('input', checkPasswordMatch);
+            
+            // Show alert
+            function showAlert(message, type = 'danger') {
+                const $alert = $(`
+                    <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                        ${type === 'danger' ? '<i class="fas fa-exclamation-circle mr-2"></i>' : '<i class="fas fa-check-circle mr-2"></i>'}
+                        ${message}
+                        <button type="button" class="close" data-dismiss="alert">
+                            <span>&times;</span>
+                        </button>
+                    </div>
+                `);
+                
+                $('#alertContainer').html($alert);
+                
+                if (type === 'danger') {
+                    $form.addClass('shake');
+                    setTimeout(() => $form.removeClass('shake'), 300);
+                }
+            }
+            
+            // Form submission
+            $form.on('submit', function(e) {
+                e.preventDefault();
+                
+                const username = $('#username').val().trim();
+                const name = $('#name').val().trim();
+                const email = $('#email').val().trim();
+                const password = $password.val();
+                const confirmPassword = $confirmPassword.val();
+                
+                // Validate
+                if (username.length < 3) {
+                    showAlert('Username must be at least 3 characters long');
+                    $('#username').focus();
+                    return;
+                }
+                
+                if (!validatePassword(password)) {
+                    showAlert('Please ensure your password meets all requirements');
+                    $password.focus();
+                    return;
+                }
+                
+                if (password !== confirmPassword) {
+                    showAlert('Passwords do not match');
+                    $confirmPassword.focus();
+                    return;
+                }
+                
+                // Disable button and show loading
+                $submitBtn.prop('disabled', true).html(
+                    '<span class="spinner-border spinner-border-sm" role="status"></span> Setting up...'
+                );
+                
+                // Submit
+                $.ajax({
+                    url: '/setup',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        username: username,
+                        name: name,
+                        email: email,
+                        password: password,
+                        confirm_password: confirmPassword
+                    }),
+                    success: function(response) {
+                        if (response.success) {
+                            showAlert('Setup complete! Redirecting to login...', 'success');
+                            $submitBtn.html('<i class="fas fa-check mr-2"></i> Success!');
+                            
+                            setTimeout(function() {
+                                window.location.href = response.redirect || '/login';
+                            }, 1500);
+                        } else {
+                            showAlert(response.error || 'Setup failed. Please try again.');
+                            $submitBtn.prop('disabled', false).html(
+                                '<i class="fas fa-rocket mr-2"></i> Complete Setup'
+                            );
+                        }
+                    },
+                    error: function(xhr) {
+                        let message = 'An error occurred. Please try again.';
+                        if (xhr.responseJSON && xhr.responseJSON.error) {
+                            message = xhr.responseJSON.error;
+                        }
+                        showAlert(message);
+                        $submitBtn.prop('disabled', false).html(
+                            '<i class="fas fa-rocket mr-2"></i> Complete Setup'
+                        );
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>

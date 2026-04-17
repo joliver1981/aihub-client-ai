@@ -1,0 +1,1377 @@
+{% extends "base.html" %}
+{% block title %}Document Manager{% endblock %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<div class="container-fluid">
+
+    <!-- Page Header -->
+    <div class="doc-page-header">
+        <div>
+            <h4 class="doc-page-header-title"><i class="fas fa-folder-open"></i> Document Manager</h4>
+            <span class="doc-page-header-subtitle">Browse and manage all loaded documents</span>
+        </div>
+        <div class="doc-page-header-actions">
+            <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+                <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="doc-stats-row">
+        <div class="doc-stat-card cyan">
+            <span class="doc-stat-label">Total Documents</span>
+            <span class="doc-stat-value" id="totalDocuments">0</span>
+        </div>
+        <div class="doc-stat-card violet">
+            <span class="doc-stat-label">Total Pages</span>
+            <span class="doc-stat-value" id="totalPages">0</span>
+        </div>
+        <div class="doc-stat-card success">
+            <span class="doc-stat-label">Document Types</span>
+            <span class="doc-stat-value" id="totalTypes">0</span>
+        </div>
+        <div class="doc-stat-card warning">
+            <span class="doc-stat-label">Last Updated</span>
+            <span class="doc-stat-value" style="font-size:1rem;" id="lastUpdated">-</span>
+        </div>
+    </div>
+
+    <!-- Filters and Actions -->
+    <div class="card doc-card">
+        <div class="card-header doc-card-header">
+            <i class="fas fa-sliders-h" style="color:var(--cyber-cyan);margin-right:0.5rem;"></i> Filters & Actions
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-3">
+                    <label for="filterDocType">Document Type</label>
+                    <select class="form-control form-control-sm" id="filterDocType">
+                        <option value="">All Types</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="filterDateRange">Date Range</label>
+                    <select class="form-control form-control-sm" id="filterDateRange">
+                        <option value="">All Time</option>
+                        <option value="today">Today</option>
+                        <option value="week">Last 7 Days</option>
+                        <option value="month">Last 30 Days</option>
+                        <option value="custom">Custom Range</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="searchDocuments">Search</label>
+                    <input type="text" class="form-control form-control-sm" id="searchDocuments" placeholder="Search by filename...">
+                </div>
+                <div class="col-md-3">
+                    <label>&nbsp;</label>
+                    <div>
+                        <button class="btn btn-sm btn-primary" onclick="applyFilters()">
+                            <i class="fas fa-filter"></i> Apply
+                        </button>
+                        <button class="btn btn-sm btn-secondary" onclick="resetFilters()">
+                            <i class="fas fa-undo"></i> Reset
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Date range picker (hidden by default) -->
+            <div class="row mt-2" id="customDateRange" style="display: none;">
+                <div class="col-md-3">
+                    <label for="startDate">Start Date</label>
+                    <input type="date" class="form-control form-control-sm" id="startDate">
+                </div>
+                <div class="col-md-3">
+                    <label for="endDate">End Date</label>
+                    <input type="date" class="form-control form-control-sm" id="endDate">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Vector Database Maintenance -->
+    <div class="card">
+        <div class="card-header" style="border-left:3px solid var(--status-warning);">
+            <i class="fas fa-database" style="color:var(--status-warning);margin-right:0.5rem;"></i> Vector Database Maintenance
+            <small style="color:var(--text-muted);margin-left:0.5rem;">(Admin Only)</small>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-warning" role="alert">
+                <i class="fas fa-exclamation-triangle"></i>
+                <strong>Caution:</strong> These operations will modify the vector database. Use only if you experience vector database issues or need to rebuild embeddings.
+            </div>
+            
+            <div class="row">
+                <div class="col-md-6">
+                    <button class="btn btn-sm btn-outline-primary btn-block maintenance-btn" onclick="showReprocessModal('selective')">
+                        <i class="fas fa-sync"></i>
+                        <small>Reprocess Selected Documents</small>
+                    </button>
+                    <small class="text-muted">Reprocess vectors for specific documents or types</small>
+                </div>
+                <div class="col-md-6">
+                    <button class="btn btn-sm btn-outline-danger btn-block maintenance-btn" onclick="showReprocessModal('force')">
+                        <i class="fas fa-redo"></i>
+                        <small>Force Rebuild Vectors</small>
+                    </button>
+                    <small class="text-muted">Delete and recreate all vectors</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Vector Reprocessing Modal -->
+    <div class="modal fade" id="reprocessVectorModal" tabindex="-1" role="dialog" aria-labelledby="reprocessVectorModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-warning text-dark">
+                    <h5 class="modal-title" id="reprocessVectorModalLabel">
+                        <i class="fas fa-database"></i> Vector Database Reprocessing
+                    </h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <!-- Warning Section -->
+                    <div class="alert alert-danger" role="alert" id="reprocessWarning">
+                        <h6><i class="fas fa-exclamation-triangle"></i> Important Warning</h6>
+                        <div id="warningContent">
+                            <!-- Warning content will be populated by JavaScript -->
+                        </div>
+                        <hr>
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" id="confirmReprocess">
+                            <label class="form-check-label" for="confirmReprocess">
+                                <strong>I understand the risks and want to proceed</strong>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Options Section -->
+                    <div id="reprocessOptions" style="display: none;">
+                        <h6>Reprocessing Options</h6>
+                        
+                        <!-- Selective reprocessing options -->
+                        <div id="selectiveOptions" style="display: none;">
+                            <div class="form-group">
+                                <label for="selectDocumentType">Document Type (Optional)</label>
+                                <select class="form-control form-control-sm" id="selectDocumentType">
+                                    <option value="">All Document Types</option>
+                                    <!-- Options will be populated by JavaScript -->
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="selectDocumentId">Specific Document ID (Optional)</label>
+                                <input type="text" class="form-control form-control-sm" id="selectDocumentId" 
+                                    placeholder="Enter document ID to reprocess only that document">
+                            </div>
+                        </div>
+                        
+                        <!-- Advanced options -->
+                        <div class="form-group">
+                            <label for="batchSize">Batch Size</label>
+                            <select class="form-control form-control-sm" id="batchSize">
+                                <option value="25">25 (Small - Slower but safer)</option>
+                                <option value="50" selected>50 (Default)</option>
+                                <option value="100">100 (Large - Faster but more memory)</option>
+                            </select>
+                            <small class="text-muted">Number of documents to process at once</small>
+                        </div>
+                    </div>
+
+                    <!-- Progress Section -->
+                    <div id="reprocessProgress" style="display: none;">
+                        <div class="text-center">
+                            <div class="processing-animation mb-3">
+                                <div class="processing-spinner"></div>
+                            </div>
+                            <h6 id="progressText">Processing vector database...</h6>
+                            <p class="text-muted" id="progressDetails" style="font-size: 0.85rem;">This may take several minutes depending on your document collection size.</p>
+                            <div class="mt-3">
+                                <small class="text-muted">
+                                    <i class="fas fa-info-circle"></i> 
+                                    The operation is running in the background. You can safely close this dialog.
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Results Section -->
+                    <div id="reprocessResults" style="display: none;">
+                        <h6>Results</h6>
+                        <div id="resultsContent"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal" id="cancelBtn">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-warning" id="startReprocessBtn" 
+                            onclick="startReprocessing()" disabled>
+                        <i class="fas fa-play"></i> Start Reprocessing
+                    </button>
+                    <button type="button" class="btn btn-sm btn-primary" id="closeResultsBtn" 
+                            style="display: none;" data-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk Actions -->
+    <div class="mb-2">
+        <button class="btn btn-sm btn-secondary" onclick="selectAll()" id="selectAllBtn">
+            <i class="fas fa-check-square"></i> Select All
+        </button>
+        <button class="btn btn-sm btn-warning" onclick="bulkUpdateType()" disabled id="bulkUpdateBtn">
+            <i class="fas fa-edit"></i> Update Type
+        </button>
+        <button class="btn btn-sm btn-danger" onclick="bulkDelete()" disabled id="bulkDeleteBtn">
+            <i class="fas fa-trash"></i> Delete Selected
+        </button>
+        <span class="ml-3 text-muted" id="selectedCount">0 selected</span>
+    </div>
+
+    <!-- Documents Table -->
+    <div class="card doc-card">
+        <div class="card-header doc-card-header">
+            <i class="fas fa-table" style="color:var(--cyber-cyan);margin-right:0.5rem;"></i> Documents
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0" id="documentsTable">
+                    <thead class="thead-light">
+                        <tr>
+                            <th width="30">
+                                <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()">
+                            </th>
+                            <th>Filename</th>
+                            <th>Document Type</th>
+                            <th>Pages</th>
+                            <th>Reference #</th>
+                            <th>Processed Date</th>
+                            <th width="120">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="documentsTableBody">
+                        <!-- Documents will be loaded here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pagination -->
+    <nav aria-label="Documents pagination" class="mt-3">
+        <ul class="pagination pagination-sm justify-content-center" id="pagination">
+            <!-- Pagination will be loaded here -->
+        </ul>
+    </nav>
+</div>
+
+<!-- Edit Document Modal with Attribution -->
+<div class="modal fade" id="editDocumentModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Document</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="editDocumentForm">
+                    <input type="hidden" id="editDocumentId">
+                    
+                    <!-- Document Information Tab Navigation -->
+                    <ul class="nav nav-tabs" id="editDocumentTabs" role="tablist">
+                        <li class="nav-item">
+                            <a class="nav-link active" id="basic-info-tab" data-toggle="tab" href="#basic-info" role="tab">Basic Info</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" id="attribution-tab" data-toggle="tab" href="#attribution" role="tab">Attributes</a>
+                        </li>
+                    </ul>
+                    
+                    <div class="tab-content mt-3" id="editDocumentTabContent">
+                        <!-- Basic Information Tab -->
+                        <div class="tab-pane fade show active" id="basic-info" role="tabpanel">
+                            <div class="form-group">
+                                <label>Filename</label>
+                                <input type="text" class="form-control form-control-sm" id="editFilename" readonly>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Document Type <span class="text-danger">*</span></label>
+                                <select class="form-control form-control-sm" id="editDocumentType" required>
+                                    <option value="">Select Type</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Reference Number</label>
+                                <input type="text" class="form-control form-control-sm" id="editReferenceNumber">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Customer ID</label>
+                                <input type="text" class="form-control form-control-sm" id="editCustomerId">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Vendor ID</label>
+                                <input type="text" class="form-control form-control-sm" id="editVendorId">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Document Date</label>
+                                <input type="date" class="form-control form-control-sm" id="editDocumentDate">
+                            </div>
+                        </div>
+                        
+                        <!-- Attributes Tab -->
+                        <div class="tab-pane fade" id="attribution" role="tabpanel">
+                            <div class="mb-3">
+                                <h6>Document Attributes</h6>
+                                <p class="text-muted small">Add custom attributes to this document such as author, source, organization, or any other metadata.</p>
+                            </div>
+                            
+                            <div id="attributionsList">
+                                <!-- Attribution entries will be loaded here -->
+                            </div>
+                            
+                            <div class="mt-3">
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="addAttributionField()">
+                                    <i class="fas fa-plus"></i> Add Attribute
+                                </button>
+                            </div>
+                            
+                            <!-- Template for new attribution fields (hidden) -->
+                            <div id="attributionTemplate" style="display: none;">
+                                <div class="attribution-entry border rounded p-2 mb-2">
+                                    <div class="row">
+                                        <div class="col-md-4">
+                                            <label class="form-label">Attribute Name</label>
+                                            <input type="text" class="form-control form-control-sm attribution-type" placeholder="e.g., Author, Source, URL...">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">Value</label>
+                                            <input type="text" class="form-control form-control-sm attribution-value" placeholder="Enter attribute value...">
+                                        </div>
+                                        <div class="col-md-2 d-flex align-items-end">
+                                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeAttributionField(this)">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-sm btn-primary" onclick="saveDocumentChanges()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Update Modal -->
+<div class="modal fade" id="bulkUpdateModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Bulk Update Document Type</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p>Update document type for <span id="bulkUpdateCount">0</span> selected documents:</p>
+                <div class="form-group">
+                    <label>New Document Type</label>
+                    <select class="form-control form-control-sm" id="bulkDocumentType">
+                        <option value="">Select Type</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-sm btn-warning" onclick="confirmBulkUpdate()">Update All</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Global variables
+let currentPage = 1;
+let totalPages = 1;
+let selectedDocuments = new Set();
+let allDocuments = [];
+
+// Initialize on page load
+$(document).ready(function() {
+    loadDocuments();
+    loadDocumentTypes();
+    
+    // Date range change handler
+    $('#filterDateRange').change(function() {
+        if ($(this).val() === 'custom') {
+            $('#customDateRange').show();
+        } else {
+            $('#customDateRange').hide();
+        }
+    });
+});
+
+// Load documents from API
+function loadDocuments(page = 1) {
+    currentPage = page;
+    
+    // Build query parameters
+    const params = new URLSearchParams({
+        page: currentPage,
+        per_page: 20,
+        document_type: $('#filterDocType').val() || '',
+        search: $('#searchDocuments').val() || '',
+        date_range: $('#filterDateRange').val() || ''
+    });
+    
+    if ($('#filterDateRange').val() === 'custom') {
+        params.append('start_date', $('#startDate').val());
+        params.append('end_date', $('#endDate').val());
+    }
+    
+    // Show loading indicator
+    $('#documentsTableBody').html('<tr><td colspan="7" class="text-center"><i class="fas fa-spinner fa-spin"></i> Loading documents...</td></tr>');
+    
+    $.ajax({
+        url: '/api/documents?' + params.toString(),
+        method: 'GET',
+        success: function(response) {
+            displayDocuments(response.documents);
+            updatePagination(response.pagination);
+            updateStats(response.stats);
+            allDocuments = response.documents;
+        },
+        error: function(xhr) {
+            showAlert('danger', 'Failed to load documents: ' + xhr.responseText);
+        }
+    });
+}
+
+// Display documents in table
+function displayDocuments(documents) {
+    const tbody = $('#documentsTableBody');
+    tbody.empty();
+    
+    if (documents.length === 0) {
+        tbody.html('<tr><td colspan="7" class="text-center text-muted">No documents found</td></tr>');
+        return;
+    }
+    
+    documents.forEach(doc => {
+        const row = $('<tr>').attr('data-document-id', doc.document_id);
+        
+        row.html(`
+            <td>
+                <input type="checkbox" class="document-checkbox" value="${doc.document_id}" 
+                       onchange="toggleDocumentSelection('${doc.document_id}')">
+            </td>
+            <td>
+                <a href="/document/view/${doc.document_id}" target="_blank" class="text-primary">
+                    ${escapeHtml(doc.filename)}
+                </a>
+            </td>
+            <td>
+                <span class="badge badge-secondary">${doc.document_type || 'Unknown'}</span>
+            </td>
+            <td>${doc.page_count}</td>
+            <td>${doc.reference_number || '-'}</td>
+            <td>${formatDate(doc.processed_at)}</td>
+            <td>
+                <button class="btn btn-sm btn-info" onclick="viewDocument('${doc.document_id}')" title="View">
+                    <i class="fas fa-eye"></i>
+                </button>
+                <button class="btn btn-sm btn-warning" onclick="editDocument('${doc.document_id}')" title="Edit">
+                    <i class="fas fa-edit"></i>
+                </button>
+                <button class="btn btn-sm btn-danger" onclick="deleteDocument('${doc.document_id}')" title="Delete">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+        `);
+        
+        tbody.append(row);
+    });
+}
+
+// Update pagination
+function updatePagination(pagination) {
+    totalPages = pagination.total_pages;
+    const paginationEl = $('#pagination');
+    paginationEl.empty();
+    
+    // Previous button
+    paginationEl.append(`
+        <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
+            <a class="page-link" href="#" onclick="loadDocuments(${currentPage - 1}); return false;">Previous</a>
+        </li>
+    `);
+    
+    // Page numbers
+    for (let i = 1; i <= totalPages; i++) {
+        if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
+            paginationEl.append(`
+                <li class="page-item ${i === currentPage ? 'active' : ''}">
+                    <a class="page-link" href="#" onclick="loadDocuments(${i}); return false;">${i}</a>
+                </li>
+            `);
+        } else if (i === currentPage - 3 || i === currentPage + 3) {
+            paginationEl.append('<li class="page-item disabled"><span class="page-link">...</span></li>');
+        }
+    }
+    
+    // Next button
+    paginationEl.append(`
+        <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
+            <a class="page-link" href="#" onclick="loadDocuments(${currentPage + 1}); return false;">Next</a>
+        </li>
+    `);
+}
+
+// Update statistics
+function updateStats(stats) {
+    $('#totalDocuments').text(stats.total_documents || 0);
+    $('#totalPages').text(stats.total_pages || 0);
+    $('#totalTypes').text(stats.document_types || 0);
+    $('#lastUpdated').text(stats.last_updated ? formatDate(stats.last_updated) : '-');
+}
+
+// Load document types for filter
+function loadDocumentTypes() {
+    $.ajax({
+        url: '/api/document-types',
+        method: 'GET',
+        success: function(types) {
+            const select = $('#filterDocType');
+            select.empty();
+            select.append('<option value="">All Types</option>');
+            
+            types.forEach(type => {
+                // Add to filter dropdown
+                select.append(`<option value="${type.name}">${type.name} (${type.count})</option>`);
+            });
+        }
+    });
+}
+
+// Apply filters
+function applyFilters() {
+    loadDocuments(1);
+}
+
+// Reset filters
+function resetFilters() {
+    $('#filterDocType').val('');
+    $('#filterDateRange').val('');
+    $('#searchDocuments').val('');
+    $('#startDate').val('');
+    $('#endDate').val('');
+    $('#customDateRange').hide();
+    loadDocuments(1);
+}
+
+// Toggle document selection
+function toggleDocumentSelection(documentId) {
+    if (selectedDocuments.has(documentId)) {
+        selectedDocuments.delete(documentId);
+    } else {
+        selectedDocuments.add(documentId);
+    }
+    updateSelectionUI();
+}
+
+// Toggle select all
+function toggleSelectAll() {
+    const checked = $('#selectAllCheckbox').prop('checked');
+    $('.document-checkbox').prop('checked', checked);
+    
+    if (checked) {
+        allDocuments.forEach(doc => selectedDocuments.add(doc.document_id));
+    } else {
+        selectedDocuments.clear();
+    }
+    
+    updateSelectionUI();
+}
+
+// Update selection UI
+function updateSelectionUI() {
+    const count = selectedDocuments.size;
+    $('#selectedCount').text(`${count} selected`);
+    $('#bulkUpdateBtn, #bulkDeleteBtn').prop('disabled', count === 0);
+    
+    if (count === 0) {
+        $('#selectAllBtn').html('<i class="fas fa-check-square"></i> Select All');
+    } else {
+        $('#selectAllBtn').html('<i class="fas fa-times"></i> Clear Selection');
+    }
+}
+
+// Select/deselect all
+function selectAll() {
+    if (selectedDocuments.size > 0) {
+        selectedDocuments.clear();
+        $('.document-checkbox').prop('checked', false);
+        $('#selectAllCheckbox').prop('checked', false);
+    } else {
+        allDocuments.forEach(doc => selectedDocuments.add(doc.document_id));
+        $('.document-checkbox').prop('checked', true);
+        $('#selectAllCheckbox').prop('checked', true);
+    }
+    updateSelectionUI();
+}
+
+// View document
+function viewDocument(documentId) {
+    window.open(`/document/view/${documentId}`, '_blank');
+}
+
+// Format object as JSON with indentation
+function formatJsonOutput(obj) {
+    try {
+        if (typeof obj === 'string') {
+            // Try to parse as JSON first
+            try {
+                return JSON.stringify(JSON.parse(obj), null, 2);
+            } catch (e) {
+                return obj;
+            }
+        } else {
+            return JSON.stringify(obj, null, 2);
+        }
+    } catch (e) {
+        return String(obj);
+    }
+}
+
+
+// Delete document
+function deleteDocument(documentId) {
+    if (!confirm('Are you sure you want to delete this document? This action cannot be undone.')) {
+        return;
+    }
+
+    // Get the delete button that was clicked
+    const deleteButton = document.querySelector(`button[onclick="deleteDocument('${documentId}')"]`);
+    const originalButtonContent = deleteButton.innerHTML;
+    
+    // Disable button and show loading state
+    deleteButton.disabled = true;
+    deleteButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Deleting...';
+    
+    $.ajax({
+        url: `/api/documents/${documentId}`,
+        method: 'DELETE',
+        success: function(response) {
+            showAlert('success', 'Document deleted successfully');
+            loadDocuments(currentPage);
+        },
+        error: function(xhr) {
+            showAlert('danger', 'Failed to delete document: ' + xhr.responseText);
+        }
+    })
+    .always(function() {
+        // Reset button state regardless of success or failure
+        deleteButton.disabled = false;
+        deleteButton.innerHTML = originalButtonContent;
+    });
+}
+
+// Bulk update type
+function bulkUpdateType() {
+    $('#bulkUpdateCount').text(selectedDocuments.size);
+    
+    // Clear the select
+    $('#bulkDocumentType').val('');
+    
+    // Load document types for the select
+    $.ajax({
+        url: '/api/document-types',
+        method: 'GET',
+        success: function(types) {
+            const select = $('#bulkDocumentType');
+            select.empty();
+            select.append('<option value="">Select Type</option>');
+            
+            types.forEach(type => {
+                select.append(`<option value="${type.name}">${type.name}</option>`);
+            });
+        }
+    });
+    
+    $('#bulkUpdateModal').modal('show');
+}
+
+// Confirm bulk update
+function confirmBulkUpdate() {
+    const newType = $('#bulkDocumentType').val();
+    if (!newType) {
+        showAlert('warning', 'Please select a document type');
+        return;
+    }
+    
+    const documentIds = Array.from(selectedDocuments);
+    
+    $.ajax({
+        url: '/api/documents/bulk-update',
+        method: 'PUT',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            document_ids: documentIds,
+            document_type: newType
+        }),
+        success: function(response) {
+            showAlert('success', `Successfully updated ${response.updated_count} documents`);
+            $('#bulkUpdateModal').modal('hide');
+            selectedDocuments.clear();
+            updateSelectionUI();
+            loadDocuments(currentPage);
+        },
+        error: function(xhr) {
+            showAlert('danger', 'Failed to update documents: ' + xhr.responseText);
+        }
+    });
+}
+
+// Bulk delete
+function bulkDelete() {
+    const count = selectedDocuments.size;
+    if (!confirm(`Are you sure you want to delete ${count} documents? This action cannot be undone.`)) {
+        return;
+    }
+    
+    const documentIds = Array.from(selectedDocuments);
+
+    // Get the bulk delete button
+    const bulkDeleteButton = document.getElementById('bulkDeleteBtn');
+    const originalButtonContent = bulkDeleteButton.innerHTML;
+    
+    // Disable button and show loading state
+    bulkDeleteButton.disabled = true;
+    bulkDeleteButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Deleting...';
+    
+    $.ajax({
+        url: '/api/documents/bulk-delete',
+        method: 'DELETE',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            document_ids: documentIds
+        }),
+        success: function(response) {
+            showAlert('success', `Successfully deleted ${response.deleted_count} documents`);
+            selectedDocuments.clear();
+            updateSelectionUI();
+            loadDocuments(currentPage);
+        },
+        error: function(xhr) {
+            showAlert('danger', 'Failed to delete documents: ' + xhr.responseText);
+        }
+    })
+    .always(function() {
+        // Reset button state regardless of success or failure
+        bulkDeleteButton.disabled = false;
+        bulkDeleteButton.innerHTML = originalButtonContent;
+    });
+}
+
+// Show alert
+function showAlert(type, message) {
+    const alertHtml = `
+        <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+            ${message}
+            <button type="button" class="close" data-dismiss="alert">
+                <span>&times;</span>
+            </button>
+        </div>
+    `;
+    
+    // Add alert to top of page
+    $('.container-fluid').prepend(alertHtml);
+    
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+        $('.alert').fadeOut(() => {
+            $('.alert').remove();
+        });
+    }, 5000);
+}
+
+// Escape HTML
+function escapeHtml(text) {
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return text.replace(/[&<>"']/g, m => map[m]);
+}
+
+// Format date
+function formatDate(dateString) {
+    if (!dateString) return '-';
+    const date = new Date(dateString);
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+}
+
+
+// Updated edit document function with attribution support
+function editDocument(documentId) {
+    // Get document details
+    $.ajax({
+        url: `/api/documents/${documentId}`,
+        method: 'GET',
+        success: function(doc) {
+            // Populate basic form fields
+            $('#editDocumentId').val(doc.document_id);
+            $('#editFilename').val(doc.filename);
+            $('#editReferenceNumber').val(doc.reference_number || '');
+            $('#editCustomerId').val(doc.customer_id || '');
+            $('#editVendorId').val(doc.vendor_id || '');
+            $('#editDocumentDate').val(doc.document_date || '');
+            
+            // Load document types
+            $.ajax({
+                url: '/api/document-types',
+                method: 'GET',
+                success: function(types) {
+                    const select = $('#editDocumentType');
+                    select.empty();
+                    select.append('<option value="">Select Type</option>');
+                    
+                    types.forEach(type => {
+                        select.append(`<option value="${type.name}">${type.name}</option>`);
+                    });
+                    
+                    select.val(doc.document_type || '');
+                }
+            });
+            
+            // Load attributions
+            loadDocumentAttributions(documentId);
+        }
+    });
+    
+    // Show modal
+    $('#editDocumentModal').modal('show');
+}
+
+// Updated save function with attribution support
+function saveDocumentChanges() {
+    const documentId = $('#editDocumentId').val();
+    const attributions = collectAttributions();
+    
+    const data = {
+        document_type: $('#editDocumentType').val(),
+        reference_number: $('#editReferenceNumber').val(),
+        customer_id: $('#editCustomerId').val(),
+        vendor_id: $('#editVendorId').val(),
+        document_date: $('#editDocumentDate').val(),
+        attributions: attributions
+    };
+    
+    if (!data.document_type) {
+        showAlert('warning', 'Document type is required');
+        return;
+    }
+    
+    $.ajax({
+        url: `/api/documents/${documentId}`,
+        method: 'PUT',
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function(response) {
+            showAlert('success', 'Document updated successfully');
+            $('#editDocumentModal').modal('hide');
+            loadDocuments(currentPage);
+        },
+        error: function(xhr) {
+            showAlert('danger', 'Failed to update document: ' + xhr.responseText);
+        }
+    });
+}
+
+// Attribution management functions
+function addAttributionField(attributeName = '', value = '') {
+    const template = document.getElementById('attributionTemplate');
+    const newEntry = template.querySelector('.attribution-entry').cloneNode(true);
+    
+    // Set values if provided
+    if (attributeName) newEntry.querySelector('.attribution-type').value = attributeName;
+    if (value) newEntry.querySelector('.attribution-value').value = value;
+    
+    document.getElementById('attributionsList').appendChild(newEntry);
+}
+
+function removeAttributionField(button) {
+    button.closest('.attribution-entry').remove();
+}
+
+function loadDocumentAttributions(documentId) {
+    $.ajax({
+        url: `/api/documents/${documentId}/attributions`,
+        method: 'GET',
+        success: function(attributions) {
+            const container = document.getElementById('attributionsList');
+            container.innerHTML = '';
+            
+            if (attributions.length === 0) {
+                // Add one empty attribution field as default
+                addAttributionField();
+            } else {
+                attributions.forEach(attr => {
+                    addAttributionField(attr.attribution_type, attr.attribution_value);
+                });
+            }
+        },
+        error: function(xhr) {
+            console.error('Failed to load attributions:', xhr.responseText);
+            // Add one empty attribution field as fallback
+            const container = document.getElementById('attributionsList');
+            container.innerHTML = '';
+            addAttributionField();
+        }
+    });
+}
+
+function collectAttributions() {
+    const attributions = [];
+    document.querySelectorAll('.attribution-entry').forEach((entry, index) => {
+        const attributeName = entry.querySelector('.attribution-type').value.trim();
+        const value = entry.querySelector('.attribution-value').value.trim();
+        
+        if (attributeName && value) {
+            attributions.push({
+                attribution_type: attributeName,
+                attribution_value: value,
+                attribution_order: index + 1
+            });
+        }
+    });
+    return attributions;
+}
+
+
+function loadDocumentAttributions__no_default(documentId) {
+    $.ajax({
+        url: `/api/documents/${documentId}/attributions`,
+        method: 'GET',
+        success: function(attributions) {
+            const container = document.getElementById('attributionsList');
+            container.innerHTML = '';
+            
+            attributions.forEach(attr => {
+                addAttributionField(attr.attribution_type, attr.attribution_value);
+            });
+        },
+        error: function(xhr) {
+            console.error('Failed to load attributions:', xhr.responseText);
+        }
+    });
+}
+
+
+// Optional: Add attribution column to documents table
+function displayDocumentsWithAttribution(documents) {
+    const tbody = $('#documentsTableBody');
+    tbody.empty();
+    
+    if (documents.length === 0) {
+        tbody.html('<tr><td colspan="8" class="text-center text-muted">No documents found</td></tr>');
+        return;
+    }
+    
+    documents.forEach(doc => {
+        const row = $('<tr>').attr('data-document-id', doc.document_id);
+        
+        row.html(`
+            <td>
+                <input type="checkbox" class="document-checkbox" value="${doc.document_id}" 
+                       onchange="toggleDocumentSelection('${doc.document_id}')">
+            </td>
+            <td>
+                <a href="/document/view/${doc.document_id}" target="_blank" class="text-primary">
+                    ${escapeHtml(doc.filename)}
+                </a>
+            </td>
+            <td>
+                <span class="badge badge-secondary">${doc.document_type || 'Unknown'}</span>
+            </td>
+            <td>${doc.page_count}</td>
+            <td>${doc.reference_number || '-'}</td>
+            <td><span class="attribution-summary" data-document-id="${doc.document_id}">Loading...</span></td>
+            <td>${formatDate(doc.processed_at)}</td>
+            <td>
+                <button class="btn btn-sm btn-info" onclick="viewDocument('${doc.document_id}')" title="View">
+                    <i class="fas fa-eye"></i>
+                </button>
+                <button class="btn btn-sm btn-warning" onclick="editDocument('${doc.document_id}')" title="Edit">
+                    <i class="fas fa-edit"></i>
+                </button>
+                <button class="btn btn-sm btn-danger" onclick="deleteDocument('${doc.document_id}')" title="Delete">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+        `);
+        
+        tbody.append(row);
+        
+        // Load attribution summary for this document
+        loadAttributionSummary(doc.document_id);
+    });
+}
+
+function loadAttributionSummary(documentId) {
+    $.ajax({
+        url: `/api/documents/${documentId}/attribution-summary`,
+        method: 'GET',
+        success: function(data) {
+            const summaryElement = $(`.attribution-summary[data-document-id="${documentId}"]`);
+            if (data.summary) {
+                summaryElement.html(`<small class="text-muted">${data.summary}</small>`);
+            } else {
+                summaryElement.html('<small class="text-muted">-</small>');
+            }
+        },
+        error: function() {
+            const summaryElement = $(`.attribution-summary[data-document-id="${documentId}"]`);
+            summaryElement.html('<small class="text-muted">-</small>');
+        }
+    });
+}
+
+// Vector reprocessing functionality
+let reprocessingType = '';
+let reprocessingInProgress = false;
+
+function showReprocessModal(type) {
+    reprocessingType = type;
+    
+    // Set modal title and warning content based on type
+    const warnings = {
+        'selective': {
+            title: 'Reprocess Selected Documents',
+            content: `
+                <p><strong>This operation will:</strong></p>
+                <ul>
+                    <li>Rebuild vector embeddings for selected documents</li>
+                    <li>Use existing text data from the database</li>
+                    <li>Temporarily impact search performance during processing</li>
+                    <li>May take several minutes depending on document count</li>
+                </ul>
+                <p><strong>Use this when:</strong> You have specific documents with vector issues or want to update embeddings for certain document types.</p>
+            `
+        },
+        'all': {
+            title: 'Reprocess All Document Vectors',
+            content: `
+                <p><strong>This operation will:</strong></p>
+                <ul>
+                    <li><span class="text-warning">Rebuild ALL document vector embeddings</span></li>
+                    <li>Process potentially thousands of documents</li>
+                    <li>Significantly impact system performance during processing</li>
+                    <li>May take 30+ minutes for large document collections</li>
+                    <li>Search functionality may be degraded during processing</li>
+                </ul>
+                <p><strong>Use this when:</strong> Vector database is corrupted or you need to rebuild all embeddings.</p>
+            `
+        },
+        'force': {
+            title: 'Force Rebuild All Vectors (Destructive)',
+            content: `
+                <p><strong><span class="text-danger">⚠️ DESTRUCTIVE OPERATION ⚠️</span></strong></p>
+                <p><strong>This operation will:</strong></p>
+                <ul>
+                    <li><span class="text-danger">DELETE all existing vector embeddings first</span></li>
+                    <li>Rebuild ALL vectors from scratch</li>
+                    <li>Render search completely unavailable during processing</li>
+                    <li>May take 1+ hours for large document collections</li>
+                    <li>Cannot be interrupted once started</li>
+                </ul>
+                <p><strong>Use this ONLY when:</strong> Vector database is severely corrupted and standard reprocessing fails.</p>
+            `
+        }
+    };
+    
+    const warning = warnings[type];
+    $('#reprocessVectorModalLabel').html(`<i class="fas fa-database"></i> ${warning.title}`);
+    $('#warningContent').html(warning.content);
+    
+    // Show/hide options based on type
+    if (type === 'selective') {
+        $('#selectiveOptions').show();
+    } else {
+        $('#selectiveOptions').hide();
+    }
+    
+    // Load document types for selective reprocessing
+    if (type === 'selective') {
+        loadDocumentTypesForReprocessing();
+    }
+    
+    // Reset form
+    $('#confirmReprocess').prop('checked', false);
+    $('#reprocessOptions').hide();
+    $('#reprocessProgress').hide();
+    $('#reprocessResults').hide();
+    $('#startReprocessBtn').prop('disabled', true);
+    $('#cancelBtn').show();
+    $('#closeResultsBtn').hide();
+    
+    $('#reprocessVectorModal').modal('show');
+}
+
+function loadDocumentTypesForReprocessing() {
+    $.ajax({
+        url: '/api/document-types',
+        method: 'GET',
+        success: function(types) {
+            const select = $('#selectDocumentType');
+            select.empty();
+            select.append('<option value="">All Document Types</option>');
+            
+            types.forEach(type => {
+                select.append(`<option value="${type.name}">${type.name} (${type.count})</option>`);
+            });
+        },
+        error: function() {
+            console.error('Failed to load document types');
+        }
+    });
+}
+
+// Enable/disable start button based on confirmation
+$(document).on('change', '#confirmReprocess', function() {
+    if ($(this).is(':checked')) {
+        $('#reprocessOptions').show();
+        $('#startReprocessBtn').prop('disabled', false);
+    } else {
+        $('#reprocessOptions').hide();
+        $('#startReprocessBtn').prop('disabled', true);
+    }
+});
+
+function startReprocessing() {
+    if (reprocessingInProgress) return;
+    
+    reprocessingInProgress = true;
+    
+    // Hide options and show progress
+    $('#reprocessOptions').hide();
+    $('#reprocessProgress').show();
+    $('#startReprocessBtn').hide();
+    $('#cancelBtn').text('Processing...').prop('disabled', true);
+    
+    // Prepare API call based on type
+    let apiUrl = '';
+    let requestData = {
+        batch_size: parseInt($('#batchSize').val())
+    };
+    
+    if (reprocessingType === 'selective') {
+        apiUrl = '/document/reprocess-vectors';
+        const docType = $('#selectDocumentType').val();
+        const docId = $('#selectDocumentId').val().trim();
+        
+        if (docType) requestData.document_type = docType;
+        if (docId) requestData.document_id = docId;
+        
+        requestData.force_recreate = true;
+    } else if (reprocessingType === 'all') {
+        apiUrl = '/document/reprocess-vectors/all';
+        requestData.force_recreate = true;
+    } else if (reprocessingType === 'force') {
+        apiUrl = '/document/reprocess-vectors/all';
+        requestData.force_recreate = true;
+    }
+    
+    // Start the reprocessing
+    $.ajax({
+        url: apiUrl,
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(requestData),
+        timeout: 1800000, // 30 minute timeout
+        xhr: function() {
+            // Custom xhr for progress tracking if needed
+            return new window.XMLHttpRequest();
+        },
+        success: function(response) {
+            reprocessingComplete(response);
+        },
+        error: function(xhr, status, error) {
+            let errorMessage = 'Unknown error occurred';
+            
+            if (xhr.responseJSON && xhr.responseJSON.message) {
+                errorMessage = xhr.responseJSON.message;
+            } else if (status === 'timeout') {
+                errorMessage = 'Request timed out - operation may still be running in background';
+            } else {
+                errorMessage = `${status}: ${error}`;
+            }
+            
+            reprocessingError(errorMessage);
+        }
+    });
+    
+    // Simulate progress updates (since we don't have real-time progress)
+    simulateProgress();
+}
+
+function simulateProgress() {
+    let progress = 0;
+    $('#progressBar').css('width', '100%').removeClass('progress-bar-animated');
+    const progressInterval = setInterval(() => {
+        if (!reprocessingInProgress) {
+            clearInterval(progressInterval);
+            return;
+        }
+    }, 2000);
+}
+
+function reprocessingComplete(response) {
+    reprocessingInProgress = false;
+    
+    // Complete progress bar
+    $('#progressBar').css('width', '100%').removeClass('progress-bar-animated');
+    $('#progressText').text('Completed!');
+    $('#progressDetails').text('');
+    
+    // Show results
+    setTimeout(() => {
+        $('#reprocessProgress').hide();
+        $('#reprocessResults').show();
+        
+        let statusClass = 'alert-success';
+        if (response.status === 'partial_success') {
+            statusClass = 'alert-warning';
+        } else if (response.status === 'error') {
+            statusClass = 'alert-danger';
+        }
+        
+        let resultsHtml = `
+            <div class="alert ${statusClass}">
+                <h6>${response.message}</h6>
+                <ul class="mb-0">
+                    <li>Pages processed: ${response.pages_processed || 0}</li>
+                    <li>Documents processed: ${response.documents_processed || 0}</li>
+                    <li>Total pages found: ${response.total_pages_found || 0}</li>
+                    <li>Errors: ${response.error_count || 0}</li>
+                </ul>
+            </div>
+        `;
+        
+        if (response.errors && response.errors.length > 0) {
+            resultsHtml += `
+                <div class="mt-3">
+                    <h6>Errors:</h6>
+                    <div class="alert alert-danger">
+                        <ul class="mb-0">
+                            ${response.errors.slice(0, 10).map(error => `<li>${error}</li>`).join('')}
+                            ${response.errors.length > 10 ? `<li>... and ${response.errors.length - 10} more errors</li>` : ''}
+                        </ul>
+                    </div>
+                </div>
+            `;
+        }
+        
+        $('#resultsContent').html(resultsHtml);
+        $('#cancelBtn').hide();
+        $('#closeResultsBtn').show();
+        
+        // Refresh documents list if we're on the document manager page
+        if (typeof loadDocuments === 'function') {
+            loadDocuments(1);
+        }
+    }, 1000);
+}
+
+function reprocessingError(errorMessage) {
+    reprocessingInProgress = false;
+    
+    $('#progressBar').removeClass('progress-bar-animated').addClass('bg-danger');
+    $('#progressText').text('Error occurred');
+    $('#progressDetails').text('');
+    
+    setTimeout(() => {
+        $('#reprocessProgress').hide();
+        $('#reprocessResults').show();
+        
+        $('#resultsContent').html(`
+            <div class="alert alert-danger">
+                <h6>Reprocessing Failed</h6>
+                <p>${errorMessage}</p>
+                <p><strong>Recommendations:</strong></p>
+                <ul>
+                    <li>Check system logs for detailed error information</li>
+                    <li>Ensure vector database service is running</li>
+                    <li>Try reprocessing a smaller subset of documents</li>
+                    <li>Contact system administrator if problem persists</li>
+                </ul>
+            </div>
+        `);
+        
+        $('#cancelBtn').hide();
+        $('#closeResultsBtn').show();
+    }, 1000);
+}
+
+// Cleanup when modal is closed
+$('#reprocessVectorModal').on('hidden.bs.modal', function() {
+    reprocessingInProgress = false;
+    reprocessingType = '';
+});
+</script>
+<script src="/static/js/document_manager_context.js"></script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    const page = document.getElementById('docPage');
+    const icon = document.getElementById('docThemeIcon');
+    const label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    const isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+// Restore saved theme preference
+(function() {
+    const saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        const page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            const icon = document.getElementById('docThemeIcon');
+            const label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.container-fluid -->
+</div><!-- /.doc-page -->
+{% endblock %}

@@ -1,0 +1,456 @@
+===============================================================================
+                    AI HUB SOFTWARE SUBSCRIPTION AGREEMENT
+                              Version 1.0
+===============================================================================
+
+IMPORTANT - PLEASE READ CAREFULLY: This Software Subscription Agreement 
+("Agreement") is a legally binding contract between you (the "Subscriber," 
+"you," or "your") and EveriAI, LLC ("EveriAI," "we," "us," or "our"). This 
+Agreement governs your subscription to and use of the AI Hub software 
+platform ("Software").
+
+By installing, accessing, or using the Software, you acknowledge that you 
+have read, understood, and agree to be bound by this Agreement. If you are 
+entering into this Agreement on behalf of a company or other legal entity, 
+you represent that you have the authority to bind such entity to this 
+Agreement. If you do not agree to these terms, do not install or use the 
+Software.
+
+===============================================================================
+1. DEFINITIONS
+===============================================================================
+
+"Authorized Users" means individuals who are authorized by Subscriber to 
+access and use the Software under Subscriber's subscription, subject to the 
+user limits of the applicable Subscription Tier.
+
+"Confidential Information" means any non-public information disclosed by 
+either party to the other, including but not limited to business data, 
+technical information, and proprietary methodologies.
+
+"Documentation" means the user guides, technical documentation, and other 
+materials provided by EveriAI describing the features, functions, and 
+operation of the Software.
+
+"Subscription Fee" means the recurring fee payable by Subscriber for access 
+to and use of the Software as specified in the applicable Order Form or 
+Subscription Tier.
+
+"Subscription Term" means the period during which Subscriber is entitled to 
+access and use the Software, as specified in the Order Form, which shall 
+automatically renew unless terminated in accordance with this Agreement.
+
+"Subscriber Data" means all data, content, and information uploaded, input, 
+or processed through the Software by Subscriber or its Authorized Users.
+
+===============================================================================
+2. SUBSCRIPTION TIERS AND LICENSE GRANT
+===============================================================================
+
+2.1 Subscription Tiers
+----------------------
+The Software is offered under the following subscription tiers, each with 
+specific features and user allocations:
+
+Starter Tier: Allows up to five (5) Authorized Users. Includes core AI agent 
+creation, workflow automation, and document processing capabilities.
+
+Professional Tier: Allows unlimited Authorized Users. Includes all Starter 
+features plus advanced workflow orchestration, priority support, and enhanced 
+integrations.
+
+Enterprise Tier: Allows unlimited Authorized Users. Includes all Professional 
+features plus dedicated support, custom integrations, advanced security 
+features, and service level agreements.
+
+2.2 License Grant
+-----------------
+Subject to Subscriber's compliance with this Agreement and payment of all 
+applicable Subscription Fees, EveriAI grants Subscriber a limited, 
+non-exclusive, non-transferable, non-sublicensable license during the 
+Subscription Term to: (a) install and operate the Software on Subscriber's 
+designated computing environment; (b) permit Authorized Users to access and 
+use the Software solely for Subscriber's internal business purposes; and 
+(c) use the Documentation in connection with the permitted use of the 
+Software.
+
+2.3 Deployment Model
+--------------------
+The Software is designed for on-premises deployment within Subscriber's 
+computing environment. Subscriber is responsible for providing and 
+maintaining the hardware, operating system, database infrastructure, and 
+network connectivity required to operate the Software in accordance with 
+the system requirements specified in the Documentation.
+
+===============================================================================
+3. CLOUD SERVICES AND THIRD-PARTY INTEGRATIONS
+===============================================================================
+
+3.1 Large Language Model API Calls
+----------------------------------
+Certain features of the Software require communication with third-party 
+large language model (LLM) providers, including but not limited to Azure 
+OpenAI and Anthropic Claude APIs. Subscriber acknowledges and agrees that: 
+(a) prompts, queries, and contextual data may be transmitted to these 
+third-party services to enable AI functionality; (b) such transmissions are 
+subject to the privacy policies and terms of service of the respective 
+third-party providers; and (c) EveriAI is not responsible for the data 
+handling practices of third-party LLM providers.
+
+3.2 Optional Telemetry and Metadata
+-----------------------------------
+The Software may collect and transmit optional telemetry data, usage 
+analytics, and metadata to EveriAI's cloud services for product improvement, 
+crash reporting, and support purposes. Subscriber may disable certain 
+telemetry features through the Software's configuration settings. EveriAI 
+will not collect or access Subscriber Data except as necessary to provide 
+support services explicitly requested by Subscriber.
+
+3.3 API Keys and Credentials
+----------------------------
+Subscriber is solely responsible for obtaining and maintaining valid API 
+keys, credentials, and subscriptions for any third-party services integrated 
+with the Software, including LLM providers. Subscriber shall bear all costs 
+associated with third-party API usage. EveriAI shall have no liability for 
+service interruptions or failures caused by Subscriber's third-party service 
+subscriptions.
+
+===============================================================================
+4. DATA OWNERSHIP AND SECURITY
+===============================================================================
+
+4.1 Subscriber Data Ownership
+-----------------------------
+Subscriber retains all right, title, and interest in and to Subscriber Data. 
+EveriAI claims no ownership rights in Subscriber Data. As between the 
+parties, all Subscriber Data remains the exclusive property of Subscriber, 
+and EveriAI's access to Subscriber Data is limited to the extent necessary 
+to provide the Software and related support services.
+
+4.2 Data Location and Storage
+-----------------------------
+All Subscriber Data processed by the Software is stored locally within 
+Subscriber's on-premises computing environment. EveriAI does not store, 
+retain, or have persistent access to Subscriber Data, except for: (a) data 
+transmitted to third-party LLM providers as described in Section 3.1; 
+(b) optional telemetry data as described in Section 3.2; and (c) data 
+explicitly shared with EveriAI for support purposes.
+
+4.3 Security Responsibilities
+-----------------------------
+Subscriber is responsible for: (a) implementing appropriate physical, 
+technical, and administrative security measures for the computing 
+environment in which the Software operates; (b) managing user access 
+credentials and permissions within the Software; (c) maintaining backups 
+of Subscriber Data; and (d) ensuring compliance with applicable data 
+protection and privacy laws applicable to Subscriber's industry and 
+jurisdiction.
+
+4.4 Multi-Tenant Data Isolation
+-------------------------------
+The Software employs row-level security and logical data isolation 
+mechanisms to ensure that Authorized Users can only access data and 
+configurations associated with their assigned organizational unit or 
+tenant. Subscriber is responsible for properly configuring user roles 
+and permissions in accordance with the Documentation.
+
+===============================================================================
+5. SOFTWARE UPDATES AND SUPPORT
+===============================================================================
+
+5.1 Software Updates
+--------------------
+EveriAI will provide software updates, including bug fixes, security 
+patches, and feature enhancements, during the Subscription Term. Updates 
+may be delivered automatically through the Software's built-in update 
+mechanism. Subscriber acknowledges that certain updates may be mandatory 
+for security or compatibility reasons. EveriAI will provide reasonable 
+advance notice of major version updates that may require Subscriber action.
+
+5.2 Support Services
+--------------------
+EveriAI will provide technical support services during the Subscription 
+Term in accordance with the support level associated with Subscriber's 
+Subscription Tier. Support services include assistance with installation, 
+configuration, troubleshooting, and general usage questions. Support is 
+provided via email and, for Enterprise Tier subscribers, may include 
+dedicated support channels and response time commitments as specified in 
+a separate Service Level Agreement.
+
+5.3 Exclusions from Support
+---------------------------
+Support services do not include: (a) support for third-party software, 
+hardware, or services; (b) issues arising from Subscriber's modification 
+of the Software; (c) issues arising from Subscriber's failure to implement 
+recommended updates; (d) on-site support services, unless separately agreed 
+in writing; or (e) training services, which may be obtained separately.
+
+===============================================================================
+6. PAYMENT TERMS
+===============================================================================
+
+6.1 Subscription Fees
+---------------------
+Subscriber agrees to pay the Subscription Fees applicable to the selected 
+Subscription Tier. Subscription Fees are invoiced monthly in advance and 
+are due within thirty (30) days of the invoice date, unless otherwise 
+specified in an Order Form. All fees are quoted and payable in United 
+States Dollars unless otherwise agreed.
+
+6.2 Late Payments
+-----------------
+Subscription Fees not paid when due shall accrue interest at the rate of 
+one and one-half percent (1.5%) per month or the maximum rate permitted 
+by applicable law, whichever is less. EveriAI reserves the right to 
+suspend Subscriber's access to updates and support services if any amounts 
+remain unpaid for more than thirty (30) days past due.
+
+6.3 Taxes
+---------
+Subscription Fees are exclusive of all applicable taxes, levies, and 
+duties. Subscriber is responsible for payment of all such taxes (excluding 
+taxes based on EveriAI's net income), and Subscriber agrees to pay EveriAI 
+for any such taxes that EveriAI is required to collect or pay.
+
+6.4 Fee Adjustments
+-------------------
+EveriAI may adjust Subscription Fees upon thirty (30) days' written notice 
+prior to the commencement of any renewal term. Subscriber's continued use 
+of the Software following the effective date of a fee adjustment 
+constitutes acceptance of the revised fees.
+
+===============================================================================
+7. INTELLECTUAL PROPERTY RIGHTS
+===============================================================================
+
+7.1 EveriAI Ownership
+---------------------
+The Software, including all code, algorithms, user interfaces, 
+documentation, and related intellectual property, is the exclusive property 
+of EveriAI and is protected by copyright, trade secret, and other 
+intellectual property laws. This Agreement grants Subscriber only a limited 
+license to use the Software and does not convey any ownership interest.
+
+7.2 Subscriber-Created Content
+------------------------------
+Subscriber retains ownership of all custom agents, workflows, document 
+templates, and other configurations created by Subscriber or its Authorized 
+Users using the Software ("Subscriber Configurations"). EveriAI may 
+anonymize and aggregate usage patterns and metadata derived from 
+Subscriber's use of the Software for product improvement purposes, provided 
+such aggregated data does not identify Subscriber or include Subscriber Data.
+
+7.3 Feedback
+------------
+Subscriber may provide suggestions, enhancement requests, or other feedback 
+regarding the Software ("Feedback"). Subscriber grants EveriAI a perpetual, 
+irrevocable, royalty-free license to use, modify, and incorporate any 
+Feedback into the Software without obligation to Subscriber.
+
+===============================================================================
+8. USE RESTRICTIONS
+===============================================================================
+
+Subscriber shall not, and shall not permit any third party to: (a) reverse 
+engineer, decompile, disassemble, or otherwise attempt to derive the source 
+code of the Software, except to the extent expressly permitted by applicable 
+law; (b) modify, adapt, translate, or create derivative works based on the 
+Software; (c) sublicense, lease, rent, loan, or otherwise transfer the 
+Software or any rights therein to any third party; (d) remove, alter, or 
+obscure any proprietary notices, labels, or marks on the Software; (e) use 
+the Software to provide services to third parties on a service bureau, 
+application service provider, or similar basis; (f) use the Software in any 
+manner that violates applicable laws or regulations; (g) use the Software 
+to develop a competing product or service; or (h) exceed the Authorized 
+User limits specified in the applicable Subscription Tier.
+
+===============================================================================
+9. TERM AND TERMINATION
+===============================================================================
+
+9.1 Subscription Term and Renewal
+---------------------------------
+The initial Subscription Term shall be as specified in the applicable Order 
+Form. Unless either party provides written notice of non-renewal at least 
+thirty (30) days prior to the end of the then-current term, the subscription 
+shall automatically renew for successive periods of equal length to the 
+initial term.
+
+9.2 Termination for Cause
+-------------------------
+Either party may terminate this Agreement immediately upon written notice 
+if the other party: (a) materially breaches this Agreement and fails to 
+cure such breach within thirty (30) days after receiving written notice 
+thereof; or (b) becomes insolvent, files for bankruptcy, or makes an 
+assignment for the benefit of creditors.
+
+9.3 Effect of Termination
+-------------------------
+Upon termination or expiration of this Agreement: (a) all licenses granted 
+hereunder shall immediately terminate; (b) Subscriber shall cease all use 
+of the Software and destroy or return all copies thereof; (c) Subscriber 
+shall have thirty (30) days to export Subscriber Data from the Software 
+before EveriAI's support obligations cease; and (d) each party shall return 
+or destroy the other party's Confidential Information. Sections 4.1, 7, 10, 
+11, and 13 shall survive termination.
+
+9.4 Suspension
+--------------
+EveriAI may suspend delivery of updates and support services if Subscriber 
+fails to pay any amounts when due. Such suspension shall not relieve 
+Subscriber of its payment obligations or constitute a termination of this 
+Agreement.
+
+===============================================================================
+10. WARRANTIES AND DISCLAIMERS
+===============================================================================
+
+10.1 Limited Warranty
+---------------------
+EveriAI warrants that during the Subscription Term, the Software will 
+perform substantially in accordance with the Documentation when used in 
+compliance with this Agreement and the system requirements. EveriAI's sole 
+obligation and Subscriber's exclusive remedy for any breach of this warranty 
+shall be, at EveriAI's option: (a) repair or replacement of the 
+non-conforming Software; or (b) termination of this Agreement and refund of 
+prepaid Subscription Fees for the remainder of the then-current term.
+
+10.2 Disclaimer of Warranties
+-----------------------------
+EXCEPT FOR THE EXPRESS WARRANTY SET FORTH IN SECTION 10.1, THE SOFTWARE IS 
+PROVIDED "AS IS" AND "AS AVAILABLE." EVERIAI DISCLAIMS ALL OTHER WARRANTIES, 
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO IMPLIED WARRANTIES OF 
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. 
+EVERIAI DOES NOT WARRANT THAT THE SOFTWARE WILL BE UNINTERRUPTED, ERROR-FREE, 
+OR FREE OF HARMFUL COMPONENTS. EVERIAI MAKES NO WARRANTIES REGARDING THE 
+ACCURACY, RELIABILITY, OR QUALITY OF ANY OUTPUTS GENERATED BY THE SOFTWARE'S 
+AI FEATURES.
+
+===============================================================================
+11. LIMITATION OF LIABILITY
+===============================================================================
+
+11.1 Exclusion of Consequential Damages
+---------------------------------------
+IN NO EVENT SHALL EITHER PARTY BE LIABLE TO THE OTHER FOR ANY INDIRECT, 
+INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING BUT NOT 
+LIMITED TO LOSS OF PROFITS, REVENUE, DATA, OR BUSINESS OPPORTUNITIES, 
+ARISING OUT OF OR RELATED TO THIS AGREEMENT, REGARDLESS OF THE THEORY OF 
+LIABILITY AND EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+11.2 Cap on Liability
+---------------------
+EXCEPT FOR BREACHES OF SECTION 8 (USE RESTRICTIONS) OR SUBSCRIBER'S PAYMENT 
+OBLIGATIONS, NEITHER PARTY'S TOTAL AGGREGATE LIABILITY UNDER THIS AGREEMENT 
+SHALL EXCEED THE TOTAL SUBSCRIPTION FEES PAID OR PAYABLE BY SUBSCRIBER 
+DURING THE TWELVE (12) MONTH PERIOD IMMEDIATELY PRECEDING THE EVENT GIVING 
+RISE TO THE CLAIM.
+
+===============================================================================
+12. CONFIDENTIALITY
+===============================================================================
+
+Each party agrees to hold the other party's Confidential Information in 
+strict confidence and not to disclose such information to any third party 
+except as necessary to perform its obligations under this Agreement. Each 
+party shall protect the other party's Confidential Information using at 
+least the same degree of care it uses to protect its own confidential 
+information, but in no event less than reasonable care. These 
+confidentiality obligations shall not apply to information that: (a) is or 
+becomes publicly available through no fault of the receiving party; (b) was 
+rightfully in the receiving party's possession prior to disclosure; (c) is 
+independently developed by the receiving party without use of the disclosing 
+party's Confidential Information; or (d) is rightfully obtained from a third 
+party without restriction on disclosure.
+
+===============================================================================
+13. GENERAL PROVISIONS
+===============================================================================
+
+13.1 Governing Law and Jurisdiction
+-----------------------------------
+This Agreement shall be governed by and construed in accordance with the 
+laws of the State of [STATE], without regard to its conflict of laws 
+principles. Any dispute arising out of or relating to this Agreement shall 
+be subject to the exclusive jurisdiction of the state and federal courts 
+located in [COUNTY], [STATE], and each party consents to the personal 
+jurisdiction of such courts.
+
+13.2 Entire Agreement
+---------------------
+This Agreement, together with any Order Forms and the Documentation, 
+constitutes the entire agreement between the parties concerning the subject 
+matter hereof and supersedes all prior or contemporaneous agreements, 
+representations, and understandings, whether written or oral. In the event 
+of any conflict between this Agreement and an Order Form, the Order Form 
+shall control.
+
+13.3 Amendment and Waiver
+-------------------------
+This Agreement may not be amended except by a written instrument signed by 
+authorized representatives of both parties. No waiver of any provision of 
+this Agreement shall be effective unless in writing and signed by the 
+waiving party. The failure of either party to enforce any right or provision 
+of this Agreement shall not constitute a waiver of such right or provision.
+
+13.4 Assignment
+---------------
+Subscriber may not assign or transfer this Agreement or any rights hereunder 
+without EveriAI's prior written consent. EveriAI may assign this Agreement 
+to an affiliate or in connection with a merger, acquisition, or sale of all 
+or substantially all of its assets. Any attempted assignment in violation 
+of this section shall be void.
+
+13.5 Severability
+-----------------
+If any provision of this Agreement is held to be invalid or unenforceable, 
+the remaining provisions shall continue in full force and effect, and the 
+invalid or unenforceable provision shall be modified to the minimum extent 
+necessary to make it valid and enforceable.
+
+13.6 Force Majeure
+------------------
+Neither party shall be liable for any failure or delay in performing its 
+obligations under this Agreement (except for payment obligations) due to 
+causes beyond its reasonable control, including but not limited to acts of 
+God, natural disasters, war, terrorism, labor disputes, government actions, 
+or failures of third-party telecommunications or internet service providers.
+
+13.7 Notices
+------------
+All notices under this Agreement shall be in writing and shall be deemed 
+given when: (a) delivered personally; (b) sent by confirmed email to the 
+email address on file; (c) one (1) business day after deposit with a 
+nationally recognized overnight courier; or (d) three (3) business days 
+after being sent by first class mail, postage prepaid, to the addresses 
+specified by the parties.
+
+13.8 Independent Contractors
+----------------------------
+The parties are independent contractors. Nothing in this Agreement shall be 
+construed to create a partnership, joint venture, agency, or employment 
+relationship between the parties.
+
+13.9 Export Compliance
+----------------------
+Subscriber agrees to comply with all applicable export control laws and 
+regulations. Subscriber shall not export, re-export, or transfer the 
+Software to any country, entity, or person prohibited by applicable law.
+
+===============================================================================
+
+BY INSTALLING OR USING THE SOFTWARE, SUBSCRIBER ACKNOWLEDGES THAT SUBSCRIBER 
+HAS READ THIS AGREEMENT, UNDERSTANDS IT, AND AGREES TO BE BOUND BY ITS TERMS 
+AND CONDITIONS.
+
+===============================================================================
+
+For questions regarding this Agreement, please contact:
+
+EveriAI, LLC
+Email: legal@everiai.com
+Website: www.everiai.com
+
+===============================================================================
+                           END OF AGREEMENT
+===============================================================================

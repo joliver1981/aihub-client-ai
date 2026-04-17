@@ -1,0 +1,76 @@
+VENDOR COMPLIANCE CHECKLIST
+===========================
+Metro Retail Group — Vendor Onboarding Requirements
+Version: 3.2 | Effective: January 2026
+
+All new vendors must satisfy the following 12 requirements before
+being approved to supply products to Metro Retail Group.
+
+ 1. BUSINESS REGISTRATION
+    - Valid business license or certificate of incorporation
+    - Federal Tax ID (EIN) on file
+    - State resale certificate (if applicable)
+
+ 2. INSURANCE COVERAGE
+    - General liability: minimum $2,000,000 per occurrence
+    - Product liability: minimum $1,000,000 per occurrence
+    - Workers compensation: as required by state law
+    - Certificate of Insurance naming Metro Retail Group as additional insured
+
+ 3. PRODUCT SAFETY & COMPLIANCE
+    - All products must comply with applicable CPSC regulations
+    - MSDS/SDS sheets required for chemical products
+    - California Prop 65 labeling where applicable
+    - CE marking for electronics sold in applicable markets
+
+ 4. QUALITY ASSURANCE
+    - ISO 9001 certification (preferred) or equivalent QA documentation
+    - Incoming quality inspection pass rate >= 98%
+    - Defect rate must not exceed 2% per shipment
+
+ 5. LABELING & PACKAGING
+    - UPC/EAN barcodes on all individual units
+    - Master carton labeling per Metro Retail spec (GS1-128)
+    - Country of origin clearly marked
+    - Lot/batch number traceable on all units
+
+ 6. EDI CAPABILITY
+    - EDI 850 (Purchase Order) receive capability
+    - EDI 856 (ASN) send capability
+    - EDI 810 (Invoice) send capability
+    - Trading partner setup within 30 days of approval
+
+ 7. SHIPPING & LOGISTICS
+    - On-time delivery rate >= 95%
+    - ASN transmitted within 24 hours of shipment
+    - Pallet configuration per Metro Retail DC specifications
+    - Appointment scheduling via vendor portal
+
+ 8. FINANCIAL STABILITY
+    - Dun & Bradstreet report (DUNS number required)
+    - Minimum 2 years in business
+    - Two trade references required
+    - Bank reference letter
+
+ 9. SUSTAINABILITY & ETHICS
+    - No child labor or forced labor in supply chain
+    - Conflict minerals disclosure (if applicable)
+    - Environmental compliance documentation
+    - Code of conduct acknowledgment signed
+
+10. DATA & PRIVACY
+    - PII handling procedures documented
+    - Data breach notification commitment (72 hours)
+    - CCPA/GDPR compliance where applicable
+
+11. SERVICE LEVEL AGREEMENT
+    - Order fulfillment within 5 business days
+    - Fill rate >= 96%
+    - Chargeback dispute resolution within 15 business days
+    - Dedicated account representative assigned
+
+12. RETURN & DEFECT POLICY
+    - Accept returns for defective merchandise (no restocking fee)
+    - Credit memo issued within 10 business days
+    - Recall procedures documented and tested annually
+    - Product replacement turnaround <= 10 business days

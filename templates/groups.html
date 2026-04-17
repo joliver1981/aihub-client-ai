@@ -1,0 +1,857 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<style>
+    /* ===== ANIMATED CHECKBOX STYLES ===== */
+    /* Checkbox Container */
+    .animated-checkbox {
+        display: inline-block;
+        margin-right: 10px;
+    }
+    
+    /* Hide the default checkbox */
+    .animated-checkbox input[type="checkbox"] {
+        display: none;
+    }
+    
+    /* Custom checkbox label */
+    .checkbox-label {
+        position: relative;
+        padding-left: 30px;
+        cursor: pointer;
+        display: inline-block;
+        color: var(--text-secondary, #666);
+        transition: color 0.3s ease;
+        user-select: none;
+        font-size: 0.85rem;
+        line-height: 20px;
+    }
+    
+    /* The checkbox box itself */
+    .checkbox-label:before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 18px;
+        height: 18px;
+        border: 2px solid #667eea;
+        border-radius: 4px;
+        background: var(--bg-card, white);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    /* The checkmark */
+    .checkbox-label:after {
+        content: '';
+        position: absolute;
+        left: 6px;
+        top: 2px;
+        width: 5px;
+        height: 10px;
+        border: solid white;
+        border-width: 0 2px 2px 0;
+        transform: rotate(45deg) scale(0);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    /* Checked state - box background */
+    input[type="checkbox"]:checked + .checkbox-label:before {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border-color: #667eea;
+    }
+    
+    /* Checked state - show checkmark */
+    input[type="checkbox"]:checked + .checkbox-label:after {
+        transform: rotate(45deg) scale(1);
+    }
+    
+    /* Checked state - label color */
+    input[type="checkbox"]:checked + .checkbox-label {
+        color: #667eea;
+    }
+    
+    /* Optional: Hover effects */
+    .checkbox-label:hover:before {
+        border-color: #764ba2;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+    
+    /* Optional: Focus state (for accessibility) */
+    .animated-checkbox input[type="checkbox"]:focus + .checkbox-label:before {
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+    }
+    
+    /* Disabled state */
+    .animated-checkbox input[type="checkbox"]:disabled + .checkbox-label {
+        opacity: 0.7;
+        cursor: not-allowed;
+    }
+
+    /* ===== STYLES FROM ASSISTANTS.HTML FOR CONSISTENCY ===== */
+    .compact-header {
+        background: linear-gradient(135deg, #2980b9 0%, #34495e 100%);
+        color: white;
+        padding: 0.5rem 1rem;
+        margin-bottom: 1rem;
+        border-radius: 0.5rem;
+    }
+    
+    /* Make cards more compact like in assistant pages */
+    .card {
+        margin-bottom: 0.75rem;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        border-radius: 0.5rem;
+    }
+    
+    .card-header {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.9rem;
+        font-weight: 600;
+        background-color: var(--bg-elevated, #f8f9fa);
+        border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+    }
+    
+    .card-body {
+        padding: 0.75rem;
+    }
+    
+    .card-title {
+        font-size: 1rem;
+        margin-bottom: 0;
+    }
+    
+    /* Form controls - make them smaller to match WITH FIX for descenders */
+    .form-control, .custom-select {
+        font-size: 0.9rem;
+        padding: 0.25rem 0.75rem;
+        line-height: 1.5;
+    }
+    
+    select.form-control, 
+    select.custom-select,
+    .custom-select {
+        padding: 0.5rem 0.75rem;
+        line-height: 1.5;
+        min-height: calc(1.5em + 1rem + 2px);
+    }
+    
+    .form-group {
+        margin-bottom: 0.75rem;
+    }
+    
+    .form-group label {
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+    }
+    
+    /* Button size consistency */
+    .btn {
+        font-size: 0.9rem;
+        padding: 0.375rem 0.75rem;
+    }
+    
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+    }
+    
+    .btn-group > .btn {
+        padding: 0.375rem 0.75rem;
+        font-size: 0.9rem;
+    }
+    
+    /* Alert styling consistency */
+    .alert {
+        padding: 0.75rem;
+        font-size: 0.9rem;
+    }
+    
+    /* Small text consistency */
+    h6 {
+        font-size: 0.9rem;
+        font-weight: 600;
+    }
+    
+    /* Input group styling */
+    .input-group-sm .form-control {
+        font-size: 0.85rem;
+        padding: 0.25rem 0.5rem;
+    }
+    
+    .input-group-text {
+        font-size: 0.85rem;
+        padding: 0.25rem 0.5rem;
+    }
+    
+    .input-group-sm .btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.85rem;
+    }
+    
+    /* List group items */
+    .list-group-item {
+        cursor: pointer;
+        transition: background-color 0.2s;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.9rem;
+    }
+    
+    .list-group-item:hover {
+        background-color: var(--bg-elevated, #f8f9fa);
+    }
+    
+    .list-group-item.active {
+        background-color: #007bff;
+        border-color: #007bff;
+    }
+    
+    /* Checkbox styling with better spacing - Updated for animated checkboxes */
+    .form-check {
+        padding: 0.5rem 0.75rem;
+        margin-bottom: 0.25rem;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+    }
+    
+    .form-check:hover {
+        background-color: var(--bg-elevated, #f8f9fa);
+    }
+    
+    /* Toast styling */
+    .toast {
+        min-width: 250px;
+        box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.1);
+        display: none;
+        font-size: 0.9rem;
+    }
+    
+    .toast-header {
+        border-bottom: 1px solid rgba(0,0,0,.05);
+        padding: 0.5rem 0.75rem;
+        font-size: 0.9rem;
+    }
+    
+    .toast-body {
+        padding: 0.75rem;
+        font-size: 0.85rem;
+    }
+    
+    /* List containers */
+    #unassignedUsers, #assignedUsers {
+        max-height: 250px;
+        overflow-y: auto;
+    }
+    
+    #permissionsList {
+        max-height: 300px;
+        overflow-y: auto;
+        padding-left: 0.5rem;
+    }
+    
+    /* Center column buttons */
+    .transfer-buttons {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        height: 100%;
+    }
+    
+    .transfer-buttons .btn {
+        width: 100%;
+        margin-bottom: 0.5rem;
+    }
+    
+    /* FIX: Remove extra margin from the Actions card row */
+    .row:last-child {
+        margin-top: 0 !important;
+    }
+    
+    /* Ensure consistent spacing between all cards */
+    .row + .row {
+        margin-top: 0;
+    }
+
+    /* FIX FOR LONG AGENT OBJECTIVES */
+    .agent-objective-text {
+        display: inline;
+        word-break: break-word;
+        overflow-wrap: break-word;
+    }
+
+    .permission-item {
+        position: relative;
+    }
+    
+    /* Ensure checkbox labels don't overflow */
+    .checkbox-label {
+        max-width: calc(100% - 30px);
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+    }
+</style>
+
+<div class="container-fluid px-3 py-2">
+    {% if current_user.is_authenticated %}
+        {% if current_user.role == 3 %}
+            <!-- Compact Header Bar (NEW - matching assistants.html style) -->
+            <div class="doc-page-header">
+                <h4 class="mb-0"><i class="fas fa-users-cog mr-2"></i>Group Security</h4>
+            </div>
+            
+            <div class="group-security">
+                <div class="row">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header">
+                                <h6 class="mb-0">Group Management</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="form-group">
+                                    <label for="groupSelect"><strong>Select Group:</strong></label>
+                                    <select class="form-control form-control-sm" id="groupSelect">
+                                        <option value="">-- Select a Group --</option>
+                                    </select>
+                                    <input type="text" class="form-control form-control-sm mt-2" id="newGroupName" placeholder="Enter new group name" style="display:none;">
+                                </div>
+                                <div class="btn-group">
+                                    <button class="btn btn-sm btn-primary" id="addGroup">
+                                        <i class="fas fa-plus mr-1"></i> Add Group
+                                    </button>
+                                    <button class="btn btn-sm btn-success" id="saveGroup" style="display:none;">
+                                        <i class="fas fa-save mr-1"></i> Save Group
+                                    </button>
+                                    <button class="btn btn-sm btn-secondary" id="cancelAddGroup" style="display:none;">
+                                        <i class="fas fa-times mr-1"></i> Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h6 class="mb-0">User Management</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <div class="col-md-5">
+                                                <h6 class="mb-2"><strong>Unassigned Users</strong></h6>
+                                                <div class="card">
+                                                    <div class="card-header py-1">
+                                                        <div class="input-group input-group-sm">
+                                                            <div class="input-group-prepend">
+                                                                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                                                            </div>
+                                                            <input type="text" class="form-control" id="unassigned-search" placeholder="Search..." onkeyup="filterUnassignedUsers()">
+                                                            <div class="input-group-append">
+                                                                <button class="btn btn-outline-secondary" type="button" onclick="clearUnassignedSearch()">
+                                                                    <i class="fas fa-times"></i>
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <ul class="list-group" id="unassignedUsers"></ul>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-2 d-flex">
+                                                <div class="transfer-buttons">
+                                                    <button class="btn btn-sm btn-primary mb-2" id="addUser">
+                                                        <i class="fas fa-chevron-right"></i>
+                                                    </button>
+                                                    <button class="btn btn-sm btn-danger" id="removeUser">
+                                                        <i class="fas fa-chevron-left"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-5">
+                                                <h6 class="mb-2"><strong>Assigned Users</strong></h6>
+                                                <div class="card">
+                                                    <div class="card-header py-1">
+                                                        <div class="input-group input-group-sm">
+                                                            <div class="input-group-prepend">
+                                                                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                                                            </div>
+                                                            <input type="text" class="form-control" id="assigned-search" placeholder="Search..." onkeyup="filterAssignedUsers()">
+                                                            <div class="input-group-append">
+                                                                <button class="btn btn-outline-secondary" type="button" onclick="clearAssignedSearch()">
+                                                                    <i class="fas fa-times"></i>
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <ul class="list-group" id="assignedUsers"></ul>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h6 class="mb-0">Agent Permissions</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="input-group input-group-sm mb-2">
+                                            <div class="input-group-prepend">
+                                                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                                            </div>
+                                            <input type="text" class="form-control" id="permissions-search" placeholder="Search permissions..." onkeyup="filterPermissions()">
+                                            <div class="input-group-append">
+                                                <button class="btn btn-outline-secondary" type="button" onclick="clearPermissionsSearch()">
+                                                    <i class="fas fa-times"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div id="permissionsList"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                       
+                    </div>
+                </div>
+                <div class="row">
+                    <!-- Actions card moved inline with reduced spacing -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="mb-0">Actions</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="btn-group">
+                                <button class="btn btn-sm btn-success" id="saveChanges">
+                                    <i class="fas fa-save mr-1"></i> Save Changes
+                                </button>
+                                <button class="btn btn-sm btn-danger" id="deleteGroup">
+                                    <i class="fas fa-trash mr-1"></i> Delete Group
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% else %}
+            <div class="alert alert-danger">
+                <i class="fas fa-exclamation-circle mr-2"></i> You are not authorized to view this content
+            </div>
+        {% endif %}
+    {% else %}
+        <div class="alert alert-warning">
+            <i class="fas fa-sign-in-alt mr-2"></i> Please log in to view this content
+        </div>
+    {% endif %}
+</div>
+
+<!-- Toast container positioned at top-right -->
+<div class="toast-container" style="position: fixed; top: 20px; right: 20px; z-index: 1050;">
+    <div id="successToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true" data-delay="3000">
+        <div class="toast-header bg-success text-white">
+            <strong class="mr-auto">Success</strong>
+            <button type="button" class="ml-2 mb-1 close text-white" data-dismiss="toast" aria-label="Close">
+                <span aria-hidden="true">&times;</span>
+            </button>
+        </div>
+        <div class="toast-body">
+            Changes saved successfully.
+        </div>
+    </div>
+
+    <div id="errorToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true" data-delay="3000">
+        <div class="toast-header bg-danger text-white">
+            <strong class="mr-auto">Error</strong>
+            <button type="button" class="ml-2 mb-1 close text-white" data-dismiss="toast" aria-label="Close">
+                <span aria-hidden="true">&times;</span>
+            </button>
+        </div>
+        <div class="toast-body">
+            An error occurred while saving changes.
+        </div>
+    </div>
+</div>
+
+<script>
+    // Helper function to escape HTML and handle special characters
+    function escapeHtml(text) {
+        const map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;',
+            '/': '&#x2F;',
+            '`': '&#x60;',
+            '=': '&#x3D;'
+        };
+        return String(text).replace(/[&<>"'`=\/]/g, function(s) {
+            return map[s];
+        });
+    }
+    
+    // Helper function to clean and truncate text
+    function processObjectiveText(text, maxLength) {
+        if (!text) return { display: 'No objective defined', full: 'No objective defined' };
+        
+        // Remove newlines and extra spaces
+        let cleaned = text.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+        
+        // Escape HTML characters
+        let escaped = escapeHtml(cleaned);
+        
+        // Truncate if needed
+        let display = escaped;
+        if (cleaned.length > maxLength) {
+            display = escaped.substring(0, maxLength) + '...';
+        }
+        
+        return {
+            display: display,
+            full: escaped
+        };
+    }
+
+
+    $(document).ready(function() {
+        function toggleControls(enable) {
+            $('#unassignedUsers, #assignedUsers, #addUser, #removeUser, #saveChanges, #deleteGroup').prop('disabled', !enable);
+            $('#permissionsList input[type="checkbox"]').prop('disabled', !enable);
+        }
+
+        // Initially disable controls
+        toggleControls(false);
+
+        function reloadGroups(selectedGroupId) {
+            $('#groupSelect').empty().append('<option value="">-- Select a Group --</option>');
+            $.ajax({
+                url: '/get/groups',
+                type: 'GET',
+                success: function(response) {
+                    response = JSON.parse(response);
+                    response.forEach(function(group) {
+                        $('#groupSelect').append('<option value="' + group.id + '">' + group.group_name + '</option>');
+                    });
+                    if (selectedGroupId) {
+                        $('#groupSelect').val(selectedGroupId).trigger('change');
+                    }
+                }
+            });
+        }
+
+        // Fetch the list of groups initially
+        reloadGroups();
+
+        // Fetch the permissions (agents) - UPDATED to use animated checkboxes
+        $.ajax({
+            url: '/get/agent_info',
+            type: 'GET',
+            success: function(response) {
+                $('#permissionsList').empty();
+                response.forEach(function(agent, index) {
+                    // Process the objective text properly
+                    var processed = processObjectiveText(agent.objective, 80);
+
+                    // Create the HTML with escaped values
+                    var agentDescEscaped = escapeHtml(agent.description);
+
+                    // Build HTML string with proper escaping
+                    var itemHtml = 
+                        '<div class="form-check permission-item" data-full-objective="' + processed.full + '">' +
+                            '<div class="animated-checkbox">' +
+                                '<input type="checkbox" value="' + agent.id + '" id="permission' + agent.id + '">' +
+                                '<label class="checkbox-label" for="permission' + agent.id + '" title="' + processed.full + '">' +
+                                    '<b>' + agentDescEscaped + ':</b> ' +
+                                    '<span class="agent-objective-text">' + processed.display + '</span>' +
+                                '</label>' +
+                            '</div>' +
+                        '</div>';
+                    
+                    $('#permissionsList').append(itemHtml);
+                });
+                
+                // Initialize Bootstrap tooltips (optional - for hover display of full text)
+                $('#permissionsList [title]').tooltip({
+                    placement: 'top',
+                    html: false,  // Important: keep as false to prevent XSS
+                    boundary: 'window'
+                });
+            }
+        });
+
+        $('#groupSelect').change(function() {
+            var groupId = $(this).val();
+            if (groupId) {
+                // Enable controls
+                toggleControls(true);
+
+                // Fetch assigned and unassigned users
+                $.ajax({
+                    url: '/get/user_groups/' + groupId,
+                    type: 'POST',
+                    contentType: 'application/json',
+                    success: function(response) {
+                        $('#unassignedUsers').empty();
+                        $('#assignedUsers').empty();
+                        response.unassigned_users.forEach(function(user) {
+                            $('#unassignedUsers').append('<li class="list-group-item unassigned-item" data-id="' + user.id + '">' + user.name + ' (' + user.user_name + ')</li>');
+                        });
+                        response.assigned_users.forEach(function(user) {
+                            $('#assignedUsers').append('<li class="list-group-item assigned-item" data-id="' + user.id + '">' + user.name + ' (' + user.user_name + ')</li>');
+                        });
+                    }
+                });
+
+                // Fetch assigned permissions
+                $.ajax({
+                    url: '/get/group_permissions',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ group_id: groupId }),
+                    success: function(response) {
+                        var assignedPermissions = response.assigned_permissions;
+                        $('#permissionsList input[type="checkbox"]').each(function() {
+                            var checkbox = $(this);
+                            if (assignedPermissions.includes(parseInt(checkbox.val()))) {
+                                checkbox.prop('checked', true);
+                            } else {
+                                checkbox.prop('checked', false);
+                            }
+                        });
+                    }
+                });
+            } else {
+                // Disable controls and clear lists
+                toggleControls(false);
+                // Clear user lists and permissions if no group is selected
+                $('#unassignedUsers').empty();
+                $('#assignedUsers').empty();
+                $('#permissionsList input[type="checkbox"]').prop('checked', false);
+            }
+        });
+
+        $('#addUser').click(function() {
+            $('#unassignedUsers .active').each(function() {
+                var user = $(this);
+                user.removeClass('active');
+                $('#assignedUsers').append(user);
+                // Update the item's class for search filtering
+                user.removeClass('unassigned-item').addClass('assigned-item');
+            });
+        });
+
+        $('#removeUser').click(function() {
+            $('#assignedUsers .active').each(function() {
+                var user = $(this);
+                user.removeClass('active');
+                $('#unassignedUsers').append(user);
+                // Update the item's class for search filtering
+                user.removeClass('assigned-item').addClass('unassigned-item');
+            });
+        });
+
+        $('#unassignedUsers, #assignedUsers').on('click', 'li', function() {
+            $(this).toggleClass('active');
+        });
+
+        $('#saveChanges').click(function() {
+            var groupId = $('#groupSelect').val();
+            var assignedUsers = [];
+            $('#assignedUsers li').each(function() {
+                assignedUsers.push($(this).data('id'));
+            });
+
+            var permissions = [];
+            // Updated selector for animated checkboxes
+            $('#permissionsList input[type="checkbox"]:checked').each(function() {
+                permissions.push($(this).val());
+            });
+
+            $.ajax({
+                url: '/save/permissions',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ group_id: groupId, assigned_users: assignedUsers, permissions: permissions }),
+                success: function(response) {
+                    $('#successToast').toast('show');
+                },
+                error: function() {
+                    $('#errorToast').toast('show');
+                }
+            });
+        });
+
+        $('#addGroup').click(function() {
+            toggleControls(false);
+            $('#groupSelect').val('').trigger('change');
+            $('#groupSelect').hide();
+            $('#newGroupName').show();
+            $('#addGroup').hide();
+            $('#saveGroup').show();
+            $('#cancelAddGroup').show();
+        });
+
+        $('#cancelAddGroup').click(function() {
+            $('#groupSelect').show();
+            $('#newGroupName').hide();
+            $('#addGroup').show();
+            $('#saveGroup').hide();
+            $('#cancelAddGroup').hide();
+            // Re-enable controls if a group is selected
+            var groupId = $('#groupSelect').val();
+            toggleControls(!!groupId);
+        });
+
+        $('#saveGroup').click(function() {
+            var newGroupName = $('#newGroupName').val();
+            if (newGroupName) {
+                $.ajax({
+                    url: '/add/group',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ id: 0, group_name: newGroupName }),
+                    success: function(response) {
+                        if (response.status === 'success') {
+                            var newGroupId = response.response;
+                            reloadGroups(newGroupId);
+                            $('#groupSelect').show();
+                            $('#newGroupName').hide().val('');
+                            $('#addGroup').show();
+                            $('#saveGroup').hide();
+                            $('#cancelAddGroup').hide();
+                            $('#successToast').toast('show');
+                        } else {
+                            $('#errorToast').toast('show');
+                        }
+                    },
+                    error: function() {
+                        $('#errorToast').toast('show');
+                    }
+                });
+            }
+        });
+
+        $('#deleteGroup').click(function() {
+            var groupId = $('#groupSelect').val();
+            if (groupId && confirm("Are you sure you want to delete this group?")) {
+                $.ajax({
+                    url: '/delete/group/' + groupId,
+                    type: 'POST',
+                    contentType: 'application/json',
+                    success: function(response) {
+                        if (response.status === 'success') {
+                            reloadGroups();
+                            toggleControls(false);
+                            $('#groupSelect').val('').trigger('change');
+                            $('#successToast').toast('show');
+                        } else {
+                            $('#errorToast').toast('show');
+                        }
+                    },
+                    error: function() {
+                        $('#errorToast').toast('show');
+                    }
+                });
+            }
+        });
+    });
+    
+    // Search functionality
+    function filterUnassignedUsers() {
+        const searchInput = document.getElementById('unassigned-search');
+        const filter = searchInput.value.toLowerCase();
+        const userItems = document.querySelectorAll('.unassigned-item');
+        
+        userItems.forEach(item => {
+            const userName = item.textContent || item.innerText;
+            if (userName.toLowerCase().indexOf(filter) > -1) {
+                item.style.display = "";
+            } else {
+                item.style.display = "none";
+            }
+        });
+    }
+    
+    function filterAssignedUsers() {
+        const searchInput = document.getElementById('assigned-search');
+        const filter = searchInput.value.toLowerCase();
+        const userItems = document.querySelectorAll('.assigned-item');
+        
+        userItems.forEach(item => {
+            const userName = item.textContent || item.innerText;
+            if (userName.toLowerCase().indexOf(filter) > -1) {
+                item.style.display = "";
+            } else {
+                item.style.display = "none";
+            }
+        });
+    }
+    
+    function filterPermissions() {
+        const searchInput = document.getElementById('permissions-search');
+        const filter = searchInput.value.toLowerCase();
+        const permissionItems = document.querySelectorAll('.permission-item');
+        
+        permissionItems.forEach(item => {
+            const permissionText = item.textContent || item.innerText;
+            if (permissionText.toLowerCase().indexOf(filter) > -1) {
+                item.style.display = "";
+            } else {
+                item.style.display = "none";
+            }
+        });
+    }
+    
+    function clearUnassignedSearch() {
+        document.getElementById('unassigned-search').value = '';
+        filterUnassignedUsers();
+    }
+    
+    function clearAssignedSearch() {
+        document.getElementById('assigned-search').value = '';
+        filterAssignedUsers();
+    }
+    
+    function clearPermissionsSearch() {
+        document.getElementById('permissions-search').value = '';
+        filterPermissions();
+    }
+</script>
+<script src="/static/js/groups_context.js"></script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div><!-- /.doc-page -->
+{% endblock %}
