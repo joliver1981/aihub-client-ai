@@ -1920,35 +1920,32 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             prompt: Detailed description of the image to generate
             size: Image size - one of: 1024x1024, 1024x1792, 1792x1024
         """
-        from cc_config import IMAGE_GENERATION_ENABLED
+        from cc_config import IMAGE_GENERATION_ENABLED, CC_IMAGE_MODEL
         if not IMAGE_GENERATION_ENABLED:
             return "Image generation is not enabled for this instance. Contact your administrator to enable it."
 
         import openai
         import os
         from api_keys_config import get_active_openai_key
+        from command_center_service.graph.image_params import build_image_generate_kwargs
         import config as cfg
 
         api_key = get_active_openai_key() or getattr(cfg, 'OPENAI_API_KEY', None) or os.environ.get("OPENAI_API_KEY")
         if not api_key:
             return "Image generation is not available — no OpenAI API key configured."
 
-        valid_sizes = ["1024x1024", "1024x1792", "1792x1024"]
-        if size not in valid_sizes:
-            size = "1024x1024"
-
-        logger.info(f"[converse/tool] Generating image: prompt='{prompt[:80]}...', size={size}")
+        # Build model-appropriate kwargs. Different OpenAI image models accept
+        # different parameters — see image_params.py for the details. Size will
+        # be normalized to a valid value for the chosen model family.
+        gen_kwargs = build_image_generate_kwargs(CC_IMAGE_MODEL, prompt, size)
+        logger.info(
+            f"[converse/tool] Generating image: model={CC_IMAGE_MODEL}, "
+            f"prompt='{prompt[:80]}...', size={gen_kwargs['size']}"
+        )
 
         try:
             client = openai.OpenAI(api_key=api_key)
-            response = client.images.generate(
-                model="dall-e-3",
-                prompt=prompt,
-                size=size,
-                quality="standard",
-                n=1,
-                response_format="b64_json",
-            )
+            response = client.images.generate(**gen_kwargs)
 
             image_data = response.data[0]
             b64 = image_data.b64_json
@@ -1964,8 +1961,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             return json.dumps([block])
 
         except openai.BadRequestError as e:
-            logger.warning(f"[converse/tool] DALL-E rejected prompt: {e}")
-            return f"DALL-E couldn't generate that image: {str(e)}"
+            logger.warning(f"[converse/tool] {CC_IMAGE_MODEL} rejected prompt: {e}")
+            return f"The image model ({CC_IMAGE_MODEL}) couldn't generate that image: {str(e)}"
         except Exception as e:
             logger.error(f"[converse/tool] Image generation failed: {e}")
             return f"Image generation failed: {str(e)}"
@@ -3855,6 +3852,8 @@ async def _execute_cc_tool(
             import openai
             import os
             from api_keys_config import get_active_openai_key
+            from cc_config import CC_IMAGE_MODEL
+            from command_center_service.graph.image_params import build_image_generate_kwargs
             import config as cfg
 
             api_key = get_active_openai_key() or getattr(cfg, 'OPENAI_API_KEY', None) or os.environ.get("OPENAI_API_KEY")
@@ -3862,10 +3861,8 @@ async def _execute_cc_tool(
                 return {"text": "Image generation not configured (no OpenAI API key).", "status": "failed"}
 
             client = openai.OpenAI(api_key=api_key)
-            response = client.images.generate(
-                model="dall-e-3", prompt=description, size="1024x1024",
-                quality="standard", n=1, response_format="b64_json",
-            )
+            gen_kwargs = build_image_generate_kwargs(CC_IMAGE_MODEL, description, "1024x1024")
+            response = client.images.generate(**gen_kwargs)
             b64 = response.data[0].b64_json
             block = {"type": "image", "src": f"data:image/png;base64,{b64}", "alt": description[:200]}
             return {"text": json.dumps([block]), "status": "completed"}

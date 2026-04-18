@@ -205,5 +205,8 @@ Output/
 # Build-time generated credentials module (bundled by PyInstaller, never committed)
 _build_config.py
 
+# Admin-UI-set model overrides (per-install, never committed)
+data/model_overrides.json
+
 # Claude Code tool config
 .claude/

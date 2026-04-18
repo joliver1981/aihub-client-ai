@@ -185,6 +185,90 @@ Response: "{response}"
 """
 
 
+_LOG_QUESTION_PROMPT = """You are selecting what question to log to route memory — a system that
+learns which AI agent handles which types of user questions.
+
+The user's latest message may be a substantive question OR an orchestration
+instruction like "use a different agent". Identify the SUBSTANTIVE QUESTION
+that best represents what the AI actually answered in this turn.
+
+Patterns:
+- Simple question ("show me sales by region") → return it as-is
+- Routing instruction ("use the Inventory agent instead", "try a different agent",
+  "get X from the Y agent") → return the UNDERLYING question from the prior
+  conversation that is actually being rerouted, NOT the routing instruction
+- Topic shift ("now show me inventory") → return it as-is
+- Refinement ("I meant 2024 not 2023") → return the full corrected question
+  by combining with the prior turn
+
+The logged question must be a STANDALONE query a future user could ask with
+no context. "Use X agent instead" is not standalone. "Show me inventory top
+10 items by quantity" is.
+
+Recent conversation (chronological, most recent last):
+{transcript}
+
+User's latest message: "{user_message}"
+
+Reply with ONLY the question text to log. No preamble, no quotes, no labels,
+no commentary.
+"""
+
+
+async def _extract_question_to_log(
+    user_message: str,
+    conversation_transcript: str,
+    timeout: float = 2.0,
+) -> str:
+    """Use a mini-LLM to pick the substantive question that should be stored
+    in route memory for this turn.
+
+    Handles the case where the user's latest message is a routing instruction
+    ("use X agent instead") rather than a substantive question — the LLM
+    returns the underlying question from prior context instead.
+
+    Returns the extracted question text. Falls back to the raw user_message
+    on timeout, error, empty response, or if there's no prior context to
+    reason about (an empty transcript means the latest message IS the question).
+    """
+    # No prior context → latest message IS the question, skip the LLM call.
+    if not conversation_transcript or not conversation_transcript.strip():
+        return user_message
+
+    try:
+        llm = _get_mini_llm()
+        prompt = _LOG_QUESTION_PROMPT.format(
+            transcript=conversation_transcript[:3000],
+            user_message=user_message[:400],
+        )
+        resp = await asyncio.wait_for(llm.ainvoke(prompt), timeout=timeout)
+        result = (resp.content if hasattr(resp, "content") else str(resp)).strip()
+
+        # Strip common LLM wrappers
+        result = result.strip('"').strip("'").strip()
+        for prefix in ("Question:", "Logged question:", "Substantive question:",
+                       "The question is:"):
+            if result.lower().startswith(prefix.lower()):
+                result = result[len(prefix):].strip().strip('"').strip("'")
+                break
+
+        # Guards
+        if not result:
+            return user_message
+        if len(result) > 500:
+            return user_message  # LLM rambled; fall back to raw text
+        # If the LLM just echoed the latest message verbatim, that's fine —
+        # return what we got.
+        return result
+
+    except asyncio.TimeoutError:
+        logger.warning("[route_memory] Question-to-log extraction timed out — falling back to raw user message")
+        return user_message
+    except Exception as e:
+        logger.warning(f"[route_memory] Question-to-log extraction failed: {e} — falling back to raw user message")
+        return user_message
+
+
 async def _classify_success(query: str, response_text: str) -> bool:
     """Use mini-LLM to determine if the response successfully answered the query.
 
@@ -231,20 +315,29 @@ async def log_route(
     latency_ms: int = None,
     response_text: str = None,
     cc_tool_name: str = None,
+    conversation_transcript: str = None,
 ) -> None:
     """Log a route entry after a response is sent.  Background, non-blocking.
 
     Steps:
       1. Skip trivial queries
       2. Skip entries with no routing information (no agent, no CC tool)
-      3. In parallel: normalize query + classify success (two mini-LLM calls, 2s timeout each)
-      4. INSERT into cc_RouteMemory
+      3. If conversation_transcript is provided, ask a mini-LLM to pick the
+         substantive question to log (handles reroute instructions and other
+         cases where the latest user message is not the true question).
+      4. In parallel: normalize query + classify success (two mini-LLM calls, 2s timeout each)
+      5. INSERT into cc_RouteMemory
 
     Args:
         cc_tool_name: When the CC handled the query with a native tool (e.g.,
             "search_documents"), pass the tool name here.  A synthetic agent_id
             like "cc:search_documents" is created so route memory can learn
             CC tool routes alongside agent routes.
+        conversation_transcript: Optional formatted transcript of recent turns
+            (excluding the latest). When provided, a mini-LLM is used to
+            identify the substantive question being answered — this prevents
+            logging routing instructions ("use X agent instead") as if they
+            were the question. Without a transcript, query_text is logged as-is.
     """
     try:
         if _is_trivial(query_text):
@@ -268,6 +361,25 @@ async def log_route(
                 f"no agent_id or cc_tool for query '{query_text[:60]}...'"
             )
             return
+
+        # ── Pick the substantive question to log ──────────────────────────
+        # When the caller supplies a conversation transcript, ask a mini-LLM
+        # to identify the real question being answered. This handles reroute
+        # instructions ("use X agent instead"), clarifications, and
+        # refinements — the raw latest message isn't always the right thing
+        # to log. The extractor falls back to query_text on failure, so this
+        # is always safe to enable.
+        original_query_text = query_text
+        if conversation_transcript:
+            query_text = await _extract_question_to_log(
+                user_message=query_text,
+                conversation_transcript=conversation_transcript,
+            )
+            if query_text != original_query_text:
+                logger.info(
+                    f"[route_memory] Logged question replaced: "
+                    f"'{original_query_text[:60]}...' → '{query_text[:60]}...'"
+                )
 
         # Run normalize + success classification in parallel (two mini-LLM calls)
         if response_text:

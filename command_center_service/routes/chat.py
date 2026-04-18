@@ -410,66 +410,56 @@ async def chat(request: Request):
                     if USE_ROUTE_MEMORY:
                         from command_center.memory.route_memory import log_route, CC_TRACKABLE_TOOLS
 
-                        # ── Determine what to log ──
-                        # Log every substantive turn. Only REROUTE has special
-                        # handling — the routing instruction itself ("use X
-                        # instead") is never the question; we log the extracted
-                        # original question against the new agent.
-                        #
-                        # Follow-up turns within an active delegation ("now
-                        # show me inventory by region") ARE logged — they're
-                        # often legitimate topic shifts that deserve their own
-                        # route entry. The mini-LLM normalizer and confidence
-                        # thresholds filter noise (refinements like "show it as
-                        # a chart" typically can't produce a clean canonical
-                        # form and don't accumulate to the usage threshold).
-                        reroute_ctx = final_state.get("reroute_context")
+                        # ── Decide what to log ──
+                        # Pass the raw user message + recent conversation
+                        # transcript to log_route. Inside log_route a mini-LLM
+                        # picks the substantive question to log — this
+                        # correctly handles reroute instructions ("use X
+                        # instead"), refinements, and clarifications where
+                        # the raw latest message is NOT the right question.
+                        # If no transcript is available (first turn), the
+                        # raw message is logged directly.
+                        from graph.nodes import _format_conversation_for_prompt
+                        conversation_transcript = _format_conversation_for_prompt(
+                            messages, max_turns=5, exclude_latest=True
+                        )
 
-                        if reroute_ctx and reroute_ctx.get("original_question"):
-                            # REROUTE: log the original question attributed to
-                            # the new (correct) agent, not the routing phrase.
-                            query_to_log = reroute_ctx["original_question"]
-                        else:
-                            # Everything else — new query, CONTINUE, or
-                            # CC_CAPABLE — log the user's message as-is.
-                            query_to_log = user_message
+                        agent_id_log = active_deleg.get("agent_id") if active_deleg else None
+                        agent_name_log = active_deleg.get("agent_name") if active_deleg else None
+                        latency_ms = int((time.time() - _request_start) * 1000)
+                        route_path = f"classify_intent->{intent}"
+                        if agent_id_log:
+                            route_path += f"->agent_{agent_id_log}"
 
-                        if query_to_log:
-                            agent_id_log = active_deleg.get("agent_id") if active_deleg else None
-                            agent_name_log = active_deleg.get("agent_name") if active_deleg else None
-                            latency_ms = int((time.time() - _request_start) * 1000)
-                            route_path = f"classify_intent->{intent}"
-                            if agent_id_log:
-                                route_path += f"->agent_{agent_id_log}"
-
-                            # ── Extract CC tool name from conversation ──
-                            # When the converse node uses CC-native tools (search_documents,
-                            # export_data, etc.), capture the tool name so route memory can
-                            # learn CC tool routes (not just agent delegations).
-                            cc_tool_name_log = None
-                            if not agent_id_log and intent == "chat":
-                                for msg in reversed(messages):
-                                    if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                                        for tc in msg.tool_calls:
-                                            tc_name = tc.get("name", "")
-                                            if tc_name in CC_TRACKABLE_TOOLS:
-                                                cc_tool_name_log = tc_name
-                                                route_path += f"->tool:{tc_name}"
-                                                break
-                                        if cc_tool_name_log:
+                        # ── Extract CC tool name from conversation ──
+                        # When the converse node uses CC-native tools (search_documents,
+                        # export_data, etc.), capture the tool name so route memory can
+                        # learn CC tool routes (not just agent delegations).
+                        cc_tool_name_log = None
+                        if not agent_id_log and intent == "chat":
+                            for msg in reversed(messages):
+                                if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                                    for tc in msg.tool_calls:
+                                        tc_name = tc.get("name", "")
+                                        if tc_name in CC_TRACKABLE_TOOLS:
+                                            cc_tool_name_log = tc_name
+                                            route_path += f"->tool:{tc_name}"
                                             break
+                                    if cc_tool_name_log:
+                                        break
 
-                            asyncio.ensure_future(log_route(
-                                user_id=int(user_id),
-                                query_text=query_to_log,
-                                intent=intent,
-                                agent_id=agent_id_log,
-                                agent_name=agent_name_log,
-                                route_path=route_path,
-                                latency_ms=latency_ms,
-                                response_text=ai_response or None,
-                                cc_tool_name=cc_tool_name_log,
-                            ))
+                        asyncio.ensure_future(log_route(
+                            user_id=int(user_id),
+                            query_text=user_message,
+                            intent=intent,
+                            agent_id=agent_id_log,
+                            agent_name=agent_name_log,
+                            route_path=route_path,
+                            latency_ms=latency_ms,
+                            response_text=ai_response or None,
+                            cc_tool_name=cc_tool_name_log,
+                            conversation_transcript=conversation_transcript,
+                        ))
 
                     # ── Session Insight Extraction (non-blocking) ──
                     # After multi-turn conversations, extract factual discoveries

@@ -11,6 +11,7 @@ Quick lookup for Claude Code to find the right test for any source file change.
 | `connection_secrets.py` | `tests/unit/test_connection_secrets.py` |
 | `EmailUtils.py` | `tests/unit/test_email_utils.py` |
 | `encrypt.py` | `tests/unit/test_encrypt.py` |
+| `model_overrides.py` | `tests/unit/test_model_overrides.py` |
 | `feature_flags.py` | `tests/unit/test_feature_flags.py` |
 | `nlq_enhancements.py` | `tests/unit/test_nlq_enhancements.py` |
 | `notification_client.py` | `tests/unit/test_notification_client.py` |
@@ -49,6 +50,7 @@ Quick lookup for Claude Code to find the right test for any source file change.
 | `command_center/memory/route_memory.py` | `tests/unit/test_route_memory.py` |
 | `command_center_service/graph/nodes.py` (reroute extraction helper) | `tests/unit/test_reroute_extraction.py` |
 | `command_center_service/graph/nodes.py` (capability_router, export_intent_detector mini-LLMs) | `tests/unit/test_capability_router_and_export_intent.py` |
+| `command_center_service/graph/image_params.py` | `tests/unit/test_image_params.py` |
 
 ## Has Security Tests
 

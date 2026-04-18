@@ -787,9 +787,81 @@ def test_anthropic():
         
         result = test_anthropic_key(api_key)
         return jsonify({'success': True, **result})
-        
+
     except Exception as e:
         logger.error(f"Error testing Anthropic key: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# =============================================================================
+# Model Overrides (admin-only UI for overriding default LLM model names)
+# =============================================================================
+# Works independently of BYOK. See model_overrides.py for the storage format
+# and the key -> env-var mapping. Changes require a service restart to take
+# effect (same as BYOK).
+
+@api_keys_bp.route('/model-overrides', methods=['GET'])
+@require_admin
+def get_model_overrides():
+    """Return current overrides + dropdown lists + effective values + BYOK state."""
+    try:
+        from model_overrides import get_override_status
+        status = get_override_status()
+        return jsonify({'success': True, **status})
+    except Exception as e:
+        logger.error(f"Error getting model overrides: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_keys_bp.route('/model-overrides', methods=['POST'])
+@require_admin
+def save_model_overrides():
+    """Save model overrides. Body is a partial dict of {key: value}.
+    Only keys in model_overrides.ALLOWED_KEYS are accepted. Empty-string
+    values clear that specific override.
+    """
+    try:
+        from model_overrides import save_overrides, get_override_status, ALLOWED_KEYS
+
+        data = request.get_json() or {}
+        if not isinstance(data, dict):
+            return jsonify({'success': False, 'error': 'Body must be a JSON object'}), 400
+
+        # Silently drop any non-allowed keys before validation; the UI may send
+        # extra keys we don't care about.
+        filtered = {k: v for k, v in data.items() if k in ALLOWED_KEYS}
+        if not filtered:
+            return jsonify({'success': False, 'error': 'No valid override keys in request'}), 400
+
+        save_overrides(filtered)
+        status = get_override_status()
+        return jsonify({
+            'success': True,
+            'message': 'Model overrides saved. Restart services for changes to take effect.',
+            **status,
+        })
+    except ValueError as ve:
+        return jsonify({'success': False, 'error': str(ve)}), 400
+    except Exception as e:
+        logger.error(f"Error saving model overrides: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_keys_bp.route('/model-overrides', methods=['DELETE'])
+@require_admin
+def delete_model_overrides():
+    """Clear all model overrides (delete the overrides file)."""
+    try:
+        from model_overrides import clear_overrides, get_override_status
+        clear_overrides()
+        status = get_override_status()
+        return jsonify({
+            'success': True,
+            'message': 'All model overrides cleared. Restart services for changes to take effect.',
+            **status,
+        })
+    except Exception as e:
+        logger.error(f"Error clearing model overrides: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

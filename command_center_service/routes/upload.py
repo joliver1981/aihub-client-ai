@@ -189,12 +189,18 @@ def _analyze_image(file_bytes: bytes, filename: str, user_message: str = "") -> 
     # Fallback: OpenAI Vision (BYOK-aware)
     try:
         import openai
+        import config as cfg_module  # aliased to avoid shadowing by local 'config' dict below
         from api_keys_config import get_openai_config
         config = get_openai_config(use_alternate_api=False)
 
         if config['api_type'] == 'open_ai':
             client = openai.OpenAI(api_key=config['api_key'])
-            vision_model = os.environ.get("OPENAI_VISION_MODEL", config.get('model') or "gpt-4o")
+            # Priority: OPENAI_VISION_MODEL env -> BYOK config model -> cfg.OPENAI_VISION_MODEL
+            # (which itself reads env and defaults to 'gpt-4o' — preserves original behavior)
+            vision_model = os.environ.get(
+                "OPENAI_VISION_MODEL",
+                config.get('model') or getattr(cfg_module, 'OPENAI_VISION_MODEL', 'gpt-4o'),
+            )
         else:
             client = openai.AzureOpenAI(
                 api_key=config['api_key'],

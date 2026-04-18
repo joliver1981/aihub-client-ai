@@ -483,13 +483,19 @@ def execute_agent_in_environment(agent_id, environment_id, prompt, chat_history)
             raise Exception(f"Agent {agent_id} not found")
         
         # Prepare agent configuration
+        # Model fallback chain: agent.model (from DB) -> configured Azure default -> 'gpt-4' sentinel
+        try:
+            import config as cfg
+            _default_model = getattr(cfg, 'AZURE_OPENAI_DEPLOYMENT_NAME', 'gpt-4')
+        except Exception:
+            _default_model = 'gpt-4'
         agent_config = {
             'id': agent_id,
             'name': agent.name or f'Agent_{agent_id}',
             'description': agent.description or '',
             'objective': agent.objective or '',
             'system_message': agent.system_message or 'You are a helpful assistant.',
-            'model': agent.model or 'gpt-4',
+            'model': agent.model or _default_model,
             'temperature': agent.temperature or 0.7,
             'tools': tools
         }

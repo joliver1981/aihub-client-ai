@@ -3,9 +3,21 @@ from openai import AzureOpenAI
 import openai
 
 
+# -----------------------------------------------------------------------------
+# DEAD CODE NOTICE
+# This class is not imported or instantiated anywhere in the codebase as of
+# this writing. The active embedding pipeline lives in LLMDocumentVectorEngine,
+# which reads cfg.AZURE_OPENAI_DEPLOYMENT_NAME_EMBEDDING from config.py.
+# The 'text-embedding-3-large' default below is NOT what the app currently
+# uses. If you ever resurrect this class, change the default to read from
+# cfg.AZURE_OPENAI_DEPLOYMENT_NAME_EMBEDDING so it stays consistent with the
+# rest of the system.
+# -----------------------------------------------------------------------------
 class VectorManager:
-    """Manages vector embeddings independent of storage backend"""
-    
+    """Manages vector embeddings independent of storage backend.
+
+    NOTE: currently unused (dead code). See notice above.
+    """
     def __init__(self, embedding_model="azure:text-embedding-3-large"):
         self.embedding_model = embedding_model
         self.model_provider, self.model_name = embedding_model.split(':')

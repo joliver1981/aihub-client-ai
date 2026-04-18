@@ -47,13 +47,19 @@ def _ensure_initialized():
         return
 
     # 1. Load config values
+    # Fallback aligned with config.py ANTHROPIC_MINI default ('claude-sonnet-4-6').
+    # In normal operation config.ANTHROPIC_MODEL is set via .env and the
+    # 'claude-sonnet-4-6' literal below is never reached.
     try:
         import config as cfg
-        _ANTHROPIC_MODEL = getattr(cfg, 'ANTHROPIC_MODEL', 'claude-sonnet-4-20250514')
+        _ANTHROPIC_MODEL = (
+            getattr(cfg, 'ANTHROPIC_MODEL', None)
+            or getattr(cfg, 'ANTHROPIC_MINI', 'claude-sonnet-4-6')
+        )
         _ANTHROPIC_MAX_TOKENS = int(getattr(cfg, 'ANTHROPIC_MAX_TOKENS', 4096))
     except ImportError:
         logger.warning("config.py not found, using defaults")
-        _ANTHROPIC_MODEL = os.getenv('ANTHROPIC_MODEL', 'claude-sonnet-4-20250514')
+        _ANTHROPIC_MODEL = os.getenv('ANTHROPIC_MODEL', 'claude-sonnet-4-6')
         _ANTHROPIC_MAX_TOKENS = int(os.getenv('ANTHROPIC_MAX_TOKENS', '4096'))
 
     # 2. Get Anthropic API configuration (handles BYOK + proxy logic)
