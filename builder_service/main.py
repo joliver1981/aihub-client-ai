@@ -120,6 +120,13 @@ async def admin():
     return FileResponse(os.path.join(static_dir, "admin.html"))
 
 
+@app.get("/health")
+async def health_root():
+    """Health check at root path (mirrors /api/health for load balancers)."""
+    from routes.chat import health
+    return await health()
+
+
 # ─── Run ──────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

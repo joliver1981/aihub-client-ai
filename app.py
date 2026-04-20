@@ -475,12 +475,55 @@ log_level = getattr(logging, log_level_name, logging.DEBUG)
 # Set the logging level
 logger.setLevel(log_level)
 
+# ── Credential redaction (BUG-R3-004 fix) ──────────────────────────────────
+# The app sends api_key as a URL query parameter to the OpenAI proxy
+# endpoint. urllib3's DEBUG-level connection logging captures the full URL
+# including the query string, so api_key values were being written into
+# app_log.txt verbatim. Two-layer defense:
+#   1. Silence urllib3.connectionpool at DEBUG (INFO+ still logs status).
+#   2. Attach a redaction filter to the root logger so any api_key= / token=
+#      / password= pattern is masked before write, regardless of source.
+import re as _rlog
+logging.getLogger("urllib3.connectionpool").setLevel(logging.INFO)
+logging.getLogger("urllib3").setLevel(logging.INFO)
+
+_SECRET_LOG_PATTERNS = [
+    (_rlog.compile(r"(api[_-]?key=)[A-Za-z0-9_\-]{6,}", _rlog.IGNORECASE), r"\1***"),
+    (_rlog.compile(r"(password=)[^&\s\"']+", _rlog.IGNORECASE), r"\1***"),
+    (_rlog.compile(r"(token=)[A-Za-z0-9_\-\.]{6,}", _rlog.IGNORECASE), r"\1***"),
+    (_rlog.compile(r"(secret=)[^&\s\"']+", _rlog.IGNORECASE), r"\1***"),
+    (_rlog.compile(r"(\"password\"\s*:\s*\")([^\"]+)(\")", _rlog.IGNORECASE), r"\1***\3"),
+    (_rlog.compile(r"(\"api[_-]?key\"\s*:\s*\")([^\"]+)(\")", _rlog.IGNORECASE), r"\1***\3"),
+    (_rlog.compile(r"(Authorization:\s*Bearer\s+)[A-Za-z0-9_\-\.]{6,}", _rlog.IGNORECASE), r"\1***"),
+]
+
+class _SecretRedactionFilter(logging.Filter):
+    """Strip common credential patterns from log records before they're
+    handed to any handler."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return True
+        redacted = msg
+        for pat, repl in _SECRET_LOG_PATTERNS:
+            redacted = pat.sub(repl, redacted)
+        if redacted != msg:
+            record.msg = redacted
+            record.args = ()  # we already interpolated into record.msg
+        return True
+
+_redaction_filter = _SecretRedactionFilter()
+logger.addFilter(_redaction_filter)
+
 # Create an instance of your custom handler
 db_handler = SQLLogHandler(job_id=0)
 
 # Optionally, set a formatter
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 db_handler.setFormatter(formatter)
+db_handler.addFilter(_redaction_filter)
 
 # Add the custom handler to the logger
 logger.addHandler(db_handler)
@@ -488,6 +531,7 @@ logger.addHandler(db_handler)
 # WatchedFileHandler will detect external rotations but won't try to rotate itself
 handler = WatchedFileHandler(filename=cfg.LOG_DIR, encoding='utf-8')
 handler.setFormatter(formatter)
+handler.addFilter(_redaction_filter)
 
 # Add the handler to the logger
 logger.addHandler(handler)

@@ -54,7 +54,15 @@
     pointer-events: none;
     z-index: 0;
 }
-.dashboard-page > * { position: relative; z-index: 1; }
+/* Layers dashboard content above the noise overlay on ::before. Modals and
+   feedback widgets are excluded so Bootstrap's own stacking (backdrop=1040,
+   modal=1050) keeps working — without this exclusion the welcomeModal was
+   getting z-index:1 while its backdrop sat at 1040, making the modal
+   un-clickable for developer accounts. */
+.dashboard-page > *:not(.modal):not(.modal-backdrop):not(.feedback-container):not(.context-menu) {
+    position: relative;
+    z-index: 1;
+}
 
 /* ===== SCROLLBAR ===== */
 .dashboard-page ::-webkit-scrollbar { width: 6px; }

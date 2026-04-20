@@ -2108,17 +2108,22 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             return f"Document search failed: {str(e)}"
 
     @lc_tool
-    async def send_email(to_address: str, subject: str, message: str, artifact_id: str = "") -> str:
+    async def send_email(to_address: str = "", subject: str = "", message: str = "", artifact_id: str = "") -> str:
         """Send an email, optionally attaching a previously exported file.
         Use this when the user asks to email, send, or share information via email.
 
         To attach a file: first call export_data to create the file, then pass
         the artifact_id from the export result to this tool.
 
+        ALL THREE fields are REQUIRED for the email to be sent: to_address (recipient),
+        subject (non-empty subject line), and message (non-empty body). If the user
+        did not specify a subject/body, infer reasonable ones from the surrounding
+        request rather than calling the tool with blank fields.
+
         Args:
-            to_address: Recipient email address
-            subject: Email subject line
-            message: Email body content
+            to_address: Recipient email address (required, non-empty)
+            subject: Email subject line (required, non-empty)
+            message: Email body content (required, non-empty)
             artifact_id: Optional artifact_id from a previous export_data call to attach as a file
         """
         import os
@@ -2126,9 +2131,16 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         import base64
         import requests as _requests
 
-        # Validate inputs
-        if not to_address or not subject or not message:
-            return "Error: Please provide to_address, subject, and message."
+        # Validate inputs — all three primary fields must be present & non-empty.
+        # Defaults allow the tool to fail gracefully instead of raising a Pydantic
+        # validation error when the LLM forgets a required argument.
+        missing = [f for f, v in (("to_address", to_address), ("subject", subject), ("message", message)) if not v or not str(v).strip()]
+        if missing:
+            return (
+                "Error: send_email was called without required fields: "
+                f"{', '.join(missing)}. Please retry with all three — "
+                "to_address (recipient), subject (non-empty), and message (non-empty)."
+            )
         if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', to_address.strip()):
             return f"Error: '{to_address}' is not a valid email address."
 
@@ -2260,7 +2272,34 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 )
 
                 if tool_fn:
-                    result = await tool_fn.ainvoke(tool_args)
+                    try:
+                        result = await tool_fn.ainvoke(tool_args)
+                    except Exception as _tool_err:
+                        # Don't leak raw Pydantic validation errors / URLs / internal
+                        # field names to the user. Log the detail server-side and
+                        # return a friendly, actionable message so the LLM can retry.
+                        err_str = str(_tool_err)
+                        logger.warning(
+                            f"[converse] Tool '{tool_name}' invocation failed: {err_str[:400]} "
+                            f"args={str(tool_args)[:300]}"
+                        )
+                        # Classify the error for a better user-facing hint.
+                        lower = err_str.lower()
+                        if "validation error" in lower or "field required" in lower:
+                            friendly = (
+                                f"The {tool_name} tool was called with missing or invalid "
+                                f"parameters and could not run. Please retry with all "
+                                f"required fields supplied."
+                            )
+                        elif "timeout" in lower:
+                            friendly = (
+                                f"The {tool_name} tool timed out. Please retry in a moment."
+                            )
+                        else:
+                            friendly = (
+                                f"The {tool_name} tool was unable to complete this request."
+                            )
+                        result = friendly
                 else:
                     result = f"Unknown tool: {tool_name}"
 
@@ -2419,7 +2458,16 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     logger.info(f"[converse] Round 2 tool call: {tool_name}({tool_args})")
                     tool_fn = tool_map.get(tool_name)
                     if tool_fn:
-                        r2 = await tool_fn.ainvoke(tool_args)
+                        try:
+                            r2 = await tool_fn.ainvoke(tool_args)
+                        except Exception as _tool_err2:
+                            logger.warning(
+                                f"[converse] Round-2 tool '{tool_name}' failed: {str(_tool_err2)[:400]}"
+                            )
+                            r2 = (
+                                f"The {tool_name} tool could not complete — parameters "
+                                f"may be missing or invalid. Please retry with complete fields."
+                            )
                     else:
                         r2 = f"Unknown tool: {tool_name}"
                     tool_results_2.append(ToolMessage(content=str(r2), tool_call_id=tc["id"]))
@@ -2479,8 +2527,13 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         response = _sanitize_llm_response(response, llm)
         return {"messages": [response]}
     except Exception as e:
-        logger.error(f"Conversation failed: {e}")
-        error_content = json.dumps([{"type": "text", "content": f"I encountered an error: {str(e)}"}])
+        logger.error(f"Conversation failed: {e}", exc_info=True)
+        # Never expose raw exception text (may include internal field names, URLs,
+        # stack detail). Return a generic, friendly message.
+        error_content = json.dumps([{"type": "text", "content": (
+            "I ran into a problem handling that request. Please try again or rephrase "
+            "it — if the issue keeps happening, let me know and I'll look closer."
+        )}])
         return {"messages": [AIMessage(content=error_content)]}
 
 
@@ -4346,19 +4399,46 @@ async def build(state: CommandCenterState) -> dict:
 
         # Detect if the user's message is an affirmative/confirmation.
         # Uses the mini-LLM for robust detection instead of brittle keyword matching.
+        # IMPORTANT: An affirmation is a SHORT standalone reply ("yes", "go ahead") —
+        # NOT a fresh request like "create an agent...". The mini-LLM has shown it
+        # mis-classifies new action requests as affirmative; we gate with a length
+        # guard plus a pattern blocklist BEFORE asking the LLM (BUG-R2-017 root cause).
+        AFFIRM_KEYWORDS = {
+            "y", "yes", "ok", "okay", "yep", "yeah", "sure", "proceed",
+            "go ahead", "do it", "execute", "confirm", "confirmed", "absolutely",
+            "sounds good", "let's do it", "go for it", "make it happen", "please do",
+            "yes please", "go", "👍", "sure thing",
+        }
+        _NEW_REQUEST_VERBS = (
+            "create ", "make ", "build ", "set up ", "setup ", "add ",
+            "new ", "generate ", "write ", "send ", "show ", "get ", "give ",
+            "find ", "search ", "query ", "ask ", "forget ", "remember ",
+            "delete ", "remove ", "update ",
+        )
+
         async def _is_affirmative(txt: str) -> bool:
             t = (txt or "").strip()
             if not t:
                 return False
-            # Fast path: very short obvious affirmatives (avoid LLM call overhead)
-            if t.lower() in {"y", "yes", "ok", "okay"}:
+            lt = t.lower()
+            # Fast path: exact match to a known affirmative keyword
+            if lt in AFFIRM_KEYWORDS:
                 return True
+            # Any message starting with a new-request verb is NEVER an affirmation,
+            # regardless of how the LLM interprets it.
+            if any(lt.startswith(v) for v in _NEW_REQUEST_VERBS):
+                return False
+            # Messages over 60 characters are unlikely to be pure affirmations.
+            if len(t) > 60:
+                return False
             try:
                 from cc_config import get_step_llm as _get_step_llm_affirm
                 _llm = _get_step_llm_affirm("builder_affirmative_detector")
                 _aff_msgs = [HumanMessage(content=(
-                    f'Is the following message an affirmative confirmation, agreement, '
-                    f'or approval to proceed? Message: "{t}"\n'
+                    f'Does the following short user message mean the user is saying YES '
+                    f'(agreeing, confirming, or approving a previously suggested action)? '
+                    f'Treat any message that introduces a new request, command, or question as NO. '
+                    f'Message: "{t}"\n'
                     f'Reply with ONLY "YES" or "NO".'
                 ))]
                 _aff_t0 = _trace_time.perf_counter()
@@ -4368,10 +4448,8 @@ async def build(state: CommandCenterState) -> dict:
                                elapsed_ms=int((_trace_time.perf_counter() - _aff_t0) * 1000), model_hint="mini")
                 return _resp.content.strip().upper().startswith("YES") if hasattr(_resp, 'content') else False
             except Exception:
-                # Fallback: basic keyword check if LLM fails
-                return t.lower() in {"yep", "yeah", "sure", "proceed", "go ahead", "do it",
-                                     "execute", "confirm", "confirmed", "absolutely",
-                                     "sounds good", "let's do it", "go for it", "make it happen"}
+                # Fallback: keyword check if LLM fails
+                return lt in AFFIRM_KEYWORDS
 
         # Auto-confirm: either (a) user said "yes" and builder is asking to confirm,
         # or (b) builder returned a draft plan with concrete steps (user already
@@ -4385,9 +4463,44 @@ async def build(state: CommandCenterState) -> dict:
         elif latest_plan and isinstance(latest_plan, dict):
             plan_status = (latest_plan.get("status") or "").lower()
             plan_steps = latest_plan.get("steps", [])
-            if plan_status == "draft" and len(plan_steps) > 0:
+            # Auto-confirm only for plans that (a) are small AND (b) do NOT mutate
+            # user-visible resources. Plans that create agents, connections, workflows,
+            # integrations, custom tools, or perform any delete action require explicit
+            # user confirmation — otherwise users cannot reject a plan before side
+            # effects happen (see BUG-R2-017: "no, I changed my mind" after an auto-
+            # created agent triggered a DELETE flow).
+            mutating_actions = {
+                ("agents", "create"), ("agents", "update"), ("agents", "delete"),
+                ("agents", "assign_tools"), ("agents", "assign_email"),
+                ("agents", "assign_knowledge"),
+                ("connections", "create"), ("connections", "update"), ("connections", "delete"),
+                ("workflows", "create"), ("workflows", "update"), ("workflows", "delete"),
+                ("integrations", "create"), ("integrations", "update"), ("integrations", "delete"),
+                ("custom_tools", "create"), ("custom_tools", "update"), ("custom_tools", "delete"),
+            }
+            has_mutating = any(
+                (s.get("is_destructive") is True) or
+                ((s.get("domain", "").lower(), s.get("action", "").lower()) in mutating_actions)
+                for s in plan_steps
+            ) if plan_steps else False
+            is_small = 0 < len(plan_steps) <= 2
+            builder_is_asking = (
+                "shall i go ahead" in response_text.lower()
+                or "shall i proceed" in response_text.lower()
+                or "please confirm" in response_text.lower()
+                or "do you want me to proceed" in response_text.lower()
+            )
+            if (plan_status == "draft" and is_small and not has_mutating
+                    and not builder_is_asking):
                 _should_auto_confirm = True
-                _auto_confirm_reason = f"builder returned draft plan with {len(plan_steps)} steps — auto-executing"
+                _auto_confirm_reason = (
+                    f"builder returned {len(plan_steps)}-step read-only draft — auto-executing"
+                )
+            elif plan_status == "draft" and plan_steps:
+                logger.info(
+                    f"[build] Plan held for user approval: steps={len(plan_steps)}, "
+                    f"mutating={has_mutating}, builder_asking={builder_is_asking}"
+                )
 
         if _should_auto_confirm:
             trace_log(

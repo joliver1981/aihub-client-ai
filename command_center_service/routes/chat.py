@@ -142,12 +142,40 @@ async def chat(request: Request):
     session = _session_mgr.get_or_create(session_id)
     session_id = session.session_id
 
-    # Handle file attachments — associate with session and append context
+    # Stamp the session's owner so subsequent session-list / get / delete
+    # calls can enforce ownership (BUG-R3-001..007 fix). Only populates
+    # when missing — we never overwrite an existing owner.
+    if user_context and isinstance(user_context, dict):
+        try:
+            from services import UserContext as _UC
+            _ctx = _UC(
+                user_id=int(user_context.get("user_id") or 0),
+                role=int(user_context.get("role") or 0),
+                tenant_id=int(user_context.get("tenant_id") or 0),
+                username=str(user_context.get("username") or ""),
+                name=str(user_context.get("name") or ""),
+            )
+            _session_mgr.attach_user_context_if_missing(session_id, _ctx)
+        except Exception as _own_err:
+            logger.warning(f"[chat] failed to stamp session owner: {_own_err}")
+
+    # Handle file attachments — associate with session and append context.
+    # Ownership is enforced inside build_attachment_context: files owned by
+    # a different user are silently skipped (BUG-R3-005 fix).
     if attachments and isinstance(attachments, list):
         try:
             from routes.upload import associate_files_to_session, build_attachment_context
             associate_files_to_session(attachments, session_id)
-            attachment_ctx = build_attachment_context(attachments, user_message=user_message)
+            _req_uid = (user_context or {}).get("user_id")
+            _req_tid = (user_context or {}).get("tenant_id")
+            _req_role = int((user_context or {}).get("role") or 0)
+            attachment_ctx = build_attachment_context(
+                attachments,
+                user_message=user_message,
+                user_id=int(_req_uid) if _req_uid is not None else None,
+                tenant_id=int(_req_tid) if _req_tid is not None else None,
+                role=_req_role,
+            )
             if attachment_ctx:
                 user_message = user_message + attachment_ctx
                 logger.info(f"[chat] {len(attachments)} file(s) attached to session {session_id}")
@@ -174,6 +202,10 @@ async def chat(request: Request):
         if len(user_message) > 50:
             # Break at word boundary
             auto_title = auto_title.rsplit(' ', 1)[0] + '…'
+        # Strip HTML tags and control chars before storing (defense-in-depth for XSS)
+        import re
+        auto_title = re.sub(r"<[^>]*>", "", auto_title)
+        auto_title = re.sub(r"[\x00-\x1f\x7f]", "", auto_title).strip() or "New Chat"
         _session_mgr.update_title(session_id, auto_title)
         session_title = auto_title
 
@@ -481,6 +513,34 @@ async def chat(request: Request):
 
                 # Try to parse as JSON blocks — handle double-encoding
                 blocks = _parse_response_blocks(ai_response)
+
+                # Mask credentials/secrets that may have leaked into the
+                # user-facing response text (defense-in-depth for BUG-R2-015).
+                # QUOTE class matches plain quotes (", ', `) OR JSON-escaped ones (\", \', \`)
+                # so that patterns hit both "password \"value\"" (raw LLM JSON) and
+                # "Password: `value`" (markdown-formatted plan preview).
+                import re as _rrm
+                _QC = r"""(?:\\"|\\'|\\`|["'`])?"""
+                _secret_patterns_resp = [
+                    (_rrm.compile(r"(\*{0,3}password\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC + r")([A-Za-z0-9_@.!#$%+\-]{3,})" + _QC, _rrm.IGNORECASE), r"\1***"),
+                    (_rrm.compile(r"(\"password\"\s*:\s*\")([^\"]+)(\")", _rrm.IGNORECASE), r"\1***\3"),
+                    (_rrm.compile(r"(\bpassword\s+" + _QC + r")([A-Za-z0-9_@.!#$%+\-]{6,})" + _QC, _rrm.IGNORECASE), r"\1***"),
+                    (_rrm.compile(r"(\*{0,3}api[_-]?key\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC + r")([A-Za-z0-9_@.!#$%+\-]{3,})" + _QC, _rrm.IGNORECASE), r"\1***"),
+                    (_rrm.compile(r"(\"api[_-]?key\"\s*:\s*\")([^\"]+)(\")", _rrm.IGNORECASE), r"\1***\3"),
+                    (_rrm.compile(r"(\*{0,3}secret\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC + r")([A-Za-z0-9_@.!#$%+\-]{3,})" + _QC, _rrm.IGNORECASE), r"\1***"),
+                    (_rrm.compile(r"(\*{0,3}token\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC + r")([A-Za-z0-9_@.!#$%+\-]{3,})" + _QC, _rrm.IGNORECASE), r"\1***"),
+                ]
+                def _mask_resp(v):
+                    if not isinstance(v, str):
+                        return v
+                    for pat, repl in _secret_patterns_resp:
+                        v = pat.sub(repl, v)
+                    return v
+                if isinstance(blocks, list):
+                    for _b in blocks:
+                        if isinstance(_b, dict) and isinstance(_b.get("content"), str):
+                            _b["content"] = _mask_resp(_b["content"])
+
                 resp_payload = {"blocks": blocks, "session_id": session_id}
                 if trace_meta is not None:
                     resp_payload["trace_id"] = trace_meta.trace_id
@@ -506,10 +566,47 @@ async def chat(request: Request):
                     ]
                 })
 
-            # Send builder conversation log if present (for Task Progress panel)
+            # Send builder conversation log if present (for Task Progress panel).
+            # Mask any literal passwords/secrets that may have been echoed in the log.
             if active_deleg and active_deleg.get("builder_log"):
+                import re as _re
+                # The regexes below handle:
+                #   password: value       password=value
+                #   **password:** value   **password:**\nvalue
+                #   password `value`      password "value"
+                #   password value        (plain prose — 6+ char value to limit false positives)
+                #   "password": "value"   (JSON)
+                # QUOTE class matches plain quotes (", ', `) OR JSON-escaped (\", \', \`)
+                # so that patterns hit both the raw LLM JSON and markdown-formatted text.
+                _QC2 = r"""(?:\\"|\\'|\\`|["'`])?"""
+                _secret_patterns = [
+                    # Markdown-aware "Password: value" / "Password=value"
+                    (_re.compile(r"(\*{0,3}password\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC2 + r")([A-Za-z0-9_@.!#$%+\-]{3,})" + _QC2, _re.IGNORECASE), r"\1***"),
+                    # JSON "password": "value"
+                    (_re.compile(r"(\"password\"\s*:\s*\")([^\"]+)(\")", _re.IGNORECASE), r"\1***\3"),
+                    # Plain-prose "password value" (6+ chars to avoid matching "password" in text)
+                    (_re.compile(r"(\bpassword\s+" + _QC2 + r")([A-Za-z0-9_@.!#$%+\-]{6,})" + _QC2, _re.IGNORECASE), r"\1***"),
+                    # api_key / apikey / api-key
+                    (_re.compile(r"(\*{0,3}api[_-]?key\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC2 + r")([A-Za-z0-9_@.!#$%+\-]{3,})" + _QC2, _re.IGNORECASE), r"\1***"),
+                    (_re.compile(r"(\"api[_-]?key\"\s*:\s*\")([^\"]+)(\")", _re.IGNORECASE), r"\1***\3"),
+                    # secret/token as key-value
+                    (_re.compile(r"(\*{0,3}secret\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC2 + r")([A-Za-z0-9_@.!#$%+\-]{3,})" + _QC2, _re.IGNORECASE), r"\1***"),
+                    (_re.compile(r"(\*{0,3}token\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC2 + r")([A-Za-z0-9_@.!#$%+\-]{3,})" + _QC2, _re.IGNORECASE), r"\1***"),
+                ]
+                def _mask(v):
+                    if not isinstance(v, str):
+                        return v
+                    for pat, repl in _secret_patterns:
+                        v = pat.sub(repl, v)
+                    return v
+                masked_log = []
+                for entry in active_deleg["builder_log"]:
+                    me = dict(entry) if isinstance(entry, dict) else entry
+                    if isinstance(me, dict) and isinstance(me.get("content"), str):
+                        me["content"] = _mask(me["content"])
+                    masked_log.append(me)
                 yield _sse_event("builder_log", {
-                    "log": active_deleg["builder_log"],
+                    "log": masked_log,
                     "builder_session_id": active_deleg.get("builder_session_id"),
                 })
 

@@ -269,6 +269,90 @@ class SessionManager:
         )
         return [s.to_dict() for s in sessions]
 
+    # ── Ownership-filtered access (BUG-R3-001/002/003/005/006/007 fix) ─────
+    # Sessions may have been created BEFORE user_context started being
+    # persisted; for those legacy sessions we only allow visibility to
+    # admin/developer roles (role >= 2). Regular users see strictly their
+    # own rows, filtered by both user_id and tenant_id.
+    @staticmethod
+    def _matches_owner(session: "Session", user_id: Optional[int],
+                       tenant_id: Optional[int], role: int = 0) -> bool:
+        """Decide whether a caller should see/modify this session.
+
+        Fail-closed rules:
+          - Cross-tenant access is ALWAYS blocked, including for admins.
+            Tenant isolation is an absolute boundary — an admin of
+            tenant 2 must not see tenant 1 data.
+          - Within the caller's own tenant, admins/devs (role >= 2) see
+            every session, including legacy/unstamped rows.
+          - Within the caller's own tenant, regular users see only their
+            own sessions (matched by user_id).
+          - Callers that omit user_id or tenant_id see nothing. "No
+            identity" means "not the owner", never "skip the check".
+        """
+        if user_id is None or tenant_id is None:
+            return False
+
+        ctx = session.user_context
+        if ctx is None:
+            # Legacy/unstamped session. The owner is unknown and therefore
+            # so is the tenant. We cannot safely grant access — that would
+            # cross tenant boundaries. Hide these from everyone, including
+            # admins. A one-time migration should stamp legacy rows with a
+            # default owner/tenant before deployment (see
+            # e2e_app_tests/.../migrate_legacy_sessions.py).
+            return False
+
+        try:
+            owner_uid = int(ctx.user_id)
+            owner_tid = int(ctx.tenant_id)
+            req_uid = int(user_id)
+            req_tid = int(tenant_id)
+        except (TypeError, ValueError):
+            return False
+
+        # Absolute cross-tenant block.
+        if owner_tid != req_tid:
+            return False
+
+        # Within tenant: admin sees all; regular users see only their own.
+        if role >= 2:
+            return True
+        return owner_uid == req_uid
+
+    def list_sessions_for(self, user_id: Optional[int], tenant_id: Optional[int],
+                          role: int = 0) -> list[dict]:
+        sessions = sorted(
+            (s for s in self._sessions.values()
+             if self._matches_owner(s, user_id, tenant_id, role)),
+            key=lambda s: (s.is_pinned, s.updated_at),
+            reverse=True,
+        )
+        return [s.to_dict() for s in sessions]
+
+    def get_session_for(self, session_id: str, user_id: Optional[int],
+                        tenant_id: Optional[int], role: int = 0) -> Optional["Session"]:
+        session = self._sessions.get(session_id)
+        if session is None:
+            return None
+        if not self._matches_owner(session, user_id, tenant_id, role):
+            return None
+        return session
+
+    def attach_user_context_if_missing(self, session_id: str,
+                                       user_context: Optional[UserContext]):
+        """Populate user_context on a session the first time we see it. This
+        stamps ownership on freshly-created sessions so subsequent ownership
+        checks can distinguish them from legacy rows."""
+        if user_context is None:
+            return
+        session = self._sessions.get(session_id)
+        if session is None:
+            return
+        if session.user_context is None:
+            session.user_context = user_context
+            self._store.save_session_meta(session)
+
     def pin_session(self, session_id: str, pinned: bool) -> bool:
         session = self._sessions.get(session_id)
         if session:

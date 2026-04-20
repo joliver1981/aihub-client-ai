@@ -450,9 +450,25 @@ const CC = {
         });
     },
 
+    // Build a query-string of the current user context so every session
+    // endpoint call is scoped to the logged-in user. Without this the
+    // server falls back to "anonymous" filtering which hides everything
+    // (for legacy sessions that have no owner, only admins see them).
+    _ownerQS() {
+        const u = this._userCtx || {};
+        const qp = new URLSearchParams();
+        if (u.user_id !== undefined && u.user_id !== null) qp.set('user_id', String(u.user_id));
+        if (u.tenant_id !== undefined && u.tenant_id !== null) qp.set('tenant_id', String(u.tenant_id));
+        if (u.role !== undefined && u.role !== null) qp.set('role', String(u.role));
+        if (u.username) qp.set('username', String(u.username));
+        if (u.name) qp.set('name', String(u.name));
+        return qp.toString();
+    },
+
     async createSession() {
         try {
-            const resp = await fetch('/api/sessions', { method: 'POST' });
+            const qs = this._ownerQS();
+            const resp = await fetch(`/api/sessions${qs ? '?' + qs : ''}`, { method: 'POST' });
             const session = await resp.json();
             this.sessionId = session.session_id;
             localStorage.setItem('cc_session_id', this.sessionId);
@@ -469,7 +485,8 @@ const CC = {
 
     async loadSessions() {
         try {
-            const resp = await fetch('/api/sessions');
+            const qs = this._ownerQS();
+            const resp = await fetch(`/api/sessions${qs ? '?' + qs : ''}`);
             const sessions = await resp.json();
             const list = document.getElementById('session-list');
             list.innerHTML = '';
@@ -500,7 +517,8 @@ const CC = {
 
     async loadSession(sessionId) {
         try {
-            const resp = await fetch(`/api/sessions/${sessionId}`);
+            const qs = this._ownerQS();
+            const resp = await fetch(`/api/sessions/${sessionId}${qs ? '?' + qs : ''}`);
             const data = await resp.json();
 
             this.sessionId = sessionId;
@@ -536,7 +554,8 @@ const CC = {
 
     async togglePinSession(sessionId) {
         try {
-            await fetch(`/api/sessions/${sessionId}/pin`, { method: 'POST' });
+            const qs = this._ownerQS();
+            await fetch(`/api/sessions/${sessionId}/pin${qs ? '?' + qs : ''}`, { method: 'POST' });
             this.loadSessions();
         } catch (e) {
             console.error('Failed to toggle pin:', e);
@@ -545,7 +564,8 @@ const CC = {
 
     async deleteSession(sessionId) {
         try {
-            await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+            const qs = this._ownerQS();
+            await fetch(`/api/sessions/${sessionId}${qs ? '?' + qs : ''}`, { method: 'DELETE' });
             if (this.sessionId === sessionId) {
                 this.sessionId = null;
                 localStorage.removeItem('cc_session_id');
@@ -561,7 +581,8 @@ const CC = {
     async clearAllSessions() {
         if (!confirm('Delete ALL sessions? This cannot be undone.')) return;
         try {
-            await fetch('/api/sessions/clear', { method: 'POST' });
+            const qsClear = this._ownerQS();
+            await fetch(`/api/sessions/clear${qsClear ? '?' + qsClear : ''}`, { method: 'POST' });
             this.sessionId = null;
             localStorage.removeItem('cc_session_id');
             document.getElementById('messages').innerHTML = '';
@@ -693,6 +714,14 @@ const CC = {
             }
             if (this.sessionId) {
                 formData.append('session_id', this.sessionId);
+            }
+            // Stamp uploader so cross-user file access can be blocked.
+            const uctx = this._userCtx || {};
+            if (uctx.user_id !== undefined && uctx.user_id !== null) {
+                formData.append('user_id', String(uctx.user_id));
+            }
+            if (uctx.tenant_id !== undefined && uctx.tenant_id !== null) {
+                formData.append('tenant_id', String(uctx.tenant_id));
             }
 
             const resp = await fetch('/api/upload', {

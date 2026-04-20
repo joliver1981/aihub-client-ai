@@ -141,13 +141,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Inspect routes not yet available: {e}")
 
-    # Import and init artifacts routes (with shared ArtifactManager)
+    # Import and init artifacts routes (with shared ArtifactManager).
+    # Pass session_mgr so artifact routes can enforce ownership by looking
+    # up the artifact's parent session (BUG-R3-006 fix).
     try:
         from routes.artifacts import router as artifacts_router, init_artifacts
         from command_center.artifacts.artifact_manager import ArtifactManager
         artifact_storage = str(Path(__file__).parent / "data" / "artifacts")
         artifact_mgr = ArtifactManager(artifact_storage)
-        init_artifacts(artifact_mgr)
+        init_artifacts(artifact_mgr, session_mgr=session_mgr)
         app.include_router(artifacts_router)
         logger.info("Artifacts routes initialized")
     except Exception as e:
@@ -199,6 +201,13 @@ async def index():
     if os.path.isfile(index_path):
         return FileResponse(index_path)
     return {"message": "Command Center Service running. Frontend not yet built."}
+
+
+@app.get("/health")
+async def health_root():
+    """Health check at root path (mirrors /api/health for load balancers)."""
+    from routes.health import health
+    return await health()
 
 
 # ─── Run ──────────────────────────────────────────────────────────────────

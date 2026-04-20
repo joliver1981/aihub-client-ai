@@ -37,13 +37,23 @@ def get_status():
     """
     try:
         status = get_onboarding_status(current_user.id)
-        
+
+        # The welcome / onboarding flow is built around developer paths
+        # (Custom Agent + Tools, Data Assistant, Workflow Builder, Import Agent
+        # Package). All four destinations require Developer role or above.
+        # A role=1 (User) account cannot complete any path, so the modal would
+        # trap them behind a static-backdrop overlay with no successful exit.
+        # Force needs_onboarding=False for non-developer roles so the modal
+        # never shows in the first place.
+        role = getattr(current_user, 'role', 0) or 0
+        needs_ob = (not status['onboarding_completed']) and role >= 2
+
         return jsonify({
             'success': True,
-            'needs_onboarding': not status['onboarding_completed'],
+            'needs_onboarding': needs_ob,
             'current_step': status['onboarding_step'],
             'user_name': current_user.name,
-            'user_role': current_user.role,
+            'user_role': role,
             'skipped_previously': status['skipped'],
             'selected_goal': status['selected_goal'],
             'tour_completed': status['tour_completed']

@@ -652,26 +652,31 @@ def get_route_suggestions(user_id: int, limit: int = 5) -> List[dict]:
 def get_all_routes(user_id: int, limit: int = 100) -> List[dict]:
     """Aggregated route stats for the management UI.
 
-    Groups by normalized_query → shows canonical form, agent, intent,
-    usage count, success rate, last used, sample queries.
+    Groups by (normalized_query, agent_id, agent_name) so each agent that
+    handled a given canonical form gets its own row. This matches how
+    find_route() computes shortcut confidence and prevents misleading
+    aggregate stats (e.g., "Agent X: 2x used 50% success" when really
+    Agent X succeeded once and Agent Y failed once).
     """
     if not _use_db:
         entries = _route_store.get(user_id, [])
-        groups: Dict[str, List[dict]] = {}
+        groups: Dict[tuple, List[dict]] = {}
         for e in entries:
             nq = e.get("normalized_query") or "(unclassified)"
-            groups.setdefault(nq, []).append(e)
+            aid = e.get("agent_id")
+            aname = e.get("agent_name")
+            groups.setdefault((nq, aid, aname), []).append(e)
 
         result = []
-        for nq, group in groups.items():
+        for (nq, aid, aname), group in groups.items():
             total = len(group)
             successes = sum(1 for e in group if e.get("success"))
             latest = max(group, key=lambda e: e.get("created_at", datetime.min))
             sample_queries = list({e.get("query_text", "") for e in group[-5:]})
             result.append({
                 "normalized_query": nq,
-                "agent_name": latest.get("agent_name"),
-                "agent_id": latest.get("agent_id"),
+                "agent_name": aname,
+                "agent_id": aid,
                 "intent": latest.get("intent"),
                 "usage_count": total,
                 "success_count": successes,
@@ -679,14 +684,13 @@ def get_all_routes(user_id: int, limit: int = 100) -> List[dict]:
                 "last_used": latest.get("created_at", "").isoformat() if isinstance(latest.get("created_at"), datetime) else str(latest.get("created_at", "")),
                 "sample_queries": sample_queries[:3],
             })
-        result.sort(key=lambda r: r["usage_count"], reverse=True)
+        # Sort by usage, break ties by most-recent
+        result.sort(key=lambda r: (r["usage_count"], r["last_used"]), reverse=True)
         return result[:limit]
 
     try:
         rows = _db_execute(
-            "SELECT normalized_query, "
-            "  MAX(agent_name) as agent_name, "
-            "  MAX(agent_id) as agent_id, "
+            "SELECT normalized_query, agent_id, agent_name, "
             "  MAX(intent) as intent, "
             "  COUNT(*) as usage_count, "
             "  SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as success_count, "
@@ -694,8 +698,8 @@ def get_all_routes(user_id: int, limit: int = 100) -> List[dict]:
             "  MAX(created_at) as last_used "
             "FROM cc_RouteMemory "
             "WHERE user_id = ? "
-            "GROUP BY normalized_query "
-            "ORDER BY COUNT(*) DESC",
+            "GROUP BY normalized_query, agent_id, agent_name "
+            "ORDER BY COUNT(*) DESC, MAX(created_at) DESC",
             [user_id],
             fetch=True,
         )
@@ -705,13 +709,15 @@ def get_all_routes(user_id: int, limit: int = 100) -> List[dict]:
 
         result = []
         for row in rows[:limit]:
-            nq, agent_name, agent_id, intent, usage_count, success_count, success_rate, last_used = row
+            nq, agent_id, agent_name, intent, usage_count, success_count, success_rate, last_used = row
 
-            # Get sample queries for this canonical form
+            # Sample queries for this specific (canonical, agent) pair
             sample_rows = _db_execute(
                 "SELECT TOP 3 query_text FROM cc_RouteMemory "
-                "WHERE user_id = ? AND normalized_query = ? ORDER BY created_at DESC",
-                [user_id, nq],
+                "WHERE user_id = ? AND normalized_query = ? "
+                "  AND ((agent_id = ?) OR (agent_id IS NULL AND ? IS NULL)) "
+                "ORDER BY created_at DESC",
+                [user_id, nq, agent_id, agent_id],
                 fetch=True,
             )
             sample_queries = [r[0] for r in (sample_rows or [])]

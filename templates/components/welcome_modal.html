@@ -1,9 +1,12 @@
 <!-- Developer Quick Start Modal -->
-<div class="modal fade" id="welcomeModal" tabindex="-1" role="dialog" data-backdrop="static" data-keyboard="false" aria-labelledby="welcomeModalLabel" aria-hidden="true">
+<!-- Backdrop/keyboard left at defaults so users can dismiss with ESC or
+     outside-click. The X button also has data-dismiss="modal" so Bootstrap
+     closes it even if onboarding.js never binds a click handler. -->
+<div class="modal fade" id="welcomeModal" tabindex="-1" role="dialog" aria-labelledby="welcomeModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
         <div class="modal-content welcome-modal-content">
             <div class="modal-header border-0 pb-0">
-                <button type="button" class="close text-muted" id="btnCloseWelcome" aria-label="Close" style="opacity: 0.5;">
+                <button type="button" class="close text-muted" id="btnCloseWelcome" data-dismiss="modal" aria-label="Close" style="opacity: 0.9;">
                     <span aria-hidden="true">&times;</span>
                 </button>
             </div>

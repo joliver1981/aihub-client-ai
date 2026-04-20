@@ -11,21 +11,12 @@ const CCMemory = {
     _managerRoutes: [],
     _managerDirty: false,  // track if deletions happened
 
-    defaultSuggestions() {
-        return [
-            { prompt: 'Show me sales by region for last year', description: 'Starter query', source: 'default' },
-            { prompt: 'What agents are available?', description: 'Discover capabilities', source: 'default' },
-            { prompt: 'Create a new agent', description: 'Build a helper agent', source: 'default' },
-            { prompt: 'Show me inventory levels', description: 'Common dashboard query', source: 'default' },
-        ];
-    },
-
     init(userId) {
         this.userId = userId;
         if (userId) {
             this.loadSuggestions();
         } else {
-            this.renderSuggestions(this.defaultSuggestions());
+            this.renderSuggestions([]);
         }
     },
 
@@ -35,21 +26,22 @@ const CCMemory = {
         try {
             const resp = await fetch(`/api/memory/suggestions?user_id=${this.userId}&limit=5`);
             if (!resp.ok) {
+                // Transient server error — don't invent fake history. Show empty.
                 this._suggestions = [];
-                this.renderSuggestions(this.defaultSuggestions());
+                this.renderSuggestions([]);
                 return;
             }
 
-            let suggestions = await resp.json();
-            if (!suggestions || suggestions.length === 0) {
-                suggestions = this.defaultSuggestions();
-            }
-            this._suggestions = suggestions;
-            this.renderSuggestions(suggestions);
+            // Suggestions come ONLY from the user's own route-memory history.
+            // Empty array → empty list (the renderer shows a "No suggestions
+            // yet" empty state). No hardcoded starters.
+            const suggestions = await resp.json();
+            this._suggestions = Array.isArray(suggestions) ? suggestions : [];
+            this.renderSuggestions(this._suggestions);
         } catch (e) {
             console.warn('Failed to load suggestions:', e);
             this._suggestions = [];
-            this.renderSuggestions(this.defaultSuggestions());
+            this.renderSuggestions([]);
         }
     },
 
@@ -119,18 +111,17 @@ const CCMemory = {
 
             wrapper.appendChild(chip);
 
-            // Delete button — only for real, learned suggestions
-            if (s.source !== 'default') {
-                const delBtn = document.createElement('button');
-                delBtn.className = 'cc-chip-delete';
-                delBtn.textContent = '\u2715';
-                delBtn.title = 'Remove suggestion';
-                delBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    this.deleteSuggestion(s.route_id || s.prompt);
-                };
-                wrapper.appendChild(delBtn);
-            }
+            // Delete button — every suggestion comes from the user's own
+            // route-memory history, so all are removable.
+            const delBtn = document.createElement('button');
+            delBtn.className = 'cc-chip-delete';
+            delBtn.textContent = '\u2715';
+            delBtn.title = 'Remove suggestion';
+            delBtn.onclick = (e) => {
+                e.stopPropagation();
+                this.deleteSuggestion(s.route_id || s.prompt);
+            };
+            wrapper.appendChild(delBtn);
 
             container.appendChild(wrapper);
         });

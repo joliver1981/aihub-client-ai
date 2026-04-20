@@ -297,12 +297,19 @@ def _extract_and_cache(file_id: str, meta: dict, user_message: str = "") -> dict
             return {"content": None, "error": str(e)}
 
 
-def build_attachment_context(file_ids: List[str], user_message: str = "") -> str:
+def build_attachment_context(file_ids: List[str], user_message: str = "",
+                             user_id: Optional[int] = None,
+                             tenant_id: Optional[int] = None,
+                             role: int = 0) -> str:
     """
     Build a context block with extracted file content for the LLM.
     Content is extracted once, cached to disk as an artifact, and read from cache
     on subsequent turns. Only the CURRENT turn gets full content; stored history
     gets a compact reference via get_attachment_refs().
+
+    When user_id/tenant_id are supplied, files whose owner doesn't match are
+    silently skipped — this prevents one user from referencing another user's
+    file_id via the `attachments` parameter (BUG-R3-005 fix).
     """
     if not file_ids:
         return ""
@@ -312,6 +319,12 @@ def build_attachment_context(file_ids: List[str], user_message: str = "") -> str
     for fid in file_ids:
         meta = _file_store.get(fid)
         if not meta:
+            continue
+        # Skip files the current caller doesn't own. When no user context is
+        # provided we keep the legacy behavior so internal callers that don't
+        # pass user_id still work.
+        if user_id is not None and not _file_is_accessible_to(meta, user_id, tenant_id, role):
+            logger.warning(f"[upload] Blocked cross-user access: file_id={fid} owner={meta.get('user_id')}/{meta.get('tenant_id')} requester={user_id}/{tenant_id}")
             continue
 
         filename = meta["filename"]
@@ -368,10 +381,14 @@ def get_attachment_refs(file_ids: List[str]) -> str:
 async def upload_files(
     files: List[UploadFile] = File(...),
     session_id: Optional[str] = Form(None),
+    user_id: Optional[int] = Form(None),
+    tenant_id: Optional[int] = Form(None),
 ):
     """
     Upload one or more files. Returns metadata for each uploaded file.
     Files are stored locally and can be referenced in chat.
+    The uploader's user_id/tenant_id are recorded so cross-user access can
+    be blocked (BUG-R3-005 fix).
     """
     results = []
 
@@ -417,6 +434,8 @@ async def upload_files(
             "content_type": upload_file.content_type or "application/octet-stream",
             "path": str(file_path),
             "session_id": session_id,
+            "user_id": int(user_id) if user_id is not None else None,
+            "tenant_id": int(tenant_id) if tenant_id is not None else None,
             "uploaded_at": datetime.utcnow().isoformat(),
         }
 
@@ -428,9 +447,41 @@ async def upload_files(
             "content_type": meta["content_type"],
         })
 
-        logger.info(f"[upload] File uploaded: {meta['filename']} ({len(content)} bytes) -> {file_id}")
+        logger.info(f"[upload] File uploaded: {meta['filename']} ({len(content)} bytes) -> {file_id} (owner={meta['user_id']}/{meta['tenant_id']})")
 
     return {"files": results}
+
+
+def _file_is_accessible_to(meta: dict, user_id: Optional[int], tenant_id: Optional[int], role: int = 0) -> bool:
+    """Ownership check for uploaded files (same rules as session ownership).
+
+    - Caller must supply both user_id and tenant_id; missing either → deny.
+    - Legacy files with no owner metadata are visible to admins/devs only.
+    - Cross-tenant access is absolutely blocked — even admins of a
+      different tenant cannot reach this tenant's files.
+    - Within the caller's tenant: admins see all, regular users see only
+      their own.
+    """
+    if not isinstance(meta, dict):
+        return False
+    if user_id is None or tenant_id is None:
+        return False
+    owner_uid = meta.get("user_id")
+    owner_tid = meta.get("tenant_id")
+    if owner_uid is None and owner_tid is None:
+        return role >= 2
+    try:
+        req_uid = int(user_id)
+        req_tid = int(tenant_id)
+        owner_tid_i = int(owner_tid) if owner_tid is not None else None
+        owner_uid_i = int(owner_uid) if owner_uid is not None else None
+    except (TypeError, ValueError):
+        return False
+    if owner_tid_i is not None and owner_tid_i != req_tid:
+        return False
+    if role >= 2:
+        return True
+    return owner_uid_i is not None and owner_uid_i == req_uid
 
 
 @router.get("/uploads")
