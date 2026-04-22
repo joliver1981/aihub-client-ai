@@ -101,11 +101,19 @@
     {# DEVELOPER / ADMIN VIEW - Full action cards #}
     <div class="action-grid">
         {# Chat - Always available #}
-        <a href="{{ url_for('assistants') }}" class="action-card primary">
+        <a href="{{ url_for('chat_modern') }}" class="action-card primary">
             <div class="action-icon"><i class="fas fa-comments"></i></div>
             <div class="action-title">Chat with AI</div>
             <div class="action-desc">Start a conversation</div>
         </a>
+
+        {% if FLAG_SOLUTIONS %}
+        <a href="/solutions" class="action-card">
+            <div class="action-icon" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:#fff;"><i class="fas fa-gift"></i></div>
+            <div class="action-title">Browse Solutions</div>
+            <div class="action-desc">Install a ready-made solution</div>
+        </a>
+        {% endif %}
         
         {# Agents - Always available for devs #}
         <a href="{{ url_for('custom_agent_enhanced') }}" class="action-card">
@@ -161,7 +169,7 @@
     {% else %}
     {# END USER VIEW (role 1) - Limited action cards #}
     <div class="action-grid">
-        <a href="{{ url_for('assistants') }}" class="action-card primary">
+        <a href="{{ url_for('chat_modern') }}" class="action-card primary">
             <div class="action-icon"><i class="fas fa-comments"></i></div>
             <div class="action-title">Chat with AI</div>
             <div class="action-desc">Start a conversation</div>
@@ -575,7 +583,7 @@ function renderAgentsList(agents) {
                     ${isEnabled ? 'Active' : 'Disabled'}
                 </div>
                 <div class="list-item-actions">
-                    <a href="/assistants?agent=${agentId}" class="btn-icon" title="Chat">
+                    <a href="/chat?agent=${agentId}" class="btn-icon" title="Chat">
                         <i class="fas fa-comments"></i>
                     </a>
                     <a href="/custom_agent_enhanced?edit=${agentId}" class="btn-icon secondary" title="Edit">
@@ -638,7 +646,7 @@ function renderAssistantsList(agents) {
                     </div>
                 </div>
                 <div class="list-item-actions">
-                    <a href="/assistants?agent=${agentId}" class="btn-dashboard btn-dashboard-primary btn-sm">
+                    <a href="/chat?agent=${agentId}" class="btn-dashboard btn-dashboard-primary btn-sm">
                         <i class="fas fa-comments"></i> Chat
                     </a>
                 </div>
@@ -935,7 +943,7 @@ function renderQueries(queries) {
 // ============================================================
 
 function continueConversation(conversationId, agentId) {
-    window.location.href = `/assistants?agent=${agentId}&conversation=${conversationId}`;
+    window.location.href = `/chat?agent=${agentId}&conversation=${conversationId}`;
 }
 
 async function deleteConversation(conversationId) {
@@ -979,7 +987,7 @@ async function togglePinConversation(conversationId, shouldPin) {
 
 function runQuery(agentId, queryText) {
     const encoded = encodeURIComponent(queryText);
-    window.location.href = `/assistants?agent=${agentId}&query=${encoded}`;
+    window.location.href = `/chat?agent=${agentId}&query=${encoded}`;
 }
 
 // ============================================================

@@ -1,0 +1,104 @@
+{
+  "draft_id": "d1de1ba1becc487f",
+  "created_at": "2026-04-20T19:12:15.627540+00:00",
+  "updated_at": "2026-04-20T19:12:15.627540+00:00",
+  "manifest": {
+    "id": "new1",
+    "name": "new1",
+    "version": "1.0.0",
+    "vertical": "new",
+    "tags": [
+      "new"
+    ],
+    "description": "new test",
+    "author": "jo",
+    "homepage_url": "na",
+    "credentials": [
+      {
+        "placeholder": "CONN_EDW_SQL_SERVER_SERVER",
+        "label": "Database server \u2014 EDW (SQL Server)",
+        "required": true,
+        "sample_value": "",
+        "description": "Hostname or IP of the database server for EDW (SQL Server)"
+      },
+      {
+        "placeholder": "CONN_EDW_SQL_SERVER_DATABASE",
+        "label": "Database name \u2014 EDW (SQL Server)",
+        "required": true,
+        "sample_value": "",
+        "description": "Target database name for EDW (SQL Server)"
+      },
+      {
+        "placeholder": "CONN_EDW_SQL_SERVER_USER",
+        "label": "Database user \u2014 EDW (SQL Server)",
+        "required": true,
+        "sample_value": "",
+        "description": "Username for EDW (SQL Server)"
+      },
+      {
+        "placeholder": "CONN_EDW_SQL_SERVER_PASSWORD",
+        "label": "Database password \u2014 EDW (SQL Server)",
+        "required": true,
+        "sample_value": "",
+        "description": "Password for EDW (SQL Server). Stored securely in LocalSecrets at install time."
+      },
+      {
+        "placeholder": "CONN_DEMO_CONNECTION_SERVER",
+        "label": "Database server \u2014 Demo Connection",
+        "required": true,
+        "sample_value": "",
+        "description": "Hostname or IP of the database server for Demo Connection"
+      },
+      {
+        "placeholder": "CONN_DEMO_CONNECTION_DATABASE",
+        "label": "Database name \u2014 Demo Connection",
+        "required": true,
+        "sample_value": "",
+        "description": "Target database name for Demo Connection"
+      },
+      {
+        "placeholder": "CONN_DEMO_CONNECTION_USER",
+        "label": "Database user \u2014 Demo Connection",
+        "required": true,
+        "sample_value": "",
+        "description": "Username for Demo Connection"
+      },
+      {
+        "placeholder": "CONN_DEMO_CONNECTION_PASSWORD",
+        "label": "Database password \u2014 Demo Connection",
+        "required": true,
+        "sample_value": "",
+        "description": "Password for Demo Connection. Stored securely in LocalSecrets at install time."
+      }
+    ],
+    "post_install": []
+  },
+  "selections": {
+    "agent_ids": [
+      128
+    ],
+    "data_agent_ids": [
+      173
+    ],
+    "tool_names": [
+      "monitor_unprocessed_orders"
+    ],
+    "workflow_names": [
+      "Customer Onboarding - AI Guided v4 (w Bulk Update)"
+    ],
+    "integration_ids": [],
+    "connection_ids": [
+      5,
+      44
+    ],
+    "environment_ids": [],
+    "knowledge_document_ids": []
+  },
+  "branding": {
+    "display_name": "",
+    "tagline": "",
+    "logo_path": "",
+    "primary_color": ""
+  },
+  "readme": ""
+}

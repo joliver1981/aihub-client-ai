@@ -1033,7 +1033,7 @@
                             <span class="nav-text">Data Explorer</span>
                         </a>
                         {% else %}
-                        <a href="{{ url_for('assistants') }}" class="new-nav-link">
+                        <a href="{{ url_for('chat_modern') }}" class="new-nav-link">
                             <span class="nav-text">Agent Chat</span>
                         </a>
                         {% if SHOW_LEGACY_DATA_CHAT %}
@@ -1046,16 +1046,6 @@
                         </a>
                         {% endif %}
                     </div>
-                </div>
-                {% endif %}
-
-                {% if current_user.is_authenticated and current_user.role >= 2 and FLAG_COMMAND_CENTER %}
-                <div class="new-nav-item">
-                    <a href="{{ url_for('command_center_redirect') }}" class="new-nav-link" target="_blank">
-                        <i class="fas fa-satellite-dish nav-icon"></i>
-                        <span class="nav-text">Command Center</span>
-                        <i class="fas fa-flask experimental-icon" title="Experimental"></i>
-                    </a>
                 </div>
                 {% endif %}
 
@@ -1074,6 +1064,35 @@
                     <a href="{{ url_for('approvals') }}" class="new-nav-link">
                         <i class="fas fa-check-circle nav-icon"></i>
                         <span class="nav-text">My Approvals</span>
+                    </a>
+                </div>
+                {% endif %}
+                {% endif %}
+
+                {% if current_user.is_authenticated and current_user.role >= 2 and FLAG_COMMAND_CENTER %}
+                <div class="new-nav-item">
+                    <a href="{{ url_for('command_center_redirect') }}" class="new-nav-link" target="_blank">
+                        <i class="fas fa-satellite-dish nav-icon"></i>
+                        <span class="nav-text">Command Center</span>
+                        <i class="fas fa-flask experimental-icon" title="Experimental"></i>
+                    </a>
+                </div>
+                {% endif %}
+
+                {% if FLAG_SOLUTIONS and current_user.is_authenticated %}
+                <div class="new-nav-item">
+                    <a href="/solutions" class="new-nav-link">
+                        <i class="fas fa-gift nav-icon"></i>
+                        <span class="nav-text">Solutions</span>
+                        <i class="fas fa-flask experimental-icon" title="Experimental"></i>
+                    </a>
+                </div>
+                {% if current_user.role and current_user.role >= 2 %}
+                <div class="new-nav-item">
+                    <a href="/solutions/author" class="new-nav-link">
+                        <i class="fas fa-tools nav-icon"></i>
+                        <span class="nav-text">Solutions Author</span>
+                        <i class="fas fa-flask experimental-icon" title="Experimental"></i>
                     </a>
                 </div>
                 {% endif %}
@@ -1329,7 +1348,7 @@
                             <span class="nav-text">Data Explorer</span>
                         </a>
                         {% else %}
-                        <a href="{{ url_for('assistants') }}" class="new-nav-link">
+                        <a href="{{ url_for('chat_modern') }}" class="new-nav-link">
                             <span class="nav-text">Agent Chat</span>
                         </a>
                         {% if SHOW_LEGACY_DATA_CHAT %}
@@ -1410,6 +1429,25 @@
                         <span class="nav-text">Custom Tools</span>
                     </a>
                 </div>
+                {% endif %}
+
+                {% if FLAG_SOLUTIONS and current_user.is_authenticated %}
+                <div class="new-nav-item">
+                    <a href="/solutions" class="new-nav-link">
+                        <i class="fas fa-gift nav-icon"></i>
+                        <span class="nav-text">Solutions</span>
+                        <i class="fas fa-flask experimental-icon" title="Experimental"></i>
+                    </a>
+                </div>
+                {% if current_user.role and current_user.role >= 2 %}
+                <div class="new-nav-item">
+                    <a href="/solutions/author" class="new-nav-link">
+                        <i class="fas fa-tools nav-icon"></i>
+                        <span class="nav-text">Solutions Author</span>
+                        <i class="fas fa-flask experimental-icon" title="Experimental"></i>
+                    </a>
+                </div>
+                {% endif %}
                 {% endif %}
 
             </div>

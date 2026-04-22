@@ -73,6 +73,18 @@
     z-index: 1050 !important;
 }
 
+/* When a Bootstrap modal is open, neutralise the stacking context the rule
+ * above creates on direct children of .doc-page. Without this, any modal
+ * nested inside a wrapper (like <div class="container-fluid">, which is the
+ * norm on users.html and friends) is bounded by its ancestor's z-index:1
+ * and ends up UNDER the modal-backdrop (z-index:1050) no matter how high
+ * the modal's own z-index is — producing the "black overlay, clicks do
+ * nothing" symptom. Bootstrap adds `modal-open` to <body> only while a
+ * modal is visible, so this only relaxes stacking when needed. */
+body.modal-open .doc-page > *:not(.modal):not(.modal-backdrop):not(.feedback-container):not(.debug-panel):not(.context-menu) {
+    z-index: auto;
+}
+
 /* Workflow AI Builder modal — dark theme */
 #workflowBuilderModal .modal-content {
     background: var(--bg-card, #0a0a0a) !important;

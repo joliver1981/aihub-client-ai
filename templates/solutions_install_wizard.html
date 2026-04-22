@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}Install Solution - AI Hub{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/css/dashboard-theme.css">
+<link rel="stylesheet" href="/static/css/solutions.css">
+
+<div class="solutions-page dashboard-page">
+    <div class="solutions-container" style="max-width: 840px;">
+        <a href="/solutions" class="btn btn-link pl-0 mb-3">
+            <i class="fas fa-arrow-left mr-1"></i> Back to gallery
+        </a>
+
+        <div id="installHeader"></div>
+
+        <ul class="nav nav-pills install-steps mb-3">
+            <li class="nav-item"><a class="nav-link active" data-step="preview" href="#">1. Preview</a></li>
+            <li class="nav-item"><a class="nav-link" data-step="credentials" href="#">2. Credentials</a></li>
+            <li class="nav-item"><a class="nav-link" data-step="install" href="#">3. Install</a></li>
+            <li class="nav-item"><a class="nav-link" data-step="done" href="#">4. Try it now</a></li>
+        </ul>
+
+        <div id="stepPreview" class="install-step">
+            <div id="previewMeta" class="mb-3"></div>
+            <div id="previewAssets" class="mb-3"></div>
+            <div id="previewReadme" class="readme-box"></div>
+            <div class="mt-4">
+                <button id="toCredentials" class="btn btn-primary">Next</button>
+            </div>
+        </div>
+
+        <div id="stepCredentials" class="install-step" style="display:none;">
+            <p class="text-muted">Supply the values for each placeholder the solution needs.</p>
+            <form id="credentialsForm"></form>
+            <div class="mt-4">
+                <button id="backToPreview" class="btn btn-outline-secondary">Back</button>
+                <button id="toInstall" class="btn btn-primary">Next</button>
+            </div>
+        </div>
+
+        <div id="stepInstall" class="install-step" style="display:none;">
+            <div class="form-group">
+                <label>Conflict mode</label>
+                <select id="conflictMode" class="form-control" style="max-width:260px;">
+                    <option value="rename">Rename (safe)</option>
+                    <option value="skip">Skip existing</option>
+                    <option value="overwrite">Overwrite</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Name suffix (optional)</label>
+                <input id="nameSuffix" type="text" class="form-control" style="max-width:260px;" placeholder="e.g. _demo">
+            </div>
+            <div class="mt-4">
+                <button id="backToCredentials" class="btn btn-outline-secondary">Back</button>
+                <button id="runInstall" class="btn btn-success"><i class="fas fa-download mr-1"></i>Install</button>
+            </div>
+
+            <div id="installProgress" class="mt-4" style="display:none;">
+                <div class="progress">
+                    <div id="installBar" class="progress-bar progress-bar-striped progress-bar-animated" style="width:100%"></div>
+                </div>
+                <p id="installStatus" class="text-muted mt-2">Installing...</p>
+            </div>
+        </div>
+
+        <div id="stepDone" class="install-step" style="display:none;">
+            <div id="installSummary"></div>
+            <div id="postInstallActions" class="mt-3"></div>
+        </div>
+    </div>
+</div>
+
+<script src="/static/js/solutions.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        SolutionsInstallWizard.init({{ solution_id | tojson }});
+    });
+
+    // Stable slug + runtime state for the global AI Assistant.
+    window.assistantPageContext = {
+        page: 'solutions_install',
+        pageName: 'Install Solution',
+        getPageData: function () {
+            var state = (window.SolutionsInstallWizard && SolutionsInstallWizard.state) || {};
+            var activeStep = document.querySelector('.install-steps .nav-link.active');
+            var credentialsForm = document.getElementById('credentialsForm');
+            var credsTotal = credentialsForm ? credentialsForm.querySelectorAll('input[data-placeholder]').length : 0;
+            var credsFilled = 0;
+            if (credentialsForm) {
+                credentialsForm.querySelectorAll('input[data-placeholder]').forEach(function (inp) {
+                    if (inp.value && inp.value.trim()) credsFilled++;
+                });
+            }
+            return {
+                solution_id: state.solutionId || null,
+                current_step: activeStep ? activeStep.getAttribute('data-step') : 'preview',
+                manifest_summary: state.manifest ? {
+                    id: state.manifest.id, name: state.manifest.name, version: state.manifest.version,
+                    asset_counts: (function (a) {
+                        if (!a) return {};
+                        return {
+                            agents: (a.agents || []).length,
+                            tools: (a.tools || []).length,
+                            workflows: (a.workflows || []).length,
+                            integrations: (a.integrations || []).length,
+                            connections: (a.connections || []).length,
+                            environments: (a.environments || []).length,
+                            knowledge: (a.knowledge || []).length,
+                            data_seeds: ((a.data || {}).seeds || []).length,
+                            data_samples: ((a.data || {}).sample_inputs || []).length,
+                            data_schema: !!((a.data || {}).schema_sql),
+                        };
+                    })(state.manifest.assets),
+                } : null,
+                conflicts: state.conflicts || {},
+                conflict_total: (function (c) {
+                    if (!c) return 0;
+                    var n = 0; Object.keys(c).forEach(function (k) { n += (c[k] || []).length; }); return n;
+                })(state.conflicts),
+                credential_rows: { total: credsTotal, filled: credsFilled },
+                conflict_mode: (document.getElementById('conflictMode') || {}).value || null,
+                name_suffix: (document.getElementById('nameSuffix') || {}).value || '',
+            };
+        }
+    };
+</script>
+{% endblock %}

@@ -22,13 +22,14 @@ _FLAGS_DIR = Path(__file__).parent / "data"
 _FLAGS_FILE = _FLAGS_DIR / "feature_flags.json"
 _flags_lock = threading.RLock()  # RLock allows re-entrant calls (set_local_flags → get_local_flags)
 
-# All 7 feature flags with their defaults (all ON)
+# All feature flags with their defaults (all ON)
 DEFAULT_FLAGS = {
     "command_center_enabled": True,
     "builder_enabled": True,
     "environments_enabled": True,
     "mcp_servers_enabled": True,
     "integrations_enabled": True,
+    "solutions_enabled": True,
     "image_gen_enabled": True,
     "web_search_enabled": True,
 }
@@ -40,6 +41,7 @@ FLAG_LABELS = {
     "environments_enabled": "Environments",
     "mcp_servers_enabled": "MCP Servers",
     "integrations_enabled": "Integrations",
+    "solutions_enabled": "Solutions Gallery",
     "image_gen_enabled": "Image Generation (DALL-E)",
     "web_search_enabled": "Web Search (Tavily)",
 }
@@ -51,6 +53,7 @@ EXPERIMENTAL_FLAGS = [
     "environments_enabled",
     "mcp_servers_enabled",
     "integrations_enabled",
+    "solutions_enabled",
 ]
 CAPABILITY_FLAGS = [
     "image_gen_enabled",

@@ -1583,10 +1583,25 @@ def builder_redirect():
         'expires': dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=1)
     }
 
-    # Get builder service URL from config or use default
+    # Builder service port. Host defaults to whatever hostname the user's
+    # browser used to reach this app — hardcoding 'localhost' works on the
+    # server console but breaks every remote user, because their browser
+    # resolves 'localhost' to their OWN machine, not the AI Hub server.
     builder_port = os.environ.get('BUILDER_SERVICE_PORT', '8100')
-    builder_host = os.environ.get('BUILDER_SERVICE_HOST', 'localhost')
-    builder_url = f'http://{builder_host}:{builder_port}?token={token}'
+    # Allow an explicit override (e.g. when the builder runs on a separate
+    # host behind a different DNS name), otherwise derive from the request.
+    explicit_host = os.environ.get('BUILDER_SERVICE_HOST', '').strip()
+    if explicit_host and explicit_host != 'localhost':
+        builder_host = explicit_host
+    else:
+        # request.host is "hostname:port"; strip the port so we can swap in
+        # the builder's port. This is the same pattern the other service URLs
+        # use (see CommonUtils.get_*_api_base_url()).
+        request_host = (request.host or '').split(':', 1)[0]
+        builder_host = request_host or explicit_host or 'localhost'
+
+    scheme = request.scheme or 'http'
+    builder_url = f'{scheme}://{builder_host}:{builder_port}?token={token}'
 
     return redirect(builder_url)
 
@@ -11878,6 +11893,24 @@ try:
 except ImportError:
     pass  # Cloud storage module not available
 
+# Import and register the Solutions Gallery blueprints
+try:
+    from solution_routes import solution_bp
+    from solution_builder_routes import solution_builder_bp
+    from workflow_export_routes import workflow_export_bp
+    from integration_install_routes import integration_install_bp
+    from connection_install_routes import connection_install_bp
+    from knowledge_install_routes import knowledge_install_bp
+    app.register_blueprint(solution_bp)
+    app.register_blueprint(solution_builder_bp)
+    app.register_blueprint(workflow_export_bp)
+    app.register_blueprint(integration_install_bp)
+    app.register_blueprint(connection_install_bp)
+    app.register_blueprint(knowledge_install_bp)
+    print("[INFO] Registered Solutions Gallery blueprints")
+except ImportError as e:
+    print(f"[WARN] Could not load Solutions Gallery blueprints: {e}")
+
 # MCP Server Management page (new builder_mcp UI)
 @app.route('/mcp_servers')
 @developer_required()
@@ -11947,6 +11980,7 @@ def inject_config():
             'FLAG_ENVIRONMENTS': local_flags.get('environments_enabled', True),
             'FLAG_MCP_SERVERS': local_flags.get('mcp_servers_enabled', True),
             'FLAG_INTEGRATIONS': local_flags.get('integrations_enabled', True),
+            'FLAG_SOLUTIONS': local_flags.get('solutions_enabled', True),
             
             # Your existing static config
             'ENABLE_CAUTION_SYSTEM': cfg.ENABLE_CAUTION_SYSTEM,

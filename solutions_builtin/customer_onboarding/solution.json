@@ -1,0 +1,39 @@
+{
+  "id": "customer_onboarding",
+  "name": "Customer Onboarding",
+  "version": "1.0.0",
+  "min_platform_version": "1.7",
+  "vertical": "customer-ops",
+  "tags": ["onboarding", "documents", "workflow", "demo"],
+  "description": "AI-guided customer onboarding: extract requirements from customer application forms and shipping documents, then populate a customer requirements template in Excel.",
+  "author": "AI Hub",
+  "homepage_url": "",
+  "assets": {
+    "agents": [],
+    "tools": [],
+    "workflows": ["customer_onboarding_ai_guided_v4.json"],
+    "integrations": [],
+    "connections": [],
+    "environments": [],
+    "knowledge": [],
+    "data": {
+      "sample_inputs": [
+        "Customer_Requirement_Template.xlsx",
+        "sample_invoice.pdf",
+        "walmart_shipping_requirements.pdf"
+      ]
+    }
+  },
+  "credentials": [],
+  "post_install": [
+    {
+      "type": "run_workflow",
+      "target": "customer_onboarding_ai_guided_v4",
+      "label": "Run the onboarding workflow"
+    }
+  ],
+  "audience_modes": {
+    "demo_data_included": true,
+    "consultant_rebrand_supported": true
+  }
+}

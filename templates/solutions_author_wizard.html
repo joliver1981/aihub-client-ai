@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+
+{% block title %}Author Solution - AI Hub{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/css/dashboard-theme.css">
+<link rel="stylesheet" href="/static/css/solutions.css">
+
+<div class="solutions-page dashboard-page">
+    <div class="solutions-container" style="max-width: 960px;">
+        <a href="/solutions/author" class="btn btn-link pl-0 mb-3">
+            <i class="fas fa-arrow-left mr-1"></i> Back to authoring
+        </a>
+
+        <h1 id="wizardTitle">Create solution</h1>
+
+        <!-- Step 1: Metadata -->
+        <div class="author-step">
+            <h3>1. Metadata</h3>
+            <div class="form-row">
+                <div class="col-md-6 form-group">
+                    <label>Id <span class="text-danger">*</span></label>
+                    <input type="text" id="mId" class="form-control" placeholder="customer_onboarding">
+                    <small class="form-text text-muted">Lowercase, digits, _ or -. Used as folder name.</small>
+                </div>
+                <div class="col-md-6 form-group">
+                    <label>Name <span class="text-danger">*</span></label>
+                    <input type="text" id="mName" class="form-control" placeholder="Customer Onboarding">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="col-md-3 form-group">
+                    <label>Version</label>
+                    <input type="text" id="mVersion" class="form-control" value="1.0.0">
+                </div>
+                <div class="col-md-5 form-group">
+                    <label>Vertical</label>
+                    <input type="text" id="mVertical" class="form-control" placeholder="customer-ops">
+                </div>
+                <div class="col-md-4 form-group">
+                    <label>Tags (comma-separated)</label>
+                    <input type="text" id="mTags" class="form-control" placeholder="onboarding, demo">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <textarea id="mDescription" class="form-control" rows="2"></textarea>
+            </div>
+            <div class="form-row">
+                <div class="col-md-6 form-group">
+                    <label>Author</label>
+                    <input type="text" id="mAuthor" class="form-control">
+                </div>
+                <div class="col-md-6 form-group">
+                    <label>Homepage URL</label>
+                    <input type="text" id="mHomepage" class="form-control">
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 2: Pick assets -->
+        <div class="author-step">
+            <h3>2. Pick assets</h3>
+            <div class="form-row">
+                <div class="col-md-6"><label>Custom agents</label><div id="pickAgents" class="asset-picker"></div></div>
+                <div class="col-md-6"><label>Data agents</label><div id="pickDataAgents" class="asset-picker"></div></div>
+            </div>
+            <div class="form-row">
+                <div class="col-md-6"><label>Custom tools</label><div id="pickTools" class="asset-picker"></div></div>
+                <div class="col-md-6"><label>Workflows</label><div id="pickWorkflows" class="asset-picker"></div></div>
+            </div>
+            <div class="form-row">
+                <div class="col-md-6"><label>Integrations <small class="text-muted">(configured instances)</small></label><div id="pickIntegrations" class="asset-picker"></div></div>
+                <div class="col-md-6"><label>Connections <small class="text-muted">(credentials become placeholders)</small></label><div id="pickConnections" class="asset-picker"></div></div>
+            </div>
+            <div class="form-row">
+                <div class="col-md-6"><label>Environments</label><div id="pickEnvironments" class="asset-picker"></div></div>
+                <div class="col-md-6"><label>Knowledge documents</label><div id="pickKnowledge" class="asset-picker"></div></div>
+            </div>
+        </div>
+
+        <!-- Step 3: Credentials -->
+        <div class="author-step">
+            <h3>3. Credentials</h3>
+            <p class="text-muted">Placeholders found in selected integrations/connections will be auto-declared below. You can add/edit to refine the install prompt.</p>
+            <div id="credentialRows"></div>
+            <button class="btn btn-sm btn-outline-secondary" id="addCredBtn"><i class="fas fa-plus mr-1"></i>Add credential</button>
+            <button class="btn btn-sm btn-outline-secondary ml-2" id="rescanBtn"><i class="fas fa-sync-alt mr-1"></i>Rescan selections</button>
+        </div>
+
+        <!-- Step 4: Branding -->
+        <div class="author-step">
+            <h3>4. Branding <small class="text-muted">(optional — for consultant rebranding)</small></h3>
+            <div class="form-row">
+                <div class="col-md-6 form-group">
+                    <label>Display name</label>
+                    <input type="text" id="brDisplay" class="form-control">
+                </div>
+                <div class="col-md-6 form-group">
+                    <label>Tagline</label>
+                    <input type="text" id="brTagline" class="form-control">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="col-md-6 form-group">
+                    <label>Primary color</label>
+                    <input type="text" id="brColor" class="form-control" placeholder="#667eea">
+                </div>
+                <div class="col-md-6 form-group">
+                    <label>Logo <small class="text-muted">(optional — for consultant rebrand)</small></label>
+                    <input type="file" id="brLogoFile" accept=".png,.jpg,.jpeg,.svg" class="form-control-file">
+                    <input type="hidden" id="brLogoPath">
+                    <small id="brLogoHint" class="form-text text-muted">
+                        Choose an image to include in the bundle. If left blank, the tile icon from step 6 is used.
+                    </small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 5: Post-install actions -->
+        <div class="author-step">
+            <h3>5. Post-install actions</h3>
+            <p class="text-muted">"Try it now" buttons shown after install.</p>
+            <div id="postInstallRows"></div>
+            <button class="btn btn-sm btn-outline-secondary" id="addActionBtn"><i class="fas fa-plus mr-1"></i>Add action</button>
+            <button class="btn btn-sm btn-outline-primary ml-2" id="suggestActionsBtn" type="button">
+                <i class="fas fa-magic mr-1"></i>Suggest from my selections
+            </button>
+        </div>
+
+        <!-- Step 6: README + preview -->
+        <div class="author-step">
+            <h3>6. README + preview</h3>
+            <div class="form-group">
+                <label>README.md</label>
+                <textarea id="readmeBody" class="form-control" rows="6" placeholder="# My Solution&#10;&#10;What it does, who it's for, how to try it..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>Icon (png/jpg/svg)</label>
+                <input type="file" id="iconFile" accept=".png,.jpg,.jpeg,.svg" class="form-control-file">
+            </div>
+            <div class="form-group">
+                <label>Screenshots (optional)</label>
+                <input type="file" id="screenshotFiles" accept=".png,.jpg,.jpeg" multiple class="form-control-file">
+            </div>
+        </div>
+
+        <!-- Step 7: Build / Publish -->
+        <div class="author-step">
+            <h3>7. Build</h3>
+            <div class="d-flex" style="gap:8px; flex-wrap: wrap;">
+                <button id="saveDraftBtn" class="btn btn-outline-secondary">
+                    <i class="fas fa-save mr-1"></i>Save draft
+                </button>
+                <button id="validateBtn" class="btn btn-outline-info">
+                    <i class="fas fa-check mr-1"></i>Validate
+                </button>
+                <button id="downloadBtn" class="btn btn-primary">
+                    <i class="fas fa-download mr-1"></i>Build &amp; download .zip
+                </button>
+                <button id="publishBtn" class="btn btn-success">
+                    <i class="fas fa-upload mr-1"></i>Publish to local gallery
+                </button>
+                <button id="testInstallBtn" class="btn btn-warning">
+                    <i class="fas fa-flask mr-1"></i>Test install (with _test suffix)
+                </button>
+            </div>
+            <div id="buildResult" class="mt-3"></div>
+        </div>
+    </div>
+</div>
+
+<script src="/static/js/solutions_author.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        SolutionsAuthorWizard.init({{ draft_id | tojson }});
+    });
+
+    // Stable slug + real-time state for the global AI Assistant. Returns a
+    // snapshot of what's selected and filled in so the assistant can give
+    // specific advice (missing id, no credentials declared, etc.).
+    window.assistantPageContext = {
+        page: 'solutions_author_wizard',
+        pageName: 'Solutions Author Wizard',
+        getPageData: function () {
+            var state = (window.SolutionsAuthorWizard && SolutionsAuthorWizard.state) || {};
+            function val(id) {
+                var el = document.getElementById(id);
+                return el ? (el.value || '').trim() : '';
+            }
+            function countChecked(selkey) {
+                return document.querySelectorAll('input[data-selkey="' + selkey + '"]:checked').length;
+            }
+            var creds = [];
+            document.querySelectorAll('.cred-row').forEach(function (row) {
+                var ph = (row.querySelector('.cred-placeholder') || {}).value || '';
+                if (!ph.trim()) return;
+                creds.push({
+                    placeholder: ph.trim(),
+                    label: (row.querySelector('.cred-label') || {}).value || '',
+                    auto: row.classList.contains('auto-generated'),
+                });
+            });
+            var actions = [];
+            document.querySelectorAll('.pi-row').forEach(function (row) {
+                var t = (row.querySelector('.pi-type') || {}).value || '';
+                var target = (row.querySelector('.pi-target') || {}).value || '';
+                var label = (row.querySelector('.pi-label') || {}).value || '';
+                if (t && target && label) actions.push({ type: t, target: target, label: label });
+            });
+            return {
+                draft_id: state.draftId || null,
+                manifest: {
+                    id: val('mId'),
+                    name: val('mName'),
+                    version: val('mVersion'),
+                    vertical: val('mVertical'),
+                    tags: val('mTags'),
+                    description_set: !!val('mDescription'),
+                    author: val('mAuthor'),
+                    homepage_url: val('mHomepage'),
+                },
+                selection_counts: {
+                    agents: countChecked('agent_ids'),
+                    data_agents: countChecked('data_agent_ids'),
+                    tools: countChecked('tool_names'),
+                    workflows: countChecked('workflow_names'),
+                    integrations: countChecked('integration_ids'),
+                    connections: countChecked('connection_ids'),
+                    environments: countChecked('environment_ids'),
+                    knowledge: countChecked('knowledge_document_ids'),
+                },
+                credentials: creds,
+                post_install_actions: actions,
+                branding: {
+                    display_name: val('brDisplay'),
+                    tagline: val('brTagline'),
+                    primary_color: val('brColor'),
+                    logo_path: val('brLogoPath'),
+                },
+                readme_set: !!val('readmeBody'),
+                icon_set: !!((document.getElementById('iconFile') || {}).files || []).length,
+                screenshots_count: ((document.getElementById('screenshotFiles') || {}).files || []).length,
+                build_result: (document.getElementById('buildResult') || {}).textContent || '',
+            };
+        }
+    };
+</script>
+{% endblock %}

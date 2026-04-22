@@ -256,6 +256,19 @@ USE_FORMATTING_AWARE_ANALYTICAL_CHECK = True            # Uses enhanced data dic
 COLUMN_FORMAT_MATCHING_STRATEGY = 'ai'                  # Strategy for matching dataset columns to source columns: 'ai', 'fuzzy', or 'default'
 USE_LLM_CHART_GENERATION = os.getenv('USE_LLM_CHART_GENERATION', 'false').lower() in ['true', '1', 't', 'y', 'yes']  # Force LLM spec-based chart generation, bypassing PandasAI for charts
 SHOW_EXPERIMENTAL_FEATURES = False                      # Set to False to hide experimental features that are still under development
+
+# ─── Solutions Gallery (experimental) ───────────────────────────────────────
+# Directory for bundled first-party solutions shipped with the app.
+SOLUTIONS_BUILTIN_DIR = os.getenv('SOLUTIONS_BUILTIN_DIR',
+    os.path.join(_APP_ROOT, 'solutions_builtin'))
+# Directory where authored solution drafts are persisted per tenant.
+SOLUTIONS_DRAFTS_DIR = os.getenv('SOLUTIONS_DRAFTS_DIR',
+    os.path.join(_APP_ROOT, 'data', 'solutions_drafts'))
+# URL of a remote catalog manifest (optional). Empty disables remote.
+SOLUTIONS_CATALOG_URL = os.getenv('SOLUTIONS_CATALOG_URL', '')
+# Where downloaded remote solution bundles are cached.
+SOLUTIONS_CACHE_DIR = os.getenv('SOLUTIONS_CACHE_DIR',
+    os.path.join(_APP_ROOT, 'data', 'solutions_cache'))
 USE_MODERN_CHAT_UI = os.getenv('USE_MODERN_CHAT_UI', 'true').lower() in ['true', '1', 't', 'y', 'yes']  # Set to False to use legacy assistants/data_assistants pages
 WORKFLOW_TRAINING_CAPTURE_ENABLED = os.getenv('WORKFLOW_TRAINING_CAPTURE_ENABLED', 'true').lower() in ['true', '1', 't', 'y', 'yes']
 # Two-Stage Workflow Agent Architecture

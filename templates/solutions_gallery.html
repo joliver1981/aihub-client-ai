@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Solutions Gallery - AI Hub{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/css/dashboard-theme.css">
+<link rel="stylesheet" href="/static/css/solutions.css">
+
+<div class="solutions-page dashboard-page">
+    <div class="solutions-container">
+        <div class="solutions-header">
+            <div>
+                <h1>Solutions Gallery</h1>
+                <p class="text-muted">Install a ready-made solution or upload your own bundle.</p>
+            </div>
+            <div class="solutions-header-actions">
+                <label class="btn btn-outline-secondary mb-0">
+                    <i class="fas fa-upload mr-1"></i> Upload Solution
+                    <input type="file" id="uploadSolutionFile" accept=".zip" hidden>
+                </label>
+                <a href="/solutions/author" class="btn btn-outline-primary">
+                    <i class="fas fa-tools mr-1"></i> Author
+                </a>
+            </div>
+        </div>
+
+        <div id="solutionsLoading" class="text-center py-5">
+            <i class="fas fa-spinner fa-spin fa-2x text-muted"></i>
+        </div>
+
+        <div id="solutionsEmpty" class="alert alert-info" style="display:none;">
+            No solutions available yet. Use the Author page to create one.
+        </div>
+
+        <div id="solutionsGrid" class="solutions-grid"></div>
+    </div>
+</div>
+
+<script src="/static/js/solutions.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        SolutionsGallery.init();
+    });
+</script>
+{% endblock %}

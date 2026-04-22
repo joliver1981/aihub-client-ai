@@ -370,12 +370,12 @@
     // Friendly labels for each override role (in display order)
     const MODEL_ROLE_LABELS = [
         { key: 'openai_primary',    label: 'OpenAI Primary Model',   help: 'Main chat/completion model. Applies to both OpenAI direct and Azure deployment name.' },
-        { key: 'openai_mini',       label: 'OpenAI Mini Model',      help: 'Fast/cheap model used by AppUtils mini prompts and alternate Azure mini deployment.' },
+        { key: 'openai_mini',       label: 'OpenAI Mini Model',      help: 'Fast, low-cost model used for short internal prompts and the alternate Azure mini deployment.' },
         { key: 'openai_vision',     label: 'OpenAI Vision Model',    help: 'Used only when Claude Vision fails AND BYOK OpenAI direct is active.' },
         { key: 'openai_embedding',  label: 'OpenAI Embedding Model', help: 'Used for RAG / vector search. Changing this may break existing vector indexes.' },
         { key: 'openai_image',      label: 'OpenAI Image Model',     help: 'Used by the Command Center generate_image tool. Default dall-e-3.' },
         { key: 'anthropic_primary', label: 'Anthropic Primary Model', help: 'Default Claude model and "advanced" Claude for strong prompts.' },
-        { key: 'anthropic_mini',    label: 'Anthropic Mini Model',    help: 'Fast Claude used by AppUtils mini prompts.' },
+        { key: 'anthropic_mini',    label: 'Anthropic Mini Model',    help: 'Fast Claude used for short internal prompts.' },
     ];
 
     async function loadModelOverrides() {

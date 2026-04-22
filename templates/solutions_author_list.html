@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}Solutions Author - AI Hub{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/css/dashboard-theme.css">
+<link rel="stylesheet" href="/static/css/solutions.css">
+
+<div class="solutions-page dashboard-page">
+    <div class="solutions-container">
+        <div class="solutions-header">
+            <div>
+                <h1>Solutions Author</h1>
+                <p class="text-muted">Package tenant content into reusable solution bundles.</p>
+            </div>
+            <div class="solutions-header-actions">
+                <a href="/solutions" class="btn btn-outline-secondary">
+                    <i class="fas fa-th mr-1"></i> Gallery
+                </a>
+                <a href="/solutions/author/new" class="btn btn-primary">
+                    <i class="fas fa-plus mr-1"></i> Create solution
+                </a>
+            </div>
+        </div>
+
+        <div class="author-step">
+            <h3>Drafts</h3>
+            <div id="draftsEmpty" class="text-muted" style="display:none;">
+                No drafts yet. Start one with <strong>Create solution</strong>.
+            </div>
+            <div class="table-responsive">
+                <table class="table drafts-table mb-0" id="draftsTable" style="display:none;">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Id</th>
+                            <th>Version</th>
+                            <th>Updated</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="draftsBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="author-step">
+            <h3>Published (bundled)</h3>
+            <p class="text-muted">Bundles in the local <code>solutions_builtin/</code> folder — visible in the gallery.</p>
+            <div id="publishedList"></div>
+        </div>
+    </div>
+</div>
+
+<script src="/static/js/solutions_author.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        SolutionsAuthorList.init();
+    });
+
+    window.assistantPageContext = {
+        page: 'solutions_author',
+        pageName: 'Solutions Author',
+        getPageData: function () {
+            return {
+                drafts: {
+                    total: document.querySelectorAll('#draftsBody tr').length,
+                    empty: document.getElementById('draftsEmpty') && document.getElementById('draftsEmpty').style.display !== 'none',
+                },
+                published: {
+                    total: document.querySelectorAll('#publishedList li').length,
+                },
+            };
+        }
+    };
+</script>
+{% endblock %}
