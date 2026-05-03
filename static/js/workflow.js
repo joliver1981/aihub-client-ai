@@ -247,6 +247,9 @@ document.addEventListener('DOMContentLoaded', function() {
     updateCurrentWorkflowDisplay();
 
     enableDebugMode(true); // Enable debug mode by default (this should never be disabled)
+
+    // Initialize canvas panning (middle-click drag to scroll)
+    setupCanvasPanning();
 });
 
 function setupToolbarDragAndDrop() {
@@ -2514,14 +2517,17 @@ function createNode(type, x, y) {
             node.style.left = params.pos[0] + 'px';
             node.style.top = params.pos[1] + 'px';
             node.style.transform = 'none';
-            
+
             console.log('Drag stop position:', {
                 left: node.style.left,
                 top: node.style.top
             });
-            
+
             // Force jsPlumb to repaint connections
             jsPlumbInstance.repaintEverything();
+
+            // Expand canvas if node was dragged near/beyond edges
+            ensureCanvasCoversNodes();
         }
     });
     
@@ -2633,7 +2639,7 @@ function setupContextMenus() {
     jsPlumbInstance.bind('connection', function(info) {
         // Set default connection type to pass
         setArrowType('pass', info.connection);
-        
+
         // Store the original anchors in the connection data
         const sourceAnchor = info.connection.endpoints[0].anchor.type;
         const targetAnchor = info.connection.endpoints[1].anchor.type;
@@ -2642,10 +2648,21 @@ function setupContextMenus() {
             sourceAnchor: sourceAnchor,
             targetAnchor: targetAnchor
         });
-        
+
         // IMPORTANT FIX: Use the canvas element method for new connections
         // This ensures the context menu works immediately after creation
         bindContextMenuToConnection(info.connection);
+
+        // Trigger debounced validation so duplicate-slot / end-loop-back-edge
+        // warnings surface immediately as the user wires the workflow. The
+        // helper bails out if an AI build is in progress (window.aiBuilderActive).
+        if (window.requestWorkflowValidation) window.requestWorkflowValidation();
+    });
+
+    // When user deletes a connection, re-validate too (drops may resolve a
+    // previous duplicate-slot warning, so stale decorations should clear).
+    jsPlumbInstance.bind('connectionDetached', function() {
+        if (window.requestWorkflowValidation) window.requestWorkflowValidation();
     });
     
     // For existing connections (when loading a workflow)
@@ -2965,6 +2982,7 @@ function loadWorkflow(workflow) {
                     element.style.top = params.pos[1] + 'px';
                     element.style.transform = 'none';
                     jsPlumbInstance.repaintEverything();
+                    ensureCanvasCoversNodes();
                 }
             });
             
@@ -3031,6 +3049,14 @@ function loadWorkflow(workflow) {
         
         console.log('Workflow loaded successfully - connection event binding re-established');
 
+        // Expand canvas to fit all loaded nodes and scroll to show them
+        ensureCanvasCoversNodes();
+
+        // After load completes, run validation so any pre-existing issues
+        // (duplicate slots, redundant End Loop -> Loop edges, etc.) surface
+        // immediately rather than only after the next user edit.
+        if (window.requestWorkflowValidation) window.requestWorkflowValidation(150);
+
     } catch (error) {
         console.error('Error loading workflow:', error);
         showToast(`Error loading workflow: ${error.message}`, 'error');
@@ -3064,10 +3090,10 @@ function reestablishConnectionEventBinding() {
     // Re-bind the connection event for NEW connections
     jsPlumbInstance.bind('connection', function(info) {
         console.log('New connection created after workflow load - binding context menu');
-        
+
         // Set default connection type to pass
         setArrowType('pass', info.connection);
-        
+
         // Store anchor information
         const sourceAnchor = info.connection.endpoints[0].anchor.type || "Right";
         const targetAnchor = info.connection.endpoints[1].anchor.type || "Left";
@@ -3076,11 +3102,20 @@ function reestablishConnectionEventBinding() {
             sourceAnchor: sourceAnchor,
             targetAnchor: targetAnchor
         });
-        
+
         // Bind context menu with a small delay to ensure canvas is ready
         setTimeout(() => {
             bindContextMenuToConnection(info.connection);
         }, 50);
+
+        // Re-validate on user connection changes (post-load).
+        if (window.requestWorkflowValidation) window.requestWorkflowValidation();
+    });
+
+    // Re-bind detach event too so warning decorations clear when edges are removed.
+    jsPlumbInstance.unbind('connectionDetached');
+    jsPlumbInstance.bind('connectionDetached', function() {
+        if (window.requestWorkflowValidation) window.requestWorkflowValidation();
     });
     
     // Also bind context menus to all existing connections
@@ -7502,6 +7537,9 @@ async function saveWorkflowBeforeExecution() {
         //await finalizeTrainingCapture(workflowData, 'general');
 
         showFeedback('Workflow saved successfully!', 'success');
+        // Re-run validation after save so warning decorations reflect the
+        // freshly-saved state (and any deterministic auto-fixes get applied).
+        if (window.requestWorkflowValidation) window.requestWorkflowValidation(50);
         return result.workflow_id;
     } catch (error) {
         console.error('Error saving workflow:', error);
@@ -11046,3 +11084,162 @@ nodeConfigTemplates['Excel Export'] = {
         smartChangeStrictness: 'strict'
     }
 };
+
+
+// ============================================================
+// Canvas Navigation: Pan, Fit-to-View, Scroll-to-Start
+// ============================================================
+
+/**
+ * Sets up middle-click (and fallback Shift+left-click) drag-to-pan on the canvas.
+ * Uses native scrollLeft/scrollTop — no CSS transforms involved.
+ */
+function setupCanvasPanning() {
+    const canvas = document.getElementById('workflow-canvas');
+    if (!canvas) return;
+
+    let isPanning = false;
+    let startX = 0;
+    let startY = 0;
+    let scrollLeftStart = 0;
+    let scrollTopStart = 0;
+
+    canvas.addEventListener('mousedown', function(e) {
+        // Middle-click (button 1) or Shift+left-click (button 0 + shiftKey)
+        const isMiddleClick = e.button === 1;
+        const isShiftClick = e.button === 0 && e.shiftKey;
+        if (!isMiddleClick && !isShiftClick) return;
+
+        // Don't pan if clicking on a node or endpoint — let jsPlumb handle those
+        const target = e.target;
+        if (target.closest('.workflow-node') || target.closest('.jtk-endpoint')) return;
+
+        isPanning = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        scrollLeftStart = canvas.scrollLeft;
+        scrollTopStart = canvas.scrollTop;
+        canvas.style.cursor = 'grabbing';
+        e.preventDefault();
+    });
+
+    // Use window-level listeners so panning continues even if cursor leaves canvas
+    window.addEventListener('mousemove', function(e) {
+        if (!isPanning) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        canvas.scrollLeft = scrollLeftStart - dx;
+        canvas.scrollTop = scrollTopStart - dy;
+    });
+
+    window.addEventListener('mouseup', function(e) {
+        if (!isPanning) return;
+        isPanning = false;
+        canvas.style.cursor = '';
+    });
+
+    // Prevent the default middle-click auto-scroll icon from appearing
+    canvas.addEventListener('auxclick', function(e) {
+        if (e.button === 1) e.preventDefault();
+    });
+}
+
+/**
+ * Computes the axis-aligned bounding box of all workflow nodes.
+ * Returns { minX, minY, maxX, maxY } in canvas-relative px, or null if no nodes.
+ */
+function getNodesBoundingBox() {
+    const nodes = document.querySelectorAll('#workflow-canvas .workflow-node');
+    if (nodes.length === 0) return null;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+    nodes.forEach(node => {
+        const left = parseInt(node.style.left, 10) || 0;
+        const top = parseInt(node.style.top, 10) || 0;
+        const right = left + node.offsetWidth;
+        const bottom = top + node.offsetHeight;
+
+        if (left < minX) minX = left;
+        if (top < minY) minY = top;
+        if (right > maxX) maxX = right;
+        if (bottom > maxY) maxY = bottom;
+    });
+
+    return { minX, minY, maxX, maxY };
+}
+
+/**
+ * Expands the canvas min-width/min-height so that every node is reachable via
+ * scrolling, with 200px of padding beyond the outermost nodes.
+ */
+function ensureCanvasCoversNodes() {
+    const canvas = document.getElementById('workflow-canvas');
+    if (!canvas) return;
+
+    const box = getNodesBoundingBox();
+    if (!box) return;
+
+    const padding = 200;
+    const neededWidth = box.maxX + padding;
+    const neededHeight = box.maxY + padding;
+
+    // Only grow — never shrink below the viewport size (CSS height handles baseline)
+    canvas.style.minWidth = neededWidth + 'px';
+    canvas.style.minHeight = neededHeight + 'px';
+}
+
+/**
+ * Scrolls the canvas so the center of all nodes is in the center of the viewport.
+ * No scaling — pure scroll.
+ */
+function fitToView() {
+    const canvas = document.getElementById('workflow-canvas');
+    if (!canvas) return;
+
+    const box = getNodesBoundingBox();
+    if (!box) {
+        showToast('No nodes on the canvas', 'info');
+        return;
+    }
+
+    // Ensure canvas is large enough first
+    ensureCanvasCoversNodes();
+
+    const centerX = (box.minX + box.maxX) / 2;
+    const centerY = (box.minY + box.maxY) / 2;
+
+    const viewportW = canvas.clientWidth;
+    const viewportH = canvas.clientHeight;
+
+    canvas.scrollTo({
+        left: centerX - viewportW / 2,
+        top: centerY - viewportH / 2,
+        behavior: 'smooth'
+    });
+}
+
+/**
+ * Scrolls the canvas so the START node is centered in the viewport.
+ */
+function scrollToStartNode() {
+    const canvas = document.getElementById('workflow-canvas');
+    if (!canvas) return;
+
+    const start = document.querySelector('#workflow-canvas .start-node');
+    if (!start) {
+        showToast('No start node set — right-click a node to mark it as Start', 'info');
+        return;
+    }
+
+    const left = parseInt(start.style.left, 10) || 0;
+    const top = parseInt(start.style.top, 10) || 0;
+    const nodeCenterX = left + start.offsetWidth / 2;
+    const nodeCenterY = top + start.offsetHeight / 2;
+
+    canvas.scrollTo({
+        left: nodeCenterX - canvas.clientWidth / 2,
+        top: nodeCenterY - canvas.clientHeight / 2,
+        behavior: 'smooth'
+    });
+}

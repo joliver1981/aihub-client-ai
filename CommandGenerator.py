@@ -173,7 +173,9 @@ Output:
 
 class CommandGenerator:
     """Generates workflow commands from natural language plans."""
-    
+
+    _logged_active_model = False
+
     def __init__(self):
         logger.info("CommandGenerator initialized")
     
@@ -217,13 +219,39 @@ class CommandGenerator:
                 user_prompt += f"\n\nExisting workflow nodes:\n" + "\n".join(nodes_summary)
                 user_prompt += "\n\nGenerate only commands for new or modified nodes."
             
-            # Call LLM
-            response = quickPrompt(
-                prompt=user_prompt,
-                system=COMMAND_GENERATOR_SYSTEM_PROMPT,
-                temp=0.2
-            )
-            
+            # Call LLM. If a fine-tuned override is configured but fails (bad id,
+            # missing key, etc.), retry once with the default model so the workflow
+            # still completes.
+            override_model = cfg.COMMAND_GENERATOR_MODEL or None
+            override_deployment = cfg.COMMAND_GENERATOR_DEPLOYMENT or None
+            attempted_override = bool(override_model or override_deployment)
+
+            if not CommandGenerator._logged_active_model:
+                active = override_model or override_deployment or 'default (get_openai_config)'
+                logger.info(f"Using command generator model: {active}")
+                CommandGenerator._logged_active_model = True
+
+            try:
+                response = quickPrompt(
+                    prompt=user_prompt,
+                    system=COMMAND_GENERATOR_SYSTEM_PROMPT,
+                    temp=0.2,
+                    model_override=override_model,
+                    deployment_override=override_deployment,
+                )
+            except Exception as e:
+                if attempted_override:
+                    logger.warning(
+                        f"CommandGenerator override model failed ({e}); retrying with default model"
+                    )
+                    response = quickPrompt(
+                        prompt=user_prompt,
+                        system=COMMAND_GENERATOR_SYSTEM_PROMPT,
+                        temp=0.2,
+                    )
+                else:
+                    raise
+
             logger.debug(f"Raw response:\n{response}...")
             
             # Extract commands from response

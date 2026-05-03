@@ -1,0 +1,50 @@
+{
+  "draft_id": "728dd6d64ede4c2c",
+  "created_at": "2026-04-30T19:17:08.370061+00:00",
+  "updated_at": "2026-04-30T19:17:08.370061+00:00",
+  "manifest": {
+    "id": "customer_onboarding_1_1",
+    "name": "Customer Onboarding Workflow",
+    "version": "1.0.0",
+    "vertical": "customer-ops",
+    "tags": [
+      "onboarding"
+    ],
+    "description": "Customer onboarding workflow starter",
+    "author": "JO",
+    "homepage_url": "",
+    "credentials": [],
+    "post_install": [],
+    "assets": {
+      "agents": [],
+      "tools": [],
+      "workflows": [
+        "Customer Onboarding - AI Guided v4 (w Bulk Update).json"
+      ],
+      "integrations": [],
+      "connections": [],
+      "environments": [],
+      "knowledge": [],
+      "data": {}
+    }
+  },
+  "selections": {
+    "agent_ids": [],
+    "data_agent_ids": [],
+    "tool_names": [],
+    "workflow_names": [
+      "Customer Onboarding - AI Guided v4 (w Bulk Update)"
+    ],
+    "integration_ids": [],
+    "connection_ids": [],
+    "environment_ids": [],
+    "knowledge_document_ids": []
+  },
+  "branding": {
+    "display_name": "",
+    "tagline": "",
+    "logo_path": "",
+    "primary_color": ""
+  },
+  "readme": ""
+}

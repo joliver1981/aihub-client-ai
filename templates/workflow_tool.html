@@ -329,10 +329,39 @@
             height: calc(100vh - 100px);
             overflow: auto;
             background-color: var(--bg-elevated, #111);
-            background-image: 
+            background-image:
                 linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px),
                 linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px);
             background-size: 20px 20px;
+        }
+
+        /* Floating canvas navigation controls */
+        .canvas-nav-controls {
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            z-index: 200;
+            display: flex;
+            gap: 4px;
+        }
+        .canvas-nav-controls button {
+            width: 32px;
+            height: 32px;
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 6px;
+            background: rgba(30,30,30,0.85);
+            color: rgba(255,255,255,0.7);
+            font-size: 0.85rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.15s, color 0.15s;
+            padding: 0;
+        }
+        .canvas-nav-controls button:hover {
+            background: rgba(60,60,60,0.95);
+            color: #fff;
         }
 
         /* Ensure jsPlumb doesn't apply transforms during drag */
@@ -1216,7 +1245,15 @@ textarea[name="approvalData"].is-invalid {
             </div>
             
             <!-- Canvas -->
-            <div class="col-10">
+            <div class="col-10" style="position: relative;">
+                <div class="canvas-nav-controls">
+                    <button onclick="fitToView()" title="Fit to View">
+                        <i class="bi bi-arrows-fullscreen"></i>
+                    </button>
+                    <button onclick="scrollToStartNode()" title="Scroll to Start Node">
+                        <i class="bi bi-skip-start-fill"></i>
+                    </button>
+                </div>
                 <div id="workflow-canvas"></div>
             </div>
         </div>

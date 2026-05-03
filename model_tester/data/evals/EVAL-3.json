@@ -1,0 +1,22 @@
+{
+  "id": "EVAL-3",
+  "name": "Stripe Integration + Excel Export",
+  "category": "CommandGen",
+  "description": "Plan-to-commands evaluation captured from production log on 2026-04-30 at 15:46:34.",
+  "system_prompt_ref": "command_generator",
+  "user_prompt": "Convert this workflow plan to JSON commands:\n\nWorkflow Plan: Export Stripe customers to Excel\n\nNote: This workflow should be run manually. There is no trigger node; if a schedule is desired later, create it separately in the platform after the workflow is built.\n\n1. Integration node — Fetch Stripe customers\n   - Node type: Integration\n   - Purpose: Call the connected Stripe integration to retrieve a customer list.\n   - Configuration:\n     - integration_id: 24\n     - operation: get_customers\n     - parameters:\n       - limit: 100\n     - outputVariable: stripeCustomersRaw\n     - continueOnError: false\n   - Details:\n     - Integration ID 24 is \"Stripe Daily Reporting\"\n     - Operation key is get_customers\n     - Reasonable default used: limit 100\n\n2. Set Variable node — Normalize customer list for export\n   - Node type: Set Variable\n   - Purpose: Normalize the integration response into an array suitable for Excel export, handling either a direct array response or a wrapped object containing a data array.\n   - Configuration:\n     - Variable name: stripeCustomersForExport\n     - Use expression mode: true\n     - Expression: stripeCustomersRaw.get('data', stripeCustomersRaw) if hasattr(stripeCustomersRaw, 'get') else stripeCustomersRaw\n   - Details:\n     - This ensures the next node receives a row array whether the integration returns [ ... ] or { data: [ ... ] }.\n\n3. Excel Export node — Write customers to customers.xlsx\n   - Node type: Excel Export\n   - Purpose: Export the Stripe customer records to an Excel file.\n   - Configuration:\n     - excelOperation: create\n     - excelOutputPath: customers.xlsx\n     - source data variable: stripeCustomersForExport\n     - Column mapping: auto-mapping\n   - Details:\n     - Use the customer objects as rows.\n     - Let the platform auto-map available fields to Excel columns.\n     - Output file should be customers.xlsx\n\nConnections:\n- Connect Step 1 pass -> Step 2\n- Connect Step 2 pass -> Step 3\n",
+  "expected": {
+    "min_add_nodes": 2,
+    "required_node_types": [
+      "Integration",
+      "Excel Export"
+    ],
+    "must_have_set_start_node": true,
+    "forbid_loop_pass_complete": true,
+    "forbid_endloop_back_edge": true
+  },
+  "tags": [
+    "oob",
+    "commandgen"
+  ]
+}

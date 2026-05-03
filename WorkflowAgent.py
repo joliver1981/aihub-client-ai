@@ -981,11 +981,77 @@ BUILDER DELEGATION RULES:
                     return result
                 else:
                     return "No database connections available. You can use placeholder ID: 1"
-                    
+
             except Exception as e:
                 logger.error(f"Error fetching database connections: {e}")
                 return "Error fetching connections. You can use placeholder IDs: 1, 2, 3"
-        
+
+        @tool
+        def get_available_integrations() -> str:
+            """Get list of available connected external integrations (e.g., Stripe, Shopify,
+            QuickBooks, Slack). ALWAYS call this tool before adding an Integration node, to
+            look up the correct numeric integration_id. NEVER guess or use the integration
+            name as the integration_id - the validator will reject the workflow."""
+            try:
+                from integration_manager import get_integration_manager
+                manager = get_integration_manager()
+                integrations = manager.list_integrations()
+                if not integrations:
+                    return "No integrations are currently connected for this tenant."
+                result = "Available Integrations (use the numeric Integration ID as the integration_id config field):\n"
+                for it in integrations:
+                    connected = "connected" if it.get('is_connected') else "disconnected"
+                    result += (
+                        f"Integration ID: {it['integration_id']} | "
+                        f"Name: {it['integration_name']} | "
+                        f"Platform: {it.get('platform_name', '')} | "
+                        f"Category: {it.get('platform_category', '')} | "
+                        f"Status: {connected}\n"
+                    )
+                return result
+            except Exception as e:
+                logger.error(f"Error fetching integrations: {e}")
+                return f"Error fetching integrations: {e}"
+
+        @tool
+        def get_integration_operations(integration_id: int) -> str:
+            """Get available operations for a specific integration. Returns each operation's
+            key (snake_case identifier), display name, category (read/write), description, and
+            parameters. ALWAYS call this tool after get_available_integrations and before
+            configuring an Integration node. The 'operation' config field on the Integration
+            node MUST be one of the operation keys returned by this tool (e.g. 'get_customers'),
+            NOT the human-readable name."""
+            try:
+                from integration_manager import get_integration_manager
+                manager = get_integration_manager()
+                operations = manager.get_operations(integration_id)
+                if not operations:
+                    return (
+                        f"No operations found for integration_id={integration_id}. "
+                        f"Verify the ID with get_available_integrations."
+                    )
+                result = f"Operations for integration_id={integration_id}:\n"
+                for op in operations:
+                    params_lines = []
+                    for p in op.get('parameters', []):
+                        req = " (required)" if p.get('required') else ""
+                        desc = p.get('description') or p.get('label') or ''
+                        params_lines.append(
+                            f"    - {p.get('name')} ({p.get('type','text')}){req}: {desc}"
+                        )
+                    params_summary = ("\n" + "\n".join(params_lines)) if params_lines else " (none)"
+                    result += (
+                        f"\n* operation key: {op.get('key')}\n"
+                        f"  name: {op.get('name')}\n"
+                        f"  category: {op.get('category', 'read')}\n"
+                        f"  description: {op.get('description','')}\n"
+                        f"  parameters:{params_summary}\n"
+                    )
+                return result
+            except Exception as e:
+                logger.error(f"Error fetching integration operations: {e}")
+                return f"Error fetching operations for integration_id={integration_id}: {e}"
+
         @tool
         def get_available_ai_agents() -> str:
             """Get list of available AI agents"""
@@ -1424,6 +1490,8 @@ Output a complete JSON with action: build_workflow and commands array in a ```js
             get_available_database_connections,
             get_database_tables,
             get_database_schema,
+            get_available_integrations,
+            get_integration_operations,
             get_available_ai_agents,
             identify_missing_requirements,
             update_requirements,

@@ -1,0 +1,23 @@
+{
+  "id": "EVAL-2",
+  "name": "Database query + AI summary + Alert",
+  "category": "CommandGen",
+  "description": "Plan-to-commands evaluation captured from production log on 2026-04-30 at 15:41:55.",
+  "system_prompt_ref": "command_generator",
+  "user_prompt": "Convert this workflow plan to JSON commands:\n\n1. Database node — Query sales activity from database connection ID 5 (EDW SQL Server).\n   - Purpose: Retrieve a sensible sales-activity dataset from the last 24 hours using an existing table in the schema.\n   - Connection: connection ID \"5\"\n   - saveToVariable: true\n   - outputVariable: \"salesActivityRows\"\n   - SQL query:\n     SELECT\n       Division,\n       Warehouse,\n       Order_No,\n       Order_Status,\n       Customer,\n       Order_Date,\n       Channel,\n       Same_Day,\n       Must_Ship_By_Date,\n       Late,\n       Total_Qty,\n       Open_Qty,\n       Shipped_Qty,\n       Canceled_Qty,\n       Late_Qty,\n       Total_Dollars,\n       Open_Dollars,\n       Shipped_Dollars,\n       Canceled_Dollars,\n       Late_Dollars\n     FROM dbo.DailyOrderStatus\n     WHERE Order_Date >= DATEADD(hour, -24, GETDATE())\n     ORDER BY Order_Date DESC;\n   - Notes: This uses the existing dbo.DailyOrderStatus table because it contains datetime-based order activity fields and dollar/quantity metrics appropriate for a last-24-hours sales activity summary.\n\n2. AI Action node — Summarize the last 24 hours of sales activity using AI agent ID 372.\n   - Purpose: Turn the raw database rows into a concise operational summary for email.\n   - Agent: agent ID 372\n   - Output variable: \"salesSummary\"\n   - Prompt:\n     You are preparing an operations-facing sales activity summary for the last 24 hours.\n\n     Analyze the JSON-like dataset in ${salesActivityRows}, which came from dbo.DailyOrderStatus for records with Order_Date in the last 24 hours.\n\n     Create a concise but useful summary for operations with these sections:\n     1. Overview — total record count, notable volume observations, and any obvious patterns.\n     2. Order status highlights — summarize the most important statuses present.\n     3. Channel observations — mention any meaningful channel mix patterns if visible.\n     4. Exceptions / risks — call out late orders, canceled activity, unusually high open quantities or dollars, or other operational concerns.\n     5. Recommended next actions — 2 to 5 practical actions for ops.\n\n     Additional instructions:\n     - If the dataset is empty, clearly state that no sales activity was found in the last 24 hours.\n     - Be specific when possible using the provided fields and values.\n     - Keep the tone professional and concise.\n     - Format the output as plain text suitable for an email body.\n\n3. Set Variable node — Create the email subject.\n   - Purpose: Provide a simple variable for Alert subject configuration.\n   - Variable name: \"emailSubject\"\n   - Mode: direct value\n   - Value: \"EDW Sales Activity Summary - Last 24 Hours\"\n\n4. Set Variable node — Create the email body.\n   - Purpose: Provide a simple variable for Alert message configuration.\n   - Variable name: \"emailBody\"\n   - Mode: expression\n   - Expression: salesSummary\n\n5. Alert node — Send the summary by email.\n   - Purpose: Email the AI-generated summary to operations.\n   - Alert type: Email\n   - Recipients: \"ops@acme.com\"\n   - emailSubject: ${emailSubject}\n   - messageTemplate: ${emailBody}\n\nConnections:\n- Connect Database node pass output to AI Action node.\n- Connect AI Action node pass output to Set Variable node for emailSubject.\n- Connect Set Variable node for emailSubject pass output to Set Variable node for emailBody.\n- Connect Set Variable node for emailBody pass output to Alert node.\n\nExecution note:\n- Build this as a manually triggered workflow now.\n- If a schedule is desired later, create the schedule separately after the workflow is built.\n",
+  "expected": {
+    "min_add_nodes": 4,
+    "required_node_types": [
+      "Database",
+      "AI Action",
+      "Alert"
+    ],
+    "must_have_set_start_node": true,
+    "forbid_loop_pass_complete": true,
+    "forbid_endloop_back_edge": true
+  },
+  "tags": [
+    "oob",
+    "commandgen"
+  ]
+}

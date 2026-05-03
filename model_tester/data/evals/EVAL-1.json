@@ -1,0 +1,25 @@
+{
+  "id": "EVAL-1",
+  "name": "Folder watch + Loop + AI Extract + Excel",
+  "category": "CommandGen",
+  "description": "Plan-to-commands evaluation captured from production log on 2026-04-30 at 15:38:54.",
+  "system_prompt_ref": "command_generator",
+  "user_prompt": "Convert this workflow plan to JSON commands:\n\nWorkflow plan: Invoice PDF extraction to Excel\n\nNote: There is no trigger node in this platform. Build the workflow starting with file selection, and after the workflow is built, create a separate schedule that runs it on a recurring basis to watch C:\\\\incoming\\\\invoices for new files.\n\n1. Add a Folder Selector node.\n   - Purpose: Select invoice PDF files from the incoming folder.\n   - Configuration:\n     - folderPath: C:\\\\incoming\\\\invoices\n     - selectionMode: pattern\n     - filePattern: *.pdf\n     - outputVariable: selectedInvoiceFiles\n     - failIfEmpty: false\n   - Reasonable default: if no PDFs are present, the workflow should simply do nothing instead of failing.\n\n2. Add a Loop node.\n   - Purpose: Process each PDF file one at a time.\n   - Configuration:\n     - sourceType: variable\n     - loopSource: ${selectedInvoiceFiles}\n     - itemVariable: currentInvoiceFile\n     - indexVariable: fileIndex\n     - maxIterations: 1000\n     - emptyBehavior: skip\n   - Important: All nodes inside the loop must reference ${currentInvoiceFile}, not ${selectedInvoiceFiles}.\n\n3. Inside the loop, add an AI Extract node.\n   - Purpose: Read the current PDF invoice directly and extract structured invoice fields.\n   - Configuration:\n     - inputSource: auto\n     - inputVariable: ${currentInvoiceFile}\n     - outputVariable: extractedInvoice\n     - failOnMissingRequired: false\n     - specialInstructions: Extract the invoice number exactly as shown on the document. Extract total_amount as a numeric value only, without currency symbols or commas. If multiple totals appear, use the final amount due / invoice total that represents the amount to be paid.\n     - fields:\n       - name: invoice_number\n         type: text\n         required: false\n         description: Invoice number or invoice identifier exactly as shown on the invoice PDF.\n       - name: total_amount\n         type: number\n         required: false\n         description: Final total invoice amount due as a number only, without currency symbols, commas, or text.\n\n4. Still inside the loop, add an Excel Export node.\n   - Purpose: Append one extracted invoice row per processed PDF into the Excel workbook.\n   - Configuration:\n     - inputVariable: ${extractedInvoice}\n     - flattenArray: false\n     - manualFields: invoice_number,total_amount\n     - excelOutputPath: C:\\\\incoming\\\\invoices\\\\invoices.xlsx\n     - excelOperation: append\n     - excelTemplatePath: C:\\\\incoming\\\\invoices\\\\invoices.xlsx\n     - excelSheetName: Invoices\n     - mappingMode: manual\n     - fieldMapping:\n       - invoice_number -> invoice_number\n       - total_amount -> total_amount\n   - Reasonable default: append each extracted object as a single row.\n\n5. Add an End Loop node.\n   - Purpose: Close the loop and continue iteration for the next file.\n   - Configuration: standard End Loop paired to the Loop node.\n   - Connection rule: End Loop must have exactly one outgoing pass connection back to the Loop node.\n\n6. Connections:\n   - Folder Selector pass -> Loop\n   - Loop pass -> AI Extract\n   - AI Extract pass -> Excel Export\n   - Excel Export pass -> End Loop\n   - End Loop pass -> Loop\n\n7. Scheduling note to implement after build:\n   - Create a separate schedule outside the workflow to run this workflow periodically, for example every 5 minutes, so it watches C:\\\\incoming\\\\invoices for new PDF files.\n\n8. Default behavior notes:\n   - This workflow processes all matching PDFs found each run.\n   - It appends extracted rows into C:\\\\incoming\\\\invoices\\\\invoices.xlsx on sheet Invoices.\n   - Missing fields do not fail the run; blank values are allowed.\n   - No file archiving or deduplication is included in this first version.\n",
+  "expected": {
+    "min_add_nodes": 5,
+    "required_node_types": [
+      "Folder Selector",
+      "Loop",
+      "AI Extract",
+      "End Loop",
+      "Excel Export"
+    ],
+    "must_have_set_start_node": true,
+    "forbid_loop_pass_complete": true,
+    "forbid_endloop_back_edge": true
+  },
+  "tags": [
+    "oob",
+    "commandgen"
+  ]
+}

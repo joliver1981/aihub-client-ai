@@ -185,10 +185,10 @@ function setupContextMenusComplete() {
     // Now bind fresh
     jsPlumbInstance.bind('connection', function(info) {
         console.log('Connection event fired in setupContextMenusComplete');
-        
+
         // Set default connection type to pass
         setArrowType('pass', info.connection);
-        
+
         // Store the original anchors in the connection data
         const sourceAnchor = info.connection.endpoints[0].anchor.type || "Right";
         const targetAnchor = info.connection.endpoints[1].anchor.type || "Left";
@@ -197,11 +197,23 @@ function setupContextMenusComplete() {
             sourceAnchor: sourceAnchor,
             targetAnchor: targetAnchor
         });
-        
+
         // Bind context menu with a delay to ensure canvas is ready
         setTimeout(() => {
             bindContextMenuToConnectionCanvas(info.connection);
         }, 100);
+
+        // Trigger debounced validation so duplicate-slot / end-loop-back-edge
+        // warnings surface immediately. This file's bind clobbers the one
+        // workflow.js installed, so the hook must live here too.
+        if (window.requestWorkflowValidation) window.requestWorkflowValidation();
+    });
+
+    // Re-validate when a connection is removed so warning rings clear when
+    // the duplicate-slot is resolved.
+    jsPlumbInstance.unbind('connectionDetached');
+    jsPlumbInstance.bind('connectionDetached', function() {
+        if (window.requestWorkflowValidation) window.requestWorkflowValidation();
     });
     
     // Bind context menu to any existing connections

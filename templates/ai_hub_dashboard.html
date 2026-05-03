@@ -107,7 +107,7 @@
             <div class="action-desc">Start a conversation</div>
         </a>
 
-        {% if FLAG_SOLUTIONS %}
+        {% if FLAG_SOLUTIONS and current_user.role >= 2 %}
         <a href="/solutions" class="action-card">
             <div class="action-icon" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:#fff;"><i class="fas fa-gift"></i></div>
             <div class="action-title">Browse Solutions</div>

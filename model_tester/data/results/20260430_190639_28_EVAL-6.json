@@ -1,0 +1,114 @@
+{
+  "eval_id": "EVAL-6",
+  "eval_name": "File + AI Action + Conditional + Alert",
+  "model_id": "azure-prod-current",
+  "model_label": "Azure (production model from main app)",
+  "model_provider": "azure",
+  "model_config_snapshot": {
+    "label": "Azure (production model from main app)",
+    "provider": "azure",
+    "deployment": "",
+    "endpoint": "",
+    "api_version": "2024-08-01-preview"
+  },
+  "system_prompt_chars": 33304,
+  "user_prompt_chars": 3594,
+  "temperature": 0.2,
+  "max_tokens": 8192,
+  "ok": true,
+  "error": null,
+  "content": "```json\n{\n  \"action\": \"build_workflow\",\n  \"commands\": [\n    {\n      \"type\": \"add_node\",\n      \"node_type\": \"File\",\n      \"label\": \"Read Settings File\",\n      \"config\": {\n        \"operation\": \"read\",\n        \"filePath\": \"C:\\\\config\\\\settings.json\",\n        \"saveToVariable\": true,\n        \"outputVariable\": \"settingsJsonText\"\n      },\n      \"position\": {\n        \"left\": \"20px\",\n        \"top\": \"40px\"\n      },\n      \"node_id\": \"node-0\"\n    },\n    {\n      \"type\": \"add_node\",\n      \"node_type\": \"AI Action\",\n      \"label\": \"Extract error_threshold\",\n      \"config\": {\n        \"agent_id\": \"372\",\n        \"prompt\": \"Read the following JSON content and extract the value of the key named error_threshold. Return only the raw value with no explanation, no JSON wrapper, and no extra text.\\n\\nJSON content:\\n${settingsJsonText}\",\n        \"outputVariable\": \"extractedErrorThresholdRaw\",\n        \"continueOnError\": false\n      },\n      \"position\": {\n        \"left\": \"220px\",\n        \"top\": \"40px\"\n      },\n      \"node_id\": \"node-1\"\n    },\n    {\n      \"type\": \"connect_nodes\",\n      \"from\": \"node-0\",\n      \"to\": \"node-1\",\n      \"connection_type\": \"pass\"\n    },\n    {\n      \"type\": \"add_node\",\n      \"node_type\": \"Set Variable\",\n      \"label\": \"Set error_threshold\",\n      \"config\": {\n        \"variableName\": \"error_threshold\",\n        \"valueSource\": \"direct\",\n        \"valueExpression\": \"float(extractedErrorThresholdRaw)\",\n        \"evaluateAsExpression\": true\n      },\n      \"position\": {\n        \"left\": \"420px\",\n        \"top\": \"40px\"\n      },\n      \"node_id\": \"node-2\"\n    },\n    {\n      \"type\": \"connect_nodes\",\n      \"from\": \"node-1\",\n      \"to\": \"node-2\",\n      \"connection_type\": \"pass\"\n    },\n    {\n      \"type\": \"add_node\",\n      \"node_type\": \"Set Variable\",\n      \"label\": \"Build Alert Message\",\n      \"config\": {\n        \"variableName\": \"alertMessage\",\n        \"valueSource\": \"direct\",\n        \"valueExpression\": \"f\\\"settings.json error_threshold is {error_threshold}, which exceeds the limit of 100. File checked: C:\\\\\\\\config\\\\\\\\settings.json\\\"\",\n        \"evaluateAsExpression\": true\n      },\n      \"position\": {\n        \"left\": \"620px\",\n        \"top\": \"40px\"\n      },\n      \"node_id\": \"node-3\"\n    },\n    {\n      \"type\": \"connect_nodes\",\n      \"from\": \"node-2\",\n      \"to\": \"node-3\",\n      \"connection_type\": \"pass\"\n    },\n    {\n      \"type\": \"add_node\",\n      \"node_type\": \"Set Variable\",\n      \"label\": \"Build Alert Subject\",\n      \"config\": {\n        \"variableName\": \"alertSubject\",\n        \"valueSource\": \"direct\",\n        \"valueExpression\": \"f\\\"High error_threshold detected: {error_threshold}\\\"\",\n        \"evaluateAsExpression\": true\n      },\n      \"position\": {\n        \"left\": \"820px\",\n        \"top\": \"40px\"\n      },\n      \"node_id\": \"node-4\"\n    },\n    {\n      \"type\": \"connect_nodes\",\n      \"from\": \"node-3\",\n      \"to\": \"node-4\",\n      \"connection_type\": \"pass\"\n    },\n    {\n      \"type\": \"add_node\",\n      \"node_type\": \"Conditional\",\n      \"label\": \"error_threshold > 100?\",\n      \"config\": {\n        \"conditionType\": \"comparison\",\n        \"leftValue\": \"${error_threshold}\",\n        \"operator\": \">\",\n        \"rightValue\": \"100\"\n      },\n      \"position\": {\n        \"left\": \"1020px\",\n        \"top\": \"40px\"\n      },\n      \"node_id\": \"node-5\"\n    },\n    {\n      \"type\": \"connect_nodes\",\n      \"from\": \"node-4\",\n      \"to\": \"node-5\",\n      \"connection_type\": \"pass\"\n    },\n    {\n      \"type\": \"add_node\",\n      \"node_type\": \"Alert\",\n      \"label\": \"Send Threshold Alert\",\n      \"config\": {\n        \"alertType\": \"email\",\n        \"recipients\": \"admin@acme.com\",\n        \"emailSubject\": \"${alertSubject}\",\n        \"messageTemplate\": \"${alertMessage}\"\n      },\n      \"position\": {\n        \"left\": \"1220px\",\n        \"top\": \"20px\"\n      },\n      \"node_id\": \"node-6\"\n    },\n    {\n      \"type\": \"connect_nodes\",\n      \"from\": \"node-5\",\n      \"to\": \"node-6\",\n      \"connection_type\": \"pass\"\n    },\n    {\n      \"type\": \"set_start_node\",\n      \"node_id\": \"node-0\"\n    }\n  ]\n}\n```",
+  "usage": {
+    "completion_tokens": 1096,
+    "prompt_tokens": 8937,
+    "total_tokens": 10033,
+    "completion_tokens_details": {
+      "accepted_prediction_tokens": 0,
+      "audio_tokens": 0,
+      "reasoning_tokens": 0,
+      "rejected_prediction_tokens": 0
+    },
+    "prompt_tokens_details": {
+      "audio_tokens": 0,
+      "cached_tokens": 0
+    },
+    "latency_checkpoint": {
+      "engine_tbt_ms": 11,
+      "engine_ttft_ms": 386,
+      "engine_ttlt_ms": 12043,
+      "pre_inference_ms": 119,
+      "service_tbt_ms": 11,
+      "service_ttft_ms": 592,
+      "service_ttlt_ms": 12238,
+      "total_duration_ms": 12123,
+      "user_visible_ttft_ms": 473
+    }
+  },
+  "elapsed_ms": 15150,
+  "judge": {
+    "score": 9,
+    "max_score": 9,
+    "passed": true,
+    "reason": "9/9 checks passed",
+    "details": {
+      "add_node_count": 7,
+      "node_types_present": [
+        "AI Action",
+        "Alert",
+        "Conditional",
+        "File",
+        "Set Variable"
+      ],
+      "total_commands": 14,
+      "checks": [
+        {
+          "name": "min_add_nodes >= 7",
+          "passed": true,
+          "detail": "got 7"
+        },
+        {
+          "name": "contains node_type \"File\"",
+          "passed": true,
+          "detail": "present"
+        },
+        {
+          "name": "contains node_type \"AI Action\"",
+          "passed": true,
+          "detail": "present"
+        },
+        {
+          "name": "contains node_type \"Set Variable\"",
+          "passed": true,
+          "detail": "present"
+        },
+        {
+          "name": "contains node_type \"Conditional\"",
+          "passed": true,
+          "detail": "present"
+        },
+        {
+          "name": "contains node_type \"Alert\"",
+          "passed": true,
+          "detail": "present"
+        },
+        {
+          "name": "has set_start_node",
+          "passed": true,
+          "detail": "present"
+        },
+        {
+          "name": "no Loop with pass+complete outgoing",
+          "passed": true,
+          "detail": "clean"
+        },
+        {
+          "name": "no End Loop -> Loop physical edges",
+          "passed": true,
+          "detail": "clean"
+        }
+      ]
+    }
+  },
+  "result_id": "20260430_190639_28_EVAL-6",
+  "saved_at": "2026-04-30T19:06:39"
+}

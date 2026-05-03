@@ -69,10 +69,43 @@
             const body = document.body;
             // Remove existing theme classes
             body.classList.remove('theme-light', 'theme-dark', 'theme-auto');
-            
+
             // Add the new theme class
             body.classList.add(`theme-${theme}`);
-            
+
+            // --- Drive the newer .doc-page wrappers from the global pref ---
+            //   theme === 'light'  -> force light-mode on every .doc-page
+            //   theme === 'dark'   -> force dark   (no light-mode class)
+            //   anything else      -> "default" behavior: honor each page's
+            //                         per-page toggle (localStorage.docPageTheme)
+            // This makes the legacy UI Theme preference actually affect the
+            // dark-first pages introduced by the recent look-and-feel refresh.
+            const forced = (theme === 'light' || theme === 'dark');
+            let effectiveIsLight;
+            if (theme === 'light') {
+                effectiveIsLight = true;
+            } else if (theme === 'dark') {
+                effectiveIsLight = false;
+            } else {
+                // Honor the per-page button's choice when pref is default/auto
+                effectiveIsLight = (localStorage.getItem('docPageTheme') === 'light');
+            }
+
+            document.querySelectorAll('.doc-page').forEach(dp => {
+                dp.classList.toggle('light-mode', effectiveIsLight);
+            });
+
+            // Keep any visible per-page toggle button's icon/label in sync
+            const docThemeIcon = document.getElementById('docThemeIcon');
+            const docThemeLabel = document.getElementById('docThemeLabel');
+            if (docThemeIcon) docThemeIcon.className = effectiveIsLight ? 'fas fa-sun' : 'fas fa-moon';
+            if (docThemeLabel) docThemeLabel.textContent = effectiveIsLight ? 'Light' : 'Dark';
+
+            // Hide the per-page toggle buttons when the global pref forces a
+            // theme — the button would otherwise be misleading (click it and
+            // the next page load snaps back to the forced value).
+            body.classList.toggle('theme-forced', forced);
+
             // If using system theme, check system preference
             if (theme === 'auto') {
                 if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
@@ -82,7 +115,7 @@
                 body.classList.add('theme-light');
                 body.classList.remove('theme-dark');
                 }
-                
+
                 // Listen for system theme changes
                 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
                 if (UserPreferences.getPreference('theme', 'light') === 'auto') {
@@ -91,7 +124,7 @@
                 }
                 });
             }
-            
+
             // Store theme in localStorage for fast initial loading
             //localStorage.setItem('theme', theme);
             }
@@ -1079,7 +1112,7 @@
                 </div>
                 {% endif %}
 
-                {% if FLAG_SOLUTIONS and current_user.is_authenticated %}
+                {% if FLAG_SOLUTIONS and current_user.is_authenticated and current_user.role and current_user.role >= 2 %}
                 <div class="new-nav-item">
                     <a href="/solutions" class="new-nav-link">
                         <i class="fas fa-gift nav-icon"></i>
@@ -1087,7 +1120,6 @@
                         <i class="fas fa-flask experimental-icon" title="Experimental"></i>
                     </a>
                 </div>
-                {% if current_user.role and current_user.role >= 2 %}
                 <div class="new-nav-item">
                     <a href="/solutions/author" class="new-nav-link">
                         <i class="fas fa-tools nav-icon"></i>
@@ -1095,7 +1127,6 @@
                         <i class="fas fa-flask experimental-icon" title="Experimental"></i>
                     </a>
                 </div>
-                {% endif %}
                 {% endif %}
             </div>
 
@@ -1431,7 +1462,7 @@
                 </div>
                 {% endif %}
 
-                {% if FLAG_SOLUTIONS and current_user.is_authenticated %}
+                {% if FLAG_SOLUTIONS and current_user.is_authenticated and current_user.role and current_user.role >= 2 %}
                 <div class="new-nav-item">
                     <a href="/solutions" class="new-nav-link">
                         <i class="fas fa-gift nav-icon"></i>
@@ -1439,7 +1470,6 @@
                         <i class="fas fa-flask experimental-icon" title="Experimental"></i>
                     </a>
                 </div>
-                {% if current_user.role and current_user.role >= 2 %}
                 <div class="new-nav-item">
                     <a href="/solutions/author" class="new-nav-link">
                         <i class="fas fa-tools nav-icon"></i>
@@ -1447,7 +1477,6 @@
                         <i class="fas fa-flask experimental-icon" title="Experimental"></i>
                     </a>
                 </div>
-                {% endif %}
                 {% endif %}
 
             </div>

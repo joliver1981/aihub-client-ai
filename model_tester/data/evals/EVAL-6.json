@@ -1,0 +1,25 @@
+{
+  "id": "EVAL-6",
+  "name": "File + AI Action + Conditional + Alert",
+  "category": "CommandGen",
+  "description": "Plan-to-commands evaluation captured from production log on 2026-04-30 at 15:57:07.",
+  "system_prompt_ref": "command_generator",
+  "user_prompt": "Convert this workflow plan to JSON commands:\n\n1. File node — Read the configuration file from disk.\n   - Node type: File\n   - Operation: read\n   - File path: C:\\\\config\\\\settings.json\n   - saveToVariable: true\n   - outputVariable: settingsJsonText\n   - Purpose: Load the raw JSON content from C:\\\\config\\\\settings.json into a workflow variable for downstream processing.\n\n2. AI Action node — Use AI agent ID 372 to extract the value of the JSON key error_threshold.\n   - Node type: AI Action\n   - Agent ID: 372\n   - Input/prompt: Read the following JSON content and extract the value of the key named error_threshold. Return only the raw value with no explanation, no JSON wrapper, and no extra text.\n\nJSON content:\n${settingsJsonText}\n   - Output variable: extractedErrorThresholdRaw\n   - Purpose: Reliably isolate the error_threshold value from the JSON file content.\n\n3. Set Variable node — Convert the extracted value into a numeric variable for comparison.\n   - Node type: Set Variable\n   - Variable name: error_threshold\n   - Mode: Python expression\n   - Expression: float(extractedErrorThresholdRaw)\n   - Purpose: Normalize the AI output into a numeric variable that the Conditional node can compare.\n\n4. Set Variable node — Prepare the alert email body in a simple standalone variable because Alert messageTemplate must reference only a simple variable name.\n   - Node type: Set Variable\n   - Variable name: alertMessage\n   - Mode: Python expression\n   - Expression: f\"settings.json error_threshold is {error_threshold}, which exceeds the limit of 100. File checked: C:\\\\config\\\\settings.json\"\n   - Purpose: Build the email body in a separate variable for validator-safe use in the Alert node.\n\n5. Set Variable node — Prepare the alert email subject in a simple standalone variable because Alert emailSubject must reference only a simple variable name.\n   - Node type: Set Variable\n   - Variable name: alertSubject\n   - Mode: Python expression\n   - Expression: f\"High error_threshold detected: {error_threshold}\"\n   - Purpose: Build the email subject in a separate variable for validator-safe use in the Alert node.\n\n6. Conditional node — Check whether error_threshold exceeds 100.\n   - Node type: Conditional\n   - conditionType: comparison\n   - Left value: ${error_threshold}\n   - Operator: greater than\n   - Right value: 100\n   - Purpose: Branch only when the threshold is above the specified limit.\n\n7. Alert node — On the Conditional pass path, send an email alert to admin@acme.com.\n   - Node type: Alert\n   - Alert type: Email\n   - To: admin@acme.com\n   - emailSubject: ${alertSubject}\n   - messageTemplate: ${alertMessage}\n   - Purpose: Notify the administrator when error_threshold is greater than 100.\n\n8. Connections\n   - Connect File node pass output -> AI Action node\n   - Connect AI Action node pass output -> Set Variable node (error_threshold)\n   - Connect Set Variable node (error_threshold) pass output -> Set Variable node (alertMessage)\n   - Connect Set Variable node (alertMessage) pass output -> Set Variable node (alertSubject)\n   - Connect Set Variable node (alertSubject) pass output -> Conditional node\n   - Connect Conditional node pass output -> Alert node\n   - Leave the Conditional fail path with no further action (workflow ends with no alert when error_threshold is 100 or below).\n\n9. Defaults and implementation notes\n   - Build this as a manually run workflow.\n   - Use agent ID 372 exactly as requested.\n   - Assume the file contains valid JSON.\n   - Reasonable default behavior: if the value is greater than 100, send one email; otherwise do nothing.\n",
+  "expected": {
+    "min_add_nodes": 7,
+    "required_node_types": [
+      "File",
+      "AI Action",
+      "Set Variable",
+      "Conditional",
+      "Alert"
+    ],
+    "must_have_set_start_node": true,
+    "forbid_loop_pass_complete": true,
+    "forbid_endloop_back_edge": true
+  },
+  "tags": [
+    "oob",
+    "commandgen"
+  ]
+}

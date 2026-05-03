@@ -60,7 +60,7 @@
     z-index: 0;
 }
 
-.doc-page > *:not(.modal):not(.feedback-container):not(.debug-panel):not(.context-menu) {
+.doc-page > *:not(.modal):not(.approval-modal):not(.feedback-container):not(.feedback-detail-panel):not(.panel-overlay):not(.loading-overlay):not(.workflow-assistant-container):not(.debug-panel):not(.context-menu) {
     position: relative;
     z-index: 1;
 }
@@ -81,7 +81,7 @@
  * the modal's own z-index is — producing the "black overlay, clicks do
  * nothing" symptom. Bootstrap adds `modal-open` to <body> only while a
  * modal is visible, so this only relaxes stacking when needed. */
-body.modal-open .doc-page > *:not(.modal):not(.modal-backdrop):not(.feedback-container):not(.debug-panel):not(.context-menu) {
+body.modal-open .doc-page > *:not(.modal):not(.approval-modal):not(.modal-backdrop):not(.feedback-container):not(.feedback-detail-panel):not(.panel-overlay):not(.loading-overlay):not(.workflow-assistant-container):not(.debug-panel):not(.context-menu) {
     z-index: auto;
 }
 
@@ -234,8 +234,21 @@ body.modal-open .doc-page > *:not(.modal):not(.modal-backdrop):not(.feedback-con
     gap: 0.5rem;
 }
 
-/* ===== THEME TOGGLE ===== */
+/* ===== THEME TOGGLE =====
+   Positioned via CSS (fixed, bottom-right with horizontal offset) so it
+   sits to the LEFT of the Universal Assistant widget (.ua-container, 60px
+   wide at bottom:24px/right:24px, z-index:10000) rather than being hidden
+   behind it. Using `position: fixed !important` lets the button escape the
+   legacy inline-styled wrapper `<div style="position:fixed;bottom:20px;
+   right:20px;z-index:100">` that exists on ~43 page templates without
+   having to edit every template. */
 .doc-theme-toggle {
+    position: fixed !important;
+    bottom: 24px !important;
+    right: 100px !important;
+    left: auto !important;
+    top: auto !important;
+    z-index: 10001 !important;
     background: var(--bg-input);
     border: 1px solid var(--border-subtle);
     color: var(--text-secondary);
@@ -254,6 +267,13 @@ body.modal-open .doc-page > *:not(.modal):not(.modal-backdrop):not(.feedback-con
     background: var(--bg-hover);
     color: var(--text-primary);
     border-color: var(--border-accent);
+}
+
+/* When the global UI Theme preference forces light or dark, the per-page
+   toggle is suppressed — the global pref wins and the button would be
+   misleading. base.html's applyTheme() toggles this class on <body>. */
+body.theme-forced .doc-theme-toggle {
+    display: none !important;
 }
 
 /* ===== STATS CARDS ===== */

@@ -343,7 +343,8 @@ def azureChatPrompt(messages, use_alternate_api=False):
     return chat_completion
 
 
-def quickPrompt(prompt, system="You are an assistant.", use_alternate_api=False, temp=0.0, provider="openai"):
+def quickPrompt(prompt, system="You are an assistant.", use_alternate_api=False, temp=0.0, provider="openai",
+                model_override=None, deployment_override=None):
     """
     Quick single-prompt helper for OpenAI/Azure OpenAI API.
 
@@ -352,6 +353,10 @@ def quickPrompt(prompt, system="You are an assistant.", use_alternate_api=False,
     Args:
         provider: "openai" (default) or "anthropic" to use Claude models.
                   When "anthropic", uses ANTHROPIC_ADVANCED model.
+        model_override: optional model id to use when the resolved api_type is 'open_ai'
+                        (e.g. a fine-tuned 'ft:...' id). Ignored on Azure path.
+        deployment_override: optional Azure deployment name to use when the resolved
+                             api_type is 'azure'. Ignored on OpenAI path.
     """
     if provider == "anthropic":
         return _anthropic_quick_prompt(prompt, system=system, temp=temp, model=cfg.ANTHROPIC_ADVANCED)
@@ -360,7 +365,10 @@ def quickPrompt(prompt, system="You are an assistant.", use_alternate_api=False,
     config = get_openai_config(use_alternate_api=use_alternate_api)
     client = _create_openai_client(config)
 
-    model = config['model'] if config['api_type'] == 'open_ai' else config['deployment_id']
+    if config['api_type'] == 'open_ai':
+        model = model_override or config['model']
+    else:
+        model = deployment_override or config['deployment_id']
     kwargs = {"messages": messages, "model": model}
 
     # Reasoning models: use reasoning param and require temperature=1.0

@@ -21,10 +21,21 @@ class WorkflowCommandExecutor {
      */
     async executeCommands(commandsJson, options = {}) {
         const { skipValidation = false, autoFix = true } = options;
-        
+        // Suppress the standalone debounced validator while the AI build flow
+        // is running its own end-of-build validation, to avoid double-fire AND
+        // to prevent the debounced validator from firing AFTER the AI build
+        // completes (which would silently apply server-side fix_commands such
+        // as delete_connection and prune the just-built workflow).
+        window.aiBuilderActive = true;
+        // Cancel any debounced validation that was already pending — this can
+        // happen if the user wired connections by hand right before triggering
+        // an AI build.
+        if (typeof window.cancelPendingWorkflowValidation === 'function') {
+            window.cancelPendingWorkflowValidation();
+        }
         try {
             // Parse commands if string
-            const commandData = typeof commandsJson === 'string' 
+            const commandData = typeof commandsJson === 'string'
                 ? JSON.parse(commandsJson)
                 : commandsJson;
             
@@ -109,29 +120,78 @@ class WorkflowCommandExecutor {
                     results.validation = validation;
                     
                     if (validation.status === 'success') {
+                        // FIRST: apply any deterministic fix commands the server returned.
+                        // The server's deterministic validator emits these for issues
+                        // with unambiguous fixes (duplicate connections, missing start
+                        // node, missing template path, etc.) and verifies the post-fix
+                        // state is clean before declaring is_valid=true. We apply them
+                        // locally so the canvas matches what the server says is valid.
+                        if (validation.fix_commands &&
+                            validation.fix_commands.commands &&
+                            validation.fix_commands.commands.length > 0) {
+                            this.log(`Applying ${validation.fix_commands.commands.length} deterministic fix command(s)...`);
+                            this.updateOverlayMessage('Auto-fixing workflow...');
+                            for (const fixCmd of validation.fix_commands.commands) {
+                                try {
+                                    await this.executeCommand(fixCmd);
+                                    results.fixesApplied = (results.fixesApplied || 0) + 1;
+                                    this.log(`✓ Auto-fix applied: ${fixCmd.type}`, 'success');
+                                    await new Promise(r => setTimeout(r, 100));
+                                } catch (fixError) {
+                                    this.log(`✗ Auto-fix failed: ${fixCmd.type} - ${fixError.message}`, 'error');
+                                }
+                            }
+                            if (typeof jsPlumbInstance !== 'undefined' && results.fixesApplied > 0) {
+                                jsPlumbInstance.repaintEverything();
+                            }
+                        }
+
+                        // THEN: only the residual errors/warnings the deterministic path
+                        // could not resolve come through validation.errors / .warnings.
+                        // Those go to the agent fix loop as before.
                         const hasErrors = validation.errors && validation.errors.length > 0;
                         const hasWarnings = validation.warnings && validation.warnings.length > 0;
-                        
-                        // Log the issues
+
                         if (hasErrors) {
                             validation.errors.forEach(err => this.log(`✗ Error: ${err}`, 'error'));
                         }
                         if (hasWarnings) {
                             validation.warnings.forEach(warn => this.log(`⚠ Warning: ${warn}`, 'warning'));
                         }
-                        
+
+                        // Decorate offending nodes in the designer with a visual
+                        // warning ring + tooltip. Clear stale decorations from any
+                        // previous validation pass first so we don't accumulate.
+                        document.querySelectorAll('.workflow-node.has-validation-warning')
+                            .forEach(el => {
+                                el.classList.remove('has-validation-warning');
+                                el.removeAttribute('data-validation-warning');
+                                el.removeAttribute('title');
+                            });
+                        const warningDetails = validation.warning_details || [];
+                        warningDetails.forEach(w => {
+                            if (!w.node_id) return;
+                            const el = document.getElementById(w.node_id);
+                            if (!el) return;
+                            el.classList.add('has-validation-warning');
+                            el.setAttribute('data-validation-warning', w.code || 'WARNING');
+                            // Append to existing title if multiple warnings on one node
+                            const prior = el.getAttribute('title');
+                            el.setAttribute('title', prior ? `${prior}\n${w.message}` : w.message);
+                        });
+
                         if (hasErrors || hasWarnings) {
                             results.needsFix = true;
 
                             // Update overlay to show fixing
                             this.updateOverlayMessage('Adjusting workflow...');
-                            
+
                             // Auto-send to WorkflowAgent if enabled
                             if (autoFix) {
-                                this.log('Sending issues to AI assistant for fixes...');
+                                this.log('Sending residual issues to AI assistant for fixes...');
                                 await this.requestWorkflowAgentFix(
-                                    validation.errors || [], 
-                                    validation.warnings || [], 
+                                    validation.errors || [],
+                                    validation.warnings || [],
                                     workflowState
                                 );
                             }
@@ -144,12 +204,14 @@ class WorkflowCommandExecutor {
                     this.log(`Validation skipped: ${validationError.message}`, 'warning');
                 }
             }
-            
+
             return results;
-            
+
         } catch (error) {
             console.error('Command execution error:', error);
             throw error;
+        } finally {
+            window.aiBuilderActive = false;
         }
     }
 
@@ -1032,3 +1094,102 @@ class WorkflowCommandExecutor {
 
 // Create global instance
 const workflowCommandExecutor = new WorkflowCommandExecutor();
+
+
+// ============================================================================
+// Standalone validation + UI decoration
+// ============================================================================
+//
+// Used outside the AI build flow — fires on workflow save, on workflow load,
+// and on user-initiated connection changes (drag, delete). Calls the same
+// /api/workflow/builder/validate endpoint, silently applies any deterministic
+// fix_commands the server returns (e.g. End Loop -> Loop redundant back-edge),
+// and decorates offending nodes with a warning ring + tooltip for issues that
+// require user resolution (e.g. duplicate pass / fail / pass+complete slots).
+// ============================================================================
+
+(function () {
+    if (window.requestWorkflowValidation) return;  // idempotent
+
+    function applyDecorations(validation) {
+        // Clear stale decorations first
+        document.querySelectorAll('.workflow-node.has-validation-warning')
+            .forEach(el => {
+                el.classList.remove('has-validation-warning');
+                el.removeAttribute('data-validation-warning');
+                el.removeAttribute('title');
+            });
+        const details = (validation && validation.warning_details) || [];
+        details.forEach(w => {
+            if (!w.node_id) return;
+            const el = document.getElementById(w.node_id);
+            if (!el) return;
+            el.classList.add('has-validation-warning');
+            el.setAttribute('data-validation-warning', w.code || 'WARNING');
+            const prior = el.getAttribute('title');
+            el.setAttribute('title', prior ? `${prior}\n${w.message}` : w.message);
+        });
+    }
+
+    async function runValidationOnce() {
+        try {
+            // Don't validate while an AI build is in progress — that path runs
+            // its own validation when it finishes. Avoids double-decoration.
+            if (window.aiBuilderActive) return;
+            const state = workflowCommandExecutor.getWorkflowStateForValidation();
+            if (!state.nodes || state.nodes.length === 0) {
+                applyDecorations(null);  // clear any stale decorations
+                return;
+            }
+            const resp = await fetch('/api/workflow/builder/validate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ workflow_state: state })
+            });
+            if (!resp.ok) return;
+            const validation = await resp.json();
+            if (validation.status !== 'success') return;
+            // Silently apply deterministic fix commands (e.g. drop redundant
+            // End Loop -> Loop back-edge). User never sees this happen.
+            if (validation.fix_commands &&
+                validation.fix_commands.commands &&
+                validation.fix_commands.commands.length > 0) {
+                for (const cmd of validation.fix_commands.commands) {
+                    try {
+                        await workflowCommandExecutor.executeCommand(cmd);
+                    } catch (_) { /* best-effort */ }
+                }
+                if (typeof jsPlumbInstance !== 'undefined') {
+                    jsPlumbInstance.repaintEverything();
+                }
+            }
+            applyDecorations(validation);
+        } catch (_) {
+            // Best-effort. Validation failures shouldn't break the editor.
+        }
+    }
+
+    let pending = null;
+    function requestWorkflowValidation(delayMs) {
+        // CRITICAL: bail at SCHEDULE time, not just at fire time. The 'connection'
+        // event fires for every connect_nodes command the AI executor applies, so
+        // without this guard we'd schedule a debounced validation while the build
+        // is in progress; the debounce would fire ~400ms later (after the build
+        // completes and aiBuilderActive resets) and silently apply fix_commands —
+        // including delete_connection — that prune the just-built workflow.
+        if (window.aiBuilderActive) return;
+        const wait = (typeof delayMs === 'number') ? delayMs : 400;
+        if (pending) clearTimeout(pending);
+        pending = setTimeout(() => {
+            pending = null;
+            runValidationOnce();
+        }, wait);
+    }
+
+    function cancelPendingWorkflowValidation() {
+        if (pending) { clearTimeout(pending); pending = null; }
+    }
+
+    window.requestWorkflowValidation = requestWorkflowValidation;
+    window.cancelPendingWorkflowValidation = cancelPendingWorkflowValidation;
+})();

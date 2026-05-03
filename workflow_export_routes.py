@@ -158,9 +158,57 @@ def import_workflow():
     except OSError as e:
         return jsonify({"error": f"could not write workflow: {e}"}), 500
 
-    logger.info("Installed workflow %s → %s", name, final_target.name)
+    # ──────────────────────────────────────────────────────────────
+    # Persist into the [Workflows] table so the Workflow Designer
+    # actually lists this workflow.
+    #
+    # The Designer's list comes from `SQL_SELECT_WORKFLOWS` (a query
+    # against [dbo].[Workflows]); a file under workflows/ alone is
+    # invisible to it. The regular /save/workflow route writes both
+    # the file AND the DB row — solution import was only doing the
+    # file half, so imported workflows silently never showed up.
+    #
+    # Mirror the regular save path by calling save_workflow_to_database()
+    # with the stem (no .json extension), exactly as /save/workflow does.
+    # Late import to avoid circular dependency with app.py.
+    # ──────────────────────────────────────────────────────────────
+    db_workflow_id = None
+    if isinstance(workflow, dict):
+        try:
+            from app import save_workflow_to_database  # type: ignore
+            db_workflow_id = save_workflow_to_database(final_target.stem, workflow)
+        except Exception as e:  # noqa: BLE001
+            logger.error(
+                "Solution import: wrote workflow file %s but DB save failed: %s",
+                final_target.name, e,
+            )
+            # Roll back the file so the caller sees a clean failure rather
+            # than a half-imported workflow that's invisible in the Designer
+            # and blocks the next import attempt with a name conflict.
+            try:
+                final_target.unlink()
+            except OSError:
+                pass
+            return jsonify({
+                "error": f"could not save workflow to database: {e}",
+            }), 500
+    else:
+        # Legacy bundles allowed list payloads; the Designer's schema
+        # expects a dict (with nodes/connections). Log loudly so this
+        # doesn't recur as a silent miss.
+        logger.warning(
+            "Solution import: workflow %s payload is %s, not dict — "
+            "file written but skipped DB save (will not appear in Designer).",
+            final_target.name, type(workflow).__name__,
+        )
+
+    logger.info(
+        "Installed workflow %s → %s (db id=%s)",
+        name, final_target.name, db_workflow_id,
+    )
     return jsonify({
         "status": "installed",
         "name": final_target.stem,
         "filename": final_target.name,
+        "workflow_id": db_workflow_id,
     }), 201

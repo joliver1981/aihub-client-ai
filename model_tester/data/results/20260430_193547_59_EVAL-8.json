@@ -1,0 +1,114 @@
+{
+  "eval_id": "EVAL-8",
+  "eval_name": "Multi-stage onboarding (Folder+Loop+AI+DB+Excel+Alert)",
+  "model_id": "openai-gpt-4-1-mini",
+  "model_label": "OpenAI GPT-4.1 mini (legacy)",
+  "model_provider": "openai",
+  "model_config_snapshot": {
+    "label": "OpenAI GPT-4.1 mini (legacy)",
+    "provider": "openai",
+    "model": "gpt-4.1-mini"
+  },
+  "system_prompt_chars": 33304,
+  "user_prompt_chars": 6135,
+  "temperature": 0.2,
+  "max_tokens": 8192,
+  "ok": true,
+  "error": null,
+  "content": "```json\n{\n  \"action\": \"build_workflow\",\n  \"commands\": [\n    {\n      \"type\": \"add_node\",\n      \"node_type\": \"Folder Selector\",\n      \"label\": \"Select Onboarding PDFs\",\n      \"config\": {\n        \"folderPath\": \"C:\\\\incoming\\\\onboarding\",\n        \"selectionMode\": \"pattern\",\n        \"filePattern\": \"*.pdf\",\n        \"outputVariable\": \"onboardingFiles\",\n        \"failIfEmpty\": false\n      },\n      \"position\": { \"left\": \"20px\", \"top\": \"40px\" },\n      \"node_id\": \"node-0\"\n    },\n    {\n      \"type\": \"add_node\",\n      \"node_type\": \"Set Variable\",\n      \"label\": \"Initialize Collected Rows\",\n      \"config\": {\n        \"variableName\": \"collectedRows\",\n        \"valueSource\": \"direct\",\n        \"valueExpression\": \"[]\",\n        \"evaluateAsExpression\": true\n      },\n      \"position\": { \"left\": \"220px\", \"top\": \"40px\" },\n      \"node_id\": \"node-1\"\n    },\n    {\n      \"type\": \"connect_nodes\",\n      \"from\": \"node-0\",\n      \"to\": \"node-1\",\n      \"connection_type\": \"pass\"\n    },\n    {\n      \"type\": \"add_node\",\n      \"node_type\": \"Loop\",\n      \"label\": \"Loop Through PDF Files\",\n      \"config\": {\n        \"sourceType\": \"auto\",\n        \"loopSource\": \"${onboardingFiles}\",\n        \"itemVariable\": \"currentFile\",\n        \"indexVariable\": \"currentIndex\",\n        \"maxIterations\": \"10000\"\n      },\n      \"position\": { \"left\": \"420px\", \"top\": \"40px\" },\n      \"node_id\": \"node-2\"\n    },\n    {\n      \"type\": \"connect_nodes\",\n      \"from\": \"node-1\",\n      \"to\": \"node-2\",\n      \"connection_type\": \"pass\"\n    },\n    {\n      \"type\": \"add_node\",\n      \"node_type\": \"AI Extract\",\n      \"label\": \"Extract Customer Fields\",\n      \"config\": {\n        \"inputSource\": \"auto\",\n        \"inputVariable\": \"${currentFile}\",\n        \"outputVariable\": \"extractedCustomer\",\n        \"failOnMissingRequired\": false,\n        \"fields\": [\n          {\n            \"name\": \"customer_name\",\n            \"type\": \"text\",\n            \"required\": false,\n            \"description\": \"Customer full name found in the onboarding PDF.\"\n          },\n          {\n            \"name\": \"customer_email\",\n            \"type\": \"text\",\n            \"required\": false,\n            \"description\": \"Customer email address found in the onboarding PDF.\"\n          }\n        ]\n      },\n      \"position\": { \"left\": \"620px\", \"top\": \"20px\" },\n      \"node_id\": \"node-3\"\n    },\n    {\n      \"type\": \"connect_nodes\",\n      \"from\": \"node-2\",\n      \"to\": \"node-3\",\n      \"connection_type\": \"pass\"\n    },\n    {\n      \"type\": \"add_node\",\n      \"node_type\": \"Database\",\n      \"label\": \"Insert Customer Into Database\",\n      \"config\": {\n        \"connection\": \"5\",\n        \"dbOperation\": \"query\",\n        \"query\": \"INSERT INTO dbo.AgentEmailAddresses (email_address, from_name, is_active, created_at)\\nVALUES (${extractedCustomer.customer_email}, ${extractedCustomer.customer_name}, 1, GETDATE());\",\n        \"saveToVariable\": true,\n        \"outputVariable\": \"dbInsertResult\",\n        \"continueOnError\": false\n      },\n      \"position\": { \"left\": \"820px\", \"top\": \"20px\" },\n      \"node_id\": \"node-4\"\n    },\n    {\n      \"type\": \"connect_nodes\",\n      \"from\": \"node-3\",\n      \"to\": \"node-4\",\n      \"connection_type\": \"pass\"\n    },\n    {\n      \"type\": \"add_node\",\n      \"node_type\": \"Set Variable\",\n      \"label\": \"Build Current Row\",\n      \"config\": {\n        \"variableName\": \"currentRow\",\n        \"valueSource\": \"direct\",\n        \"valueExpression\": \"{\\\"customer_name\\\": extractedCustomer.get(\\\"customer_name\\\"), \\\"customer_email\\\": extractedCustomer.get(\\\"customer_email\\\"), \\\"source_file\\\": currentFile}\",\n        \"evaluateAsExpression\": true\n      },\n      \"position\": { \"left\": \"1020px\", \"top\": \"20px\" },\n      \"node_id\": \"node-5\"\n    },\n    {\n      \"type\": \"connect_nodes\",\n      \"from\": \"node-4\",\n      \"to\": \"node-5\",\n      \"connection_type\": \"pass\"\n    },\n    {\n      \"type\": \"add_node\",\n      \"node_type\": \"Set Variable\",\n      \"label\": \"Append Row To Collection\",\n      \"config\": {\n        \"variableName\": \"collectedRows\",\n        \"valueSource\": \"direct\",\n        \"valueExpression\": \"collectedRows + [currentRow]\",\n        \"evaluateAsExpression\": true\n      },\n      \"position\": { \"left\": \"1220px\", \"top\": \"20px\" },\n      \"node_id\": \"node-6\"\n    },\n    {\n      \"type\": \"connect_nodes\",\n      \"from\": \"node-5\",\n      \"to\": \"node-6\",\n      \"connection_type\": \"pass\"\n    },\n    {\n      \"type\": \"add_node\",\n      \"node_type\": \"End Loop\",\n      \"label\": \"End File Loop\",\n      \"config\": {\n        \"loopNodeId\": \"node-2\"\n      },\n      \"position\": { \"left\": \"1420px\", \"top\": \"20px\" },\n      \"node_id\": \"node-7\"\n    },\n    {\n      \"type\": \"connect_nodes\",\n      \"from\": \"node-6\",\n      \"to\": \"node-7\",\n      \"connection_type\": \"pass\"\n    },\n    {\n      \"type\": \"connect_nodes\",\n      \"from\": \"node-7\",\n      \"to\": \"node-2\",\n      \"connection_type\": \"pass\"\n    },\n    {\n      \"type\": \"add_node\",\n      \"node_type\": \"Excel Export\",\n      \"label\": \"Write Onboarded Excel File\",\n      \"config\": {\n        \"inputVariable\": \"${collectedRows}\",\n        \"flattenArray\": true,\n        \"excelOutputPath\": \"onboarded.xlsx\",\n        \"excelOperation\": \"new\",\n        \"mappingMode\": \"ai\",\n        \"outputVariable\": \"excelExportResult\"\n      },\n      \"position\": { \"left\": \"1620px\", \"top\": \"40px\" },\n      \"node_id\": \"node-8\"\n    },\n    {\n      \"type\": \"connect_nodes\",\n      \"from\": \"node-2\",\n      \"to\": \"node-8\",\n      \"connection_type\": \"complete\"\n    },\n    {\n      \"type\": \"add_node\",\n      \"node_type\": \"Set Variable\",\n      \"label\": \"Prepare Email Body\",\n      \"config\": {\n        \"variableName\": \"alertMessage\",\n        \"valueSource\": \"direct\",\n        \"valueExpression\": \"f\\\"Customer onboarding workflow completed. Processed {len(collectedRows)} PDF file(s). Excel output: onboarded.xlsx\\\"\",\n        \"evaluateAsExpression\": true\n      },\n      \"position\": { \"left\": \"1820px\", \"top\": \"40px\" },\n      \"node_id\": \"node-9\"\n    },\n    {\n      \"type\": \"connect_nodes\",\n      \"from\": \"node-8\",\n      \"to\": \"node-9\",\n      \"connection_type\": \"pass\"\n    },\n    {\n      \"type\": \"add_node\",\n      \"node_type\": \"Set Variable\",\n      \"label\": \"Prepare Email Subject\",\n      \"config\": {\n        \"variableName\": \"alertSubject\",\n        \"valueSource\": \"direct\",\n        \"valueExpression\": \"Customer onboarding completed\",\n        \"evaluateAsExpression\": false\n      },\n      \"position\": { \"left\": \"2020px\", \"top\": \"40px\" },\n      \"node_id\": \"node-10\"\n    },\n    {\n      \"type\": \"connect_nodes\",\n      \"from\": \"node-9\",\n      \"to\": \"node-10\",\n      \"connection_type\": \"pass\"\n    },\n    {\n      \"type\": \"add_node\",\n      \"node_type\": \"Alert\",\n      \"label\": \"Email CRM Team\",\n      \"config\": {\n        \"alertType\": \"email\",\n        \"recipients\": \"crm@acme.com\",\n        \"emailSubject\": \"${alertSubject}\",\n        \"messageTemplate\": \"${alertMessage}\",\n        \"attachmentPath\": \"onboarded.xlsx\"\n      },\n      \"position\": { \"left\": \"2220px\", \"top\": \"40px\" },\n      \"node_id\": \"node-11\"\n    },\n    {\n      \"type\": \"connect_nodes\",\n      \"from\": \"node-10\",\n      \"to\": \"node-11\",\n      \"connection_type\": \"pass\"\n    },\n    {\n      \"type\": \"set_start_node\",\n      \"node_id\": \"node-0\"\n    }\n  ]\n}\n```",
+  "usage": {
+    "completion_tokens": 1961,
+    "prompt_tokens": 9463,
+    "total_tokens": 11424,
+    "completion_tokens_details": {
+      "accepted_prediction_tokens": 0,
+      "audio_tokens": 0,
+      "reasoning_tokens": 0,
+      "rejected_prediction_tokens": 0
+    },
+    "prompt_tokens_details": {
+      "audio_tokens": 0,
+      "cached_tokens": 0
+    }
+  },
+  "elapsed_ms": 35111,
+  "judge": {
+    "score": 9,
+    "max_score": 11,
+    "passed": false,
+    "reason": "9/11 checks passed",
+    "details": {
+      "add_node_count": 12,
+      "node_types_present": [
+        "AI Extract",
+        "Alert",
+        "Database",
+        "End Loop",
+        "Excel Export",
+        "Folder Selector",
+        "Loop",
+        "Set Variable"
+      ],
+      "total_commands": 25,
+      "checks": [
+        {
+          "name": "min_add_nodes >= 7",
+          "passed": true,
+          "detail": "got 12"
+        },
+        {
+          "name": "contains node_type \"Folder Selector\"",
+          "passed": true,
+          "detail": "present"
+        },
+        {
+          "name": "contains node_type \"Loop\"",
+          "passed": true,
+          "detail": "present"
+        },
+        {
+          "name": "contains node_type \"AI Extract\"",
+          "passed": true,
+          "detail": "present"
+        },
+        {
+          "name": "contains node_type \"Database\"",
+          "passed": true,
+          "detail": "present"
+        },
+        {
+          "name": "contains node_type \"End Loop\"",
+          "passed": true,
+          "detail": "present"
+        },
+        {
+          "name": "contains node_type \"Excel Export\"",
+          "passed": true,
+          "detail": "present"
+        },
+        {
+          "name": "contains node_type \"Alert\"",
+          "passed": true,
+          "detail": "present"
+        },
+        {
+          "name": "has set_start_node",
+          "passed": true,
+          "detail": "present"
+        },
+        {
+          "name": "no Loop with pass+complete outgoing",
+          "passed": false,
+          "detail": "violations on: ['node-2']"
+        },
+        {
+          "name": "no End Loop -> Loop physical edges",
+          "passed": false,
+          "detail": "violations on: ['node-7->node-2']"
+        }
+      ]
+    }
+  },
+  "result_id": "20260430_193547_59_EVAL-8",
+  "saved_at": "2026-04-30T19:35:47"
+}

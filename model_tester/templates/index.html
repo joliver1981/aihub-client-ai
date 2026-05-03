@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>model_tester</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>model_tester</h1>
+  <span class="subtitle">internal LLM evaluation tool</span>
+  <div class="model-picker">
+    <label>Active model:</label>
+    <select id="active-model"></select>
+    <span id="active-model-info" class="muted"></span>
+  </div>
+</header>
+
+<nav>
+  <button class="tab active" data-tab="run">Chat &amp; Run</button>
+  <button class="tab" data-tab="evals">Evals</button>
+  <button class="tab" data-tab="results">Results</button>
+  <button class="tab" data-tab="settings">Settings</button>
+</nav>
+
+<!-- ==================== RUN TAB ==================== -->
+<section id="tab-run" class="tab-pane active">
+  <div class="row">
+    <div class="col">
+      <label>Load a preset eval (optional):</label>
+      <select id="eval-picker">
+        <option value="">— ad-hoc (free chat) —</option>
+      </select>
+      <button id="load-eval-btn">Load</button>
+      <span id="eval-loaded-info" class="muted"></span>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col">
+      <label>System prompt</label>
+      <textarea id="system-prompt" rows="6" placeholder="System prompt..."></textarea>
+      <small id="system-len" class="muted"></small>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col">
+      <label>User prompt</label>
+      <textarea id="user-prompt" rows="10" placeholder="User message..."></textarea>
+      <small id="user-len" class="muted"></small>
+    </div>
+  </div>
+
+  <div class="row controls">
+    <label>Temp:
+      <input type="number" id="temperature" value="0.2" step="0.1" min="0" max="2" style="width:60px">
+    </label>
+    <label>Max tokens:
+      <input type="number" id="max-tokens" value="8192" step="512" min="256" max="32768" style="width:90px">
+    </label>
+    <label class="checkbox">
+      <input type="checkbox" id="run-judge" checked>
+      Run structural judge
+    </label>
+    <label class="checkbox">
+      <input type="checkbox" id="run-llm-judge">
+      Also run LLM judge
+    </label>
+    <button id="run-btn" class="primary">Run</button>
+    <button id="run-all-btn">Run all OOB evals (10x)</button>
+    <span id="run-status" class="muted"></span>
+  </div>
+
+  <div class="row output-row">
+    <div class="col">
+      <label>Output</label>
+      <pre id="output"></pre>
+    </div>
+    <div class="col verdict-col">
+      <label>Judge verdict</label>
+      <div id="verdict"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== EVALS TAB ==================== -->
+<section id="tab-evals" class="tab-pane">
+  <div class="row controls">
+    <button id="new-eval-btn" class="primary">+ New eval</button>
+    <input id="eval-search" placeholder="filter by name or tag" style="flex:1">
+  </div>
+  <table class="data-table">
+    <thead>
+      <tr><th>ID</th><th>Name</th><th>Category</th><th>Tags</th><th>Actions</th></tr>
+    </thead>
+    <tbody id="evals-table-body"></tbody>
+  </table>
+
+  <!-- Eval editor (modal) -->
+  <div id="eval-editor" class="modal hidden">
+    <div class="modal-content wide">
+      <h2>Edit eval</h2>
+      <label>ID <input id="ee-id"></label>
+      <label>Name <input id="ee-name"></label>
+      <label>Category <input id="ee-category" placeholder="e.g. CommandGen"></label>
+      <label>Description <input id="ee-description"></label>
+      <label>Tags (comma-separated) <input id="ee-tags"></label>
+      <label>System prompt ref (file in data/system_prompts/) <input id="ee-spref" placeholder="e.g. command_generator"></label>
+      <label>System prompt (inline; overrides ref)
+        <textarea id="ee-system" rows="4"></textarea>
+      </label>
+      <label>User prompt
+        <textarea id="ee-user" rows="10"></textarea>
+      </label>
+      <label>Expected (JSON)
+        <textarea id="ee-expected" rows="6"></textarea>
+      </label>
+      <div class="modal-actions">
+        <button id="ee-save" class="primary">Save</button>
+        <button id="ee-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== RESULTS TAB ==================== -->
+<section id="tab-results" class="tab-pane">
+  <div class="row controls">
+    <button id="results-refresh">Refresh</button>
+    <span class="muted">Latest 200 results</span>
+  </div>
+  <table class="data-table">
+    <thead>
+      <tr><th>When</th><th>Eval</th><th>Model</th><th>Time</th><th>Judge</th><th>Actions</th></tr>
+    </thead>
+    <tbody id="results-table-body"></tbody>
+  </table>
+
+  <div id="result-detail" class="modal hidden">
+    <div class="modal-content wide">
+      <h2 id="rd-title">Result</h2>
+      <div id="rd-meta" class="muted"></div>
+      <h3>Output</h3>
+      <pre id="rd-output"></pre>
+      <h3>Judge</h3>
+      <pre id="rd-judge"></pre>
+      <div class="modal-actions">
+        <button id="rd-rejudge">Re-run judge</button>
+        <button id="rd-close" class="primary">Close</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SETTINGS TAB ==================== -->
+<section id="tab-settings" class="tab-pane">
+  <h2>Models</h2>
+  <p class="muted">API keys default to whatever the main aihub app uses (env / secure_config).
+     Set an override here if you want to test a different key without changing the main app's config.
+     Existing override values are masked; leave them masked to keep them.</p>
+  <table class="data-table" id="models-table">
+    <thead>
+      <tr><th>ID</th><th>Label</th><th>Provider</th><th>Model / Deployment</th><th>Endpoint</th><th>API key override</th><th></th></tr>
+    </thead>
+    <tbody id="models-table-body"></tbody>
+  </table>
+  <div class="row controls">
+    <button id="settings-save" class="primary">Save settings</button>
+    <button id="add-model-btn">+ Add model</button>
+  </div>
+
+  <h2>Active / judge model</h2>
+  <label>Default active model: <select id="active-model-setting"></select></label>
+  <label>Judge model: <select id="judge-model-setting"></select></label>
+</section>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

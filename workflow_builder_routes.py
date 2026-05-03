@@ -12,11 +12,15 @@ import os
 
 ### TRAINING CAPTURE - START ###
 try:
-    from workflow_training_capture import capture_from_agent, get_statistics, capture_plan_to_commands
+    from workflow_training_capture import (
+        capture_from_agent, get_statistics, capture_plan_to_commands,
+        capture_bad_plan_to_commands,
+    )
 except ImportError:
     def capture_from_agent(*args, **kwargs): return False
     def get_statistics(): return {"available": False}
     def capture_plan_to_commands(*args, **kwargs): return False
+    def capture_bad_plan_to_commands(*args, **kwargs): return False
 ### TRAINING CAPTURE - END ###
 
 
@@ -97,6 +101,24 @@ def workflow_builder_guide():
         if is_validation_fix:
             agent.is_validation_fix = True
             logger.info(f"Validation fix request for session {session_id}")
+            # Stash the fix message + the BAD commands the agent had just
+            # produced so we can persist them later for validator analysis.
+            try:
+                fix_msgs = list(getattr(agent, 'fix_messages', None) or [])
+                fix_msgs.append(message)
+                agent.fix_messages = fix_msgs
+                # The current_json_commands attribute holds the most recent
+                # commands the agent generated (the bad ones, if a fix was
+                # needed). Save a copy so a later good build can't overwrite
+                # them in memory before finalize-capture runs.
+                bad_cmds = getattr(agent, 'current_json_commands', None) or getattr(agent, 'generated_commands', None)
+                if bad_cmds and not getattr(agent, 'first_bad_commands', None):
+                    if isinstance(bad_cmds, list):
+                        agent.first_bad_commands = {"action": "build_workflow", "commands": bad_cmds}
+                    else:
+                        agent.first_bad_commands = bad_cmds
+            except Exception as stash_e:
+                logger.debug(f"could not stash bad-output context: {stash_e}")
         
         # Build response
         result = {
@@ -151,17 +173,36 @@ def validate_workflow_state():
         
         # Validate the workflow
         is_valid, validation_result = validate_workflow(workflow_state)
-        
+
         # Log results
         if validation_result.get('errors'):
             logger.info(f"Workflow validation found {len(validation_result['errors'])} errors")
-        
-        return jsonify({
+
+        response = {
             'status': 'success',
             'is_valid': is_valid,
             'errors': validation_result.get('errors', []),
-            'warnings': validation_result.get('warnings', [])
-        })
+            'warnings': validation_result.get('warnings', []),
+            # Structured per-warning details so the designer UI can decorate
+            # the offending node (red ring + tooltip). Each entry is
+            # {code, node_id, message, extra}. Falls back to [] when the
+            # validator doesn't populate it (e.g. LLM-only fallback path).
+            'warning_details': validation_result.get('warning_details', []),
+        }
+        # Surface fix_commands so the frontend command executor can apply them
+        # directly without bouncing back to the agent. The deterministic
+        # pre-pass populates this for issues with unambiguous fixes; the LLM
+        # fallback may also return fix_commands. The frontend's
+        # workflow_command_executor.js already knows this shape.
+        if validation_result.get('fix_commands'):
+            response['fix_commands'] = validation_result['fix_commands']
+            logger.info(
+                f"Validation emitted "
+                f"{len(validation_result['fix_commands'].get('commands', []))} "
+                f"fix command(s) for direct application"
+            )
+
+        return jsonify(response)
         
     except Exception as e:
         logger.error(f"Error validating workflow: {str(e)}", exc_info=True)
@@ -467,6 +508,38 @@ def finalize_training_capture_endpoint():
         # Skip capture if validation fixes were needed (dirty data)
         if getattr(agent, 'is_validation_fix', False):
             logger.info(f"Skipping training capture for session {session_id} - validation fixes were required")
+
+            # But DO save the bad output to a separate file for later analysis.
+            # These are exactly the cases a deterministic validator needs to catch.
+            try:
+                workflow_plan = getattr(agent, 'workflow_plan', None)
+                # Prefer the FIRST-pass commands (the actual bad output) if we
+                # stashed them when validation_fix arrived; otherwise fall back
+                # to whatever the agent currently has.
+                first_bad = getattr(agent, 'first_bad_commands', None)
+                generated_commands = getattr(agent, 'generated_commands', None)
+                current_json_commands = getattr(agent, 'current_json_commands', None)
+                if first_bad:
+                    commands_dict = first_bad
+                elif generated_commands:
+                    commands_dict = {"action": "build_workflow", "commands": generated_commands}
+                elif current_json_commands:
+                    commands_dict = current_json_commands
+                else:
+                    commands_dict = None
+                if workflow_plan and commands_dict:
+                    val_errors = getattr(agent, 'last_validation_errors', None) or []
+                    fix_msgs = getattr(agent, 'fix_messages', None) or []
+                    capture_bad_plan_to_commands(
+                        workflow_plan=workflow_plan,
+                        commands=commands_dict,
+                        session_id=session_id,
+                        validation_errors=val_errors,
+                        fix_messages=fix_msgs,
+                    )
+            except Exception as bad_e:
+                logger.warning(f"bad-output capture failed: {bad_e}")
+
             try:
                 del training_builder_sessions[session_id]
             except:
@@ -474,7 +547,8 @@ def finalize_training_capture_endpoint():
             return jsonify({
                 'status': 'success',
                 'captured': False,
-                'reason': 'validation_fixes_required'
+                'reason': 'validation_fixes_required',
+                'bad_output_saved': True,
             })
         
         # Capture training data directly from the agent

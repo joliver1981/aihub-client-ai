@@ -121,7 +121,7 @@
                                 </div>
                             </div>
 
-                            {% if FLAG_SOLUTIONS %}
+                            {% if FLAG_SOLUTIONS and current_user.role >= 2 %}
                             <!-- Solutions Gallery Path -->
                             <div class="col-md-12 mb-3">
                                 <a href="/solutions" class="build-path-card d-block" style="text-decoration:none; color:inherit;">

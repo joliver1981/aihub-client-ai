@@ -2270,15 +2270,15 @@ NODE_DETAIL_REFERENCE = {
 - Purpose: Execute SQL queries or stored procedures
 - IMPORTANT: Always use get_available_database_connections tool to look up connections
 - Required config fields:
-  * connection: Connection ID number as string (use the ID from tool results, not the name)
+  * connection: Connection ID number as a STRING, e.g. "1" (use the ID from tool results, NOT the connection name). Validator will reject a connection name like "AIHubDB".
   * dbOperation: One of query, procedure, select, insert, update, delete
-  * query: SQL query string with variables using dollar-brace syntax (for query operation)
+  * query: SQL query string. Variable substitution MUST use dollar-brace syntax like ${customerId}. Do NOT use '?' positional placeholders - the validator will reject them.
   * procedure: Stored procedure name (for procedure operation)
   * parameters: JSON array of procedure parameter values (for procedure operation)
   * tableName: Table name (for select, insert, update, delete operations)
   * columns: Column names, defaults to * (for select operation)
   * whereClause: WHERE condition (for select, update, delete operations)
-  * saveToVariable: Boolean true or false
+  * saveToVariable: Boolean true or false. If true, outputVariable MUST also be set or the validator will reject the node.
   * outputVariable: Name for storing results without dollar-brace
   * continueOnError: Boolean true or false""",
 
@@ -2367,7 +2367,14 @@ Output access: Use dollar-brace with dot notation like ${extractedData.fieldName
     "End Loop": """End Loop:
 - Purpose: Mark end of loop iteration
 - Required config fields:
-  * loopNodeId: Must match the node_id of corresponding Loop node""",
+  * loopNodeId: Must match the node_id of corresponding Loop node
+- WIRING RULES (validator-enforced):
+  * The End Loop node MUST have exactly ONE outgoing connection of type "pass" back to its
+    corresponding Loop node (this is the iteration-back edge). NOT two, not zero.
+  * Emit only one connect_nodes command for End Loop -> Loop (type "pass"). Adding it twice
+    will trigger a "DUPLICATE CONNECTION" validation error.
+  * Each Loop node should have exactly one matching End Loop. Do not create multiple End
+    Loop nodes referencing the same Loop, even if you regenerate the workflow.""",
 
     "Conditional": """Conditional:
 - Purpose: Make decisions based on comparisons or checks
@@ -2426,7 +2433,19 @@ Output access: Use dollar-brace with dot notation like ${extractedData.fieldName
 - Optional config fields (email only):
   * emailSubject: Custom email subject line (defaults to workflow name). Supports dollar-brace variables
   * attachmentPath: Full file path to attach to the email. Use dollar-brace variable from a previous Folder Selector or Set Variable step (e.g. dollar-brace-reportPath)
-- IMPORTANT: In messageTemplate, only use simple dollar-brace-varName references. Do NOT put Python expressions inside dollar-brace (e.g. do NOT use dollar-brace-len(x) or dollar-brace-chr(10).join(...)). To format lists, use a Set Variable node first to prepare the formatted text, then reference that variable""",
+- CRITICAL VARIABLE RULE (validator-enforced):
+  * messageTemplate (and emailSubject) ONLY support simple ${variableName} references.
+    Property access, method calls, indexing, expressions, and computed values are NOT allowed.
+  * REJECTED examples that the validator flags:
+    - ${stripeCustomers.length}    (no .property/.method access)
+    - ${currentFile.name}          (no .property)
+    - ${items[0]}                  (no indexing)
+    - ${len(rows)}                 (no function calls)
+    - ${count + 1}                 (no arithmetic)
+  * ACCEPTED: ${variableName} only.
+  * To format computed values (counts, list joins, dates), use a Set Variable node FIRST
+    with evaluateAsExpression=true to compute the value into a plain variable, then
+    reference that variable in messageTemplate.""",
 
     "Folder Selector": """Folder Selector:
 - Purpose: Select files from folders
@@ -2519,7 +2538,7 @@ Excel output configuration:
     - template: Create new file from template
     - append: Add rows to existing file (DEFAULT and most common)
     - update: Intelligently update existing rows by key columns, add new rows, optionally track deleted rows
-  * excelTemplatePath: Path to template file (required for template, append, and update operations)
+  * excelTemplatePath: Path to template file (REQUIRED for template, append, and update operations).
   * excelSheetName: Optional target sheet name (defaults to active sheet)
 
 Column mapping configuration:
@@ -2574,9 +2593,10 @@ Common patterns:
 
     "Integration": """Integration:
 - Purpose: Execute operations on connected external integrations (QuickBooks, Shopify, Stripe, etc.)
+- IMPORTANT: Use get_available_integrations to look up integration_id, then get_integration_operations to look up operation keys
 - Required config fields:
-  * integration_id: ID of the connected integration (select from available integrations)
-  * operation: Operation key to execute (e.g., get_invoices, create_order) - loaded dynamically based on selected integration
+  * integration_id: Numeric integration ID (use the ID from tool results, not the integration name)
+  * operation: Snake_case operation key from get_integration_operations (e.g. get_customers), not the display name
   * parameters: Dict of operation-specific parameters (supports dollar-brace variable syntax for dynamic values)
   * outputVariable: Name for storing operation result
   * continueOnError: Boolean true or false - continue workflow if operation fails"""
@@ -2588,6 +2608,10 @@ Database
 - Use for: Fetching data, updating records, inserting data, running stored procedures
 - Outputs: Query results stored in a variable (typically array of rows)
 - Note: Use get_available_database_connections tool to find valid connection IDs
+- Validator constraints: connection MUST be a numeric ID as a string (e.g. "1"), NOT a
+  connection name. SQL queries MUST use dollar-brace variable substitution
+  (dollar-brace-customerId), NOT '?' positional placeholders. If saveToVariable is true,
+  outputVariable is required.
 
 AI Action
 - Send prompts to AI agents for flexible analysis or content generation
@@ -2620,6 +2644,8 @@ Loop
 End Loop
 - Marks the end of a loop iteration.
 - Must be paired with a Loop node.
+- Validator constraint: End Loop MUST have exactly ONE outgoing "pass" connection back to
+  its Loop node (the iteration-back edge). Emit only one connect_nodes for End Loop -> Loop.
 
 Conditional
 - Branch workflow based on value comparisons
@@ -2640,6 +2666,10 @@ Alert
 - Types: Email, Text Message, or Phone Call
 - Can include dynamic content from workflow variables in message (simple dollar-brace-varName only, no expressions)
 - Email: Supports optional custom subject line and file attachment via file path variable
+- Validator constraint: messageTemplate and emailSubject ONLY accept simple
+  dollar-brace-variableName references. No property access (e.g. dollar-brace-x.y),
+  no indexing (dollar-brace-x[0]), no function calls (dollar-brace-len(x)),
+  no arithmetic. Compute values in a Set Variable node first, then reference that variable.
 
 Folder Selector
 - Select files from network or local folders
@@ -2673,14 +2703,16 @@ Excel Export
 - Column mapping: AI auto-mapping or manual field-to-column mapping
 - Preferred over AI Extract Excel output when: Exporting non-extracted data, need carry-forward fields, or want explicit mapping control
 - Outputs: File path and row count in result data
+- Validator constraint: when excelOperation is "append", "template", or "update", the
+  excelTemplatePath field is REQUIRED. For "append" it is typically the same path as
+  excelOutputPath (the existing file you are appending to).
 
 Integration
 - Execute operations on connected external integrations (QuickBooks, Shopify, Stripe, Slack, etc.)
 - Use for: Fetching data from or sending data to external services via pre-configured integrations
 - Required config: integration_id, operation (operation key), parameters (dict), outputVariable, continueOnError
 - Parameters support dollar-brace variable syntax for dynamic values
-- Use get_available_integrations tool to find connected integration IDs
-- Use get_integration_operations tool to discover available operations for an integration
+- Use get_available_integrations for integration_id (numeric, not the name) and get_integration_operations for the operation key (snake_case, not the display name)
 - Outputs: Operation result stored in a variable (structure depends on the operation)
 """
 

@@ -125,6 +125,59 @@ def capture_from_agent(agent, workflow_type: str = None, success: bool = True) -
         return False
     
     
+def capture_bad_plan_to_commands(workflow_plan: str, commands: Dict, session_id: str = None,
+                                  validation_errors: Optional[list] = None,
+                                  fix_messages: Optional[list] = None) -> bool:
+    """
+    Capture rejected/bad workflow generations to a SEPARATE JSONL file
+    (`bad_plan_to_commands.jsonl`) so they can be mined later for the kinds
+    of issues a deterministic validator should catch.
+
+    Bad outputs are workflows the agent generated that triggered the
+    validation auto-fix loop. They never make it into the main training
+    file (the strict capture filter rejects dirty conversations), but they
+    are exactly the cases a downstream validator needs to recognise.
+
+    Stored entry shape:
+        {
+            "session_id": "...",
+            "captured_at": "...",
+            "workflow_plan": "<final agreed plan>",
+            "commands": {"action": "build_workflow", "commands": [...]},
+            "validation_errors": [...],     // if available
+            "fix_messages": [...]           // any auto-fix messages the
+                                            // frontend sent to the agent
+        }
+    """
+    if not workflow_plan or not commands:
+        logger.warning("capture_bad_plan_to_commands: missing workflow_plan or commands")
+        return False
+    try:
+        storage_path = get_storage_path()
+        os.makedirs(storage_path, exist_ok=True)
+        record = {
+            "session_id": session_id,
+            "captured_at": datetime.utcnow().isoformat(),
+            "workflow_plan": workflow_plan,
+            "commands": commands,
+            "validation_errors": validation_errors or [],
+            "fix_messages": fix_messages or [],
+        }
+        bad_file = os.path.join(storage_path, "bad_plan_to_commands.jsonl")
+        with open(bad_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+        logger.info(
+            f"Captured bad plan-to-commands example "
+            f"({len(commands.get('commands', []))} commands, "
+            f"{len(validation_errors or [])} validation errors) "
+            f"for session {session_id}"
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Error capturing bad plan-to-commands: {e}", exc_info=True)
+        return False
+
+
 def capture_plan_to_commands(workflow_plan: str, commands: Dict, session_id: str = None) -> bool:
     """
     Capture training data in clean plan → commands format for fine-tuning.
@@ -306,29 +359,39 @@ Connections: Use pass (success), fail (error), or complete types. Each node can 
 # =============================================================================
 
 def get_statistics() -> Dict:
-    """Get capture statistics."""
+    """Get capture statistics.
+
+    The plan_to_commands_count is surfaced whether or not capture is currently
+    enabled — users want visibility into accumulated training data regardless
+    of whether new exports are being accepted right now.
+    """
     stats = {
         "capture_enabled": is_capture_enabled(),
     }
-    
-    if not is_capture_enabled():
-        return stats
-    
+
     try:
         storage_path = get_storage_path()
         stats["storage_path"] = storage_path
-        
+
         raw_file = os.path.join(storage_path, "conversations.jsonl")
         if os.path.exists(raw_file):
-            with open(raw_file, 'r') as f:
+            with open(raw_file, 'r', encoding='utf-8') as f:
                 stats["captured_conversations"] = sum(1 for _ in f)
-        
+
         training_file = os.path.join(storage_path, "training_ready.jsonl")
         if os.path.exists(training_file):
-            with open(training_file, 'r') as f:
+            with open(training_file, 'r', encoding='utf-8') as f:
                 stats["training_examples"] = sum(1 for _ in f)
-    
+
+        plan_file = os.path.join(storage_path, "plan_to_commands.jsonl")
+        if os.path.exists(plan_file):
+            with open(plan_file, 'r', encoding='utf-8') as f:
+                stats["plan_to_commands_count"] = sum(1 for _ in f)
+            stats["plan_to_commands_bytes"] = os.path.getsize(plan_file)
+        else:
+            stats["plan_to_commands_count"] = 0
+
     except Exception as e:
         stats["error"] = str(e)
-    
+
     return stats

@@ -163,7 +163,7 @@ DB_USER = DATABASE_UID
 DB_PWD = DATABASE_PWD
 DB_SERVER = DATABASE_SERVER
 DB_NAME = DATABASE_NAME
-DB_DRIVER = os.getenv('DATABASE_DRIVER')
+DB_DRIVER = os.getenv('DATABASE_DRIVER', 'SQL Server')
 CONNECTION_STRING = f"DRIVER={{SQL Server}};SERVER={DB_SERVER};DATABASE={DB_NAME};UID={DB_USER};PWD={DB_PWD}"
 
 # WinRM Credentials
@@ -271,6 +271,30 @@ SOLUTIONS_CACHE_DIR = os.getenv('SOLUTIONS_CACHE_DIR',
     os.path.join(_APP_ROOT, 'data', 'solutions_cache'))
 USE_MODERN_CHAT_UI = os.getenv('USE_MODERN_CHAT_UI', 'true').lower() in ['true', '1', 't', 'y', 'yes']  # Set to False to use legacy assistants/data_assistants pages
 WORKFLOW_TRAINING_CAPTURE_ENABLED = os.getenv('WORKFLOW_TRAINING_CAPTURE_ENABLED', 'true').lower() in ['true', '1', 't', 'y', 'yes']
+
+# -----------------------------------------------------------------------------
+# Workflow Command Validator (deterministic pre-pass + LLM fallback)
+# -----------------------------------------------------------------------------
+# Master switch for the deterministic pre-pass in workflow_command_validator.py.
+# When True, deterministic checks run first and silently fix issues that have
+# unambiguous fixes (e.g. duplicate connections, missing start node, integration
+# id passed as a name). The LLM validator only runs as a fallback for issues
+# the deterministic path cannot resolve, or if the deterministic path raises.
+# When False, validation skips the deterministic pre-pass entirely and uses
+# the original LLM-only behavior. Flip to False as a quick rollback if the new
+# code path misbehaves.
+WORKFLOW_VALIDATOR_DETERMINISTIC_ENABLED = os.getenv('WORKFLOW_VALIDATOR_DETERMINISTIC_ENABLED', 'true').lower() in ['true', '1', 't', 'y', 'yes']
+# When True, the deterministic fixer also acts on warning-severity issues, not
+# just hard errors. When False (default), warnings are reported but never
+# auto-fixed and never trigger the LLM fallback on their own.
+WORKFLOW_VALIDATOR_FIX_WARNINGS = os.getenv('WORKFLOW_VALIDATOR_FIX_WARNINGS', 'false').lower() in ['true', '1', 't', 'y', 'yes']
+# When True, always run the LLM validator after the deterministic pre-pass even
+# if the deterministic pre-pass found and fixed everything. Use as a safety
+# belt if you want a second opinion on every workflow. When False (default),
+# the LLM is only called when the deterministic pre-pass leaves unresolved
+# issues or raises an exception.
+WORKFLOW_VALIDATOR_ALWAYS_RUN_LLM = os.getenv('WORKFLOW_VALIDATOR_ALWAYS_RUN_LLM', 'false').lower() in ['true', '1', 't', 'y', 'yes']
+
 # Two-Stage Workflow Agent Architecture
 USE_TWO_STAGE_ARCHITECTURE = os.getenv('USE_TWO_STAGE_ARCHITECTURE', 'false').lower() == 'true'
 COMMAND_GENERATOR_MODEL = os.getenv('COMMAND_GENERATOR_MODEL', '')  # e.g., 'ft:gpt-4.1-mini-2025-04-14:your-org::abc123'

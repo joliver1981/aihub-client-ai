@@ -407,6 +407,42 @@
     border-bottom: 1px solid #e2e5e9;
 }
 
+/* ============================================
+   VALIDATION WARNINGS — visual decoration on offending nodes
+   ============================================
+   Applied by workflow_command_executor.js based on the
+   server's validation.warning_details payload. Currently
+   triggers on DUPLICATE_SUCCESS_SLOT (a node has both
+   pass and complete outgoing — only one will actually
+   execute since the runtime is single-threaded). Hover
+   for the message; user must resolve in the designer
+   (no auto-fix because dropping an edge could orphan a
+   sub-graph).
+   ============================================ */
+
+.workflow-node.has-validation-warning,
+.workflow-node.has-validation-warning:hover {
+    box-shadow: 0 0 0 2px #f0a040, 0 0 10px rgba(240, 160, 64, 0.7) !important;
+    position: relative;
+}
+
+.workflow-node.has-validation-warning::after {
+    content: "!";
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    width: 18px;
+    height: 18px;
+    line-height: 18px;
+    text-align: center;
+    background: #f0a040;
+    color: #ffffff;
+    font-weight: 700;
+    border-radius: 50%;
+    font-size: 12px;
+    pointer-events: none;
+}
+
 .toolbar .category-header:first-of-type {
     margin-top: 0;
 }

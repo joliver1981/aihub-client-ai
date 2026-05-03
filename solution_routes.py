@@ -30,6 +30,14 @@ from flask import (
 )
 from flask_login import current_user, login_required
 
+try:
+    from role_decorators import developer_required  # type: ignore
+except Exception:  # pragma: no cover
+    def developer_required(api: bool = False):  # type: ignore
+        def _wrap(fn):
+            return fn
+        return _wrap
+
 from solution_catalog import (
     CatalogEntry,
     get_bundle_path,
@@ -144,6 +152,7 @@ def _auth_headers_from_request() -> Dict[str, str]:
 
 @solution_bp.route("/solutions", methods=["GET"])
 @login_required
+@developer_required()
 def gallery_page():
     _require_flag()
     return render_template("solutions_gallery.html")
@@ -151,6 +160,7 @@ def gallery_page():
 
 @solution_bp.route("/solutions/install/<solution_id>", methods=["GET"])
 @login_required
+@developer_required()
 def install_page(solution_id: str):
     _require_flag()
     entry = _find_entry(solution_id)
@@ -165,6 +175,7 @@ def install_page(solution_id: str):
 
 @solution_bp.route("/api/solutions/catalog", methods=["GET"])
 @login_required
+@developer_required(api=True)
 def api_catalog():
     _require_flag()
     dirs = _config_dirs()
@@ -174,6 +185,7 @@ def api_catalog():
 
 @solution_bp.route("/api/solutions/<solution_id>", methods=["GET"])
 @login_required
+@developer_required(api=True)
 def api_solution_detail(solution_id: str):
     _require_flag()
     entry = _find_entry(solution_id)
@@ -190,6 +202,7 @@ def api_solution_detail(solution_id: str):
 
 @solution_bp.route("/api/solutions/<solution_id>/preview/<path:asset_path>", methods=["GET"])
 @login_required
+@developer_required(api=True)
 def api_preview_asset(solution_id: str, asset_path: str):
     _require_flag()
     entry = _find_entry(solution_id)
@@ -211,6 +224,7 @@ def api_preview_asset(solution_id: str, asset_path: str):
 
 @solution_bp.route("/api/solutions/<solution_id>/readme", methods=["GET"])
 @login_required
+@developer_required(api=True)
 def api_readme(solution_id: str):
     _require_flag()
     entry = _find_entry(solution_id)
@@ -227,6 +241,7 @@ def api_readme(solution_id: str):
 
 @solution_bp.route("/api/solutions/<solution_id>/analyze", methods=["POST"])
 @login_required
+@developer_required(api=True)
 def api_analyze(solution_id: str):
     _require_flag()
     entry = _find_entry(solution_id)
@@ -245,6 +260,7 @@ def api_analyze(solution_id: str):
 
 @solution_bp.route("/api/solutions/<solution_id>/install", methods=["POST"])
 @login_required
+@developer_required(api=True)
 def api_install(solution_id: str):
     _require_flag()
     entry = _find_entry(solution_id)
@@ -274,6 +290,7 @@ def api_install(solution_id: str):
 
 @solution_bp.route("/api/solutions/upload_stage", methods=["POST"])
 @login_required
+@developer_required(api=True)
 def api_upload_stage():
     """Save an uploaded .zip into the staging dir so it can flow through the
     normal install wizard (preview → credentials → install → post-install).
@@ -314,6 +331,7 @@ def api_upload_stage():
 
 @solution_bp.route("/api/solutions/install_upload", methods=["POST"])
 @login_required
+@developer_required(api=True)
 def api_install_upload():
     _require_flag()
     f = request.files.get("file")

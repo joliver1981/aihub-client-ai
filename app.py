@@ -364,7 +364,23 @@ except Exception as e:
 cors = CORS(app)
 app.config.from_object(app_config)
 app.config['SECRET_KEY'] = cfg.SECRET_KEY
-app.config['SQLALCHEMY_DATABASE_URI'] = f'mssql+pyodbc://{cfg.DB_USER}:{cfg.DB_PWD}@{cfg.DB_SERVER}/{cfg.DB_NAME}?driver={cfg.DB_DRIVER}'
+# Build the raw ODBC connection string — same format DataUtils uses successfully.
+# We pass it via SQLAlchemy's `creator` parameter (below) instead of embedding it
+# in the URI, because URI-based passwords get mangled by URL parsing when they
+# contain '%' or other special characters (root cause of on-prem login failures).
+_odbc_raw = (
+    f"DRIVER={{{cfg.DB_DRIVER or 'SQL Server'}}};"
+    f"SERVER={cfg.DB_SERVER};"
+    f"DATABASE={cfg.DB_NAME};"
+    f"UID={cfg.DB_USER};"
+    f"PWD={cfg.DB_PWD}"
+)
+# Placeholder URI — required by Flask-SQLAlchemy for dialect detection only.
+# The actual connection is created by the `creator` callable in SQLALCHEMY_ENGINE_OPTIONS.
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mssql+pyodbc://'
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'creator': lambda: pyodbc.connect(_odbc_raw)
+}
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 UPLOAD_FOLDER = os.path.join(os.getenv('APP_ROOT', os.path.dirname(os.path.abspath(__file__))), cfg.APP_UPLOADS_FOLDER)
 # Create directory if it doesn't exist
@@ -432,6 +448,7 @@ class User(db.Model, UserMixin):
             return user
             
         except Exception as e:
+            logging.error(f"Error in get_by_username: {str(e)}")
             print(f"Error in get_by_username: {str(e)}")
             return None
 
@@ -1311,10 +1328,12 @@ def login():
             else:
                 # Track failed login
                 track_login(success=False)
+                logging.warning(f"Login failed for '{form.username.data}': {auth_result.get('error', 'unknown')} (provider: {auth_result.get('provider', 'unknown')})")
                 flash('Login Unsuccessful. Please check email and password', 'danger')
 
         except Exception as e:
             # Fallback to original local auth if provider chain has an unexpected error
+            logging.error(f"Provider chain error, falling back to local auth: {str(e)}")
             print(f"Provider chain error, falling back to local auth: {str(e)}")
             user = User.get_by_username(form.username.data)
             if user and user.password and bcrypt.check_password_hash(user.password, form.password.data):

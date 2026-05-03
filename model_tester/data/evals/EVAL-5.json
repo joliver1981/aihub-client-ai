@@ -1,0 +1,22 @@
+{
+  "id": "EVAL-5",
+  "name": "Execute Application + Alert",
+  "category": "CommandGen",
+  "description": "Plan-to-commands evaluation captured from production log on 2026-04-30 at 15:53:30.",
+  "system_prompt_ref": "command_generator",
+  "user_prompt": "Convert this workflow plan to JSON commands:\n\nWorkflow plan for process: Daily Report Generator Email Delivery\n\nNote: This workflow should be triggered manually. There is no trigger node in the workflow; if a scheduled run is desired later, create the schedule separately after the workflow is built.\n\n1. Set Variable node: Create variable `reportFilePath`\n   - Purpose: Store the CSV file path for reuse in downstream nodes.\n   - Configuration:\n     - Set variable name: `reportFilePath`\n     - Mode: direct value\n     - Value: `C:\\\\reports\\\\daily.csv`\n\n2. Set Variable node: Create variable `emailSubject`\n   - Purpose: Provide a valid subject variable for the Alert node.\n   - Configuration:\n     - Set variable name: `emailSubject`\n     - Mode: direct value\n     - Value: `Daily Report CSV`\n\n3. Set Variable node: Create variable `emailMessage`\n   - Purpose: Provide a valid message variable for the Alert node.\n   - Configuration:\n     - Set variable name: `emailMessage`\n     - Mode: direct value\n     - Value: `Please find the attached daily report CSV file.`\n\n4. Execute Application node: Run the external report generator\n   - Purpose: Generate the daily CSV report file.\n   - Configuration:\n     - Application/executable path: `C:\\\\tools\\\\reportgen.exe`\n     - Arguments: `--daily --output C:\\\\reports\\\\daily.csv`\n     - Wait for completion: true\n     - Save output to variable: true\n     - Output variable: `reportGenStdout`\n     - Reasonable default: continue only after the application exits\n\n5. File node: Check that the report file exists\n   - Purpose: Verify that `C:\\\\reports\\\\daily.csv` was created before attempting to email it.\n   - Configuration:\n     - Operation: check exists\n     - File path: `${reportFilePath}`\n     - Save to variable: true\n     - Output variable: `reportFileExists`\n\n6. Conditional node: Verify report exists\n   - Purpose: Branch based on whether the CSV file was successfully created.\n   - Configuration:\n     - conditionType: comparison\n     - Left value: `${reportFileExists}`\n     - Operator: equals\n     - Right value: true\n   - Pass path: file exists\n   - Fail path: file does not exist\n\n7. Alert node on pass path: Email the CSV report to managers\n   - Purpose: Send the generated CSV file as an email attachment.\n   - Configuration:\n     - Alert type: Email\n     - Recipients: `managers@acme.com`\n     - messageTemplate: `${emailMessage}`\n     - emailSubject: `${emailSubject}`\n     - Attachment file path variable: `${reportFilePath}`\n     - Reasonable default: send a single email with the CSV attached\n\n8. Set Variable node on fail path: Create variable `failureMessage`\n   - Purpose: Prepare a valid message variable for a failure notification.\n   - Configuration:\n     - Set variable name: `failureMessage`\n     - Mode: python expression\n     - Expression: `f\"Daily report was not generated. Expected file not found: {reportFilePath}. Report generator output: {reportGenStdout}\"`\n\n9. Set Variable node on fail path: Create variable `failureSubject`\n   - Purpose: Prepare a valid email subject variable for a failure notification.\n   - Configuration:\n     - Set variable name: `failureSubject`\n     - Mode: direct value\n     - Value: `Daily Report Generation Failed`\n\n10. Alert node on fail path: Email failure notification to managers\n   - Purpose: Notify managers that the report file was not generated.\n   - Configuration:\n     - Alert type: Email\n     - Recipients: `managers@acme.com`\n     - messageTemplate: `${failureMessage}`\n     - emailSubject: `${failureSubject}`\n     - No attachment\n\nConnections:\n- Step 1 -> Step 2\n- Step 2 -> Step 3\n- Step 3 -> Step 4\n- Step 4 -> Step 5\n- Step 5 -> Step 6\n- Step 6 pass -> Step 7\n- Step 6 fail -> Step 8\n- Step 8 -> Step 9\n- Step 9 -> Step 10\n",
+  "expected": {
+    "min_add_nodes": 2,
+    "required_node_types": [
+      "Execute Application",
+      "Alert"
+    ],
+    "must_have_set_start_node": true,
+    "forbid_loop_pass_complete": true,
+    "forbid_endloop_back_edge": true
+  },
+  "tags": [
+    "oob",
+    "commandgen"
+  ]
+}
