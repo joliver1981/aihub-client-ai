@@ -1,0 +1,910 @@
+<!-- SharePoint Document Browser Panel -->
+<!-- Loaded inside the integration details modal when template_key === 'sharepoint_online' -->
+
+<style>
+/* SharePoint browser — uses theme CSS variables (with safe fallbacks) so
+   the panel is readable in BOTH the light and dark doc-page themes. */
+.sp-browser {
+    border: 1px solid var(--border-color, #dee2e6);
+    border-radius: 6px;
+    padding: 15px;
+    margin-bottom: 15px;
+    background: var(--bg-card, #fafbfc);
+    color: var(--text-primary, #0f172a);
+}
+.sp-browser h6 { margin-bottom: 12px; color: #4a90d9; }
+.sp-browser label { color: var(--text-primary, #0f172a); }
+.sp-browser small,
+.sp-browser .text-muted { color: var(--text-muted, #71717a) !important; }
+.sp-browser .form-control,
+.sp-browser select.form-control {
+    background: var(--bg-input, #fff);
+    color: var(--text-primary, #0f172a);
+    border-color: var(--border-color, #ced4da);
+}
+.sp-browser .form-control::placeholder { color: var(--text-muted, #94a3b8); }
+
+.sp-breadcrumb {
+    display: flex; align-items: center; flex-wrap: wrap;
+    gap: 4px; margin-bottom: 12px; font-size: 0.85rem;
+    color: var(--text-secondary, #475569);
+}
+.sp-breadcrumb .crumb { cursor: pointer; color: #4a90d9; }
+.sp-breadcrumb .crumb:hover { text-decoration: underline; }
+.sp-breadcrumb .separator { color: var(--text-muted, #94a3b8); }
+
+.sp-selector { margin-bottom: 10px; }
+
+.sp-file-list {
+    max-height: 400px; overflow-y: auto;
+    border: 1px solid var(--border-color, #e0e0e0);
+    border-radius: 4px;
+}
+.sp-file-list table {
+    margin-bottom: 0;
+    color: var(--text-primary, #0f172a);
+    background: var(--bg-card, #fff);
+}
+.sp-file-list th {
+    position: sticky; top: 0; z-index: 1;
+    font-size: 0.85rem;
+    background: var(--bg-elevated, #f1f5f9);
+    color: var(--text-primary, #0f172a);
+    border-bottom: 1px solid var(--border-color, #dee2e6);
+}
+.sp-file-list td {
+    font-size: 0.85rem; vertical-align: middle;
+    color: var(--text-primary, #0f172a);
+    border-color: var(--border-color, #dee2e6);
+}
+.sp-file-list tr:hover td { background: var(--bg-hover, #f3f4f6); }
+.sp-file-list .sp-name { cursor: pointer; color: #4a90d9; }
+.sp-file-list .sp-name:hover { text-decoration: underline; }
+.sp-file-list .sp-folder-icon { color: #f0c04e; }
+.sp-file-list .sp-file-icon { color: var(--text-muted, #6c757d); }
+
+.sp-actions .btn { padding: 2px 8px; font-size: 0.78rem; }
+
+.sp-status {
+    padding: 8px 12px; border-radius: 4px;
+    font-size: 0.85rem; margin-top: 8px;
+    background: var(--bg-elevated, #e9ecef);
+    color: var(--text-primary, #0f172a);
+    border: 1px solid var(--border-color, #dee2e6);
+}
+
+.sp-knowledge-form {
+    border: 1px solid #4a90d9;
+    border-radius: 6px;
+    padding: 12px;
+    margin-top: 10px;
+    background: var(--bg-elevated, #f0f6ff);
+    color: var(--text-primary, #0f172a);
+}
+.sp-knowledge-form h6 { color: #4a90d9; margin-bottom: 10px; }
+.sp-knowledge-form label { color: var(--text-primary, #0f172a); }
+
+/* Bulk actions panel — theme-aware */
+.sp-bulk-panel {
+    margin-top: 8px; padding: 10px;
+    border: 1px solid #4a90d9;
+    border-radius: 6px;
+    background: var(--bg-elevated, #f0f6ff);
+    color: var(--text-primary, #0f172a);
+}
+.sp-bulk-panel label,
+.sp-bulk-panel small { color: var(--text-primary, #0f172a); }
+.sp-bulk-panel small.text-muted { color: var(--text-muted, #71717a) !important; }
+
+.sp-bulk-import-form {
+    border: 1px solid #28a745;
+    border-radius: 6px;
+    padding: 10px;
+    background: var(--bg-elevated, #f0fff5);
+    color: var(--text-primary, #0f172a);
+    margin-bottom: 8px;
+}
+.sp-bulk-import-form label { color: var(--text-primary, #0f172a); }
+.sp-bulk-import-form h6 { color: #28a745; }
+</style>
+
+<div id="spBrowserPanel" style="display:none;">
+    <div class="sp-browser">
+        <h6><i class="bi bi-folder2-open"></i> <span id="spBrowserTitle">SharePoint Document Browser</span></h6>
+
+        <!-- Site Selector -->
+        <div class="sp-selector" id="spSiteSelector">
+            <div class="form-group mb-2">
+                <label class="mb-1" style="font-size:0.85rem;font-weight:600;">SharePoint Site</label>
+                <select class="form-control form-control-sm" id="spSiteSelect">
+                    <option value="">Loading sites...</option>
+                </select>
+                <small class="text-muted d-block mt-1">
+                    Don't see your site? <a href="#" id="spToggleUrlLookup">Look up by URL</a>
+                    (search index can lag 5-15 min for new sites).
+                </small>
+            </div>
+            <div class="form-group mb-2" id="spUrlLookupRow" style="display:none;">
+                <label class="mb-1" style="font-size:0.85rem;font-weight:600;">Site URL</label>
+                <div class="input-group input-group-sm">
+                    <input type="text" class="form-control" id="spSiteUrlInput"
+                        placeholder="https://yourtenant.sharepoint.com/sites/SiteName">
+                    <div class="input-group-append">
+                        <button class="btn btn-outline-primary" id="spSiteUrlBtn">Open</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Library Selector -->
+        <div class="sp-selector" id="spDriveSelector" style="display:none;">
+            <div class="form-group mb-2">
+                <label class="mb-1" style="font-size:0.85rem;font-weight:600;">Document Library</label>
+                <select class="form-control form-control-sm" id="spDriveSelect">
+                    <option value="">Select a library...</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Search -->
+        <div id="spSearchBar" style="display:none;" class="mb-2">
+            <div class="input-group input-group-sm">
+                <input type="text" class="form-control" id="spSearchQuery" placeholder="Search files...">
+                <div class="input-group-append">
+                    <button class="btn btn-outline-primary" id="spSearchBtn"><i class="bi bi-search"></i></button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Breadcrumbs -->
+        <div class="sp-breadcrumb" id="spBreadcrumb" style="display:none;"></div>
+
+        <!-- Bulk Actions toolbar (visible when viewing a folder/library) -->
+        <div id="spBulkBar" style="display:none;margin-bottom:8px;">
+            <button class="btn btn-sm btn-outline-primary" id="spBulkToggleBtn">
+                <i class="bi bi-stack"></i> Bulk actions on this folder
+            </button>
+            <div id="spBulkPanel" class="sp-bulk-panel" style="display:none;">
+                <div class="form-row">
+                    <div class="form-group col-md-4">
+                        <label class="mb-1" style="font-size:0.8rem;font-weight:600;">Name pattern</label>
+                        <input type="text" class="form-control form-control-sm" id="spBulkPattern" placeholder="*.pdf, Report_*, *.xlsx">
+                        <small class="text-muted" style="font-size:0.72rem;">Glob: *.ext, name_*, etc.</small>
+                    </div>
+                    <div class="form-group col-md-4">
+                        <label class="mb-1" style="font-size:0.8rem;font-weight:600;">Modified after</label>
+                        <input type="date" class="form-control form-control-sm" id="spBulkModifiedAfter">
+                        <small class="text-muted" style="font-size:0.72rem;">"New files" since this date</small>
+                    </div>
+                    <div class="form-group col-md-2">
+                        <label class="mb-1" style="font-size:0.8rem;font-weight:600;">Max files</label>
+                        <input type="number" class="form-control form-control-sm" id="spBulkMaxFiles" value="50" min="1" max="500">
+                    </div>
+                    <div class="form-group col-md-2 d-flex align-items-end">
+                        <button class="btn btn-sm btn-outline-secondary w-100" id="spBulkPreviewBtn" title="Preview matches">
+                            <i class="bi bi-eye"></i> Preview
+                        </button>
+                    </div>
+                </div>
+                <div class="d-flex flex-wrap" style="gap:8px;margin-top:6px;">
+                    <button class="btn btn-sm btn-primary" id="spBulkDownloadBtn">
+                        <i class="bi bi-download"></i> Download matching files
+                    </button>
+                    <button class="btn btn-sm btn-success" id="spBulkImportBtn">
+                        <i class="bi bi-mortarboard"></i> Import matching files to Knowledge
+                    </button>
+                    <span class="ml-auto" id="spBulkPreviewCount" style="font-size:0.82rem;color:#0078d4;align-self:center;"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bulk Import target form (shown when user clicks Import matching) -->
+        <div id="spBulkImportForm" class="sp-bulk-import-form" style="display:none;">
+            <h6 style="color:#28a745;margin-bottom:8px;"><i class="bi bi-mortarboard"></i> Bulk Import to Knowledge Base</h6>
+            <p class="mb-2" style="font-size:0.85rem;" id="spBulkImportSummary"></p>
+            <div class="form-group mb-2">
+                <label class="mb-1" style="font-size:0.85rem;font-weight:600;">Agent</label>
+                <select class="form-control form-control-sm" id="spBulkAgentSelect"></select>
+            </div>
+            <div class="form-group mb-2">
+                <label class="mb-1" style="font-size:0.85rem;font-weight:600;">Description (applied to every imported file)</label>
+                <input type="text" class="form-control form-control-sm" id="spBulkImportDesc" placeholder="e.g. 'Compliance docs from /Inbox'">
+            </div>
+            <div class="d-flex" style="gap:8px;">
+                <button class="btn btn-sm btn-success" id="spBulkImportConfirmBtn">
+                    <i class="bi bi-check-circle"></i> Queue bulk import
+                </button>
+                <button class="btn btn-sm btn-secondary" id="spBulkImportCancelBtn">Cancel</button>
+            </div>
+        </div>
+
+        <!-- File List -->
+        <div class="sp-file-list" id="spFileList" style="display:none;">
+            <table class="table table-sm table-hover">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th style="width:90px;">Size</th>
+                        <th style="width:130px;">Modified</th>
+                        <th style="width:140px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="spFileBody"></tbody>
+            </table>
+        </div>
+
+        <!-- Status bar -->
+        <div class="sp-status" id="spStatus" style="display:none;"></div>
+    </div>
+
+    <!-- Import to Knowledge Base form (shown when user clicks import) -->
+    <div class="sp-knowledge-form" id="spKnowledgeForm" style="display:none;">
+        <h6><i class="bi bi-mortarboard"></i> Import to Knowledge Base</h6>
+        <p class="mb-2" style="font-size:0.85rem;">
+            File: <strong id="spKnowledgeFilename"></strong>
+        </p>
+        <div class="form-group mb-2">
+            <label class="mb-1" style="font-size:0.85rem;font-weight:600;">Agent</label>
+            <select class="form-control form-control-sm" id="spAgentSelect">
+                <option value="">Loading agents...</option>
+            </select>
+        </div>
+        <div class="form-group mb-2">
+            <label class="mb-1" style="font-size:0.85rem;font-weight:600;">Description (optional)</label>
+            <input type="text" class="form-control form-control-sm" id="spKnowledgeDesc" placeholder="Brief description of this document">
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-primary btn-sm" id="spImportBtn">
+                <i class="bi bi-cloud-download"></i> Import
+            </button>
+            <button class="btn btn-secondary btn-sm ml-2" id="spCancelImportBtn">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    var spState = {
+        integrationId: null,
+        mode: 'sharepoint',  // 'sharepoint' or 'onedrive'
+        sites: [],
+        drives: [],
+        currentSiteId: null,
+        currentDriveId: null,
+        folderStack: [],    // [{id, name}, ...]
+        pendingImport: null // {drive_id, item_id, filename}
+    };
+
+    window.initSharePointBrowser = function(integrationId, mode) {
+        spState.integrationId = integrationId;
+        spState.mode = (mode === 'onedrive') ? 'onedrive' : 'sharepoint';
+        spState.sites = [];
+        spState.drives = [];
+        spState.currentSiteId = null;
+        spState.currentDriveId = null;
+        spState.folderStack = [];
+        spState.pendingImport = null;
+
+        $('#spBrowserPanel').show();
+        $('#spStatus, #spKnowledgeForm, #spBulkBar, #spBulkPanel, #spBulkImportForm').hide();
+
+        if (spState.mode === 'onedrive') {
+            $('#spBrowserTitle').text('OneDrive Document Browser');
+            $('#spSiteSelector, #spDriveSelector').hide();
+            $('#spSearchBar, #spBreadcrumb, #spFileList').show();
+            spLoadOneDriveItems(null);
+        } else {
+            $('#spBrowserTitle').text('SharePoint Document Browser');
+            $('#spSiteSelector').show();
+            $('#spDriveSelector, #spSearchBar, #spBreadcrumb, #spFileList').hide();
+            spLoadSites();
+        }
+
+        spLoadAgents();
+    };
+
+    window.hideSharePointBrowser = function() {
+        $('#spBrowserPanel').hide();
+    };
+
+    function spApi(pathType, extra) {
+        var payload = $.extend({path_type: pathType}, extra || {});
+        return $.ajax({
+            url: '/api/integrations/' + spState.integrationId + '/sharepoint/browse',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(payload)
+        });
+    }
+
+    function spLoadSites() {
+        $('#spSiteSelect').html('<option value="">Loading sites...</option>');
+        spApi('sites', {query: '*'}).done(function(resp) {
+            if (resp.status === 'success' && resp.data) {
+                spState.sites = resp.data.sites || [];
+                var sel = $('#spSiteSelect');
+                sel.html('<option value="">-- Select a site (' + spState.sites.length + ' found) --</option>');
+                spState.sites.forEach(function(s) {
+                    sel.append('<option value="' + s.id + '">' + escHtml(s.name) + (s.hostname ? ' (' + escHtml(s.hostname) + ')' : '') + '</option>');
+                });
+
+                // Sites.Selected: no sites in the list — auto-show the URL lookup
+                if (spState.sites.length === 0) {
+                    var isSitesSelected = resp.data.permission_model === 'sites_selected';
+                    if (isSitesSelected) {
+                        sel.html('<option value="">No tenant-wide access (Sites.Selected) — use URL lookup below</option>');
+                        spShowStatus(
+                            '<i class="bi bi-info-circle"></i> This integration uses <strong>per-site permissions</strong> (Sites.Selected). ' +
+                            'Tenant-wide site listing is not available. Enter the SharePoint site URL below to access a granted site.',
+                            'info'
+                        );
+                    } else {
+                        spShowStatus(
+                            'No sites found. If sites were recently created, they may take 5-15 minutes to appear in the search index. ' +
+                            'Use "Look up by URL" below to access a site directly.',
+                            'info'
+                        );
+                    }
+                    // Auto-expand the URL lookup row
+                    $('#spUrlLookupRow').slideDown(150);
+                }
+            } else {
+                $('#spSiteSelect').html('<option value="">Error loading sites</option>');
+                spShowStatus('Error: ' + (resp.error || 'Could not load sites'), 'danger');
+            }
+        }).fail(function() {
+            $('#spSiteSelect').html('<option value="">Failed to connect</option>');
+            spShowStatus('Connection failed. Check your SharePoint integration credentials.', 'danger');
+        });
+    }
+
+    function spLoadDrives(siteId) {
+        spState.currentSiteId = siteId;
+        spState.currentDriveId = null;
+        spState.folderStack = [];
+        $('#spDriveSelector').show();
+        $('#spSearchBar, #spBreadcrumb, #spFileList').hide();
+        $('#spDriveSelect').html('<option value="">Loading libraries...</option>');
+
+        spApi('drives', {site_id: siteId}).done(function(resp) {
+            if (resp.status === 'success' && resp.data) {
+                spState.drives = resp.data.drives || [];
+                var sel = $('#spDriveSelect');
+                sel.html('<option value="">-- Select a library (' + spState.drives.length + ') --</option>');
+                spState.drives.forEach(function(d) {
+                    sel.append('<option value="' + d.id + '">' + escHtml(d.name) + '</option>');
+                });
+            } else {
+                spShowStatus('Error loading libraries: ' + (resp.error || ''), 'danger');
+            }
+        });
+    }
+
+    function spLoadItems(driveId, folderId) {
+        spState.currentDriveId = driveId;
+        $('#spSearchBar, #spBreadcrumb, #spFileList').show();
+        // Bulk actions are only meaningful in SharePoint mode (path-based ops
+        // need a SharePoint drive_id); not exposed in OneDrive mode for now.
+        if (spState.mode === 'sharepoint') {
+            $('#spBulkBar').show();
+        }
+        spShowStatus('Loading...', 'info');
+
+        spApi('items', {drive_id: driveId, item_id: folderId || '', top: 200}).done(function(resp) {
+            if (resp.status === 'success' && resp.data) {
+                spRenderFileList(resp.data.items || []);
+                spRenderBreadcrumb();
+                var msg = resp.data.count + ' item(s)';
+                if (resp.data.hasMore) msg += ' (more available)';
+                spShowStatus(msg, 'secondary');
+            } else {
+                spShowStatus('Error: ' + (resp.error || ''), 'danger');
+            }
+        }).fail(function() {
+            spShowStatus('Request failed', 'danger');
+        });
+    }
+
+    function spLoadOneDriveItems(folderId) {
+        spShowStatus('Loading OneDrive...', 'info');
+        spApi('mydrive', {item_id: folderId || '', top: 200}).done(function(resp) {
+            if (resp.status === 'success' && resp.data) {
+                spRenderFileList(resp.data.items || []);
+                spRenderBreadcrumb();
+                var msg = resp.data.count + ' item(s)';
+                if (resp.data.hasMore) msg += ' (more available)';
+                spShowStatus(msg, 'secondary');
+            } else {
+                spShowStatus('Error: ' + (resp.error || ''), 'danger');
+            }
+        }).fail(function() {
+            spShowStatus('Request failed', 'danger');
+        });
+    }
+
+    function spRenderFileList(items) {
+        var body = $('#spFileBody');
+        body.empty();
+
+        if (items.length === 0) {
+            body.append('<tr><td colspan="4" class="text-center text-muted py-3">No items found</td></tr>');
+            return;
+        }
+
+        // Sort: folders first, then alphabetical
+        items.sort(function(a, b) {
+            if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+            return (a.name || '').localeCompare(b.name || '');
+        });
+
+        items.forEach(function(item) {
+            var icon, nameClass;
+            if (item.type === 'folder') {
+                icon = '<i class="bi bi-folder-fill sp-folder-icon"></i>';
+                nameClass = 'sp-name';
+            } else {
+                icon = spFileIcon(item.name);
+                nameClass = '';
+            }
+
+            var size = item.type === 'folder'
+                ? (item.childCount || 0) + ' items'
+                : spFormatSize(item.size);
+
+            var modified = item.lastModifiedDateTime
+                ? new Date(item.lastModifiedDateTime).toLocaleDateString()
+                : '';
+
+            var actions = '';
+            if (item.type === 'file') {
+                actions =
+                    '<button class="btn btn-outline-primary sp-actions" onclick="spDownloadFile(\'' + item.id + '\', \'' + escAttr(item.name) + '\')" title="Download">' +
+                    '<i class="bi bi-download"></i></button> ' +
+                    '<button class="btn btn-outline-success sp-actions" onclick="spStartImport(\'' + item.id + '\', \'' + escAttr(item.name) + '\')" title="Import to Knowledge Base">' +
+                    '<i class="bi bi-mortarboard"></i> Import</button>';
+            }
+
+            var clickHandler = item.type === 'folder'
+                ? ' class="sp-name" onclick="spOpenFolder(\'' + item.id + '\', \'' + escAttr(item.name) + '\')"'
+                : '';
+
+            body.append(
+                '<tr>' +
+                '<td>' + icon + ' <span' + clickHandler + '>' + escHtml(item.name) + '</span></td>' +
+                '<td>' + size + '</td>' +
+                '<td>' + modified + '</td>' +
+                '<td>' + actions + '</td>' +
+                '</tr>'
+            );
+        });
+    }
+
+    function spRenderBreadcrumb() {
+        var bc = $('#spBreadcrumb');
+        bc.empty();
+        bc.append('<span class="crumb" onclick="spNavigateToRoot()"><i class="bi bi-house"></i> Root</span>');
+        spState.folderStack.forEach(function(folder, idx) {
+            bc.append('<span class="separator">/</span>');
+            if (idx === spState.folderStack.length - 1) {
+                bc.append('<span>' + escHtml(folder.name) + '</span>');
+            } else {
+                bc.append('<span class="crumb" onclick="spNavigateTo(' + idx + ')">' + escHtml(folder.name) + '</span>');
+            }
+        });
+    }
+
+    function spLoadCurrent(folderId) {
+        if (spState.mode === 'onedrive') {
+            spLoadOneDriveItems(folderId);
+        } else {
+            spLoadItems(spState.currentDriveId, folderId);
+        }
+    }
+
+    // Global nav functions (called from onclick)
+    window.spOpenFolder = function(folderId, folderName) {
+        spState.folderStack.push({id: folderId, name: folderName});
+        spLoadCurrent(folderId);
+    };
+
+    window.spNavigateToRoot = function() {
+        spState.folderStack = [];
+        spLoadCurrent(null);
+    };
+
+    window.spNavigateTo = function(idx) {
+        spState.folderStack = spState.folderStack.slice(0, idx + 1);
+        spLoadCurrent(spState.folderStack[idx].id);
+    };
+
+    function spFileParams(itemId) {
+        if (spState.mode === 'onedrive') {
+            return {item_id: itemId};
+        }
+        return {drive_id: spState.currentDriveId, item_id: itemId};
+    }
+
+    window.spDownloadFile = function(itemId, filename) {
+        spShowStatus('Downloading ' + filename + '...', 'info');
+        $.ajax({
+            url: '/api/integrations/' + spState.integrationId + '/execute',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                operation: 'download_file',
+                parameters: spFileParams(itemId)
+            })
+        }).done(function(resp) {
+            if (resp.status === 'success' && resp.data) {
+                spShowStatus('Downloaded: ' + resp.data.filename + ' (' + spFormatSize(resp.data.size) + ')', 'success');
+            } else {
+                spShowStatus('Download failed: ' + (resp.error || ''), 'danger');
+            }
+        }).fail(function() {
+            spShowStatus('Download request failed', 'danger');
+        });
+    };
+
+    window.spStartImport = function(itemId, filename) {
+        spState.pendingImport = $.extend(spFileParams(itemId), {filename: filename});
+        $('#spKnowledgeFilename').text(filename);
+        $('#spKnowledgeDesc').val('');
+        $('#spKnowledgeForm').slideDown(200);
+    };
+
+    // Search
+    $('#spSearchBtn').on('click', function() {
+        var q = $('#spSearchQuery').val().trim();
+        if (!q) return;
+        if (spState.mode === 'sharepoint' && !spState.currentDriveId) return;
+        spShowStatus('Searching...', 'info');
+        var searchParams = (spState.mode === 'onedrive')
+            ? {query: q}
+            : {drive_id: spState.currentDriveId, query: q};
+        spApi('search', searchParams).done(function(resp) {
+            if (resp.status === 'success' && resp.data) {
+                spRenderFileList(resp.data.items || []);
+                spShowStatus('Search: ' + resp.data.count + ' result(s)', 'secondary');
+            } else {
+                spShowStatus('Search error: ' + (resp.error || ''), 'danger');
+            }
+        });
+    });
+    $('#spSearchQuery').on('keypress', function(e) {
+        if (e.which === 13) { e.preventDefault(); $('#spSearchBtn').click(); }
+    });
+
+    // Site/Drive selectors
+    $('#spSiteSelect').on('change', function() {
+        var siteId = $(this).val();
+        if (siteId) spLoadDrives(siteId);
+    });
+
+    // Site URL lookup (bypasses search index for fresh sites)
+    $('#spToggleUrlLookup').on('click', function(e) {
+        e.preventDefault();
+        $('#spUrlLookupRow').slideToggle(150);
+    });
+
+    function spLookupSiteByUrl() {
+        var url = ($('#spSiteUrlInput').val() || '').trim();
+        if (!url) { showToast('Enter a SharePoint site URL', 'error'); return; }
+        spShowStatus('Looking up site...', 'info');
+        spApi('site_by_url', {url: url}).done(function(resp) {
+            if (resp.status === 'success' && resp.data && resp.data.site) {
+                var site = resp.data.site;
+                // Insert into the dropdown if not already present, then select it
+                var sel = $('#spSiteSelect');
+                if (sel.find('option[value="' + site.id + '"]').length === 0) {
+                    sel.append('<option value="' + site.id + '">' + escHtml(site.name) +
+                        (site.hostname ? ' (' + escHtml(site.hostname) + ')' : '') + '</option>');
+                }
+                sel.val(site.id).trigger('change');
+                spShowStatus('Found: ' + site.name, 'success');
+            } else {
+                spShowStatus('Could not resolve URL: ' + (resp.error || 'site not found'), 'danger');
+            }
+        }).fail(function() {
+            spShowStatus('URL lookup request failed', 'danger');
+        });
+    }
+
+    $('#spSiteUrlBtn').on('click', spLookupSiteByUrl);
+    $('#spSiteUrlInput').on('keypress', function(e) {
+        if (e.which === 13) { e.preventDefault(); spLookupSiteByUrl(); }
+    });
+    $('#spDriveSelect').on('change', function() {
+        var driveId = $(this).val();
+        if (driveId) {
+            spState.folderStack = [];
+            spLoadItems(driveId, null);
+        }
+    });
+
+    // Knowledge import
+    $('#spImportBtn').on('click', function() {
+        var agentId = $('#spAgentSelect').val();
+        if (!agentId) { showToast('Please select an agent', 'error'); return; }
+        if (!spState.pendingImport) return;
+
+        var btn = $(this);
+        btn.prop('disabled', true).html('<i class="bi bi-hourglass-split"></i> Importing...');
+        spShowStatus('Importing ' + spState.pendingImport.filename + ' to knowledge base...', 'info');
+
+        var importParams = {
+            item_id: spState.pendingImport.item_id,
+            agent_id: parseInt(agentId),
+            description: $('#spKnowledgeDesc').val() || ''
+        };
+        if (spState.pendingImport.drive_id) {
+            importParams.drive_id = spState.pendingImport.drive_id;
+        }
+
+        $.ajax({
+            url: '/api/integrations/' + spState.integrationId + '/execute',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                operation: 'download_to_knowledge',
+                parameters: importParams
+            })
+        }).done(function(resp) {
+            if (resp.status === 'success' && resp.data) {
+                if (resp.data.status === 'queued') {
+                    // Background import — return immediately, don't wait
+                    var fname = spState.pendingImport.filename;
+                    spShowStatus(
+                        'Import queued for "' + fname + '". Continues in background ' +
+                        '— safe to close this window. Check the integration\'s execution ' +
+                        'log for the result.',
+                        'info'
+                    );
+                    showToast('Import started in background', 'success');
+                } else {
+                    spShowStatus('Imported: ' + (resp.data.filename || spState.pendingImport.filename) +
+                        (resp.data.page_count ? ' (' + resp.data.page_count + ' pages)' : ''), 'success');
+                    showToast('Document imported to knowledge base!', 'success');
+                }
+                $('#spKnowledgeForm').slideUp(200);
+            } else {
+                spShowStatus('Import failed: ' + (resp.error || ''), 'danger');
+            }
+        }).fail(function() {
+            spShowStatus('Import request failed', 'danger');
+        }).always(function() {
+            btn.prop('disabled', false).html('<i class="bi bi-cloud-download"></i> Import');
+        });
+    });
+
+    $('#spCancelImportBtn').on('click', function() {
+        $('#spKnowledgeForm').slideUp(200);
+        spState.pendingImport = null;
+    });
+
+    // Load agents for the dropdown
+    function spLoadAgents() {
+        $.get('/api/agents').done(function(resp) {
+            var agents = resp.agents || resp.data || resp || [];
+            if (!Array.isArray(agents)) agents = [];
+            var sel = $('#spAgentSelect');
+            sel.html('<option value="">-- Select an agent --</option>');
+            agents.forEach(function(a) {
+                var id = a.agent_id || a.id;
+                var name = a.agent_name || a.name || ('Agent ' + id);
+                sel.append('<option value="' + id + '">' + escHtml(name) + '</option>');
+            });
+        }).fail(function() {
+            $('#spAgentSelect').html('<option value="">Could not load agents</option>');
+        });
+    }
+
+    // =====================================================================
+    // Bulk actions on a folder
+    // =====================================================================
+
+    function spCurrentFolderPath() {
+        // Reconstruct the folder path from the breadcrumb stack
+        // (folderStack entries store the human-readable folder name).
+        // The Graph path-based ops want the path RELATIVE to the drive root,
+        // so we join names with '/'. Empty stack = drive root.
+        return spState.folderStack.map(function(f) { return f.name; }).join('/');
+    }
+
+    function spBulkCommonParams() {
+        return {
+            drive_id: spState.currentDriveId,
+            folder_path: spCurrentFolderPath(),
+            file_pattern: ($('#spBulkPattern').val() || '').trim(),
+            modified_after: ($('#spBulkModifiedAfter').val() || '').trim(),
+            max_files: parseInt($('#spBulkMaxFiles').val(), 10) || 50
+        };
+    }
+
+    function spExecuteOp(operationKey, parameters) {
+        return $.ajax({
+            url: '/api/integrations/' + spState.integrationId + '/execute',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({operation: operationKey, parameters: parameters})
+        });
+    }
+
+    $('#spBulkToggleBtn').on('click', function() {
+        $('#spBulkPanel').slideToggle(150);
+        $('#spBulkImportForm').slideUp(150);
+    });
+
+    $('#spBulkPreviewBtn').on('click', function() {
+        var params = spBulkCommonParams();
+        if (!params.drive_id) {
+            showToast('Select a library first', 'error');
+            return;
+        }
+        $('#spBulkPreviewCount').text('Previewing...');
+        // Use list_folder_by_path to count matches without downloading
+        spExecuteOp('list_folder_by_path', {
+            drive_id: params.drive_id,
+            folder_path: params.folder_path,
+            file_pattern: params.file_pattern,
+            modified_after: params.modified_after,
+            top: params.max_files * 2
+        }).done(function(resp) {
+            if (resp.status === 'success' && resp.data) {
+                var items = resp.data.items || [];
+                var files = items.filter(function(i) { return i.type === 'file'; });
+                var capped = Math.min(files.length, params.max_files);
+                var msg = capped + ' file(s) match';
+                if (files.length > params.max_files) {
+                    msg += ' (capped at ' + params.max_files + '; raise max files to include more)';
+                }
+                $('#spBulkPreviewCount').text(msg);
+                // Also update the visible file list so the user can see what matched
+                spRenderFileList(items);
+            } else {
+                $('#spBulkPreviewCount').html('<span class="text-danger">' + escHtml(resp.error || 'Preview failed') + '</span>');
+            }
+        }).fail(function() {
+            $('#spBulkPreviewCount').html('<span class="text-danger">Preview request failed</span>');
+        });
+    });
+
+    $('#spBulkDownloadBtn').on('click', function() {
+        var params = spBulkCommonParams();
+        if (!params.drive_id) {
+            showToast('Select a library first', 'error');
+            return;
+        }
+        var btn = $(this);
+        btn.prop('disabled', true).html('<i class="bi bi-hourglass-split"></i> Downloading...');
+        spShowStatus('Bulk download in progress...', 'info');
+        spExecuteOp('download_folder', params).done(function(resp) {
+            if (resp.status === 'success' && resp.data) {
+                var d = resp.data;
+                spShowStatus(
+                    'Downloaded ' + d.count + ' file(s)' +
+                    (d.errors && d.errors.length ? ' (' + d.errors.length + ' failed)' : '') +
+                    '. Files saved to /uploads on the server.',
+                    d.errors && d.errors.length ? 'warning' : 'success'
+                );
+                showToast('Bulk download complete: ' + d.count + ' file(s)', 'success');
+            } else {
+                spShowStatus('Bulk download failed: ' + (resp.error || ''), 'danger');
+            }
+        }).fail(function() {
+            spShowStatus('Bulk download request failed', 'danger');
+        }).always(function() {
+            btn.prop('disabled', false).html('<i class="bi bi-download"></i> Download matching files');
+        });
+    });
+
+    $('#spBulkImportBtn').on('click', function() {
+        var params = spBulkCommonParams();
+        if (!params.drive_id) {
+            showToast('Select a library first', 'error');
+            return;
+        }
+        // Show the agent picker form
+        var summary = 'Folder: <strong>/' + escHtml(params.folder_path || '(root)') + '</strong>';
+        if (params.file_pattern) summary += ' &middot; Pattern: <code>' + escHtml(params.file_pattern) + '</code>';
+        if (params.modified_after) summary += ' &middot; Modified after: ' + escHtml(params.modified_after);
+        summary += ' &middot; Up to ' + params.max_files + ' files.';
+        $('#spBulkImportSummary').html(summary);
+
+        // Reuse the agent dropdown from the single-import form
+        var agents = $('#spAgentSelect option').toArray().map(function(opt) {
+            return {val: opt.value, text: opt.text};
+        });
+        var sel = $('#spBulkAgentSelect').empty();
+        agents.forEach(function(a) {
+            sel.append('<option value="' + a.val + '">' + escHtml(a.text) + '</option>');
+        });
+
+        $('#spBulkImportDesc').val('');
+        $('#spBulkImportForm').slideDown(150);
+    });
+
+    $('#spBulkImportCancelBtn').on('click', function() {
+        $('#spBulkImportForm').slideUp(150);
+    });
+
+    $('#spBulkImportConfirmBtn').on('click', function() {
+        var agentId = $('#spBulkAgentSelect').val();
+        if (!agentId) { showToast('Pick an agent', 'error'); return; }
+
+        var common = spBulkCommonParams();
+        var importParams = {
+            drive_id: common.drive_id,
+            folder_path: common.folder_path,
+            agent_id: parseInt(agentId, 10),
+            file_pattern: common.file_pattern,
+            modified_after: common.modified_after,
+            max_files: common.max_files,
+            description: ($('#spBulkImportDesc').val() || '').trim()
+        };
+
+        var btn = $(this);
+        btn.prop('disabled', true).html('<i class="bi bi-hourglass-split"></i> Queueing...');
+        spShowStatus('Queueing bulk import...', 'info');
+
+        spExecuteOp('import_folder_to_knowledge', importParams).done(function(resp) {
+            if (resp.status === 'success' && resp.data) {
+                var d = resp.data;
+                if (d.matched === 0) {
+                    spShowStatus(d.message || 'No files matched the filters.', 'warning');
+                    showToast('No files matched', 'info');
+                } else {
+                    spShowStatus(
+                        'Queued ' + d.matched + ' file(s) for background import. ' +
+                        'Per-file results will appear in Recent Activity as each one completes.',
+                        'success'
+                    );
+                    showToast('Bulk import started: ' + d.matched + ' file(s)', 'success');
+                }
+                $('#spBulkImportForm').slideUp(150);
+            } else {
+                spShowStatus('Bulk import failed: ' + (resp.error || ''), 'danger');
+            }
+        }).fail(function() {
+            spShowStatus('Bulk import request failed', 'danger');
+        }).always(function() {
+            btn.prop('disabled', false).html('<i class="bi bi-check-circle"></i> Queue bulk import');
+        });
+    });
+
+    // Utility helpers
+    function spShowStatus(msg, type) {
+        var el = $('#spStatus');
+        el.show().html('<span class="text-' + (type || 'secondary') + '">' + msg + '</span>');
+    }
+
+    function spFormatSize(bytes) {
+        if (!bytes || bytes === 0) return '0 B';
+        var units = ['B', 'KB', 'MB', 'GB'];
+        var i = Math.floor(Math.log(bytes) / Math.log(1024));
+        return (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + units[i];
+    }
+
+    function spFileIcon(name) {
+        var ext = (name || '').split('.').pop().toLowerCase();
+        var map = {
+            pdf: 'bi-file-earmark-pdf text-danger',
+            doc: 'bi-file-earmark-word text-primary', docx: 'bi-file-earmark-word text-primary',
+            xls: 'bi-file-earmark-excel text-success', xlsx: 'bi-file-earmark-excel text-success',
+            ppt: 'bi-file-earmark-ppt text-warning', pptx: 'bi-file-earmark-ppt text-warning',
+            jpg: 'bi-file-earmark-image text-info', jpeg: 'bi-file-earmark-image text-info',
+            png: 'bi-file-earmark-image text-info', gif: 'bi-file-earmark-image text-info',
+            txt: 'bi-file-earmark-text', csv: 'bi-file-earmark-spreadsheet text-success',
+        };
+        var cls = map[ext] || 'bi-file-earmark sp-file-icon';
+        return '<i class="bi ' + cls + '"></i>';
+    }
+
+    function escHtml(str) {
+        return $('<span>').text(str || '').html();
+    }
+
+    function escAttr(str) {
+        return (str || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    }
+})();
+</script>

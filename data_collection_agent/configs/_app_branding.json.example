@@ -1,0 +1,12 @@
+{
+  "_comment": "Copy this file to _app_branding.json and edit. All fields optional. Env vars (DCA_APP_PRIMARY_COLOR etc.) override file contents on a per-key basis.",
+
+  "display_name": "Acme Health",
+  "logo_url": "/data-collection/static/branding/your-logo.svg",
+  "primary_color": "#2563eb",
+  "accent_color": "#7c3aed",
+  "font_family": "Inter, sans-serif",
+  "footer_text": "Powered by Acme Health",
+  "favicon_url": "/data-collection/static/branding/favicon.ico",
+  "support_url": "https://acmehealth.example.com/support"
+}

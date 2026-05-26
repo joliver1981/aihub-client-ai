@@ -1,0 +1,36 @@
+{
+  "session_id": "f18c93fa-354d-4200-9e24-4ae83ba23b49",
+  "config_id": "speaker_program_demo",
+  "user_id": "test_user",
+  "status": "in_progress",
+  "current_section_id": "submitter",
+  "collected_data": {},
+  "section_status": {
+    "submitter": "in_progress",
+    "program": "not_started",
+    "schedule": "not_started",
+    "speaker": "not_started",
+    "venue": "not_started",
+    "details": "not_started"
+  },
+  "validation_errors": {},
+  "chat_history": [
+    {
+      "role": "assistant",
+      "content": "Hi \u2014 I can help you plan your pharma speaker program. We\u2019ll go through: Your Information, Product & Topic, Schedule, Speaker, Venue, and Additional Information.\n\nLet\u2019s start with Your Information: what\u2019s your name?",
+      "ts": "2026-05-09T15:09:31.579534"
+    }
+  ],
+  "submission_log": [],
+  "created_at": "2026-05-09T15:09:29.304452",
+  "updated_at": "2026-05-09T15:09:31.579534",
+  "submitted_at": null,
+  "user_name": null,
+  "user_email": null,
+  "external_callback_url": null,
+  "external_callback_secret_ref": null,
+  "return_url": null,
+  "branding_override": null,
+  "voice_mode": false,
+  "rendered_lookups": []
+}

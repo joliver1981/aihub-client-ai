@@ -623,7 +623,7 @@ KEY KNOWLEDGE:
 CRITICAL - VALID NODE TYPES:
 You may ONLY use these node types in workflow plans: Database, AI Action, AI Extract, Document,
 Loop, End Loop, Conditional, Human Approval, Alert, Folder Selector, File, Set Variable,
-Execute Application, Excel Export, Server, Integration.
+Execute Application, Excel Export, Server, Integration, Compliance Process, Compliance Excel Export.
 Do NOT invent node types that are not in this list (e.g., "Trigger", "Scheduled Trigger", "Timer",
 "Webhook", "Start", "End", "Delay", "Wait"). These do not exist.
 Workflows are triggered externally — either manually, via the platform's schedule system, or via API call.

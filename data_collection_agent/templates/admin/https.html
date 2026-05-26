@@ -1,0 +1,418 @@
+{% extends "base.html" %}
+{% block content %}
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="/static/css/chat-theme.css">
+<link rel="stylesheet" href="/data-collection/static/css/data-collection.css">
+
+{% if branding_style %}{{ branding_style|safe }}{% endif %}
+{% if safe_favicon_url %}<link rel="icon" href="{{ safe_favicon_url }}">{% endif %}
+
+<style>
+    .dca-admin-page {
+        min-height: 100vh;
+        background: var(--bg-primary, #0a0a0c);
+        color: var(--text-primary, #fafafa);
+        font-family: 'Outfit', sans-serif;
+        padding: 1.5rem 1.25rem 4rem 1.25rem;
+    }
+    .dca-admin-wrap { max-width: 880px; margin: 0 auto; }
+    .dca-admin-breadcrumb {
+        font-size: 0.78rem; color: var(--text-tertiary, #71717a);
+        margin-bottom: 0.5rem;
+    }
+    .dca-admin-breadcrumb a { color: var(--text-secondary, #a1a1aa); text-decoration: none; }
+    .dca-admin-breadcrumb a:hover { color: var(--cyber-cyan, #06b6d4); }
+
+    .dca-admin-hero {
+        margin-bottom: 1.5rem;
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 1rem; flex-wrap: wrap;
+    }
+    .dca-admin-hero h1 {
+        margin: 0; font-size: 1.5rem; font-weight: 600;
+        display: flex; align-items: center; gap: 0.6rem;
+    }
+    .dca-admin-hero h1 i { color: var(--cyber-cyan, #06b6d4); }
+    .dca-admin-hero p { margin: 0.4rem 0 0 0; color: var(--text-secondary, #a1a1aa); font-size: 0.85rem; }
+
+    .dca-status-pill {
+        display: inline-flex; align-items: center; gap: 0.4rem;
+        padding: 0.25rem 0.7rem;
+        border-radius: 999px;
+        font-size: 0.78rem; font-weight: 500;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid var(--border-color, #27272a);
+    }
+    .dca-status-pill.ok { background: rgba(34, 197, 94, 0.1); color: #86efac; border-color: rgba(34,197,94,0.3); }
+    .dca-status-pill.warn { background: rgba(251, 191, 36, 0.1); color: #fde68a; border-color: rgba(251,191,36,0.3); }
+    .dca-status-pill.err { background: rgba(239, 68, 68, 0.1); color: #fca5a5; border-color: rgba(239,68,68,0.3); }
+
+    .dca-section-card {
+        background: var(--bg-card, #18181b);
+        border: 1px solid var(--border-color, #27272a);
+        border-radius: 10px;
+        padding: 1.1rem;
+        margin-bottom: 1rem;
+    }
+    .dca-section-card h2 {
+        margin: 0 0 0.5rem 0;
+        font-size: 1rem; font-weight: 600;
+        display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dca-section-card h2 i { color: var(--cyber-cyan, #06b6d4); font-size: 0.95rem; }
+    .dca-section-card p, .dca-section-card label {
+        color: var(--text-secondary, #a1a1aa);
+        font-size: 0.85rem; line-height: 1.5;
+    }
+
+    .dca-mode-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+        gap: 0.75rem;
+        margin-top: 0.75rem;
+    }
+    .dca-mode-option {
+        display: block;
+        cursor: pointer;
+        padding: 0.85rem;
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid var(--border-color, #27272a);
+        border-radius: 8px;
+        transition: border-color 120ms ease;
+    }
+    .dca-mode-option:hover { border-color: var(--cyber-cyan, #06b6d4); }
+    .dca-mode-option input[type=radio] { margin-right: 0.5rem; transform: translateY(2px); }
+    .dca-mode-option.selected {
+        border-color: var(--cyber-cyan, #06b6d4);
+        background: rgba(6, 182, 212, 0.08);
+    }
+    .dca-mode-name { font-weight: 600; color: var(--text-primary, #fafafa); font-size: 0.9rem; }
+    .dca-mode-desc {
+        margin-top: 0.3rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary, #a1a1aa);
+        line-height: 1.4;
+    }
+
+    .dca-fields { margin-top: 0.75rem; }
+    .dca-fields label { display: block; margin-bottom: 0.6rem; }
+    .dca-fields input[type=text],
+    .dca-fields input[type=number] {
+        display: block;
+        width: 100%;
+        margin-top: 0.25rem;
+        background: var(--bg-primary, #0a0a0c);
+        border: 1px solid var(--border-color, #27272a);
+        color: var(--text-primary, #fafafa);
+        padding: 0.5rem 0.65rem;
+        border-radius: 6px;
+        font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;
+        outline: none;
+    }
+    .dca-fields input:focus {
+        border-color: var(--cyber-cyan, #06b6d4);
+        box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.2);
+    }
+
+    .dca-action-row {
+        display: flex; gap: 0.5rem; flex-wrap: wrap;
+        margin-top: 0.75rem;
+    }
+    .dca-cert-info {
+        margin-top: 0.75rem;
+        padding: 0.75rem;
+        background: rgba(255,255,255,0.02);
+        border: 1px dashed var(--border-color, #27272a);
+        border-radius: 6px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.78rem;
+        color: var(--text-secondary, #a1a1aa);
+    }
+    .dca-cert-info dt { font-weight: 600; color: var(--text-primary, #fafafa); }
+    .dca-cert-info dd { margin: 0 0 0.4rem 0; word-break: break-all; }
+
+    .dca-banner {
+        padding: 0.75rem 1rem;
+        margin-bottom: 1rem;
+        border-radius: 8px;
+        border-left: 3px solid;
+        font-size: 0.85rem;
+        display: flex; gap: 0.6rem; align-items: flex-start;
+    }
+    .dca-banner.info { background: rgba(6,182,212,0.08); border-color: var(--cyber-cyan, #06b6d4); color: #a5f3fc; }
+    .dca-banner.warn { background: rgba(251,191,36,0.1); border-color: #fbbf24; color: #fde68a; }
+    .dca-banner.err  { background: rgba(239,68,68,0.1); border-color: #f87171; color: #fca5a5; }
+
+    .dca-toast {
+        position: fixed; bottom: 2rem; right: 2rem;
+        padding: 0.85rem 1rem;
+        background: var(--bg-card, #18181b);
+        border: 1px solid var(--border-color, #27272a);
+        border-radius: 8px;
+        font-size: 0.85rem;
+        color: var(--text-primary, #fafafa);
+        opacity: 0; pointer-events: none;
+        transition: opacity 200ms ease;
+        z-index: 100;
+        max-width: 400px;
+    }
+    .dca-toast.show { opacity: 1; }
+    .dca-toast.ok { border-color: #22c55e; color: #86efac; }
+    .dca-toast.err { border-color: #f87171; color: #fca5a5; }
+</style>
+
+<div class="dca-admin-page">
+    <div class="dca-admin-wrap">
+        <div class="dca-admin-breadcrumb">
+            <a href="/data-collection/admin">Admin</a> &rsaquo; HTTPS / TLS
+        </div>
+
+        <div class="dca-admin-hero">
+            <div>
+                <h1><i class="fas fa-lock"></i> HTTPS / TLS configuration</h1>
+                <p>Choose how the standalone runner serves traffic. Voice features
+                   require a secure context (HTTPS or localhost).</p>
+            </div>
+            <div>
+                {% if runtime.protocol == 'https' %}
+                    <span class="dca-status-pill ok">
+                        <i class="fas fa-check-circle"></i> HTTPS active
+                    </span>
+                {% elif runtime.mode == 'reverse_proxy' %}
+                    <span class="dca-status-pill ok">
+                        <i class="fas fa-shield-alt"></i> Reverse proxy mode
+                    </span>
+                {% else %}
+                    <span class="dca-status-pill warn">
+                        <i class="fas fa-exclamation-triangle"></i> Plain HTTP
+                    </span>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if runtime.warnings %}
+        {% for warning in runtime.warnings %}
+        <div class="dca-banner warn">
+            <i class="fas fa-info-circle"></i> {{ warning }}
+        </div>
+        {% endfor %}
+        {% endif %}
+
+        <div class="dca-banner info">
+            <i class="fas fa-info-circle"></i>
+            <div>
+                <strong>Changes take effect on server restart.</strong>
+                After saving, run <code>dca restart</code> from the
+                <code>data_collection_agent</code> folder.
+            </div>
+        </div>
+
+        <!-- Mode selection -->
+        <div class="dca-section-card">
+            <h2><i class="fas fa-list"></i> Deployment mode</h2>
+            <p>Pick the mode that matches how this app is deployed.</p>
+
+            <div class="dca-mode-grid">
+                <label class="dca-mode-option" data-mode="none">
+                    <input type="radio" name="mode" value="none" {% if config.mode == 'none' %}checked{% endif %}>
+                    <span class="dca-mode-name">None (plain HTTP)</span>
+                    <div class="dca-mode-desc">
+                        Default. Voice features will be disabled in the browser.
+                        Fine for text-only local testing.
+                    </div>
+                </label>
+
+                <label class="dca-mode-option" data-mode="reverse_proxy">
+                    <input type="radio" name="mode" value="reverse_proxy" {% if config.mode == 'reverse_proxy' %}checked{% endif %}>
+                    <span class="dca-mode-name">Behind reverse proxy</span>
+                    <div class="dca-mode-desc">
+                        Caddy / Nginx / IIS terminates TLS in front of us.
+                        Recommended for production.
+                    </div>
+                </label>
+
+                <label class="dca-mode-option" data-mode="self_signed">
+                    <input type="radio" name="mode" value="self_signed" {% if config.mode == 'self_signed' %}checked{% endif %}>
+                    <span class="dca-mode-name">Self-signed cert</span>
+                    <div class="dca-mode-desc">
+                        Flask binds TLS directly using a generated cert.
+                        Browsers warn unless IT trusts the cert.
+                    </div>
+                </label>
+
+                <label class="dca-mode-option" data-mode="custom_cert">
+                    <input type="radio" name="mode" value="custom_cert" {% if config.mode == 'custom_cert' %}checked{% endif %}>
+                    <span class="dca-mode-name">Custom cert</span>
+                    <div class="dca-mode-desc">
+                        Flask binds TLS using a cert + key file you provide
+                        (e.g. from your internal CA).
+                    </div>
+                </label>
+            </div>
+        </div>
+
+        <!-- Self-signed cert generator -->
+        <div class="dca-section-card" id="dcaSelfSignedSection" style="display:none;">
+            <h2><i class="fas fa-certificate"></i> Self-signed cert</h2>
+            <p>Generate a fresh self-signed certificate. The cert + private key are
+               written under <code>data/dca_certs/</code> and the config below is
+               updated to point at them.</p>
+
+            <div class="dca-fields">
+                <label>Hostname (CN + SAN)
+                    <input type="text" id="dcaSelfHostname" value="{{ config.hostname or 'localhost' }}">
+                </label>
+                <label>Validity (days)
+                    <input type="number" id="dcaSelfDays" value="825" min="7" max="3650">
+                </label>
+            </div>
+
+            <div class="dca-action-row">
+                <button class="dca-btn-primary" id="dcaGenerateBtn">
+                    <i class="fas fa-magic"></i> Generate now
+                </button>
+            </div>
+        </div>
+
+        <!-- Cert paths (self-signed: shown read-only after generation; custom: editable) -->
+        <div class="dca-section-card" id="dcaCertPathsSection" style="display:none;">
+            <h2><i class="fas fa-file-shield"></i> Cert files</h2>
+
+            <div class="dca-fields">
+                <label>Cert path (.crt / .pem)
+                    <input type="text" id="dcaCertPath" value="{{ config.cert_path }}">
+                </label>
+                <label>Private key path (.key)
+                    <input type="text" id="dcaKeyPath" value="{{ config.key_path }}">
+                </label>
+                <label>Hostname (used for cert SAN reference, optional)
+                    <input type="text" id="dcaCustomHostname" value="{{ config.hostname or 'localhost' }}">
+                </label>
+            </div>
+
+            {% if cert_info %}
+            <dl class="dca-cert-info">
+                <dt>Subject</dt>           <dd>{{ cert_info.subject }}</dd>
+                <dt>Issuer</dt>            <dd>{{ cert_info.issuer }}</dd>
+                <dt>Self-signed?</dt>      <dd>{{ 'yes' if cert_info.self_signed else 'no' }}</dd>
+                <dt>Valid until</dt>
+                <dd>
+                    {{ cert_info.not_valid_after }}
+                    {% if cert_info.expired %}
+                        <span style="color:#f87171;font-weight:600;"> &middot; EXPIRED</span>
+                    {% else %}
+                        ({{ cert_info.days_remaining }} days remaining)
+                    {% endif %}
+                </dd>
+                {% if cert_info.san_dns %}<dt>SAN DNS</dt> <dd>{{ cert_info.san_dns | join(', ') }}</dd>{% endif %}
+                {% if cert_info.san_ip %} <dt>SAN IP</dt>  <dd>{{ cert_info.san_ip | join(', ') }}</dd>{% endif %}
+            </dl>
+            {% endif %}
+        </div>
+
+        <!-- Reverse proxy info -->
+        <div class="dca-section-card" id="dcaReverseProxySection" style="display:none;">
+            <h2><i class="fas fa-network-wired"></i> Reverse proxy guidance</h2>
+            <p>In this mode, Flask binds plain HTTP on the local port and trusts
+               <code>X-Forwarded-Proto</code> from a single trusted upstream.</p>
+            <p>Example Caddy config (one-liner — auto handles cert renewal):</p>
+            <pre class="dca-cert-info" style="white-space:pre;">your-internal-host.local {
+    reverse_proxy 127.0.0.1:5099
+}</pre>
+            <p>Make sure your proxy is the only thing reachable from clients —
+               binding Flask to <code>127.0.0.1</code> only is the default.</p>
+        </div>
+
+        <!-- Save row -->
+        <div class="dca-action-row" style="margin-top:1.5rem;">
+            <button class="dca-btn-primary" id="dcaSaveBtn">
+                <i class="fas fa-save"></i> Save configuration
+            </button>
+            <a class="dca-btn-sm" style="width:auto;padding:0.6rem 1rem;" href="/data-collection/admin">
+                <i class="fas fa-arrow-left"></i> Back
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="dca-toast" id="dcaToast"></div>
+
+<script>
+(function() {
+    const $ = (id) => document.getElementById(id);
+    const showToast = (msg, kind) => {
+        const t = $('dcaToast');
+        t.className = 'dca-toast show ' + (kind || '');
+        t.textContent = msg;
+        setTimeout(() => t.classList.remove('show'), 4000);
+    };
+
+    const sectionsByMode = {
+        none:           [],
+        reverse_proxy:  ['dcaReverseProxySection'],
+        self_signed:    ['dcaSelfSignedSection', 'dcaCertPathsSection'],
+        custom_cert:    ['dcaCertPathsSection'],
+    };
+
+    function syncSections() {
+        const sel = document.querySelector('input[name=mode]:checked');
+        const mode = sel ? sel.value : 'none';
+        // Highlight the chosen radio card
+        document.querySelectorAll('.dca-mode-option').forEach(el => {
+            el.classList.toggle('selected', el.dataset.mode === mode);
+        });
+        // Show/hide contextual sections
+        const all = ['dcaSelfSignedSection', 'dcaCertPathsSection', 'dcaReverseProxySection'];
+        const visible = sectionsByMode[mode] || [];
+        all.forEach(id => $(id).style.display = visible.includes(id) ? '' : 'none');
+    }
+    document.querySelectorAll('input[name=mode]').forEach(r => r.addEventListener('change', syncSections));
+    syncSections();
+
+    async function api(url, method, body) {
+        const opts = { method, headers: { 'Accept': 'application/json' }, credentials: 'same-origin' };
+        if (body) {
+            opts.headers['Content-Type'] = 'application/json';
+            opts.body = JSON.stringify(body);
+        }
+        const r = await fetch(url, opts);
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+        return data;
+    }
+
+    $('dcaGenerateBtn').addEventListener('click', async () => {
+        const hostname = $('dcaSelfHostname').value.trim() || 'localhost';
+        const days = parseInt($('dcaSelfDays').value, 10) || 825;
+        try {
+            const data = await api('/api/data-collection/admin/https/generate-cert', 'POST', { hostname, days_valid: days });
+            $('dcaCertPath').value = data.cert.cert_path;
+            $('dcaKeyPath').value = data.cert.key_path;
+            $('dcaCustomHostname').value = data.cert.hostname || hostname;
+            showToast('Cert generated. Save and restart to activate.', 'ok');
+        } catch (e) {
+            showToast('Generate failed: ' + e.message, 'err');
+        }
+    });
+
+    $('dcaSaveBtn').addEventListener('click', async () => {
+        const sel = document.querySelector('input[name=mode]:checked');
+        const mode = sel ? sel.value : 'none';
+        const body = {
+            mode,
+            cert_path: $('dcaCertPath').value.trim(),
+            key_path:  $('dcaKeyPath').value.trim(),
+            hostname:  ($('dcaCustomHostname').value || $('dcaSelfHostname').value || 'localhost').trim(),
+        };
+        try {
+            await api('/api/data-collection/admin/https', 'POST', body);
+            showToast('Saved. Run "dca restart" to apply.', 'ok');
+        } catch (e) {
+            showToast('Save failed: ' + e.message, 'err');
+        }
+    });
+})();
+</script>
+{% endblock %}

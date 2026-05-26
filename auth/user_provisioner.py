@@ -83,8 +83,10 @@ class UserProvisioner:
             ).first()
 
             if user:
-                # Existing user — update last login time and attributes
-                user.last_sso_login = datetime.now(timezone.utc)
+                # Existing user — update last login time and attributes.
+                # Use tz-naive UTC datetime; the legacy {SQL Server} ODBC
+                # driver mishandles tz-aware datetimes on parameter binds.
+                user.last_sso_login = datetime.utcnow()
                 if email:
                     user.external_email = email
                 if name and name != user.name:
@@ -112,8 +114,10 @@ class UserProvisioner:
                 # Link the existing local account to the external identity
                 existing_local.auth_provider = auth_provider
                 existing_local.external_id = external_id
-                existing_local.external_email = email
-                existing_local.last_sso_login = datetime.now(timezone.utc)
+                if email:
+                    existing_local.external_email = email
+                # tz-naive datetime — see comment on the first branch above
+                existing_local.last_sso_login = datetime.utcnow()
 
                 if group_role_mapping and groups:
                     new_role = self._resolve_role(groups, group_role_mapping, existing_local.role)
@@ -142,24 +146,77 @@ class UserProvisioner:
                     secrets.token_hex(32)
                 ).decode('utf-8')
 
-            new_user = self._user_class(
-                username=username,
-                name=name,
+            # Bypass SQLAlchemy ORM for the INSERT. Use the existing
+            # Add_User() raw-SQL path that the rest of the app relies on.
+            #
+            # Why: the legacy {SQL Server} ODBC driver throws HY104
+            # ("Invalid precision value (0) (SQLBindParameter)") when
+            # pyodbc binds NULL parameters to NVARCHAR columns (and also
+            # has known issues with tz-aware datetime params). SQLAlchemy
+            # always uses bound parameters via pyodbc, so it can't avoid
+            # these failures with this driver.
+            #
+            # Add_User() avoids parameter binding entirely — values are
+            # escaped via format_string_for_insert() and interpolated into
+            # the SQL string before execution. No SQLBindParameter call,
+            # no HY104. Same legacy driver, same database, just a
+            # different code path that's been working in production.
+            #
+            # After insert, we requery via ORM so flask_login still has
+            # a normal model instance (and so last_sso_login can be set
+            # through the ORM where datetime handling is fine for
+            # already-existing rows).
+            from DataUtils import Add_User
+            new_user_id, ok = Add_User(
+                user_id=0,
+                user_name=username,
+                role=role,
                 email=email or '',
                 phone='',
-                role=role,
+                name=name,
                 password=placeholder_password,
                 auth_provider=auth_provider,
                 external_id=external_id,
-                external_email=email,
-                last_sso_login=datetime.now(timezone.utc),
             )
+            if not ok or not new_user_id:
+                logger.error(
+                    f"Add_User() returned ok={ok}, new_user_id={new_user_id} "
+                    f"for {auth_provider} user '{username}'"
+                )
+                return None
 
-            # Set TenantId if available
-            if tenant_id:
-                new_user.TenantId = tenant_id
+            # Add_User() reads the new id out of a pandas DataFrame, which
+            # yields numpy.int64. pyodbc rejects numpy types as bind params
+            # with HY105 "Invalid parameter type". Coerce to a native int
+            # before using it anywhere parameter binding will happen.
+            try:
+                new_user_id = int(new_user_id)
+            except (TypeError, ValueError):
+                logger.error(
+                    f"Could not coerce new_user_id={new_user_id!r} "
+                    f"(type={type(new_user_id).__name__}) to int"
+                )
+                return None
 
-            session.add(new_user)
+            # Re-query through SQLAlchemy so flask_login gets a managed
+            # User instance back. last_sso_login is set on the managed
+            # instance and committed via the normal session — this UPDATE
+            # path doesn't have the HY104 issue because the bound row
+            # already exists (only the datetime column is being touched,
+            # and SQLAlchemy strips tz info for db.DateTime columns).
+            new_user = self._user_class.query.filter_by(id=new_user_id).first()
+            if new_user is None:
+                logger.error(
+                    f"Add_User() reported success but re-query returned no row "
+                    f"for id={new_user_id}, username='{username}'"
+                )
+                return None
+
+            # Stamp last_sso_login with a tz-naive datetime to keep the
+            # legacy driver happy on the UPDATE binding.
+            new_user.last_sso_login = datetime.utcnow()
+            if email:
+                new_user.external_email = email
             session.commit()
 
             logger.info(f"Auto-provisioned new {auth_provider} user: {username} (role={role})")

@@ -1,0 +1,132 @@
+{
+  "session_id": "74b44560-3fd3-4248-a39f-e6e6048fb04c",
+  "config_id": "example",
+  "user_id": "test_user",
+  "status": "submitted",
+  "current_section_id": "details",
+  "collected_data": {
+    "basics": {
+      "submitter_name": "james o",
+      "submitter_email": "joliver81@gmail.com",
+      "request_type": "type_b",
+      "target_date": "2026-05-19"
+    },
+    "details": {
+      "title": "Testing an app",
+      "description": "The request is about testing an app.",
+      "estimated_count": 99,
+      "needs_followup": false
+    }
+  },
+  "section_status": {
+    "basics": "complete",
+    "details": "complete"
+  },
+  "validation_errors": {},
+  "chat_history": [
+    {
+      "role": "assistant",
+      "content": "Hi! I\u2019ll help you fill out the Example Intake Form. We\u2019ll go through two sections: **Basic Information** first, then **Details**. It should be pretty quick.\n\nTo start with **Basic Information**: what\u2019s your name?",
+      "ts": "2026-05-06T00:31:47.513357"
+    },
+    {
+      "role": "user",
+      "content": "james o\n\n[SYSTEM NOTE \u2014 auto-extracted from user's message and already saved:\n  - Your Name (basics.submitter_name) = 'james o'\nConfirm these briefly to the user and ask the next missing question. Do NOT call update_field for these fields \u2014 already saved.]",
+      "ts": "2026-05-06T00:35:51.096461"
+    },
+    {
+      "role": "assistant",
+      "content": "Got it, James O.\n\nWhat email address should we use to contact you?",
+      "ts": "2026-05-06T00:35:51.096461"
+    },
+    {
+      "role": "user",
+      "content": "joliver81@gmail.com\n\n[SYSTEM NOTE \u2014 auto-extracted from user's message and already saved:\n  - Your Email (basics.submitter_email) = 'joliver81@gmail.com'\nConfirm these briefly to the user and ask the next missing question. Do NOT call update_field for these fields \u2014 already saved.]",
+      "ts": "2026-05-06T00:36:16.084010"
+    },
+    {
+      "role": "assistant",
+      "content": "Thanks \u2014 I\u2019ve got **joliver81@gmail.com**.\n\nFor **request type**, I\u2019ve put the options on screen. Which one fits best?\n\n- **Type A \u2014 Standard**: routine/default\n- **Type B \u2014 Priority**: urgent, needs manager sign-off\n- **Type C \u2014 Custom**: unusual or non-standard work\n\nYou can reply with **A, B, or C**.",
+      "ts": "2026-05-06T00:36:16.084010"
+    },
+    {
+      "role": "user",
+      "content": "B\n\n[SYSTEM NOTE \u2014 auto-extracted from user's message and already saved:\n  - Request Type (basics.request_type) = 'type_b'\nConfirm these briefly to the user and ask the next missing question. Do NOT call update_field for these fields \u2014 already saved.]",
+      "ts": "2026-05-06T00:36:42.112468"
+    },
+    {
+      "role": "assistant",
+      "content": "Got it \u2014 **Type B (Priority)**.\n\nWhat\u2019s the **target date**? It needs to be **at least 7 days out**. You can give a date like **2026-06-24**, **next Tuesday**, or **in 10 days**.",
+      "ts": "2026-05-06T00:36:42.112468"
+    },
+    {
+      "role": "user",
+      "content": "two weeks from today\n\n[SYSTEM NOTE \u2014 auto-extracted from user's message and already saved:\n  - Target Date (basics.target_date) = '2026-05-19'\nConfirm these briefly to the user and ask the next missing question. Do NOT call update_field for these fields \u2014 already saved.]",
+      "ts": "2026-05-06T00:37:04.115796"
+    },
+    {
+      "role": "assistant",
+      "content": "Perfect \u2014 I\u2019ve got the target date as **2026-05-19**.\n\nBasic Information is complete. Next up is **Details** \u2014 what\u2019s the request about?",
+      "ts": "2026-05-06T00:37:04.115796"
+    },
+    {
+      "role": "user",
+      "content": "the request is about testing an app\n\n[SYSTEM NOTE \u2014 auto-extracted from user's message and already saved:\n  - Short Title (details.title) = 'Testing an app'\n  - Description (details.description) = 'The request is about testing an app.'\nConfirm these briefly to the user and ask the next missing question. Do NOT call update_field for these fields \u2014 already saved.]",
+      "ts": "2026-05-06T00:38:50.530500"
+    },
+    {
+      "role": "assistant",
+      "content": "Thanks \u2014 I\u2019ve got:\n\n- **Title:** Testing an app  \n- **Description:** The request is about testing an app.\n\nNext, do you have an **estimated quantity**, and do you **need a follow-up call**?",
+      "ts": "2026-05-06T00:38:50.530500"
+    },
+    {
+      "role": "user",
+      "content": "99\n\n[SYSTEM NOTE \u2014 auto-extracted from user's message and already saved:\n  - Estimated Quantity (details.estimated_count) = 99\nConfirm these briefly to the user and ask the next missing question. Do NOT call update_field for these fields \u2014 already saved.]",
+      "ts": "2026-05-06T00:39:10.020321"
+    },
+    {
+      "role": "assistant",
+      "content": "Got it \u2014 **estimated quantity: 99**.\n\nDo you need a **follow-up call**? Please reply **yes** or **no**.",
+      "ts": "2026-05-06T00:39:10.020321"
+    },
+    {
+      "role": "user",
+      "content": "no\n\n[SYSTEM NOTE \u2014 auto-extracted from user's message and already saved:\n  - Needs Follow-up Call (details.needs_followup) = False\nConfirm these briefly to the user and ask the next missing question. Do NOT call update_field for these fields \u2014 already saved.]",
+      "ts": "2026-05-06T00:39:24.257164"
+    },
+    {
+      "role": "assistant",
+      "content": "Got it \u2014 **no follow-up call**.\n\nYou\u2019ve completed all sections, and I\u2019ve put the full recap on screen for you. Please take a quick look and let me know if everything looks good. If it does, just say **submit** or **looks good**.",
+      "ts": "2026-05-06T00:39:24.257164"
+    }
+  ],
+  "submission_log": [
+    {
+      "action_type": "email",
+      "label": "Notify intake team",
+      "success": true,
+      "message": "Sent to 1 recipient(s).",
+      "details": {
+        "recipients": [
+          "intake@example.com"
+        ],
+        "cc": [
+          "joliver81@gmail.com"
+        ],
+        "subject": "New type_b: Testing an app"
+      },
+      "duration_ms": 435,
+      "ts": "2026-05-06T00:42:38.145695"
+    }
+  ],
+  "created_at": "2026-05-06T00:31:44.418280",
+  "updated_at": "2026-05-06T00:42:38.158693",
+  "submitted_at": "2026-05-06T00:42:38.158693",
+  "user_name": null,
+  "user_email": null,
+  "external_callback_url": null,
+  "external_callback_secret_ref": null,
+  "return_url": null,
+  "branding_override": null,
+  "voice_mode": false
+}

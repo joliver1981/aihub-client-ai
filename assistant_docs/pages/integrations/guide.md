@@ -45,18 +45,25 @@ The integrations page has two main tabs:
 
 ## Pre-Built Integration Templates
 
-AI Hub includes these ready-to-use templates:
+AI Hub includes these ready-to-use templates (loaded from `integrations/builtin/`):
 
 | Platform | Category | Auth Type | Key Features |
 |----------|----------|-----------|--------------|
 | **QuickBooks Online** | Accounting | OAuth 2.0 | Invoices, customers, payments, query builder |
+| **Oracle NetSuite** | ERP / Accounting | OAuth 1.0 (TBA) | SuiteQL + REST: customers, invoices, vendors, transactions |
 | **Shopify** | E-Commerce | API Key | Orders, products, customers, inventory |
+| **Walmart Marketplace** | E-Commerce | OAuth 2.0 | 3P seller: orders, inventory, items, shipping, returns |
 | **HubSpot** | CRM | OAuth 2.0 | Contacts, companies, deals |
-| **Stripe** | Payments | API Key | Customers, payments, invoices, subscriptions |
+| **Stripe** | Payments | Bearer Token | Customers, payments, invoices, subscriptions |
 | **Slack** | Communication | OAuth 2.0 | Send messages, list channels/users |
 | **Google Sheets** | Productivity | OAuth 2.0 | Read/write/append spreadsheet data |
+| **OneDrive** | Cloud Storage | OAuth 2.0 | Browse and pull files into knowledge base (personal or business Microsoft accounts) |
+| **SharePoint Online** | Cloud Storage | OAuth 2.0 (delegated) | Per-user: browse sites & document libraries, path-based list/download, upload, move/copy/rename/delete files, create folders, and bulk-import to agent knowledge bases. Requires `Files.ReadWrite.All` scope — existing connections from before write support must be reconnected once. |
+| **SharePoint Online (Service Account)** | Cloud Storage | OAuth 2.0 (app-only) | App-only / tenant-wide: same surface as SharePoint Online (including the full file lifecycle: upload, move/copy/rename/delete, create folders, knowledge import), but no user sign-in. Best for centralized indexing and background sync. |
 | **Azure Blob Storage** | Cloud Storage | Cloud Storage | Upload/download files, list containers, generate shareable URLs |
 | **Custom REST API** | Custom | Flexible | User-defined API integration |
+
+> **Note on the two SharePoint templates:** Both connect to the same Microsoft Graph surface, but they differ in who the calls are made as. The standard **SharePoint Online** template uses delegated permissions — every user signs in with their own Microsoft account and sees only what they have access to. **SharePoint Online (Service Account)** uses application permissions — one set of credentials gives the integration tenant-wide access regardless of the signed-in user. Pick the service-account version when every AI Hub user should see the same SharePoint content (centralized knowledge bases, background workflows). Pick the delegated version when each user should act with their own SharePoint permissions.
 
 ---
 

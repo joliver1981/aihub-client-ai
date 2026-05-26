@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Scripted payloads + assertions for module 35 (Data Collection Agent) live tests. Use with the smoke runner or pasted into Postman / httpie.",
+  "host": "http://localhost:5099",
+  "scenarios": [
+    {
+      "id": "healthz",
+      "method": "GET",
+      "path": "/healthz",
+      "expect": {
+        "status": 200,
+        "json": { "status": "ok", "app": "data_collection_agent_standalone" }
+      }
+    },
+    {
+      "id": "api_health",
+      "method": "GET",
+      "path": "/api/data-collection/health",
+      "expect": {
+        "status": 200,
+        "json_keys": ["status", "configs", "action_types"]
+      }
+    },
+    {
+      "id": "list_configs",
+      "method": "GET",
+      "path": "/api/data-collection/configs",
+      "expect": {
+        "status": 200,
+        "json_keys": ["status", "configs"]
+      }
+    },
+    {
+      "id": "builder_empty_schema",
+      "method": "GET",
+      "path": "/api/data-collection/builder/empty-schema",
+      "expect": { "status": 200 }
+    },
+    {
+      "id": "builder_message_create",
+      "method": "POST",
+      "path": "/api/data-collection/builder/message",
+      "body": {
+        "message": "Create a venue research schema with venue_name, address, capacity, parking (boolean), notes."
+      },
+      "expect": {
+        "status": 200,
+        "json_keys": ["session_id", "response", "metadata"]
+      }
+    },
+    {
+      "id": "builder_save_demo",
+      "method": "POST",
+      "path": "/api/data-collection/builder/save",
+      "body": {
+        "is_new": true,
+        "schema": {
+          "id": "venue_research_demo",
+          "name": "Venue Research (demo)",
+          "version": "1.0",
+          "description": "Field research notes for venues.",
+          "sections": [
+            {
+              "id": "main",
+              "title": "Venue",
+              "order": 1,
+              "fields": [
+                { "id": "venue_name", "label": "Venue name", "type": "text", "required": true },
+                { "id": "address", "label": "Address", "type": "text", "required": true },
+                { "id": "capacity", "label": "Capacity", "type": "number" },
+                { "id": "parking", "label": "Parking available?", "type": "boolean" },
+                { "id": "notes", "label": "Notes", "type": "text" }
+              ]
+            }
+          ],
+          "completion": {
+            "confirmation_message": "Thanks — your venue research has been logged.",
+            "allow_save_draft": true,
+            "actions": []
+          }
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json": { "status": "success", "config_id": "venue_research_demo" }
+      }
+    },
+    {
+      "id": "start_session",
+      "method": "POST",
+      "path": "/api/data-collection/sessions",
+      "body": { "config_id": "venue_research_demo" },
+      "expect": {
+        "status": 200,
+        "json_keys": ["status", "session"]
+      },
+      "save": { "session_id": "$.session.session_id" }
+    },
+    {
+      "id": "fill_name",
+      "method": "POST",
+      "path": "/api/data-collection/message",
+      "body": {
+        "session_id": "${session_id}",
+        "message": "The venue is Madison Square Garden."
+      },
+      "expect": { "status": 200 }
+    },
+    {
+      "id": "fill_capacity",
+      "method": "POST",
+      "path": "/api/data-collection/message",
+      "body": {
+        "session_id": "${session_id}",
+        "message": "Capacity 20000."
+      },
+      "expect": { "status": 200 }
+    },
+    {
+      "id": "inline_update_parking",
+      "method": "POST",
+      "path": "/api/data-collection/session/${session_id}/update-field",
+      "body": {
+        "section_id": "main",
+        "field_id": "parking",
+        "value": true
+      },
+      "expect": {
+        "status": 200,
+        "json_keys": ["session", "updated_field"]
+      }
+    },
+    {
+      "id": "submit",
+      "method": "POST",
+      "path": "/api/data-collection/session/${session_id}/submit",
+      "expect": {
+        "status_in": [200, 207],
+        "json_keys": ["status", "message", "pipeline", "session"]
+      }
+    },
+    {
+      "id": "admin_https_get",
+      "method": "GET",
+      "path": "/api/data-collection/admin/https",
+      "expect": {
+        "status": 200,
+        "json_keys": ["status", "config", "runtime"]
+      }
+    },
+    {
+      "id": "cleanup_delete",
+      "method": "DELETE",
+      "path": "/api/data-collection/builder/venue_research_demo",
+      "expect": {
+        "status": 200,
+        "json": { "status": "success", "deleted": true }
+      }
+    }
+  ]
+}

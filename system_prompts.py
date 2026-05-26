@@ -2004,7 +2004,10 @@ SYS_PROMPT_SMART_CONTENT_RENDER_SYSTEM = """You are a content analysis expert. A
             - table: Tabular data (with headers and rows) 
             - code: Programming code with language detection
             - list: Bulleted or numbered lists (for links, create objects with 'text' and 'url' properties)
-            - metrics: Key-value pairs, statistics, or KPIs
+            - metrics: SHORT scannable values only (numbers, %, counts, durations, dates,
+              statuses) — under ~40 chars, never sentences or prose. For field/value sets
+              with any long-form values, use a `table` with Field/Value columns; for a
+              single prose value, use a `text` block.
             - json: JSON data structures
             - sql: SQL queries
             - chart_data: Data suitable for visualization
@@ -2368,13 +2371,18 @@ Output access: Use dollar-brace with dot notation like ${extractedData.fieldName
 - Purpose: Mark end of loop iteration
 - Required config fields:
   * loopNodeId: Must match the node_id of corresponding Loop node
-- WIRING RULES (validator-enforced):
-  * The End Loop node MUST have exactly ONE outgoing connection of type "pass" back to its
-    corresponding Loop node (this is the iteration-back edge). NOT two, not zero.
-  * Emit only one connect_nodes command for End Loop -> Loop (type "pass"). Adding it twice
-    will trigger a "DUPLICATE CONNECTION" validation error.
-  * Each Loop node should have exactly one matching End Loop. Do not create multiple End
-    Loop nodes referencing the same Loop, even if you regenerate the workflow.""",
+- WIRING RULES:
+  * The loop-back (iteration-back) edge is IMPLICIT. It is established purely by the
+    End Loop's loopNodeId config field — do NOT emit a connect_nodes command from
+    End Loop back to its Loop. Adding a physical back-edge is a validator error
+    (END_LOOP_REDUNDANT_BACK_EDGE) and will be silently removed by the auto-fixer.
+  * If there is work AFTER the loop (e.g. an export, a summary alert), emit one
+    outgoing "pass" connection from End Loop to that next post-loop node. End Loop's
+    pass means "loop is done, continue forward" — NOT "go back to the loop."
+  * If the loop is the final step of the workflow, End Loop has no outgoing
+    connection at all (it is terminal).
+  * Each Loop node should have exactly one matching End Loop. Do not create multiple
+    End Loop nodes referencing the same Loop, even if you regenerate the workflow.""",
 
     "Conditional": """Conditional:
 - Purpose: Make decisions based on comparisons or checks
@@ -2599,7 +2607,39 @@ Common patterns:
   * operation: Snake_case operation key from get_integration_operations (e.g. get_customers), not the display name
   * parameters: Dict of operation-specific parameters (supports dollar-brace variable syntax for dynamic values)
   * outputVariable: Name for storing operation result
-  * continueOnError: Boolean true or false - continue workflow if operation fails"""
+  * continueOnError: Boolean true or false - continue workflow if operation fails""",
+
+    "Compliance Process": """Compliance Process:
+- Purpose: Route one or more compliance documents to the right retailer-compliance agent for extraction
+- Specialized for the /compliance_management surface — retailer and set IDs are managed there. The agent does NOT have a tool to look these up; user must supply them (fixed mode) or they must already be resolved into variables upstream (dynamic mode)
+- Required config fields:
+  * routingMode: One of "fixed" or "dynamic"
+    - fixed: Use a specific retailer + set chosen at design time. Required: retailerId, setId
+    - dynamic: Resolve retailer/set from workflow variables at runtime. Required: variable references in retailerId / setId fields (dollar-brace syntax)
+  * agentMode: One of "per_retailer" (one agent for all sets of a retailer) or "per_set" (a dedicated agent per category/set)
+  * onMissing: One of "skip" (skip when no agent is assigned) or "auto_create" (auto-create the missing agent)
+- Optional config fields:
+  * autoCreateAgent: Boolean - shorthand to enable auto-creation
+  * agentObjectiveTemplate: Text used as the objective for auto-created agents (required when onMissing is auto_create)
+  * agentOverrideId: Numeric agent ID to use instead of the configured retailer/set agent (overrides everything)
+  * retailerAgentOverrideId: Numeric agent ID to override the retailer-level agent only (only meaningful when agentMode is per_retailer)
+  * outputVariable: Name for storing the routing/extraction result
+  * continueOnError: Boolean true or false
+- Outputs: Routing/extraction result stored in the output variable""",
+
+    "Compliance Excel Export": """Compliance Excel Export:
+- Purpose: Export the extracted fields of a compliance run to an Excel file. Pairs with Compliance Process upstream
+- Required config fields:
+  * sourceMode: One of "version" or "latest_in_set"
+    - version: Caller passes a versionVariable resolving to a specific compliance version_id (typical when Compliance Process is upstream and emitted a version_id)
+    - latest_in_set: Pick a retailer + set; the node automatically resolves the most recent version. Easiest way to wire "export the latest extraction for this retailer/set"
+  * versionVariable: Variable name (no dollar-brace) holding the version_id (required when sourceMode is version)
+  * retailerId / setId: IDs for the retailer + document set (required when sourceMode is latest_in_set)
+  * outputVariable: Name for storing the result (file path + row count)
+  * continueOnError: Boolean true or false
+- Outputs:
+  * data.file_path: Path to the written Excel file
+  * data.rows_written: Number of rows exported"""
 }
 
 WORKFLOW_NODE_TYPES = """
@@ -2643,9 +2683,11 @@ Loop
 
 End Loop
 - Marks the end of a loop iteration.
-- Must be paired with a Loop node.
-- Validator constraint: End Loop MUST have exactly ONE outgoing "pass" connection back to
-  its Loop node (the iteration-back edge). Emit only one connect_nodes for End Loop -> Loop.
+- Pairs with a Loop node via the loopNodeId config field. The iteration-back is
+  IMPLICIT — do NOT emit a connect_nodes from End Loop back to the Loop.
+- If there are nodes AFTER the loop, End Loop's outgoing "pass" connection goes
+  forward to the first post-loop node. If the loop is the final step, End Loop has
+  no outgoing connection.
 
 Conditional
 - Branch workflow based on value comparisons
@@ -2708,12 +2750,25 @@ Excel Export
   excelOutputPath (the existing file you are appending to).
 
 Integration
-- Execute operations on connected external integrations (QuickBooks, Shopify, Stripe, Slack, etc.)
+- Execute operations on connected external integrations (QuickBooks, Shopify, Stripe, Slack, SharePoint, etc.)
 - Use for: Fetching data from or sending data to external services via pre-configured integrations
 - Required config: integration_id, operation (operation key), parameters (dict), outputVariable, continueOnError
 - Parameters support dollar-brace variable syntax for dynamic values
 - Use get_available_integrations for integration_id (numeric, not the name) and get_integration_operations for the operation key (snake_case, not the display name)
 - Outputs: Operation result stored in a variable (structure depends on the operation)
+
+Compliance Process
+- Route compliance documents to retailer-compliance agents for extraction (specialized for the /compliance_management surface)
+- routingMode: "fixed" (pick a specific retailerId + setId at design time) or "dynamic" (resolve them from workflow variables at runtime)
+- agentMode: "per_retailer" (one agent per retailer) or "per_set" (one agent per document set/category)
+- onMissing: "skip" or "auto_create" — when auto_create, provide agentObjectiveTemplate
+- Retailer and set IDs are managed in /compliance_management — do not invent values. They are not looked up via a tool today; the user must supply them (or use dynamic mode with a variable resolved upstream)
+- Outputs: Routing/extraction result stored in a variable
+
+Compliance Excel Export
+- Export the extracted fields of a compliance run to Excel (pairs with Compliance Process)
+- sourceMode: "version" (pass versionVariable resolving to a version_id, typical when Compliance Process is upstream) or "latest_in_set" (pick retailerId + setId; node resolves the latest version automatically)
+- Outputs: File path and row count in the result variable
 """
 
 # Canonical list of valid workflow node types (source of truth: static/js/workflow.js nodeConfigTemplates)
@@ -2721,7 +2776,7 @@ VALID_WORKFLOW_NODE_TYPES = [
     "Database", "AI Action", "AI Extract", "Document", "Loop", "End Loop",
     "Conditional", "Human Approval", "Alert", "Folder Selector", "File",
     "Set Variable", "Execute Application", "Excel Export", "Server",
-    "Integration",
+    "Integration", "Compliance Process", "Compliance Excel Export",
 ]
 
 

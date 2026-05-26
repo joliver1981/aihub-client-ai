@@ -121,14 +121,54 @@ def get_agent_knowledge(agent_id):
 
 # Function to add a knowledge item to an agent
 def add_agent_knowledge(agent_id, document_id, description='', user_id=None):
-    """Add a knowledge item to an agent"""
+    """Add a knowledge item to an agent.
+
+    Validates that the referenced document actually exists before attempting
+    the INSERT (which would otherwise fail with an obscure FK constraint
+    error). If the document isn't visible (e.g. its transaction hasn't
+    committed yet, or the doc was rolled back due to a restart mid-import),
+    we wait briefly and retry a couple of times before giving up cleanly.
+    """
+    import time as _time
     try:
+        if document_id is None or (isinstance(document_id, (int, float)) and document_id <= 0):
+            logging.error(
+                f"add_agent_knowledge called with invalid document_id={document_id!r} "
+                f"(agent_id={agent_id})"
+            )
+            return None
+
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         # Set tenant context
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
-        
+
+        # Verify the document actually exists before we try to reference it.
+        # Handles a race where the doc API committed but a different connection
+        # hasn't seen it yet, or the import was interrupted by a restart.
+        document_exists = False
+        for attempt in range(3):
+            cursor.execute(
+                "SELECT 1 FROM Documents WHERE document_id = ?", document_id
+            )
+            if cursor.fetchone() is not None:
+                document_exists = True
+                break
+            if attempt < 2:
+                _time.sleep(0.5)
+
+        if not document_exists:
+            logging.error(
+                f"add_agent_knowledge: document_id={document_id} not found in Documents "
+                f"table after 3 retries. The document API may have rolled back its "
+                f"INSERT (often happens when the service restarted mid-import). "
+                f"Caller should retry the import."
+            )
+            cursor.close()
+            conn.close()
+            return None
+
         # Insert knowledge item
         if not user_id:
             cursor.execute("""
@@ -148,14 +188,16 @@ def add_agent_knowledge(agent_id, document_id, description='', user_id=None):
         # Flag as knowledge document (required due to standard document processing API - look to change this to standard knowledge processing API instead)
         # TODO: This will not be required if the standard knowledge API is used. I attempted but it was proving to be more work and not worth the time.
         cursor.execute("""UPDATE Documents SET is_knowledge_document = 1 WHERE document_id = ?""", document_id)
-        
+
         conn.commit()
         cursor.close()
         conn.close()
-        
+
         return knowledge_id
     except Exception as e:
-        logging.error(f"Error adding agent knowledge: {str(e)}")
+        logging.error(
+            f"Error adding agent knowledge (agent_id={agent_id}, document_id={document_id}): {e}"
+        )
         return None
 
 # Function to update a knowledge item

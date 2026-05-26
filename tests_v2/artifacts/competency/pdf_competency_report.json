@@ -1,0 +1,538 @@
+{
+  "scoring": {
+    "overall_pct": 100.0,
+    "total_weight": 26.0,
+    "total_earned": 26.0,
+    "by_file": {
+      "01_clean_report.pdf": {
+        "weight": 5.0,
+        "earned": 5.0,
+        "n": 5,
+        "pct": 100.0
+      },
+      "02_multi_column_newsletter.pdf": {
+        "weight": 5.0,
+        "earned": 5.0,
+        "n": 5,
+        "pct": 100.0
+      },
+      "03_invoice_with_tables.pdf": {
+        "weight": 5.0,
+        "earned": 5.0,
+        "n": 5,
+        "pct": 100.0
+      },
+      "04_headers_footers_doc.pdf": {
+        "weight": 5.0,
+        "earned": 5.0,
+        "n": 5,
+        "pct": 100.0
+      },
+      "05_large_50_page.pdf": {
+        "weight": 6.0,
+        "earned": 6.0,
+        "n": 5,
+        "pct": 100.0
+      }
+    },
+    "by_dim": {
+      "direct_lookup": {
+        "weight": 19.0,
+        "earned": 19.0,
+        "n": 19,
+        "pct": 100.0
+      },
+      "multi_column_order": {
+        "weight": 5.0,
+        "earned": 5.0,
+        "n": 5,
+        "pct": 100.0
+      },
+      "table_in_pdf": {
+        "weight": 5.0,
+        "earned": 5.0,
+        "n": 5,
+        "pct": 100.0
+      },
+      "invoice_calc": {
+        "weight": 3.0,
+        "earned": 3.0,
+        "n": 3,
+        "pct": 100.0
+      },
+      "header_footer_isolation": {
+        "weight": 1.0,
+        "earned": 1.0,
+        "n": 1,
+        "pct": 100.0
+      },
+      "comparison": {
+        "weight": 1.0,
+        "earned": 1.0,
+        "n": 1,
+        "pct": 100.0
+      },
+      "long_doc_retrieval": {
+        "weight": 3.0,
+        "earned": 3.0,
+        "n": 2,
+        "pct": 100.0
+      },
+      "page_anchor": {
+        "weight": 2.0,
+        "earned": 2.0,
+        "n": 1,
+        "pct": 100.0
+      },
+      "not_present": {
+        "weight": 1.0,
+        "earned": 1.0,
+        "n": 1,
+        "pct": 100.0
+      }
+    },
+    "leak_count": 0
+  },
+  "results": [
+    {
+      "fixture": "01_clean_report.pdf",
+      "question": "Who founded Pelagic Maritime and in what year?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Pelagic Maritime was \u201cfounded in 1998 by Captain Ingrid Hellesund.\u201d Source: **01_clean_report.pdf**.",
+      "chat_status": 200,
+      "elapsed_s": 6.902381658554077,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_clean_report.pdf",
+      "question": "How many vessels does Pelagic Maritime operate?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Pelagic Maritime operates **47 vessels**. The document states: \u201cThe company operates a fleet of **47 vessels** across the North Atlantic and Mediterranean.\u201d Source: **01_clean_report.pdf**.",
+      "chat_status": 200,
+      "elapsed_s": 7.6459527015686035,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_clean_report.pdf",
+      "question": "What was Pelagic Maritime's FY2025 revenue?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Pelagic Maritime's FY2025 revenue was **$812M**. Source: **01_clean_report.pdf**.\n\nExact text: **\"FY2025 revenue: $812M (up 6.8% YoY).\"**",
+      "chat_status": 200,
+      "elapsed_s": 6.899019002914429,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_clean_report.pdf",
+      "question": "What is the name of Pelagic Maritime's newest vessel?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Pelagic Maritime\u2019s newest vessel is **\u201cthe MV Aurora Heron,\u201d** which the document says \u201c**was commissioned in March 2024**\u201d \u2014 source: **01_clean_report.pdf**.",
+      "chat_status": 200,
+      "elapsed_s": 7.0501625537872314,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_clean_report.pdf",
+      "question": "By what percentage did Pelagic Maritime commit to reduce carbon emissions by 2030?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Pelagic Maritime committed to a **38% absolute reduction by 2030, baseline 2020**. Source: **01_clean_report.pdf**.",
+      "chat_status": 200,
+      "elapsed_s": 7.893356084823608,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_multi_column_newsletter.pdf",
+      "question": "What was Halberd Steel's Q1 2026 revenue?",
+      "dimensions": [
+        "multi_column_order",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Halberd Steel\u2019s Q1 2026 revenue was **$1.42 billion**. The document states: **\u201cHalberd posted quarterly revenue of $1.42 billion, up 9.1% year-on-year.\u201d** Source: **02_multi_column_newsletter.pdf**.",
+      "chat_status": 200,
+      "elapsed_s": 9.138061046600342,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_multi_column_newsletter.pdf",
+      "question": "When did Halberd light the first heat at its new Chongqing electric-arc furnace?",
+      "dimensions": [
+        "multi_column_order",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Halberd \u201clit the first heat\u201d at its new Chongqing electric-arc furnace on **February 28, 2026**. Source: **02_multi_column_newsletter.pdf**.",
+      "chat_status": 200,
+      "elapsed_s": 7.671388864517212,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_multi_column_newsletter.pdf",
+      "question": "How much did the Chongqing furnace cost to build?",
+      "dimensions": [
+        "multi_column_order",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The Chongqing furnace \u201ccost $680 million\u201d to build, according to **02_multi_column_newsletter.pdf**.",
+      "chat_status": 200,
+      "elapsed_s": 6.547602653503418,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_multi_column_newsletter.pdf",
+      "question": "Who is Halberd Steel's new Chief Technology Officer?",
+      "dimensions": [
+        "multi_column_order",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Halberd Steel's new Chief Technology Officer is **Dr. Wynne Rasmussen**. The newsletter says: **\u201cDr. Wynne Rasmussen joined Halberd as Chief Technology Officer on January 6, 2026\u201d**.  \nSource: **02_multi_column_newsletter.pdf**",
+      "chat_status": 200,
+      "elapsed_s": 7.472575664520264,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_multi_column_newsletter.pdf",
+      "question": "Which Halberd mill recently hit 1,000 consecutive days without a lost-time injury?",
+      "dimensions": [
+        "multi_column_order",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "It was the **Bremen mill**. The newsletter states: \u201c**Our Bremen mill achieved 1,000 consecutive days without a lost-time injury on March 18, 2026**.\u201d Source: **02_multi_column_newsletter.pdf**.",
+      "chat_status": 200,
+      "elapsed_s": 9.208539009094238,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_invoice_with_tables.pdf",
+      "question": "What is the invoice number?",
+      "dimensions": [
+        "table_in_pdf",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The invoice number is **INV-2026-04827**. Source: **03_invoice_with_tables.pdf** (\u201c**INVOICE #INV-2026-04827**\u201d).",
+      "chat_status": 200,
+      "elapsed_s": 7.0929036140441895,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_invoice_with_tables.pdf",
+      "question": "Who is the invoice issued to (customer name and city)?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The invoice is issued to **\u201cAurora Bioplastics Inc.\u201d** in **\u201cMunich, Germany\u201d**. Source: **03_invoice_with_tables.pdf**.",
+      "chat_status": 200,
+      "elapsed_s": 6.725210666656494,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_invoice_with_tables.pdf",
+      "question": "What is the line total for SKU QC-PLT-018?",
+      "dimensions": [
+        "table_in_pdf",
+        "invoice_calc"
+      ],
+      "weight": 1.0,
+      "answer": "The line total for **SKU `QC-PLT-018`** is **`11400.0`**.  \nQuoted row from **03_invoice_with_tables.pdf**:\n\n`QC-PLT-018 | Platinum-on-glass electrode, 50 mm | 80 | 142.5 | 11400.0`\n\nSource: **03_invoice_with_tables.pdf**",
+      "chat_status": 200,
+      "elapsed_s": 7.581853628158569,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_invoice_with_tables.pdf",
+      "question": "What is the VAT amount on the Quasar invoice?",
+      "dimensions": [
+        "table_in_pdf",
+        "invoice_calc"
+      ],
+      "weight": 1.0,
+      "answer": "The VAT amount on the Quasar invoice is **\u00a36,160.00**. Source: **03_invoice_with_tables.pdf** (\u201cVAT (20%) \u00a36,160.00\u201d).",
+      "chat_status": 200,
+      "elapsed_s": 6.727055311203003,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_invoice_with_tables.pdf",
+      "question": "What is the TOTAL DUE on the Quasar invoice?",
+      "dimensions": [
+        "table_in_pdf",
+        "invoice_calc"
+      ],
+      "weight": 1.0,
+      "answer": "The Quasar invoice shows **\u201cTOTAL DUE \u00a336,960.00\u201d**.  \nSource: **03_invoice_with_tables.pdf**.",
+      "chat_status": 200,
+      "elapsed_s": 7.223275184631348,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_headers_footers_doc.pdf",
+      "question": "What is the total budget for Project Greenline?",
+      "dimensions": [
+        "direct_lookup",
+        "header_footer_isolation"
+      ],
+      "weight": 1.0,
+      "answer": "The total budget for Project Greenline is **$42M**.\n\nSource: **04_headers_footers_doc.pdf** \u2014 \u201c**The total budget is $42M**\u201d and \u201c**Project Greenline total budget: $42M**.\u201d",
+      "chat_status": 200,
+      "elapsed_s": 7.719640493392944,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_headers_footers_doc.pdf",
+      "question": "Who is the project sponsor for Project Greenline?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The project sponsor for Project Greenline is **COO Aldous Marchand**. Source: **04_headers_footers_doc.pdf**.",
+      "chat_status": 200,
+      "elapsed_s": 7.85518741607666,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_headers_footers_doc.pdf",
+      "question": "When does the Cologne pilot equipment installation begin?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The Cologne pilot equipment installation begins on **May 18, 2026**. Source: **04_headers_footers_doc.pdf**.\n\nExact text: **\u201cEquipment installation begins May 18, 2026.\u201d**",
+      "chat_status": 200,
+      "elapsed_s": 7.834333896636963,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_headers_footers_doc.pdf",
+      "question": "What is the expected unplanned-downtime reduction from the Cologne pilot?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The expected unplanned-downtime reduction from the Cologne pilot is **14%**.\n\nSource: **04_headers_footers_doc.pdf** \u2014 \u201cExpected benefits: **14% reduction in unplanned downtime** and 3% improvement in yield.\u201d",
+      "chat_status": 200,
+      "elapsed_s": 7.228850603103638,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_headers_footers_doc.pdf",
+      "question": "Which is the highest-severity risk identified in Project Greenline?",
+      "dimensions": [
+        "table_in_pdf",
+        "comparison"
+      ],
+      "weight": 1.0,
+      "answer": "The highest-severity risk in Project Greenline is **\u201cR2 Cybersecurity exposure on OT network\u201d** with severity **High**.  \nSource: **04_headers_footers_doc.pdf**\n\nThe document\u2019s anchor facts also state: **\u201cHighest-severity risk: R2 cybersecurity exposure on OT network.\u201d**",
+      "chat_status": 200,
+      "elapsed_s": 6.770238161087036,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_large_50_page.pdf",
+      "question": "Who authored RFC-OPAL-007 and when was it approved?",
+      "dimensions": [
+        "long_doc_retrieval",
+        "page_anchor"
+      ],
+      "weight": 2.0,
+      "answer": "RFC-OPAL-007 was authored by **Verena Strauss** and was **approved by the Architecture Council on November 4, 2025**. Source: **05_large_50_page.pdf**.",
+      "chat_status": 200,
+      "elapsed_s": 6.931886672973633,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 2.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_large_50_page.pdf",
+      "question": "Which AWS regions does Opal Networks deploy to?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Opal Networks \u201cruns on AWS in three regions: us-west-2, eu-west-1, ap-southeast-1.\u201d Source: 05_large_50_page.pdf.",
+      "chat_status": 200,
+      "elapsed_s": 6.551029443740845,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_large_50_page.pdf",
+      "question": "What are the RTO and RPO targets for Opal Networks?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Opal Networks\u2019 targets are **\u201cRTO 25 minutes, RPO 60 seconds.\u201d** Source: **05_large_50_page.pdf** (Chapter 8 / Appendix A).",
+      "chat_status": 200,
+      "elapsed_s": 6.629633665084839,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_large_50_page.pdf",
+      "question": "Which third-party firm performed Opal Networks' most recent penetration test?",
+      "dimensions": [
+        "long_doc_retrieval",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Opal Networks\u2019 most recent third-party penetration test was performed by **Praesidium Security** \u2014 the document states: **\u201cQuarterly third-party pen-test (latest: Praesidium Security, March 2026).\u201d**  \nSource: **05_large_50_page.pdf** (Chapter 9 / Appendix A)",
+      "chat_status": 200,
+      "elapsed_s": 8.194492101669312,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_large_50_page.pdf",
+      "question": "Does Opal Networks use Azure as one of its cloud providers?",
+      "dimensions": [
+        "not_present"
+      ],
+      "weight": 1.0,
+      "answer": "No. The document says Opal Networks \u201cruns on AWS in three regions: us-west-2, eu-west-1, ap-southeast-1.\u201d It does not mention Azure as a cloud provider. Source: 05_large_50_page.pdf.",
+      "chat_status": 200,
+      "elapsed_s": 7.110769987106323,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    }
+  ],
+  "uploaded": [
+    [
+      "01_clean_report.pdf",
+      200,
+      5.897685766220093
+    ],
+    [
+      "02_multi_column_newsletter.pdf",
+      200,
+      5.684760808944702
+    ],
+    [
+      "03_invoice_with_tables.pdf",
+      200,
+      6.094171047210693
+    ],
+    [
+      "04_headers_footers_doc.pdf",
+      200,
+      6.045752048492432
+    ],
+    [
+      "05_large_50_page.pdf",
+      200,
+      6.169065237045288
+    ]
+  ]
+}

@@ -80,8 +80,11 @@ class StdioTransport:
             else:
                 raise
 
-        # Start background reader for stdout
+        # Start background reader for stdout AND stderr. We log stderr lines
+        # so subprocess crashes / startup errors are visible instead of being
+        # silently swallowed.
         self._reader_task = asyncio.create_task(self._read_loop())
+        self._stderr_task = asyncio.create_task(self._stderr_loop())
 
         # Perform MCP initialize handshake
         init_request = MCPProtocol.create_initialize_request(
@@ -201,19 +204,40 @@ class StdioTransport:
                     future.set_exception(ConnectionError(f"Read loop error: {e}"))
 
         self._connected = False
+        if self.process is not None:
+            rc = self.process.returncode
+            if rc is not None and rc != 0:
+                logger.warning(f"MCP subprocess exited with returncode={rc} "
+                               f"(command: {self.command} {' '.join(self.args)})")
         logger.info("Stdio read loop ended")
+
+    async def _stderr_loop(self):
+        """Background task that captures and logs the subprocess's stderr."""
+        try:
+            while self.process and self.process.stderr:
+                line = await self.process.stderr.readline()
+                if not line:
+                    break
+                msg = line.decode("utf-8", errors="replace").rstrip()
+                if msg:
+                    logger.warning(f"[subprocess stderr] {msg}")
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.debug(f"stderr reader stopped: {e}")
 
     async def close(self):
         """Terminate the subprocess gracefully"""
         self._connected = False
 
-        # Cancel reader task
-        if self._reader_task and not self._reader_task.done():
-            self._reader_task.cancel()
-            try:
-                await self._reader_task
-            except asyncio.CancelledError:
-                pass
+        # Cancel reader tasks
+        for t in (self._reader_task, getattr(self, '_stderr_task', None)):
+            if t and not t.done():
+                t.cancel()
+                try:
+                    await t
+                except asyncio.CancelledError:
+                    pass
 
         # Cancel pending requests
         for future in self._pending_responses.values():

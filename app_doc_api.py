@@ -229,6 +229,7 @@ class DocumentProcessor:
                 "execution_id": execution_id,
                 "document_type": result["document_type"],
                 "page_count": result["page_count"],
+                "total_chars": len(document_text),
                 "document_text": document_text,
                 "extracted_data": extracted_data
             }

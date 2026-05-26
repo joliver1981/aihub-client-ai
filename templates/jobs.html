@@ -189,6 +189,26 @@
         font-size: 0.9rem;
         padding: 0.375rem 0.75rem;
     }
+
+    /* Fix: Bootstrap 4's form-control-sm uses a tight line-height that
+       clips descender characters (g, p, y, j) at the bottom of selected
+       <option> text in <select>. Add a bit of vertical padding and a
+       comfortable line-height so the visible label is never truncated. */
+    select.form-control-sm,
+    .form-control-sm {
+        height: calc(1.5em + 0.625rem + 2px);
+        padding: 0.3125rem 0.5rem;
+        line-height: 1.5;
+    }
+
+    /* For native <select> dropdowns specifically, ensure the option text
+       has enough vertical room and a slightly wider min-width so long
+       agent / job names don't visually clip at the edges. */
+    select.form-control,
+    select.form-control-sm {
+        min-width: 0;            /* allow flex containers to shrink, prevents jitter */
+        text-overflow: ellipsis; /* if it still has to clip, do it cleanly with … */
+    }
 </style>
 
 <div class="container-fluid px-3 py-2">
@@ -454,6 +474,16 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Initialize form controls as disabled
     disableFormControls();
+
+    $('#newJobModal').on('hidden.bs.modal', function () {
+        document.getElementById('newJobName').value = '';
+        document.getElementById('newJobDescription').value = '';
+        document.getElementById('newJobSwitch').checked = false;
+        var newAgentDropdown = document.getElementById('new-agent-dropdown');
+        if (newAgentDropdown.options.length > 0) {
+            newAgentDropdown.selectedIndex = 0;
+        }
+    });
 
     // Fetch job data when the page loads
     fetch('/get/quickjobs')

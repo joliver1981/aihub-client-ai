@@ -134,7 +134,10 @@ class DataStandardizer:
             if input_format:
                 parsed = pd.to_datetime(series, format=input_format, errors="coerce")
             else:
-                parsed = pd.to_datetime(series, errors="coerce")
+                # format="mixed" handles heterogeneous date strings like
+                # "01/15/2024" and "March 5, 2024" in the same column —
+                # required since pandas 2.0 made bare to_datetime stricter.
+                parsed = pd.to_datetime(series, errors="coerce", format="mixed")
             return parsed.dt.strftime(output_format).fillna(series)
         except Exception:
             return series

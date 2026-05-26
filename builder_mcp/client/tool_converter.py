@@ -4,11 +4,17 @@ Converts MCP tool definitions (JSON from gateway) into LangChain StructuredTool 
 Runs in the main application environment — no MCP SDK dependencies.
 """
 import logging
+import time
 from typing import Dict, Any, Optional, List, Type
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, create_model
 
 logger = logging.getLogger(__name__)
+
+# Dedicated audit logger. Lines look like:
+#   [MCP_AUDIT] user_id=42 agent_id=17 server_id=7 tool=list_recent_emails status=success elapsed_ms=412
+# Easy to grep, easy to forward to SIEM later.
+audit_logger = logging.getLogger("mcp.audit")
 
 # Map JSON Schema types to Python types
 JSON_SCHEMA_TYPE_MAP = {
@@ -24,17 +30,22 @@ JSON_SCHEMA_TYPE_MAP = {
 class MCPToolConverter:
     """Converts MCP tool definitions to LangChain-compatible StructuredTool objects"""
 
-    def __init__(self, gateway_client, server_id: int, server_name: str):
+    def __init__(self, gateway_client, server_id: int, server_name: str,
+                 user_id: Optional[int] = None, agent_id: Optional[int] = None):
         """
         Args:
             gateway_client: MCPGatewayClient instance for making tool calls
             server_id: The MCP server ID (from database)
             server_name: Human-readable server name (used for tool name prefixing)
+            user_id: Calling user — captured in tool closures for audit logging
+            agent_id: Owning agent — captured for audit logging
         """
         self.gateway = gateway_client
         self.server_id = server_id
         # Clean server name for use in tool names (alphanumeric + underscore only)
         self.server_name = self._sanitize_name(server_name)
+        self.user_id = user_id
+        self.agent_id = agent_id
 
     @staticmethod
     def _sanitize_name(name: str) -> str:
@@ -78,27 +89,54 @@ class MCPToolConverter:
             # Build pydantic model for the input schema
             pydantic_model = self._build_pydantic_model(tool_name, input_schema)
 
-            # Create closure to capture server_id, tool_name, gateway
+            # Closure captures server_id, tool_name, gateway + audit-log identity
             _gateway = self.gateway
             _server_id = self.server_id
             _original_name = original_name
+            _user_id = self.user_id
+            _agent_id = self.agent_id
 
             def _call_mcp_tool(**kwargs) -> str:
-                """Execute MCP tool via gateway"""
+                """Execute MCP tool via gateway with audit logging."""
+                started = time.time()
+                status = "unknown"
                 try:
                     result = _gateway.call_tool(
                         server_id=_server_id,
                         tool_name=_original_name,
-                        arguments=kwargs
+                        arguments=kwargs,
                     )
                     if result.get("status") == "success":
+                        status = "success"
                         return result.get("result", "")
-                    else:
-                        error = result.get("error", "Unknown error")
-                        return f"Error executing {_original_name}: {error}"
+                    # Surface auth-not-completed errors in an actionable way so
+                    # the agent can tell the user where to fix it.
+                    error = result.get("error", "Unknown error") or ""
+                    lower = error.lower()
+                    if ("must complete the oauth" in lower
+                            or "user must complete" in lower
+                            or "no refresh token" in lower
+                            or "no oauth token available" in lower
+                            or "no bearer token" in lower):
+                        status = "needs_auth"
+                        return (
+                            f"Cannot run {_original_name}: this user hasn't connected the required "
+                            f"service yet. Tell the user: \"Go to My Connections in the left sidebar "
+                            f"and click Connect on the relevant service, then try again.\""
+                        )
+                    status = "error"
+                    return f"Error executing {_original_name}: {error}"
                 except Exception as e:
+                    status = "exception"
                     logger.error(f"Error calling MCP tool {_original_name}: {e}")
                     return f"Error executing {_original_name}: {str(e)}"
+                finally:
+                    elapsed_ms = int((time.time() - started) * 1000)
+                    audit_logger.info(
+                        f"[MCP_AUDIT] user_id={_user_id} agent_id={_agent_id} "
+                        f"server_id={_server_id} tool={_original_name} "
+                        f"status={status} elapsed_ms={elapsed_ms}"
+                    )
 
             # Create the StructuredTool
             structured_tool = StructuredTool(

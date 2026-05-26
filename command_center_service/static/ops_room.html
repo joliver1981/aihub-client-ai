@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en" data-cc-ui="next_gen">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Hub · Ops Command Room</title>
+
+    <!-- Fonts: same family the classic UI uses (no new fonts) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <!-- Reuse the classic CC stylesheet so all CCRenderers blocks (chart,
+         table, kpi, map, image, artifact) render correctly inside the new
+         chat sidebar. ops-room.css overrides layout-level rules only. -->
+    <link rel="stylesheet" href="/static/css/command-center.css?v=9">
+    <link rel="stylesheet" href="/static/css/ops-room.css?v=2">
+
+    <!-- Map + chart libs (identical to classic page) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/core.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/json.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/python.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/sql.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/javascript.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/xml.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/bash.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+</head>
+<body class="ops-body">
+    <div class="ops-app">
+
+        <!-- ╔══ TOP BAR ═══════════════════════════════════════════════════╗ -->
+        <header class="ops-topbar">
+            <div class="ops-brand">
+                <span class="ops-brand-mark">⌬</span>
+                <span class="ops-brand-name">COMMAND CENTER</span>
+                <span class="ops-brand-sub">// OPS ROOM</span>
+            </div>
+
+            <div class="ops-topbar-mid">
+                <span class="ops-session-label">SESSION</span>
+                <span class="ops-session-title" id="chat-title">New Operation</span>
+            </div>
+
+            <div class="ops-topbar-right">
+                <span class="cc-status" id="status-indicator">
+                    <span class="dot"></span> Ready
+                </span>
+                <button class="ops-btn-ghost" onclick="CC.createSession()" title="New session">
+                    + NEW
+                </button>
+                <button class="ops-btn-ghost" onclick="OpsRoom.toggleSessionList()" title="Sessions">
+                    SESSIONS
+                </button>
+                <!-- Discoverability affordance: every operator should know
+                     they can flip back to the classic UI. The env-var hint
+                     to the right is the long-form for power users. -->
+                <a class="ops-btn-ghost ops-btn-classic" href="/classic"
+                   title="Switch to the classic Command Center UI">
+                    <span class="ops-btn-classic-arrow">&#x2190;</span>
+                    SWITCH&nbsp;TO&nbsp;CLASSIC
+                </a>
+                <span class="ops-env-hint" title="Set the environment variable to default to this UI">
+                    <code>CC_UI=classic</code>
+                </span>
+            </div>
+        </header>
+
+        <!-- ╔══ KPI STRIP ═════════════════════════════════════════════════╗ -->
+        <!-- Values pulled from /api/ops/kpis every 10s, plus real-time
+             bumps from the /api/ops/stream SSE for IN FLIGHT. See
+             routes/ops.py: kpis() for the data sources. -->
+        <section class="ops-kpi-strip" id="ops-kpi-strip">
+            <!-- populated by OpsRoom._renderKpis() -->
+        </section>
+
+        <!-- ╔══ MAIN GRID: map + chat sidebar ═════════════════════════════╗ -->
+        <div class="ops-main-grid">
+
+            <!-- ── MAP STAGE (dominant 60%) ───────────────────────────── -->
+            <main class="ops-map-stage" id="ops-map-stage">
+                <div id="ops-map" class="ops-map"></div>
+
+                <!-- LAYER / FILTER OVERLAY (top-right, collapsible) -->
+                <!-- Categories are populated dynamically from whatever map
+                     blocks the active session has emitted (see
+                     OpsRoom._refreshCategories). No fake "alerts / density /
+                     agent reach" layers — the CC doesn't produce those. -->
+                <div class="ops-layer-panel collapsed" id="ops-layer-panel">
+                    <button class="ops-layer-toggle" id="ops-layer-toggle" type="button">
+                        <span class="ops-layer-icon">▤</span>
+                        <span class="ops-layer-label">LAYERS</span>
+                    </button>
+                    <div class="ops-layer-body">
+                        <div class="ops-layer-group">
+                            <h4>OVERLAYS</h4>
+                            <label><input type="checkbox" data-layer="points" checked> Map points</label>
+                        </div>
+                        <div class="ops-layer-group">
+                            <h4>SOURCE</h4>
+                            <p class="ops-layer-note">
+                                Points come from <code>map</code> blocks
+                                emitted in this session. Empty when no chat
+                                turn has produced a map yet.
+                            </p>
+                            <button class="ops-layer-refresh" id="ops-layer-refresh" type="button">
+                                Refresh from session
+                            </button>
+                        </div>
+                        <div class="ops-layer-group" id="ops-layer-categories">
+                            <h4>CATEGORIES</h4>
+                            <div id="ops-cat-list" class="ops-cat-list">
+                                <p class="ops-cat-empty">No categories yet.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SELECTION DRAWER (slides up from bottom on marker click) -->
+                <div class="ops-selection-drawer" id="ops-selection-drawer" aria-hidden="true">
+                    <div class="ops-drawer-header">
+                        <div class="ops-drawer-titles">
+                            <span class="ops-drawer-eyebrow" id="ops-drawer-eyebrow">POINT</span>
+                            <h3 class="ops-drawer-title" id="ops-drawer-title">—</h3>
+                        </div>
+                        <button class="ops-drawer-close" id="ops-drawer-close" aria-label="Close drawer">✕</button>
+                    </div>
+                    <div class="ops-drawer-body" id="ops-drawer-body">
+                        <!-- populated by OpsRoom._showSelection() -->
+                    </div>
+                    <div class="ops-drawer-actions">
+                        <button class="ops-drawer-action" data-action="ask">Ask about this point</button>
+                        <button class="ops-drawer-action" data-action="copy">Copy as JSON</button>
+                        <button class="ops-drawer-action ops-drawer-action-ghost" data-action="trace">Open trace</button>
+                    </div>
+                </div>
+            </main>
+
+            <!-- ── CHAT SIDEBAR (right, ~420px) ──────────────────────── -->
+            <aside class="ops-chat" id="ops-chat">
+                <div class="ops-chat-tabs" role="tablist">
+                    <button class="ops-chat-tab active" data-tab="conversation" role="tab">CONVERSATION</button>
+                    <button class="ops-chat-tab" data-tab="trace" role="tab">AGENT TRACE</button>
+                </div>
+
+                <!-- CONVERSATION pane -->
+                <div class="ops-chat-pane ops-chat-pane-conversation" data-pane="conversation">
+                    <div class="cc-messages ops-chat-messages" id="messages"></div>
+                </div>
+
+                <!-- TRACE pane (mirrors task-list / builder log into a more legible
+                     stream of tool calls & phase events). #task-list and
+                     #builder-log keep their original IDs so command-center.js's
+                     _showTasks() / _showBuilderLog() write into them unchanged. -->
+                <div class="ops-chat-pane ops-trace-pane" data-pane="trace" hidden>
+                    <div class="ops-trace-section">
+                        <h4>TASK GRAPH</h4>
+                        <div id="task-list" class="ops-task-list"></div>
+                    </div>
+                    <div class="ops-trace-section" id="builder-log-section" style="display:none">
+                        <h4>BUILDER AGENT</h4>
+                        <div id="builder-log" class="cc-builder-log ops-builder-log"></div>
+                    </div>
+                    <div class="ops-trace-section">
+                        <h4>SUGGESTIONS</h4>
+                        <div id="suggestion-chips" class="ops-suggestion-chips"></div>
+                        <button id="suggestions-clear-all" class="ops-trace-clear" style="display:none">Clear all</button>
+                    </div>
+                </div>
+
+                <!-- Staged files chips above input -->
+                <div class="cc-staged-files ops-staged-files" id="staged-files" style="display:none"></div>
+
+                <!-- Input row (CC.send() reads #user-input + .cc-btn-send) -->
+                <div class="ops-chat-input">
+                    <button class="ops-btn-attach" id="btn-attach" type="button" title="Attach files">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                        </svg>
+                    </button>
+                    <textarea
+                        id="user-input"
+                        rows="2"
+                        placeholder="Issue command, ask, or delegate..."
+                        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();CC.send()}"
+                    ></textarea>
+                    <button class="cc-btn-send ops-btn-send" type="button" onclick="CC.send()">
+                        SEND<span class="ops-btn-send-arrow">→</span>
+                    </button>
+                </div>
+
+                <input type="file" id="file-input" multiple accept="*/*" style="display:none">
+
+                <!-- Drag-drop overlay scoped to the sidebar -->
+                <div class="cc-drop-overlay ops-drop-overlay" id="drop-overlay" style="display:none">
+                    <div class="cc-drop-overlay-content">
+                        <p>DROP TO ATTACH</p>
+                    </div>
+                </div>
+            </aside>
+        </div>
+
+        <!-- ╔══ LIVE TICKER ═══════════════════════════════════════════════╗ -->
+        <section class="ops-ticker" id="ops-ticker" aria-label="Live activity feed">
+            <div class="ops-ticker-label">
+                <span class="ops-ticker-pulse"></span> LIVE FEED
+            </div>
+            <div class="ops-ticker-track" id="ops-ticker-track">
+                <!-- populated by OpsRoom._tickerInit() / .pushTick() -->
+            </div>
+            <div class="ops-ticker-meta">
+                <span id="ops-ticker-count">0</span> events
+            </div>
+        </section>
+
+        <!-- ╔══ SESSION LIST DRAWER (overlay, hidden by default) ══════════╗ -->
+        <div class="ops-session-overlay" id="ops-session-overlay" hidden>
+            <div class="ops-session-panel">
+                <div class="ops-session-header">
+                    <h3>SESSIONS</h3>
+                    <button onclick="OpsRoom.toggleSessionList(false)">✕</button>
+                </div>
+                <div id="session-list" class="ops-session-list"></div>
+            </div>
+        </div>
+
+        <!-- ╔══ HIDDEN COMPAT SHIMS for command-center.js ═════════════════╗
+             The classic CC orchestrator queries these IDs unconditionally;
+             keeping them mounted (but visually inert) lets it run unchanged
+             without any forking. Anything genuinely useful (#messages,
+             #task-list, #suggestion-chips, #session-list, #user-input,
+             #status-indicator, #chat-title, #staged-files, #file-input,
+             #drop-overlay, #builder-log*) is wired into the visible layout
+             above; this block only contains the leftover IDs CC expects to
+             find but the ops layout has no place for. -->
+        <div class="ops-compat-hidden" aria-hidden="true">
+            <aside id="sidebar"><div id="suggestions"></div></aside>
+            <aside id="right-panel"></aside>
+
+            <!-- Memory manager modal: cc-memory.js opens it on demand.
+                 Kept as a top-level overlay so it works identically to the
+                 classic page. -->
+            <div class="cc-modal-overlay ops-modal-overlay" id="memory-modal" style="display:none" onclick="if(event.target===this)CCMemory.closeManager()">
+                <div class="cc-modal">
+                    <div class="cc-modal-header">
+                        <h3>Memory Manager</h3>
+                        <button class="cc-panel-close" onclick="CCMemory.closeManager()">&#x2715;</button>
+                    </div>
+                    <div class="cc-modal-tabs">
+                        <button class="cc-modal-tab active" data-tab="preferences" onclick="CCMemory.switchTab('preferences')">Preferences</button>
+                        <button class="cc-modal-tab" data-tab="patterns" onclick="CCMemory.switchTab('patterns')">Learned Routes</button>
+                    </div>
+                    <div class="cc-modal-body" id="memory-modal-body"></div>
+                    <div class="cc-modal-footer">
+                        <button class="cc-modal-clear-all" id="memory-clear-all-btn" onclick="CCMemory.clearAllCurrentTab()">Clear All</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configure highlight.js + marked exactly the way classic does.
+        // Identical block; if classic changes its config, copy it here too.
+        if (window.hljs) {
+            ['json','python','sql','javascript','xml','bash'].forEach(lang => {
+                try { hljs.registerLanguage(lang, window['hljsDefine' + lang] || (() => {})); } catch(e) {}
+            });
+        }
+        if (window.marked) {
+            marked.setOptions({
+                highlight: function(code, lang) {
+                    if (window.hljs && lang && hljs.getLanguage(lang)) {
+                        try { return hljs.highlight(code, { language: lang }).value; } catch(e) {}
+                    }
+                    if (window.hljs) {
+                        try { return hljs.highlightAuto(code).value; } catch(e) {}
+                    }
+                    return code;
+                },
+                breaks: true,
+                gfm: true,
+            });
+        }
+    </script>
+
+    <!-- Same scripts as classic, in the same order, then the ops orchestrator
+         on top. ops-room.js MUST load last — it monkey-patches CC._handleEvent
+         and CC._setStatus to mirror events into the ticker / KPI strip. -->
+    <script src="/static/js/cc-renderers.js?v=10"></script>
+    <script src="/static/js/cc-memory.js?v=3"></script>
+    <script src="/static/js/command-center.js?v=18"></script>
+    <script src="/static/js/ops-room.js?v=2"></script>
+</body>
+</html>

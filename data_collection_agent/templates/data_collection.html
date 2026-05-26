@@ -1,0 +1,364 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- TTS queue flush — MUST be the first script on the page. Chrome
+     persists speechSynthesis utterances across navigations and we don't
+     want stale audio (in the robot voice, with content from an old
+     session) leaking into a fresh page. See dca-tts-flush.js for full
+     rationale. -->
+<script src="/data-collection/static/js/dca-tts-flush.js?v={{ asset_version }}"></script>
+
+<!-- Tailwind CSS (consistent with chat.html, data_chat.html) -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+    theme: {
+        extend: {
+            colors: { 'cyber-cyan': '#06b6d4', 'cyber-violet': '#a78bfa' },
+            fontFamily: {
+                'outfit': ['Outfit', 'sans-serif'],
+                'jetbrains': ['JetBrains Mono', 'monospace']
+            }
+        }
+    }
+}
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<!-- Reuse existing platform theme -->
+<link rel="stylesheet" href="/static/css/chat-theme.css">
+<link rel="stylesheet" href="/static/css/richContent.css">
+
+<!-- Data Collection page styles -->
+<link rel="stylesheet" href="/data-collection/static/css/data-collection.css?v={{ asset_version }}">
+
+{# Branding: emits a <style> block setting --brand-primary, --brand-accent, --brand-font #}
+{% if branding_style %}{{ branding_style|safe }}{% endif %}
+
+{% if safe_favicon_url %}
+<link rel="icon" href="{{ safe_favicon_url }}">
+{% endif %}
+
+<!-- Chart.js for any rich content the agent emits -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<!-- Page payload — values injected by routes.py -->
+<script>
+    window.DCA_CONFIG = {
+        config_id: {{ config_id|tojson }},
+        schema_name: {{ schema_name|tojson }},
+        schema_missing: {{ schema_missing|tojson if schema_missing is defined else 'false' }},
+        prefill_token: {{ prefill_token|tojson if prefill_token is defined else '""' }},
+        requires_secure_context: {{ requires_secure_context|tojson if requires_secure_context is defined else 'false' }}
+    };
+</script>
+
+<div class="dca-page" id="dcaPage">
+
+    <!-- Header -->
+    <div class="dca-header">
+        <div class="dca-header-left">
+            <button class="chat-icon-btn dca-mobile-only-btn"
+                    id="dcaSidebarToggle" title="Open menu" aria-label="Open menu">
+                <i class="fas fa-bars"></i>
+            </button>
+            {% if safe_logo_url %}
+                <img src="{{ safe_logo_url }}" alt="" class="dca-header-logo"
+                     style="height:28px;width:auto;max-width:120px;">
+            {% else %}
+                <i class="fas fa-clipboard-list dca-header-icon"></i>
+            {% endif %}
+            <div>
+                <h1 class="dca-header-title" id="dcaTitle">{{ schema_name }}</h1>
+                <div class="dca-header-subtitle" id="dcaStatus">Loading…</div>
+            </div>
+        </div>
+        <div class="dca-header-right">
+            <div class="dca-progress-bar-wrap" title="Overall progress">
+                <div class="dca-progress-bar"><div class="dca-progress-fill" id="dcaProgressFill"></div></div>
+                <span class="dca-progress-label" id="dcaProgressLabel">0%</span>
+            </div>
+            <button class="chat-icon-btn" id="dcaVoiceToggle"
+                    title="Toggle voice mode (speak with the agent)" aria-pressed="false">
+                <i class="fas fa-microphone"></i>
+            </button>
+            <button class="chat-icon-btn" id="dcaMuteToggle"
+                    title="Mute the AI's voice" aria-pressed="false" style="display:none;">
+                <i class="fas fa-volume-high"></i>
+            </button>
+            {% if debug_mode_enabled %}
+            <button class="chat-icon-btn dca-debug-btn" id="dcaDebugBtn"
+                    title="Open debug inspector — view LLM prompts, tool calls, normalizer calls. Build: {{ asset_version }}"
+                    aria-pressed="false">
+                <i class="fas fa-bug"></i>
+                <span style="font-size:0.55rem;font-family:'JetBrains Mono',monospace;margin-left:4px;opacity:0.7;">v{{ asset_version }}</span>
+            </button>
+            {% endif %}
+            <button class="chat-icon-btn" id="dcaResetBtn" title="Start over">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+            <button class="chat-icon-btn" id="dcaThemeBtn" title="Toggle theme">
+                <i class="fas fa-moon"></i>
+            </button>
+            <button class="chat-icon-btn dca-mobile-only-btn"
+                    id="dcaProgressToggle" title="Show progress" aria-label="Show progress">
+                <i class="fas fa-tasks"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Backdrop dim when a mobile drawer is open -->
+    <div class="dca-drawer-backdrop" id="dcaDrawerBackdrop"></div>
+
+    {% if schema_missing %}
+    <div class="dca-error-banner">
+        <i class="fas fa-exclamation-triangle"></i>
+        Form schema "<code>{{ config_id }}</code>" was not found. Ask your administrator
+        to deploy this schema, or open the
+        <a href="/data-collection/builder">Schema Builder</a> to create one.
+    </div>
+    {% endif %}
+
+    {# Insecure-context advisory — JS shows this when the schema declares
+       requires_secure_context AND the page is loaded over plain HTTP. #}
+    <div class="dca-error-banner" id="dcaInsecureBanner"
+         style="display:none;background:rgba(251,191,36,0.08);border-color:rgba(251,191,36,0.4);color:#fde68a;">
+        <i class="fas fa-shield-halved"></i>
+        This form needs a secure connection (HTTPS) for some features
+        (like voice mode) to work. Ask your administrator to enable HTTPS
+        or open the <a href="/data-collection/admin/https" style="color:inherit;text-decoration:underline;">HTTPS admin page</a>.
+    </div>
+
+    <!-- Layout -->
+    <div class="dca-layout" {% if schema_missing %}style="display:none;"{% endif %}>
+
+        <!-- Left mini-sidebar -->
+        <aside class="dca-sidebar">
+            <div class="dca-sidebar-section">
+                <div class="dca-sidebar-section-title"><i class="fas fa-bolt"></i> Session</div>
+                <button class="dca-btn-sm" id="dcaResumeBtn" style="display:none;">
+                    <i class="fas fa-redo"></i> Resume previous
+                </button>
+                <button class="dca-btn-sm" id="dcaNewSessionBtn">
+                    <i class="fas fa-plus"></i> New session
+                </button>
+                <a class="dca-btn-sm" href="/data-collection/builder/{{ config_id }}" id="dcaEditSchemaLink">
+                    <i class="fas fa-edit"></i> Edit schema
+                </a>
+            </div>
+
+            <div class="dca-sidebar-section">
+                <div class="dca-sidebar-section-title"><i class="fas fa-info-circle"></i> About</div>
+                <div class="dca-sidebar-help" id="dcaHelpText">
+                    Answer the questions in the chat. The progress panel on the right shows
+                    everything you've provided. Click any section to revisit it, or click
+                    a value to edit it directly.
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main chat area -->
+        <main class="dca-chat" id="dcaChat">
+            <div class="dca-messages" id="dcaMessages"><!-- messages injected by JS --></div>
+
+            <!-- Submit banner appears in REVIEW phase -->
+            <div class="dca-submit-banner" id="dcaSubmitBanner" style="display:none;">
+                <div>
+                    <strong>Ready to submit?</strong>
+                    <p class="dca-submit-banner-help">
+                        Click Submit when everything looks right, or tell the assistant
+                        what you'd like to change.
+                    </p>
+                </div>
+                <button class="dca-btn-primary" id="dcaSubmitBtn">
+                    <i class="fas fa-paper-plane"></i> Submit
+                </button>
+            </div>
+
+            <div class="dca-composer" id="dcaTextComposer">
+                <textarea id="dcaInput" rows="2" placeholder="Type your answer or ask a question…"></textarea>
+                <button class="dca-btn-primary" id="dcaSendBtn">
+                    <i class="fas fa-arrow-up"></i>
+                </button>
+            </div>
+
+            {# Voice composer — replaces the text composer when voice mode is on.
+               Big mic button + state label. The VoiceModeController binds to it. #}
+            <div class="dca-voice-composer" id="dcaVoiceComposer" style="display:none;">
+                <button class="dca-voice-mic" id="dcaVoiceMic"
+                        aria-label="Tap to speak" aria-live="polite"
+                        title="Tap to speak (or hold space)">
+                    <i class="fas fa-microphone"></i>
+                </button>
+                <div class="dca-voice-state" id="dcaVoiceState">Tap to speak</div>
+                <button class="dca-voice-cancel" id="dcaVoiceCancel" title="Switch back to typing">
+                    <i class="fas fa-keyboard"></i> Switch to typing
+                </button>
+            </div>
+        </main>
+
+        <!-- Right progress panel -->
+        <aside class="dca-progress-panel" id="dcaProgressPanel">
+            <div class="dca-progress-header">
+                <span><i class="fas fa-tasks"></i> Progress</span>
+                <span class="dca-progress-counter" id="dcaSectionCounter">0 / 0</span>
+            </div>
+            <div class="dca-progress-list" id="dcaProgressList">
+                <!-- sections injected by JS -->
+            </div>
+        </aside>
+
+    </div>
+</div>
+
+<!-- Inline-edit modal -->
+<div class="dca-modal" id="dcaInlineEditModal" style="display:none;">
+    <div class="dca-modal-card">
+        <div class="dca-modal-header">
+            <span id="dcaInlineEditTitle">Edit field</span>
+            <button class="chat-icon-btn" id="dcaInlineEditClose"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="dca-modal-body" id="dcaInlineEditBody"></div>
+        <div class="dca-modal-footer">
+            <button class="dca-btn-sm" id="dcaInlineEditCancel">Cancel</button>
+            <button class="dca-btn-primary" id="dcaInlineEditSave">Save</button>
+        </div>
+    </div>
+</div>
+
+{% if debug_mode_enabled %}
+<!-- Debug inspection panel — slides in from the right when the bug button
+     is clicked. Visible only when DCA_DEBUG_MODE or DATA_COLLECTION_TEST_MODE
+     is enabled at the server. -->
+<div class="dca-debug-panel" id="dcaDebugPanel" aria-hidden="true">
+    <!-- Drag handle on the left edge to resize the panel; width persists
+         in localStorage between sessions. -->
+    <div class="dca-debug-resizer" id="dcaDebugResizer" title="Drag to resize"></div>
+    <div class="dca-debug-header">
+        <div class="dca-debug-header-title">
+            <i class="fas fa-bug"></i>
+            <span>Debug inspector</span>
+            <span class="dca-debug-badge" id="dcaDebugBadge">0 events</span>
+        </div>
+        <div class="dca-debug-header-actions">
+            <button class="dca-debug-btn-mini" id="dcaDebugAutoToggle"
+                    title="Auto-refresh every 1.5s">
+                <i class="fas fa-rotate"></i> Auto
+            </button>
+            <button class="dca-debug-btn-mini" id="dcaDebugRefreshBtn"
+                    title="Refresh now">
+                <i class="fas fa-arrow-rotate-right"></i>
+            </button>
+            <button class="dca-debug-btn-mini" id="dcaDebugClearBtn"
+                    title="Clear the buffer for this session">
+                <i class="fas fa-broom"></i>
+            </button>
+            <button class="dca-debug-btn-mini" id="dcaDebugCloseBtn"
+                    title="Close">
+                <i class="fas fa-xmark"></i>
+            </button>
+        </div>
+    </div>
+    <div class="dca-debug-filter-bar">
+        <label class="dca-debug-filter-chk">
+            <input type="checkbox" data-filter-type="turn_start"   checked> turn_start
+        </label>
+        <label class="dca-debug-filter-chk">
+            <input type="checkbox" data-filter-type="user_message" checked> user_message
+        </label>
+        <label class="dca-debug-filter-chk">
+            <input type="checkbox" data-filter-type="extract_call" checked> extract_call
+        </label>
+        <label class="dca-debug-filter-chk">
+            <input type="checkbox" data-filter-type="extract_step" checked> extract_step
+        </label>
+        <label class="dca-debug-filter-chk">
+            <input type="checkbox" data-filter-type="extract_result" checked> extract_result
+        </label>
+        <label class="dca-debug-filter-chk">
+            <input type="checkbox" data-filter-type="system_prompt"> system_prompt
+        </label>
+        <label class="dca-debug-filter-chk">
+            <input type="checkbox" data-filter-type="tool_call"    checked> tool_call
+        </label>
+        <label class="dca-debug-filter-chk">
+            <input type="checkbox" data-filter-type="tool_result"  checked> tool_result
+        </label>
+        <label class="dca-debug-filter-chk">
+            <input type="checkbox" data-filter-type="voice_normalize" checked> voice_normalize
+        </label>
+        <label class="dca-debug-filter-chk">
+            <input type="checkbox" data-filter-type="llm_response" checked> llm_response
+        </label>
+        <label class="dca-debug-filter-chk">
+            <input type="checkbox" data-filter-type="turn_end"> turn_end
+        </label>
+        <label class="dca-debug-filter-chk">
+            <input type="checkbox" data-filter-type="note"     checked> note
+        </label>
+        <label class="dca-debug-filter-chk">
+            <input type="checkbox" data-filter-type="error"        checked> error
+        </label>
+    </div>
+    <div class="dca-debug-events" id="dcaDebugEvents">
+        <div class="dca-debug-empty" id="dcaDebugEmpty">
+            No events yet. Send a message to see the LLM call flow appear here.
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Submission overlay -->
+<div class="dca-submission-overlay" id="dcaSubmissionOverlay" style="display:none;">
+    <div class="dca-submission-card">
+        <h2><i class="fas fa-paper-plane"></i> Submitting…</h2>
+        <ul class="dca-submission-actions" id="dcaSubmissionActions"></ul>
+        <div class="dca-submission-message" id="dcaSubmissionMessage"></div>
+        <button class="dca-btn-primary" id="dcaSubmissionDone" style="display:none;">Close</button>
+    </div>
+</div>
+
+<!-- Reuse the existing rich content renderer from the platform -->
+<script src="/static/js/richContentRenderer.js"></script>
+
+<!-- DCA-specific renderer extension — adds info_card, comparison,
+     field_help, tip_callout, recap_panel block types on top of the
+     platform renderer. Loaded BEFORE data-collection.js so the app
+     can wrap the platform renderer at construction time. -->
+<script src="/data-collection/static/js/dca-rich-renderer.js?v={{ asset_version }}"></script>
+
+<!-- DCA scripts -->
+<script src="/data-collection/static/js/progress-panel.js?v={{ asset_version }}"></script>
+{# Phase 2: voice mode dependencies. We ship our own copy of the platform's
+   SpeechRecognitionManager so it works under SES / hardened-JS environments
+   (MetaMask et al) where top-level class declarations don't auto-attach to
+   window. See dca-speech-recognition.js for details. #}
+<script src="/data-collection/static/js/dca-speech-recognition.js?v={{ asset_version }}"></script>
+<script src="/data-collection/static/js/voice-mode-streaming.js?v={{ asset_version }}"></script>
+<script src="/data-collection/static/js/data-collection.js?v={{ asset_version }}"></script>
+{% if debug_mode_enabled %}
+<script src="/data-collection/static/js/debug-panel.js?v={{ asset_version }}"></script>
+{% endif %}
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        if (window.DCA_CONFIG && !window.DCA_CONFIG.schema_missing) {
+            window.DCA_APP = new DataCollectionApp(window.DCA_CONFIG.config_id);
+            window.DCA_APP.init();
+            // Optional debug inspector — only present when the server marked
+            // debug mode on. Constructor is a no-op if the panel DOM isn't there.
+            if (window.DCADebugPanel) {
+                window.DCA_DEBUG_PANEL = new window.DCADebugPanel(window.DCA_APP);
+            }
+        }
+
+        // Show the insecure-context banner if the schema declares it needs
+        // a secure context AND we're loaded over plain HTTP. window.isSecureContext
+        // is true on HTTPS and on localhost (which counts as secure for mic APIs).
+        if (window.DCA_CONFIG && window.DCA_CONFIG.requires_secure_context && !window.isSecureContext) {
+            const banner = document.getElementById('dcaInsecureBanner');
+            if (banner) banner.style.display = '';
+        }
+    });
+</script>
+{% endblock %}

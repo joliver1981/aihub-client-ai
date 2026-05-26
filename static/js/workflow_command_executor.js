@@ -1149,19 +1149,31 @@ const workflowCommandExecutor = new WorkflowCommandExecutor();
             if (!resp.ok) return;
             const validation = await resp.json();
             if (validation.status !== 'success') return;
-            // Silently apply deterministic fix commands (e.g. drop redundant
-            // End Loop -> Loop back-edge). User never sees this happen.
+            // POLICY: during manual editing, validation NEVER modifies the
+            // workflow. It only decorates nodes with warning rings + tooltips
+            // so the user can fix issues themselves. We previously whitelisted
+            // delete_connection as "safe cleanup," but the server's deletion
+            // suggestions misfire often enough that they silently remove
+            // legitimate user-made edges. Auto-applying ANY command during
+            // manual editing is a UX trap — the workflow editor must be
+            // predictable.
+            //
+            // The AI build flow (which runs its own validator pass while
+            // aiBuilderActive=true, gated above) is unaffected by this and can
+            // still receive deterministic structural fixes.
+            //
+            // If a user wants the server's suggestions applied, that should
+            // be an explicit action (button, confirmation), not a side effect
+            // of editing.
             if (validation.fix_commands &&
                 validation.fix_commands.commands &&
                 validation.fix_commands.commands.length > 0) {
-                for (const cmd of validation.fix_commands.commands) {
-                    try {
-                        await workflowCommandExecutor.executeCommand(cmd);
-                    } catch (_) { /* best-effort */ }
-                }
-                if (typeof jsPlumbInstance !== 'undefined') {
-                    jsPlumbInstance.repaintEverything();
-                }
+                console.debug(
+                    '[workflow validation] Skipped',
+                    validation.fix_commands.commands.length,
+                    'auto-fix command(s) during manual edit. User must resolve manually.',
+                    validation.fix_commands.commands.map(c => c && (c.type || c.command))
+                );
             }
             applyDecorations(validation);
         } catch (_) {

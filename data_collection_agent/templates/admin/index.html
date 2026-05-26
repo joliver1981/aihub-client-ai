@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block content %}
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="/static/css/chat-theme.css">
+<link rel="stylesheet" href="/data-collection/static/css/data-collection.css">
+
+{% if branding_style %}{{ branding_style|safe }}{% endif %}
+{% if safe_favicon_url %}<link rel="icon" href="{{ safe_favicon_url }}">{% endif %}
+
+<style>
+    .dca-admin-page {
+        min-height: 100vh;
+        background: var(--bg-primary, #0a0a0c);
+        color: var(--text-primary, #fafafa);
+        font-family: 'Outfit', sans-serif;
+        padding: 2rem 1.5rem 4rem 1.5rem;
+    }
+    .dca-admin-wrap { max-width: 900px; margin: 0 auto; }
+    .dca-admin-hero { margin-bottom: 1.5rem; }
+    .dca-admin-hero h1 {
+        margin: 0; font-size: 1.6rem; font-weight: 600;
+        display: flex; align-items: center; gap: 0.6rem;
+    }
+    .dca-admin-hero h1 i { color: var(--cyber-cyan, #06b6d4); }
+    .dca-admin-hero p { margin: 0.4rem 0 0 0; color: var(--text-secondary, #a1a1aa); }
+
+    .dca-admin-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+        gap: 1rem;
+    }
+    .dca-admin-card {
+        background: var(--bg-card, #18181b);
+        border: 1px solid var(--border-color, #27272a);
+        border-radius: 10px;
+        padding: 1.1rem;
+        text-decoration: none;
+        color: inherit;
+        transition: border-color 120ms ease, transform 120ms ease;
+        display: flex; flex-direction: column; gap: 0.5rem;
+    }
+    .dca-admin-card:hover {
+        border-color: var(--cyber-cyan, #06b6d4);
+        transform: translateY(-1px);
+    }
+    .dca-admin-card-icon {
+        width: 36px; height: 36px;
+        border-radius: 8px;
+        display: flex; align-items: center; justify-content: center;
+        background: rgba(6, 182, 212, 0.15);
+        color: var(--cyber-cyan, #06b6d4);
+        font-size: 1rem;
+    }
+    .dca-admin-card-title { font-size: 1.05rem; font-weight: 600; }
+    .dca-admin-card-desc {
+        color: var(--text-secondary, #a1a1aa);
+        font-size: 0.85rem; line-height: 1.4;
+    }
+</style>
+
+<div class="dca-admin-page">
+    <div class="dca-admin-wrap">
+        <div class="dca-admin-hero">
+            <h1><i class="fas fa-cogs"></i> Admin</h1>
+            <p>Deployment configuration for the Data Collection Agent.</p>
+        </div>
+
+        <div class="dca-admin-grid">
+            <a class="dca-admin-card" href="/data-collection/admin/https">
+                <div class="dca-admin-card-icon"><i class="fas fa-lock"></i></div>
+                <div class="dca-admin-card-title">HTTPS / TLS</div>
+                <div class="dca-admin-card-desc">
+                    Configure how the standalone runner serves traffic: behind a
+                    reverse proxy, with a self-signed cert, with a custom cert,
+                    or plain HTTP. Required for voice-mode features.
+                </div>
+            </a>
+            <a class="dca-admin-card" href="/data-collection/">
+                <div class="dca-admin-card-icon"><i class="fas fa-arrow-left"></i></div>
+                <div class="dca-admin-card-title">Back to gallery</div>
+                <div class="dca-admin-card-desc">Return to the agent gallery.</div>
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

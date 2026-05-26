@@ -1,0 +1,190 @@
+document_type: customer_vendor_requirements
+description: >
+  Standardized extraction schema for customer-issued vendor requirements documents
+  (vendor service requirements, customer onboarding requirements, supplier expectations).
+  These are documents in which a CUSTOMER tells a vendor what is expected — service
+  level requirements, security obligations, insurance minimums, payment terms, etc.
+  They typically come in multiple versions over time, and version tracking is the
+  primary value driver. Distinct from retailer_compliance.yaml, which is for
+  retailer-to-vendor routing guides (pallet specs, EDI, packaging).
+
+categories:
+  document_metadata:
+    description: Version, effective date, issuer, and status fields used for cross-version retrieval
+    subcategories:
+      version_info:
+        description: Document version number, effective date, and lifecycle status
+        fields:
+          - name: version_number
+            description: Document version (e.g. 1.0, 1.5, 2.0). The current version is the latest by effective_date.
+          - name: effective_date
+            description: The date this version of the document takes effect
+          - name: status
+            description: Lifecycle status (ACTIVE, SUPERSEDED, DRAFT) if stated in the document
+          - name: issuing_organization
+            description: The customer / organization issuing the requirements document
+          - name: document_owner
+            description: The internal owner / department at the issuing organization
+
+  service_levels:
+    description: Service level commitments the vendor is required to meet
+    subcategories:
+      availability:
+        description: Uptime / availability SLA
+        fields:
+          - name: uptime_sla
+            description: Required uptime percentage (e.g., 99.5%, 99.9%, 99.95%) and the calculation basis
+      response_times:
+        description: Incident response and resolution SLAs
+        fields:
+          - name: critical_response_time
+            description: Required response time for Severity-1 / critical incidents
+          - name: support_hours
+            description: Hours during which the vendor must provide support coverage (e.g., M-F 9-5, 24/7)
+      disaster_recovery:
+        description: DR/BCP recovery objectives
+        fields:
+          - name: dr_rto
+            description: Recovery Time Objective — maximum allowable downtime after a disaster
+          - name: dr_rpo
+            description: Recovery Point Objective — maximum allowable data loss measured in time
+          - name: dr_testing
+            description: Required frequency and rigor of DR plan testing
+
+  security_requirements:
+    description: Information security and access control obligations
+    subcategories:
+      encryption:
+        description: Encryption requirements for data at rest and in transit
+        fields:
+          - name: encryption_at_rest
+            description: Required algorithm and key strength for data at rest (e.g. AES-256, FIPS 140-2)
+          - name: encryption_in_transit
+            description: Required protocol and cipher suite for data in transit (e.g. TLS 1.3, NIST SP 800-52)
+      authentication:
+        description: Authentication and identity requirements
+        fields:
+          - name: mfa_scope
+            description: Which user populations require multi-factor authentication (none, admin-only, all users)
+          - name: mfa_methods
+            description: Acceptable / required MFA methods (e.g., FIDO2/WebAuthn required, SMS-OTP banned)
+      testing_assessments:
+        description: Required security testing
+        fields:
+          - name: penetration_testing
+            description: Pen testing requirements — frequency, scope, reporting timeline, remediation SLAs
+          - name: security_assessments
+            description: Other required assessments (application-layer, code review, etc.)
+      data_handling:
+        description: Data residency and subprocessor disclosure
+        fields:
+          - name: data_residency
+            description: Geographies where customer data may be stored or processed
+          - name: subprocessor_disclosure
+            description: Subprocessor list publication and update requirements
+
+  financial_terms:
+    description: Payment terms, penalties, and service credit structures
+    subcategories:
+      payment:
+        description: Default payment terms
+        fields:
+          - name: payment_terms
+            description: Default payment terms (Net 30, Net 45, Net 60, etc.)
+          - name: payment_method
+            description: Required payment / invoicing method
+      penalties_and_credits:
+        description: SLA breach financial consequences
+        fields:
+          - name: penalty_structure
+            description: Monetary penalties for SLA breach — describe in full including amount, scope, payment timing, offset rules
+          - name: service_credits
+            description: Service-credit-based remedies for SLA breach — describe scope and calculation
+          - name: sole_remedy_designation
+            description: Whether penalties or credits are designated as the customer's sole financial remedy
+
+  insurance_requirements:
+    description: Insurance coverage minimums vendor must maintain
+    subcategories:
+      coverage_minimums:
+        description: Required insurance coverage and limits
+        fields:
+          - name: general_liability_minimum
+            description: Minimum commercial general liability limits (per occurrence and aggregate)
+          - name: cyber_liability_minimum
+            description: Minimum cyber liability coverage if required (or "not required")
+          - name: additional_insured_requirement
+            description: Whether customer must be named as additional insured
+          - name: certificate_of_insurance_requirement
+            description: COI submission requirements
+
+  personnel_requirements:
+    description: Vendor personnel screening and qualification obligations
+    subcategories:
+      screening:
+        description: Background check and screening requirements
+        fields:
+          - name: background_check_scope
+            description: Which vendor personnel are subject to background checks (all, facility-access only, etc.)
+          - name: drug_testing_requirements
+            description: Drug testing requirements where applicable
+      attestations:
+        description: Required vendor attestations
+        fields:
+          - name: code_of_conduct_attestation
+            description: Code of conduct attestation requirement (e.g., annual, anti-bribery, modern slavery)
+          - name: training_requirements
+            description: Required training for vendor personnel (privacy, security, ethics)
+
+  operational_requirements:
+    description: Operational obligations — audits, reporting, certifications, site access
+    subcategories:
+      audit:
+        description: Audit cadence and type
+        fields:
+          - name: audit_cadence
+            description: How often third-party audits are required (annual, semi-annual, quarterly)
+          - name: audit_type
+            description: Required audit standard / framework (SOC 2 Type II, ISO 27001, etc.)
+      reporting:
+        description: Vendor reporting obligations
+        fields:
+          - name: reporting_requirements
+            description: Required vendor reports — types, cadence, delivery format
+      certifications:
+        description: Vendor certifications required throughout engagement
+        fields:
+          - name: required_certifications
+            description: Certifications vendor must hold (ISO 9001, ISO 27001, SOC 2, etc.)
+      site_access:
+        description: Customer site / facility access rules
+        fields:
+          - name: site_access_notice
+            description: Advance notice required before vendor personnel visit a customer site
+          - name: site_access_escort
+            description: Escort and movement rules while vendor personnel are on customer premises
+      maintenance_changes:
+        description: Maintenance windows and change management
+        fields:
+          - name: maintenance_window
+            description: Approved maintenance windows including notice period and duration limits
+          - name: change_management
+            description: Vendor change management requirements (advance notice, approval, etc.)
+      banking_changes:
+        description: Banking / remittance information change process (security-sensitive)
+        fields:
+          - name: banking_change_process
+            description: Process for updating vendor banking info — submission method, verification factors, callback rules
+
+  change_log:
+    description: Changes from prior version — critical for version comparison
+    subcategories:
+      version_changes:
+        description: Explicit list of changes between this version and the previous version
+        fields:
+          - name: changes_from_prior_version
+            description: Summary of substantive changes from the prior version, including additions, removals, and modifications
+          - name: prior_version_reference
+            description: Identifier of the prior version this document supersedes
+          - name: removed_provisions
+            description: Provisions explicitly REMOVED from this version (critical — these must not be surfaced as current)

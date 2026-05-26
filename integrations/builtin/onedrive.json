@@ -1,0 +1,149 @@
+{
+  "template_key": "onedrive",
+  "platform_name": "OneDrive",
+  "platform_category": "Document Management",
+  "description": "Connect to OneDrive (personal or business) to browse and pull files into your knowledge base. Works with any Microsoft account.",
+  "logo_url": null,
+  "documentation_url": "https://learn.microsoft.com/en-us/graph/api/resources/onedrive",
+
+  "auth_type": "oauth2",
+  "execution_type": "sharepoint",
+  "auth_config": {
+    "authorization_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+    "token_url": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+    "scopes": [
+      "Files.Read",
+      "offline_access"
+    ],
+    "extra_auth_params": {
+      "prompt": "consent",
+      "response_mode": "query"
+    },
+    "token_auth_method": "client_secret_post"
+  },
+
+  "base_url": "https://graph.microsoft.com/v1.0",
+
+  "default_headers": {
+    "Accept": "application/json"
+  },
+
+  "operations": [
+    {
+      "key": "health_check",
+      "name": "Health Check",
+      "description": "Verify the connection — checks the access token and that OneDrive is reachable.",
+      "method": "GET",
+      "category": "read",
+      "parameters": []
+    },
+    {
+      "key": "list_my_files",
+      "name": "List Files & Folders",
+      "description": "List files and folders in your OneDrive (root or a subfolder)",
+      "method": "GET",
+      "category": "Files",
+      "parameters": [
+        {
+          "name": "item_id",
+          "label": "Folder ID",
+          "type": "text",
+          "required": false,
+          "description": "Folder ID to browse into (leave empty for root)"
+        },
+        {
+          "name": "top",
+          "label": "Max Results",
+          "type": "number",
+          "required": false,
+          "default": 200,
+          "description": "Maximum items to return (max 999)"
+        }
+      ]
+    },
+    {
+      "key": "get_item_metadata",
+      "name": "Get File Info",
+      "description": "Get metadata for a specific file or folder in OneDrive",
+      "method": "GET",
+      "category": "Files",
+      "parameters": [
+        {
+          "name": "item_id",
+          "label": "Item ID",
+          "type": "text",
+          "required": true,
+          "description": "The file or folder ID"
+        }
+      ]
+    },
+    {
+      "key": "download_file",
+      "name": "Download File",
+      "description": "Download a file from OneDrive to the server's uploads folder",
+      "method": "GET",
+      "category": "Files",
+      "parameters": [
+        {
+          "name": "item_id",
+          "label": "Item ID",
+          "type": "text",
+          "required": true,
+          "description": "The file ID to download"
+        }
+      ]
+    },
+    {
+      "key": "search_files",
+      "name": "Search Files",
+      "description": "Search OneDrive for files by name or content",
+      "method": "GET",
+      "category": "Files",
+      "parameters": [
+        {
+          "name": "query",
+          "label": "Search Query",
+          "type": "text",
+          "required": true,
+          "description": "Text to search for"
+        }
+      ]
+    },
+    {
+      "key": "download_to_knowledge",
+      "name": "Import to Knowledge Base",
+      "description": "Download a OneDrive file and add it to an agent's knowledge base for AI-powered retrieval",
+      "method": "POST",
+      "category": "Knowledge",
+      "parameters": [
+        {
+          "name": "item_id",
+          "label": "Item ID",
+          "type": "text",
+          "required": true,
+          "description": "The file ID to import"
+        },
+        {
+          "name": "agent_id",
+          "label": "Agent ID",
+          "type": "number",
+          "required": true,
+          "description": "The agent to add this document to as knowledge"
+        },
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "text",
+          "required": false,
+          "default": "",
+          "description": "Optional description for this knowledge item"
+        }
+      ]
+    }
+  ],
+
+  "setup_instructions": "## OneDrive Setup\n\nWorks with **personal Microsoft accounts** (outlook.com, hotmail.com) or **work/school accounts**.\n\n### Option A: Reuse Existing SharePoint Azure App\nIf you already configured a SharePoint Online integration, you can reuse the same Azure app:\n1. Azure Portal → App Registrations → your existing app\n2. **Authentication** → change **Supported account types** to **Accounts in any organizational directory and personal Microsoft accounts**\n3. **API Permissions** → Add a permission → Microsoft Graph → Delegated → add `Files.Read`\n4. Copy your existing client ID and secret into Local Secrets:\n   - `OAUTH_ONEDRIVE_CLIENT_ID`\n   - `OAUTH_ONEDRIVE_CLIENT_SECRET`\n\n### Option B: New Azure App\n1. Azure Portal → [App Registrations](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade) → **New registration**\n2. Name: `AI Hub OneDrive Integration`\n3. **Supported account types**: choose **Accounts in any organizational directory and personal Microsoft accounts** (works for both work and personal)\n4. **Redirect URI**: Web → `{callback_url}`\n5. Click **Register**\n6. **API Permissions** → Add → Microsoft Graph → Delegated → add `Files.Read` and `offline_access`. (No admin consent required for personal accounts.)\n7. **Certificates & secrets** → New client secret → copy the **Value** immediately\n8. Store in Local Secrets:\n   - `OAUTH_ONEDRIVE_CLIENT_ID` → Application (client) ID from the Overview page\n   - `OAUTH_ONEDRIVE_CLIENT_SECRET` → the secret value\n\n### Connect\n1. Click **Connect** in the Integrations Gallery\n2. Sign in with your Microsoft account (personal or work)\n3. Approve the requested permissions\n\nOnce connected, the OneDrive browser will show your files directly — no site/library navigation needed.",
+
+  "supports_webhooks": false,
+  "is_builtin": true
+}

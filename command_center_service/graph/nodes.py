@@ -1343,6 +1343,12 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
 ## DOCUMENT SEARCH
 {"You have a search_documents tool that performs intelligent AI-driven search across the platform document repository. USE search_documents when the user asks about:" + chr(10) + "- Finding documents, files, records, or reports in the document repository" + chr(10) + "- Looking up information stored in documents (contracts, invoices, policies, manuals, etc.)" + chr(10) + "- Questions that require searching through document content" + chr(10) + "- 'Find me documents about X', 'What documents mention Y', 'Search for Z'" + chr(10) + "The tool uses AI to determine the best search strategy (semantic, field-based, hybrid, or wide-net) and returns matching documents with relevant content. Pass the user's question directly — the tool handles query analysis internally." + chr(10) + "Do NOT confuse document search with data queries — use query_data_agent for database/data questions, use search_documents for document repository searches." if DOCUMENT_SEARCH_ENABLED else "Document search is NOT available on this instance. If asked to search documents, explain that document search is not enabled."}
 
+## PDF MANIPULATION — USE manipulate_pdf
+- When the user wants to split, extract pages from, or rotate a PDF they uploaded, call `manipulate_pdf` with the file_id from the attached files.
+- Operations: "split_all" (one PDF per page), "extract_pages" (pages="1,3,5-7"), "rotate" (degrees=90/180/270, pages="all" or a spec).
+- DO NOT write Python code for these operations. The tool produces downloadable artifacts directly.
+- For a single PDF the user attached, the file_id is in the "Attached Files" reference shown to you.
+
 ## MAP & VISUALIZATION — USE YOUR OWN TOOLS
 - YOU have `generate_map` — use it for maps, choropleths, geographic visualizations.
 - Data agents CANNOT create maps. They can only retrieve data.
@@ -1807,6 +1813,86 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             return f"Error running tool '{tool_name}': {str(e)}"
 
     @lc_tool
+    async def manipulate_pdf(
+        file_id: str,
+        operation: str,
+        pages: str = "all",
+        degrees: int = 90,
+    ) -> str:
+        """Split, extract pages from, or rotate a PDF file the user uploaded.
+        Use this INSTEAD of generating Python code when the user wants PDF
+        modifications. Outputs are saved as downloadable artifacts.
+
+        Args:
+            file_id: ID of the uploaded PDF (from the attached files in context)
+            operation: One of:
+                - "split_all"     — one PDF per page
+                - "extract_pages" — single PDF containing selected `pages`
+                - "rotate"        — rotate selected `pages` by `degrees`
+            pages: Page spec like "1,3,5-7" or "all" (1-indexed). Ignored for split_all.
+            degrees: 90, 180, or 270 (clockwise). Only used by rotate.
+        """
+        from command_center_service.routes.upload import get_file_path, get_file_metadata
+        import pdf_tools
+
+        logger.info(
+            f"[converse/tool] manipulate_pdf: file_id={file_id} op={operation} pages={pages}"
+        )
+
+        meta = get_file_metadata(file_id)
+        if not meta:
+            return f"File '{file_id}' not found. Make sure the user attached the PDF to this chat."
+        if not meta.get("filename", "").lower().endswith(".pdf"):
+            return f"File '{meta.get('filename')}' is not a PDF."
+
+        path = get_file_path(file_id)
+        if not path or not path.exists():
+            return f"PDF file is missing from disk (id={file_id})."
+
+        pdf_bytes = path.read_bytes()
+        name_stem = path.stem.split("_", 1)[-1].rsplit(".pdf", 1)[0]
+
+        try:
+            op = (operation or "").strip().lower()
+            if op in ("split_all", "split"):
+                outputs = pdf_tools.split_all(pdf_bytes, name_stem)
+            elif op in ("extract_pages", "extract"):
+                outputs = pdf_tools.extract_pages(pdf_bytes, name_stem, pages)
+            elif op == "rotate":
+                outputs = pdf_tools.rotate(pdf_bytes, name_stem, int(degrees), pages)
+            else:
+                return (
+                    f"Unknown operation '{operation}'. "
+                    "Use one of: split_all, extract_pages, rotate."
+                )
+        except ValueError as ve:
+            return f"PDF operation failed: {ve}"
+        except Exception as e:
+            logger.error(f"[converse/tool] manipulate_pdf error: {e}", exc_info=True)
+            return f"PDF operation failed: {e}"
+
+        from command_center.artifacts.artifact_models import ArtifactType
+        from routes.artifacts import _get_artifact_manager
+
+        mgr = _get_artifact_manager()
+        session_id = state.get("session_id", "cc-default")
+        user_ctx = state.get("user_context") or {}
+        user_id = str(user_ctx.get("user_id", "anonymous"))
+        scope = f"{user_id}/{session_id}"
+
+        blocks = []
+        for fname, fbytes in outputs:
+            artifact_meta = mgr.create(fname, ArtifactType.PDF, fbytes, scope)
+            block = artifact_meta.to_content_block()
+            block["description"] = f"{fname} ({artifact_meta.size_display})"
+            blocks.append(block)
+
+        logger.info(
+            f"[converse/tool] manipulate_pdf produced {len(blocks)} artifact(s) for {scope}"
+        )
+        return json.dumps(blocks)
+
+    @lc_tool
     async def generate_map(locations_json: str, title: str = "Map") -> str:
         """Generate an interactive map from location data. Supports two modes:
 
@@ -2216,7 +2302,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             logger.error(f"[converse/tool] Email send failed: {e}")
             return f"Email send failed: {str(e)}"
 
-    tools = [query_data_agent, query_general_agent, delegate_to_builder_agent, save_user_preference, recall_all_memories, forget_preference, switch_active_agent, export_data, run_generated_tool, generate_map, search_web, send_email]
+    tools = [query_data_agent, query_general_agent, delegate_to_builder_agent, save_user_preference, recall_all_memories, forget_preference, switch_active_agent, export_data, run_generated_tool, manipulate_pdf, generate_map, search_web, send_email]
     if IMAGE_GENERATION_ENABLED:
         tools.append(generate_image)
     if DOCUMENT_SEARCH_ENABLED:
@@ -2254,6 +2340,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     "switch_active_agent": switch_active_agent,
                     "export_data": export_data,
                     "run_generated_tool": run_generated_tool,
+                    "manipulate_pdf": manipulate_pdf,
                     "generate_map": generate_map,
                     "generate_image": generate_image,
                     "search_web": search_web,
@@ -4878,18 +4965,115 @@ async def answer_quality_gate(state: CommandCenterState) -> dict:
         confidence = 0
         reason = str(e)
 
-    # ── Auto-enrichment removed ────────────────────────────────────────────
-    # Previous layers 2 and 3 auto-appended map visualizations (on
-    # GAP_GEOGRAPHIC / GAP_FORMAT) and knowledge-base text (on GAP_KNOWLEDGE)
-    # to agent responses. The keyword trigger for the map path was too loose —
-    # words like "region" and "state" appear in many non-geographic contexts
-    # (e.g. "inventory by region" meaning a grouping field). Rather than
-    # tuning heuristics, enrichment now flows through the explicit tool path:
-    # users ask for a map via "show as map" / "plot on a map" and the LLM
-    # invokes the generate_map tool. The _enrich_geographic and
-    # _enrich_knowledge helpers below are kept so they can be wired in as
-    # explicit tools in the future if desired.
-    return {}
+    # ── Auto-enrichment (WS3, opt-in) ───────────────────────────────────────
+    # Behavior is controlled by the CC_ENRICHMENT env var:
+    #   - "off"   → no enrichment runs at all
+    #   - "tools" → DEFAULT; preserves the previous behavior where the LLM's
+    #               explicit tool calls (generate_map, search_web, …) are the
+    #               only source of enrichment
+    #   - "auto"  → runs the gap-specific helpers below on the AQG
+    #               classification, with a strict per-turn budget so we
+    #               don't blow up costs
+    #
+    # The auto path was previously disabled because the keyword trigger
+    # was too loose. The fix here is twofold: (1) we now trigger off the
+    # mini-LLM's classification (semantic, not keyword), and (2) the
+    # bounded budget keeps damage low if the gate misclassifies.
+    import os as _os
+    enrichment_mode = (_os.environ.get("CC_ENRICHMENT") or "tools").strip().lower()
+    if enrichment_mode not in {"auto", "tools", "off"}:
+        logger.warning(
+            f"[AQG] Unknown CC_ENRICHMENT={enrichment_mode!r}; falling back to 'tools'"
+        )
+        enrichment_mode = "tools"
+
+    if enrichment_mode != "auto":
+        return {}
+
+    # Per-turn budget — keep this conservative. Each helper call counts.
+    MAX_ENRICHMENT_CALLS = 3
+    MAX_ENRICHMENT_TOTAL_SECONDS = 8.0
+    budget_t0 = _trace_time.perf_counter()
+    calls_used = 0
+
+    def _budget_exhausted() -> bool:
+        if calls_used >= MAX_ENRICHMENT_CALLS:
+            return True
+        if (_trace_time.perf_counter() - budget_t0) >= MAX_ENRICHMENT_TOTAL_SECONDS:
+            return True
+        return False
+
+    extra_blocks: list[dict] = []
+
+    # GAP_GEOGRAPHIC → try to attach a map block with real, geocoded markers.
+    if category == "GAP_GEOGRAPHIC" and not _budget_exhausted():
+        _t0 = _trace_time.perf_counter()
+        try:
+            calls_used += 1
+            map_block, geo_prov = await _enrich_geographic(
+                user_q_short, ai_resp_short, mini_llm, trace_state=state,
+            )
+        except Exception as e:
+            logger.warning(f"[AQG/auto] _enrich_geographic raised: {e}")
+            map_block, geo_prov = None, None
+        latency_ms = int((_trace_time.perf_counter() - _t0) * 1000)
+        success = map_block is not None
+        logger.info(
+            "[AQG/auto] helper=_enrich_geographic input=%r source=%s latency=%dms success=%s",
+            user_q_short[:120], "geocoder/nominatim", latency_ms, success,
+        )
+        if success:
+            try:
+                from provenance import attach_to_block as _attach
+                if geo_prov is not None:
+                    _attach(map_block, geo_prov)
+            except Exception as e:
+                logger.warning(f"[AQG/auto] provenance attach failed: {e}")
+            extra_blocks.append(map_block)
+
+    # GAP_KNOWLEDGE → attach a model-knowledge text block (provenance-stamped).
+    if category == "GAP_KNOWLEDGE" and not _budget_exhausted():
+        _t0 = _trace_time.perf_counter()
+        try:
+            calls_used += 1
+            knowledge_text, k_prov = await _enrich_knowledge(
+                user_q_short, ai_resp_short, mini_llm, trace_state=state,
+            )
+        except Exception as e:
+            logger.warning(f"[AQG/auto] _enrich_knowledge raised: {e}")
+            knowledge_text, k_prov = None, None
+        latency_ms = int((_trace_time.perf_counter() - _t0) * 1000)
+        success = bool(knowledge_text)
+        logger.info(
+            "[AQG/auto] helper=_enrich_knowledge input=%r source=%s latency=%dms success=%s",
+            user_q_short[:120], "model_knowledge", latency_ms, success,
+        )
+        if success:
+            block = {
+                "type": "text",
+                "content": f"**Additional context from general knowledge**\n\n{knowledge_text}",
+            }
+            try:
+                from provenance import attach_to_block as _attach
+                if k_prov is not None:
+                    _attach(block, k_prov)
+            except Exception as e:
+                logger.warning(f"[AQG/auto] provenance attach failed: {e}")
+            extra_blocks.append(block)
+
+    if not extra_blocks:
+        return {}
+
+    # Append a separate AIMessage carrying the enrichment blocks. This keeps
+    # the original agent response intact and lets the renderer / aggregator
+    # treat the enrichment as a follow-up message — no breakage to the
+    # classic UI's existing parsing.
+    try:
+        enrichment_msg = AIMessage(content=json.dumps(extra_blocks))
+        return {"messages": [enrichment_msg]}
+    except Exception as e:
+        logger.warning(f"[AQG/auto] failed to serialize enrichment blocks: {e}")
+        return {}
 
 
 _GEO_ENRICHMENT_PROMPT = """You are a geographic data enrichment assistant. Given a user's question about geographic/regional data and the assistant's response, extract the data and convert it into map-ready format.
@@ -4915,11 +5099,29 @@ RULES:
 - NEVER invent business data — only use values from the response"""
 
 
-async def _enrich_geographic(user_question: str, ai_response: str, mini_llm, trace_state: dict = None) -> dict:
+async def _enrich_geographic(user_question: str, ai_response: str, mini_llm, trace_state: dict = None):
     """
     Attempt to enrich a response with geographic visualization.
-    Returns a map block dict, or None if enrichment isn't possible.
+
+    Returns a tuple ``(map_block, provenance)`` where ``provenance`` is a
+    :class:`command_center_service.provenance.Provenance` object stamping
+    every geocoded marker's lat/lng. Returns ``(None, None)`` if
+    enrichment isn't possible. The provenance contract is documented in
+    ``docs/data-provenance.md``.
+
+    Wired to the real geocoder (WS2) — each region name is geocoded so
+    the resulting markers carry real coordinates, never ``(0, 0)``.
     """
+    # Lazy imports — keep module import-time light and avoid a hard
+    # dependency cycle with plugins/.
+    from provenance import (
+        Provenance, SOURCE_GEOCODER, SOURCE_MODEL_KNOWLEDGE,
+    )
+    try:
+        from plugins.web_intelligence.geocoder import geocode as _geocode_query
+    except Exception:  # pragma: no cover - defensive
+        _geocode_query = None
+
     try:
         messages = [
             SystemMessage(content=_GEO_ENRICHMENT_PROMPT),
@@ -4945,12 +5147,59 @@ async def _enrich_geographic(user_question: str, ai_response: str, mini_llm, tra
 
         if data.get("error"):
             logger.info(f"[AQG/geo] Enrichment declined: {data['error']}")
-            return None
+            return None, None
 
         regions = data.get("regions", [])
         if not regions:
             logger.info("[AQG/geo] No regions extracted")
-            return None
+            return None, None
+
+        provenance = Provenance()
+
+        # Stamp each region's `value` field as model-knowledge until we
+        # corroborate with a real data agent — the LLM is reformatting the
+        # numbers from the AI response, which is itself untrusted.
+        for i, region in enumerate(regions):
+            provenance.stamp(
+                f"regions[{i}].value",
+                source=SOURCE_MODEL_KNOWLEDGE,
+                source_detail="answer_quality_gate/geo",
+                confidence=0.5,
+                notes="extracted from assistant response by mini LLM",
+            )
+
+        # Build markers via the real geocoder. Failures here are
+        # non-fatal — we just skip that marker.
+        markers: list[dict] = []
+        if _geocode_query is not None:
+            for i, region in enumerate(regions):
+                name = (region.get("name") or "").strip() if isinstance(region, dict) else ""
+                if not name:
+                    continue
+                try:
+                    gres = _geocode_query(name)
+                except Exception as e:
+                    logger.warning(f"[AQG/geo] geocode failed for {name!r}: {e}")
+                    continue
+                if gres is None:
+                    continue
+                marker_idx = len(markers)
+                markers.append({
+                    "lat": gres.lat,
+                    "lng": gres.lng,
+                    "label": name,
+                    "popup": f"{name}: {region.get('label', region.get('value', ''))}",
+                })
+                # Stamp lat/lng provenance with the geocoder source.
+                for fld in ("lat", "lng"):
+                    provenance.stamp(
+                        f"markers[{marker_idx}].{fld}",
+                        source=SOURCE_GEOCODER,
+                        source_detail=gres.source,
+                        confidence=gres.confidence,
+                        notes=f"geocoded from query={gres.query!r}",
+                        timestamp=gres.fetched_at,
+                    )
 
         # Build map block
         map_block = {
@@ -4960,19 +5209,29 @@ async def _enrich_geographic(user_question: str, ai_response: str, mini_llm, tra
             "zoom": 4,
             "regions": regions,
         }
+        if markers:
+            map_block["markers"] = markers
 
-        logger.info(f"[AQG/geo] Enriched with {len(regions)} state regions")
-        return map_block
+        logger.info(
+            f"[AQG/geo] Enriched with {len(regions)} regions and {len(markers)} geocoded markers"
+        )
+        return map_block, provenance
 
     except Exception as e:
         logger.warning(f"[AQG/geo] Enrichment failed: {e}")
-        return None
+        return None, None
 
 
 async def _check_fabrication(text: str, mini_llm, trace_state: dict = None) -> bool:
     """
     Use a lightweight LLM call to check if text fabricates business-specific data.
     Returns True if fabrication is detected, False if clean.
+
+    The caller is responsible for acting on the result. Per WS4, a True
+    result should *downgrade* the field's provenance confidence and add a
+    note rather than silently drop the content — see
+    :func:`_apply_fabrication_downgrade` below for the helper that does
+    that against a :class:`Provenance` map.
     """
     try:
         check_prompt = (
@@ -5011,11 +5270,19 @@ RULES:
 You are supplementing the original answer, not replacing it. The user will see your response labeled as "Additional context from general knowledge." """
 
 
-async def _enrich_knowledge(user_question: str, ai_response: str, mini_llm, trace_state: dict = None) -> str:
+async def _enrich_knowledge(user_question: str, ai_response: str, mini_llm, trace_state: dict = None):
     """
     Attempt to fill a knowledge gap with general LLM knowledge.
-    Returns enrichment text, or None if not possible.
+
+    Returns a tuple ``(text, provenance)``. Provenance stamps the
+    ``content`` field with ``source="model_knowledge"`` and a default
+    confidence of 0.5. If the fabrication check fires, confidence is
+    downgraded to 0.2 and a note is added (the caller can still decide
+    to render or hide low-confidence content). Returns ``(None, None)``
+    when there's nothing useful to add.
     """
+    from provenance import Provenance, SOURCE_MODEL_KNOWLEDGE
+
     try:
         messages = [
             SystemMessage(content=_KNOWLEDGE_ENRICHMENT_PROMPT),
@@ -5038,17 +5305,35 @@ async def _enrich_knowledge(user_question: str, ai_response: str, mini_llm, trac
 
         if not result_text or result_text == "NO_ENRICHMENT":
             logger.info("[AQG/knowledge] Enrichment declined — no useful context to add")
-            return None
+            return None, None
 
-        # Safety check: LLM-based fabrication detection
+        # Try to pull the model id off the LLM client for the source_detail field.
+        model_id = getattr(mini_llm, "model_name", None) or getattr(mini_llm, "model", None) or "mini"
+
+        provenance = Provenance()
+        provenance.stamp(
+            "content",
+            source=SOURCE_MODEL_KNOWLEDGE,
+            source_detail=str(model_id),
+            confidence=0.5,
+            notes="LLM parametric knowledge; not corroborated against live sources",
+        )
+
+        # Safety check: LLM-based fabrication detection. WS4 says don't
+        # drop on flag — downgrade confidence and note the reason instead,
+        # so the UI can still render with a red badge.
         is_fabricated = await _check_fabrication(result_text, mini_llm, trace_state=trace_state)
         if is_fabricated:
-            logger.warning("[AQG/knowledge] Rejected — fabrication detected in enrichment response")
-            return None
+            logger.warning("[AQG/knowledge] Fabrication flag — downgrading provenance confidence")
+            provenance.downgrade_confidence(
+                "content",
+                new_confidence=0.2,
+                note="fabrication_check flagged this content",
+            )
 
         logger.info(f"[AQG/knowledge] Enrichment provided ({len(result_text)} chars)")
-        return result_text
+        return result_text, provenance
 
     except Exception as e:
         logger.warning(f"[AQG/knowledge] Enrichment failed: {e}")
-        return None
+        return None, None

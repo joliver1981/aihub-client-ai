@@ -1,0 +1,46 @@
+{
+  "session_id": "635da9a9-b457-4dbe-809d-4a6247efeaa9",
+  "config_id": "speaker_program_demo",
+  "user_id": "13",
+  "status": "in_progress",
+  "current_section_id": "submitter",
+  "collected_data": {},
+  "section_status": {
+    "submitter": "in_progress",
+    "program": "not_started",
+    "schedule": "not_started",
+    "speaker": "not_started",
+    "venue": "not_started",
+    "details": "not_started"
+  },
+  "validation_errors": {},
+  "chat_history": [
+    {
+      "role": "assistant",
+      "content": "Hi \u2014 I can help you plan your pharma speaker program. We\u2019ll go through: your information, product & topic, schedule, speaker, venue, and a few final details. It usually takes just a few minutes, and the intake team reviews submissions within one business day.\n\nWhat\u2019s your name?",
+      "ts": "2026-05-13T00:34:00.656797"
+    },
+    {
+      "role": "user",
+      "content": "open the pharma speaker program form for a new request",
+      "ts": "2026-05-13T00:34:03.968388"
+    },
+    {
+      "role": "assistant",
+      "content": "Absolutely \u2014 we\u2019re starting a new Pharma Speaker Program request.\n\nWhat\u2019s your name?",
+      "ts": "2026-05-13T00:34:03.968388"
+    }
+  ],
+  "submission_log": [],
+  "created_at": "2026-05-13T00:33:58.698633",
+  "updated_at": "2026-05-13T00:34:03.969389",
+  "submitted_at": null,
+  "user_name": null,
+  "user_email": null,
+  "external_callback_url": null,
+  "external_callback_secret_ref": null,
+  "return_url": null,
+  "branding_override": null,
+  "voice_mode": false,
+  "rendered_lookups": []
+}

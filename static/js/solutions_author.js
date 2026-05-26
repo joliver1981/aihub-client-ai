@@ -372,8 +372,19 @@
                 integration_ids: [], connection_ids: [],
                 environment_ids: [], knowledge_document_ids: [],
             };
-            document.querySelectorAll('.asset-picker input[type="checkbox"]:checked').forEach(function (cb) {
+            // Scope to checkboxes that actually represent a selection
+            // (i.e. carry a data-selkey). The picker toolbar's "only selected"
+            // filter is also an <input type="checkbox"> inside .asset-picker
+            // but has no data-selkey — without this guard it crashes
+            // collectSelections when the user has it toggled on.
+            document.querySelectorAll('.asset-picker input[type="checkbox"][data-selkey]:checked').forEach(function (cb) {
                 var key = cb.getAttribute('data-selkey');
+                if (!key || !sel.hasOwnProperty(key)) {
+                    // Unknown selection key (forward-compat for new asset
+                    // types not yet wired into the sel{} schema). Skip
+                    // silently rather than crash.
+                    return;
+                }
                 var v = cb.value;
                 if (numericKeys[key]) {
                     var n = parseInt(v, 10);

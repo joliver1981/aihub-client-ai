@@ -1,0 +1,235 @@
+{
+  "session_id": "ab40ca25-629b-492f-9ab9-a4860695f753",
+  "config_id": "speaker_program_demo",
+  "user_id": "test_user",
+  "status": "submission_failed",
+  "current_section_id": "details",
+  "collected_data": {
+    "submitter": {
+      "submitter_name": "james",
+      "submitter_email": "j@j.com"
+    },
+    "program": {
+      "product_id": "104",
+      "topic_id": "209"
+    },
+    "schedule": {
+      "target_date": "2026-07-08"
+    },
+    "speaker": {
+      "speaker_id": "307"
+    },
+    "venue": {
+      "expected_attendees": 25,
+      "venue_id": "403"
+    },
+    "details": {
+      "priority_factor": "speaker",
+      "needs_followup": false
+    }
+  },
+  "section_status": {
+    "submitter": "complete",
+    "program": "complete",
+    "schedule": "complete",
+    "speaker": "complete",
+    "venue": "complete",
+    "details": "complete"
+  },
+  "validation_errors": {},
+  "chat_history": [
+    {
+      "role": "assistant",
+      "content": "Hi \u2014 I can help you plan your pharma speaker program. We\u2019ll go through: your information, product & topic, schedule, speaker, venue, and a few final details. It usually takes just a few minutes, and the intake team reviews submissions within one business day.\n\nWhat\u2019s your name?",
+      "ts": "2026-05-09T01:28:36.097064"
+    },
+    {
+      "role": "user",
+      "content": "james",
+      "ts": "2026-05-09T01:28:45.871289"
+    },
+    {
+      "role": "assistant",
+      "content": "Thanks, James. What email should we use to reach you?",
+      "ts": "2026-05-09T01:28:45.871289"
+    },
+    {
+      "role": "user",
+      "content": "j@j.com",
+      "ts": "2026-05-09T01:28:53.987168"
+    },
+    {
+      "role": "assistant",
+      "content": "Got it, James. I\u2019ve saved j@j.com.\n\nNext, which product is this speaker program for?",
+      "ts": "2026-05-09T01:28:53.987168"
+    },
+    {
+      "role": "user",
+      "content": "show me them",
+      "ts": "2026-05-09T01:29:07.944740"
+    },
+    {
+      "role": "assistant",
+      "content": "Here are the available products:\n\n- 101 \u2014 Cardiomax XR  \n- 102 \u2014 Oncoshield  \n- 103 \u2014 GlycoControl 500  \n- 104 \u2014 NeuroAxis  \n\nWhich product is the program about?",
+      "ts": "2026-05-09T01:29:07.944740"
+    },
+    {
+      "role": "user",
+      "content": "104",
+      "ts": "2026-05-09T01:29:17.333166"
+    },
+    {
+      "role": "assistant",
+      "content": "Got it \u2014 product saved as NeuroAxis.\n\nFor NeuroAxis, these are the available topics:\n- 208 \u2014 CGRP Mechanism Refresher\n- 209 \u2014 Chronic Migraine \u2014 Treatment Pathways\n\nWhich topic should the speaker cover?",
+      "ts": "2026-05-09T01:29:17.333166"
+    },
+    {
+      "role": "user",
+      "content": "209",
+      "ts": "2026-05-09T01:29:28.106373"
+    },
+    {
+      "role": "assistant",
+      "content": "Saved \u2014 NeuroAxis with the topic Chronic Migraine \u2014 Treatment Pathways.\n\nWhat date are you targeting for the program?",
+      "ts": "2026-05-09T01:29:28.106373"
+    },
+    {
+      "role": "user",
+      "content": "2 months from today",
+      "ts": "2026-05-09T01:29:56.719177"
+    },
+    {
+      "role": "assistant",
+      "content": "Great \u2014 I\u2019ve got your target date as July 8, 2026.\n\nDo you already have a speaker in mind, or would you like to see the currently certified speaker options for NeuroAxis?",
+      "ts": "2026-05-09T01:29:56.719177"
+    },
+    {
+      "role": "user",
+      "content": "show me the speaker options",
+      "ts": "2026-05-09T01:30:13.649434"
+    },
+    {
+      "role": "assistant",
+      "content": "Here are the currently certified speakers for NeuroAxis.\n\nWho would you like to invite?",
+      "ts": "2026-05-09T01:30:13.649434"
+    },
+    {
+      "role": "user",
+      "content": "307",
+      "ts": "2026-05-09T01:30:25.110451"
+    },
+    {
+      "role": "assistant",
+      "content": "Primary speaker saved: Dr. Linda Okonkwo.\n\nNext, about how many attendees are you expecting?",
+      "ts": "2026-05-09T01:30:25.110451"
+    },
+    {
+      "role": "user",
+      "content": "25",
+      "ts": "2026-05-09T01:30:36.117694"
+    },
+    {
+      "role": "assistant",
+      "content": "Got it \u2014 expected attendees saved as 25.\n\nWhich venue would you like to use?",
+      "ts": "2026-05-09T01:30:36.117694"
+    },
+    {
+      "role": "user",
+      "content": "show me some reviews for The St. Regis Houston",
+      "ts": "2026-05-09T01:31:37.438028"
+    },
+    {
+      "role": "assistant",
+      "content": "I found a likely match on Google Places for **The St. Regis Houston**:\n\n- **Houston Grand Hotel - River Oaks**\n- **1919 Briar Oaks Ln, Houston, TX 77027**\n- **Google rating:** 4.5/5\n- **Reviews:** 1,131\n\nI couldn\u2019t pull Yelp reviews right now because that integration isn\u2019t configured.\n\nJust a note: looking up reviews doesn\u2019t select the venue for the form. If you want to use the approved venue list, would you like to choose **The St. Regis Houston** as your primary venue?",
+      "ts": "2026-05-09T01:31:37.438028"
+    },
+    {
+      "role": "user",
+      "content": "yes",
+      "ts": "2026-05-09T01:32:12.836239"
+    },
+    {
+      "role": "assistant",
+      "content": "Great \u2014 I\u2019ve saved **The St. Regis Houston** as your primary venue.\n\nMoving on to the last section: what\u2019s the main **priority factor** for this program?",
+      "ts": "2026-05-09T01:32:12.836239"
+    },
+    {
+      "role": "user",
+      "content": "what should i choose here?",
+      "ts": "2026-05-09T01:32:36.223362"
+    },
+    {
+      "role": "assistant",
+      "content": "This field tells ops what should win if there are tradeoffs.\n\nCommon examples:\n- **Speaker quality/fit** \u2014 best if the presenter matters most\n- **Date availability** \u2014 best if timing is the key constraint\n- **Venue/location convenience** \u2014 best if attendee access matters most\n- **Budget/cost** \u2014 best if staying within spend is the priority\n- **Attendance/engagement** \u2014 best if turnout is the main goal\n\nIf you want, I can suggest the best choice based on your program. What matters most?",
+      "ts": "2026-05-09T01:32:36.223362"
+    },
+    {
+      "role": "user",
+      "content": "speaker quality",
+      "ts": "2026-05-09T01:35:16.524760"
+    },
+    {
+      "role": "assistant",
+      "content": "Perfect \u2014 I\u2019ve noted **speaker** as the top priority factor.\n\nDo you want the ops team to call you to discuss this request?",
+      "ts": "2026-05-09T01:35:16.524760"
+    },
+    {
+      "role": "user",
+      "content": "no",
+      "ts": "2026-05-09T01:35:27.973799"
+    },
+    {
+      "role": "assistant",
+      "content": "Thanks \u2014 I\u2019ve marked that no ops follow-up call is needed.\n\nEverything is complete, and your recap is now on screen. Please review it and let me know if it looks good to submit.",
+      "ts": "2026-05-09T01:35:27.973799"
+    },
+    {
+      "role": "user",
+      "content": "looks good",
+      "ts": "2026-05-09T01:36:02.371721"
+    },
+    {
+      "role": "assistant",
+      "content": "Great \u2014 your request is ready for submission.",
+      "ts": "2026-05-09T01:36:02.371721"
+    }
+  ],
+  "submission_log": [
+    {
+      "action_type": "email",
+      "label": "Notify intake team",
+      "success": false,
+      "message": "SMTP not configured. Set SMTP_HOST/SMTP_USER/SMTP_PASSWORD/SMTP_FROM in the platform credential store (or as env vars).",
+      "details": {
+        "response": {
+          "success": false,
+          "error": "SMTP not configured. Set SMTP_HOST/SMTP_USER/SMTP_PASSWORD/SMTP_FROM in the platform credential store (or as env vars)."
+        },
+        "recipients": [
+          "intake@example.com"
+        ],
+        "cc": [
+          "j@j.com"
+        ]
+      },
+      "duration_ms": 103,
+      "ts": "2026-05-09T01:36:11.422099"
+    }
+  ],
+  "created_at": "2026-05-09T01:28:31.993936",
+  "updated_at": "2026-05-09T01:36:11.437099",
+  "submitted_at": null,
+  "user_name": null,
+  "user_email": null,
+  "external_callback_url": null,
+  "external_callback_secret_ref": null,
+  "return_url": null,
+  "branding_override": null,
+  "voice_mode": false,
+  "rendered_lookups": [
+    "products",
+    "topics",
+    "speakers",
+    "venues"
+  ]
+}

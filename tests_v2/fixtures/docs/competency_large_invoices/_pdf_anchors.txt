@@ -1,0 +1,45 @@
+max_tracking=792655369073
+top_service_1='FedEx Freight Priority'  total=226744.98  count=190
+top_service_2='FedEx Freight Economy'  total=133600.31  count=124
+top_service_3='FedEx Ground'  total=43978.99  count=737
+top_state='KS'  count=90
+
+--- 02_fedex_invoice_megaretail_q1_2026.pdf ---
+company='Mega Retail Inc'
+invoice_number='MRI-FX-Q1-026891'
+account='3104-9982-R'
+n_shipments=3000
+grand_total=289478.82
+total_base=236190.93
+total_fuel=45029.14
+total_residential=3564.75
+total_other=4694.00
+priority_overnight_count=117
+ground_count=1357
+freight_count=85
+max_charge=2671.92
+max_tracking=792620616323
+top_service_1='FedEx Ground'  total=78650.76  count=1357
+top_service_2='FedEx Freight Priority'  total=74129.40  count=59
+top_service_3='FedEx Home Delivery'  total=58711.55  count=961
+top_state='OR'  count=106
+
+--- 03_fedex_invoice_pacific_mfg_q1_2026.pdf ---
+company='Pacific Manufacturing LLC'
+invoice_number='PMF-FX-Q1-026230'
+account='5572-1003-M'
+n_shipments=2200
+grand_total=1592426.45
+total_base=1128705.59
+total_fuel=457889.06
+total_residential=2560.80
+total_other=3271.00
+priority_overnight_count=99
+ground_count=308
+freight_count=1326
+max_charge=2732.05
+max_tracking=792680820212
+top_service_1='FedEx Freight Priority'  total=953685.81  count=786
+top_service_2='FedEx Freight Economy'  total=577328.30  count=540
+top_service_3='FedEx Ground'  total=18306.64  count=308
+top_state='OH'  count=79

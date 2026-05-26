@@ -2704,18 +2704,42 @@ def send_email(
     html_content: bool = False
 ) -> bool:
     """
-    Send an email using Cloud API or configured provider (Azure/SMTP).
+    Send an email respecting client provider configuration.
+
+    Delivery order:
+      1. Client SMTP, if EMAIL_PROVIDER='smtp' — explicit client config wins.
+      2. Cloud notification API, if available (AI_HUB_API_URL set).
+      3. Azure Communication Services direct.
+
+    Each step that fails advances to the next when EMAIL_FALLBACK_ENABLED is True
+    (default). When False, delivery stops at the first configured path so mail
+    never escapes the client's chosen provider.
     """
-    # Route through Cloud API if available
+    fallback_enabled = cfg.EMAIL_FALLBACK_ENABLED
+
+    # 1. Client SMTP — only when explicitly configured
+    if cfg.EMAIL_PROVIDER == 'smtp':
+        try:
+            if send_email_smtp(
+                recipients=recipients,
+                subject=subject,
+                body=body,
+                attachment_path=attachment_path,
+                html_content=html_content
+            ):
+                return True
+            logging.warning("SMTP email returned failure")
+        except Exception as e:
+            logging.warning(f"SMTP email error: {e}")
+        if not fallback_enabled:
+            logging.error("SMTP delivery failed and EMAIL_FALLBACK_ENABLED is False")
+            return False
+
+    # 2. Cloud notification API
     if _CLOUD_NOTIFICATIONS_AVAILABLE:
         try:
-            # Convert recipients to list
-            if isinstance(recipients, str):
-                to_list = [recipients]
-            else:
-                to_list = list(recipients)
-            
-            # Handle attachments
+            to_list = [recipients] if isinstance(recipients, str) else list(recipients)
+
             attachments = None
             if attachment_path and os.path.exists(attachment_path):
                 with open(attachment_path, 'rb') as f:
@@ -2724,7 +2748,7 @@ def send_email(
                         'content': f.read(),
                         'content_type': 'application/octet-stream'
                     }]
-            
+
             result = _cloud_send_email(
                 to=to_list,
                 subject=subject,
@@ -2732,38 +2756,32 @@ def send_email(
                 html_body=body if html_content else None,
                 attachments=attachments
             )
-            
+
             if result.get('success'):
                 logging.info(f"Email sent via Cloud API to: {to_list}")
                 return True
-            elif result.get('blocked_by_limit'):
+            if result.get('blocked_by_limit'):
+                # Quota block is an explicit refusal — do not bypass via fallback
                 logging.warning(f"Email blocked by limit: {result.get('message')}")
                 return False
-            else:
-                logging.warning(f"Cloud email failed: {result.get('message')}, falling back to direct")
+            logging.warning(f"Cloud email failed: {result.get('message')}")
         except Exception as e:
-            logging.warning(f"Cloud email error: {e}, falling back to direct")
-    
-    # Original implementation (fallback)
+            logging.warning(f"Cloud email error: {e}")
+        if not fallback_enabled:
+            logging.error("Cloud delivery failed and EMAIL_FALLBACK_ENABLED is False")
+            return False
+
+    # 3. Azure direct
     try:
-        if cfg.EMAIL_PROVIDER == 'smtp':
-            return send_email_smtp(
-                recipients=recipients,
-                subject=subject,
-                body=body,
-                attachment_path=attachment_path,
-                html_content=html_content
-            )
-        else:
-            return send_email_azure(
-                recipients=recipients,
-                subject=subject,
-                body=body,
-                attachment_path=attachment_path,
-                html_content=html_content
-            )
+        return send_email_azure(
+            recipients=recipients,
+            subject=subject,
+            body=body,
+            attachment_path=attachment_path,
+            html_content=html_content
+        )
     except Exception as e:
-        logging.error(f"Error in send_email: {str(e)}")
+        logging.error(f"Azure email error: {e}")
         return False
 
 def sql_job_history_search(connection_id: int, job_name: str, hours_back: int = 24, status_filter: Optional[str] = None) -> str:
@@ -3264,43 +3282,99 @@ def merge_schema_results(results: List[Dict[str, Any]], logger: Optional[logging
         
         # Determine best value and confidence
         if values:
-            # Strategy: Prefer values from chunks with more source citations
-            # This indicates Claude found more evidence for that value
-            values_sorted = sorted(values, key=lambda x: x["source_count"], reverse=True)
-            merged_field["value"] = values_sorted[0]["value"]
-            merged_field["confidence"] = values_sorted[0]["confidence"]
-            
-            # Check for conflicting values across chunks
-            # Use JSON serialization to handle unhashable types (lists, dicts)
+            # Detect whether this is a list-typed field: any chunk returned a
+            # list value for it. If so, the right merge is to UNION the items
+            # across all chunks (with dedup) rather than winner-takes-all,
+            # because chunks see different pages and each contributes unique
+            # items. This matters for fields like "Notes" / "requirements" /
+            # "items" where the document scatters entries across many pages.
+            any_list_value = any(isinstance(v["value"], list) for v in values)
+
+            # Helper: hashable key for any item (dicts/lists → JSON, others → str).
+            # Two items are considered duplicates only if their full structure
+            # is identical — conservative on purpose. Near-duplicates are kept
+            # so downstream semantic dedup (e.g. compliance engine) can decide.
             def make_hashable(val):
-                """Convert value to a hashable representation for comparison."""
                 if isinstance(val, (list, dict)):
-                    return json.dumps(val, sort_keys=True)
+                    try:
+                        return json.dumps(val, sort_keys=True)
+                    except (TypeError, ValueError):
+                        return str(val)
                 return val
-            
-            try:
-                unique_value_keys = set(make_hashable(v["value"]) for v in values)
-                if len(values) > 1 and len(unique_value_keys) > 1:
-                    # Multiple different values found - log warning and note in assumptions
-                    unique_values = []
-                    seen = set()
-                    for v in values:
-                        key = make_hashable(v["value"])
-                        if key not in seen:
-                            seen.add(key)
-                            unique_values.append(v["value"])
-                    
-                    logger.warning(
-                        f"Field '{field_key}' has conflicting values across chunks: {unique_values}. "
-                        f"Using value with most citations: {merged_field['value']}"
-                    )
-                    assumptions_set.add(
-                        f"Multiple values found in different sections: {', '.join(str(v) for v in unique_values)}. "
-                        f"Selected value with most supporting evidence."
-                    )
-            except Exception as e:
-                # If comparison fails for any reason, just continue with the best value
-                logger.debug(f"Could not compare values for field '{field_key}': {e}")
+
+            if any_list_value:
+                # ----- LIST FIELD MERGE: concatenate + dedupe across chunks -----
+                seen_keys = set()
+                merged_list = []
+                raw_item_count = 0
+                for v in values:
+                    chunk_value = v["value"]
+                    # If a chunk returned a scalar for a list-typed field
+                    # (Claude occasionally does this when only one item exists),
+                    # wrap it as a single-element list so it still contributes.
+                    items = chunk_value if isinstance(chunk_value, list) else [chunk_value]
+                    raw_item_count += len(items)
+                    for item in items:
+                        try:
+                            key = make_hashable(item)
+                        except Exception:
+                            key = str(item)
+                        if key in seen_keys:
+                            continue
+                        seen_keys.add(key)
+                        merged_list.append(item)
+
+                merged_field["value"] = merged_list
+
+                # Confidence: take the highest confidence among contributing
+                # chunks (since every chunk that found items added to the list).
+                confidence_rank = {"HIGH": 3, "MED": 2, "MEDIUM": 2, "LOW": 1}
+                best_conf = "MED"
+                best_rank = 0
+                for v in values:
+                    c = str(v.get("confidence") or "MED").upper()
+                    r = confidence_rank.get(c, 0)
+                    if r > best_rank:
+                        best_rank = r
+                        best_conf = "MED" if c == "MEDIUM" else c
+                merged_field["confidence"] = best_conf
+
+                logger.info(
+                    f"Field '{field_key}': list-merge across {len(values)} chunk(s) "
+                    f"({raw_item_count} raw items → {len(merged_list)} unique)"
+                )
+            else:
+                # ----- SCALAR FIELD MERGE: most-source-citations wins -----
+                # Existing strategy: chunks that cited more evidence win.
+                values_sorted = sorted(values, key=lambda x: x["source_count"], reverse=True)
+                merged_field["value"] = values_sorted[0]["value"]
+                merged_field["confidence"] = values_sorted[0]["confidence"]
+
+                # Conflict detection for scalar fields: if chunks returned
+                # different non-null values, surface that in assumptions so
+                # the downstream consumer can see there was disagreement.
+                try:
+                    unique_value_keys = set(make_hashable(v["value"]) for v in values)
+                    if len(values) > 1 and len(unique_value_keys) > 1:
+                        unique_values = []
+                        seen = set()
+                        for v in values:
+                            key = make_hashable(v["value"])
+                            if key not in seen:
+                                seen.add(key)
+                                unique_values.append(v["value"])
+
+                        logger.warning(
+                            f"Field '{field_key}' has conflicting values across chunks: {unique_values}. "
+                            f"Using value with most citations: {merged_field['value']}"
+                        )
+                        assumptions_set.add(
+                            f"Multiple values found in different sections: {', '.join(str(v) for v in unique_values)}. "
+                            f"Selected value with most supporting evidence."
+                        )
+                except Exception as e:
+                    # If comparison fails for any reason, just continue with the best value
+                    logger.debug(f"Could not compare values for field '{field_key}': {e}")
         
         # Set assumptions
         merged_field["assumptions"] = sorted(list(assumptions_set))

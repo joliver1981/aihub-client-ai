@@ -1091,6 +1091,15 @@
                 </div>
                 {% endif %}
 
+                {% if current_user.is_authenticated and FLAG_MCP_SERVERS %}
+                <div class="new-nav-item">
+                    <a href="{{ url_for('my_connections.my_connections_page') }}" class="new-nav-link">
+                        <i class="fas fa-link nav-icon"></i>
+                        <span class="nav-text">My Connections</span>
+                    </a>
+                </div>
+                {% endif %}
+
                 {% if current_user.is_authenticated and current_user.role >= 1 and SHOW_WORKFLOW_FEATURES %}
                 {% if not IS_DEVELOPER_MODE %}
                 <div class="new-nav-item">
@@ -1287,6 +1296,12 @@
                     </a>
                 </div>
                 {% endif %}
+                <div class="new-nav-item">
+                    <a href="{{ url_for('compliance.compliance_page') }}" class="new-nav-link">
+                        <i class="fas fa-clipboard-check nav-icon"></i>
+                        <span class="nav-text">Retailer Compliance</span>
+                    </a>
+                </div>
             </div>
             {% endif %}
 
@@ -1408,6 +1423,15 @@
                     <a href="{{ url_for('jobs') }}" class="new-nav-link">
                         <i class="fas fa-briefcase nav-icon"></i>
                         <span class="nav-text">Agent Jobs</span>
+                    </a>
+                </div>
+                {% endif %}
+
+                {% if current_user.is_authenticated and FLAG_MCP_SERVERS %}
+                <div class="new-nav-item">
+                    <a href="{{ url_for('my_connections.my_connections_page') }}" class="new-nav-link">
+                        <i class="fas fa-link nav-icon"></i>
+                        <span class="nav-text">My Connections</span>
                     </a>
                 </div>
                 {% endif %}
@@ -1601,6 +1625,12 @@
                     </a>
                 </div>
                 {% endif %}
+                <div class="new-nav-item">
+                    <a href="{{ url_for('compliance.compliance_page') }}" class="new-nav-link">
+                        <i class="fas fa-clipboard-check nav-icon"></i>
+                        <span class="nav-text">Retailer Compliance</span>
+                    </a>
+                </div>
             </div>
             {% endif %}
 

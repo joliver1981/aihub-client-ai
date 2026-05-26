@@ -1,0 +1,14 @@
+[
+  {"id": "CHP-2", "method": "POST", "url": "/api/compliance/retailers", "body": {"name": "Module30 Test Retailer", "notes": "Live happy-path test"}, "expect_status": 201, "capture": ["retailer_id"]},
+  {"id": "CHP-3", "method": "POST", "url": "/api/compliance/retailers/{retailer_id}/sets", "body": {"category": "Shipping", "description": "Shipping & logistics policies"}, "expect_status": 201, "capture": ["set_id"]},
+  {"id": "CHP-4", "method": "PUT", "url": "/api/compliance/sets/{set_id}", "body": {"extraction_schema_id": 1}, "expect_status": 200},
+  {"id": "CHP-5", "method": "POST", "url": "/api/compliance/sets/{set_id}/upload", "form_file": "tests_v2/fixtures/compliance/sample_compliance.pdf", "expect_status": 202, "capture": ["job_id"]},
+  {"id": "CHP-6", "method": "POLL", "url": "/api/compliance/sets/{set_id}/jobs", "until": "jobs[?job_id=={job_id}].status in ['done','duplicate']", "timeout_seconds": 300, "interval_seconds": 5, "capture": ["version_id"]},
+  {"id": "CHP-7", "method": "GET", "url": "/api/compliance/versions/{version_id}/requirements", "expect_status": 200, "assert_min_count": "requirements", "min_count": 1},
+  {"id": "CHP-8", "method": "GET", "url": "/api/compliance/versions/{version_id}/export/excel", "expect_status": 200, "expect_content_type_includes": "spreadsheet"},
+  {"id": "CHP-9", "method": "POST", "url": "/api/compliance/sets/{set_id}/upload", "form_file": "tests_v2/fixtures/compliance/sample_compliance_v2.pdf", "expect_status": 202, "capture": ["job_id_v2"]},
+  {"id": "CHP-10", "method": "POST", "url": "/api/compliance/compare/versions", "body": {"version_a_id": "{version_id}", "version_b_id": "{version_id_v2}"}, "expect_status": 200, "capture": ["comparison_id"]},
+  {"id": "CHP-11", "method": "GET", "url": "/api/compliance/comparisons/{comparison_id}/export/excel", "expect_status": 200},
+  {"id": "CHP-14", "method": "DELETE", "url": "/api/compliance/versions/{version_id_v2}", "expect_status": 200},
+  {"id": "CHP-15", "method": "DELETE", "url": "/api/compliance/retailers/{retailer_id}", "expect_status": 200}
+]

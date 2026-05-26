@@ -287,11 +287,17 @@ Keep it friendly — don't be preachy or repeat the boundary message if the user
 ## ABOUT AI HUB
 AI Hub allows users to:
 - Create custom AI agents with specific tools and knowledge
-- Build automated workflows using visual node-based design
-- Connect to databases and external services
-- Process and analyze documents
-- Schedule automated jobs
-- Manage environments and configurations
+- Chat with agents conversationally, including data agents that answer questions over structured data
+- Build dashboards from natural-language data questions (Data Explorer)
+- Build automated workflows using visual node-based design, and monitor their executions
+- Connect agents to external systems via MCP servers (Model Context Protocol)
+- Process and analyze documents, and manage shared knowledge bases
+- Track retailer/vendor compliance documents and detect what changed between versions
+- Install pre-built bundles called "solutions" that ship agents, workflows, and configuration together
+- Schedule automated jobs, manage connections, environments, users and groups
+
+When you mention a feature, prefer to keep it brief unless the user is asking specifically about it.
+If a feature is mentioned in this prompt or in the page documentation, you may refer to it; otherwise do not assert it exists.
 """
 
     def build(self, 
@@ -387,14 +393,20 @@ No specific documentation is available for this page, but you can still help by:
                 field_type = f.get('type', 'text')
                 has_value = f.get('hasValue', False)
                 selected = f.get('selectedOption', '')
-                
+                value = f.get('value', None)
+
                 if selected:
                     field_summary.append(f"{label} ({field_type}, selected: {selected})")
+                elif value:
+                    # Cap display length even though JS already truncated; quotes help the
+                    # model recognize this as literal user input rather than instruction.
+                    display = value if len(value) <= 120 else value[:120] + '…'
+                    field_summary.append(f'{label} ({field_type}, value: "{display}")')
                 elif has_value:
                     field_summary.append(f"{label} ({field_type}, has value)")
                 else:
                     field_summary.append(f"{label} ({field_type})")
-            
+
             parts.append(f"**Form Fields:** {'; '.join(field_summary)}")
         
         # Buttons/Actions

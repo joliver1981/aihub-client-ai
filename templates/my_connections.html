@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<div style="position:fixed;bottom:20px;right:20px;z-index:100;">
+    <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+        <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+    </button>
+</div>
+
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-12">
+            <h2><i class="fas fa-link"></i> My Connections</h2>
+            <p class="text-muted">
+                Connect your personal accounts (Microsoft 365, Google Workspace, etc.) so that any agent you chat with
+                can act on your behalf when you ask. Your tokens are stored encrypted and only used while you're
+                logged in.
+            </p>
+        </div>
+    </div>
+
+    <div class="row" id="connectionsRow">
+        <div class="col-12">
+            <div class="text-center p-5">
+                <i class="fas fa-spinner fa-spin fa-2x text-muted"></i>
+                <p class="text-muted mt-3">Loading available connections…</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="emptyState" class="row" style="display:none;">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body text-center p-5">
+                    <i class="fas fa-info-circle fa-3x text-muted mb-3"></i>
+                    <h4>No personal connections available</h4>
+                    <p class="text-muted">
+                        Your administrator hasn't set up any personal services (Microsoft 365, etc.) yet.
+                        Ask them to configure an MCP server with OAuth 2.0 / Authorization Code grant.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.conn-card { transition: box-shadow .15s; }
+.conn-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.08); }
+.conn-status-connected { color: #28a745; }
+.conn-status-not-connected { color: #6c757d; }
+.scope-pill { font-size: 0.75rem; padding: 0.2rem 0.5rem; background: rgba(0,123,255,0.08);
+              border-radius: 1rem; margin-right: 0.3rem; display: inline-block; margin-bottom: 0.25rem; }
+</style>
+
+<script>
+let _connections = [];
+
+document.addEventListener('DOMContentLoaded', loadConnections);
+
+async function loadConnections() {
+    try {
+        const resp = await fetch('/api/my-connections/servers');
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        _connections = await resp.json();
+        render();
+    } catch (e) {
+        document.getElementById('connectionsRow').innerHTML =
+            '<div class="col-12"><div class="alert alert-danger">Could not load connections: ' + e.message + '</div></div>';
+    }
+}
+
+function render() {
+    const row = document.getElementById('connectionsRow');
+    const empty = document.getElementById('emptyState');
+
+    if (!_connections.length) {
+        row.innerHTML = '';
+        empty.style.display = '';
+        return;
+    }
+    empty.style.display = 'none';
+
+    row.innerHTML = _connections.map(c => {
+        const connected = !!c.connected;
+        const scopes = (c.scope || '').split(/\s+/).filter(Boolean);
+        const lastLine = c.last_connected
+            ? '<div class="small text-muted mt-2">Connected ' + formatRelative(c.last_connected) + '</div>'
+            : '';
+        const scopesHtml = scopes.length
+            ? '<div class="mt-2">' + scopes.map(s => '<span class="scope-pill">' + escapeHtml(prettyScope(s)) + '</span>').join('') + '</div>'
+            : '';
+
+        const statusBadge = connected
+            ? '<span class="badge badge-success"><i class="fas fa-check-circle"></i> Connected</span>'
+            : '<span class="badge badge-secondary">Not connected</span>';
+
+        const buttons = connected
+            ? '<button class="btn btn-outline-primary btn-sm" onclick="reauthorize(' + c.server_id + ')"><i class="fas fa-sync"></i> Re-authorize</button>' +
+              ' <button class="btn btn-outline-danger btn-sm" onclick="disconnect(' + c.server_id + ')"><i class="fas fa-unlink"></i> Disconnect</button>'
+            : '<button class="btn btn-primary" onclick="connect(' + c.server_id + ')"><i class="fas fa-plug"></i> Connect</button>';
+
+        return '<div class="col-md-6 mb-3">' +
+            '<div class="card conn-card h-100">' +
+                '<div class="card-body">' +
+                    '<div class="d-flex justify-content-between align-items-start">' +
+                        '<div>' +
+                            '<h5 class="card-title mb-1">' +
+                                (c.icon ? '<i class="' + escapeHtml(c.icon) + '"></i> ' : '') +
+                                escapeHtml(c.name) +
+                            '</h5>' +
+                            (c.category ? '<small class="text-muted">' + escapeHtml(c.category) + '</small>' : '') +
+                        '</div>' +
+                        statusBadge +
+                    '</div>' +
+                    (c.description ? '<p class="card-text mt-2 mb-0">' + escapeHtml(c.description) + '</p>' : '') +
+                    scopesHtml +
+                    lastLine +
+                    '<div class="mt-3">' + buttons + '</div>' +
+                '</div>' +
+            '</div>' +
+        '</div>';
+    }).join('');
+}
+
+// --- Actions ---
+
+function connect(serverId)     { _openAuthPopup(serverId, 'connect'); }
+function reauthorize(serverId) { _openAuthPopup(serverId, 're-authorize'); }
+
+function _openAuthPopup(serverId, label) {
+    const url = '/api/mcp/oauth/authorize/' + serverId;
+    const w = 600, h = 700;
+    const left = (screen.width - w) / 2;
+    const top = (screen.height - h) / 2;
+    const popup = window.open(url, 'mcpAuth', 'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top);
+    if (!popup) {
+        showToast('Popup blocked — please allow popups for this site', 'warning');
+        return;
+    }
+    // Poll for popup close, then refresh state.
+    const poll = setInterval(() => {
+        if (popup.closed) {
+            clearInterval(poll);
+            setTimeout(loadConnections, 500);  // small delay to let the DB commit settle
+        }
+    }, 500);
+}
+
+async function disconnect(serverId) {
+    if (!confirm('Disconnect this service? You can reconnect any time.')) return;
+    try {
+        const resp = await fetch('/api/my-connections/' + serverId + '/disconnect', { method: 'POST' });
+        const data = await resp.json();
+        if (data.status === 'success') {
+            showToast('Disconnected', 'success');
+            loadConnections();
+        } else {
+            showToast('Disconnect failed: ' + (data.error || 'unknown'), 'danger');
+        }
+    } catch (e) {
+        showToast('Disconnect error: ' + e.message, 'danger');
+    }
+}
+
+// --- Helpers ---
+
+function escapeHtml(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function prettyScope(s) {
+    // Strip the resource URI prefix Microsoft uses, so 'https://graph.microsoft.com/Mail.Read' shows as 'Mail.Read'.
+    const slash = s.lastIndexOf('/');
+    return slash >= 0 ? s.substring(slash + 1) : s;
+}
+
+function formatRelative(iso) {
+    try {
+        const then = new Date(iso);
+        const diff = Date.now() - then.getTime();
+        const sec = Math.floor(diff / 1000);
+        if (sec < 60)    return 'just now';
+        if (sec < 3600)  return Math.floor(sec / 60) + ' min ago';
+        if (sec < 86400) return Math.floor(sec / 3600) + ' hr ago';
+        return Math.floor(sec / 86400) + ' day(s) ago';
+    } catch (e) { return iso; }
+}
+
+function showToast(message, type, duration) {
+    duration = duration || 4000;
+    let c = document.getElementById('toastContainer');
+    if (!c) {
+        c = document.createElement('div');
+        c.id = 'toastContainer';
+        c.style.cssText = 'position:fixed;top:20px;right:20px;z-index:9999;';
+        document.body.appendChild(c);
+    }
+    const tid = 'toast_' + Date.now();
+    c.insertAdjacentHTML('beforeend',
+        '<div id="' + tid + '" class="alert alert-' + type + ' alert-dismissible fade show" ' +
+        'style="min-width:300px;max-width:500px;margin-bottom:10px;">' +
+        escapeHtml(message) +
+        '<button type="button" class="close" data-dismiss="alert"><span>&times;</span></button></div>');
+    setTimeout(() => { const t = document.getElementById(tid); if (t) t.remove(); }, duration);
+}
+</script>
+
+<!-- Theme Toggle Script -->
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+
+</div><!-- /.doc-page -->
+{% endblock %}

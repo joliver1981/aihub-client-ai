@@ -61,13 +61,18 @@ def _build_service_url(port_offset: int = 0, default_port: int = 5000) -> str:
 
     Uses environment variables:
     - PROTOCOL: http or https (default: http)
-    - HOST: hostname (default: localhost)
+    - INTERNAL_HOST: hostname for internal services (default: 127.0.0.1)
     - HOST_PORT: base port (default: 5000)
+
+    Internal services (doc, vector, agent, knowledge, executor, mcp, command_center)
+    all default to loopback so internal traffic is reliable on a single-machine
+    install. Override INTERNAL_HOST only for multi-machine deployments.
 
     The actual port is HOST_PORT + port_offset.
     """
     protocol = os.getenv('PROTOCOL', 'http')
-    host = os.getenv('HOST', 'localhost')
+    # Internal service — dial loopback by default (matches CommonUtils.py pattern)
+    host = os.getenv('INTERNAL_HOST', '127.0.0.1')
 
     if host == "0.0.0.0":
         host = _get_local_ip()
@@ -136,9 +141,14 @@ except ImportError as e:
 
 
 def get_data_api_base_url():
-    """Data Pipeline API URL (DATA_SERVICE_PORT, default 8200)"""
+    """Data Pipeline API URL (DATA_SERVICE_PORT, default 8200).
+
+    Internal service — dials loopback by default. The corresponding builder_data
+    service (DATA_SERVICE_HOST) also defaults to 127.0.0.1, so they stay aligned.
+    """
     protocol = os.getenv('PROTOCOL', 'http')
-    host = os.getenv('HOST', 'localhost')
+    # Internal service — dial loopback by default
+    host = os.getenv('INTERNAL_HOST', '127.0.0.1')
     if host == "0.0.0.0":
         host = _get_local_ip()
     port = int(os.getenv('DATA_SERVICE_PORT', '8200'))
@@ -312,6 +322,12 @@ def print_service_urls():
 
 # ─── Service Configuration ──────────────────────────────────────────────
 
+# Builder is browser-facing. Users navigate to the Builder UI via /builder on the
+# main app, which redirects them to http://{request_host}:8100/?token=... where
+# request_host is whatever LAN IP / hostname the user's browser used. The Builder
+# service therefore needs to be reachable on that interface, so it binds to all
+# interfaces (0.0.0.0) by default. Override BUILDER_HOST only for unusual setups
+# (e.g., binding to a single specific interface).
 HOST = os.getenv("BUILDER_HOST", "0.0.0.0")
 PORT = int(os.getenv("BUILDER_PORT", "8100"))
 DEBUG = os.getenv("BUILDER_DEBUG", "false").lower() == "true"

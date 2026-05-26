@@ -34,12 +34,37 @@ import logging
 from logging.handlers import WatchedFileHandler
 import json
 import os
+import sys
 import requests
 from CommonUtils import get_db_connection, rotate_logs_on_startup
 from config import MAX_ATTACHMENT_CHARS
 
 
-rotate_logs_on_startup(os.getenv('AGENT_EMAIL_API_LOG', './logs/agent_email_api_log.txt'))
+def _find_app_root():
+    """Resolve the AIHub installation root, where the shared logs/ folder lives.
+
+    Three-step fallback:
+      1. APP_ROOT env var if explicitly set.
+      2. PyInstaller frozen mode — walk up from sys.executable. Each service exe
+         lives at <AIHub>/<service>/<service>.exe, so grandparent = AIHub root.
+         This must work even before .env is loaded.
+      3. Dev mode — fall back to this file's directory.
+    """
+    explicit = os.getenv('APP_ROOT')
+    if explicit:
+        return os.path.abspath(explicit)
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(os.path.dirname(os.path.abspath(sys.executable)))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+# Resolve to an absolute path under <AIHub>/logs/ so all services log to the
+# central folder regardless of NSSM-set CWD or which service is hosting us.
+_default_log = os.path.join(_find_app_root(), 'logs', 'agent_email_api_log.txt')
+_log_path = os.getenv('AGENT_EMAIL_API_LOG', _default_log)
+os.makedirs(os.path.dirname(_log_path), exist_ok=True)
+
+rotate_logs_on_startup(_log_path)
 
 # Configure logging
 logger = logging.getLogger("AgentEmailAPI")
@@ -47,7 +72,7 @@ log_level_name = os.getenv('LOG_LEVEL', 'DEBUG')
 log_level = getattr(logging, log_level_name, logging.DEBUG)
 logger.setLevel(log_level)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-handler = WatchedFileHandler(filename=os.getenv('AGENT_EMAIL_API_LOG', './logs/agent_email_api_log.txt'))
+handler = WatchedFileHandler(filename=_log_path)
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 

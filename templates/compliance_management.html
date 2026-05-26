@@ -1,0 +1,1046 @@
+{% extends "base.html" %}
+
+{% block page_title %}Retailer Compliance
+<script>
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function() {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        var page = document.getElementById('docPage');
+        if (page) {
+            page.classList.add('light-mode');
+            var icon = document.getElementById('docThemeIcon');
+            var label = document.getElementById('docThemeLabel');
+            if (icon) icon.className = 'fas fa-sun';
+            if (label) label.textContent = 'Light';
+        }
+    }
+})();
+</script>
+</div>
+{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<div style="position:fixed;bottom:20px;right:20px;z-index:100;">
+    <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+        <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+    </button>
+</div>
+
+<style>
+.compliance-container { padding: 20px 30px; }
+.compliance-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
+.compliance-header h2 { margin:0; display:flex; align-items:center; gap:10px; }
+.breadcrumb-nav { margin-bottom:15px; }
+.breadcrumb-nav a { cursor:pointer; color:#4a90d9; text-decoration:none; }
+.breadcrumb-nav a:hover { text-decoration:underline; }
+.breadcrumb-nav .sep { margin:0 8px; color:#666; }
+
+/* Cards */
+.retailer-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px; }
+.retailer-card { background:var(--card-bg,#fff); color:var(--card-text,#212529); border:1px solid var(--border-color,#e0e0e0); border-radius:8px; padding:20px; cursor:pointer; transition:box-shadow .15s; }
+.retailer-card:hover { box-shadow:0 2px 8px rgba(0,0,0,.1); }
+.retailer-card h4 { margin:0 0 8px; color:var(--card-text,#212529); }
+.version-list li strong { color:var(--card-text,#212529); }
+.retailer-card .meta { font-size:13px; color:#888; }
+
+/* Version timeline */
+.version-list { list-style:none; padding:0; margin:0; border-left:3px solid #4a90d9; padding-left:20px; }
+.version-list li { position:relative; margin-bottom:16px; padding:12px 16px; background:var(--card-bg,#fff); color:var(--card-text,#212529); border:1px solid var(--border-color,#e0e0e0); border-radius:6px; }
+.version-list li::before { content:''; position:absolute; left:-26px; top:18px; width:10px; height:10px; border-radius:50%; background:#4a90d9; border:2px solid var(--card-bg,#fff); }
+.version-list li.current::before { background:#28a745; }
+.version-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; font-weight:600; }
+.version-badge.current { background:#28a745; color:#fff; }
+.version-badge.old { background:#6c757d; color:#fff; }
+
+/* Requirements table */
+.req-table { width:100%; border-collapse:collapse; }
+.req-table th, .req-table td { padding:8px 12px; border:1px solid var(--border-color,#e0e0e0); text-align:left; font-size:13px; }
+.req-table th { background:var(--header-bg,#f5f5f5); color:var(--card-text,#212529); font-weight:600; }
+
+/* Comparison */
+.change-added { background:#e6ffe6 !important; color:var(--card-text,#212529) !important; }
+.change-removed { background:#ffe6e6 !important; color:var(--card-text,#212529) !important; }
+.change-modified { background:#fff9e6 !important; color:var(--card-text,#212529) !important; }
+.change-cosmetic { opacity:.7; }
+.summary-badge { display:inline-block; margin:2px 4px; padding:3px 10px; border-radius:12px; font-size:12px; }
+.summary-badge.meaningful { background:#dc3545; color:#fff; }
+.summary-badge.cosmetic { background:#6c757d; color:#fff; }
+.summary-badge.added { background:#28a745; color:#fff; }
+.summary-badge.removed { background:#ffc107; color:#333; }
+
+/* Upload */
+.upload-zone { border:2px dashed var(--border-color,#ccc); border-radius:8px; padding:40px; text-align:center; cursor:pointer; transition:border-color .15s; }
+.upload-zone:hover, .upload-zone.dragover { border-color:#4a90d9; }
+.upload-progress { display:none; margin-top:15px; }
+
+.btn-primary { background:#4a90d9; border-color:#4a90d9; color:#fff; }
+.btn-sm { padding:4px 12px; font-size:13px; }
+.action-row { display:flex; gap:8px; margin-top:10px; }
+
+/* In-flight import jobs (above the version list) */
+.jobs-container { margin-bottom:14px; }
+.job-row { display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:6px; margin-bottom:6px; font-size:13px; border:1px solid transparent; }
+.job-row.queued, .job-row.running { background:rgba(74,144,217,.10); border-color:rgba(74,144,217,.25); color:#1a5490; }
+.job-row.done { background:rgba(40,167,69,.10); border-color:rgba(40,167,69,.30); color:#1d6f3f; }
+.job-row.duplicate { background:rgba(255,193,7,.12); border-color:rgba(255,193,7,.35); color:#856404; }
+.job-row.error { background:rgba(220,53,69,.10); border-color:rgba(220,53,69,.30); color:#922029; }
+.job-row .job-icon { font-size:16px; }
+.job-row .job-meta { flex:1; }
+.job-row .job-filename { font-weight:600; }
+.job-row .job-msg { font-size:12px; opacity:.85; margin-top:2px; }
+.job-row .job-time { font-size:11px; opacity:.65; }
+</style>
+
+<div class="compliance-container">
+    <!-- Header -->
+    <div class="compliance-header">
+        <h2><i class="fas fa-clipboard-check"></i> Retailer Compliance</h2>
+        <div>
+            <button class="btn btn-primary btn-sm" onclick="showAddRetailer()">
+                <i class="fas fa-plus"></i> Add Retailer
+            </button>
+        </div>
+    </div>
+
+    <!-- Breadcrumb -->
+    <div class="breadcrumb-nav" id="breadcrumb">
+        <a onclick="loadRetailers()">Retailers</a>
+    </div>
+
+    <!-- Main content area -->
+    <div id="mainContent">
+        <div class="text-center p-4"><i class="fas fa-spinner fa-spin"></i> Loading...</div>
+    </div>
+</div>
+
+<!-- Add Retailer Modal -->
+<div class="modal fade" id="addRetailerModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">Add Retailer</h5>
+                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Retailer Name</label>
+                    <input type="text" class="form-control" id="retailerName" placeholder="e.g., Amazon, Walmart">
+                </div>
+                <div class="form-group">
+                    <label>Notes</label>
+                    <textarea class="form-control" id="retailerNotes" rows="2"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button class="btn btn-primary" onclick="createRetailer()">Create</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit Document Set Modal -->
+<div class="modal fade" id="addSetModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title" id="setModalTitle">Add Document Set</h5>
+                <span id="extractionMethodBadge" class="ml-2" style="font-size:13px;"></span>
+                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Category</label>
+                    <input type="text" class="form-control" id="setCategory" placeholder="e.g., domestic, international, grocery">
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea class="form-control" id="setDescription" rows="2"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Compliance Agent <small class="text-muted">(documents in this set will be indexed into this agent's knowledge base)</small></label>
+                    <select class="form-control" id="setAgentId">
+                        <option value="">— None (skip knowledge indexing) —</option>
+                    </select>
+                </div>
+                <hr>
+                <h6>Extraction Configuration</h6>
+                <div class="form-group">
+                    <label>Extraction Workflow <small class="text-muted">(if set, this workflow replaces schema-based extraction for every document in this set — UI uploads and compliance-node deliveries alike)</small></label>
+                    <select class="form-control" id="setWorkflowId" onchange="updateExtractionBadge()">
+                        <option value="">— None —</option>
+                    </select>
+                    <a class="small text-muted" data-toggle="collapse" href="#workflowContractHelp" role="button" aria-expanded="false" aria-controls="workflowContractHelp" style="display:inline-block; margin-top:6px;">
+                        <i class="fas fa-caret-right"></i> Workflow contract — what the workflow receives and must return
+                    </a>
+                    <div class="collapse" id="workflowContractHelp">
+                        <div class="card card-body small mt-2" style="background:#f8f9fa;">
+                            <strong>Input variables</strong> (passed automatically by the compliance engine when the workflow starts):
+                            <ul class="mb-2">
+                                <li><code>document_path</code> <span class="text-muted">(string)</span> — absolute path to the uploaded PDF on disk</li>
+                                <li><code>document_set_id</code> <span class="text-muted">(string)</span> — id of the set this document belongs to</li>
+                            </ul>
+                            <strong>Output variable</strong> — your workflow must set <code>extraction_result</code> before completing. If it is missing or empty, the Requirements view will be empty for this document version. <code>extraction_result</code> must be one of:
+                            <div class="mt-2"><strong>Shape A</strong> — schema-style (same shape produced by schema-based extraction):</div>
+<pre class="small mb-2" style="background:#fff; padding:8px; border:1px solid #dee2e6; border-radius:4px;">{
+  "fields": {
+    "category.subcategory.field_name": {
+      "value": "the extracted value",
+      "sources": [{ "pages": [page_number] }]
+    },
+    ...
+  }
+}</pre>
+                            <div><strong>Shape B</strong> — explicit row list (lets you populate Value, Severity, Source Page, and Confidence directly):</div>
+<pre class="small mb-2" style="background:#fff; padding:8px; border:1px solid #dee2e6; border-radius:4px;">[
+  {
+    "category":         "service_levels",
+    "subcategory":      "availability",
+    "requirement_text": "Monthly uptime of not less than 99.95% ...",
+    "specific_value":   "99.95%",
+    "severity":         "high",
+    "source_page":      1,
+    "confidence":       0.95
+  },
+  ...
+]</pre>
+                            <strong>Timeout</strong> — workflow execution is awaited synchronously and times out after <code>DOC_PROCESSING_TIMEOUT_MINUTES</code> (default 120 minutes). Plan accordingly for long-running pipelines.
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group" id="schemaSelectSection">
+                    <label>Extraction Schema <small class="text-muted">(reusable field definitions — ignored if an Extraction Workflow is set above — manage on the <a href="/compliance/schemas" target="_blank">Schemas page</a>)</small></label>
+                    <div class="input-group">
+                        <select class="form-control" id="setSchemaId" onchange="updateExtractionBadge()">
+                            <option value="">— None (use default taxonomy) —</option>
+                        </select>
+                        <div class="input-group-append">
+                            <a class="btn btn-outline-secondary" href="/compliance/schemas" target="_blank" title="Open schema manager"><i class="fas fa-edit"></i></a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button class="btn btn-primary" id="setSaveBtn" onclick="saveDocSet()">Create</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Upload Modal -->
+<div class="modal fade" id="uploadModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">Upload Compliance Document</h5>
+                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <!-- File input lives outside the click target to avoid event-bubbling re-entry that blocks the OS file dialog. -->
+                <input type="file" id="fileInput" accept=".pdf,.docx,.doc" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;" onchange="handleFileSelect(this)">
+                <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+                    <i class="fas fa-cloud-upload-alt fa-3x mb-3" style="color:#4a90d9"></i>
+                    <p>Drag & drop a PDF here, or click to browse</p>
+                </div>
+                <div id="selectedFile" style="display:none;margin-top:10px;">
+                    <i class="fas fa-file-pdf"></i> <span id="selectedFileName"></span>
+                    <a href="#" onclick="clearFile()" style="margin-left:10px;color:#dc3545;">Remove</a>
+                </div>
+                <div id="uploadAgentInfo" class="mt-3 p-2" style="background:rgba(74,144,217,.08);border-radius:4px;font-size:13px;"></div>
+                <div class="upload-progress" id="uploadProgress">
+                    <div id="uploadSpinner" class="text-center py-3">
+                        <i class="fas fa-cog fa-spin fa-2x text-primary"></i>
+                    </div>
+                    <p class="mt-2 text-center" id="uploadStatus">Processing...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button class="btn btn-primary" id="uploadBtn" onclick="uploadDocument()" disabled>Upload & Process</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Compare Modal -->
+<div class="modal fade" id="compareModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">Compare</h5>
+                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <div id="compareForm"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button class="btn btn-primary" id="compareBtn" onclick="runComparison()">Compare</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Confirm Delete Modal -->
+<div class="modal fade" id="confirmDeleteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="fas fa-exclamation-triangle"></i> Confirm Delete</h5>
+                <button type="button" class="close text-white" data-dismiss="modal"><span>&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <p id="deleteModalBody">Are you sure?</p>
+                <p class="text-muted" id="deleteModalDetails" style="font-size:13px;"></p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button class="btn btn-danger" id="confirmDeleteBtn">Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+var currentRetailerId = null;
+var currentRetailerName = '';
+var currentSetId = null;
+var currentSetCategory = '';
+var _retailers = [];
+
+// ========== API Helpers ==========
+function api(method, url, data) {
+    var opts = { method: method, headers: {'Content-Type':'application/json'} };
+    if (data) opts.body = JSON.stringify(data);
+    return fetch(url, opts).then(function(r) { return r.json(); });
+}
+
+// ========== Confirm Delete Modal ==========
+function confirmDelete(opts) {
+    // opts: { title, body, details, onConfirm }
+    $('#deleteModalBody').html(opts.body || 'Are you sure?');
+    $('#deleteModalDetails').html(opts.details || '');
+    var $btn = $('#confirmDeleteBtn');
+    $btn.off('click').on('click', function() {
+        $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Deleting...');
+        Promise.resolve(opts.onConfirm()).then(function() {
+            $('#confirmDeleteModal').modal('hide');
+            $btn.prop('disabled', false).html('Delete');
+        }).catch(function(e) {
+            $btn.prop('disabled', false).html('Delete');
+            alert('Delete failed: ' + (e && e.message ? e.message : e));
+        });
+    });
+    $('#confirmDeleteModal').modal('show');
+}
+
+// ========== Retailers ==========
+function loadRetailers() {
+    currentRetailerId = null;
+    currentSetId = null;
+    if (typeof stopJobsPolling === 'function') stopJobsPolling();
+    updateBreadcrumb();
+    $('#mainContent').html('<div class="text-center p-4"><i class="fas fa-spinner fa-spin"></i></div>');
+    api('GET', '/api/compliance/retailers').then(function(data) {
+        _retailers = data.retailers || [];
+        renderRetailers(_retailers);
+    });
+}
+
+function renderRetailers(retailers) {
+    if (!retailers.length) {
+        $('#mainContent').html('<div class="text-center p-5"><i class="fas fa-store fa-3x mb-3" style="color:#ccc"></i><p>No retailers yet. Click "Add Retailer" to get started.</p></div>');
+        return;
+    }
+    var html = '<div class="retailer-grid">';
+    retailers.forEach(function(r) {
+        html += '<div class="retailer-card" style="position:relative">';
+        html += '<button class="btn btn-link btn-sm" style="position:absolute;top:8px;right:8px;padding:2px 6px;color:#dc3545" title="Delete retailer" onclick="event.stopPropagation();deleteRetailer(' + r.retailer_id + ',\'' + escHtml(r.name) + '\',' + (r.set_count || 0) + ',' + (r.version_count || 0) + ')"><i class="fas fa-trash"></i></button>';
+        html += '<div onclick="loadDocSets(' + r.retailer_id + ',\'' + escHtml(r.name) + '\')">';
+        html += '<h4>' + escHtml(r.name) + '</h4>';
+        html += '<div class="meta">' + (r.set_count||0) + ' document sets &middot; ' + (r.version_count||0) + ' versions</div>';
+        if (r.last_upload) html += '<div class="meta">Last upload: ' + formatDate(r.last_upload) + '</div>';
+        html += '</div></div>';
+    });
+    html += '</div>';
+
+    // Cross-retailer comparison button
+    if (retailers.length >= 2) {
+        html += '<div class="mt-4"><button class="btn btn-outline-primary btn-sm" onclick="showCrossRetailerCompare()"><i class="fas fa-columns"></i> Cross-Retailer Comparison</button></div>';
+    }
+    $('#mainContent').html(html);
+}
+
+function showAddRetailer() { $('#retailerName').val(''); $('#retailerNotes').val(''); $('#addRetailerModal').modal('show'); }
+function createRetailer() {
+    var name = $('#retailerName').val().trim();
+    if (!name) return;
+    api('POST', '/api/compliance/retailers', {name: name, notes: $('#retailerNotes').val()}).then(function() {
+        $('#addRetailerModal').modal('hide');
+        loadRetailers();
+    });
+}
+
+// ========== Document Sets ==========
+function loadDocSets(retailerId, name) {
+    currentRetailerId = retailerId;
+    currentRetailerName = name;
+    currentSetId = null;
+    if (typeof stopJobsPolling === 'function') stopJobsPolling();
+    updateBreadcrumb();
+    $('#mainContent').html('<div class="text-center p-4"><i class="fas fa-spinner fa-spin"></i></div>');
+    api('GET', '/api/compliance/retailers/' + retailerId + '/sets').then(function(data) {
+        renderDocSets(data.sets || []);
+    });
+}
+
+function renderDocSets(sets) {
+    var html = '<div class="d-flex justify-content-between align-items-center mb-3">';
+    html += '<h4>' + escHtml(currentRetailerName) + ' — Document Sets</h4>';
+    html += '<button class="btn btn-primary btn-sm" onclick="showAddSet()"><i class="fas fa-plus"></i> Add Set</button>';
+    html += '</div>';
+
+    if (!sets.length) {
+        html += '<p class="text-muted">No document sets. Create one to start uploading compliance documents.</p>';
+        $('#mainContent').html(html);
+        return;
+    }
+
+    html += '<div class="retailer-grid">';
+    sets.forEach(function(s) {
+        html += '<div class="retailer-card" style="position:relative">';
+        html += '<button class="btn btn-link btn-sm" style="position:absolute;top:8px;right:32px;padding:2px 6px;color:#888" title="Edit set" onclick="event.stopPropagation();showEditSet(' + s.set_id + ')"><i class="fas fa-edit"></i></button>';
+        html += '<button class="btn btn-link btn-sm" style="position:absolute;top:8px;right:8px;padding:2px 6px;color:#dc3545" title="Delete set" onclick="event.stopPropagation();deleteSet(' + s.set_id + ',\'' + escHtml(s.category) + '\',' + (s.version_count || 0) + ')"><i class="fas fa-trash"></i></button>';
+        html += '<div onclick="loadVersions(' + s.set_id + ',\'' + escHtml(s.category) + '\')">';
+        html += '<h4>' + escHtml(s.category) + '</h4>';
+        if (s.description) html += '<p class="text-muted mb-1" style="font-size:13px">' + escHtml(s.description) + '</p>';
+        if (s.agent_name) {
+            html += '<div class="meta" style="color:#4a90d9"><i class="fas fa-robot"></i> ' + escHtml(s.agent_name) + '</div>';
+        } else {
+            html += '<div class="meta" style="color:#dc3545"><i class="fas fa-exclamation-circle"></i> No agent assigned — uploads won\'t be searchable via chat</div>';
+        }
+        html += '<div class="meta">';
+        html += (s.version_count||0) + ' version(s)';
+        if (s.current_version) html += ' &middot; Current: v' + s.current_version;
+        if (s.last_upload) html += ' &middot; ' + formatDate(s.last_upload);
+        html += '</div></div></div>';
+    });
+    html += '</div>';
+    $('#mainContent').html(html);
+}
+
+var _editingSetId = null;
+
+function showAddSet() {
+    _editingSetId = null;
+    $('#setModalTitle').text('Add Document Set');
+    $('#setSaveBtn').text('Create');
+    $('#setCategory').val('').prop('disabled', false);
+    $('#setDescription').val('');
+    $('#setAgentId').val('');
+    $('#setWorkflowId').val('');
+    $('#setSchemaId').val('');
+    updateExtractionBadge();
+    Promise.all([
+        loadAgentsForDropdown('#setAgentId'),
+        loadWorkflowDropdown(),
+        loadSchemaDropdown()
+    ]).then(function() {
+        $('#addSetModal').modal('show');
+    });
+}
+
+function showEditSet(setId) {
+    _editingSetId = setId;
+    $('#setModalTitle').text('Edit Document Set');
+    $('#setSaveBtn').text('Save');
+    api('GET', '/api/compliance/sets/' + setId).then(function(s) {
+        $('#setCategory').val(s.category).prop('disabled', true);
+        $('#setDescription').val(s.description || '');
+        Promise.all([
+            loadAgentsForDropdown('#setAgentId'),
+            loadWorkflowDropdown(),
+            loadSchemaDropdown()
+        ]).then(function() {
+            $('#setAgentId').val(s.agent_id || '');
+            $('#setWorkflowId').val(s.extraction_workflow_id || '');
+            $('#setSchemaId').val(s.extraction_schema_id || '');
+            updateExtractionBadge();
+            $('#addSetModal').modal('show');
+        });
+    });
+}
+
+function saveDocSet() {
+    var cat = $('#setCategory').val().trim();
+    var body = {
+        description: $('#setDescription').val(),
+        agent_id: $('#setAgentId').val() || null,
+        extraction_workflow_id: $('#setWorkflowId').val() || null,
+        extraction_schema_id: $('#setSchemaId').val() || null
+    };
+    if (_editingSetId) {
+        api('PUT', '/api/compliance/sets/' + _editingSetId, body).then(function() {
+            $('#addSetModal').modal('hide');
+            loadDocSets(currentRetailerId, currentRetailerName);
+        });
+    } else {
+        if (!cat) return;
+        body.category = cat;
+        api('POST', '/api/compliance/retailers/' + currentRetailerId + '/sets', body).then(function() {
+            $('#addSetModal').modal('hide');
+            loadDocSets(currentRetailerId, currentRetailerName);
+        });
+    }
+}
+
+// ========== Versions ==========
+function loadVersions(setId, category) {
+    currentSetId = setId;
+    currentSetCategory = category;
+    updateBreadcrumb();
+    $('#mainContent').html('<div class="text-center p-4"><i class="fas fa-spinner fa-spin"></i></div>');
+    api('GET', '/api/compliance/sets/' + setId + '/versions').then(function(data) {
+        renderVersions(data.versions || []);
+        startJobsPolling();
+    });
+}
+
+function renderVersions(versions) {
+    var html = '<div class="d-flex justify-content-between align-items-center mb-3">';
+    html += '<h4>' + escHtml(currentSetCategory) + ' — Versions</h4>';
+    html += '<button class="btn btn-primary btn-sm" onclick="showUpload()"><i class="fas fa-upload"></i> Upload New Version</button>';
+    html += '</div>';
+
+    // Slot for in-flight import jobs (populated by pollJobs())
+    html += '<div id="jobsContainer" class="jobs-container"></div>';
+
+    if (!versions.length) {
+        html += '<p class="text-muted">No versions uploaded yet.</p>';
+        $('#mainContent').html(html);
+        return;
+    }
+
+    html += '<ul class="version-list">';
+    versions.forEach(function(v) {
+        var cls = v.is_current ? 'current' : '';
+        html += '<li class="' + cls + '">';
+        html += '<div class="d-flex justify-content-between align-items-start">';
+        html += '<div>';
+        html += '<strong>Version ' + v.version_number + '</strong> ';
+        html += '<span class="version-badge ' + (v.is_current ? 'current' : 'old') + '">' + (v.is_current ? 'Current' : 'Previous') + '</span>';
+        html += '<div class="meta mt-1">';
+        if (v.filename) html += v.filename + ' &middot; ';
+        if (v.page_count) html += v.page_count + ' pages &middot; ';
+        html += formatDate(v.uploaded_at);
+        html += '</div>';
+        if (v.change_summary) html += '<div class="mt-1" style="font-size:13px;color:#666"><i class="fas fa-exchange-alt"></i> ' + escHtml(v.change_summary) + '</div>';
+        html += '</div>';
+        html += '<div class="action-row">';
+        html += '<button class="btn btn-outline-primary btn-sm" onclick="viewRequirements(' + v.version_id + ',' + v.version_number + ')"><i class="fas fa-list"></i> Requirements</button>';
+        html += '<button class="btn btn-outline-secondary btn-sm" onclick="exportExcel(' + v.version_id + ')"><i class="fas fa-file-excel"></i></button>';
+        html += '<button class="btn btn-outline-danger btn-sm" title="Delete this version" onclick="deleteVersion(' + v.version_id + ', ' + v.version_number + ', ' + (v.is_current ? 'true' : 'false') + ')"><i class="fas fa-trash"></i></button>';
+        html += '</div>';
+        html += '</div></li>';
+    });
+    html += '</ul>';
+
+    if (versions.length >= 2) {
+        html += '<div class="mt-3"><button class="btn btn-outline-primary btn-sm" onclick="showVersionCompare()"><i class="fas fa-columns"></i> Compare Versions</button></div>';
+    }
+    $('#mainContent').html(html);
+}
+
+// ========== Requirements ==========
+function viewRequirements(versionId, versionNum) {
+    $('#mainContent').html('<div class="text-center p-4"><i class="fas fa-spinner fa-spin"></i></div>');
+    api('GET', '/api/compliance/versions/' + versionId + '/requirements').then(function(data) {
+        renderRequirements(data.requirements || [], versionNum);
+    });
+}
+
+function renderRequirements(reqs, versionNum) {
+    var html = '<div class="d-flex justify-content-between align-items-center mb-3">';
+    html += '<h4>Requirements — v' + versionNum + ' (' + reqs.length + ' total)</h4>';
+    html += '<button class="btn btn-outline-secondary btn-sm" onclick="loadVersions(' + currentSetId + ',\'' + escHtml(currentSetCategory) + '\')"><i class="fas fa-arrow-left"></i> Back</button>';
+    html += '</div>';
+
+    if (!reqs.length) {
+        html += '<p class="text-muted">No requirements extracted.</p>';
+        $('#mainContent').html(html);
+        return;
+    }
+
+    // Group by category
+    var grouped = {};
+    reqs.forEach(function(r) { (grouped[r.category] = grouped[r.category]||[]).push(r); });
+
+    Object.keys(grouped).sort().forEach(function(cat) {
+        html += '<h5 class="mt-3 mb-2" style="text-transform:capitalize">' + cat.replace(/_/g,' ') + ' (' + grouped[cat].length + ')</h5>';
+        html += '<table class="req-table"><thead><tr><th>Subcategory</th><th>Requirement</th><th>Value</th><th>Severity</th><th>Confidence</th></tr></thead><tbody>';
+        grouped[cat].forEach(function(r) {
+            html += '<tr><td>' + escHtml(r.subcategory||'').replace(/_/g,' ') + '</td>';
+            html += '<td>' + escHtml(r.requirement_text||'') + '</td>';
+            html += '<td>' + escHtml(r.specific_value||'') + '</td>';
+            html += '<td>' + escHtml(r.severity||'') + '</td>';
+            html += '<td>' + (r.confidence ? (r.confidence*100).toFixed(0)+'%' : '') + '</td></tr>';
+        });
+        html += '</tbody></table>';
+    });
+    $('#mainContent').html(html);
+}
+
+// ========== Upload ==========
+var _uploadSetId = null;
+var _uploadFile = null;
+
+function showUpload() {
+    _uploadSetId = currentSetId;
+    _uploadFile = null;
+    $('#fileInput').val('');
+    $('#selectedFile').hide();
+    $('#uploadZone').show();
+    $('#uploadProgress').hide();
+    $('#uploadBtn').prop('disabled', true);
+    // Show which agent the set is configured for (inherited automatically)
+    api('GET', '/api/compliance/sets/' + currentSetId).then(function(s) {
+        var $info = $('#uploadAgentInfo');
+        if (s.agent_id) {
+            // Look up agent name
+            api('GET', '/api/compliance/retailers/' + currentRetailerId + '/sets').then(function(d) {
+                var match = (d.sets||[]).find(function(x){return x.set_id===currentSetId;});
+                var name = (match && match.agent_name) || ('Agent #' + s.agent_id);
+                $info.html('<i class="fas fa-robot text-primary"></i> Will be indexed into <strong>' + escHtml(name) + '</strong>\'s knowledge base.');
+            });
+        } else {
+            $info.html('<i class="fas fa-exclamation-circle text-danger"></i> No agent assigned to this set — document will be processed but won\'t be searchable via chat. <a href="#" onclick="$(\'#uploadModal\').modal(\'hide\');showEditSet(' + currentSetId + ');return false;">Assign one now</a>.');
+        }
+    });
+    $('#uploadModal').modal('show');
+}
+
+// Populates an agent dropdown using the permission-filtered endpoint.
+// Returns a Promise that resolves once options are loaded.
+function loadAgentsForDropdown(selector) {
+    var $sel = $(selector);
+    // Reset to just the placeholder
+    $sel.find('option:not([value=""])').remove();
+    return fetch('/api/compliance/accessible-agents')
+        .then(function(r){ return r.json(); })
+        .then(function(data) {
+            (data.agents || []).forEach(function(a) {
+                $sel.append('<option value="' + a.agent_id + '">' + escHtml(a.agent_name) + '</option>');
+            });
+        }).catch(function(){});
+}
+
+// ========== Workflow & Schema Dropdowns ==========
+function loadWorkflowDropdown() {
+    var $sel = $('#setWorkflowId');
+    $sel.find('option:not([value=""])').remove();
+    return fetch('/api/workflows/list')
+        .then(function(r){ return r.json(); })
+        .then(function(data) {
+            (data.workflows || []).forEach(function(w) {
+                if (w.enabled !== false) {
+                    $sel.append('<option value="' + w.id + '">' + escHtml(w.workflow_name) + '</option>');
+                }
+            });
+        }).catch(function(){});
+}
+
+function loadSchemaDropdown() {
+    var $sel = $('#setSchemaId');
+    $sel.find('option:not([value=""])').remove();
+    return api('GET', '/api/compliance/schemas').then(function(data) {
+        (data.schemas || []).forEach(function(s) {
+            $sel.append('<option value="' + s.schema_id + '">' + escHtml(s.name) + '</option>');
+        });
+    }).catch(function(){});
+}
+
+function updateExtractionBadge() {
+    var wf = $('#setWorkflowId').val();
+    var schemaId = $('#setSchemaId').val();
+    var $badge = $('#extractionMethodBadge');
+    if (wf) {
+        $badge.html('<span class="badge badge-primary">Extraction: Linked Workflow</span>');
+        $('#schemaSelectSection').css('opacity', '0.5');
+    } else if (schemaId) {
+        $badge.html('<span class="badge badge-success">Extraction: Schema</span>');
+        $('#schemaSelectSection').css('opacity', '1');
+    } else {
+        $badge.html('<span class="badge badge-secondary">Extraction: Default Taxonomy</span>');
+        $('#schemaSelectSection').css('opacity', '1');
+    }
+}
+
+// ========== File Handling ==========
+function handleFileSelect(input) {
+    if (input.files && input.files[0]) {
+        _uploadFile = input.files[0];
+        $('#selectedFileName').text(_uploadFile.name);
+        $('#selectedFile').show();
+        $('#uploadZone').hide();
+        $('#uploadBtn').prop('disabled', false);
+    }
+}
+
+function clearFile() {
+    _uploadFile = null;
+    $('#fileInput').val('');
+    $('#selectedFile').hide();
+    $('#uploadZone').show();
+    $('#uploadBtn').prop('disabled', true);
+}
+
+function uploadDocument() {
+    if (!_uploadFile || !_uploadSetId) return;
+    $('#uploadBtn').prop('disabled', true);
+    $('#uploadProgress').show();
+    $('#uploadSpinner').show();
+    $('#uploadStatus').text('Uploading file…');
+
+    var fd = new FormData();
+    fd.append('file', _uploadFile);
+    // agent_id is read from the document set itself — no longer per-upload
+
+    $.ajax({
+        url: '/api/compliance/sets/' + _uploadSetId + '/upload',
+        type: 'POST',
+        data: fd,
+        processData: false,
+        contentType: false,
+        // 5 min: enough to upload large files; processing happens in background
+        // and doesn't block this request anymore.
+        timeout: 5 * 60 * 1000,
+        success: function(data) {
+            $('#uploadSpinner').hide();
+            if (data.status === 'queued') {
+                // Async background processing (default for new uploads)
+                $('#uploadStatus').html(
+                    '<i class="fas fa-clock text-info"></i> ' +
+                    '<strong>Upload accepted, processing in background.</strong><br>' +
+                    '<small>' + escHtml(data.message || '') + '</small>'
+                );
+                setTimeout(function() {
+                    $('#uploadModal').modal('hide');
+                    loadVersions(currentSetId, currentSetCategory);
+                }, 3500);
+            } else if (data.is_duplicate) {
+                // Legacy sync response (when ?sync=1)
+                $('#uploadStatus').html('<i class="fas fa-exclamation-triangle text-warning"></i> ' + escHtml(data.warning || 'Duplicate document'));
+                setTimeout(function() {
+                    $('#uploadModal').modal('hide');
+                    loadVersions(currentSetId, currentSetCategory);
+                }, 2000);
+            } else {
+                // Legacy sync response — version available immediately
+                $('#uploadStatus').html('<i class="fas fa-check text-success"></i> Version ' + data.version_number + ' created. ' + data.requirements_count + ' requirements extracted.');
+                if (data.change_summary) {
+                    $('#uploadStatus').append('<br><small>' + escHtml(data.change_summary) + '</small>');
+                }
+                setTimeout(function() {
+                    $('#uploadModal').modal('hide');
+                    loadVersions(currentSetId, currentSetCategory);
+                }, 2000);
+            }
+        },
+        error: function(xhr) {
+            $('#uploadSpinner').hide();
+            var msg = 'Upload failed';
+            try { msg = JSON.parse(xhr.responseText).error || msg; } catch(e) {}
+            $('#uploadStatus').html('<i class="fas fa-times text-danger"></i> ' + escHtml(msg));
+            $('#uploadBtn').prop('disabled', false);
+        }
+    });
+}
+
+// ========== Drag and Drop ==========
+$(document).ready(function() {
+    var zone = document.getElementById('uploadZone');
+    if (zone) {
+        zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('dragover'); });
+        zone.addEventListener('dragleave', function() { zone.classList.remove('dragover'); });
+        zone.addEventListener('drop', function(e) {
+            e.preventDefault();
+            zone.classList.remove('dragover');
+            if (e.dataTransfer.files.length) {
+                document.getElementById('fileInput').files = e.dataTransfer.files;
+                handleFileSelect(document.getElementById('fileInput'));
+            }
+        });
+    }
+});
+
+// ========== Comparison ==========
+var _compareType = '';
+
+function showVersionCompare() {
+    _compareType = 'version';
+    api('GET', '/api/compliance/sets/' + currentSetId + '/versions').then(function(data) {
+        var versions = data.versions || [];
+        var html = '<div class="form-group"><label>Version A</label><select class="form-control" id="compareA">';
+        versions.forEach(function(v) { html += '<option value="'+v.version_id+'">v'+v.version_number+' ('+formatDate(v.uploaded_at)+')</option>'; });
+        html += '</select></div>';
+        html += '<div class="form-group"><label>Version B</label><select class="form-control" id="compareB">';
+        versions.forEach(function(v,i) { html += '<option value="'+v.version_id+'"'+(i===1?' selected':'')+'>v'+v.version_number+' ('+formatDate(v.uploaded_at)+')</option>'; });
+        html += '</select></div>';
+        $('#compareForm').html(html);
+        $('#compareModal').modal('show');
+    });
+}
+
+function showCrossRetailerCompare() {
+    _compareType = 'retailer';
+    var html = '<div class="form-group"><label>Retailer A</label><select class="form-control" id="compareA">';
+    _retailers.forEach(function(r) { html += '<option value="'+r.retailer_id+'">'+escHtml(r.name)+'</option>'; });
+    html += '</select></div>';
+    html += '<div class="form-group"><label>Retailer B</label><select class="form-control" id="compareB">';
+    _retailers.forEach(function(r,i) { html += '<option value="'+r.retailer_id+'"'+(i===1?' selected':'')+'>'+escHtml(r.name)+'</option>'; });
+    html += '</select></div>';
+    html += '<div class="form-group"><label>Category Filter (optional)</label><select class="form-control" id="compareCat"><option value="">All categories</option>';
+    ['shipping','packaging','labeling','edi_electronic','quality_testing','penalties_chargebacks'].forEach(function(c) {
+        html += '<option value="'+c+'">'+c.replace(/_/g,' ')+'</option>';
+    });
+    html += '</select></div>';
+    $('#compareForm').html(html);
+    $('#compareModal').modal('show');
+}
+
+function runComparison() {
+    var a = $('#compareA').val(), b = $('#compareB').val();
+    if (a === b) { alert('Please select two different items to compare.'); return; }
+    $('#compareBtn').prop('disabled', true).text('Comparing...');
+    var url, body;
+    if (_compareType === 'version') {
+        url = '/api/compliance/compare/versions';
+        body = {version_a_id: parseInt(a), version_b_id: parseInt(b)};
+    } else {
+        url = '/api/compliance/compare/retailers';
+        body = {retailer_a_id: parseInt(a), retailer_b_id: parseInt(b), category: $('#compareCat').val()||null};
+    }
+    api('POST', url, body).then(function(data) {
+        $('#compareModal').modal('hide');
+        $('#compareBtn').prop('disabled', false).text('Compare');
+        renderComparison(data);
+    }).catch(function() {
+        $('#compareBtn').prop('disabled', false).text('Compare');
+    });
+}
+
+function renderComparison(data) {
+    var result = data.result;
+    if (!result) { alert('No comparison data'); return; }
+    var html = '<div class="d-flex justify-content-between align-items-center mb-3">';
+    html += '<h4>Comparison Results</h4>';
+    html += '<div>';
+    if (data.comparison_id) html += '<button class="btn btn-outline-secondary btn-sm mr-2" onclick="exportComparisonExcel('+data.comparison_id+')"><i class="fas fa-file-excel"></i> Export</button>';
+    html += '<button class="btn btn-outline-secondary btn-sm" onclick="loadVersions(' + currentSetId + ',\'' + escHtml(currentSetCategory) + '\')"><i class="fas fa-arrow-left"></i> Back</button>';
+    html += '</div></div>';
+
+    // Summary
+    html += '<div class="mb-3">';
+    (result.summary||[]).forEach(function(s) {
+        html += '<div class="mb-1"><strong style="text-transform:capitalize">' + s.category.replace(/_/g,' ') + ':</strong> ';
+        if (s.meaningful_changes) html += '<span class="summary-badge meaningful">' + s.meaningful_changes + ' meaningful</span>';
+        if (s.cosmetic_changes) html += '<span class="summary-badge cosmetic">' + s.cosmetic_changes + ' cosmetic</span>';
+        if (s.added) html += '<span class="summary-badge added">' + s.added + ' added</span>';
+        if (s.removed) html += '<span class="summary-badge removed">' + s.removed + ' removed</span>';
+        html += '</div>';
+    });
+    html += '</div>';
+
+    // Detail table
+    html += '<table class="req-table"><thead><tr><th>Category</th><th>Subcategory</th><th>Source A</th><th>Source B</th><th>Change</th><th>Meaningful</th><th>Reason</th></tr></thead><tbody>';
+    (result.details||[]).forEach(function(d) {
+        var cls = d.change_type === 'added' ? 'change-added' : d.change_type === 'removed' ? 'change-removed' : d.is_meaningful ? 'change-modified' : 'change-cosmetic';
+        html += '<tr class="' + cls + '">';
+        html += '<td>' + escHtml(d.category||'').replace(/_/g,' ') + '</td>';
+        html += '<td>' + escHtml(d.subcategory||'').replace(/_/g,' ') + '</td>';
+        html += '<td>' + escHtml(d.value_a||'—') + '</td>';
+        html += '<td>' + escHtml(d.value_b||'—') + '</td>';
+        html += '<td>' + escHtml(d.change_type||'') + '</td>';
+        html += '<td>' + (d.is_meaningful ? 'Yes' : 'No') + '</td>';
+        html += '<td>' + escHtml(d.reason||'') + '</td>';
+        html += '</tr>';
+    });
+    html += '</tbody></table>';
+    $('#mainContent').html(html);
+}
+
+// ========== Import-job polling (in-flight upload progress) ==========
+var _jobsPollTimer = null;
+var _knownActiveJobIds = {};   // job_id -> true while we've seen it active
+
+function startJobsPolling() {
+    stopJobsPolling();
+    pollJobs(); // immediate first tick
+    _jobsPollTimer = setInterval(pollJobs, 5000);
+}
+
+function stopJobsPolling() {
+    if (_jobsPollTimer) {
+        clearInterval(_jobsPollTimer);
+        _jobsPollTimer = null;
+    }
+    _knownActiveJobIds = {};
+}
+
+function pollJobs() {
+    var setId = currentSetId;
+    if (!setId) { stopJobsPolling(); return; }
+    fetch('/api/compliance/sets/' + setId + '/jobs')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            // Stale response — user has navigated away
+            if (currentSetId !== setId) return;
+            renderJobs(data.jobs || []);
+            // If any job we previously saw active is no longer active (or just completed),
+            // refresh the version list so the new version appears.
+            var newActive = {};
+            (data.jobs || []).forEach(function(j) {
+                if (j.status === 'queued' || j.status === 'running') newActive[j.job_id] = true;
+            });
+            var anyJustFinished = Object.keys(_knownActiveJobIds)
+                .some(function(jid) { return !newActive[jid]; });
+            _knownActiveJobIds = newActive;
+            if (anyJustFinished) {
+                api('GET', '/api/compliance/sets/' + setId + '/versions').then(function(d) {
+                    if (currentSetId !== setId) return;
+                    // Re-render but preserve the polling state by not stopping it
+                    renderVersions(d.versions || []);
+                });
+            }
+        })
+        .catch(function() { /* ignore transient errors */ });
+}
+
+function renderJobs(jobs) {
+    var $c = $('#jobsContainer');
+    if (!$c.length) return;
+    if (!jobs.length) { $c.empty(); return; }
+    var html = '';
+    jobs.forEach(function(j) {
+        var icon, label;
+        if (j.status === 'queued')        { icon = 'fa-clock';         label = 'Queued'; }
+        else if (j.status === 'running')  { icon = 'fa-cog fa-spin';   label = 'Processing'; }
+        else if (j.status === 'done')     { icon = 'fa-check-circle';  label = 'Completed'; }
+        else if (j.status === 'duplicate'){ icon = 'fa-info-circle';   label = 'Duplicate'; }
+        else                              { icon = 'fa-times-circle';  label = 'Failed'; }
+        var elapsed = j.started_at ? Math.round((Date.now()/1000 - j.started_at)) : 0;
+        var elapsedTxt = elapsed < 60
+            ? elapsed + 's'
+            : Math.floor(elapsed/60) + 'm ' + (elapsed%60) + 's';
+        html += '<div class="job-row ' + j.status + '">';
+        html += '<i class="fas ' + icon + ' job-icon"></i>';
+        html += '<div class="job-meta">';
+        html += '<div><span class="job-filename">' + escHtml(j.filename) + '</span> &middot; ' + label + '</div>';
+        if (j.message) html += '<div class="job-msg">' + escHtml(j.message) + '</div>';
+        if (j.error)   html += '<div class="job-msg">' + escHtml(j.error) + '</div>';
+        html += '</div>';
+        html += '<div class="job-time">' + elapsedTxt + '</div>';
+        html += '</div>';
+    });
+    $c.html(html);
+}
+
+// ========== Delete handlers ==========
+function deleteVersion(versionId, versionNumber, isCurrent) {
+    var details = isCurrent
+        ? 'This is the <strong>current</strong> version. The previous version (if any) will be promoted to current.'
+        : '';
+    details += ' This will remove the version, its extracted requirements, and the document from the assigned agent\'s knowledge base. The original PDF file is left on disk.';
+    confirmDelete({
+        body: 'Delete <strong>version ' + versionNumber + '</strong>?',
+        details: details,
+        onConfirm: function() {
+            return fetch('/api/compliance/versions/' + versionId, { method: 'DELETE' })
+                .then(function(r) {
+                    if (!r.ok) return r.json().then(function(d){ throw new Error(d.error || 'Delete failed'); });
+                    return r.json();
+                })
+                .then(function() {
+                    loadVersions(currentSetId, currentSetCategory);
+                });
+        }
+    });
+}
+
+function deleteSet(setId, category, versionCount) {
+    var details = 'This will permanently delete the set and all <strong>' + versionCount + '</strong> version(s) it contains, including their extracted requirements and any agent knowledge entries.';
+    confirmDelete({
+        body: 'Delete document set <strong>' + escHtml(category) + '</strong>?',
+        details: details,
+        onConfirm: function() {
+            return fetch('/api/compliance/sets/' + setId, { method: 'DELETE' })
+                .then(function(r) {
+                    if (!r.ok) return r.json().then(function(d){ throw new Error(d.error || 'Delete failed'); });
+                    return r.json();
+                })
+                .then(function() {
+                    loadDocSets(currentRetailerId, currentRetailerName);
+                });
+        }
+    });
+}
+
+function deleteRetailer(retailerId, name, setCount, versionCount) {
+    var details = 'This will permanently delete the retailer and all <strong>' + setCount + '</strong> document set(s) and <strong>' + versionCount + '</strong> version(s) under it. All extracted requirements and agent knowledge entries for this retailer will also be removed.';
+    confirmDelete({
+        body: 'Delete retailer <strong>' + escHtml(name) + '</strong>?',
+        details: details,
+        onConfirm: function() {
+            return fetch('/api/compliance/retailers/' + retailerId, { method: 'DELETE' })
+                .then(function(r) {
+                    if (!r.ok) return r.json().then(function(d){ throw new Error(d.error || 'Delete failed'); });
+                    return r.json();
+                })
+                .then(function() {
+                    loadRetailers();
+                });
+        }
+    });
+}
+
+// ========== Export ==========
+function exportExcel(versionId) {
+    window.open('/api/compliance/versions/' + versionId + '/export/excel', '_blank');
+}
+function exportComparisonExcel(comparisonId) {
+    window.open('/api/compliance/comparisons/' + comparisonId + '/export/excel', '_blank');
+}
+
+// ========== Breadcrumb ==========
+function updateBreadcrumb() {
+    var html = '<a onclick="loadRetailers()">Retailers</a>';
+    if (currentRetailerId) {
+        html += '<span class="sep">/</span><a onclick="loadDocSets(' + currentRetailerId + ',\'' + escHtml(currentRetailerName) + '\')">' + escHtml(currentRetailerName) + '</a>';
+    }
+    if (currentSetId) {
+        html += '<span class="sep">/</span><a onclick="loadVersions(' + currentSetId + ',\'' + escHtml(currentSetCategory) + '\')">' + escHtml(currentSetCategory) + '</a>';
+    }
+    $('#breadcrumb').html(html);
+}
+
+// ========== Helpers ==========
+function escHtml(s) { return $('<span>').text(s||'').html(); }
+function formatDate(d) { if (!d) return ''; try { return new Date(d).toLocaleDateString(); } catch(e) { return d; } }
+
+// ========== Init ==========
+$(document).ready(function() { loadRetailers(); });
+</script>
+
+<script src="/static/js/compliance_management_context.js"></script>
+</div><!-- /.doc-page -->
+{% endblock %}

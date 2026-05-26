@@ -63,6 +63,26 @@ Core application logic, all mocked, no external dependencies.
 | `test_notification_client.py` | 18 | Notification service client |
 | `test_telemetry.py` | 24 | Telemetry collection and reporting |
 
+### Data Collection Agent (DCA) tests — 8 unit + 1 security file, 448 tests
+
+Schema-driven conversational data collection. All external services (DB,
+SMTP, Cloud API, notification engine) are mocked. The JWT-dependent
+subset auto-skips when PyJWT isn't installed in the env.
+
+| File | Tests | What it covers |
+|------|-------|----------------|
+| `tests/unit/test_dca_validation_engine.py` | 107 | Field coercion, every rule handler, validate_field orchestrator, conditional visibility, section completeness |
+| `tests/unit/test_dca_schema_loader.py` | 36 | Load/save/delete schemas, inline + file + database lookup resolution, section/field navigation, id sanitization |
+| `tests/unit/test_dca_state_manager.py` | 34 | Session CRUD, field updates, status transitions, chat history, concurrent saves, session-id sanitization |
+| `tests/unit/test_dca_db_lookup.py` | 76 | SQL identifier whitelist (injection firewall), filter operators (eq/ne/gt/lt/contains/in/isnull), template interpolation, query orchestration with pyodbc mocked |
+| `tests/unit/test_dca_auth_token.py` | 0 (skipped — PyJWT) | JWT encode/decode round-trip, expired, bad signature, wrong audience, claim extraction |
+| `tests/unit/test_dca_branding.py` | 43 | Resolution hierarchy (defaults < app < schema < jwt), env-var overrides, CSS sanitization, javascript:/data: URL rejection |
+| `tests/unit/test_dca_actions.py` | 60 | Action registry, pipeline execution, continue_on_error semantics, template substitution, every action's validate_config |
+| `tests/unit/test_dca_schema_validator.py` | 33 | Top-level required, id format, branding rules, section/field validation, conditional refs, action handler delegation |
+| `tests/security/test_dca_identity_and_isolation.py` | 59 (+5 skipped — PyJWT) | Identity resolution priority, session ownership enforcement, JWT-never-admin guarantee, SQL identifier whitelist, JWT rejection paths, path traversal defense |
+
+**DCA live/CC chat test plan:** `e2e_app_tests/production_readiness_round2/24_DCA_COLLECTION_FLOW.md` + `module24_tests.json` — 16 scenarios covering greeting, value resolution (id/label/fuzzy), conditional fields, custom-tool research, back-and-edit, recap, submission. Run via `cc_api_batch.py`.
+
 ### tests/security/ — 4 files, ~113 tests
 Authentication, authorization, encryption, and access control.
 

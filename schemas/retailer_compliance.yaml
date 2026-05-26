@@ -1,0 +1,213 @@
+document_type: retailer_compliance
+description: >
+  Standardized extraction schema for retailer compliance documents.
+  Normalizes requirements across different retailers (Amazon, Walmart, etc.)
+  into a common taxonomy for cross-retailer comparison.
+
+categories:
+  shipping:
+    description: Transportation, freight, and delivery requirements
+    subcategories:
+      pallet_specifications:
+        description: Pallet type, dimensions, weight limits, stacking
+        fields:
+          - name: pallet_type
+            description: Required pallet type (GMA, block, etc.)
+          - name: max_pallet_height
+            description: Maximum total pallet height including product
+          - name: max_pallet_weight
+            description: Maximum pallet weight
+          - name: stacking_requirements
+            description: Stacking limitations and requirements
+          - name: pallet_pattern
+            description: Required pallet pattern or configuration
+      carrier_routing:
+        description: Carrier selection, routing guides, appointment scheduling
+        fields:
+          - name: routing_guide
+            description: Routing guide requirements and compliance
+          - name: carrier_requirements
+            description: Approved carriers or carrier restrictions
+          - name: appointment_scheduling
+            description: Delivery appointment requirements
+          - name: lead_time
+            description: Required lead time for shipments
+      freight_terms:
+        description: FOB, prepaid/collect, freight allowances
+        fields:
+          - name: freight_terms
+            description: FOB point, prepaid vs collect
+          - name: freight_allowance
+            description: Any freight allowance or discount programs
+      delivery_requirements:
+        description: Dock scheduling, unloading, delivery windows
+        fields:
+          - name: delivery_window
+            description: Acceptable delivery windows and hours
+          - name: dock_requirements
+            description: Dock scheduling and unloading requirements
+
+  packaging:
+    description: Product packaging, case pack, and sustainability requirements
+    subcategories:
+      case_pack:
+        description: Case pack configuration and dimensions
+        fields:
+          - name: case_pack_quantity
+            description: Units per case requirements
+          - name: case_dimensions
+            description: Maximum or required case dimensions
+          - name: case_weight
+            description: Maximum case weight
+      inner_pack:
+        description: Inner pack and poly bag requirements
+        fields:
+          - name: inner_pack_requirements
+            description: Inner pack configuration
+          - name: poly_bag_requirements
+            description: Poly bag thickness, warnings, suffocation labels
+      packaging_materials:
+        description: Acceptable materials, sustainability, recyclability
+        fields:
+          - name: material_restrictions
+            description: Prohibited or required packaging materials
+          - name: sustainability_requirements
+            description: Recyclability, compostability, reduced packaging
+      packaging_testing:
+        description: ISTA testing, drop tests, compression tests
+        fields:
+          - name: ista_testing
+            description: Required ISTA test protocols
+          - name: other_testing
+            description: Other packaging test requirements
+
+  labeling:
+    description: Barcode, shipping label, and marking requirements
+    subcategories:
+      barcode_requirements:
+        description: UPC, EAN, GS1-128, GTIN requirements
+        fields:
+          - name: upc_requirements
+            description: UPC/EAN barcode requirements
+          - name: gs1_128_requirements
+            description: GS1-128 shipping label barcode requirements
+          - name: gtin_requirements
+            description: GTIN and item identification requirements
+          - name: barcode_placement
+            description: Barcode placement and sizing specifications
+      shipping_labels:
+        description: Shipping label format, content, placement
+        fields:
+          - name: label_format
+            description: Required shipping label format and content
+          - name: label_placement
+            description: Label placement on cartons and pallets
+          - name: asn_label_requirements
+            description: ASN-linked label requirements
+      carton_markings:
+        description: Carton markings, handling symbols, country of origin
+        fields:
+          - name: carton_markings
+            description: Required carton markings and print
+          - name: country_of_origin
+            description: Country of origin marking requirements
+          - name: handling_symbols
+            description: Required handling and caution symbols
+      product_labeling:
+        description: Product-level labeling requirements
+        fields:
+          - name: product_label_requirements
+            description: Product label content and format requirements
+          - name: price_ticket_requirements
+            description: Price ticket or hang tag requirements
+
+  edi_electronic:
+    description: Electronic data interchange and system requirements
+    subcategories:
+      purchase_orders:
+        description: PO acknowledgment (855), processing requirements
+        fields:
+          - name: po_acknowledgment
+            description: PO acknowledgment (EDI 855) requirements and timing
+          - name: po_processing
+            description: PO processing and acceptance requirements
+      asn:
+        description: Advance Ship Notice (856) requirements
+        fields:
+          - name: asn_requirements
+            description: ASN (EDI 856) format and timing requirements
+          - name: asn_accuracy
+            description: ASN accuracy requirements and tolerances
+      invoicing:
+        description: Invoice (810) submission requirements
+        fields:
+          - name: invoice_requirements
+            description: Invoice (EDI 810) submission requirements
+          - name: invoice_timing
+            description: Invoice submission timing and deadlines
+      item_setup:
+        description: Item setup, catalog, and onboarding data
+        fields:
+          - name: item_setup_requirements
+            description: New item setup data and process requirements
+          - name: catalog_requirements
+            description: Product catalog and content requirements
+
+  quality_testing:
+    description: Product quality, testing, and certification requirements
+    subcategories:
+      product_testing:
+        description: Required product tests and standards
+        fields:
+          - name: testing_standards
+            description: Required testing standards (ASTM, CPSC, etc.)
+          - name: testing_frequency
+            description: How often testing must be performed
+      certifications:
+        description: Required certifications and documentation
+        fields:
+          - name: required_certifications
+            description: Required product certifications
+          - name: coa_requirements
+            description: Certificate of Analysis requirements
+          - name: documentation_requirements
+            description: Required supporting documentation
+      inspection:
+        description: Inspection and quality assurance requirements
+        fields:
+          - name: inspection_requirements
+            description: Pre-shipment or receiving inspection requirements
+          - name: quality_standards
+            description: Quality assurance program requirements
+
+  penalties_chargebacks:
+    description: Non-compliance penalties, chargebacks, and scorecards
+    subcategories:
+      violation_types:
+        description: Types of compliance violations
+        fields:
+          - name: violation_categories
+            description: Categories of compliance violations
+          - name: common_violations
+            description: Commonly cited violation types
+      fine_structure:
+        description: Fine amounts, calculation methods
+        fields:
+          - name: fine_amounts
+            description: Chargeback/fine amounts per violation type
+          - name: fine_calculation
+            description: How fines are calculated (per unit, per PO, flat)
+      dispute_process:
+        description: Dispute windows, appeal process
+        fields:
+          - name: dispute_window
+            description: Time allowed to dispute a chargeback
+          - name: dispute_process
+            description: Process for disputing chargebacks
+      scorecards:
+        description: Vendor scorecards and performance metrics
+        fields:
+          - name: scorecard_metrics
+            description: Key vendor scorecard metrics
+          - name: performance_thresholds
+            description: Minimum performance thresholds

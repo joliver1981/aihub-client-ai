@@ -1,0 +1,37 @@
+{
+  "name": "Test Compliance Schema",
+  "description": "Minimal valid compliance schema used by the compliance test suite. Mirrors the AIExtractNode field-definition shape consumed by ComplianceEngine._custom_fields_to_schema_fields.",
+  "fields": [
+    {
+      "name": "shipping.pallet_specifications.pallet_type",
+      "description": "Required pallet type (GMA, block, etc.)",
+      "type": "text",
+      "required": false
+    },
+    {
+      "name": "shipping.pallet_specifications.max_pallet_height",
+      "description": "Maximum total pallet height including product",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "packaging.case_pack.case_pack_quantity",
+      "description": "Units per case requirements",
+      "type": "number",
+      "required": false
+    },
+    {
+      "name": "notes",
+      "description": "Generic notes captured from the document",
+      "type": "repeated_group",
+      "required": false,
+      "children": [
+        {"name": "topic", "description": "Topic of the note", "type": "text"},
+        {"name": "requirement", "description": "Requirement text", "type": "text"},
+        {"name": "value", "description": "Specific value or threshold", "type": "text"},
+        {"name": "excerpt", "description": "Verbatim excerpt", "type": "text"},
+        {"name": "confidence", "description": "LOW/MED/HIGH", "type": "text"}
+      ]
+    }
+  ]
+}

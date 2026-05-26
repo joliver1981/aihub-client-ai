@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Ops-Room Provenance Badge — Manual Harness</title>
+<link rel="stylesheet" href="../../command_center_service/static/css/ops-room.css" />
+<style>
+    /* Just enough page chrome so the harness is readable. */
+    body.ops-body { padding: 24px; }
+    h1 { font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: .2em; color: var(--ops-accent); }
+    .test-case { margin-bottom: 24px; padding: 12px; background: var(--ops-surface-2); border: 1px solid var(--ops-grid-line); }
+    .test-name { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--ops-text-faint); margin-bottom: 8px; letter-spacing: .14em; text-transform: uppercase; }
+    .ok { color: var(--ops-green); }
+    .fail { color: var(--ops-red); }
+</style>
+</head>
+<body class="ops-body ops-app">
+<h1>PROVENANCE BADGE — RENDER HARNESS</h1>
+<div id="out"></div>
+
+<!-- Inline a copy of just the renderer so this page is self-contained. The real
+     renderer lives in ops-room.js; if you change the inline copy below, please
+     keep ops-room.js: OpsRoom._renderProvenanceBadge / _esc in lock-step. -->
+<script>
+const Mini = {
+    _esc(s) { const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; },
+    _renderProvenanceBadge(provMap, path) {
+        if (!provMap || typeof provMap !== 'object') {
+            return ` <span class="ops-prov-badge ops-prov-missing">?</span>`;
+        }
+        const entry = provMap[path];
+        if (!entry || typeof entry !== 'object') {
+            return ` <span class="ops-prov-badge ops-prov-missing">?</span>`;
+        }
+        const src = String(entry.source || 'unknown');
+        const confidence = (typeof entry.confidence === 'number') ? entry.confidence : null;
+        const lowConf = (confidence !== null && confidence < 0.3);
+        const label = src.replace(/_/g, ' ');
+        const cls = lowConf ? 'ops-prov-badge ops-prov-low' : 'ops-prov-badge';
+        return ` <span class="${cls}" data-source="${this._esc(src)}">${this._esc(label)}</span>`;
+    },
+};
+
+const out = document.getElementById('out');
+function check(name, condition, html) {
+    const div = document.createElement('div');
+    div.className = 'test-case';
+    div.innerHTML = `
+        <div class="test-name">${condition ? '<span class="ok">OK</span>' : '<span class="fail">FAIL</span>'} — ${name}</div>
+        <div>${html}</div>
+    `;
+    out.appendChild(div);
+    return condition;
+}
+
+const cases = [
+    { name: 'db source → green badge', prov: { id: { source: 'db', confidence: 0.95 } }, key: 'id', expected: 'data-source="db"' },
+    { name: 'web_search → blue badge',  prov: { x: { source: 'web_search' } },           key: 'x', expected: 'data-source="web_search"' },
+    { name: 'geocoder → cyan badge',    prov: { lat: { source: 'geocoder', confidence: 0.9 } }, key: 'lat', expected: 'data-source="geocoder"' },
+    { name: 'model_knowledge → amber',  prov: { content: { source: 'model_knowledge', confidence: 0.5 } }, key: 'content', expected: 'data-source="model_knowledge"' },
+    { name: 'low confidence (<0.3) → red class', prov: { x: { source: 'model_knowledge', confidence: 0.2 } }, key: 'x', expected: 'ops-prov-low' },
+    { name: 'missing path → gray missing class', prov: { y: { source: 'db' } }, key: 'x', expected: 'ops-prov-missing' },
+    { name: 'no provenance map → gray missing',  prov: null, key: 'x', expected: 'ops-prov-missing' },
+    { name: 'xss-safe escaping',                 prov: { x: { source: '<script>alert(1)</script>' } }, key: 'x', expected: '&lt;script&gt;' },
+];
+
+for (const c of cases) {
+    const html = Mini._renderProvenanceBadge(c.prov, c.key);
+    const ok = html.includes(c.expected);
+    check(c.name + ` (expects "${c.expected}")`, ok, html);
+}
+</script>
+</body>
+</html>

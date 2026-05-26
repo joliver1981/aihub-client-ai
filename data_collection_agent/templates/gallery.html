@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- TTS queue flush — first script on the page. Chrome persists
+     speechSynthesis utterances across navigations; we drain the queue
+     defensively here so users don't hear old conversation audio in the
+     robot voice when landing on the gallery. -->
+<script src="/data-collection/static/js/dca-tts-flush.js"></script>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = { theme: { extend: { colors: {
+    'cyber-cyan': '#06b6d4', 'cyber-violet': '#a78bfa'
+}}}};
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="/static/css/chat-theme.css">
+<link rel="stylesheet" href="/data-collection/static/css/data-collection.css">
+
+{% if branding_style %}{{ branding_style|safe }}{% endif %}
+{% if safe_favicon_url %}<link rel="icon" href="{{ safe_favicon_url }}">{% endif %}
+
+<style>
+    .dca-gallery-page {
+        min-height: 100vh;
+        background: var(--bg-primary, #0a0a0c);
+        color: var(--text-primary, #fafafa);
+        font-family: 'Outfit', sans-serif;
+        padding: 2rem 1.5rem 4rem 1.5rem;
+    }
+    .dca-gallery-wrap { max-width: 1100px; margin: 0 auto; }
+    .dca-gallery-hero {
+        margin-bottom: 1.5rem;
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 1rem; flex-wrap: wrap;
+    }
+    .dca-gallery-hero h1 {
+        margin: 0;
+        font-size: 1.6rem; font-weight: 600;
+        display: flex; align-items: center; gap: 0.6rem;
+    }
+    .dca-gallery-hero h1 i { color: var(--cyber-cyan, #06b6d4); }
+    .dca-gallery-hero p { margin: 0.4rem 0 0 0; color: var(--text-secondary, #a1a1aa); }
+    .dca-gallery-cta { display: flex; gap: 0.5rem; align-items: center; }
+    .dca-gallery-cta a {
+        display: inline-flex; align-items: center; gap: 0.4rem;
+        padding: 0.55rem 0.9rem;
+        background: linear-gradient(135deg, var(--cyber-cyan, #06b6d4), var(--cyber-violet, #a78bfa));
+        color: #0a0a0c;
+        border-radius: 6px;
+        font-size: 0.85rem; font-weight: 600;
+        text-decoration: none;
+    }
+    .dca-gallery-cta a.secondary {
+        background: rgba(255,255,255,0.05);
+        color: var(--text-primary, #fafafa);
+        border: 1px solid var(--border-color, #27272a);
+    }
+
+    .dca-gallery-grid {
+        display: grid;
+        /* min(100%, 320px) prevents a 320px min-width from overflowing on
+           narrow phone viewports (~360px). Cards collapse to 1 column. */
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+        gap: 1rem;
+    }
+    @media (max-width: 767px) {
+        .dca-gallery-page { padding: 1.25rem 0.85rem 3rem 0.85rem; }
+        .dca-gallery-hero h1 { font-size: 1.3rem; }
+        .dca-gallery-cta { flex-wrap: wrap; }
+        .dca-gallery-cta a { flex: 1 1 auto; min-height: 44px; padding: 0.7rem 0.9rem; }
+        .dca-gallery-card-btn { min-height: 44px; padding: 0.7rem; }
+    }
+    .dca-gallery-card {
+        background: var(--bg-card, #18181b);
+        border: 1px solid var(--border-color, #27272a);
+        border-radius: 10px;
+        padding: 1.1rem;
+        display: flex; flex-direction: column;
+        gap: 0.5rem;
+        transition: border-color 120ms ease, transform 120ms ease;
+        text-decoration: none;
+        color: inherit;
+    }
+    .dca-gallery-card:hover {
+        border-color: var(--cyber-cyan, #06b6d4);
+        transform: translateY(-1px);
+    }
+    .dca-gallery-card-header {
+        display: flex; align-items: center; gap: 0.6rem;
+        margin-bottom: 0.25rem;
+    }
+    .dca-gallery-card-icon {
+        width: 36px; height: 36px;
+        border-radius: 8px;
+        display: flex; align-items: center; justify-content: center;
+        background: rgba(6, 182, 212, 0.15);
+        color: var(--cyber-cyan, #06b6d4);
+        font-size: 1rem;
+    }
+    .dca-gallery-card-title { font-size: 1.05rem; font-weight: 600; flex: 1; }
+    .dca-gallery-card-id {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.7rem;
+        color: var(--text-tertiary, #71717a);
+    }
+    .dca-gallery-card-desc {
+        color: var(--text-secondary, #a1a1aa);
+        font-size: 0.85rem; line-height: 1.4;
+        min-height: 2.4em;
+    }
+    .dca-gallery-card-meta {
+        display: flex; gap: 1rem; align-items: center;
+        font-size: 0.72rem;
+        color: var(--text-tertiary, #71717a);
+        margin-top: 0.4rem;
+    }
+    .dca-gallery-card-meta span i { margin-right: 0.3rem; }
+
+    .dca-gallery-card-footer {
+        margin-top: 0.6rem;
+        display: flex; gap: 0.5rem;
+    }
+    .dca-gallery-card-btn {
+        flex: 1;
+        text-align: center;
+        padding: 0.5rem 0.7rem;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        text-decoration: none;
+        transition: background 120ms ease;
+    }
+    .dca-gallery-card-btn.primary {
+        background: linear-gradient(135deg, var(--cyber-cyan, #06b6d4), var(--cyber-violet, #a78bfa));
+        color: #0a0a0c;
+    }
+    .dca-gallery-card-btn.secondary {
+        background: rgba(255,255,255,0.04);
+        color: var(--text-primary, #fafafa);
+        border: 1px solid var(--border-color, #27272a);
+    }
+    .dca-gallery-card-btn.secondary:hover { background: rgba(6, 182, 212, 0.1); }
+
+    .dca-gallery-empty {
+        text-align: center;
+        padding: 4rem 2rem;
+        color: var(--text-secondary, #a1a1aa);
+        border: 1px dashed var(--border-color, #27272a);
+        border-radius: 12px;
+    }
+    .dca-gallery-empty i {
+        font-size: 2.5rem;
+        color: var(--text-tertiary, #71717a);
+        margin-bottom: 1rem;
+    }
+    .dca-gallery-empty h3 { margin: 0 0 0.5rem 0; color: var(--text-primary, #fafafa); }
+</style>
+
+<div class="dca-gallery-page">
+    <div class="dca-gallery-wrap">
+
+        <div class="dca-gallery-hero">
+            <div>
+                {% if safe_logo_url %}
+                    <h1 style="display:flex;align-items:center;gap:0.6rem;">
+                        <img src="{{ safe_logo_url }}" alt="" style="height:32px;width:auto;max-width:160px;">
+                        {% if branding and branding.display_name %}{{ branding.display_name }}{% else %}Data Collection Agents{% endif %}
+                    </h1>
+                {% else %}
+                    <h1><i class="fas fa-clipboard-list"></i> {% if branding and branding.display_name %}{{ branding.display_name }}{% else %}Data Collection Agents{% endif %}</h1>
+                {% endif %}
+                <p>Pick an agent below to start filling out a guided form, or build a new one.</p>
+            </div>
+            <div class="dca-gallery-cta">
+                <a class="secondary" href="/data-collection/my-sessions"
+                   title="Resume your in-progress sessions">
+                    <i class="fas fa-list-check"></i> My sessions
+                </a>
+                {% if is_admin %}
+                <a class="secondary" href="/data-collection/admin" title="Admin / deployment config">
+                    <i class="fas fa-cogs"></i> Admin
+                </a>
+                <a class="secondary" href="/data-collection/builder">
+                    <i class="fas fa-tools"></i> Open Schema Builder
+                </a>
+                <a href="/data-collection/builder">
+                    <i class="fas fa-plus"></i> Build a new agent
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if is_test_mode %}
+        <div style="margin-bottom:1rem;padding:0.6rem 1rem;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.3);border-radius:6px;color:#fde68a;font-size:0.78rem;">
+            <i class="fas fa-flask"></i>
+            Test mode is ON — auth and ownership checks are bypassed for testing.
+            Set <code style="background:rgba(255,255,255,0.05);padding:0 4px;border-radius:3px;">DATA_COLLECTION_TEST_MODE=False</code> to enforce production rules.
+        </div>
+        {% endif %}
+
+        {% if schemas %}
+        <div class="dca-gallery-grid" id="dcaGalleryGrid">
+            {% for schema in schemas %}
+            <div class="dca-gallery-card">
+                <div class="dca-gallery-card-header">
+                    <div class="dca-gallery-card-icon">
+                        <i class="fas fa-comments"></i>
+                    </div>
+                    <div style="flex:1; min-width:0;">
+                        <div class="dca-gallery-card-title">{{ schema.name }}</div>
+                        <div class="dca-gallery-card-id">{{ schema.id }} &middot; v{{ schema.version }}</div>
+                    </div>
+                </div>
+                <div class="dca-gallery-card-desc">
+                    {% if schema.description %}{{ schema.description }}{% else %}<em style="color:var(--text-tertiary,#71717a)">(no description)</em>{% endif %}
+                </div>
+                <div class="dca-gallery-card-meta">
+                    <span title="Sections"><i class="fas fa-layer-group"></i>{{ schema.section_count }} section{% if schema.section_count != 1 %}s{% endif %}</span>
+                    <span title="Completion actions"><i class="fas fa-bolt"></i>{{ schema.action_count }} action{% if schema.action_count != 1 %}s{% endif %}</span>
+                    {% set in_progress = (user_sessions_by_config or {}).get(schema.id, 0) %}
+                    {% if in_progress > 0 %}
+                    <a href="/data-collection/my-sessions?config_id={{ schema.id }}"
+                       title="Manage your unfinished sessions for this agent"
+                       onclick="event.stopPropagation();"
+                       style="color:var(--cyber-cyan,#06b6d4);text-decoration:none;display:inline-flex;align-items:center;gap:0.3rem;">
+                        <i class="fas fa-clock"></i>
+                        {{ in_progress }} in progress
+                        <i class="fas fa-arrow-right" style="font-size:0.65rem;opacity:0.7;"></i>
+                    </a>
+                    {% endif %}
+                </div>
+                <div class="dca-gallery-card-footer">
+                    <a class="dca-gallery-card-btn primary"
+                       href="/data-collection/{{ schema.id }}"
+                       title="{% if in_progress > 0 %}Resume or start a session{% else %}Start chatting with this data collection agent{% endif %}">
+                        {% if in_progress > 0 %}
+                            <i class="fas fa-play"></i> Open
+                        {% else %}
+                            <i class="fas fa-play"></i> Start
+                        {% endif %}
+                    </a>
+                    {% if is_admin %}
+                    <a class="dca-gallery-card-btn secondary"
+                       href="/data-collection/builder/{{ schema.id }}"
+                       title="Edit this schema in the builder">
+                        <i class="fas fa-edit"></i> Edit
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="dca-gallery-empty">
+            <i class="fas fa-clipboard-list"></i>
+            <h3>No data collection agents yet</h3>
+            {% if is_admin %}
+            <p>Open the Schema Builder to create your first one.</p>
+            {% else %}
+            <p>Ask your administrator to publish a data collection agent.</p>
+            {% endif %}
+            {% if is_admin %}
+            <a class="dca-gallery-card-btn primary" href="/data-collection/builder"
+               style="display:inline-block; margin-top:1rem; padding: 0.6rem 1.5rem;">
+                <i class="fas fa-plus"></i> Build a new agent
+            </a>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if branding and branding.footer_text %}
+        <div style="margin-top:3rem;text-align:center;color:var(--text-tertiary,#71717a);font-size:0.78rem;">
+            {{ branding.footer_text }}
+            {% if branding.support_url %}
+                · <a href="{{ branding.support_url }}" style="color:inherit;text-decoration:underline;">Support</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

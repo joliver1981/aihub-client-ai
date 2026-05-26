@@ -1,6 +1,6 @@
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
 from api_keys_config import get_openai_config
-from langchain_core.tools import tool
+from langchain_core.tools import tool, StructuredTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import AIMessage, HumanMessage
@@ -17,6 +17,12 @@ from logging.handlers import WatchedFileHandler
 import os
 import json
 import pyodbc
+import pandas as pd  # used by dataframe_to_csv() and several other helpers;
+                    # also re-exported via `from AppUtils import *` above,
+                    # but explicit is safer (no hidden dependency on the
+                    # wildcard import staying in place) and lets the
+                    # tests_v2/unit suite — which mocks AppUtils — still
+                    # exercise pandas-using helpers correctly.
 from datetime import datetime
 from LLMDataEngineV2 import LLMDataEngine
 from DocUtils import *
@@ -305,6 +311,103 @@ def get_agent_knowledge_for_user(agent_id, user_id=None):
 #########################
 # TOOLS
 #########################
+@tool
+def calculator(expression: str) -> str:
+    """Evaluates an arithmetic expression and returns the numeric result as a string.
+
+    USE THIS TOOL whenever you need to do math on numbers — addition, subtraction,
+    multiplication, division, percentages, totals, differences, averages, or any
+    multi-step arithmetic. DO NOT compute the result mentally; always call this
+    tool so the result is exact.
+
+    Supported operators: +  -  *  /  //  %  **  (parentheses).
+    Supported functions: abs, round, min, max, sum.
+
+    Examples of valid expressions:
+        "503825.58 - 118884.88"
+        "(248700000 - 181590000) / 248700000 * 100"
+        "round(78650.76 / 289478.82 * 100, 2)"
+        "sum([42, 17, 9, 31])"
+
+    Returns:
+        The numeric result as a string, OR a short error message if the
+        expression is invalid or uses unsupported operations.
+    """
+    import ast
+    import operator as _op
+    import math
+
+    # Whitelist of AST nodes we accept. Everything else is rejected.
+    _BIN_OPS = {
+        ast.Add: _op.add, ast.Sub: _op.sub, ast.Mult: _op.mul,
+        ast.Div: _op.truediv, ast.FloorDiv: _op.floordiv,
+        ast.Mod: _op.mod, ast.Pow: _op.pow,
+    }
+    _UNARY_OPS = {ast.UAdd: _op.pos, ast.USub: _op.neg}
+    _ALLOWED_NAMES = {
+        # Functions
+        'abs': abs, 'round': round, 'min': min, 'max': max, 'sum': sum,
+        # Common math fns
+        'sqrt': math.sqrt, 'pow': pow, 'floor': math.floor,
+        'ceil': math.ceil, 'log': math.log,
+    }
+
+    def _eval(node):
+        # Numeric literal
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, (int, float)):
+                return node.value
+            raise ValueError(f"non-numeric literal: {node.value!r}")
+        # Binary op
+        if isinstance(node, ast.BinOp):
+            op_type = type(node.op)
+            if op_type not in _BIN_OPS:
+                raise ValueError(f"unsupported operator: {op_type.__name__}")
+            return _BIN_OPS[op_type](_eval(node.left), _eval(node.right))
+        # Unary op (e.g., -5)
+        if isinstance(node, ast.UnaryOp):
+            op_type = type(node.op)
+            if op_type not in _UNARY_OPS:
+                raise ValueError(f"unsupported unary operator: {op_type.__name__}")
+            return _UNARY_OPS[op_type](_eval(node.operand))
+        # Function call (e.g. round(...))
+        if isinstance(node, ast.Call):
+            if not isinstance(node.func, ast.Name):
+                raise ValueError("only direct function calls allowed")
+            name = node.func.id
+            if name not in _ALLOWED_NAMES:
+                raise ValueError(f"function not allowed: {name}")
+            args = [_eval(a) for a in node.args]
+            return _ALLOWED_NAMES[name](*args)
+        # List (for sum([...]))
+        if isinstance(node, ast.List):
+            return [_eval(el) for el in node.elts]
+        if isinstance(node, ast.Tuple):
+            return tuple(_eval(el) for el in node.elts)
+        raise ValueError(f"unsupported syntax: {type(node).__name__}")
+
+    try:
+        # Reject strings that contain anything obviously dangerous before
+        # we even parse — extra belt-and-suspenders since the AST walker
+        # below is the real guarantee.
+        expr = expression.strip()
+        if any(bad in expr for bad in (
+            "__", "import", "eval", "exec", "open", "lambda", ";",
+        )):
+            return "Error: expression contains disallowed token"
+        tree = ast.parse(expr, mode='eval')
+        result = _eval(tree.body)
+        # Format ints without trailing .0
+        if isinstance(result, float) and result.is_integer():
+            return str(int(result))
+        return str(result)
+    except ZeroDivisionError:
+        return "Error: division by zero"
+    except (ValueError, SyntaxError) as e:
+        return f"Error: {e}"
+    except Exception as e:
+        return f"Error: {type(e).__name__}: {e}"
+
 @tool
 def get_user_contact_info() -> str:
     """Retrieves a user's contact details (name, email address, and phone number) so the agent can notify them via email, text, or call. Use this tool whenever the agent needs to send a message but doesn't yet have the user's contact information."""
@@ -1982,6 +2085,20 @@ class GeneralAgent():
         else:
             raise ValueError(f'Invalid or missing config for agent {agent_id}')
 
+        # ── Per-agent document-type allow list ──────────────────────────
+        # `None` → no policy (current behavior, all types accessible).
+        # list[str] → agent's documents tools are restricted to those types.
+        # Loaded once here; never mutated. Wrapped tools below close over
+        # this attribute so the LLM cannot escape it via clever args.
+        try:
+            from DataUtils import get_agent_doc_type_allow_list
+            self.allowed_doc_types = get_agent_doc_type_allow_list(agent_id)
+        except Exception as e:
+            logger.warning(f"[doc-type-acl] could not load allow list for agent {agent_id}: {e}")
+            self.allowed_doc_types = None
+        if self.allowed_doc_types:
+            logger.info(f"[doc-type-acl] agent={agent_id} restricted to document_types={self.allowed_doc_types}")
+
         # Initialize agent knowledge
         self.agent_knowledge = []  # Store knowledge items as a list
         self.knowledge_enabled = cfg.ENABLE_AGENT_KNOWLEDGE_MANAGEMENT  # Flag to enable/disable knowledge management
@@ -1990,6 +2107,15 @@ class GeneralAgent():
 
         self.AGENT_NAME = self.agent_config['agent_description']
         self.SYSTEM = self.agent_config['agent_objective']
+
+        # Broadly-applicable arithmetic directive — pairs with the
+        # auto-attached `calculator` tool added in the core-tool loop
+        # below. (BUG-LARGE-PDF-DEGRADATION fix #3.)
+        self.SYSTEM += (
+            "\n\nFor any arithmetic on numbers (subtraction, percentages, "
+            "totals, differences, multi-step calculations), call the "
+            "`calculator` tool. Do not compute results in your head."
+        )
 
         # 1. Load the language model (handles BYOK, direct OpenAI, and Azure)
         self.llm = self._create_llm(temperature=self.TEMPERATURE)
@@ -2068,6 +2194,17 @@ class GeneralAgent():
                     logger.warning(f"Tool '{core_tool}' not found in globals")
                     print(f"Warning: Tool '{core_tool}' not found")
 
+            # Auto-attach the `calculator` tool to EVERY agent regardless
+            # of their configured core_tool_names. LLMs are unreliable
+            # at multi-digit arithmetic; this gives them a deterministic
+            # escape hatch. Agents that don't need math will simply never
+            # call it. (BUG-LARGE-PDF-DEGRADATION fix #3.)
+            if not any(getattr(t, 'name', None) == 'calculator'
+                       for t in self.tools):
+                calculator_tool = globals().get('calculator')
+                if calculator_tool is not None:
+                    self.tools.append(calculator_tool)
+
             # Apply routing hints from core_tools.yaml to tool descriptions
             try:
                 tool_configs = {t['name']: t for t in manager.config.get('tools', [])}
@@ -2115,7 +2252,15 @@ class GeneralAgent():
             # Add knowledge search tool
             if 'agent_config_for_deps' in locals():
                 agent_config_for_deps['has_knowledge'] = True
-            knowledge_tool = KnowledgeTool(agent_id, user_id=user_id)
+            # Pass chat-history AND literal-user-input callbacks so the LLM
+            # document detector can resolve follow-up questions to a previously
+            # named document AND see the actual user message (not the agent's
+            # paraphrased tool query). BUG-NEEDLE-WRONG-DOC-AFTER-CLARIFY fix.
+            knowledge_tool = KnowledgeTool(
+                agent_id, user_id=user_id,
+                get_chat_history=lambda: getattr(self, 'chat_history', None),
+                get_latest_user_input=lambda: getattr(self, '_latest_user_input', None),
+            )
             self.tools.append(knowledge_tool.get_knowledge_tool())
             print(f'Knowledge tool added (found {len(knowledge_docs)} documents)')
 
@@ -2135,6 +2280,12 @@ class GeneralAgent():
                 else:
                     knowledge_prompt += "\n\nIMPORTANT: Use the search_agent_knowledge tool to access text content from these documents when relevant to the user's query."
                 knowledge_prompt += "\n\nGROUNDING RULES: When answering from knowledge documents, cite specific details exactly as they appear in the document. Never fabricate names, numbers, dates, or facts. If you cannot find specific information in the documents, say so rather than guessing. Always prefer quoting the document directly over paraphrasing or inferring."
+                # Broadly-applicable directives for multi-document knowledge bases.
+                # The first turns "multiple candidates" into a useful side-by-side
+                # answer rather than a single one. The second is a small source
+                # hint so users can tell which document each fact came from.
+                knowledge_prompt += "\n\nWhen the same question is answered differently by multiple documents, list each answer with the source filename."
+                knowledge_prompt += "\n\nWhen you answer using information from a document, briefly indicate the source filename."
                 self.SYSTEM += knowledge_prompt
 
             # Add knowledge management tool (NOTE: Knowledge must be initialized for an agent manually via user adding a document to knowledge)
@@ -2199,7 +2350,11 @@ class GeneralAgent():
             logger.info(f"Adding user-specific knowledge...")
             total_user_docs = self.inject_user_knowledge(user_id=user_id)
             if total_user_docs > 0:
-                knowledge_tool = KnowledgeTool(agent_id, user_id=user_id)
+                knowledge_tool = KnowledgeTool(
+                    agent_id, user_id=user_id,
+                    get_chat_history=lambda: getattr(self, 'chat_history', None),
+                    get_latest_user_input=lambda: getattr(self, '_latest_user_input', None),
+                )
                 self.tools.append(knowledge_tool.get_user_knowledge_tool())
                 print(f'User-specific knowledge tool added post knowledge injection.')
             else:
@@ -2262,19 +2417,33 @@ class GeneralAgent():
                 get_mcp_tools_for_agent,
                 get_mcp_system_prompt_addition
             )
-            mcp_tools = get_mcp_tools_for_agent(agent_id)
+            mcp_tools = get_mcp_tools_for_agent(agent_id, user_id=self.user_id)
             if mcp_tools:
                 self.tools.extend(mcp_tools)
                 print(f'MCP tools added: {len(mcp_tools)} tools')
                 logger.info(f"Agent {self.agent_id} loaded {len(mcp_tools)} MCP tools")
 
-                mcp_prompt_addition = get_mcp_system_prompt_addition(agent_id)
+                mcp_prompt_addition = get_mcp_system_prompt_addition(agent_id, user_id=self.user_id)
                 if mcp_prompt_addition:
                     self.SYSTEM += mcp_prompt_addition
         except ImportError as e:
             logger.debug(f"MCP module not available: {e}")
         except Exception as e:
             logger.warning(f"Could not load MCP tools for agent {agent_id}: {e}")
+
+        #########################
+        # Per-agent document-type ACL — wrap document tools BEFORE bind
+        #########################
+        # If the agent has an allow list, replace each of the five
+        # documents-facing tools with a closure that enforces the list at
+        # call time (rejects out-of-list `document_type` args, injects the
+        # allow list into the underlying SQL helpers, and post-checks
+        # by-id retrievals). When the allow list is None this is a no-op
+        # and the existing tools pass through unchanged.
+        try:
+            self.tools = self._apply_doc_type_restrictions(self.tools)
+        except Exception as e:
+            logger.error(f"[doc-type-acl] failed to apply restrictions for agent {agent_id}: {e}")
 
         #########################
         # Bind the tools
@@ -2456,6 +2625,210 @@ class GeneralAgent():
             # Close the connection
             cursor.close()
             conn.close()
+
+
+    def _apply_doc_type_restrictions(self, tools):
+        """Wrap the five documents-facing tools so the per-agent allow list
+        is enforced at call time.
+
+        When ``self.allowed_doc_types`` is ``None`` (no rows in
+        ``[dbo].[AgentDocumentTypes]`` for this agent) this is a pure
+        pass-through: existing agents see no behavior change.
+
+        When the allow list is set:
+          * Each protected tool is replaced with a fresh ``StructuredTool``
+            preserving the original ``name``/``description``/``args_schema``
+            so the LLM's tool contract is unchanged.
+          * The wrapper closes over ``self.agent_id`` and
+            ``self.allowed_doc_types`` and either rejects the call
+            (returning an error JSON the agent can read) or forwards into
+            the underlying SQL helper with ``allowed_document_types=...``
+            so server-side filtering kicks in.
+          * For ``get_document_using_document_id`` the wrapper post-checks
+            the returned doc's ``document_type`` and replaces the body with
+            a uniform "not accessible" error if it falls outside the
+            allow list — uniform on purpose so existence isn't leaked.
+
+        Tools whose names are not in the protected set pass through
+        untouched.
+        """
+        allow = self.allowed_doc_types
+        if not allow:
+            # None or empty list → unrestricted. Critical: this is the
+            # backwards-compat hinge. Existing agents must still see
+            # their tools untouched.
+            return tools
+
+        agent_id = self.agent_id
+        allow_list_for_log = list(allow)
+        allow_set = set(allow)
+
+        def _denied_response(tool_name, requested):
+            logger.warning(
+                f"[doc-type-acl] agent={agent_id} tool={tool_name} DENIED "
+                f"requested={requested!r} allow_list={allow_list_for_log}"
+            )
+            return json.dumps({
+                "results": "",
+                "error": (
+                    f"Access denied: document_type {requested!r} is not "
+                    f"permitted for this agent. Allowed types: "
+                    f"{sorted(allow_list_for_log)}."
+                ),
+            })
+
+        # ── Wrappers for each protected tool ────────────────────────────
+        # Each preserves the LLM-visible argument schema. The bodies call
+        # straight into the DocUtils helpers (already imported via
+        # `from DocUtils import *`) so the `@tool`-decorated wrappers in
+        # this module are bypassed in favor of the same code path with
+        # the new `allowed_document_types` kwarg.
+
+        def _wrapped_search_documents(user_question: str,
+                                      field_filters: List[Dict[str, str]],
+                                      document_type: Optional[str] = None) -> str:
+            if document_type and document_type not in allow_set:
+                return _denied_response('search_documents', document_type)
+            conn_str = get_db_connection_string()
+            include_metadata = False
+            if document_type and field_filters == [] and user_question:
+                include_metadata = True
+            return document_search(
+                conn_str,
+                document_type=document_type,
+                field_filters=field_filters,
+                include_metadata=include_metadata,
+                max_results=cfg.DOC_SEARCH_LIMIT,
+                user_question=user_question,
+                check_completeness=cfg.DOC_CHECK_COMPLETENESS,
+                allowed_document_types=allow_list_for_log,
+            )
+
+        def _wrapped_document_super_search(user_question: str) -> str:
+            # No `document_type` arg from the LLM here, so nothing to
+            # reject up-front; we just plumb the allow list through.
+            conn_str = get_db_connection_string()
+            return document_search_super_enhanced_debug(
+                conn_str,
+                user_question=user_question,
+                max_results=cfg.DOC_SEARCH_LIMIT,
+                check_completeness=cfg.DOC_CHECK_COMPLETENESS,
+                allowed_document_types=allow_list_for_log,
+            )
+
+        def _wrapped_search_documents_meaning(document_type: Optional[str] = None,
+                                              search_query: Optional[str] = None) -> str:
+            if document_type and document_type not in allow_set:
+                return _denied_response('search_documents_meaning', document_type)
+            conn_str = get_db_connection_string()
+            return document_search(
+                conn_str,
+                document_type=document_type,
+                search_query=search_query,
+                include_metadata=False,
+                max_results=cfg.DOC_SEARCH_LIMIT,
+                allowed_document_types=allow_list_for_log,
+            )
+
+        def _wrapped_get_document_universe_metadata(document_types: Optional[List[str]] = None) -> str:
+            # If the LLM asked for specific types, drop any that fall
+            # outside the allow list. If the intersection is empty, fail
+            # closed with a clear error rather than silently broadening.
+            if document_types:
+                kept = [t for t in document_types if t in allow_set]
+                if not kept:
+                    return _denied_response('get_document_universe_metadata', document_types)
+                if len(kept) != len(document_types):
+                    logger.info(
+                        f"[doc-type-acl] agent={agent_id} tool=get_document_universe_metadata "
+                        f"intersected requested {document_types} -> {kept}"
+                    )
+                document_types = kept
+            conn_str = get_db_connection_string()
+            return get_document_universe(
+                conn_str,
+                document_types=document_types,
+                allowed_document_types=allow_list_for_log,
+            )
+
+        def _wrapped_get_document_using_document_id(document_id: str) -> str:
+            # Post-fetch check: get_document_by_id is shared infrastructure
+            # used in many places; we don't push the allow list down into
+            # it. Instead, we read what came back, inspect document_type,
+            # and replace it with a uniform error if the agent isn't
+            # allowed to see this type. The error is intentionally the
+            # same shape as "not found" so the agent can't probe existence.
+            conn_str = get_db_connection_string()
+            raw = get_document_by_id(conn_str, document_id=document_id)
+            try:
+                parsed = json.loads(raw) if isinstance(raw, str) else raw
+            except (TypeError, ValueError):
+                return raw  # opaque payload — pass through (rare)
+            if isinstance(parsed, dict):
+                # Look for document_type at top level, in 'pages'[0], or
+                # in any 'page' key. The function returns multiple shapes
+                # depending on doc page count.
+                doc_type = parsed.get('document_type')
+                if not doc_type:
+                    page = parsed.get('page') or {}
+                    if isinstance(page, dict):
+                        doc_type = page.get('document_type')
+                if not doc_type:
+                    pages = parsed.get('pages') or []
+                    if pages and isinstance(pages, list) and isinstance(pages[0], dict):
+                        doc_type = pages[0].get('document_type')
+                if doc_type and doc_type not in allow_set:
+                    logger.warning(
+                        f"[doc-type-acl] agent={agent_id} tool=get_document_using_document_id "
+                        f"DENIED document_id={document_id} type={doc_type} allow_list={allow_list_for_log}"
+                    )
+                    return json.dumps({
+                        "error": "Document not accessible.",
+                        "page": None,
+                    })
+            return raw
+
+        wrappers = {
+            'search_documents': _wrapped_search_documents,
+            'document_super_search': _wrapped_document_super_search,
+            'search_documents_meaning': _wrapped_search_documents_meaning,
+            'get_document_universe_metadata': _wrapped_get_document_universe_metadata,
+            'get_document_using_document_id': _wrapped_get_document_using_document_id,
+        }
+
+        new_tools = []
+        wrapped_count = 0
+        for t in tools:
+            t_name = getattr(t, 'name', None)
+            wrapper = wrappers.get(t_name)
+            if wrapper is None:
+                new_tools.append(t)
+                continue
+            try:
+                replacement = StructuredTool.from_function(
+                    func=wrapper,
+                    name=t_name,
+                    description=getattr(t, 'description', '') or '',
+                    args_schema=getattr(t, 'args_schema', None),
+                )
+            except Exception as e:
+                # If for any reason we can't build a replacement
+                # StructuredTool, fail CLOSED: drop the tool entirely
+                # rather than leave the unrestricted version in place.
+                # Better the agent get "tool unavailable" than leak data.
+                logger.error(
+                    f"[doc-type-acl] could not wrap tool {t_name} for agent "
+                    f"{agent_id}; dropping it. Cause: {e}"
+                )
+                continue
+            new_tools.append(replacement)
+            wrapped_count += 1
+
+        logger.info(
+            f"[doc-type-acl] agent={agent_id} wrapped {wrapped_count} document tool(s); "
+            f"allow_list={allow_list_for_log}"
+        )
+        return new_tools
 
 
     def _append_date_to_agent_log(self):
@@ -2743,6 +3116,8 @@ class GeneralAgent():
             if context:
                 full_message += f"\n\nContext: {json.dumps(context)}"
 
+            # Stash input for knowledge-tool doc detector (inter-agent path).
+            self._latest_user_input = full_message
             # Process through the agent executor
             response = self.agent_executor.invoke({
                 "input": full_message,
@@ -2915,6 +3290,15 @@ class GeneralAgent():
                 "relevant to the user's query. For Excel spreadsheet analysis, use the "
                 "Excel-specific tools (analyze_excel_data, read_excel_data, etc.) instead."
             )
+            # Broadly-applicable directives for multi-document knowledge bases —
+            # same directives applied in the agent-level knowledge branch above.
+            knowledge_prompt += (
+                "\nWhen the same question is answered differently by multiple documents, "
+                "list each answer with the source filename."
+            )
+            knowledge_prompt += (
+                "\nWhen you answer using information from a document, briefly indicate the source filename."
+            )
 
             # Update system prompt with user knowledge
             self.SYSTEM = self._base_system_prompt + knowledge_prompt
@@ -2975,6 +3359,13 @@ class GeneralAgent():
             self._set_user_request_id()
 
             print("Invoking agent...")
+            # Stash the literal user input so knowledge tools (and their LLM
+            # document detector) can see the actual user message — not just the
+            # paraphrased `query` that the agent crafts for the tool call.
+            # Closes BUG-NEEDLE-WRONG-DOC-AFTER-CLARIFY follow-up: the agent
+            # sometimes strips the document name from the tool query, breaking
+            # the detector when it had no other way to see "I mean Continental".
+            self._latest_user_input = input_prompt
             result = self.agent_executor.invoke({"input": input_prompt, "chat_history": self.chat_history})
 
             # Extract the output from the result
@@ -3099,6 +3490,9 @@ class GeneralAgent():
                 rich_content_manager.cleanup(str(user_id) if user_id else "0")
 
                 print("Invoking agent...")
+                # Stash literal user input for the knowledge tool's doc detector
+                # (see comment at GeneralAgent.run for rationale).
+                self._latest_user_input = input_prompt
                 result = self.agent_executor.invoke({"input": input_prompt, "chat_history": self.chat_history})
 
                 # Extract the output from the result
@@ -3238,6 +3632,8 @@ class GeneralAgent():
             if context:
                 full_message += f"\n\nContext: {json.dumps(context)}"
 
+            # Stash input for knowledge-tool doc detector (inter-agent path).
+            self._latest_user_input = full_message
             # Process through the agent executor
             response = self.agent_executor.invoke({
                 "input": full_message,

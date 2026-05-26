@@ -1,0 +1,139 @@
+{
+  "session_id": "7f6d5730-894c-4ca8-af6a-b3e0d14311e3",
+  "config_id": "example",
+  "user_id": "test_user",
+  "status": "submitted",
+  "current_section_id": "details",
+  "collected_data": {
+    "basics": {
+      "submitter_name": "james",
+      "submitter_email": "j@j.com",
+      "request_type": "type_c",
+      "target_date": "2026-06-20"
+    },
+    "details": {
+      "title": "App Testing",
+      "description": "Test the new user app for the users and signoff",
+      "needs_followup": false
+    }
+  },
+  "section_status": {
+    "basics": "complete",
+    "details": "complete"
+  },
+  "validation_errors": {},
+  "chat_history": [
+    {
+      "role": "assistant",
+      "content": "Hi! I\u2019ll help you fill out the intake form. We\u2019ll go through 2 sections: **Basic Information** and **Details**.\n\nLet\u2019s start with **Basic Information**: **What\u2019s your name?**",
+      "ts": "2026-05-07T01:14:44.758830"
+    },
+    {
+      "role": "user",
+      "content": "james",
+      "ts": "2026-05-07T01:14:51.929925"
+    },
+    {
+      "role": "assistant",
+      "content": "Thanks, James. What email address should we use to contact you?",
+      "ts": "2026-05-07T01:14:51.929925"
+    },
+    {
+      "role": "user",
+      "content": "j@j.com,",
+      "ts": "2026-05-07T01:15:04.826708"
+    },
+    {
+      "role": "assistant",
+      "content": "Got it \u2014 I\u2019ve saved **j@j.com**.\n\nWhat kind of request is this?",
+      "ts": "2026-05-07T01:15:04.826708"
+    },
+    {
+      "role": "user",
+      "content": "c",
+      "ts": "2026-05-07T01:15:13.381910"
+    },
+    {
+      "role": "assistant",
+      "content": "Got it \u2014 I\u2019ve marked this as **Type C (Custom)**.\n\nWhen do you need this by? It needs to be **at least 7 days from today**.",
+      "ts": "2026-05-07T01:15:13.381910"
+    },
+    {
+      "role": "user",
+      "content": "2 weeks from now",
+      "ts": "2026-05-07T01:15:25.703819"
+    },
+    {
+      "role": "assistant",
+      "content": "Perfect \u2014 I\u2019ve saved the target date.\n\nNext, in **Details**: what\u2019s the **title** of this request?",
+      "ts": "2026-05-07T01:15:25.703819"
+    },
+    {
+      "role": "user",
+      "content": "App Testing",
+      "ts": "2026-05-07T01:15:36.567938"
+    },
+    {
+      "role": "assistant",
+      "content": "Got it \u2014 the title is **App Testing**.\n\nPlease describe what you need in a few sentences.",
+      "ts": "2026-05-07T01:15:36.567938"
+    },
+    {
+      "role": "user",
+      "content": "Test the new user app for the users and signoff",
+      "ts": "2026-05-07T01:15:58.051150"
+    },
+    {
+      "role": "assistant",
+      "content": "Thanks \u2014 I\u2019ve saved the description.\n\nDoes this request need a follow-up call? **Yes or no**.",
+      "ts": "2026-05-07T01:15:58.051150"
+    },
+    {
+      "role": "user",
+      "content": "no",
+      "ts": "2026-05-07T01:16:08.910673"
+    },
+    {
+      "role": "assistant",
+      "content": "Thanks \u2014 I\u2019ve saved **no follow-up call**.\n\nEverything is complete, and I\u2019ve moved us to the recap. Please review it and tell me if it looks good to submit.",
+      "ts": "2026-05-07T01:16:08.910673"
+    },
+    {
+      "role": "system",
+      "content": "User updated 'Target Date' to '2026-06-20' via the progress panel.",
+      "ts": "2026-05-07T01:16:21.964344"
+    }
+  ],
+  "submission_log": [
+    {
+      "action_type": "email",
+      "label": "Notify intake team",
+      "success": true,
+      "message": "Sent to 1 recipient(s).",
+      "details": {
+        "recipients": [
+          "intake@example.com"
+        ],
+        "cc": [
+          "j@j.com"
+        ],
+        "subject": "New type_c: App Testing"
+      },
+      "duration_ms": 412,
+      "ts": "2026-05-07T01:16:30.636127"
+    }
+  ],
+  "created_at": "2026-05-07T01:14:41.924065",
+  "updated_at": "2026-05-07T01:16:30.650125",
+  "submitted_at": "2026-05-07T01:16:30.650125",
+  "user_name": null,
+  "user_email": null,
+  "external_callback_url": null,
+  "external_callback_secret_ref": null,
+  "return_url": null,
+  "branding_override": null,
+  "voice_mode": false,
+  "rendered_lookups": [
+    "request_types"
+  ]
+}

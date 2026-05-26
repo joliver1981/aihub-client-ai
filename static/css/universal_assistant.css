@@ -677,8 +677,27 @@
     .ua-container {
         --ua-border: #000000;
     }
-    
+
     .ua-theme-dark {
         --ua-border: #ffffff;
     }
+}
+
+/* ==========================================================================
+   Chat-page positioning fix
+   --------------------------------------------------------------------------
+   On pages with a chat input row (.chat-send-btn present — currently
+   /chat and /data_chat), the default bottom-right UA toggle position
+   (bottom:24px) sits directly on top of the chat send button at common
+   viewport widths (1366x768, 768x1024, 375x812). Users couldn't actually
+   click "Send". This rule lifts the toggle above the chat input area
+   only on pages where the conflict exists; non-chat pages are unchanged.
+
+   :has() is supported in every current major browser; uses higher
+   specificity than the base ".ua-container.ua-bottom-right" rule so it
+   also overrides the mobile media-query default safely.
+   ========================================================================== */
+body:has(.chat-send-btn) .ua-container.ua-bottom-right,
+body:has(.chat-send-btn) .ua-container.ua-bottom-left {
+    bottom: 96px;
 }

@@ -1242,6 +1242,15 @@ textarea[name="approvalData"].is-invalid {
                 <div class="tool-item" draggable="true" data-type="Human Approval">
                     <i class="bi bi-person-check"></i> Human Approval
                 </div>
+
+                <!-- Compliance -->
+                <div class="category-header">Compliance</div>
+                <div class="tool-item" draggable="true" data-type="Compliance Process">
+                    <i class="bi bi-clipboard-check"></i> Compliance Process
+                </div>
+                <div class="tool-item" draggable="true" data-type="Compliance Excel Export">
+                    <i class="bi bi-file-earmark-excel"></i> Compliance Excel Export
+                </div>
             </div>
             
             <!-- Canvas -->
@@ -1585,6 +1594,8 @@ textarea[name="approvalData"].is-invalid {
     <!-- AI Extract Node -->
     <script src="{{ url_for('static', filename='js/ai_extract_node.js') }}"></script>
     <script src="{{ url_for('static', filename='js/excel_export_node.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/compliance_process_node.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/compliance_export_node.js') }}"></script>
 
     <!-- 
     Workflow Assistant Widget (Microservice Version)

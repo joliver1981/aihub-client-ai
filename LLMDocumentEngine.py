@@ -2498,21 +2498,22 @@ class LLMDocumentProcessor:
     def _process_word_document(self, file_path, document_type):
         """Process Word documents"""
         self.logger.info(f"Processing Word document: {file_path}")
-        
+
         try:
             # Try to use python-docx for .docx files
             if file_path.lower().endswith('.docx'):
                 import docx
+                from docx.oxml.ns import qn
                 doc = docx.Document(file_path)
-                
+
                 # Extract text from paragraphs
                 pages = []
                 full_text = ""
-                
+
                 for para in doc.paragraphs:
                     if para.text.strip():
                         full_text += para.text.strip() + "\n\n"
-                
+
                 # Extract text from tables
                 for table in doc.tables:
                     table_text = ""
@@ -2520,18 +2521,42 @@ class LLMDocumentProcessor:
                         row_text = " | ".join([cell.text.strip() for cell in row.cells])
                         table_text += row_text + "\n"
                     full_text += "\n" + table_text + "\n\n"
-                    
+
+                # Headers and footers (per section) — often contain titles, dates,
+                # form field labels that the high-level paragraphs/tables miss
+                for section in doc.sections:
+                    for hf in (section.header, section.footer):
+                        for para in hf.paragraphs:
+                            if para.text.strip():
+                                full_text += para.text.strip() + "\n"
+                        for table in hf.tables:
+                            for row in table.rows:
+                                row_text = " | ".join([cell.text.strip() for cell in row.cells])
+                                if row_text.strip():
+                                    full_text += row_text + "\n"
+
+                # Text boxes / shapes — content lives in w:txbxContent elements
+                # that python-docx does NOT expose via doc.paragraphs/doc.tables.
+                # This is the main reason "modern" Word docs (forms, brochures,
+                # callouts) appeared empty in earlier extractions.
+                txbx_tag = qn('w:txbxContent')
+                t_tag = qn('w:t')
+                for txbx in doc.element.iter(txbx_tag):
+                    box_text = "".join(t.text for t in txbx.iter(t_tag) if t.text)
+                    if box_text.strip():
+                        full_text += box_text.strip() + "\n"
+
                 # Handle as a single page document
                 pages.append({
                     "page_number": 1,
                     "text": full_text.strip()
                 })
-                
+
                 return pages
-                
+
             # For .doc files or if python-docx fails, use Claude Vision
             return self._process_generic_file(file_path, document_type)
-            
+
         except Exception as e:
             self.logger.error(f"Error processing Word document: {str(e)}")
             # Fallback to generic handling
@@ -2775,12 +2800,256 @@ class LLMDocumentProcessor:
         return "\n".join(lines)
 
     # =========================================================================
+    # Excel formula precomputation
+    # =========================================================================
+
+    def _excel_eval_simple_formula(self, formula, sheet):
+        """
+        Evaluate simple Excel formulas (SUM/AVERAGE/MIN/MAX/COUNT over ranges or
+        cell lists, plus basic arithmetic on cell refs and constants).
+
+        Returns the numeric result, or None if the formula uses anything we
+        don't support (string functions, IF/VLOOKUP, cross-sheet refs, etc.).
+        This is a best-effort helper for workbooks created programmatically
+        (e.g., by openpyxl) which never had their formula cache populated by
+        Excel or LibreOffice.
+        """
+        import re
+
+        if not isinstance(formula, str) or not formula.startswith('='):
+            return None
+        expr = formula[1:].strip()
+
+        def cell_value(ref):
+            try:
+                v = sheet[ref].value
+            except Exception:
+                return None
+            if v is None:
+                return 0.0
+            if isinstance(v, str) and v.startswith('='):
+                return None  # unresolved nested formula
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return None
+
+        def collect_range_values(token):
+            """Collect numeric values for a SUM/AVG/etc. argument: a range
+            (A1:B5), single cell (A1), or comma-separated list."""
+            parts = [p.strip() for p in token.split(',')]
+            vals = []
+            for part in parts:
+                if ':' in part:
+                    try:
+                        cells = sheet[part]
+                    except Exception:
+                        return None
+                    if not isinstance(cells, tuple):
+                        cells = ((cells,),)
+                    for row in cells:
+                        if not isinstance(row, tuple):
+                            row = (row,)
+                        for c in row:
+                            v = c.value
+                            if isinstance(v, str) and v.startswith('='):
+                                return None
+                            if v is None:
+                                continue
+                            try:
+                                vals.append(float(v))
+                            except (TypeError, ValueError):
+                                pass
+                else:
+                    v = cell_value(part)
+                    if v is None:
+                        return None
+                    vals.append(v)
+            return vals
+
+        # Replace simple function calls with their numeric result.
+        # Only handles non-nested function calls — multi-pass below picks up
+        # the rest once inner calls resolve.
+        func_re = re.compile(
+            r'(SUM|AVERAGE|AVG|MIN|MAX|COUNT)\(([^()]+)\)', re.IGNORECASE
+        )
+
+        def repl_func(m):
+            fn = m.group(1).upper()
+            arg = m.group(2).strip()
+            vals = collect_range_values(arg)
+            if vals is None:
+                raise ValueError("unresolved")
+            if not vals:
+                return '0'
+            if fn == 'SUM':
+                return str(sum(vals))
+            if fn in ('AVERAGE', 'AVG'):
+                return str(sum(vals) / len(vals))
+            if fn == 'MIN':
+                return str(min(vals))
+            if fn == 'MAX':
+                return str(max(vals))
+            if fn == 'COUNT':
+                return str(len(vals))
+            raise ValueError("unsupported")
+
+        try:
+            for _ in range(5):
+                new_expr = func_re.sub(repl_func, expr)
+                if new_expr == expr:
+                    break
+                expr = new_expr
+
+            # Replace remaining cell references with their numeric value.
+            cell_re = re.compile(r'\b([A-Z]+\d+)\b')
+
+            def repl_cell(m):
+                v = cell_value(m.group(1))
+                if v is None:
+                    raise ValueError("unresolved cell")
+                return repr(v)
+
+            expr = cell_re.sub(repl_cell, expr)
+
+            # Whitelist only arithmetic characters before eval.
+            if not re.match(r'^[\d\s+\-*/().eE]+$', expr):
+                return None
+
+            return eval(expr, {"__builtins__": {}}, {})  # nosec - input is whitelisted
+        except Exception:
+            return None
+
+    def _excel_precompute_uncached_formulas(self, file_path):
+        """
+        Workbooks generated programmatically (openpyxl, xlsxwriter, etc.)
+        often have formula cells with NO cached value. With data_only=True,
+        those cells read back as None — which propagates into pd.read_excel
+        and produces empty rows for totals/subtotals (BUG-KNOWLEDGE-EXCEL-
+        FORMULA-CELLS).
+
+        We try to compute those uncached formulas with a small built-in
+        evaluator (SUM/AVERAGE/MIN/MAX/COUNT + arithmetic on cell refs),
+        write the result into the formula cell, and save to a temp xlsx.
+        The caller uses that temp file for extraction and is responsible
+        for deleting it.
+
+        Returns (path_to_use, was_temp).  If no precompute is needed (no
+        uncached formulas, or no formula at all), returns (file_path, False).
+        """
+        import openpyxl
+        import tempfile
+
+        try:
+            wb_vals = openpyxl.load_workbook(file_path, data_only=True)
+            wb_form = openpyxl.load_workbook(file_path, data_only=False)
+        except Exception as e:
+            self.logger.warning(f"Could not open workbook for formula precompute: {e}")
+            return file_path, False
+
+        # Build a quick map of (sheet, coord) -> needs_compute
+        targets = []  # list of (sheet_name, coord)
+        try:
+            for sn in wb_form.sheetnames:
+                sh_f = wb_form[sn]
+                sh_v = wb_vals[sn] if sn in wb_vals.sheetnames else None
+                if sh_v is None:
+                    continue
+                for row in sh_f.iter_rows():
+                    for cell in row:
+                        v = cell.value
+                        if isinstance(v, str) and v.startswith('='):
+                            cached = sh_v[cell.coordinate].value
+                            if cached is None:
+                                targets.append((sn, cell.coordinate))
+        finally:
+            wb_vals.close()
+
+        if not targets:
+            wb_form.close()
+            return file_path, False
+
+        self.logger.info(
+            f"Excel file has {len(targets)} uncached formula cell(s); "
+            f"attempting in-process precompute"
+        )
+
+        # Multi-pass evaluation so formulas that depend on other formulas
+        # resolve in later passes once their dependencies are filled.
+        resolved_total = 0
+        for _pass in range(10):
+            changed_this_pass = 0
+            remaining = []
+            for sn, coord in targets:
+                sh = wb_form[sn]
+                cell = sh[coord]
+                if not (isinstance(cell.value, str) and cell.value.startswith('=')):
+                    # Already resolved in an earlier pass.
+                    continue
+                result = self._excel_eval_simple_formula(cell.value, sh)
+                if result is None:
+                    remaining.append((sn, coord))
+                    continue
+                cell.value = result
+                changed_this_pass += 1
+                resolved_total += 1
+            targets = remaining
+            if changed_this_pass == 0:
+                break
+
+        if resolved_total == 0:
+            wb_form.close()
+            self.logger.info("Excel formula precompute: no formulas could be resolved")
+            return file_path, False
+
+        # Save to a temp file so pd.read_excel sees the computed numbers.
+        tmp = tempfile.NamedTemporaryFile(
+            suffix='.xlsx', prefix='aihub_xlsx_precomputed_', delete=False
+        )
+        tmp.close()
+        try:
+            wb_form.save(tmp.name)
+            wb_form.close()
+            self.logger.info(
+                f"Excel formula precompute: resolved {resolved_total} formula(s), "
+                f"wrote {tmp.name}"
+            )
+            return tmp.name, True
+        except Exception as e:
+            wb_form.close()
+            self.logger.warning(f"Failed to save precomputed xlsx: {e}")
+            try:
+                import os as _os
+                _os.unlink(tmp.name)
+            except Exception:
+                pass
+            return file_path, False
+
+    # =========================================================================
     # Excel Main Processor
     # =========================================================================
 
     def _process_excel(self, file_path, document_type):
         """Process Excel spreadsheets with AI-guided structure detection"""
         self.logger.info(f"Processing Excel document: {file_path}")
+
+        # BUG-KNOWLEDGE-EXCEL-FORMULA-CELLS: workbooks created programmatically
+        # often lack cached formula values. Pre-compute simple formulas (SUM,
+        # AVERAGE, arithmetic on cell refs) into a temp xlsx so the rest of
+        # the extraction path sees the computed numbers instead of None.
+        precomputed_path = file_path
+        precomputed_is_temp = False
+        try:
+            precomputed_path, precomputed_is_temp = (
+                self._excel_precompute_uncached_formulas(file_path)
+            )
+        except Exception as e:
+            self.logger.warning(f"Excel formula precompute step failed: {e}")
+            precomputed_path = file_path
+            precomputed_is_temp = False
+
+        # From here on, use precomputed_path for extraction.
+        file_path = precomputed_path
 
         try:
             import openpyxl
@@ -2907,6 +3176,17 @@ class LLMDocumentProcessor:
             self.logger.error(f"Error processing Excel document: {str(e)}")
             # Fallback to generic handling
             return self._process_generic_file(file_path, document_type)
+        finally:
+            # Clean up the precomputed temp file if we made one.
+            if precomputed_is_temp:
+                try:
+                    import os as _os
+                    _os.unlink(precomputed_path)
+                except Exception as _e:
+                    self.logger.debug(
+                        f"Could not remove precomputed temp xlsx "
+                        f"{precomputed_path}: {_e}"
+                    )
 
     # def _process_powerpoint(self, file_path, document_type):
     #     """Process PowerPoint presentations"""

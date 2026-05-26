@@ -1276,6 +1276,247 @@ const nodeConfigTemplates = {
     }
     },
 
+   'Compliance Process': {
+        template: `
+            <div class="compliance-process-config">
+                <!-- File source -->
+                <div class="mb-3">
+                    <label class="form-label fw-bold">File Source</label>
+                    <input type="text" class="form-control" name="inputVariable"
+                        placeholder="\${selectedFile} or \${documentPath}">
+                    <small class="form-text text-muted">Variable holding the file path of the compliance document to process. Typically comes from an upstream Document, File, or Folder Selector node.</small>
+                </div>
+
+                <!-- Routing mode -->
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Routing Mode</label>
+                    <select class="form-select" name="routingMode" id="cp-routing-mode" onchange="ComplianceProcessNode.onRoutingModeChange(this)">
+                        <option value="fixed">Fixed — pick retailer &amp; set now</option>
+                        <option value="dynamic">Dynamic — resolve from variables</option>
+                    </select>
+                    <small class="form-text text-muted">Choose how this node decides which retailer / set to load the document into.</small>
+                </div>
+
+                <!-- Fixed mode: retailer/set dropdowns -->
+                <div id="cp-fixed-section">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Retailer</label>
+                        <select class="form-select" name="retailerId" id="cp-retailer" onchange="ComplianceProcessNode.onRetailerChange(this)">
+                            <option value="">Loading…</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Document Set</label>
+                        <select class="form-select" name="setId" id="cp-set">
+                            <option value="">Choose a retailer first</option>
+                        </select>
+                        <small class="form-text text-muted">Document Sets are managed in <a href="/compliance" target="_blank">Retailer Compliance</a>.</small>
+                    </div>
+                </div>
+
+                <!-- Dynamic mode: variable refs -->
+                <div id="cp-dynamic-section" style="display:none;">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Retailer Name Variable</label>
+                        <input type="text" class="form-control" name="retailerNameVar"
+                            placeholder="\${retailerName}">
+                        <small class="form-text text-muted">Variable that resolves to the retailer name (e.g., from filename parsing or folder structure).</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Set Category Variable</label>
+                        <input type="text" class="form-control" name="setCategoryVar"
+                            placeholder="\${docCategory}">
+                        <small class="form-text text-muted">Variable that resolves to the set category (e.g., "domestic", "international").</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">If Retailer / Set Doesn't Exist</label>
+                        <select class="form-select" name="onMissing" id="cp-on-missing" onchange="ComplianceProcessNode._toggleAgentOptions && ComplianceProcessNode._toggleAgentOptions()">
+                            <option value="error">Error (recommended)</option>
+                            <option value="auto_create">Auto-create</option>
+                        </select>
+                        <small class="form-text text-muted">Auto-create avoids errors but risks typo-driven duplicates ("Amazon" vs "amazon").</small>
+                    </div>
+
+                    <!-- Agent auto-creation (only relevant when onMissing=auto_create) -->
+                    <div id="cp-agent-options" style="display:none; border-left: 3px solid #0d6efd; padding-left: 12px; margin-left: 4px;">
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input" name="autoCreateAgent" id="cp-auto-create-agent" value="true">
+                                <label class="form-check-label fw-bold" for="cp-auto-create-agent">Auto-create Agent</label>
+                            </div>
+                            <small class="form-text text-muted">When a new set is created, also create a dedicated agent with knowledge search and link it to the set.</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Agent Mode</label>
+                            <select class="form-select" name="agentMode" id="cp-agent-mode" onchange="ComplianceProcessNode._toggleRetailerOverrideRow && ComplianceProcessNode._toggleRetailerOverrideRow()">
+                                <option value="per_retailer">Per Retailer — one agent shared across all sets</option>
+                                <option value="per_set">Per Set — separate agent for each set</option>
+                            </select>
+                            <small class="form-text text-muted">Per Retailer: a single agent is shared across every category for the retailer. Per Set: each set category gets its own dedicated agent.</small>
+                        </div>
+                        <div class="mb-3" id="cp-retailer-agent-override-row">
+                            <label class="form-label fw-bold">Retailer Agent Override <small class="text-muted">(optional, per_retailer mode only)</small></label>
+                            <select class="form-select" name="retailerAgentOverrideId" id="cp-retailer-agent-override">
+                                <option value="">— Auto-detect (recommended) —</option>
+                            </select>
+                            <small class="form-text text-muted">
+                                Auto-detect tries (1) an agent named exactly <code>Compliance - {{retailer_name}}</code>, then (2) any agent already linked to 2+ sets for the retailer. Use this override only when you have a custom-named agent that the auto-detection won't find yet (e.g. linked to only one set so far). Once set, this exact agent is always used for per_retailer mode.
+                            </small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Agent Objective Template <small class="text-muted">(optional)</small></label>
+                            <textarea class="form-control" name="agentObjectiveTemplate" rows="3"
+                                placeholder="You are a knowledge assistant for {{retailer_name}}. Answer questions using the documents in your knowledge base."></textarea>
+                            <small class="form-text text-muted">Custom objective for auto-created agents. Available placeholders: <code>{{retailer_name}}</code>, <code>{{set_category}}</code>. Leave blank for a sensible default.</small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Optional agent override -->
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Agent Override <small class="text-muted">(optional)</small></label>
+                    <select class="form-select" name="agentOverrideId" id="cp-agent-override">
+                        <option value="">— Use the agent assigned to the set —</option>
+                    </select>
+                    <small class="form-text text-muted">Rare. Override which agent's knowledge base receives this document.</small>
+                </div>
+
+                <!-- Optional Excel template -->
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Excel Template Path <small class="text-muted">(optional)</small></label>
+                    <input type="text" class="form-control" name="excelTemplatePath"
+                        placeholder="C:\\templates\\compliance.xlsx or \${templatePath}">
+                    <small class="form-text text-muted">If provided, the extracted requirements are written to this Excel template.</small>
+                </div>
+
+                <!-- Output variable -->
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Output Variable</label>
+                    <input type="text" class="form-control" name="outputVariable"
+                        placeholder="complianceResult" value="complianceResult">
+                    <small class="form-text text-muted">
+                        Stores the result for downstream nodes. Access via
+                        \${complianceResult.version_number}, \${complianceResult.requirements_count},
+                        \${complianceResult.is_duplicate}, \${complianceResult.change_summary}, etc.
+                    </small>
+                </div>
+            </div>
+        `,
+        defaultConfig: {
+            inputVariable: '',
+            routingMode: 'fixed',
+            setId: '',
+            retailerNameVar: '',
+            setCategoryVar: '',
+            onMissing: 'error',
+            autoCreateAgent: false,
+            agentMode: 'per_retailer',
+            retailerAgentOverrideId: '',
+            agentObjectiveTemplate: '',
+            agentOverrideId: '',
+            excelTemplatePath: '',
+            outputVariable: 'complianceResult'
+        }
+    },
+
+   'Compliance Excel Export': {
+        template: `
+            <div class="compliance-excel-export-config">
+                <!-- Source mode -->
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Source Mode</label>
+                    <select class="form-select" name="sourceMode" id="cee-source-mode" onchange="ComplianceExportNode.onSourceModeChange(this)">
+                        <option value="version">By Version Variable — chain from another node</option>
+                        <option value="latest_in_set">Latest version of a set — picked automatically</option>
+                    </select>
+                    <small class="form-text text-muted">
+                        Choose how this node decides which version of requirements to export.
+                    </small>
+                </div>
+
+                <!-- Version-variable mode -->
+                <div id="cee-version-section">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Version Variable</label>
+                        <input type="text" class="form-control" name="versionVariable"
+                            placeholder="\${complianceResult.version_id}">
+                        <small class="form-text text-muted">
+                            Variable resolving to the <code>version_id</code> of the compliance document version to export.
+                            Most commonly chained from a Compliance Process node as
+                            <code>\${complianceResult.version_id}</code>. Can also be a literal id from a Set Variable node.
+                        </small>
+                    </div>
+                </div>
+
+                <!-- Latest-in-set mode -->
+                <div id="cee-set-section" style="display:none;">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Retailer</label>
+                        <select class="form-select" name="retailerId" id="cee-retailer" onchange="ComplianceExportNode.onRetailerChange(this)">
+                            <option value="">Loading…</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Document Set</label>
+                        <select class="form-select" name="setId" id="cee-set">
+                            <option value="">Choose a retailer first</option>
+                        </select>
+                        <small class="form-text text-muted">
+                            The node will look up the current (latest) version of this set at execution time
+                            and export its requirements. Useful for scheduled workflows that don't have an
+                            upstream Compliance Process node.
+                        </small>
+                    </div>
+                </div>
+
+                <!-- Output path -->
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Output Path <small class="text-muted">(optional)</small></label>
+                    <input type="text" class="form-control" name="outputPath"
+                        placeholder="C:\\exports\\req_v\${complianceExportResult.version_number}.xlsx">
+                    <small class="form-text text-muted">
+                        Destination .xlsx file. May contain <code>\${variable}</code> references. If empty,
+                        the file is auto-saved to <code>data/compliance_exports/</code> with a timestamped name.
+                    </small>
+                </div>
+
+                <!-- Output variable -->
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Output Variable</label>
+                    <input type="text" class="form-control" name="outputVariable"
+                        placeholder="complianceExportResult" value="complianceExportResult">
+                    <small class="form-text text-muted">
+                        Stores the result for downstream nodes. Access via
+                        <code>\${complianceExportResult.file_path}</code>,
+                        <code>\${complianceExportResult.version_id}</code>,
+                        <code>\${complianceExportResult.version_number}</code>,
+                        <code>\${complianceExportResult.requirements_count}</code>,
+                        <code>\${complianceExportResult.success}</code>,
+                        <code>\${complianceExportResult.error}</code>.
+                    </small>
+                </div>
+
+                <div class="alert alert-info small mt-2 mb-0">
+                    <strong>Two ways to use this node:</strong><br>
+                    <strong>1.</strong> Chain it after a Compliance Process node and use
+                    <code>\${complianceResult.version_id}</code> as the Version Variable — exports whatever was
+                    just extracted.<br>
+                    <strong>2.</strong> Switch Source Mode to "Latest version of a set" to skip the chaining and
+                    just export whatever the current version of a chosen set happens to be — useful for scheduled
+                    or on-demand workflows. The output workbook is identical to the
+                    "Download Excel" button in the Retailer Compliance UI either way.
+                </div>
+            </div>
+        `,
+        defaultConfig: {
+            sourceMode: 'version',
+            versionVariable: '',
+            setId: '',
+            outputPath: '',
+            outputVariable: 'complianceExportResult'
+        }
+    },
+
    'AI Extract': {
         template: `
             <div class="ai-extract-config">
@@ -2247,6 +2488,20 @@ function configureNode() {
                         }
                     }, 100);
                 }
+            } else if (nodeType == 'Compliance Process') {
+                console.log('Initializing Compliance Process node...');
+                if (typeof ComplianceProcessNode !== 'undefined') {
+                    setTimeout(() => {
+                        ComplianceProcessNode.init(currentConfig || {});
+                    }, 100);
+                }
+            } else if (nodeType == 'Compliance Excel Export') {
+                console.log('Initializing Compliance Excel Export node...');
+                if (typeof ComplianceExportNode !== 'undefined') {
+                    setTimeout(() => {
+                        ComplianceExportNode.init(currentConfig || {});
+                    }, 100);
+                }
             }
 
                         // For Folder Selector, populate the variable dropdown for output variable
@@ -2280,7 +2535,17 @@ function configureNode() {
                             console.log('Select option with value "' + value + '" not found');
                         }
                     } else {
-                        input.value = value;
+                        // Hidden fields used by composite node types (Integration node's
+                        // `parameters` and `operationMeta`) hold OBJECTS in the saved
+                        // config. Plain `input.value = obj` coerces to "[object Object]"
+                        // via Object.prototype.toString, which then explodes on JSON.parse
+                        // at save time. Stringify objects/arrays before assignment so the
+                        // round-trip is lossless. Primitives pass through unchanged.
+                        if (value !== null && typeof value === 'object') {
+                            input.value = JSON.stringify(value);
+                        } else {
+                            input.value = (value === undefined || value === null) ? '' : value;
+                        }
                     }
                 } else if (input === null) {
                     // Handle case where we're dealing with a radio group
@@ -2372,6 +2637,19 @@ function saveNodeConfig() {
             const exportConfig = ExcelExportNode.getConfig();
             // Merge all config properties
             Object.assign(config, exportConfig);
+        }
+
+        // Special handling for Integration node - parameters are a dynamic dict
+        // collected from per-operation form inputs. The generic input-iteration
+        // above can't reliably reconstruct the parameters object (the hidden
+        // JSON field gets reset on panel rebuild), so we delegate to the
+        // module's getConfig() which calls updateIntegrationParametersJson()
+        // first to capture the current values.
+        if (nodeType === 'Integration' && typeof collectIntegrationNodeConfig === 'function') {
+            const intConfig = collectIntegrationNodeConfig();
+            // Merge into config — overwrites any stale values the generic
+            // collector picked up (e.g. an empty parameters: "{}" string).
+            Object.assign(config, intConfig);
         }
         
         console.log(`Saving node config: ${formatJsonOutput(config)}`);
@@ -2937,7 +3215,13 @@ function loadWorkflow(workflow) {
             
             contentContainer.appendChild(icon);
             //contentContainer.appendChild(document.createTextNode(' ' + node.label));
-            contentContainer.appendChild(document.createTextNode(' ' + (node.type === 'Loop' ? 'Start Loop' : node.label)));
+            // Use the saved label for every node type. For Loop nodes, fall
+            // back to "Start Loop" only when no label was set (e.g. legacy
+            // workflows saved before user renames were preserved on load).
+            // Previously this branch hardcoded "Start Loop" unconditionally,
+            // which silently discarded user renames on every reload.
+            const displayLabel = (node.type === 'Loop' && !node.label) ? 'Start Loop' : node.label;
+            contentContainer.appendChild(document.createTextNode(' ' + displayLabel));
             element.appendChild(contentContainer);
             
             // Add endpoints

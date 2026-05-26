@@ -8,7 +8,26 @@ from app_knowledge_api import app
 import logging
 
 # Configure logging for production
-_APP_ROOT = os.path.abspath(os.getenv('APP_ROOT', os.path.dirname(os.path.abspath(__file__))))
+def _find_app_root():
+    """Resolve the AIHub installation root, where the shared logs/ folder lives.
+
+    Three-step fallback:
+      1. APP_ROOT env var if explicitly set.
+      2. PyInstaller frozen mode — walk up from sys.executable. Each service exe
+         lives at <AIHub>/<service>/<service>.exe, so grandparent = AIHub root.
+         This path must work even before .env is loaded (NSSM doesn't inherit
+         our .env automatically, and the entry script can't reliably load it
+         before this log setup runs).
+      3. Dev mode — wsgi files sit at the project root.
+    """
+    explicit = os.getenv('APP_ROOT')
+    if explicit:
+        return os.path.abspath(explicit)
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(os.path.dirname(os.path.abspath(sys.executable)))
+    return os.path.dirname(os.path.abspath(__file__))
+
+_APP_ROOT = _find_app_root()
 _default_log = os.path.join(_APP_ROOT, 'logs', 'wsgi_knowledge_api_log.txt')
 os.makedirs(os.path.dirname(_default_log), exist_ok=True)
 
@@ -27,7 +46,10 @@ logging.basicConfig(
 )
 
 # Get configuration from environment variables with sensible defaults
-host = os.getenv('HOST', '0.0.0.0')
+# Internal service — bind to loopback by default. Override via INTERNAL_HOST only if
+# you actually need this service reachable from another machine. Single-machine
+# installs (the standard case) should leave this as 127.0.0.1.
+host = os.getenv('INTERNAL_HOST', '127.0.0.1')
 port = int(os.getenv('HOST_PORT', 5001)) + 50
 threads = int(os.getenv('KNOWLEDGE_SERVER_THREADS', 4))
 connection_limit = int(os.getenv('SERVER_CONNECTION_LIMIT', 1000))

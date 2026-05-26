@@ -73,10 +73,10 @@
                                 <div class="form-group">
                                     <label for="knowledge-file"><strong>Document:</strong></label>
                                     <div class="custom-file">
-                                        <input type="file" class="custom-file-input" id="knowledge-file" name="file" accept=".pdf,.docx,.xlsx,.txt,.jpg,.jpeg,.png">
+                                        <input type="file" class="custom-file-input" id="knowledge-file" name="file" accept=".pdf,.docx,.txt,.jpg,.jpeg,.png">
                                         <label class="custom-file-label" for="knowledge-file">Choose file...</label>
                                     </div>
-                                    <small class="form-text text-muted">Supported formats: PDF, DOCX, XLSX, TXT, JPG, PNG</small>
+                                    <small class="form-text text-muted">Supported formats: PDF, DOCX, TXT, JPG, PNG</small>
                                 </div>
                                 <button type="submit" class="btn btn-success btn-block" id="add-knowledge-btn">
                                     <i class="fas fa-plus mr-1"></i> Add Document
@@ -162,7 +162,20 @@
         
         // File input change event to show selected filename
         document.getElementById('knowledge-file').addEventListener('change', function(e) {
-            const fileName = e.target.files[0]?.name || 'Choose file...';
+            const f = e.target.files[0];
+            // Reject Excel files — kept blocked at the UI even if a user
+            // selected "All files" in the picker (which bypasses accept=).
+            if (f) {
+                const lower = f.name.toLowerCase();
+                const excelExts = ['.xlsx', '.xls', '.xlsm', '.xlsb'];
+                if (excelExts.some(ext => lower.endsWith(ext))) {
+                    showToast("Excel files aren't supported as agent knowledge.", 'warning');
+                    e.target.value = '';
+                    document.querySelector('.custom-file-label').textContent = 'Choose file...';
+                    return;
+                }
+            }
+            const fileName = f?.name || 'Choose file...';
             document.querySelector('.custom-file-label').textContent = fileName;
         });
         
@@ -607,7 +620,6 @@ window.assistantPageContext = {
         data.supportedFileTypes = [
             { extension: '.pdf', description: 'PDF documents' },
             { extension: '.docx', description: 'Word documents' },
-            { extension: '.xlsx', description: 'Excel spreadsheets' },
             { extension: '.txt', description: 'Text files' },
             { extension: '.jpg/.png', description: 'Images' }
         ];

@@ -130,9 +130,113 @@ class IntegrationTemplateLoader:
             self._cache_time = None
     
     def reload(self):
-        """Force reload all templates from disk."""
+        """Force reload all templates from disk AND sync builtin file
+        templates back into the IntegrationTemplates DB table so that
+        existing user integrations pick up new/changed operations."""
         self._invalidate_cache()
-        return self.load_all_templates()
+        templates = self.load_all_templates()
+        try:
+            synced = self.sync_builtin_to_db()
+            logger.info(
+                f"reload(): synced {synced} builtin template rows from disk "
+                f"to IntegrationTemplates table"
+            )
+        except Exception as e:
+            # Don't fail reload if DB sync fails — in-memory cache is still refreshed.
+            logger.warning(f"reload(): builtin->DB sync failed (non-fatal): {e}")
+        return templates
+
+    def sync_builtin_to_db(self) -> int:
+        """For every builtin template file on disk, upsert its content into
+        the IntegrationTemplates table. This is what makes new operations
+        added to a JSON file visible to existing UserIntegrations rows
+        (which reference IntegrationTemplates via template_id and read the
+        operations column from there at execute time).
+
+        Only touches rows where is_builtin = 1, so user-customised templates
+        in the DB are not overwritten.
+
+        Returns the number of rows upserted.
+        """
+        import os
+        import json as _json
+        try:
+            from CommonUtils import get_db_connection
+        except ImportError:
+            logger.warning("sync_builtin_to_db: CommonUtils not available, skipping")
+            return 0
+
+        if not self.builtin_dir.exists():
+            return 0
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+
+        count = 0
+        for path in self.builtin_dir.glob('*.json'):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    tpl = _json.load(f)
+            except Exception as e:
+                logger.warning(f"sync_builtin_to_db: failed to read {path}: {e}")
+                continue
+
+            template_key = tpl.get('template_key')
+            if not template_key:
+                continue
+
+            # Check whether a row already exists
+            cursor.execute(
+                "SELECT template_id, is_builtin FROM IntegrationTemplates "
+                "WHERE template_key = ?",
+                template_key,
+            )
+            row = cursor.fetchone()
+
+            payload = (
+                tpl.get('platform_name'),
+                tpl.get('platform_category'),
+                tpl.get('description'),
+                tpl.get('logo_url'),
+                tpl.get('auth_type'),
+                _json.dumps(tpl.get('auth_config', {})),
+                tpl.get('base_url'),
+                _json.dumps(tpl.get('default_headers', {})),
+                _json.dumps(tpl.get('operations', [])),
+            )
+
+            if row:
+                # Only refresh rows we own (is_builtin = 1). Leave user-customised
+                # templates alone even if they share a key.
+                if row[1] != 1 and row[1] is not None:
+                    logger.info(
+                        f"sync_builtin_to_db: skipping {template_key} — "
+                        f"DB row is_builtin={row[1]} (not 1)"
+                    )
+                    continue
+                cursor.execute("""
+                    UPDATE IntegrationTemplates
+                       SET platform_name = ?, platform_category = ?, description = ?,
+                           logo_url = ?, auth_type = ?, auth_config = ?, base_url = ?,
+                           default_headers = ?, operations = ?, is_builtin = 1,
+                           is_active = 1
+                     WHERE template_key = ?
+                """, payload + (template_key,))
+            else:
+                cursor.execute("""
+                    INSERT INTO IntegrationTemplates (
+                        template_key, platform_name, platform_category, description,
+                        logo_url, auth_type, auth_config, base_url, default_headers,
+                        operations, is_builtin, is_active
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1)
+                """, (template_key,) + payload)
+            count += 1
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return count
     
     def load_all_templates(self) -> Dict[str, Any]:
         """
@@ -379,8 +483,9 @@ class IntegrationTemplateLoader:
             'CRM': {'icon': 'bi-people', 'order': 3},
             'Payments': {'icon': 'bi-credit-card', 'order': 4},
             'Communication': {'icon': 'bi-chat-dots', 'order': 5},
-            'Productivity': {'icon': 'bi-grid', 'order': 6},
-            'Cloud Storage': {'icon': 'bi-cloud', 'order': 7},
+            'Document Management': {'icon': 'bi-folder2-open', 'order': 6},
+            'Productivity': {'icon': 'bi-grid', 'order': 7},
+            'Cloud Storage': {'icon': 'bi-cloud', 'order': 8},
             'Custom': {'icon': 'bi-code-slash', 'order': 99},
             'Other': {'icon': 'bi-box', 'order': 100}
         }

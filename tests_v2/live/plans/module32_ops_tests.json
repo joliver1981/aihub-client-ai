@@ -1,0 +1,226 @@
+{
+  "$schema": "module32_ops_tests",
+  "description": "Live smoke tests for the Ops Command Room API and SSE stream. Verifies KPI tiles increment, the feed seeds from the trace store, and the broadcast stream emits per-chat events.",
+  "base_url_env": "CC_BASE_URL",
+  "default_base_url": "http://localhost:5091",
+  "main_app_base_url_env": "AI_HUB_BASE_URL",
+  "main_app_default_base_url": "http://localhost:5001",
+  "auth": {
+    "method": "none",
+    "notes": "/api/ops/* is unauthenticated by design today (see routes/ops.py docstring). The reverse proxy is the only gate. If your deployment adds auth, set api_key/header here."
+  },
+  "global_polling": {
+    "interval_seconds": 1,
+    "max_seconds": 60
+  },
+  "stages": [
+    {
+      "id": "OPS-1",
+      "name": "Load /ops page",
+      "method": "GET",
+      "path": "/ops",
+      "expected_status": 200,
+      "expected_content_type_prefix": "text/html",
+      "expected_body_contains": ["ops_room", "map", "kpi"],
+      "notes": "If CC_UI=next_gen the same UI also served at '/'. Either path is acceptable."
+    },
+    {
+      "id": "OPS-2",
+      "name": "Baseline KPI snapshot",
+      "method": "GET",
+      "path": "/api/ops/kpis",
+      "expected_status": 200,
+      "expected_json_shape": {
+        "sessions": {"value": "int", "trend": "str", "tone": "str"},
+        "traces_24h": {"value": "int", "trend": "str", "tone": "str"},
+        "in_flight": {"value": "int", "trend": "str", "tone": "str"},
+        "map_pts_session": {"value": "int", "trend": "str", "tone": "str"},
+        "graph_ready": "bool",
+        "ts": "iso8601"
+      },
+      "expected_values": {
+        "graph_ready": true
+      },
+      "capture": {
+        "baseline_sessions": "$.sessions.value",
+        "baseline_traces_24h": "$.traces_24h.value"
+      }
+    },
+    {
+      "id": "OPS-3",
+      "name": "Baseline feed snapshot",
+      "method": "GET",
+      "path": "/api/ops/feed?limit=10",
+      "expected_status": 200,
+      "expected_json_shape": {
+        "entries": "list"
+      },
+      "capture": {
+        "baseline_feed_count": "$.entries | length"
+      }
+    },
+    {
+      "id": "OPS-4",
+      "name": "Stream connectivity",
+      "method": "GET",
+      "path": "/api/ops/stream",
+      "headers": {"Accept": "text/event-stream"},
+      "stream": true,
+      "expected_status": 200,
+      "expected_content_type_prefix": "text/event-stream",
+      "expected_first_event": {
+        "event": "ready",
+        "data_contains_keys": ["ts"]
+      },
+      "max_wait_seconds": 5,
+      "leave_open": true,
+      "notes": "Keep this connection open for OPS-5. After 15s of silence a ': keepalive' comment line is emitted."
+    },
+    {
+      "id": "OPS-5",
+      "name": "Chat triggers ops events",
+      "preconditions": ["OPS-4 stream is open"],
+      "actions": [
+        {
+          "method": "POST",
+          "path_on_main_app": "/api/chat",
+          "body": {
+            "message": "What time is it?",
+            "user_context": {"user_id": 1, "role": 2, "tenant_id": 1}
+          },
+          "stream": true,
+          "wait_for_event": "done",
+          "max_wait_seconds": 30
+        }
+      ],
+      "expected_stream_events_from_OPS_4": [
+        {"event": "ops", "kind": "info", "text_matches": "chat · request open"},
+        {"event": "ops", "kind": "info", "text_matches": "trace ·"},
+        {"event": "ops", "kind": "ok", "text_matches": "done"},
+        {"event": "ops", "kind": "ok", "text_matches": "request closed"}
+      ]
+    },
+    {
+      "id": "OPS-6",
+      "name": "KPIs increment after chat",
+      "method": "GET",
+      "path": "/api/ops/kpis",
+      "expected_status": 200,
+      "assertions": [
+        "$.traces_24h.value >= ${OPS-2.capture.baseline_traces_24h} + 1",
+        "$.in_flight.value == 0",
+        "$.sessions.value >= ${OPS-2.capture.baseline_sessions}"
+      ]
+    },
+    {
+      "id": "OPS-7",
+      "name": "Chat producing a map block",
+      "method": "POST",
+      "path_on_main_app": "/api/chat",
+      "body": {
+        "message": "show me sales by region in the US on a map",
+        "user_context": {"user_id": 1, "role": 2, "tenant_id": 1}
+      },
+      "stream": true,
+      "wait_for_event": "done",
+      "max_wait_seconds": 60,
+      "capture": {
+        "session_id_from_response": "events.session.session_id"
+      },
+      "post_assertions": [
+        "events.response.blocks contains a block with type=map and markers[*].lat != 0.0"
+      ],
+      "notes": "If your tenant has no agents capable of producing geographic data, this stage may fall back to a generic response — skip OPS-8 in that case."
+    },
+    {
+      "id": "OPS-8",
+      "name": "Session-points exposes geocoded markers with provenance",
+      "method": "GET",
+      "path": "/api/ops/session-points",
+      "query": {"session_id": "${OPS-7.capture.session_id_from_response}"},
+      "expected_status": 200,
+      "skip_if_missing": "OPS-7.capture.session_id_from_response",
+      "expected_json_shape": {
+        "session_id": "str",
+        "points": "list",
+        "session_map_block_count": "int"
+      },
+      "assertions": [
+        "$.session_map_block_count >= 1",
+        "$.points | length >= 1",
+        "all($.points[*].lat != 0.0)",
+        "all($.points[*].lng != 0.0)",
+        "all($.points[*]._provenance.lat.source == \"geocoder\")"
+      ]
+    },
+    {
+      "id": "OPS-9",
+      "name": "Concurrent in-flight counter",
+      "actions": [
+        {
+          "parallel_count": 3,
+          "method": "POST",
+          "path_on_main_app": "/api/chat",
+          "body": {
+            "message": "describe in two sentences how the AI Hub works",
+            "user_context": {"user_id": 1, "role": 2, "tenant_id": 1}
+          },
+          "stream": true,
+          "wait_for_event": "done",
+          "max_wait_seconds": 90
+        }
+      ],
+      "during_actions": [
+        {
+          "poll_path": "/api/ops/kpis",
+          "interval_seconds": 1,
+          "max_polls": 20,
+          "capture_max": {"peak_in_flight": "$.in_flight.value"}
+        }
+      ],
+      "assertions": [
+        "captures.peak_in_flight >= 2"
+      ]
+    },
+    {
+      "id": "OPS-10",
+      "name": "Error path emits alert event",
+      "method": "POST",
+      "path_on_main_app": "/api/chat",
+      "body": {
+        "message": "trigger an error please (graph mock)",
+        "user_context": {"user_id": -999, "role": -1, "tenant_id": -1}
+      },
+      "stream": true,
+      "max_wait_seconds": 30,
+      "expected_stream_events_from_OPS_4": [
+        {"event": "ops", "kind": "alert", "text_matches": "error"}
+      ],
+      "notes": "This stage is best-effort. If the graph happily handles the bogus user_context, no alert is emitted and the stage is skipped rather than failed."
+    },
+    {
+      "id": "OPS-11",
+      "name": "Stream reconnect",
+      "actions": [
+        {"action": "close_stream", "target": "OPS-4"},
+        {
+          "method": "GET",
+          "path": "/api/ops/stream",
+          "headers": {"Accept": "text/event-stream"},
+          "stream": true,
+          "expected_first_event": {"event": "ready"},
+          "max_wait_seconds": 5
+        }
+      ]
+    }
+  ],
+  "cleanup": [
+    {
+      "method": "DELETE",
+      "path_on_main_app": "/api/sessions/${OPS-7.capture.session_id_from_response}",
+      "skip_if_missing": "OPS-7.capture.session_id_from_response",
+      "optional": true,
+      "notes": "Optional — only fires if you want to clean up the test session afterwards."
+    }
+  ]
+}

@@ -29,7 +29,13 @@
     --scrollbar-track:#18181b;
 
     font-family: 'Outfit', sans-serif;
-    background: var(--bg-primary) !important;
+    /* Noise texture painted as background-attachment:fixed so it stays
+       viewport-locked during scroll. Layered over the solid theme color.
+       This replaces an earlier `::before` overlay that required z-index hacks
+       on every child of .doc-page and broke nested Bootstrap modals. */
+    background:
+        url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E") repeat fixed,
+        var(--bg-primary) !important;
     color: var(--text-primary);
     min-height: 100vh;
 }
@@ -48,41 +54,6 @@
     --text-muted:    #94a3b8;
     --scrollbar-thumb:#cbd5e1;
     --scrollbar-track:#f1f5f9;
-}
-
-/* ===== NOISE TEXTURE OVERLAY ===== */
-.doc-page::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
-    pointer-events: none;
-    z-index: 0;
-}
-
-.doc-page > *:not(.modal):not(.approval-modal):not(.feedback-container):not(.feedback-detail-panel):not(.panel-overlay):not(.loading-overlay):not(.workflow-assistant-container):not(.debug-panel):not(.context-menu) {
-    position: relative;
-    z-index: 1;
-}
-
-/* Ensure Bootstrap modals stack above the backdrop regardless of DOM position */
-.doc-page .modal {
-    z-index: 1055 !important;
-}
-.modal-backdrop {
-    z-index: 1050 !important;
-}
-
-/* When a Bootstrap modal is open, neutralise the stacking context the rule
- * above creates on direct children of .doc-page. Without this, any modal
- * nested inside a wrapper (like <div class="container-fluid">, which is the
- * norm on users.html and friends) is bounded by its ancestor's z-index:1
- * and ends up UNDER the modal-backdrop (z-index:1050) no matter how high
- * the modal's own z-index is — producing the "black overlay, clicks do
- * nothing" symptom. Bootstrap adds `modal-open` to <body> only while a
- * modal is visible, so this only relaxes stacking when needed. */
-body.modal-open .doc-page > *:not(.modal):not(.approval-modal):not(.modal-backdrop):not(.feedback-container):not(.feedback-detail-panel):not(.panel-overlay):not(.loading-overlay):not(.workflow-assistant-container):not(.debug-panel):not(.context-menu) {
-    z-index: auto;
 }
 
 /* Workflow AI Builder modal — dark theme */
@@ -1148,4 +1119,66 @@ body.theme-forced .doc-theme-toggle {
 /* ===== HORIZONTAL RULE ===== */
 .doc-page hr {
     border-color: var(--border-subtle);
+}
+
+/* ===== ACCORDION (Bootstrap 5) ===== */
+.doc-page .accordion {
+    --bs-accordion-bg: var(--bg-card);
+    --bs-accordion-color: var(--text-primary);
+    --bs-accordion-border-color: var(--border-subtle);
+    --bs-accordion-btn-color: var(--text-primary);
+    --bs-accordion-btn-bg: var(--bg-card);
+    --bs-accordion-active-color: var(--text-primary);
+    --bs-accordion-active-bg: var(--bg-elevated);
+    --bs-accordion-btn-focus-border-color: var(--border-accent);
+    --bs-accordion-btn-focus-box-shadow: 0 0 0 0.15rem rgba(6, 182, 212, 0.25);
+    background: transparent;
+}
+
+.doc-page .accordion-item {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border-color: var(--border-subtle);
+}
+
+.doc-page .accordion-button {
+    background: var(--bg-card);
+    color: var(--text-primary);
+}
+
+.doc-page .accordion-button:not(.collapsed) {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    box-shadow: inset 0 -1px 0 var(--border-subtle);
+}
+
+/* Bootstrap's chevron icon is a black SVG by default — recolor for dark theme */
+.doc-page .accordion-button::after {
+    filter: invert(1) grayscale(100%) brightness(2);
+}
+
+.doc-page.light-mode .accordion-button::after {
+    filter: none;
+}
+
+.doc-page .accordion-body {
+    background: var(--bg-card);
+    color: var(--text-primary);
+}
+
+/* ===== LIST GROUP ===== */
+.doc-page .list-group {
+    background: transparent;
+}
+
+.doc-page .list-group-item {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border-color: var(--border-subtle);
+}
+
+.doc-page .list-group-item-action:hover,
+.doc-page .list-group-item-action:focus {
+    background: var(--bg-hover);
+    color: var(--text-primary);
 }

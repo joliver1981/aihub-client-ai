@@ -544,7 +544,21 @@
                                                 <label for="name"><strong>Agent Name:</strong></label>
                                                 <input type="text" id="name" name="name" class="form-control form-control-sm" readonly>
                                             </div>
-                                            
+
+                                            <div class="form-group">
+                                                <div class="custom-control custom-checkbox">
+                                                    <input type="checkbox" class="custom-control-input" id="allow_personal_connections" checked>
+                                                    <label class="custom-control-label" for="allow_personal_connections">
+                                                        <strong>Allow personal connections</strong>
+                                                    </label>
+                                                </div>
+                                                <small class="text-muted d-block mt-1" style="margin-left:1.6rem;">
+                                                    When ON (default), this agent automatically picks up the calling user's authorized services from
+                                                    <em>My Connections</em> (e.g., Microsoft 365 mail/calendar). Turn off to restrict the agent to
+                                                    admin-assigned tools only.
+                                                </small>
+                                            </div>
+
                                             <div class="row">
                                                 <!-- Enhanced Core Tools section -->
                                                 <div class="col-md-6">
@@ -639,6 +653,54 @@
                                                 </div>
                                             </div>
                                             
+                                            <!-- Document-Type Allow List (per-agent restriction) -->
+                                            <!--
+                                                Lets an admin restrict the documents tool to specific
+                                                document types. Empty selection = unrestricted (matches
+                                                "no rows in [dbo].[AgentDocumentTypes]"). On save, the
+                                                values are POSTed to /add/agent as `allowed_document_types`
+                                                and the wrapper layer in GeneralAgent enforces them at
+                                                tool-call time.
+                                            -->
+                                            <div id="doc-type-restriction-card" class="card mt-3">
+                                                <div class="card-header">
+                                                    <h6 class="mb-0">
+                                                        <i class="fas fa-shield-alt"></i> Document Type Restrictions
+                                                        <small class="text-muted ml-2">(security)</small>
+                                                    </h6>
+                                                </div>
+                                                <div class="card-body">
+                                                    <div class="form-group mb-2">
+                                                        <label for="allowed-document-types" class="mb-1">
+                                                            Restrict the documents tool to these types:
+                                                        </label>
+                                                        <select multiple
+                                                                id="allowed-document-types"
+                                                                name="allowed-document-types"
+                                                                class="form-control"
+                                                                size="6"
+                                                                style="min-height: 140px;"></select>
+                                                    </div>
+                                                    <div class="mb-2">
+                                                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                                onclick="docTypeSelectAll()">
+                                                            Select All
+                                                        </button>
+                                                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                                onclick="docTypeClear()">
+                                                            Clear
+                                                        </button>
+                                                    </div>
+                                                    <small class="text-muted d-block">
+                                                        <i class="fas fa-info-circle"></i>
+                                                        Leave empty to allow all document types. Selecting types
+                                                        restricts this agent to read only those types.
+                                                        Note: this restriction applies to the documents search tools;
+                                                        documents attached as Knowledge may include other types.
+                                                    </small>
+                                                </div>
+                                            </div>
+
                                             <!-- Dependency Info Panel -->
                                             <div id="dependency-info-panel" class="card mt-3" style="display: none;">
                                                 <div class="card-header">
@@ -650,7 +712,7 @@
                                                     <div id="dependency-list"></div>
                                                     <div class="mt-2">
                                                         <small class="text-muted">
-                                                            <i class="fas fa-info-circle"></i> 
+                                                            <i class="fas fa-info-circle"></i>
                                                             Dependencies are automatically included when you select tools.
                                                         </small>
                                                     </div>
@@ -1740,10 +1802,13 @@ function switchToolsView(view) {
         document.getElementById('agent_id').value = agent.agent_id;
         document.getElementById('name').readOnly = false;
         document.getElementById('objective').readOnly = false;
-        
+        // Personal-connections flag — defaults ON if backend hasn't returned the field yet
+        const apcCb = document.getElementById('allow_personal_connections');
+        if (apcCb) apcCb.checked = (agent.allow_personal_connections === undefined) ? true : !!agent.allow_personal_connections;
+
         // Clear existing selections first
         clearCheckboxes();
-        
+
         // Reconstruct the tools array from the database structure
         const tools = [];
         if (agent.tool_names && agent.custom_tool) {
@@ -1754,12 +1819,113 @@ function switchToolsView(view) {
                 });
             }
         }
-        
+
         checkAgentTools(tools);
-        
+
+        // Populate the document-type allow list for this agent.
+        // Done after the doc-types <select> options have been hydrated by
+        // ensureDocTypeOptionsLoaded() at modal init; if that hasn't run
+        // yet (e.g. fast nav) we await it here so the marks land on the
+        // right options.
+        ensureDocTypeOptionsLoaded()
+            .then(() => loadAgentDocTypeRestrictions(agent.agent_id))
+            .catch(err => console.warn('Doc-type allow list load skipped:', err));
+
         // Show email card and update URLs
         showEmailCard(agent.agent_id);
     }
+
+    // ── Document-type allow list helpers ────────────────────────────────
+    // The <select id="allowed-document-types"> is populated once per
+    // page load from /api/get_document_types. Marks are repainted each
+    // time an agent is selected via /api/get_agent_doc_type_restrictions.
+
+    let _docTypeOptionsPromise = null;
+    function ensureDocTypeOptionsLoaded() {
+        if (_docTypeOptionsPromise) return _docTypeOptionsPromise;
+        const sel = document.getElementById('allowed-document-types');
+        if (!sel) {
+            _docTypeOptionsPromise = Promise.resolve();
+            return _docTypeOptionsPromise;
+        }
+        // The main app exposes /api/document-types (returns a list of
+        // {name, count} objects). The doc service has a different
+        // /api/get_document_types route that returns {document_types: [...]}
+        // — but that's on the doc-service port and isn't reachable from
+        // the agent-builder page. Read the main-app shape and fall back
+        // to the doc-service shape if a future deployment swaps endpoints.
+        _docTypeOptionsPromise = fetch('/api/document-types', { credentials: 'same-origin' })
+            .then(r => {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(data => {
+                let types = [];
+                if (Array.isArray(data)) {
+                    // [{name: "invoice", count: 12}, ...]
+                    types = data.map(d => (d && (d.name || d.document_type))).filter(Boolean);
+                } else if (data && Array.isArray(data.document_types)) {
+                    // {"document_types": ["invoice", ...]}
+                    types = data.document_types;
+                }
+                sel.innerHTML = '';
+                if (types.length === 0) {
+                    const opt = document.createElement('option');
+                    opt.disabled = true;
+                    opt.textContent = '(no document types found in this tenant)';
+                    sel.appendChild(opt);
+                    return;
+                }
+                types.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t;
+                    opt.textContent = t;
+                    sel.appendChild(opt);
+                });
+            })
+            .catch(err => {
+                console.error('Failed to load document types:', err);
+                sel.innerHTML = '';
+                const opt = document.createElement('option');
+                opt.disabled = true;
+                opt.textContent = '(could not load document types)';
+                sel.appendChild(opt);
+                _docTypeOptionsPromise = null;  // allow retry on next agent select
+            });
+        return _docTypeOptionsPromise;
+    }
+
+    function loadAgentDocTypeRestrictions(agentId) {
+        if (!agentId) return Promise.resolve();
+        return fetch(`/api/get_agent_doc_type_restrictions/${agentId}`)
+            .then(r => r.json())
+            .then(data => {
+                const sel = document.getElementById('allowed-document-types');
+                if (!sel) return;
+                const allow = new Set((data && data.allowed_document_types) || []);
+                Array.from(sel.options).forEach(opt => {
+                    opt.selected = allow.has(opt.value);
+                });
+            })
+            .catch(err => console.error('Failed to load agent doc-type restrictions:', err));
+    }
+
+    function docTypeSelectAll() {
+        const sel = document.getElementById('allowed-document-types');
+        if (!sel) return;
+        Array.from(sel.options).forEach(o => o.selected = true);
+    }
+    function docTypeClear() {
+        const sel = document.getElementById('allowed-document-types');
+        if (!sel) return;
+        Array.from(sel.options).forEach(o => o.selected = false);
+    }
+
+    // Kick off the options load as early as possible so the user sees
+    // them immediately when an agent is selected.
+    document.addEventListener('DOMContentLoaded', function () {
+        ensureDocTypeOptionsLoaded();
+    });
     
     // Show email card and load email status for agent
     function showEmailCard(agentId) {
@@ -1948,15 +2114,29 @@ function switchToolsView(view) {
         console.log('- Selected Core Tools:', selectedCoreTools);
         console.log('- Selected Custom Tools:', selectedTools);
         
+        // Per-agent document-type allow list. Empty array = unrestricted.
+        // We also send [] when ALL options are selected, to avoid locking
+        // the agent into a stale enumeration as new doc types are added.
+        const docTypeSelect = document.getElementById('allowed-document-types');
+        let allowedDocTypes = [];
+        if (docTypeSelect) {
+            const checked = Array.from(docTypeSelect.querySelectorAll('option:checked')).map(o => o.value);
+            const total = docTypeSelect.querySelectorAll('option').length;
+            allowedDocTypes = (checked.length === 0 || (total > 0 && checked.length === total)) ? [] : checked;
+        }
+
+        const apcCb = document.getElementById('allow_personal_connections');
         const agentData = {
             agent_id: agentId,
             agent_description: agentName,
             agent_objective: agentObjective,
             agent_enabled: 1,
             tool_names: selectedTools,      // Custom tools
-            core_tool_names: selectedCoreTools  // Core tools
+            core_tool_names: selectedCoreTools,  // Core tools
+            allowed_document_types: allowedDocTypes,  // [] = unrestricted
+            allow_personal_connections: apcCb ? apcCb.checked : true
         };
-        
+
         // Get the save button and disable it with loading state
         const saveButton = document.querySelector('button[onclick="updateAgent()"]');
         const originalButtonContent = saveButton.innerHTML;
@@ -2157,6 +2337,7 @@ function switchToolsView(view) {
             agent_description: newAgentName,
             agent_objective: newAgentObjective,
             agent_enabled: 1,
+            allow_personal_connections: true,  // new agents default ON
             tool_names: [],
             core_tool_names: []
         };

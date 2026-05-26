@@ -87,6 +87,22 @@ Quick lookup for Claude Code to find the right test for any source file change.
 | `builder_mcp/` (protocol) | `builder_mcp/tests/test_protocol.py` |
 | `builder_mcp/gateway/` | `builder_mcp/gateway/tests/test_gateway.py` |
 
+## Has Data Collection Agent Tests
+
+| Source File | Test File |
+|---|---|
+| `data_collection_agent/validation_engine.py` | `tests/unit/test_dca_validation_engine.py` |
+| `data_collection_agent/schema_loader.py` | `tests/unit/test_dca_schema_loader.py` |
+| `data_collection_agent/state_manager.py` | `tests/unit/test_dca_state_manager.py` |
+| `data_collection_agent/db_lookup.py` | `tests/unit/test_dca_db_lookup.py` |
+| `data_collection_agent/auth_token.py` | `tests/unit/test_dca_auth_token.py` |
+| `data_collection_agent/branding.py` | `tests/unit/test_dca_branding.py` |
+| `data_collection_agent/actions/` (registry + email/sms/webhook/api/agent/workflow) | `tests/unit/test_dca_actions.py` |
+| `data_collection_agent/builder/schema_validator.py` | `tests/unit/test_dca_schema_validator.py` |
+| `data_collection_agent/identity.py` (+ cross-module SQL safety) | `tests/security/test_dca_identity_and_isolation.py` |
+
+DCA live/CC chat flow test plan: `e2e_app_tests/production_readiness_round2/24_DCA_COLLECTION_FLOW.md` (+ `module24_tests.json`).
+
 ## Has Builder Data Tests
 
 | Source File | Test File |

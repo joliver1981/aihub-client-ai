@@ -1,0 +1,16 @@
+Mixed-script Unicode sample for chunker / encoding tests.
+
+Emoji: 🚀 🎉 🐍 🌍 ✨ 🤖 📚 🔥
+CJK (Chinese): 你好，世界！这是一个用于测试的中文段落。
+CJK (Japanese): こんにちは世界。これはテスト用の日本語文章です。
+CJK (Korean): 안녕하세요 세계. 이것은 테스트용 한국어 문장입니다.
+Arabic (RTL): مرحبا بالعالم. هذا مقطع نصي للاختبار باللغة العربية.
+Hebrew (RTL): שלום עולם. זהו טקסט לבדיקות בעברית.
+Greek: Γειά σου Κόσμε. Αυτό είναι κείμενο δοκιμής στα ελληνικά.
+Cyrillic: Привет, мир! Это тестовый текст на русском языке.
+Devanagari (Hindi): नमस्ते दुनिया। यह परीक्षण के लिए हिंदी पाठ है।
+Thai: สวัสดีชาวโลก นี่คือข้อความทดสอบภาษาไทย
+Mathematical: ∀x ∈ ℝ, ∃y ∈ ℕ : y > x · π ≈ 3.14159 ∞ ≠ 0
+Combining marks: cafe café noël über naïve résumé
+Zero-width / control chars surrounded: <a>‍<b>‌<c>
+Mix in a sentence: The traveler 🧳 went from 北京 to القاهرة and then to תל אביב on flight #✈️42.

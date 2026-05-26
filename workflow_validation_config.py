@@ -425,6 +425,38 @@ Return optimization suggestions as JSON."""
                 'targetPath': 'string',
                 'outputFormat': ['text', 'json', 'base64']
             }
+        },
+        'Compliance Process': {
+            'required_fields': ['inputVariable', 'routingMode'],
+            'optional_fields': [
+                'setId', 'retailerNameVar', 'setCategoryVar', 'onMissing',
+                'agentOverrideId', 'excelTemplatePath', 'outputVariable',
+            ],
+            'field_types': {
+                'inputVariable': 'string',
+                'routingMode': ['fixed', 'dynamic'],
+                'setId': 'string',
+                'retailerNameVar': 'string',
+                'setCategoryVar': 'string',
+                'onMissing': ['error', 'auto_create'],
+                'agentOverrideId': 'string',
+                'excelTemplatePath': 'string',
+                'outputVariable': 'string'
+            }
+        },
+        'Compliance Excel Export': {
+            'required_fields': [],
+            'optional_fields': [
+                'sourceMode', 'versionVariable', 'setId',
+                'outputPath', 'outputVariable',
+            ],
+            'field_types': {
+                'sourceMode': ['version', 'latest_in_set'],
+                'versionVariable': 'string',
+                'setId': 'string',
+                'outputPath': 'string',
+                'outputVariable': 'string'
+            }
         }
     },
     

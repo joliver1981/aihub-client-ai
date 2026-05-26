@@ -65,7 +65,12 @@ class LdapAuthProvider(BaseAuthProvider):
         host = self._config['server']
         port = self._config.get('port', 636 if self._config.get('use_ssl') else 389)
         use_ssl = self._config.get('use_ssl', False)
-        connect_timeout = self._config.get('connect_timeout', 10)
+        # BUG-AUTH-001 mitigation (option D): default 10s was too tight when
+        # DNS resolution + TCP + TLS handshake + RootDSE fetch all happen on
+        # the very first request after Flask startup. 30s gives the cold
+        # path enough headroom; subsequent requests resolve in milliseconds.
+        # Operators can still override via the LDAP provider config.
+        connect_timeout = self._config.get('connect_timeout', 30)
 
         tls = None
         if use_ssl:
@@ -184,59 +189,120 @@ class LdapAuthProvider(BaseAuthProvider):
             return AuthResult(success=False, error='Username and password are required')
 
         bind_dn = self._format_bind_dn(username)
-        server = self._get_server()
         receive_timeout = self._config.get('receive_timeout', 10)
 
-        try:
-            conn = Connection(
-                server,
-                user=bind_dn,
-                password=password,
-                auto_bind=True,
-                receive_timeout=receive_timeout,
-                read_only=True
-            )
+        # BUG-AUTH-001 mitigation (option C): a single retry on
+        # LDAPSocketOpenError. The first LDAP login after Flask startup
+        # occasionally fails on the cold DNS/TCP/TLS handshake; retries
+        # succeed reliably. We retry only on socket-open errors (NOT bind
+        # errors) so that bad-password attempts are rejected fast and we
+        # don't accidentally hammer AD with repeated bad credentials and
+        # trigger an account lockout.
+        max_attempts = 2
+        attempt = 0
+        last_socket_error: Optional[Exception] = None
 
-            logger.info(f"LDAP bind successful for user: {username}")
+        while attempt < max_attempts:
+            attempt += 1
+            # New Server object per attempt so the retry doesn't inherit a
+            # half-initialised state from the failed first call. Cheap
+            # operation — Server() doesn't touch the network until
+            # Connection() opens.
+            server = self._get_server()
 
-            # Search for user attributes
-            attrs = self._search_user_attributes(conn, username)
-            if attrs is None:
-                attrs = {
-                    'display_name': username,
-                    'email': None,
-                    'sam_account_name': username,
-                    'groups': []
-                }
+            try:
+                import time
+                _t0 = time.monotonic()
+                conn = Connection(
+                    server,
+                    user=bind_dn,
+                    password=password,
+                    auto_bind=True,
+                    receive_timeout=receive_timeout,
+                    read_only=True
+                )
+                # Diagnostic logging — captures cold-vs-warm timing so we
+                # can confirm/refute the "cold first call" hypothesis the
+                # next time the flake is observed in production.
+                logger.info(
+                    f"LDAP bind successful for user: {username} "
+                    f"(attempt {attempt}/{max_attempts}, "
+                    f"open+bind took {time.monotonic() - _t0:.2f}s)"
+                )
 
-            conn.unbind()
+                # Search for user attributes
+                attrs = self._search_user_attributes(conn, username)
+                if attrs is None:
+                    attrs = {
+                        'display_name': username,
+                        'email': None,
+                        'sam_account_name': username,
+                        'groups': []
+                    }
 
-            return AuthResult(
-                success=True,
-                user_attributes={
-                    'username': attrs['sam_account_name'],
-                    'name': attrs['display_name'],
-                    'email': attrs.get('email'),
-                    'external_id': attrs['sam_account_name'],
-                    'groups': attrs.get('groups', []),
-                }
-            )
+                conn.unbind()
 
-        except LDAPBindError as e:
-            logger.info(f"LDAP bind failed for user {username}: {str(e)}")
-            return AuthResult(success=False, error='Invalid credentials')
+                return AuthResult(
+                    success=True,
+                    user_attributes={
+                        'username': attrs['sam_account_name'],
+                        'name': attrs['display_name'],
+                        'email': attrs.get('email'),
+                        'external_id': attrs['sam_account_name'],
+                        'groups': attrs.get('groups', []),
+                    }
+                )
 
-        except LDAPSocketOpenError as e:
-            logger.error(f"LDAP connection failed: {str(e)}")
-            return AuthResult(success=False, error=f'Cannot connect to LDAP server: {str(e)}')
+            except LDAPBindError as e:
+                # Bad credentials — never retry, never lock the account.
+                logger.info(
+                    f"LDAP bind failed for user {username} "
+                    f"(attempt {attempt}): {str(e)}"
+                )
+                return AuthResult(success=False, error='Invalid credentials')
 
-        except LDAPException as e:
-            logger.error(f"LDAP error for user {username}: {str(e)}")
-            return AuthResult(success=False, error=f'LDAP error: {str(e)}')
+            except LDAPSocketOpenError as e:
+                # Cold connect / TLS / DNS error. Log with attempt number
+                # so the loop is visible in production logs, then either
+                # retry or give up depending on attempt count.
+                logger.warning(
+                    f"LDAP socket-open failed (attempt {attempt}/{max_attempts}) "
+                    f"for user {username}: {type(e).__name__}: {str(e)}"
+                )
+                last_socket_error = e
+                if attempt < max_attempts:
+                    continue  # retry — fresh Server + fresh Connection
+                logger.error(
+                    f"LDAP connection failed after {max_attempts} attempts: {str(e)}"
+                )
+                return AuthResult(
+                    success=False,
+                    error=f'Cannot connect to LDAP server: {str(e)}'
+                )
 
-        except Exception as e:
-            logger.error(f"Unexpected error during LDAP auth for {username}: {str(e)}")
-            return AuthResult(success=False, error=f'Authentication error: {str(e)}')
+            except LDAPException as e:
+                logger.error(
+                    f"LDAP error for user {username} "
+                    f"(attempt {attempt}): {type(e).__name__}: {str(e)}"
+                )
+                return AuthResult(success=False, error=f'LDAP error: {str(e)}')
+
+            except Exception as e:
+                logger.error(
+                    f"Unexpected error during LDAP auth for {username} "
+                    f"(attempt {attempt}): {type(e).__name__}: {str(e)}"
+                )
+                return AuthResult(
+                    success=False,
+                    error=f'Authentication error: {str(e)}'
+                )
+
+        # Defensive — both attempts should have either returned or set
+        # last_socket_error; never reachable in practice.
+        return AuthResult(
+            success=False,
+            error=f'LDAP authentication exhausted retries: {last_socket_error}'
+        )
 
     def test_connection(self) -> Tuple[bool, str]:
         """

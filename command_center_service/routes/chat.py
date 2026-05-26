@@ -7,17 +7,28 @@ Streaming chat endpoint backed by LangGraph.
 import asyncio
 import json
 import logging
+import os
 import time
 import traceback
 import uuid
 from pathlib import Path
 from fastapi import APIRouter, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from langchain_core.messages import HumanMessage
 
 from services.trace_store import TraceStore
 
 _trace_store = TraceStore(Path(__file__).parent.parent / "data")
+
+# Optional ops-room broadcaster — emits one-line ticker entries for the
+# experimental /ops UI. Import is best-effort: if the module isn't on the
+# path the chat route still works.
+try:
+    from routes.ops import ops_broadcaster as _ops_broadcaster, broadcast_event as _ops_broadcast
+except Exception:  # pragma: no cover — defensive
+    _ops_broadcaster = None
+    def _ops_broadcast(*_a, **_kw):  # type: ignore[no-redef]
+        return None
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +149,46 @@ async def chat(request: Request):
     if not user_message:
         return {"error": "Message is required"}
 
+    # Resolve / classify the session up-front before we get_or_create.
+    # If the caller supplied a session_id that belongs to a DIFFERENT user
+    # within the same install, attach_user_context_if_missing won't catch
+    # that (it only stamps when MISSING). Without the ownership check
+    # below, an attacker who learns or guesses a session_id can claim
+    # someone else's chat history (BUG-CC-SESSION-ID-FORGERY).
+    #
+    # Phase 1 (current): LOG a warning on owner mismatch, do NOT reject.
+    # This lets us observe whether any legitimate flow trips the check
+    # before we flip enforcement on. Set CC_SESSION_OWNERSHIP_ENFORCE=1
+    # in the deployment env to upgrade to a hard 404 (Phase 2). 404 not
+    # 403 — never leak whether a session actually exists.
+    _ownership_verdict = "missing"
+    if session_id and user_context and isinstance(user_context, dict):
+        try:
+            _req_uid = int(user_context.get("user_id") or 0) or None
+            _req_tid = int(user_context.get("tenant_id") or 0) or None
+            _req_role = int(user_context.get("role") or 0)
+            _ownership_verdict = _session_mgr.check_session_ownership(
+                session_id, _req_uid, _req_tid, _req_role
+            )
+            if _ownership_verdict == "mismatch":
+                existing = _session_mgr.get_session(session_id)
+                owner = getattr(existing, "user_context", None)
+                logger.warning(
+                    f"[chat] SESSION-OWNER-MISMATCH session={session_id} "
+                    f"requested_by(uid={_req_uid}, tid={_req_tid}, "
+                    f"role={_req_role}) "
+                    f"owned_by(uid={getattr(owner, 'user_id', None)}, "
+                    f"tid={getattr(owner, 'tenant_id', None)})"
+                )
+                if os.environ.get("CC_SESSION_OWNERSHIP_ENFORCE", "0") == "1":
+                    return JSONResponse(
+                        {"error": "Session not found"}, status_code=404
+                    )
+        except (TypeError, ValueError) as _own_check_err:
+            logger.warning(
+                f"[chat] ownership pre-check could not run: {_own_check_err}"
+            )
+
     # Get or create session
     session = _session_mgr.get_or_create(session_id)
     session_id = session.session_id
@@ -224,11 +275,31 @@ async def chat(request: Request):
         trace_meta = None
 
     async def event_stream():
+        # Tell the ops room a request just opened. The counter is per-process
+        # so it accurately reflects what THIS server is currently handling
+        # across every connected user — useful as a real "IN FLIGHT" KPI for
+        # the ops UI. The matching .end() runs in the finally below.
+        if _ops_broadcaster is not None:
+            try:
+                _ops_broadcaster.begin()
+            except Exception:
+                pass
+        # Track block count for the ops "done" broadcast — the local
+        # `blocks` variable below only exists in the ai_response branch,
+        # so we materialize the count here and update it as we go.
+        _emitted_block_count = 0
         try:
             # Trace id (for Inspector UI)
             if trace_meta is not None:
                 yield _sse_event("trace", {"trace_id": trace_meta.trace_id})
                 _trace_store.log_event(trace_meta, event_type="sse", node="/api/chat", summary="trace_id sent")
+                # Broadcast trace start to ops subscribers (used by the ticker).
+                _ops_broadcast(
+                    "info",
+                    f"trace · {trace_meta.trace_id[:8]} · {(trace_meta.user_message[:50] + '…') if len(trace_meta.user_message) > 50 else trace_meta.user_message}",
+                    trace_id=trace_meta.trace_id,
+                    session_id=trace_meta.session_id,
+                )
 
             # Send session info (including auto-generated title)
             yield _sse_event("session", {"session_id": session_id, "title": session_title})
@@ -545,6 +616,7 @@ async def chat(request: Request):
                 if trace_meta is not None:
                     resp_payload["trace_id"] = trace_meta.trace_id
                 yield _sse_event("response", resp_payload)
+                _emitted_block_count = len(blocks) if isinstance(blocks, list) else 0
 
                 if trace_meta is not None:
                     _trace_store.log_event(
@@ -612,6 +684,15 @@ async def chat(request: Request):
 
             yield _sse_event("done", {"session_id": session_id})
 
+            # Broadcast a "done" line to ops subscribers so the ticker shows
+            # the chat turn closing.
+            _ops_broadcast(
+                "ok",
+                f"trace · {(trace_meta.trace_id[:8] + ' · ') if trace_meta else ''}done ({_emitted_block_count} blocks)",
+                trace_id=trace_meta.trace_id if trace_meta else None,
+                session_id=session_id,
+            )
+
         except Exception as e:
             logger.error(f"Chat error: {e}\n{traceback.format_exc()}")
             if trace_meta is not None:
@@ -622,7 +703,21 @@ async def chat(request: Request):
                     level="error",
                     payload={"message": str(e), "traceback": traceback.format_exc()},
                 )
+            _ops_broadcast(
+                "alert",
+                f"trace · {(trace_meta.trace_id[:8] + ' · ') if trace_meta else ''}error · {str(e)[:80]}",
+                trace_id=trace_meta.trace_id if trace_meta else None,
+                session_id=session_id,
+            )
             yield _sse_event("error", {"message": str(e)})
+        finally:
+            # Always release the in-flight slot, even if the client
+            # disconnected mid-stream.
+            if _ops_broadcaster is not None:
+                try:
+                    _ops_broadcaster.end()
+                except Exception:
+                    pass
 
     return StreamingResponse(
         event_stream(),

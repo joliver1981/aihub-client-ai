@@ -418,10 +418,19 @@ class OAuth2AuthHandler(AuthHandler):
         auth_config = template.get('auth_config', {})
         token_url = auth_config.get('token_url')
         grant_type = auth_config.get('grant_type', 'refresh_token')
-        
+
         if not token_url:
             logger.error("No token URL configured for OAuth2 refresh")
             return None
+
+        # Substitute instance_config variables (e.g., {tenant_id}) in token_url.
+        # Required for client_credentials flows that use tenant-specific endpoints.
+        try:
+            instance_config = json.loads(integration.get('instance_config') or '{}')
+            for key, value in instance_config.items():
+                token_url = token_url.replace('{' + key + '}', str(value))
+        except (json.JSONDecodeError, TypeError):
+            pass
         
         # Get credentials from local secrets
         integration_id = integration.get('integration_id')
@@ -512,8 +521,14 @@ class OAuth2AuthHandler(AuthHandler):
         data = {
             'grant_type': 'client_credentials'
         }
-        
-        # Add any additional token request parameters
+
+        # Microsoft Graph (and most OAuth2 servers) require the scope parameter
+        # for client_credentials. Pull it from auth_config.scopes if present.
+        scopes = auth_config.get('scopes') or []
+        if scopes:
+            data['scope'] = ' '.join(scopes)
+
+        # Add any additional token request parameters (can override 'scope' if needed)
         token_params = auth_config.get('token_params', {})
         data.update(token_params)
         
@@ -1179,17 +1194,24 @@ class OperationExecutor:
                 result.get('success'),
                 result.get('error')
             ))
-            
-            # Update usage stats
-            cursor.execute("EXEC sp_UpdateIntegrationUsage ?, ?", (
-                self.integration.get('integration_id'),
-                1 if result.get('success') else 0
-            ))
-            
+
+            # Update usage stats — non-fatal if the SP doesn't exist on this
+            # installation (older schemas, on-prem deployments without all
+            # support objects deployed).
+            try:
+                cursor.execute("EXEC sp_UpdateIntegrationUsage ?, ?", (
+                    self.integration.get('integration_id'),
+                    1 if result.get('success') else 0
+                ))
+            except Exception as stats_err:
+                logger.debug(
+                    f"sp_UpdateIntegrationUsage not available, skipping stats: {stats_err}"
+                )
+
             conn.commit()
             cursor.close()
             conn.close()
-            
+
         except Exception as e:
             logger.error(f"Error logging execution: {e}")
     
@@ -1417,11 +1439,16 @@ class CloudStorageExecutor:
                 result.get('error')
             ))
 
-            # Update usage stats
-            cursor.execute("EXEC sp_UpdateIntegrationUsage ?, ?", (
-                self.integration.get('integration_id'),
-                1 if result.get('success') else 0
-            ))
+            # Update usage stats — non-fatal if the SP doesn't exist
+            try:
+                cursor.execute("EXEC sp_UpdateIntegrationUsage ?, ?", (
+                    self.integration.get('integration_id'),
+                    1 if result.get('success') else 0
+                ))
+            except Exception as stats_err:
+                logger.debug(
+                    f"sp_UpdateIntegrationUsage not available, skipping stats: {stats_err}"
+                )
 
             conn.commit()
             cursor.close()
@@ -1519,7 +1546,36 @@ class IntegrationManager:
     # =========================================================================
     # Integration CRUD
     # =========================================================================
-    
+
+    def _load_builtin_template_from_disk(self, template_key: str) -> Optional[Dict]:
+        """Read a builtin template directly from its JSON file, bypassing
+        every cache layer. Returns None if the file doesn't exist.
+
+        This is the only reliable way to guarantee we're seeing the latest
+        operations list when creating a new integration — the in-memory
+        cache and the DB row can both lag behind the file on disk.
+        """
+        try:
+            from pathlib import Path
+            app_root = os.getenv('APP_ROOT', '.')
+            candidates = [
+                Path(app_root) / 'integrations' / 'builtin' / f'{template_key}.json',
+                Path(__file__).parent / 'integrations' / 'builtin' / f'{template_key}.json',
+            ]
+            for path in candidates:
+                if path.exists():
+                    with open(path, 'r', encoding='utf-8') as f:
+                        tpl = json.load(f)
+                    tpl['_source'] = 'file'
+                    tpl['_source_path'] = str(path)
+                    return tpl
+            return None
+        except Exception as e:
+            logger.warning(
+                f"_load_builtin_template_from_disk failed for '{template_key}': {e}"
+            )
+            return None
+
     def create_integration(
         self,
         template_key: str,
@@ -1545,9 +1601,22 @@ class IntegrationManager:
         Returns:
             Tuple of (success, integration_id, message)
         """
-        template = self.get_template(template_key)
+        # Bypass the in-memory cache entirely for builtin templates — read the
+        # JSON file directly from disk. The cache can be stale (the previous
+        # DB row's content was overriding the file content during load) which
+        # caused new operations added to the JSON to never appear in newly-
+        # created integrations.
+        template = self._load_builtin_template_from_disk(template_key)
+        if template is None:
+            template = self.get_template(template_key)
         if not template:
             return False, None, f"Template '{template_key}' not found"
+
+        op_count = len(template.get('operations', []))
+        logger.info(
+            f"create_integration: using template '{template_key}' with "
+            f"{op_count} operations (source={template.get('_source', 'cache')})"
+        )
 
         # Store base_url override in instance_config so it's available at execution time
         if base_url_override:
@@ -1560,15 +1629,50 @@ class IntegrationManager:
             cursor = conn.cursor()
             cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
 
-            # Check if template exists in DB, if not create it
+            # Check if template exists in DB. For builtin templates we ALWAYS
+            # overwrite operations/auth_config/base_url/etc. with what's on
+            # disk right now — this is the only thing that guarantees a new
+            # integration sees the latest JSON content.
             cursor.execute(
-                "SELECT template_id FROM IntegrationTemplates WHERE template_key = ?",
+                "SELECT template_id, is_builtin FROM IntegrationTemplates "
+                "WHERE template_key = ?",
                 template_key
             )
             row = cursor.fetchone()
 
+            is_builtin_template = template.get('_source') == 'file'
+
             if row:
                 template_id = row[0]
+                # For builtin templates we own (either DB says is_builtin=1
+                # OR we just loaded from disk), refresh every field from the
+                # current JSON. This is the critical fix.
+                db_is_builtin = (row[1] == 1 or row[1] is True)
+                if is_builtin_template or db_is_builtin:
+                    cursor.execute("""
+                        UPDATE IntegrationTemplates
+                           SET platform_name = ?, platform_category = ?, description = ?,
+                               logo_url = ?, auth_type = ?, auth_config = ?, base_url = ?,
+                               default_headers = ?, operations = ?,
+                               is_builtin = 1, is_active = 1
+                         WHERE template_id = ?
+                    """, (
+                        template.get('platform_name'),
+                        template.get('platform_category'),
+                        template.get('description'),
+                        template.get('logo_url'),
+                        template.get('auth_type'),
+                        json.dumps(template.get('auth_config', {})),
+                        template.get('base_url'),
+                        json.dumps(template.get('default_headers', {})),
+                        json.dumps(template.get('operations', [])),
+                        template_id,
+                    ))
+                    logger.info(
+                        f"Refreshed IntegrationTemplates row for builtin "
+                        f"'{template_key}' (template_id={template_id}) with "
+                        f"{op_count} operations from disk"
+                    )
             else:
                 # Insert built-in template to DB using OUTPUT clause for reliable ID retrieval
                 cursor.execute("""
@@ -1649,18 +1753,70 @@ class IntegrationManager:
             return False, None, str(e)
     
     def get_integration(self, integration_id: int) -> Optional[Dict]:
-        """Get an integration by ID."""
+        """Get an integration by ID.
+
+        Tries the sp_GetIntegrationForExecution stored procedure first
+        (which the original schema uses for tenant-aware access). If the
+        SP is missing, broken, or returns no rows, falls back to a direct
+        JOIN against UserIntegrations + IntegrationTemplates so the
+        integration still works on installations where that SP hasn't
+        been deployed.
+        """
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
             cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
-            
-            cursor.execute("EXEC sp_GetIntegrationForExecution ?", integration_id)
-            row = cursor.fetchone()
-            
+
+            row = None
+            sp_error = None
+            try:
+                cursor.execute("EXEC sp_GetIntegrationForExecution ?", integration_id)
+                row = cursor.fetchone()
+                if not row:
+                    logger.info(
+                        f"get_integration({integration_id}): sp_GetIntegrationForExecution "
+                        f"returned no rows — trying direct SQL fallback"
+                    )
+            except Exception as sp_err:
+                sp_error = sp_err
+                logger.warning(
+                    f"get_integration({integration_id}): sp_GetIntegrationForExecution "
+                    f"failed ({sp_err}) — falling back to direct SQL"
+                )
+
+            # Fallback: direct JOIN. Same column order as the SP is expected
+            # to return so the dict-building code below stays unchanged.
             if not row:
+                try:
+                    cursor.execute("""
+                        SELECT
+                            ui.integration_id, ui.integration_name, ui.instance_config,
+                            ui.credentials_reference, ui.oauth_token_expires_at,
+                            ui.is_connected,
+                            t.template_key, t.platform_name, t.auth_type, t.auth_config,
+                            t.base_url, t.default_headers, t.operations
+                        FROM UserIntegrations ui
+                        JOIN IntegrationTemplates t ON ui.template_id = t.template_id
+                        WHERE ui.integration_id = ? AND ui.is_active = 1
+                    """, integration_id)
+                    row = cursor.fetchone()
+                except Exception as fb_err:
+                    logger.error(
+                        f"get_integration({integration_id}): direct SQL fallback "
+                        f"also failed: {fb_err}"
+                    )
+                    raise
+
+            if not row:
+                logger.warning(
+                    f"get_integration({integration_id}): no row found via SP or "
+                    f"direct SQL. Check that the integration exists, is_active=1, "
+                    f"and the tenant context (API_KEY) matches the row's tenant."
+                )
+                cursor.close()
+                conn.close()
                 return None
-            
+
             integration = {
                 'integration_id': row[0],
                 'integration_name': row[1],
@@ -1676,12 +1832,12 @@ class IntegrationManager:
                 'default_headers': json.loads(row[11]) if row[11] else {},
                 'operations': json.loads(row[12]) if row[12] else []
             }
-            
+
             cursor.close()
             conn.close()
-            
+
             return integration
-            
+
         except Exception as e:
             logger.error(f"Error getting integration: {e}")
             return None
@@ -1941,9 +2097,12 @@ class IntegrationManager:
                 'data': None
             }
         
-        # Create executor and run — route cloud storage to its own executor
+        # Create executor and run — route special execution types to their own executor
         if template.get('execution_type') == 'cloud_storage':
             executor = CloudStorageExecutor(integration, template)
+        elif template.get('execution_type') == 'sharepoint':
+            from sharepoint_executor import SharePointExecutor
+            executor = SharePointExecutor(integration, template)
         else:
             executor = OperationExecutor(integration, template)
         return executor.execute(operation_key, parameters, context)
@@ -2000,9 +2159,12 @@ class IntegrationManager:
                      f"({integration.get('integration_name')}) using operation "
                      f"'{test_operation.get('key')}'")
 
-        # Route cloud storage to its own executor
+        # Route special execution types to their own executor
         if template.get('execution_type') == 'cloud_storage':
             executor = CloudStorageExecutor(integration, template)
+        elif template.get('execution_type') == 'sharepoint':
+            from sharepoint_executor import SharePointExecutor
+            executor = SharePointExecutor(integration, template)
         else:
             executor = OperationExecutor(integration, template)
         parameters = {'limit': 1} if 'limit' in str(test_operation.get('parameters', [])) else {}

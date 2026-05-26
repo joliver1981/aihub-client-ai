@@ -323,7 +323,7 @@ COMMAND TYPES:
 CONNECTION TYPES:
 - **pass** (green): Normal flow when node succeeds
 - **fail** (red): Error handling when node fails  
-- **complete** (blue): Loop completion (connects End Loop back to Loop node)
+- **complete** (blue): Use on nodes that emit both success and failure outcomes (e.g. Human Approval) when the same downstream path should run either way.
 
 POSITIONING RULES:
 - Format: {"left": "20px", "top": "40px"} - Always include "px" in quotes
@@ -408,9 +408,11 @@ AVAILABLE NODE TYPES
      "loopNodeId": "temp_node_X"
    }
    
-   CRITICAL: 
-   - Must reference the matching Loop node's node_id
-   - Connect End Loop back to Loop with "complete" connection type
+   CRITICAL:
+   - Must reference the matching Loop node's node_id via loopNodeId
+   - Do NOT emit a connection from End Loop back to the Loop — the loop-back is
+     implicit via the loopNodeId config. End Loop's outgoing "pass" goes to the
+     next post-loop node (or it has no outgoing connection if the loop is terminal).
 
 6. **Conditional** - Branch based on conditions
    Config: {

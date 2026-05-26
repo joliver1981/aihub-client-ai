@@ -42,6 +42,10 @@ def create_dca_blueprint():
     from .builder.builder_routes import register_builder_routes
     register_builder_routes(dca_bp)
 
+    # Register admin routes (HTTPS config, etc.)
+    from .admin_routes import register_admin_routes
+    register_admin_routes(dca_bp)
+
     # Register built-in completion action handlers with the ActionRegistry
     from .actions import register_builtin_actions
     register_builtin_actions()

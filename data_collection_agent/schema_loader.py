@@ -175,6 +175,12 @@ def _resolve_lookup_data(schema: Dict) -> Dict:
             except Exception as e:
                 logger.error(f"Error loading lookup file {file_path}: {e}")
                 resolved_lookups[ref_name] = {'source': 'inline', 'values': []}
+        elif source == 'database':
+            # Database-backed lookups can't be eagerly resolved here —
+            # they may use {{collected.X}} filters that depend on the
+            # current session's collected_data. Pass through unchanged;
+            # `get_lookup_values(...)` runs the query at read time.
+            resolved_lookups[ref_name] = lookup_def
         else:
             logger.warning(f"Unknown lookup source: {source} for {ref_name}")
             resolved_lookups[ref_name] = lookup_def
@@ -183,18 +189,38 @@ def _resolve_lookup_data(schema: Dict) -> Dict:
     return resolved
 
 
-def get_lookup_values(schema: Dict, lookup_ref: str) -> List[Dict]:
+def get_lookup_values(
+    schema: Dict,
+    lookup_ref: str,
+    collected_data: Optional[Dict] = None,
+) -> List[Dict]:
     """
-    Get the resolved values for a lookup reference. Returns empty list if not found.
-    Schema must already be resolved (via load_schema(resolve_lookups=True)).
+    Get the resolved values for a lookup reference. Returns empty list
+    if not found. Schema must already be resolved (via
+    load_schema(resolve_lookups=True)) so file-based lookups have been
+    expanded into inline `values`. Database-backed lookups are queried
+    on demand using `collected_data` to interpolate any
+    `{{collected.X}}` filter values (e.g. "show speakers certified for
+    the product the user just selected").
     """
     lookup_data = schema.get('lookup_data', {})
     lookup_def = lookup_data.get(lookup_ref)
     if not lookup_def:
         return []
-    if isinstance(lookup_def, dict):
-        return lookup_def.get('values', []) or []
-    return []
+    if not isinstance(lookup_def, dict):
+        return []
+
+    source = lookup_def.get('source', 'inline')
+    if source == 'database':
+        try:
+            from .db_lookup import query_db_lookup
+            return query_db_lookup(lookup_def, collected_data) or []
+        except Exception as e:
+            logger.warning(f"Database lookup failed for {lookup_ref}: {e}")
+            return []
+
+    # inline / file (file resolves to inline at schema-load time)
+    return lookup_def.get('values', []) or []
 
 
 def get_section(schema: Dict, section_id: str) -> Optional[Dict]:

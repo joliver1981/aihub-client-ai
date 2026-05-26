@@ -1,0 +1,30 @@
+{
+  "session_id": "aff71d46-e1b9-43a3-a9ef-d8af56373a22",
+  "config_id": "example",
+  "user_id": "DB27D555-03A8-446E-9C23-8DAAA95E",
+  "status": "in_progress",
+  "current_section_id": "basics",
+  "collected_data": {},
+  "section_status": {
+    "basics": "in_progress",
+    "details": "not_started"
+  },
+  "validation_errors": {},
+  "chat_history": [
+    {
+      "role": "assistant",
+      "content": "Hi! I\u2019ll help you fill out the Example Intake Form. We\u2019ll go through two short sections: **Basic Information** first, then **Details**.\n\nTo get started, what\u2019s your **name**?",
+      "ts": "2026-05-04T19:53:24.861631"
+    }
+  ],
+  "submission_log": [],
+  "created_at": "2026-05-04T19:53:22.838888",
+  "updated_at": "2026-05-04T19:53:24.861631",
+  "submitted_at": null,
+  "user_name": null,
+  "user_email": null,
+  "external_callback_url": null,
+  "external_callback_secret_ref": null,
+  "return_url": null,
+  "branding_override": null
+}

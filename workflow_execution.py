@@ -3,6 +3,7 @@
 import uuid
 import json
 import time
+import html
 import logging
 from logging.handlers import WatchedFileHandler
 import datetime
@@ -22,7 +23,7 @@ try:
 except ImportError:
     raise ImportError("AppUtils module not found. Make sure it's in the Python path.")
 
-from config import WORKFLOW_DOC_DETECT_TYPE_DEFAULT, WORKFLOW_DOC_EXTRACT_FIELDS_DEFAULT, WORKFLOW_DOC_DO_NOT_SAVE_DEFAULT
+from config import WORKFLOW_DOC_DETECT_TYPE_DEFAULT, WORKFLOW_DOC_EXTRACT_FIELDS_DEFAULT, WORKFLOW_DOC_DO_NOT_SAVE_DEFAULT, MAX_CONCURRENT_WORKFLOWS
 
 import subprocess
 import tempfile
@@ -105,11 +106,24 @@ class WorkflowExecutionEngine:
         self._active_executions = {}  # Stores in-memory state of active executions
         self._execution_queues = {}   # Queues for communicating with execution threads
         self._execution_threads = {}  # Background threads for each execution
+        self._workflow_semaphore = threading.Semaphore(MAX_CONCURRENT_WORKFLOWS)  # Cap concurrent workflow threads
 
         # Tracking structures for loop management
         self._completed_loops = {}  # Track completed loops per execution
         self._loop_results = {}  # Store loop results for End Loop nodes
         self._active_loops = {}  # Track active loop states
+
+        # BUG-WORKFLOW-003 protection: per-execution counter of how many
+        # times each node has been entered. Bounds runaway cycles (a graph
+        # that loops outside a Loop/End-Loop construct) so they fail in
+        # bounded time instead of staying "Running" forever. Legitimate
+        # Loop iterations are well under this ceiling in practice.
+        self._node_visit_counts = {}  # exec_id -> {node_id: count}
+        # Default 200 is well above any legitimate Loop iteration we've
+        # observed (real workflows iterate a few to a few hundred times).
+        # Tunable via env if an operator legitimately needs a higher cap.
+        self._max_node_visits = int(os.environ.get(
+            'WORKFLOW_MAX_NODE_VISITS', '200'))
     
     def get_db_connection(self):
         """Create and return a database connection"""
@@ -272,11 +286,14 @@ class WorkflowExecutionEngine:
     
     def _execute_workflow_thread(self, execution_id: str, start_node_id: str):
         """Background thread that executes a workflow
-        
+
         Args:
             execution_id: Unique ID of the workflow execution
             start_node_id: ID of the node to start from
         """
+        # Gate concurrency — if MAX_CONCURRENT_WORKFLOWS threads are already
+        # running, this thread waits here until a slot opens up.
+        self._workflow_semaphore.acquire()
         try:
             # Get workflow data from in-memory state
             execution_state = self._active_executions[execution_id]
@@ -312,7 +329,24 @@ class WorkflowExecutionEngine:
             
             # Store variables in execution state
             execution_state['variables'] = variables
-            
+
+            # BUG-WORKFLOW-001 (informational): emit a non-fatal warning for
+            # every Loop node that has no reachable End Loop. The engine
+            # still executes the workflow — the loop body just runs once
+            # and execution exits — but the user almost certainly didn't
+            # intend that. The warning surfaces in the execution log so the
+            # monitoring UI can show it.
+            try:
+                loop_warnings = self._check_loop_integrity(workflow_data)
+                for w in loop_warnings:
+                    self.log_execution(
+                        execution_id, w['loop_node_id'], 'warning', w['message']
+                    )
+            except Exception as e:
+                # Never let the integrity check itself break execution —
+                # this is purely informational.
+                logger.debug(f"Loop integrity check raised: {e}")
+
             # Start execution from the specified node
             current_node_id = start_node_id
             
@@ -355,10 +389,45 @@ class WorkflowExecutionEngine:
                 
                 if not node:
                     self.log_execution(
-                        execution_id, current_node_id, "error", 
+                        execution_id, current_node_id, "error",
                         f"Node not found: {current_node_id}")
+                    # BUG-WORKFLOW-004 fix: when a connection points at a
+                    # node that doesn't exist in workflow_data['nodes'], we
+                    # used to log + break — but never updated the workflow
+                    # status. The outer "completed" branch then no-oped
+                    # (current_node_id != None), so the workflow row stayed
+                    # in "Running" forever. Promote this to a terminal
+                    # Failed state so external pollers actually see it end.
+                    self._update_workflow_status(execution_id, 'Failed')
+                    execution_state['status'] = 'Failed'
                     break
-                
+
+                # BUG-WORKFLOW-003 protection: increment per-execution visit
+                # counter for this node and fail with a clear error if it
+                # has been entered more than `_max_node_visits` times. This
+                # is a deadman switch — a graph cycle outside a Loop/End-
+                # Loop construct will revisit a node indefinitely otherwise
+                # (no error, no completion, status stuck at "Running").
+                #
+                # We bound by NUMBER OF VISITS, not by total nodes executed,
+                # because legitimate workflows are linear or use the Loop
+                # construct (which doesn't revisit the same Loop node id
+                # repeatedly — it re-enters the loop body nodes whose visit
+                # counts climb but legitimate bodies stay well under 1000).
+                counts = self._node_visit_counts.setdefault(execution_id, {})
+                counts[current_node_id] = counts.get(current_node_id, 0) + 1
+                if counts[current_node_id] > self._max_node_visits:
+                    self.log_execution(
+                        execution_id, current_node_id, "error",
+                        f"Runaway execution: node '{current_node_id}' has "
+                        f"been visited {counts[current_node_id]} times "
+                        f"(limit {self._max_node_visits}). Likely a graph "
+                        f"cycle outside a Loop/End Loop construct."
+                    )
+                    self._update_workflow_status(execution_id, 'Failed')
+                    execution_state['status'] = 'Failed'
+                    break
+
                 # Execute the node
                 try:
                     print('Executing node...')
@@ -408,6 +477,7 @@ class WorkflowExecutionEngine:
         finally:
             # CRITICAL: Always clean up resources when thread completes
             self._cleanup_execution_resources(execution_id)
+            self._workflow_semaphore.release()  # Free the concurrency slot
             logger.info(f"Workflow thread completed and cleaned up for execution {execution_id}")
 
     
@@ -487,6 +557,12 @@ class WorkflowExecutionEngine:
             elif node_type == 'Integration':
                 print('Executing Integration node...')
                 result = execute_integration_node(execution_id, node, variables, self.log_execution)
+            elif node_type == 'Compliance Process':
+                print('Executing Compliance Process node...')
+                result = self._execute_compliance_process_node(execution_id, node, variables)
+            elif node_type == 'Compliance Excel Export':
+                print('Executing Compliance Excel Export node...')
+                result = self._execute_compliance_excel_export_node(execution_id, node, variables)
             # elif node_type == 'Server':
             #     result = self._execute_server_node(execution_id, node, variables)
             # And so on...
@@ -528,10 +604,14 @@ class WorkflowExecutionEngine:
                 # Clean up completed loops tracking if needed
                 loop_node_id = node_config.get('loopNodeId')
                 if not loop_node_id and hasattr(self, '_active_loops') and self._active_loops:
-                    loop_node_id = list(self._active_loops.keys())[-1] if self._active_loops else None
-                
+                    # Auto-detect: find the most recent active loop for THIS execution
+                    exec_loop_keys = [k for k in self._active_loops if k.startswith(f"{execution_id}_")]
+                    if exec_loop_keys:
+                        loop_node_id = self._active_loops[exec_loop_keys[-1]].get('node_id')
+
                 # If not in active loop, clean up tracking
-                if not (hasattr(self, '_active_loops') and loop_node_id in self._active_loops):
+                loop_key = f"{execution_id}_{loop_node_id}" if loop_node_id else None
+                if not (hasattr(self, '_active_loops') and loop_key and loop_key in self._active_loops):
                     if execution_id in self._completed_loops and loop_node_id:
                         self._completed_loops[execution_id].discard(loop_node_id)
             
@@ -1423,6 +1503,406 @@ Guidelines:
         
         return filtered_data, skipped_count
 
+    def _execute_compliance_process_node(self, execution_id: str, node: Dict, variables: Dict) -> Dict:
+        """Execute a Compliance Process node — runs the full retailer-compliance pipeline
+        on a single document (ingest → AI requirement extraction → version → optional
+        knowledge indexing → optional Excel population).
+
+        Configuration (node.config):
+            inputVariable          (str)  — variable holding the file path (required)
+            routingMode            (str)  — "fixed" or "dynamic"
+            setId                  (int)  — set id (fixed mode)
+            retailerNameVar        (str)  — variable name holding retailer name (dynamic mode)
+            setCategoryVar         (str)  — variable name holding set category (dynamic mode)
+            onMissing              (str)  — "error" or "auto_create" (dynamic mode only)
+            agentOverrideId        (int)  — optional override for the agent's knowledge base
+            excelTemplatePath      (str)  — optional Excel template path (literal or variable)
+            outputVariable         (str)  — name of variable to store the result (default: complianceResult)
+
+        Output variable contains:
+            { version_id, version_number, retailer_id, set_id, document_id,
+              requirements_count, is_duplicate, change_summary, excel_path, error }
+        """
+        node_id = node['id']
+        node_config = node.get('config', {})
+
+        self.log_execution(
+            execution_id, node_id, "info",
+            "Executing Compliance Process node"
+        )
+
+        try:
+            # ----- 1. Resolve file path -----
+            input_var = node_config.get('inputVariable', '')
+            file_path = self._replace_variable_references(input_var, variables)
+            if not file_path:
+                raise ValueError(
+                    f"Input variable '{input_var}' is empty or not found — expected a file path"
+                )
+            file_path = str(file_path).strip()
+            if not os.path.isfile(file_path):
+                raise ValueError(f"File does not exist: {file_path}")
+
+            # ----- 2. Resolve routing (which set are we processing into?) -----
+            routing_mode = (node_config.get('routingMode') or 'fixed').lower()
+
+            try:
+                from compliance_engine import ComplianceEngine
+            except ImportError as e:
+                raise RuntimeError(f"Compliance module not available: {e}")
+
+            if routing_mode == 'fixed':
+                set_id_raw = node_config.get('setId')
+                try:
+                    set_id = int(set_id_raw) if set_id_raw not in (None, "") else None
+                except (TypeError, ValueError):
+                    set_id = None
+                if not set_id:
+                    raise ValueError("Fixed routing mode requires setId in node config")
+                set_info = ComplianceEngine.get_document_set(set_id)
+                if not set_info:
+                    raise ValueError(f"Document set not found: set_id={set_id}")
+            else:
+                # dynamic mode — resolve retailer + category from workflow variables
+                retailer_var = node_config.get('retailerNameVar', '')
+                category_var = node_config.get('setCategoryVar', '')
+                retailer_name = self._replace_variable_references(retailer_var, variables)
+                set_category = self._replace_variable_references(category_var, variables)
+                if not retailer_name or not set_category:
+                    raise ValueError(
+                        "Dynamic routing mode requires both retailerNameVar and "
+                        "setCategoryVar to resolve to non-empty values."
+                    )
+                on_missing = (node_config.get('onMissing') or 'error').lower()
+                if on_missing not in ('error', 'auto_create'):
+                    on_missing = 'error'
+                auto_create_agent = bool(node_config.get('autoCreateAgent', False))
+                agent_mode = (node_config.get('agentMode') or 'per_set').lower()
+                if agent_mode not in ('per_set', 'per_retailer'):
+                    agent_mode = 'per_set'
+                agent_objective_template = str(
+                    node_config.get('agentObjectiveTemplate', '') or ''
+                )
+                # Optional explicit override for per_retailer mode — wins over
+                # name-match / shared-usage detection in _find_retailer_agent.
+                retailer_agent_override_id = None
+                _override_raw = node_config.get('retailerAgentOverrideId')
+                if _override_raw not in (None, '', 0, '0'):
+                    try:
+                        retailer_agent_override_id = int(_override_raw)
+                    except (TypeError, ValueError):
+                        retailer_agent_override_id = None
+                set_info = ComplianceEngine.resolve_set(
+                    retailer_name=str(retailer_name),
+                    set_category=str(set_category),
+                    on_missing=on_missing,
+                    created_by=1,
+                    auto_create_agent=auto_create_agent,
+                    agent_mode=agent_mode,
+                    agent_objective_template=agent_objective_template,
+                    retailer_agent_override_id=retailer_agent_override_id,
+                )
+
+            # ----- 3. Optional agent override -----
+            agent_id = set_info.get('agent_id')
+            override_raw = node_config.get('agentOverrideId')
+            try:
+                if override_raw not in (None, ""):
+                    agent_id = int(override_raw)
+            except (TypeError, ValueError):
+                pass
+
+            # ----- 4. Optional Excel template -----
+            excel_template = node_config.get('excelTemplatePath') or None
+            if excel_template:
+                resolved = self._replace_variable_references(excel_template, variables)
+                if resolved:
+                    excel_template = str(resolved)
+
+            # ----- 5. Run the full compliance pipeline -----
+            self.log_execution(
+                execution_id, node_id, "info",
+                f"Processing compliance document: file='{file_path}', "
+                f"retailer_id={set_info['retailer_id']}, set_id={set_info['set_id']}, "
+                f"agent_id={agent_id}"
+            )
+
+            engine = ComplianceEngine()
+            result = engine.process_compliance_document(
+                file_path=file_path,
+                retailer_id=set_info['retailer_id'],
+                set_id=set_info['set_id'],
+                uploaded_by=1,
+                agent_id=agent_id,
+                excel_template_path=excel_template,
+            )
+
+            # ----- 6. Build output variable payload -----
+            output_payload = {
+                "version_id": result.version_id,
+                "version_number": result.version_number,
+                "retailer_id": result.retailer_id,
+                "set_id": result.set_id,
+                "document_id": result.document_id,
+                "requirements_count": len(result.requirements),
+                "is_duplicate": result.is_duplicate,
+                "change_summary": result.change_summary,
+                "excel_path": result.excel_path,
+                "error": result.error,
+            }
+
+            # ----- 7. Store output variable -----
+            output_var = self._extract_variable_name(
+                node_config.get('outputVariable') or 'complianceResult'
+            )
+            self._update_workflow_variable(
+                execution_id, output_var, 'object', output_payload
+            )
+            variables[output_var] = output_payload
+
+            # ----- 8. Determine success -----
+            if result.error and not result.is_duplicate:
+                self.log_execution(
+                    execution_id, node_id, "error",
+                    f"Compliance processing failed: {result.error}"
+                )
+                return {'success': False, 'error': result.error, 'data': output_payload}
+
+            msg = (
+                f"Duplicate document detected (matches version {result.version_number})"
+                if result.is_duplicate else
+                f"Created version {result.version_number}, extracted "
+                f"{len(result.requirements)} requirements"
+            )
+            self.log_execution(execution_id, node_id, "info", msg)
+            return {'success': True, 'data': output_payload}
+
+        except Exception as e:
+            error_msg = str(e)
+            self.log_execution(
+                execution_id, node_id, "error",
+                f"Compliance Process node error: {error_msg}"
+            )
+            return {'success': False, 'error': error_msg, 'data': {}}
+
+    def _execute_compliance_excel_export_node(self, execution_id: str, node: Dict, variables: Dict) -> Dict:
+        """Execute a Compliance Excel Export node — writes the requirements of a single
+        compliance document version to an .xlsx file. Mirrors the UI's Download-Excel
+        button so workflows can produce the same artifact in an automated pipeline.
+
+        Configuration (node.config):
+            sourceMode       (str)  — 'version' (default) or 'latest_in_set'.
+                                       'version'       → use versionVariable
+                                       'latest_in_set' → look up the current version of setId
+            versionVariable  (str)  — used in 'version' mode. Variable holding the
+                                       version_id to export. Commonly chained from a
+                                       Compliance Process node as ${complianceResult.version_id}.
+            setId            (int)  — used in 'latest_in_set' mode. The id of the
+                                       document set whose latest version should be exported.
+            outputPath       (str)  — destination .xlsx path (optional). May contain ${var}
+                                       references. If empty, auto-generates a timestamped
+                                       file under data/compliance_exports/.
+            outputVariable   (str)  — name of variable to store the result
+                                       (default: complianceExportResult).
+
+        Output variable contains:
+            { success, file_path, version_id, version_number, set_id,
+              requirements_count, error, source_mode }
+        """
+        node_id = node['id']
+        node_config = node.get('config', {})
+
+        self.log_execution(
+            execution_id, node_id, "info",
+            "Executing Compliance Excel Export node"
+        )
+
+        output_var = self._extract_variable_name(
+            node_config.get('outputVariable') or 'complianceExportResult'
+        )
+
+        # Import compliance engine up front since both source modes need it
+        try:
+            from compliance_engine import ComplianceEngine
+        except ImportError as e:
+            error_msg = f"Compliance module not available: {e}"
+            self.log_execution(execution_id, node_id, "error", error_msg)
+            return {'success': False, 'error': error_msg, 'data': {}}
+
+        try:
+            # ----- 1. Resolve version_id based on source mode -----
+            source_mode = (node_config.get('sourceMode') or 'version').lower()
+            version_number = None
+            set_id = None
+
+            if source_mode == 'latest_in_set':
+                set_id_raw = node_config.get('setId')
+                try:
+                    set_id = int(set_id_raw) if set_id_raw not in (None, '') else None
+                except (TypeError, ValueError):
+                    set_id = None
+                if not set_id:
+                    raise ValueError(
+                        "sourceMode='latest_in_set' requires a setId in node config"
+                    )
+
+                versions = ComplianceEngine.get_versions(set_id)
+                if not versions:
+                    raise ValueError(
+                        f"No versions found for set_id={set_id}. The set may be empty "
+                        "or you may not have access to it."
+                    )
+
+                # Prefer the row flagged is_current; fall back to the first row
+                # (get_versions orders by version_number DESC so [0] is the highest).
+                current = next((v for v in versions if v.get('is_current')), None)
+                if current is None:
+                    current = versions[0]
+                    self.log_execution(
+                        execution_id, node_id, "warning",
+                        f"No version in set_id={set_id} is flagged is_current=1; "
+                        f"falling back to highest version_number={current.get('version_number')}"
+                    )
+
+                version_id = current['version_id']
+                version_number = current.get('version_number')
+                self.log_execution(
+                    execution_id, node_id, "info",
+                    f"Resolved latest version_id={version_id} "
+                    f"(version_number={version_number}) for set_id={set_id}"
+                )
+
+            else:
+                # 'version' mode (default) — read versionVariable
+                version_var = node_config.get('versionVariable', '')
+                version_raw = self._replace_variable_references(version_var, variables)
+                if version_raw in (None, ''):
+                    raise ValueError(
+                        f"Version variable '{version_var}' is empty or not found — "
+                        "expected an integer version_id (e.g., from a Compliance Process "
+                        "node: ${complianceResult.version_id}). Alternatively switch "
+                        "Source Mode to 'Latest version of a set' to skip the variable."
+                    )
+                try:
+                    version_id = int(str(version_raw).strip())
+                except (TypeError, ValueError):
+                    raise ValueError(
+                        f"Version variable '{version_var}' resolved to '{version_raw}' "
+                        "which is not a valid integer version_id"
+                    )
+
+            # ----- 2. Load requirements for that version -----
+            requirements = ComplianceEngine.get_requirements(version_id)
+            if not requirements:
+                raise ValueError(
+                    f"No requirements found for version_id={version_id}. "
+                    "The version may not have been processed yet or has no extracted rows."
+                )
+
+            # ----- 3. Resolve output path (or auto-generate) -----
+            import os
+            import datetime
+            raw_output_path = node_config.get('outputPath') or ''
+            resolved_output_path = self._replace_variable_references(raw_output_path, variables)
+            if resolved_output_path:
+                resolved_output_path = str(resolved_output_path).strip()
+
+            if not resolved_output_path:
+                output_dir = os.path.join(
+                    os.getenv("APP_ROOT", "."), "data", "compliance_exports"
+                )
+                os.makedirs(output_dir, exist_ok=True)
+                ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                resolved_output_path = os.path.join(
+                    output_dir, f"requirements_v{version_id}_{ts}.xlsx"
+                )
+            else:
+                # Ensure parent dir exists
+                parent_dir = os.path.dirname(resolved_output_path)
+                if parent_dir:
+                    os.makedirs(parent_dir, exist_ok=True)
+
+            # ----- 4. Write the workbook (mirrors compliance_routes.export_requirements_excel) -----
+            import openpyxl
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Requirements"
+
+            headers = [
+                "Category", "Subcategory", "Requirement", "Value",
+                "Severity", "Source Page", "Confidence",
+            ]
+            ws.append(headers)
+            for cell in ws[1]:
+                cell.font = openpyxl.styles.Font(bold=True)
+
+            for req in requirements:
+                ws.append([
+                    req.get("category", ""),
+                    req.get("subcategory", ""),
+                    req.get("requirement_text", ""),
+                    req.get("specific_value", ""),
+                    req.get("severity", ""),
+                    req.get("source_page", ""),
+                    req.get("confidence", ""),
+                ])
+
+            for col in ws.columns:
+                max_len = max(len(str(c.value or "")) for c in col)
+                ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 60)
+
+            wb.save(resolved_output_path)
+
+            # ----- 5. Build output variable payload -----
+            output_payload = {
+                "success": True,
+                "file_path": resolved_output_path,
+                "version_id": version_id,
+                "version_number": version_number,
+                "set_id": set_id,
+                "requirements_count": len(requirements),
+                "source_mode": source_mode,
+                "error": None,
+            }
+
+            self._update_workflow_variable(
+                execution_id, output_var, 'object', output_payload
+            )
+            variables[output_var] = output_payload
+
+            self.log_execution(
+                execution_id, node_id, "info",
+                f"Exported {len(requirements)} requirements for version_id={version_id} "
+                f"to {resolved_output_path}"
+            )
+            return {'success': True, 'data': output_payload}
+
+        except Exception as e:
+            error_msg = str(e)
+            self.log_execution(
+                execution_id, node_id, "error",
+                f"Compliance Excel Export node error: {error_msg}"
+            )
+            # Still set the output variable so downstream nodes can inspect the failure
+            failure_payload = {
+                "success": False,
+                "file_path": None,
+                "version_id": None,
+                "version_number": None,
+                "set_id": None,
+                "requirements_count": 0,
+                "source_mode": (node_config.get('sourceMode') or 'version').lower(),
+                "error": error_msg,
+            }
+            try:
+                self._update_workflow_variable(
+                    execution_id, output_var, 'object', failure_payload
+                )
+                variables[output_var] = failure_payload
+            except Exception:
+                pass
+            return {'success': False, 'error': error_msg, 'data': failure_payload}
+
     def _execute_excel_export_node(self, execution_id: str, node: Dict, variables: Dict) -> Dict:
         """Execute an Excel Export node - writes variable data to Excel
         
@@ -2090,9 +2570,81 @@ Guidelines:
             for conn in next_connections:
                 if conn['target'] not in visited:
                     queue.append(conn['target'])
-        
+
         return None
-    
+
+    def _check_loop_integrity(self, workflow_data: Dict) -> List[Dict]:
+        """Scan a workflow for Loop nodes that have no reachable End Loop.
+
+        Returns a list of warning records — one per orphaned Loop — that the
+        caller can surface via log_execution. Read-only; does not modify the
+        workflow. This is purely informational: an orphan Loop is not
+        rejected, the engine still runs the body once and exits, but the
+        user almost certainly didn't intend that. See BUG-WORKFLOW-001.
+
+        Args:
+            workflow_data: dict with 'nodes' and 'connections' keys (the
+                same shape the executor stores in _active_executions)
+
+        Returns:
+            List of dicts: [{'loop_node_id', 'loop_label', 'message'}, ...]
+        """
+        warnings_out = []
+        nodes = workflow_data.get('nodes', []) or []
+        connections = workflow_data.get('connections', []) or []
+
+        # Build adjacency map for 'pass' connections so the BFS below stays
+        # cheap on workflows with many connections.
+        pass_targets_by_source = {}
+        for c in connections:
+            if c.get('type', 'pass') == 'pass':
+                pass_targets_by_source.setdefault(c.get('source'), []).append(
+                    c.get('target')
+                )
+
+        nodes_by_id = {n.get('id'): n for n in nodes}
+
+        for n in nodes:
+            if n.get('type') != 'Loop':
+                continue
+            loop_id = n.get('id')
+            loop_label = n.get('label') or loop_id or 'Loop'
+
+            # BFS forward through 'pass' edges. If we ever land on a node
+            # whose type is 'End Loop', the pair is well-formed.
+            visited = set()
+            queue = list(pass_targets_by_source.get(loop_id, []))
+            found_end_loop = False
+            while queue:
+                nid = queue.pop(0)
+                if nid in visited:
+                    continue
+                visited.add(nid)
+                target_node = nodes_by_id.get(nid)
+                if not target_node:
+                    continue
+                if target_node.get('type') == 'End Loop':
+                    found_end_loop = True
+                    break
+                # Walk only through 'pass' edges so we don't traverse
+                # error/fail branches looking for an End Loop.
+                queue.extend(pass_targets_by_source.get(nid, []))
+
+            if not found_end_loop:
+                warnings_out.append({
+                    'loop_node_id': loop_id,
+                    'loop_label': loop_label,
+                    'message': (
+                        f"Loop node '{loop_label}' has no reachable "
+                        f"End Loop node. The loop body will run once and "
+                        f"execution will exit. Add an End Loop node "
+                        f"connected after the loop body to enable proper "
+                        f"iteration."
+                    ),
+                })
+
+        return warnings_out
+
 
     def _execute_human_approval_node(self, execution_id: str, step_execution_id: str, node: Dict, variables: Dict) -> Optional[str]:
         """Execute a Human Approval node with user/group assignment
@@ -2230,9 +2782,13 @@ Guidelines:
             execution_state['paused'] = True
             self._update_workflow_status(execution_id, 'Paused')
             
-            # Send notification if method exists
-            if hasattr(self, '_send_approval_notification'):
-                self._send_approval_notification(request_id, title, assignee_type, assignee_id)
+            # Notify the assignee(s) out-of-band
+            self._send_approval_notification(
+                request_id, title, description, assignee_type, assignee_id,
+                workflow_name=self._active_executions[execution_id]['workflow_name'],
+                priority=priority,
+                due_date=due_date,
+            )
             
             # Wait for approval
             approval_response = None
@@ -2406,12 +2962,142 @@ Guidelines:
                 except:
                     pass
 
-    def _send_approval_notification(self, request_id: str, title: str, 
-                                    assignee_type: str, assignee_id: int):
-        """Send notification for approval request (placeholder for email/slack integration)"""
-        # This is a placeholder for notification logic
-        # You can integrate with email, Slack, or other notification systems here
-        logger.info(f"Notification sent for approval {request_id} to {assignee_type}:{assignee_id}")
+    def _resolve_assignee_emails(self, assignee_type: str, assignee_id) -> list:
+        """Resolve a (user|group, id) pair to a deduplicated list of email addresses."""
+        if not assignee_type or assignee_id is None:
+            return []
+
+        conn = None
+        cursor = None
+        try:
+            conn = self.get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+
+            if assignee_type.lower() == 'user':
+                cursor.execute(
+                    "SELECT email FROM users WHERE id = ? AND email IS NOT NULL AND email <> ''",
+                    assignee_id,
+                )
+            elif assignee_type.lower() == 'group':
+                cursor.execute(
+                    """
+                    SELECT u.email
+                    FROM users u
+                    JOIN user_groups ug ON u.id = ug.user_id
+                    WHERE ug.group_id = ?
+                      AND u.email IS NOT NULL AND u.email <> ''
+                    """,
+                    assignee_id,
+                )
+            else:
+                return []
+
+            seen = set()
+            emails = []
+            for row in cursor.fetchall():
+                addr = (row[0] or '').strip()
+                if addr and addr.lower() not in seen:
+                    seen.add(addr.lower())
+                    emails.append(addr)
+            return emails
+        except Exception as e:
+            logger.warning(f"Could not resolve emails for {assignee_type}:{assignee_id}: {e}")
+            return []
+        finally:
+            if cursor:
+                try: cursor.close()
+                except: pass
+            if conn:
+                try: conn.close()
+                except: pass
+
+    def _send_approval_notification(self, request_id: str, title: str,
+                                    description: str, assignee_type: str, assignee_id,
+                                    workflow_name: str = '', priority: int = 0,
+                                    due_date=None):
+        """Notify the approval assignee(s) by email. Never raises — delivery failures
+        must not break the workflow execution."""
+        try:
+            recipients = self._resolve_assignee_emails(assignee_type, assignee_id)
+            if not recipients:
+                logger.info(
+                    f"Approval {request_id}: no email recipients resolved for "
+                    f"{assignee_type}:{assignee_id} — skipping email notification"
+                )
+                return
+
+            priority_label = {3: 'High', 2: 'Medium', 1: 'Low'}.get(priority, '')
+            subject_prefix = f"[{priority_label}] " if priority_label else ''
+            subject = f"{subject_prefix}Approval needed: {title}"
+
+            def esc(s):
+                return html.escape(str(s)) if s is not None else ''
+
+            due_html = ''
+            if due_date is not None:
+                due_html = (
+                    f'<tr><td style="padding:4px 12px 4px 0;color:#666;">Due (UTC)</td>'
+                    f'<td style="padding:4px 0;"><strong>{esc(due_date.strftime("%Y-%m-%d %H:%M"))}</strong></td></tr>'
+                )
+
+            priority_html = ''
+            if priority_label:
+                priority_html = (
+                    f'<tr><td style="padding:4px 12px 4px 0;color:#666;">Priority</td>'
+                    f'<td style="padding:4px 0;"><strong>{esc(priority_label)}</strong></td></tr>'
+                )
+
+            workflow_html = ''
+            if workflow_name:
+                workflow_html = (
+                    f'<tr><td style="padding:4px 12px 4px 0;color:#666;">Workflow</td>'
+                    f'<td style="padding:4px 0;"><strong>{esc(workflow_name)}</strong></td></tr>'
+                )
+
+            description_html = ''
+            if description:
+                description_html = (
+                    f'<div style="margin-top:16px;padding:12px;background:#f7f7f7;'
+                    f'border-left:3px solid #4a90e2;color:#333;white-space:pre-wrap;">'
+                    f'{esc(description)}</div>'
+                )
+
+            body = (
+                '<html><body style="font-family:Segoe UI,Arial,sans-serif;color:#222;">'
+                f'<h2 style="margin:0 0 12px 0;color:#2c3e50;">Approval needed</h2>'
+                f'<p style="margin:0 0 12px 0;">An approval request is waiting for your review.</p>'
+                '<table style="border-collapse:collapse;font-size:14px;">'
+                f'<tr><td style="padding:4px 12px 4px 0;color:#666;">Title</td>'
+                f'<td style="padding:4px 0;"><strong>{esc(title)}</strong></td></tr>'
+                f'{workflow_html}{priority_html}{due_html}'
+                f'<tr><td style="padding:4px 12px 4px 0;color:#666;">Request ID</td>'
+                f'<td style="padding:4px 0;font-family:Consolas,monospace;font-size:12px;color:#555;">{esc(request_id)}</td></tr>'
+                '</table>'
+                f'{description_html}'
+                '<p style="margin-top:20px;color:#666;font-size:12px;">'
+                'Sign in to AI Hub to review and respond to this request.'
+                '</p>'
+                '</body></html>'
+            )
+
+            sent = send_email(
+                recipients=recipients,
+                subject=subject,
+                body=body,
+                html_content=True,
+            )
+            if sent:
+                logger.info(
+                    f"Approval {request_id}: email sent to {len(recipients)} recipient(s)"
+                )
+            else:
+                logger.warning(
+                    f"Approval {request_id}: send_email returned False for "
+                    f"{len(recipients)} recipient(s)"
+                )
+        except Exception as e:
+            logger.exception(f"Approval {request_id}: notification error: {e}")
 
     def _get_available_assignees(self):
         """Get list of available users and groups for assignment"""
@@ -2935,12 +3621,26 @@ Guidelines:
             full_path = match.group(1)   # e.g., var.nested[0].field
             
             try:
-                # Split on the first dot to separate variable name from nested path
-                # Use split with maxsplit=1 to only split on the FIRST dot
-                if '.' in full_path:
-                    parts = full_path.split('.', 1)
-                    var_name = parts[0]
-                    nested_path = parts[1]
+                # Split the variable name from the nested path. The variable
+                # name ends at the FIRST occurrence of either '.' (dot-notation
+                # property) or '[' (array index). Previously this only checked
+                # for '.', which meant ${items[0]} was parsed as var_name=
+                # "items[0]" and never resolved (BUG-WORKFLOW-VAR-ARRAYIDX).
+                # The '.' separator is consumed; the '[' is preserved into the
+                # nested path so _get_nested_value_for_variables can match its
+                # existing "[index]" segment regex.
+                dot_idx = full_path.find('.')
+                bracket_idx = full_path.find('[')
+                separators = [i for i in (dot_idx, bracket_idx) if i != -1]
+                if separators:
+                    split_at = min(separators)
+                    var_name = full_path[:split_at]
+                    if full_path[split_at] == '.':
+                        nested_path = full_path[split_at + 1:]
+                    else:
+                        # Bracket — keep it as the start of the nested path so
+                        # the array-index segment regex still matches.
+                        nested_path = full_path[split_at:]
                 else:
                     # No nested path, just a simple variable
                     var_name = full_path
@@ -5830,7 +6530,8 @@ Guidelines:
             elif source_type == 'variable':
                 # Variable reference - supports nested paths like ${extractedNotes.Notes}
                 full_path = loop_source.replace('${', '').replace('}', '')
-                
+                full_path = full_path.strip()
+
                 # Split on first dot to separate variable name from nested path
                 if '.' in full_path:
                     parts = full_path.split('.', 1)
@@ -5839,35 +6540,59 @@ Guidelines:
                 else:
                     var_name = full_path
                     nested_path = None
-                
+
                 # Get the base variable
-                found_key, raw_value = self.find_variable(var_name, variables)
-                
-                # If there's a nested path, navigate into the structure
-                if nested_path and raw_value is not None:
+                found_key, base_value = self.find_variable(var_name, variables)
+                raw_value = base_value
+
+                # If there's a nested path, navigate into the structure.
+                # If the path doesn't resolve, fall back gracefully and log
+                # clearly so the user can see why the loop is empty.
+                nested_navigation_failed = False
+                if nested_path and base_value is not None:
                     self.log_execution(
                         execution_id, node_id, "debug",
                         f"Navigating nested path '{nested_path}' in variable '{var_name}'")
-                    raw_value = self._get_nested_value_for_variables(raw_value, nested_path)
-                
+                    raw_value = self._get_nested_value_for_variables(base_value, nested_path)
+                    if raw_value is None:
+                        nested_navigation_failed = True
+                        # Surface what keys ARE available at the base to help debugging
+                        if isinstance(base_value, dict):
+                            available = ', '.join(list(base_value.keys())[:20])
+                            hint = f" Available keys at '{var_name}': [{available}]"
+                        else:
+                            hint = f" Base value type: {type(base_value).__name__}"
+                        self.log_execution(
+                            execution_id, node_id, "warning",
+                            f"Nested path '{nested_path}' did not resolve under "
+                            f"variable '{var_name}'.{hint} Falling back to "
+                            f"auto-detect on '{var_name}'.")
+                        # Fall back to the base value so auto-detect (below)
+                        # can find an array even when the path is wrong
+                        raw_value = base_value
+
+                # Build a descriptive label that reflects what was actually used
+                display_path = full_path if nested_path else var_name
+                fallback_suffix = ' (auto-detected after path miss)' if nested_navigation_failed else ''
+
                 # Parse the variable value into a list
                 if isinstance(raw_value, str):
                     parsed_list = self._parse_string_to_list(raw_value)
                     if parsed_list is not None:
                         items = parsed_list
-                        source_description = f'Variable (parsed): {var_name}'
+                        source_description = f'Variable (parsed): {display_path}{fallback_suffix}'
                     else:
                         items = raw_value
-                        source_description = f'Variable: {var_name}'
+                        source_description = f'Variable: {display_path}{fallback_suffix}'
                 elif isinstance(raw_value, list):
                     items = raw_value
-                    source_description = f'Variable (list): {var_name}'
+                    source_description = f'Variable (list): {display_path}{fallback_suffix}'
                 elif isinstance(raw_value, dict):
                     items, nested_desc = self._auto_detect_array(raw_value)
-                    source_description = f'Variable {var_name} -> {nested_desc}'
+                    source_description = f'Variable {display_path} -> {nested_desc}{fallback_suffix}'
                 else:
                     items = raw_value
-                    source_description = f'Variable: {var_name}'
+                    source_description = f'Variable: {display_path}{fallback_suffix}'
                 
             elif source_type == 'path':
                 # Path reference
@@ -5982,18 +6707,37 @@ Guidelines:
                     self.log_execution(
                         execution_id, node_id, "info",
                         "No items to iterate over")
-                        
+
+                # Build empty-loop output
+                empty_output = {
+                    'message': 'No items to process or no loop body connected',
+                    '_loopStats': {
+                        'totalItems': len(items),
+                        'processedItems': 0,
+                        'skippedItems': len(items),
+                        'source': source_description
+                    },
+                    'results': []
+                }
+
+                # Mark this loop as completed and store its (empty) results so
+                # the outer routing in _execute_node skips the loop body
+                # connection and jumps straight to the End Loop. Without this,
+                # the engine sees the Loop returned success and follows the
+                # pass-type connection into the body, executing the first body
+                # node ONCE with stale/empty variables — which is the source of
+                # spurious failures like "Graph API 400: ... 'items' refers to
+                # a collection" when item_id ends up empty.
+                if execution_id not in self._loop_results:
+                    self._loop_results[execution_id] = {}
+                self._loop_results[execution_id][node_id] = empty_output
+                if execution_id not in self._completed_loops:
+                    self._completed_loops[execution_id] = set()
+                self._completed_loops[execution_id].add(node_id)
+
                 return {
                     'success': True,
-                    'data': {
-                        'message': 'No items to process or no loop body connected',
-                        '_loopStats': {
-                            'totalItems': len(items),
-                            'processedItems': 0,
-                            'skippedItems': len(items),
-                            'source': source_description
-                        }
-                    }
+                    'data': empty_output
                 }
             
             loop_body_node_id = loop_body_connections[0]['target']
@@ -6003,11 +6747,14 @@ Guidelines:
             original_index_var = variables.get(index_var)
             original_loop_stats = variables.get('_loopStats')
             
-            # Mark loop as active
+            # Mark loop as active — key includes execution_id so concurrent
+            # workflows with identical node IDs don't clobber each other.
+            loop_key = f"{execution_id}_{node_id}"
             if not hasattr(self, '_active_loops'):
                 self._active_loops = {}
-            self._active_loops[node_id] = {
+            self._active_loops[loop_key] = {
                 'execution_id': execution_id,
+                'node_id': node_id,
                 'current_index': 0,
                 'total_items': len(items),
                 'results': []
@@ -6025,7 +6772,7 @@ Guidelines:
                     break
                 
                 # Update loop state
-                self._active_loops[node_id]['current_index'] = i
+                self._active_loops[loop_key]['current_index'] = i
                 
                 # Set loop variables
                 variables[item_var] = items[i]
@@ -6130,12 +6877,12 @@ Guidelines:
                     results.append(loop_result)
                 
                 # Store in active loop results (safe storage)
-                if hasattr(self, '_active_loops') and node_id in self._active_loops:
-                    self._active_loops[node_id]['results'].append(loop_result)
+                if hasattr(self, '_active_loops') and loop_key in self._active_loops:
+                    self._active_loops[loop_key]['results'].append(loop_result)
             
             # Clean up active loop
-            if node_id in self._active_loops:
-                del self._active_loops[node_id]
+            if loop_key in self._active_loops:
+                del self._active_loops[loop_key]
             
             # Restore original variable values
             if original_item_var is not None:
@@ -6253,8 +7000,9 @@ Guidelines:
             
         except Exception as e:
             # Clean up on error
-            if hasattr(self, '_active_loops') and node_id in self._active_loops:
-                del self._active_loops[node_id]
+            loop_key = f"{execution_id}_{node_id}"
+            if hasattr(self, '_active_loops') and loop_key in self._active_loops:
+                del self._active_loops[loop_key]
 
             if execution_id in self._completed_loops:
                 self._completed_loops[execution_id].discard(node_id)
@@ -6666,18 +7414,19 @@ Guidelines:
         
         # Find the associated loop node
         loop_node_id = node_config.get('loopNodeId')
-        
+
         if not loop_node_id:
-            # Auto-detect: find the Loop node that could reach this End Loop
-            # Check if _active_loops exists (it should from your existing code)
+            # Auto-detect: find the most recent active loop for THIS execution
             if hasattr(self, '_active_loops') and self._active_loops:
-                # Get the most recent active loop
-                loop_node_id = list(self._active_loops.keys())[-1] if self._active_loops else None
-        
+                exec_loop_keys = [k for k in self._active_loops if k.startswith(f"{execution_id}_")]
+                if exec_loop_keys:
+                    loop_node_id = self._active_loops[exec_loop_keys[-1]].get('node_id')
+
         # Check if we're inside a loop iteration
-        if hasattr(self, '_active_loops') and loop_node_id in self._active_loops:
+        loop_key = f"{execution_id}_{loop_node_id}" if loop_node_id else None
+        if hasattr(self, '_active_loops') and loop_key and loop_key in self._active_loops:
             # We're inside a loop - just return the data to continue
-            loop_state = self._active_loops[loop_node_id]
+            loop_state = self._active_loops[loop_key]
             self.log_execution(
                 execution_id, node_id, "debug",
                 f"End Loop reached for iteration {loop_state['current_index'] + 1}/{loop_state['total_items']}")
@@ -6748,9 +7497,14 @@ Guidelines:
             # Clean up loop tracking structures
             if hasattr(self, '_completed_loops') and execution_id in self._completed_loops:
                 del self._completed_loops[execution_id]
-            
+
             if hasattr(self, '_loop_results') and execution_id in self._loop_results:
                 del self._loop_results[execution_id]
+
+            # BUG-WORKFLOW-003 protection: clean up visit-count tracking
+            # so we don't leak memory across many executions.
+            if hasattr(self, '_node_visit_counts') and execution_id in self._node_visit_counts:
+                del self._node_visit_counts[execution_id]
             
             # Clean up any active loops
             if hasattr(self, '_active_loops'):

@@ -83,7 +83,15 @@ def _get_session_engine(session_id):
     if serialized is None:
         return None
     try:
-        return pickle.loads(serialized)
+        _t0 = time.time()
+        engine = pickle.loads(serialized)
+        _elapsed = time.time() - _t0
+        size_kb = len(serialized) / 1024.0
+        logger.warning(
+            f"[DATA_EXPLORER_TIMING] pickle_load={_elapsed:.2f}s "
+            f"size={size_kb:.1f}KB session={session_id}"
+        )
+        return engine
     except Exception as e:
         logger.error(f"Error deserializing engine for session {session_id}: {e}")
         return None
@@ -93,7 +101,15 @@ def _save_session_engine(session_id, engine):
     """Serialize and store the engine back."""
     store = _get_engine_store()
     try:
-        store[session_id] = pickle.dumps(engine)
+        _t0 = time.time()
+        blob = pickle.dumps(engine)
+        store[session_id] = blob
+        _elapsed = time.time() - _t0
+        size_kb = len(blob) / 1024.0
+        logger.warning(
+            f"[DATA_EXPLORER_TIMING] pickle_save={_elapsed:.2f}s "
+            f"size={size_kb:.1f}KB session={session_id}"
+        )
     except Exception as e:
         logger.error(f"Error serializing engine for session {session_id}: {e}")
 

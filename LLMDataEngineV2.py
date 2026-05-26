@@ -89,6 +89,11 @@ class LLMDataEngine:
         # Remove unpicklable objects
         state['query_engine'] = None
         state['analytical_engine'] = None
+        # Timing helpers from get_answer are closures and not picklable.
+        # They're rebuilt at the start of every get_answer call, so dropping
+        # them here is safe.
+        state.pop('_time_stage', None)
+        state.pop('_emit_stage_summary', None)
         self.environment.chat_history = None   # TODO Attempt to fix recursive error
         return state
 
@@ -905,6 +910,67 @@ class LLMDataEngine:
 
     def get_answer(self, agent_id, input_question, recursion_depth=0):
         start_time = time.time()
+
+        # --- Per-stage timing instrumentation (read by the route handler) ---
+        # Each stage records (elapsed_seconds, llm_call_count_if_known).
+        # Stored on self so the route can read it after get_answer returns.
+        # Reset on top-level call; nested recursive calls append to a sublist.
+        if recursion_depth == 0:
+            self._stage_times = {}
+            self._stage_times_nested = []
+        _stage_times = self._stage_times
+
+        def _time_stage(name):
+            """Context manager that records elapsed time for a named stage.
+            Usage:
+                with _time_stage('classify_input'):
+                    self._01_classify_input()
+            """
+            import contextlib
+            @contextlib.contextmanager
+            def _ctx():
+                _t0 = time.time()
+                try:
+                    yield
+                finally:
+                    _elapsed = time.time() - _t0
+                    # Accumulate if the same stage runs more than once in a single
+                    # request (e.g. analytical engine fallback path).
+                    if name in _stage_times:
+                        _stage_times[name] += _elapsed
+                    else:
+                        _stage_times[name] = _elapsed
+            return _ctx()
+        self._time_stage = _time_stage
+
+        def _emit_stage_summary(total_elapsed):
+            """Emit the per-stage timing breakdown to the logger.
+            Called from each terminal return path of get_answer at depth 0.
+            """
+            if recursion_depth != 0:
+                return
+            try:
+                accounted = sum(_stage_times.values())
+                other = max(0.0, total_elapsed - accounted)
+                # Sort stages by time descending for readability
+                sorted_stages = sorted(_stage_times.items(), key=lambda kv: kv[1], reverse=True)
+                breakdown = " | ".join(f"{name}={secs:.2f}s" for name, secs in sorted_stages)
+                logger.warning(
+                    f"[DATA_EXPLORER_TIMING] total={total_elapsed:.2f}s "
+                    f"accounted={accounted:.2f}s other={other:.2f}s :: {breakdown}"
+                )
+                # Also expose for the route handler to pick up if it wants to.
+                self._last_stage_breakdown = {
+                    'total': total_elapsed,
+                    'accounted': accounted,
+                    'other': other,
+                    'stages': dict(_stage_times),
+                }
+            except Exception as _e:
+                logger.debug(f"[DATA_EXPLORER_TIMING] failed to emit breakdown: {_e}")
+        self._emit_stage_summary = _emit_stage_summary
+        # ---------------------------------------------------------------------
+
         self._set_user_request_id()
 
         # Default fallback response in case of errors
@@ -1002,10 +1068,12 @@ class LLMDataEngine:
         # Perform combined analysis if enabled (do this early in the flow)
         if cfg.USE_COMBINED_ANALYSIS:
             print("Using combined pipeline analysis...")
-            self._perform_combined_pipeline_analysis()
+            with self._time_stage('combined_pipeline_analysis'):
+                self._perform_combined_pipeline_analysis()
 
         # Check if this is a meta-question about previous processing
-        meta_question_result = self.query_engine._detect_meta_question(input_question)
+        with self._time_stage('detect_meta_question'):
+            meta_question_result = self.query_engine._detect_meta_question(input_question)
         
         # If this is a meta-question with high confidence, short-circuit the normal flow
         if meta_question_result.get("is_meta_question", False) and meta_question_result.get("confidence", 0) > 70:
@@ -1052,7 +1120,8 @@ class LLMDataEngine:
 
 
         # 01 Classify user input (new, follow (-up), response, irrelevant)
-        input_classification, input_explanation, input_confidence = self._01_classify_input()
+        with self._time_stage('01_classify_input'):
+            input_classification, input_explanation, input_confidence = self._01_classify_input()
 
         jump_to_end = False
         AUTO_ANSWER_TRIGGERED_FLAG = False
@@ -1062,7 +1131,8 @@ class LLMDataEngine:
             is_data_query_required = True
         elif input_classification == 'follow':
             # Check if follow up can be answered with existing datasets
-            is_data_query_required, data_query_explanation, data_query_confidence = self.query_engine._is_data_query_required()
+            with self._time_stage('is_data_query_required'):
+                is_data_query_required, data_query_explanation, data_query_confidence = self.query_engine._is_data_query_required()
             print('Returned from _is_data_query_required... is_data_query_required = ', is_data_query_required)
             logger.debug('Returned from _is_data_query_required... is_data_query_required = ' + str(is_data_query_required))
         elif input_classification ==  'response':
@@ -1089,7 +1159,8 @@ class LLMDataEngine:
             if is_data_query_required:
                 print('Checking if more info is required...')
                 # Check that we have enough context to produce the query
-                more_info_required, request_for_more_information, confidence = self.query_engine._is_more_info_required()
+                with self._time_stage('is_more_info_required'):
+                    more_info_required, request_for_more_information, confidence = self.query_engine._is_more_info_required()
 
                 # Check confidence score vs threshold (if confidence less than thresh, reverse decision)
                 if more_info_required and int(confidence) < cfg.CONFIDENCE_THRESHOLD_REQUESTING_MORE_INFO:
@@ -1098,7 +1169,11 @@ class LLMDataEngine:
                     self.environment.last_answer_requested_more_info_message = ''
 
                 if not more_info_required:
-                    load_success = self.query_engine._initialize_data(input_question, is_first_question=self.environment.is_first_question)
+                    # initialize_data is the heavy step: schema lookup +
+                    # LLM SQL generation + SQL execution. Usually the biggest
+                    # chunk of total time.
+                    with self._time_stage('initialize_data'):
+                        load_success = self.query_engine._initialize_data(input_question, is_first_question=self.environment.is_first_question)
                     self.environment.last_answer_requested_more_info = False
                     self.environment.last_answer_requested_more_info_message = ''
                 else:
@@ -1120,14 +1195,16 @@ class LLMDataEngine:
                     # If data was loaded, check if it is ok to bypass analytical engine
                     if cfg.USE_FORMATTING_AWARE_ANALYTICAL_CHECK:
                         # Use the enhanced formatting-aware version
-                        analytical_query_required, analytical_query_required_confidence, explanation, formatting_required, formatting_requirements = self.analytical_engine._is_analytical_query_required_v3_with_formatting()
-    
+                        with self._time_stage('is_analytical_required'):
+                            analytical_query_required, analytical_query_required_confidence, explanation, formatting_required, formatting_requirements = self.analytical_engine._is_analytical_query_required_v3_with_formatting()
+
                         if formatting_required and formatting_requirements:
                             # Store formatting requirements in environment
                             self.environment.current_formatting_requirements = formatting_requirements
                     else:
                         # Use the original version
-                        analytical_query_required, analytical_query_required_confidence, _ = self.analytical_engine._is_analytical_query_required_v2()
+                        with self._time_stage('is_analytical_required'):
+                            analytical_query_required, analytical_query_required_confidence, _ = self.analytical_engine._is_analytical_query_required_v2()
 
                     if analytical_query_required and int(analytical_query_required_confidence) < cfg.CONFIDENCE_THRESHOLD_FOR_ANALYTICAL_PROCESSING:
                         analytical_query_required = False
@@ -1138,7 +1215,8 @@ class LLMDataEngine:
                         # Treat both 'follow' and 'response' as follow-ups for visualization inheritance
                         # 'response' = user responding to AI's request for clarification (still a follow-up context)
                         is_follow_up = (input_classification in ['follow', 'response'])
-                        answer, explain, clarify, answer_type, special_message, _ = self.analytical_engine.get_answer(input_question, is_follow_up=is_follow_up)
+                        with self._time_stage('analytical_engine_get_answer'):
+                            answer, explain, clarify, answer_type, special_message, _ = self.analytical_engine.get_answer(input_question, is_follow_up=is_follow_up)
                         revised_question = ''
                         if 'string' in answer_type and 'Unfortunately, I was not able to answer your question, because of the following error' in str(answer):
                             answer = self.environment.dfs[-1]
@@ -1176,7 +1254,8 @@ class LLMDataEngine:
                     
                     # Treat both 'follow' and 'response' as follow-ups for visualization inheritance
                     is_follow_up = (input_classification in ['follow', 'response'])
-                    answer, explain, clarify, answer_type, special_message, _ = self.analytical_engine.get_answer(input_question, is_follow_up=is_follow_up)
+                    with self._time_stage('analytical_engine_get_answer'):
+                        answer, explain, clarify, answer_type, special_message, _ = self.analytical_engine.get_answer(input_question, is_follow_up=is_follow_up)
                     revised_question = ''
                     if str(answer_type).lower() == 'error' or 'Empty DataFrame' in str(answer):  # 'Unfortunately, I was not able to answer your question' or 'error' in answer
                         print('WARNING: Error detected getting answer from analytical engine, using data engine instead.')
@@ -1345,7 +1424,8 @@ class LLMDataEngine:
             self._handling_error = False  # Reset flag
             response_filter = ResponseFilter()
             original_answer = answer
-            answer = response_filter.filter_response(answer, input_question)
+            with self._time_stage('response_filter'):
+                answer = response_filter.filter_response(answer, input_question)
         elif answer_type == 'error':
             answer = cfg.DATA_AGENT_FALLBACK_RESPONSE
             self._handling_error = True  # Set flag
@@ -1398,7 +1478,9 @@ class LLMDataEngine:
             logger.debug(f'Returned rich answer: {rich_answer}')
             print(f'Returned rich answer: {rich_answer}')
             logger.debug(f'Returned rich answer type: {type(rich_type)}')
-            
+
+            self._emit_stage_summary(time.time() - start_time)
+
             # Return both formats for compatibility
             return {
                 'answer': answer,  # Original format for backward compatibility
@@ -1412,6 +1494,7 @@ class LLMDataEngine:
             }
         else:
             # Original return format
+            self._emit_stage_summary(time.time() - start_time)
             return answer, explain, clarify, answer_type, special_message, input_question, revised_question, return_query
 
 

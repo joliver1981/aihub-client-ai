@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- TTS queue flush — see dca-tts-flush.js. Drains any robot-voice
+     utterances Chrome persisted from a prior page. -->
+<script src="/data-collection/static/js/dca-tts-flush.js"></script>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="/static/css/chat-theme.css">
+<link rel="stylesheet" href="/data-collection/static/css/data-collection.css">
+
+{% if branding_style %}{{ branding_style|safe }}{% endif %}
+{% if safe_favicon_url %}<link rel="icon" href="{{ safe_favicon_url }}">{% endif %}
+
+<style>
+    .dca-mys-page {
+        min-height: 100vh;
+        background: var(--bg-primary, #0a0a0c);
+        color: var(--text-primary, #fafafa);
+        font-family: 'Outfit', sans-serif;
+        padding: 1.5rem 1.25rem 4rem 1.25rem;
+    }
+    .dca-mys-wrap { max-width: 880px; margin: 0 auto; }
+    .dca-mys-breadcrumb { font-size: 0.78rem; color: var(--text-tertiary, #71717a); margin-bottom: 0.5rem; }
+    .dca-mys-breadcrumb a { color: var(--text-secondary, #a1a1aa); text-decoration: none; }
+    .dca-mys-breadcrumb a:hover { color: var(--cyber-cyan, #06b6d4); }
+
+    .dca-mys-hero { margin-bottom: 1.5rem; }
+    .dca-mys-hero h1 {
+        margin: 0; font-size: 1.5rem; font-weight: 600;
+        display: flex; align-items: center; gap: 0.6rem;
+    }
+    .dca-mys-hero h1 i { color: var(--cyber-cyan, #06b6d4); }
+    .dca-mys-hero p { margin: 0.4rem 0 0 0; color: var(--text-secondary, #a1a1aa); font-size: 0.9rem; }
+
+    .dca-mys-list { display: flex; flex-direction: column; gap: 0.75rem; }
+    .dca-mys-row {
+        background: var(--bg-card, #18181b);
+        border: 1px solid var(--border-color, #27272a);
+        border-radius: 10px;
+        padding: 1rem;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 1rem;
+        align-items: center;
+    }
+    .dca-mys-meta {
+        display: flex; flex-direction: column; gap: 0.25rem;
+        min-width: 0;
+    }
+    .dca-mys-name { font-weight: 600; font-size: 1rem; }
+    .dca-mys-id {
+        font-family: 'JetBrains Mono', monospace; font-size: 0.72rem;
+        color: var(--text-tertiary, #71717a);
+        word-break: break-all;
+    }
+    .dca-mys-stat-row {
+        display: flex; gap: 1rem; align-items: center;
+        font-size: 0.78rem; color: var(--text-secondary, #a1a1aa);
+        margin-top: 0.25rem;
+    }
+    .dca-mys-progress {
+        flex: 1; max-width: 220px;
+        background: var(--border-color, #27272a);
+        border-radius: 999px; height: 6px; overflow: hidden;
+    }
+    .dca-mys-progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, var(--cyber-cyan, #06b6d4), var(--cyber-violet, #a78bfa));
+    }
+
+    .dca-mys-actions { display: flex; gap: 0.4rem; }
+    .dca-mys-btn {
+        display: inline-flex; align-items: center; gap: 0.4rem;
+        padding: 0.5rem 0.9rem;
+        border-radius: 6px; font-size: 0.85rem; font-weight: 600;
+        text-decoration: none; cursor: pointer;
+        border: 1px solid var(--border-color, #27272a);
+        background: rgba(255,255,255,0.04);
+        color: var(--text-primary, #fafafa);
+    }
+    .dca-mys-btn.primary {
+        background: linear-gradient(135deg, var(--cyber-cyan, #06b6d4), var(--cyber-violet, #a78bfa));
+        color: #0a0a0c; border: none;
+    }
+    .dca-mys-btn.danger:hover { color: #f87171; border-color: #f87171; }
+
+    .dca-mys-empty {
+        text-align: center;
+        padding: 3.5rem 1rem;
+        border: 1px dashed var(--border-color, #27272a);
+        border-radius: 12px;
+        color: var(--text-secondary, #a1a1aa);
+    }
+    .dca-mys-empty i { font-size: 2.5rem; color: var(--text-tertiary, #71717a); margin-bottom: 0.75rem; display: block; }
+    .dca-mys-empty h3 { margin: 0 0 0.4rem 0; color: var(--text-primary, #fafafa); }
+
+    .dca-mys-pill {
+        font-size: 0.7rem;
+        padding: 0.05rem 0.45rem;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.05);
+        color: var(--text-tertiary, #71717a);
+    }
+    .dca-mys-pill.review { background: rgba(167,139,250,0.15); color: #ddd6fe; }
+    .dca-mys-pill.failed { background: rgba(239,68,68,0.15); color: #fca5a5; }
+    .dca-mys-pill.missing { background: rgba(251,191,36,0.15); color: #fde68a; }
+
+    @media (max-width: 600px) {
+        .dca-mys-row { grid-template-columns: 1fr; }
+        .dca-mys-actions { width: 100%; }
+        .dca-mys-btn { flex: 1; justify-content: center; min-height: 44px; }
+    }
+</style>
+
+<div class="dca-mys-page">
+    <div class="dca-mys-wrap">
+        <div class="dca-mys-breadcrumb">
+            <a href="/data-collection/">Gallery</a> &rsaquo; My sessions
+        </div>
+
+        <div class="dca-mys-hero">
+            {% if filter_config_id %}
+                <h1>
+                    <i class="fas fa-list-check"></i>
+                    My sessions — {{ filtered_schema_name }}
+                </h1>
+                <p>
+                    Showing only your in-progress sessions for
+                    <code style="background:rgba(255,255,255,0.05);padding:0 4px;border-radius:3px;">{{ filter_config_id }}</code>.
+                    <a href="/data-collection/my-sessions" style="color:var(--cyber-cyan,#06b6d4);text-decoration:underline;">
+                        Show all sessions across schemas
+                    </a>
+                </p>
+            {% else %}
+                <h1><i class="fas fa-list-check"></i> My open sessions</h1>
+                <p>
+                    Forms you've started but not yet submitted. Click Resume to pick
+                    up where you left off. You can have multiple sessions for the
+                    same form — each is independent.
+                </p>
+            {% endif %}
+        </div>
+
+        {% if sessions %}
+        <div class="dca-mys-list">
+            {% for s in sessions %}
+            <div class="dca-mys-row" data-session-id="{{ s.session_id }}">
+                <div class="dca-mys-meta">
+                    <div class="dca-mys-name">
+                        {{ s.schema_name }}
+                        {% if s.status == 'review' %}
+                            <span class="dca-mys-pill review">ready to submit</span>
+                        {% elif s.status == 'submission_failed' %}
+                            <span class="dca-mys-pill failed">submission failed</span>
+                        {% endif %}
+                        {% if s.schema_missing %}
+                            <span class="dca-mys-pill missing">schema not deployed</span>
+                        {% endif %}
+                    </div>
+                    <div class="dca-mys-id">
+                        {{ s.config_id }} &middot; session {{ s.session_id[:8] }}…
+                    </div>
+                    <div class="dca-mys-stat-row">
+                        <div class="dca-mys-progress" title="{{ s.percent_complete }}% complete">
+                            <div class="dca-mys-progress-fill" style="width:{{ s.percent_complete }}%;"></div>
+                        </div>
+                        <span>{{ s.percent_complete }}%</span>
+                        <span title="Last updated">
+                            <i class="far fa-clock"></i> {{ s.updated_at[:16] if s.updated_at else '—' }}
+                        </span>
+                    </div>
+                </div>
+                <div class="dca-mys-actions">
+                    {% if not s.schema_missing %}
+                    <a class="dca-mys-btn primary"
+                       href="/data-collection/{{ s.config_id }}?resume_session={{ s.session_id }}"
+                       title="Resume this session">
+                        <i class="fas fa-play"></i> Resume
+                    </a>
+                    {% endif %}
+                    <button class="dca-mys-btn danger" data-action="abandon"
+                            title="Discard this session">
+                        <i class="fas fa-trash"></i> Discard
+                    </button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="dca-mys-empty">
+            <i class="fas fa-clipboard"></i>
+            <h3>No open sessions</h3>
+            <p>You haven't started any forms yet.</p>
+            <a class="dca-mys-btn primary" href="/data-collection/" style="margin-top:1rem;">
+                <i class="fas fa-arrow-left"></i> Browse agents
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+(function() {
+    document.querySelectorAll('[data-action="abandon"]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const row = btn.closest('[data-session-id]');
+            if (!row) return;
+            if (!confirm('Discard this session? Your progress will be lost.')) return;
+            const sid = row.dataset.sessionId;
+            try {
+                const resp = await fetch(`/api/data-collection/session/${sid}`, {
+                    method: 'DELETE',
+                    credentials: 'same-origin',
+                    headers: { 'Accept': 'application/json' },
+                });
+                if (resp.ok) {
+                    row.style.opacity = '0.4';
+                    setTimeout(() => row.remove(), 150);
+                } else {
+                    alert('Could not delete the session.');
+                }
+            } catch (e) {
+                alert('Network error: ' + e.message);
+            }
+        });
+    });
+})();
+</script>
+{% endblock %}

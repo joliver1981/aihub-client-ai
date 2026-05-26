@@ -4,6 +4,7 @@
   "environments_enabled": true,
   "mcp_servers_enabled": true,
   "integrations_enabled": true,
+  "solutions_enabled": true,
   "image_gen_enabled": true,
   "web_search_enabled": true
 }

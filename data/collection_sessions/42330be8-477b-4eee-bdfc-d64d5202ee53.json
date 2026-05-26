@@ -1,0 +1,74 @@
+{
+  "session_id": "42330be8-477b-4eee-bdfc-d64d5202ee53",
+  "config_id": "example",
+  "user_id": "DB27D555-03A8-446E-9C23-8DAAA95E",
+  "status": "in_progress",
+  "current_section_id": "basics",
+  "collected_data": {
+    "basics": {
+      "submitter_name": "james",
+      "submitter_email": "joliver81@gmail.com"
+    }
+  },
+  "section_status": {
+    "basics": "in_progress",
+    "details": "not_started"
+  },
+  "validation_errors": {},
+  "chat_history": [
+    {
+      "role": "user",
+      "content": "Hi \u2014 I'm ready to start. Please greet me and ask the first question.",
+      "ts": "2026-05-04T16:08:28.884737"
+    },
+    {
+      "role": "assistant",
+      "content": "Hi! I can help you complete the Example Intake Form.\n\nWe\u2019ll go through two short sections:\n- Basic Information\n- Details\n\nTo start with Basic Information: what\u2019s your name?",
+      "ts": "2026-05-04T16:08:28.884737"
+    },
+    {
+      "role": "user",
+      "content": "my name is james",
+      "ts": "2026-05-04T16:09:12.937261"
+    },
+    {
+      "role": "assistant",
+      "content": "Thanks, James. What email address should we use to contact you?",
+      "ts": "2026-05-04T16:09:12.937261"
+    },
+    {
+      "role": "user",
+      "content": "joliver81@gmail.com",
+      "ts": "2026-05-04T16:09:27.799935"
+    },
+    {
+      "role": "assistant",
+      "content": "Great, thanks.\n\nWhat kind of request is this? Please choose one:\n- Type A \u2014 Standard\n- Type B \u2014 Priority\n- Type C \u2014 Custom\n\nAnd when do you need this by? It must be at least a week from today.",
+      "ts": "2026-05-04T16:09:27.799935"
+    },
+    {
+      "role": "user",
+      "content": "B",
+      "ts": "2026-05-04T16:09:46.311975"
+    },
+    {
+      "role": "assistant",
+      "content": "Thanks \u2014 for request type, please use one of these options:\n\n- `type_a` \u2014 Type A \u2014 Standard\n- `type_b` \u2014 Type B \u2014 Priority\n- `type_c` \u2014 Type C \u2014 Custom\n\nWhich one would you like? Also, what\u2019s your target date? It needs to be at least 7 days from today.",
+      "ts": "2026-05-04T16:09:46.311975"
+    },
+    {
+      "role": "user",
+      "content": "type b",
+      "ts": "2026-05-04T16:10:13.660538"
+    },
+    {
+      "role": "assistant",
+      "content": "Here are the valid request type options shown for you.\n\nPlease pick one exactly:\n- `type_a` \u2014 Type A \u2014 Standard\n- `type_b` \u2014 Type B \u2014 Priority\n- `type_c` \u2014 Type C \u2014 Custom\n\nAnd please share your target date too, in a format like `2026-05-20`.",
+      "ts": "2026-05-04T16:10:13.660538"
+    }
+  ],
+  "submission_log": [],
+  "created_at": "2026-05-04T16:08:26.098786",
+  "updated_at": "2026-05-04T16:10:13.660538",
+  "submitted_at": null
+}

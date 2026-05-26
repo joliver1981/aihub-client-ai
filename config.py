@@ -50,8 +50,20 @@ def _env_or_build(name, default=''):
 # =============================================================================
 
 # Ensure the install root is on sys.path so PyInstaller-bundled exes
-# can find secure_config.py and local_secrets.py at C:\Program Files\AIHub\
-_app_root = os.getenv('APP_ROOT', '')
+# can find secure_config.py and local_secrets.py at C:\Program Files\AIHub\.
+# We can't rely on APP_ROOT env at this point — config.py runs before .env is
+# loaded by secure_config below, and NSSM doesn't inherit our .env. Fall back
+# to the exe's grandparent in frozen mode (each service exe lives at
+# <AIHub>/<service>/<service>.exe, so grandparent = AIHub root).
+def _resolve_app_root():
+    explicit = os.getenv('APP_ROOT')
+    if explicit:
+        return os.path.abspath(explicit)
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(os.path.dirname(os.path.abspath(sys.executable)))
+    return os.path.dirname(os.path.abspath(__file__))
+
+_app_root = _resolve_app_root()
 if _app_root and _app_root not in sys.path:
     sys.path.insert(0, _app_root)
 
@@ -64,8 +76,9 @@ except ImportError:
 # App's master password - embedded in the executable
 encryption_key = ENCRYPTION_KEY
 
-# Application root - used as base for all relative paths
-_APP_ROOT = os.path.abspath(os.getenv('APP_ROOT', os.path.dirname(os.path.abspath(__file__))))
+# Application root - used as base for all relative paths.
+# Reuses the same robust resolver from above (env var → frozen exe grandparent → dirname).
+_APP_ROOT = _resolve_app_root()
 
 # Folders
 APP_VERSION = "1.6"  # Deprecated
@@ -199,6 +212,12 @@ SMTP_FROM = os.getenv('SMTP_FROM', '')
 
 # Email Provider Configuration
 EMAIL_PROVIDER = os.getenv('EMAIL_PROVIDER', 'azure').lower()  # 'azure' or 'smtp'
+
+# When True (default), if the configured primary email path fails, send_email falls
+# back to other available paths (cloud API, Azure direct). Set to False to enforce
+# strict use of the configured provider — e.g. when a client requires that mail
+# never leave their SMTP server even if it's down.
+EMAIL_FALLBACK_ENABLED = os.getenv('EMAIL_FALLBACK_ENABLED', 'true').lower() in ['true', '1', 't', 'y', 'yes']
 
 # Misc Application Parameters
 DEBUG_MODE = False
@@ -445,6 +464,7 @@ WORKFLOW_DOC_DO_NOT_SAVE_DEFAULT = True         # Save processed documents when 
 WORKFLOW_DOC_EXTRACT_FIELDS_DEFAULT = False     # Extract field level data from documents when run in a workflow (performance setting)
 WORKFLOW_DOC_DETECT_TYPE_DEFAULT = False        # Detect document type when run in a workflow (performance setting)
 WORKFLOW_DOC_STREAM_AT_SIZE = 3                 # MB file size threshold at which to start streaming
+MAX_CONCURRENT_WORKFLOWS = int(os.getenv('MAX_CONCURRENT_WORKFLOWS', 20))  # Max workflow threads that can execute simultaneously (others queue)
 
 ############################
 ##### ENHANCED DOCS    #####
@@ -470,8 +490,37 @@ DOC_IGNORE_FIELD_FILTERS = False                    # Ignore field filters when 
 DOC_GET_ADDITIONAL_DOCUMENT_INFO = False            # Get additional document info - processed_at, reference_number, customer_id, vendor_id, document_date
 DOC_USE_MINI_MODEL_FOR_AI_FIELD_SELECTION = True    # Uses a mini model instead of core model for ai field selection (reduces token usage on core model)
 DOC_INCLUDE_FULL_PAGE_IN_CHUNK_RESULTS = False      # If True chunks are only used to find pages and full page text is returned to the AI instead of just chunks
-VECTOR_USE_SMART_CHUNKING = True                    # Smart chunking on/off switch
+VECTOR_USE_SMART_CHUNKING = True                    # Smart chunking on/off switch (master toggle for LLM-driven chunking + section context)
 VECTOR_SMART_CHUNKING_MAX_CHARS = 128000            # Max context window for LLM chunking (can be ~1M tokens)
+VECTOR_SMART_CHUNK_INCLUDE_SECTION_HEADER = True    # When smart chunking is on, embed each chunk with [doc_identifier][section_breadcrumb] prefix and surface that context to the AI at retrieval time. Set False to keep boundary detection only.
+VECTOR_SMART_CHUNK_VALIDATE = True                  # Validate chunking output covers ≥95% of source chars; on failure fall back to standard chunking
+VECTOR_SMART_CHUNK_COVERAGE_MIN = 0.95              # Minimum fraction of source characters that concatenated chunks must cover
+
+# Embedding-cap enforcer (Phase 1 — applied post-chunking, before sending to the vector store).
+# text-embedding-3-small has a hard 8192-token input limit; large chunks past that limit are
+# rejected by Azure with a 400 and lose embedding quality long before they hit the ceiling.
+# We cap each chunk well below the model limit so retrieval stays precise even when the
+# upstream chunker preserves a large table or section as a single block.
+VECTOR_EMBEDDING_MAX_TOKENS = int(os.getenv('VECTOR_EMBEDDING_MAX_TOKENS', 1024))
+VECTOR_EMBEDDING_TOKEN_ENCODING = os.getenv('VECTOR_EMBEDDING_TOKEN_ENCODING', 'cl100k_base')
+
+# Parent-child retrieval (Phase 3) — when enabled, NEEDLE search groups the
+# matched chunks by their parent page and returns the full page text to the LLM
+# (with a "matched N chunk(s) on this page" annotation). This gives the agent
+# enough surrounding context to answer follow-up questions like "what's the line
+# above this?" or "how many rows are in the total table?" without needing
+# additional retrievals. Disable to revert to per-chunk responses.
+KNOWLEDGE_PARENT_CHILD_RETRIEVAL = os.getenv('KNOWLEDGE_PARENT_CHILD_RETRIEVAL', 'True').lower() == 'true'
+KNOWLEDGE_PARENT_PAGE_CHAR_CAP = int(os.getenv('KNOWLEDGE_PARENT_PAGE_CHAR_CAP', 12000))    # ~3K tokens per page
+KNOWLEDGE_PARENT_TOTAL_CHAR_CAP = int(os.getenv('KNOWLEDGE_PARENT_TOTAL_CHAR_CAP', 80000))  # ~20K tokens total
+
+# LLM document detector (BUG-NEEDLE-WRONG-DOC-AFTER-CLARIFY fix). When enabled,
+# `smart_knowledge_retrieval` asks a small LLM (Haiku / ANTHROPIC_MINI) — using
+# the recent chat history — whether the user's current question refers to ONE
+# specific knowledge document with HIGH confidence. If so, a hard `document_id`
+# filter is applied to the vector search so retrieval cannot return chunks
+# from any other document. Lower-confidence cases are not boosted or filtered.
+KNOWLEDGE_LLM_DOC_FILTER_ENABLED = os.getenv('KNOWLEDGE_LLM_DOC_FILTER_ENABLED', 'True').lower() == 'true'
 
 # *IMPORTANT* If the AI is not correctly identifying and finding certain date fields, add them to this list so they can be properly searched
 DOC_DATE_FIELD_KEYWORDS = ['date', 'time', 'timestamp', 'created', 'modified', 'updated', 'processed', 'expiration', 'expires', 'due', 'start', 'end', 'begin', 'finish', 'commencement', 'termination', 'effective']
@@ -571,14 +620,40 @@ ENABLE_WORKFLOW_ASSISTANT = False                        # Legacy Workflow Assis
 CLOUD_API_REQUESTS_TIMEOUT = 30
 
 # Smart Knowledge Retrieval Configuration
-KNOWLEDGE_BRUTE_FORCE_MAX_CHARS = int(os.getenv('KNOWLEDGE_BRUTE_FORCE_MAX_CHARS', 500_000))  # Below this: dump all text (brute force)
+KNOWLEDGE_BRUTE_FORCE_PAGE_THRESHOLD = int(os.getenv('KNOWLEDGE_BRUTE_FORCE_PAGE_THRESHOLD', 500))  # If agent has <= this many total pages of knowledge: dump everything to the AI (no chunking, no caps). Above this: route via smart retrieval.
 KNOWLEDGE_VECTOR_COLLECTION = 'agent_knowledge'          # Separate ChromaDB collection for knowledge docs (isolated from system document search)
 KNOWLEDGE_VECTOR_TOP_K = int(os.getenv('KNOWLEDGE_VECTOR_TOP_K', 10))  # Top-K chunks for needle queries
 KNOWLEDGE_SUMMARY_MAX_CHARS = int(os.getenv('KNOWLEDGE_SUMMARY_MAX_CHARS', 500))  # Per-document structured summary cap
 KNOWLEDGE_ENABLE_SUMMARIES = os.getenv('KNOWLEDGE_ENABLE_SUMMARIES', 'True').lower() == 'true'  # Generate summaries at upload
 KNOWLEDGE_ENABLE_SMART_RETRIEVAL = os.getenv('KNOWLEDGE_ENABLE_SMART_RETRIEVAL', 'True').lower() == 'true'  # Enable smart retrieval (vs always brute force)
 KNOWLEDGE_ENABLE_TRACE = os.getenv('KNOWLEDGE_ENABLE_TRACE', 'False').lower() == 'true'  # Enable SKR trace logging to logs/skr_trace.txt
-KNOWLEDGE_ROUTER_MODEL = os.getenv('KNOWLEDGE_ROUTER_MODEL', 'claude-haiku')  # Cheap model for query routing
+KNOWLEDGE_ROUTER_MODEL = os.getenv('KNOWLEDGE_ROUTER_MODEL', 'claude-haiku')  # Cheap model for query routing (legacy label)
+
+# Cheap Anthropic model used by FANOUT per-document extraction and document re-ranker.
+# On any failure (timeout, error, empty response) the call falls back to cfg.ANTHROPIC_MINI,
+# and on a second failure degrades gracefully (the doc is marked extraction-unavailable for
+# fan-out; the re-ranker just skips re-ranking).
+KNOWLEDGE_HAIKU_MODEL = os.getenv('KNOWLEDGE_HAIKU_MODEL', 'claude-haiku-4-5-20251001')
+
+# FANOUT route — per-document map-reduce for "X across all docs" / "for each" queries.
+KNOWLEDGE_FANOUT_ENABLED = os.getenv('KNOWLEDGE_FANOUT_ENABLED', 'True').lower() == 'true'
+KNOWLEDGE_FANOUT_PARALLEL = int(os.getenv('KNOWLEDGE_FANOUT_PARALLEL', 20))                       # Concurrent Haiku extractions
+KNOWLEDGE_FANOUT_SKIP_SIMILARITY_THRESHOLD = float(os.getenv('KNOWLEDGE_FANOUT_SKIP_SIMILARITY_THRESHOLD', 0.4))  # Skip docs whose best chunk has similarity below this
+KNOWLEDGE_FANOUT_MAX_DOCS = int(os.getenv('KNOWLEDGE_FANOUT_MAX_DOCS', 1500))                     # Safety cap on docs per fan-out
+KNOWLEDGE_FANOUT_PER_DOC_TOP_K = int(os.getenv('KNOWLEDGE_FANOUT_PER_DOC_TOP_K', 2))              # Chunks to feed Haiku per doc
+
+# Knowledge summary sampling — used by AGGREGATE-route summary cards.
+# 'stratified' picks ~N evenly-spaced samples across the document so buried provisions
+# (e.g. HVAC clauses on page 17) make it into the summary. 'first_n' is the legacy behavior.
+KNOWLEDGE_SUMMARY_SAMPLING = os.getenv('KNOWLEDGE_SUMMARY_SAMPLING', 'stratified')
+KNOWLEDGE_SUMMARY_SAMPLE_POINTS = int(os.getenv('KNOWLEDGE_SUMMARY_SAMPLE_POINTS', 5))
+KNOWLEDGE_SUMMARY_SAMPLE_TOTAL_CHARS = int(os.getenv('KNOWLEDGE_SUMMARY_SAMPLE_TOTAL_CHARS', 5000))
+
+# Document search re-ranker — replaces the disabled rank_search_results in DocUtils.
+DOC_USE_LLM_RERANK = os.getenv('DOC_USE_LLM_RERANK', 'True').lower() == 'true'
+DOC_RERANK_FETCH_N = int(os.getenv('DOC_RERANK_FETCH_N', 30))           # Vector-search candidates fetched before rerank
+DOC_RERANK_KEEP_THRESHOLD = float(os.getenv('DOC_RERANK_KEEP_THRESHOLD', 0.5))  # Keep all chunks scoring >= this
+DOC_RERANK_MAX_KEEP = int(os.getenv('DOC_RERANK_MAX_KEEP', 30))         # Safety cap on chunks kept
 
 EMAIL_DISPATCHER_ENABLED = True    # Auto-start with service
 EMAIL_POLL_INTERVAL = 60           # Seconds between polls

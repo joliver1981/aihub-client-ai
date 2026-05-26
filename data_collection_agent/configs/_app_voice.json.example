@@ -1,0 +1,18 @@
+{
+  "_comment": "Copy this file to _app_voice.json (drop the .example suffix) to apply deployment-wide voice-mode defaults. Each setting can also be overridden per-schema (the schema's top-level `voice` block) or per-session (JWT prefill claim). Env-var overrides: DCA_VOICE_DEFAULT_ON, DCA_VOICE_AUTO_LISTEN, DCA_VOICE_SILENCE_MS, DCA_VOICE_LISTEN_TIMEOUT_MS, DCA_VOICE_AUTO_LISTEN_COLLECTING_ONLY.",
+
+  "default_on": false,
+  "_comment_default_on": "When true, voice mode auto-activates the moment a user opens any form. Honored unless the user has explicitly toggled voice OFF on this device (saved in localStorage).",
+
+  "auto_listen": true,
+  "_comment_auto_listen": "When true, the mic re-opens automatically after the AI finishes speaking — hands-free turn-taking. Set to false to require a tap before each user turn.",
+
+  "silence_threshold_ms": 1500,
+  "_comment_silence_threshold_ms": "Milliseconds of silence after the user stops speaking before we treat the utterance as complete and send it. Lower = snappier but cuts off slow speakers; higher = more forgiving but adds latency.",
+
+  "listen_timeout_ms": 30000,
+  "_comment_listen_timeout_ms": "Maximum time to keep the mic open waiting for the user to start speaking. After this elapses with no speech, the mic closes silently — user can tap to reopen.",
+
+  "auto_listen_only_when_collecting": true,
+  "_comment_auto_listen_only_when_collecting": "When true, auto-listen is suppressed at the review screen, after submission, or on errors — places where the user needs to click a button rather than speak. Set to false to make the mic re-open after every AI turn unconditionally."
+}

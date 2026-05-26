@@ -1,0 +1,60 @@
+{
+  "session_id": "8a166749-53d6-4976-ad3b-79bf926e35d8",
+  "config_id": "speaker_program_demo",
+  "user_id": "13",
+  "status": "in_progress",
+  "current_section_id": "submitter",
+  "collected_data": {
+    "program": {
+      "product_id": "102"
+    }
+  },
+  "section_status": {
+    "submitter": "in_progress",
+    "program": "in_progress",
+    "schedule": "not_started",
+    "speaker": "not_started",
+    "venue": "not_started",
+    "details": "not_started"
+  },
+  "validation_errors": {},
+  "chat_history": [
+    {
+      "role": "assistant",
+      "content": "Hi \u2014 I can help you plan your pharma speaker program. We\u2019ll go through: your information, product & topic, schedule, speaker, venue, and a few final details. The intake team typically reviews submissions within one business day, and most programs need 4\u20136 weeks of lead time.\n\nWhat\u2019s your name?",
+      "ts": "2026-05-13T00:37:44.904627"
+    },
+    {
+      "role": "user",
+      "content": "I want to plan a program for Oncoshield \u2014 what topics can I pick?",
+      "ts": "2026-05-13T00:37:50.987282"
+    },
+    {
+      "role": "assistant",
+      "content": "For Oncoshield, the topic choices will be limited to the compliance-approved topics for that product. Once we continue the intake, I\u2019ll help you choose from those approved options only.\n\nFirst, what\u2019s your name?",
+      "ts": "2026-05-13T00:37:50.987282"
+    },
+    {
+      "role": "user",
+      "content": "who are the eligible speakers?",
+      "ts": "2026-05-13T00:37:57.114630"
+    },
+    {
+      "role": "assistant",
+      "content": "Eligible speakers are the ones who are currently certified to speak on the selected product. For Oncoshield, that means the list will automatically exclude anyone whose certification has expired.\n\nOnce we get to the speaker section, I can help you review and compare the compliant speaker options.\n\nFirst, what\u2019s your name?",
+      "ts": "2026-05-13T00:37:57.114630"
+    }
+  ],
+  "submission_log": [],
+  "created_at": "2026-05-13T00:37:43.133629",
+  "updated_at": "2026-05-13T00:37:57.114630",
+  "submitted_at": null,
+  "user_name": null,
+  "user_email": null,
+  "external_callback_url": null,
+  "external_callback_secret_ref": null,
+  "return_url": null,
+  "branding_override": null,
+  "voice_mode": false,
+  "rendered_lookups": []
+}

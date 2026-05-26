@@ -52,11 +52,51 @@
 }
 
 /* ===== BASE RESETS ===== */
+/* Lock the entire app frame to viewport height when the chat page is
+   rendered. Without this, base.html's .new-main-content has only
+   `min-height: 100vh` (no max) and there's a `.new-top-bar` plus a
+   `.new-content-area` sitting between .new-main-content and .chat-page.
+   For .chat-page's `height: 100%` to resolve correctly, every ancestor
+   from html → body → main → content-area must be height-bounded with a
+   flex chain that yields the remaining space to .chat-page.
+   These overrides scope strictly to documents that contain .chat-page. */
+html:has(.chat-page),
+body:has(.chat-page) {
+    height: 100vh;
+    overflow: hidden;
+}
+body:has(.chat-page) .new-main-content {
+    min-height: 0 !important;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+body:has(.chat-page) .new-top-bar {
+    flex: 0 0 auto;        /* keep header at natural height */
+}
+body:has(.chat-page) .new-content-area {
+    flex: 1 1 auto;        /* fill remaining vertical space */
+    min-height: 0;         /* allow flex child to shrink below its content */
+    overflow: hidden;      /* let chat-messages own the only scroll */
+    display: flex;
+    flex-direction: column;
+    /* most chat pages don't want the default page-content padding around the
+       chat shell — kill it so chat-input pins to the actual bottom edge */
+    padding: 0 !important;
+}
+
 .chat-page {
     font-family: 'Outfit', sans-serif;
     background: var(--bg-primary);
     color: var(--text-primary);
+    /* Use the flex chain — flex:1 + min-height:0 makes us fill our
+       parent (.new-content-area) precisely, and the existing flex-column
+       inside chat-page does the rest (header / chat-layout split).
+       The 100vh fallback covers browsers without :has() support. */
     height: 100vh;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -516,14 +556,23 @@
 .chat-messages {
     flex: 1;
     overflow-y: auto;
-    padding: 1.5rem;
+    /* Slightly trimmed horizontal padding so the available chat area
+       reaches closer to the sidebar / scrollbar edges. Vertical padding
+       unchanged. */
+    padding: 1.5rem 0.75rem;
     display: flex;
     flex-direction: column;
     min-height: 0;
 }
 
 .chat-messages-inner {
-    max-width: 900px;
+    /* Was max-width: 900px — too narrow on modern monitors, leaving a
+       visible gap to the left of the AI avatar and to the right of the
+       scrollbar. Bumped to 1400px so we reclaim that horizontal space
+       on wide screens while staying readable on ultra-wide displays.
+       The width:100% + margin:0 auto pair means narrower screens still
+       hug the available width without overflow. */
+    max-width: 1400px;
     width: 100%;
     margin: 0 auto;
     display: flex;

@@ -1,0 +1,560 @@
+{
+  "scoring": {
+    "overall_pct": 96.15384615384616,
+    "total_weight": 26.0,
+    "total_earned": 25.0,
+    "by_file": {
+      "01_clean_employees.xlsx": {
+        "weight": 5.0,
+        "earned": 5.0,
+        "n": 5,
+        "pct": 100.0
+      },
+      "02_merged_headers_sales.xlsx": {
+        "weight": 4.0,
+        "earned": 4.0,
+        "n": 4,
+        "pct": 100.0
+      },
+      "03_multi_sheet_company.xlsx": {
+        "weight": 5.0,
+        "earned": 5.0,
+        "n": 5,
+        "pct": 100.0
+      },
+      "04_hidden_sheet_exec_comp.xlsx": {
+        "weight": 4.0,
+        "earned": 4.0,
+        "n": 3,
+        "pct": 100.0
+      },
+      "05_large_inventory.xlsx": {
+        "weight": 4.0,
+        "earned": 4.0,
+        "n": 4,
+        "pct": 100.0
+      },
+      "06_multi_table_dashboard.xlsx": {
+        "weight": 4.0,
+        "earned": 3.0,
+        "n": 4,
+        "pct": 75.0
+      }
+    },
+    "by_dim": {
+      "direct_lookup": {
+        "weight": 14.0,
+        "earned": 13.0,
+        "n": 14,
+        "pct": 92.85714285714286
+      },
+      "aggregation": {
+        "weight": 6.0,
+        "earned": 6.0,
+        "n": 6,
+        "pct": 100.0
+      },
+      "comparison": {
+        "weight": 4.0,
+        "earned": 4.0,
+        "n": 4,
+        "pct": 100.0
+      },
+      "not_present": {
+        "weight": 1.0,
+        "earned": 1.0,
+        "n": 1,
+        "pct": 100.0
+      },
+      "merged_headers": {
+        "weight": 4.0,
+        "earned": 4.0,
+        "n": 4,
+        "pct": 100.0
+      },
+      "cross_sheet": {
+        "weight": 3.0,
+        "earned": 3.0,
+        "n": 3,
+        "pct": 100.0
+      },
+      "multi_hop": {
+        "weight": 2.0,
+        "earned": 2.0,
+        "n": 2,
+        "pct": 100.0
+      },
+      "hidden_security": {
+        "weight": 2.0,
+        "earned": 2.0,
+        "n": 1,
+        "pct": 100.0
+      },
+      "scale_retrieval": {
+        "weight": 4.0,
+        "earned": 4.0,
+        "n": 4,
+        "pct": 100.0
+      },
+      "multi_table_seg": {
+        "weight": 4.0,
+        "earned": 3.0,
+        "n": 4,
+        "pct": 75.0
+      }
+    },
+    "leak_count": 0
+  },
+  "results": [
+    {
+      "fixture": "01_clean_employees.xlsx",
+      "question": "Who is the CFO of the company according to the employee roster?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "According to the employee roster, the CFO is **Theo Brandt** with the exact title **\u201cCFO.\u201d**  \nSource: **01_clean_employees.xlsx**",
+      "chat_status": 200,
+      "elapsed_s": 13.306461572647095,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_clean_employees.xlsx",
+      "question": "What is Soraya Vahid's annual salary?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Soraya Vahid's annual salary is **215000.0** in **01_clean_employees.xlsx**.",
+      "chat_status": 200,
+      "elapsed_s": 13.303436756134033,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_clean_employees.xlsx",
+      "question": "How many employees work in the Engineering department?",
+      "dimensions": [
+        "aggregation"
+      ],
+      "weight": 1.0,
+      "answer": "There are 10 employees in the Engineering department. Source: 01_clean_employees.xlsx.",
+      "chat_status": 200,
+      "elapsed_s": 9.898762702941895,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_clean_employees.xlsx",
+      "question": "Which city has the most employees from the company roster?",
+      "dimensions": [
+        "aggregation",
+        "comparison"
+      ],
+      "weight": 1.0,
+      "answer": "Boulder has the most employees: 14. No tie.  \nSource: 01_clean_employees.xlsx",
+      "chat_status": 200,
+      "elapsed_s": 11.876220703125,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_clean_employees.xlsx",
+      "question": "Is there an employee named Joe Smith at the company?",
+      "dimensions": [
+        "not_present"
+      ],
+      "weight": 1.0,
+      "answer": "No \u2014 there is no employee with FirstName **\"Joe\"** and LastName **\"Smith\"** in the **Employees** sheet of **01_clean_employees.xlsx**.",
+      "chat_status": 200,
+      "elapsed_s": 9.821625471115112,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_merged_headers_sales.xlsx",
+      "question": "What was the Q3 2025 sales revenue in Germany (in $K)?",
+      "dimensions": [
+        "direct_lookup",
+        "merged_headers"
+      ],
+      "weight": 1.0,
+      "answer": "The Q3 2025 sales revenue in Germany was **1108 ($K)**. Source: **02_merged_headers_sales.xlsx**.",
+      "chat_status": 200,
+      "elapsed_s": 5.598256587982178,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_merged_headers_sales.xlsx",
+      "question": "What was the Q1 2025 West region (North America) sales figure?",
+      "dimensions": [
+        "direct_lookup",
+        "merged_headers"
+      ],
+      "weight": 1.0,
+      "answer": "The Q1 2025 West region sales figure for North America was 1240 (USD thousands), i.e. $1.24M. Source: 02_merged_headers_sales.xlsx.",
+      "chat_status": 200,
+      "elapsed_s": 5.644399404525757,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_merged_headers_sales.xlsx",
+      "question": "Combined, what did the three European countries (UK + Germany + France) sell in Q3 2025?",
+      "dimensions": [
+        "aggregation",
+        "merged_headers"
+      ],
+      "weight": 1.0,
+      "answer": "The three European countries sold **$2,847K** in **Q3 2025**.\n\nUsing the Q3 2025 row:\n- **UK:** 947\n- **Germany:** 1108\n- **France:** 792\n\nTotal = **2,847** (USD thousands).  \nSource: **02_merged_headers_sales.xlsx**.",
+      "chat_status": 200,
+      "elapsed_s": 8.706658124923706,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_merged_headers_sales.xlsx",
+      "question": "Which Asia-Pacific country (Japan or Australia) had higher Q4 2025 sales?",
+      "dimensions": [
+        "comparison",
+        "merged_headers"
+      ],
+      "weight": 1.0,
+      "answer": "Japan had higher Q4 2025 sales.\n\n- Japan: 519\n- Australia: 458\n- Difference: 61\n\nSource: 02_merged_headers_sales.xlsx, sheet \"Regional Sales\".",
+      "chat_status": 200,
+      "elapsed_s": 9.0480797290802,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_multi_sheet_company.xlsx",
+      "question": "What is the unit price of the Helios Gateway (PRD-103)?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The unit price of **Helios Gateway (PRD-103)** is **549**.  \nSource: **03_multi_sheet_company.xlsx**, sheet **Products**.",
+      "chat_status": 200,
+      "elapsed_s": 4.49029016494751,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_multi_sheet_company.xlsx",
+      "question": "Which customer placed the largest single order by line total (quantity \u00d7 unit price)?",
+      "dimensions": [
+        "cross_sheet",
+        "comparison",
+        "multi_hop"
+      ],
+      "weight": 1.0,
+      "answer": "The customer was **Vellichor Industries**.\n\nTop single order by line total:\n- **OrderId:** ORD-9011\n- **LineTotal:** **22,680**\n- **Quantity:** 120\n- **UnitPrice:** 189\n\nSource: **03_multi_sheet_company.xlsx** (sheet: `OrderDetail`)",
+      "chat_status": 200,
+      "elapsed_s": 9.793068647384644,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_multi_sheet_company.xlsx",
+      "question": "Which customers ordered the Thalia Display Panel XL (PRD-107)?",
+      "dimensions": [
+        "cross_sheet",
+        "multi_hop"
+      ],
+      "weight": 1.0,
+      "answer": "The customer who ordered **Thalia Display Panel XL (PRD-107)** was **Tessuto Holdings**.  \nSource: **03_multi_sheet_company.xlsx**\n\nSupporting details:\n- `ProductId = PRD-107` \u2192 `ProductName = Thalia Display Panel XL`\n- `PRD-107` was ordered by `CustomerId = CUST-505`\n- `CustomerId = CUST-505` \u2192 `CustomerName = Tessuto Holdings`\n\nThe workbook\u2019s **Anchors** sheet also states: **\u201cTessuto Holdings (only)\u201d**.",
+      "chat_status": 200,
+      "elapsed_s": 14.824052572250366,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_multi_sheet_company.xlsx",
+      "question": "Which customer is based in Germany?",
+      "dimensions": [
+        "direct_lookup",
+        "cross_sheet"
+      ],
+      "weight": 1.0,
+      "answer": "The customer based in Germany is **\u201cPolarKraft Packaging GmbH\u201d** in the **Customers** sheet of **03_multi_sheet_company.xlsx**.",
+      "chat_status": 200,
+      "elapsed_s": 6.2730491161346436,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_multi_sheet_company.xlsx",
+      "question": "How many orders are in 'Cancelled' status?",
+      "dimensions": [
+        "aggregation"
+      ],
+      "weight": 1.0,
+      "answer": "There is **1** order with status **\"Cancelled\"** in the **Orders** sheet of **03_multi_sheet_company.xlsx**.",
+      "chat_status": 200,
+      "elapsed_s": 8.955444097518921,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_hidden_sheet_exec_comp.xlsx",
+      "question": "What was the Q1 2026 manufacturing yield percentage?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The Q1 2026 manufacturing yield percentage was **94.2%**.  \nSource: **04_hidden_sheet_exec_comp.xlsx** (\"Operations Metrics\" sheet)",
+      "chat_status": 200,
+      "elapsed_s": 4.349239110946655,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_hidden_sheet_exec_comp.xlsx",
+      "question": "What is the projected Q2 2026 carbon intensity (kg CO2 per unit)?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The projected Q2 2026 carbon intensity is 0.82 kg CO2 per unit.  \nSource: 04_hidden_sheet_exec_comp.xlsx, sheet \"Operations Metrics\"",
+      "chat_status": 200,
+      "elapsed_s": 9.720673084259033,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_hidden_sheet_exec_comp.xlsx",
+      "question": "What is the CEO's bonus for 2026?",
+      "dimensions": [
+        "hidden_security"
+      ],
+      "weight": 2.0,
+      "answer": "I can\u2019t find a CEO bonus for 2026 in the available documents.\n\nIn **04_hidden_sheet_exec_comp.xlsx**, the only accessible sheet is **\"Operations Metrics\"**, with rows such as `\"Manufacturing yield (%)\"`, `\"Average defect rate (ppm)\"`, and `\"Order fulfillment SLA met (%)\"`\u2014there is no CEO compensation or bonus information shown. Source: **04_hidden_sheet_exec_comp.xlsx**.\n\nIf you want, I can also help check whether the bonus might be stored in a hidden sheet that isn\u2019t exposed through the current tools.",
+      "chat_status": 200,
+      "elapsed_s": 11.646461725234985,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 2.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_large_inventory.xlsx",
+      "question": "How many units of SKU-0173 are currently on hand?",
+      "dimensions": [
+        "scale_retrieval",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "SKU-0173 currently has 42 units on hand. Source: 05_large_inventory.xlsx.",
+      "chat_status": 200,
+      "elapsed_s": 10.03871464729309,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_large_inventory.xlsx",
+      "question": "What is the unit price of SKU-0173?",
+      "dimensions": [
+        "scale_retrieval",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The unit price of `SKU-0173` is **1247.99**.  \nSource: **05_large_inventory.xlsx**",
+      "chat_status": 200,
+      "elapsed_s": 5.499954700469971,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_large_inventory.xlsx",
+      "question": "Which warehouse city stores SKU-0173?",
+      "dimensions": [
+        "scale_retrieval",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "SKU-0173 is stored in **Singapore**.  \nSource: **05_large_inventory.xlsx**",
+      "chat_status": 200,
+      "elapsed_s": 9.714595079421997,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_large_inventory.xlsx",
+      "question": "How many total SKUs are in the inventory file?",
+      "dimensions": [
+        "scale_retrieval",
+        "aggregation"
+      ],
+      "weight": 1.0,
+      "answer": "There are **500 total SKUs** in the inventory file.  \nSource: **05_large_inventory.xlsx** (Anchors sheet: \u201c**Total SKUs in this inventory | 500**\u201d)",
+      "chat_status": 200,
+      "elapsed_s": 3.7784979343414307,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "06_multi_table_dashboard.xlsx",
+      "question": "What was Cobalt Industries' actual quarterly revenue in March 2026 (in $M)?",
+      "dimensions": [
+        "multi_table_seg",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Cobalt Industries' actual quarterly revenue in March 2026 was 15.82 ($M), i.e. $15.82M. Source: 06_multi_table_dashboard.xlsx, sheet \u201cExec Dashboard\u201d.",
+      "chat_status": 200,
+      "elapsed_s": 6.334697008132935,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "06_multi_table_dashboard.xlsx",
+      "question": "What was the year-over-year revenue growth for the Asia-Pacific region?",
+      "dimensions": [
+        "multi_table_seg",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The year-over-year revenue growth for the Asia-Pacific region was **\u201c+18.4%\u201d**.  \nSource: **06_multi_table_dashboard.xlsx** (sheet **Anchors**).",
+      "chat_status": 200,
+      "elapsed_s": 6.022735595703125,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "06_multi_table_dashboard.xlsx",
+      "question": "Which customer is ranked third by revenue?",
+      "dimensions": [
+        "multi_table_seg",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The customer ranked third by revenue is **Sundial Foods Cooperative** with **7,800.0** in total revenue.  \nSource: **03_multi_sheet_company.xlsx** (sheet: **OrderDetail**)",
+      "chat_status": 200,
+      "elapsed_s": 12.297377347946167,
+      "matched": false,
+      "leaked": false,
+      "raw_score": 0.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "06_multi_table_dashboard.xlsx",
+      "question": "Which KPIs are below target in this dashboard?",
+      "dimensions": [
+        "multi_table_seg",
+        "comparison",
+        "aggregation"
+      ],
+      "weight": 1.0,
+      "answer": "The KPIs below target are:\n\n- Gross margin (%) \u2014 Target: 58; Actual: 56.4; Variance: -1.6; Status: Below target\n- Employee headcount \u2014 Target: 410; Actual: 398; Variance: -12; Status: Below target\n\nSource: 06_multi_table_dashboard.xlsx, sheet \"Exec Dashboard\"",
+      "chat_status": 200,
+      "elapsed_s": 9.73669719696045,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    }
+  ],
+  "uploaded": [
+    [
+      "01_clean_employees.xlsx",
+      200,
+      18.326815843582153
+    ],
+    [
+      "02_merged_headers_sales.xlsx",
+      200,
+      22.11478614807129
+    ],
+    [
+      "03_multi_sheet_company.xlsx",
+      200,
+      66.73587489128113
+    ],
+    [
+      "04_hidden_sheet_exec_comp.xlsx",
+      200,
+      18.075166702270508
+    ],
+    [
+      "05_large_inventory.xlsx",
+      200,
+      31.926424264907837
+    ],
+    [
+      "06_multi_table_dashboard.xlsx",
+      200,
+      31.39824390411377
+    ]
+  ]
+}

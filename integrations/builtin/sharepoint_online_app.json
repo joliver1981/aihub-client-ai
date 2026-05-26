@@ -1,0 +1,325 @@
+{
+  "template_key": "sharepoint_online_app",
+  "platform_name": "SharePoint Online (Service Account)",
+  "platform_category": "Document Management",
+  "description": "App-only / service account access to SharePoint via Microsoft Graph. No user sign-in required. The integration uses the application's own credentials and gets tenant-wide access. Best for centralized indexing, background sync, or shared workflows where every AI Hub user should see the same SharePoint content.",
+  "logo_url": null,
+  "documentation_url": "https://learn.microsoft.com/en-us/graph/auth-v2-service",
+
+  "auth_type": "oauth2",
+  "execution_type": "sharepoint",
+  "auth_config": {
+    "grant_type": "client_credentials",
+    "token_url": "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token",
+    "scopes": ["https://graph.microsoft.com/.default"],
+    "token_auth_method": "client_secret_post"
+  },
+
+  "base_url": "https://graph.microsoft.com/v1.0",
+
+  "default_headers": {
+    "Accept": "application/json"
+  },
+
+  "requires_instance_id": true,
+  "instance_id_field": "tenant_id",
+  "instance_id_label": "Microsoft Tenant ID",
+  "instance_id_placeholder": "00000000-0000-0000-0000-000000000000",
+
+  "operations": [
+    {
+      "key": "health_check",
+      "name": "Health Check",
+      "description": "Verify the connection — fetches a service token and confirms SharePoint is reachable.",
+      "method": "GET",
+      "category": "read",
+      "parameters": []
+    },
+    {
+      "key": "list_sites",
+      "name": "List Sites",
+      "description": "List the tenant root site plus any sites in the SharePoint search index. Newly-created sites have a 5-15 min indexing delay.",
+      "method": "GET",
+      "category": "Sites",
+      "parameters": [
+        {"name": "query", "label": "Search Query", "type": "text", "required": false, "default": "*"}
+      ]
+    },
+    {
+      "key": "lookup_site_by_url",
+      "name": "Lookup Site by URL",
+      "description": "Find a SharePoint site directly by its URL (bypasses the search index — works for sites that haven't been indexed yet)",
+      "method": "GET",
+      "category": "Sites",
+      "parameters": [
+        {"name": "url", "label": "SharePoint Site URL", "type": "text", "required": true, "description": "Full URL e.g. https://contoso.sharepoint.com/sites/MarketingTeam"}
+      ]
+    },
+    {
+      "key": "list_drives",
+      "name": "List Document Libraries",
+      "description": "List all document libraries (drives) in a SharePoint site",
+      "method": "GET",
+      "category": "Libraries",
+      "parameters": [
+        {"name": "site_id", "label": "Site ID", "type": "text", "required": true}
+      ]
+    },
+    {
+      "key": "list_items",
+      "name": "List Files & Folders",
+      "description": "List files and folders in a document library or subfolder",
+      "method": "GET",
+      "category": "Files",
+      "parameters": [
+        {"name": "drive_id", "label": "Drive ID", "type": "text", "required": true},
+        {"name": "item_id", "label": "Folder ID", "type": "text", "required": false},
+        {"name": "type_filter", "label": "Item Type Filter", "type": "select", "required": false, "default": "all",
+         "options": [
+           {"value": "all", "label": "All (folders and files)"},
+           {"value": "folders", "label": "Folders only"},
+           {"value": "files", "label": "Files only"}
+         ],
+         "description": "Restrict results to a single item type. Use 'Folders only' to iterate over subfolders, or 'Files only' to iterate over files. Useful when a folder contains a mix of both and the workflow only cares about one kind."},
+        {"name": "top", "label": "Max Results", "type": "number", "required": false, "default": 200}
+      ]
+    },
+    {
+      "key": "get_item_metadata",
+      "name": "Get File Info",
+      "description": "Get metadata for a specific file or folder",
+      "method": "GET",
+      "category": "Files",
+      "parameters": [
+        {"name": "drive_id", "label": "Drive ID", "type": "text", "required": true},
+        {"name": "item_id", "label": "Item ID", "type": "text", "required": true}
+      ]
+    },
+    {
+      "key": "download_file",
+      "name": "Download File",
+      "description": "Download a file from SharePoint, preserving the original filename",
+      "method": "GET",
+      "category": "Files",
+      "parameters": [
+        {"name": "drive_id", "label": "Drive ID", "type": "text", "required": true},
+        {"name": "item_id", "label": "Item ID", "type": "text", "required": true},
+        {"name": "dest_folder", "label": "Destination Folder", "type": "text", "required": false, "description": "Absolute path (e.g. 'C:\\temp\\downloads') OR a subfolder under /uploads (e.g. 'reports/2026'). Leave blank to use /uploads root."},
+        {"name": "conflict_behavior", "label": "If File Exists", "type": "select", "required": false, "default": "replace", "options": [
+          {"value": "replace", "label": "Overwrite (default)"},
+          {"value": "rename", "label": "Rename (add suffix)"},
+          {"value": "fail", "label": "Fail"}
+        ]}
+      ]
+    },
+    {
+      "key": "search_files",
+      "name": "Search Files",
+      "description": "Search for files in a document library",
+      "method": "GET",
+      "category": "Files",
+      "parameters": [
+        {"name": "drive_id", "label": "Drive ID", "type": "text", "required": true},
+        {"name": "query", "label": "Search Query", "type": "text", "required": true}
+      ]
+    },
+    {
+      "key": "list_folder_by_path",
+      "name": "List Folder (by Path)",
+      "description": "List items in a folder by path — workflow-friendly alternative to list_items. Supports filtering by name pattern and modified date for 'new files since last run' workflows.",
+      "method": "GET",
+      "category": "Workflow",
+      "parameters": [
+        {"name": "drive_id", "label": "Drive ID", "type": "text", "required": true},
+        {"name": "folder_path", "label": "Folder Path", "type": "text", "required": true, "description": "Relative to drive root, e.g. 'Shared Documents/Inbox' or 'Reports/2026/Q3'"},
+        {"name": "file_pattern", "label": "File Pattern", "type": "text", "required": false, "description": "Optional glob filter (e.g. '*.pdf', 'Report_*.xlsx')"},
+        {"name": "modified_after", "label": "Modified After", "type": "text", "required": false, "description": "Only return files modified after this ISO date/datetime (e.g. '2026-05-12' or '2026-05-12T08:00:00Z'). For workflows: pass last run timestamp."},
+        {"name": "type_filter", "label": "Item Type Filter", "type": "select", "required": false, "default": "all",
+         "options": [
+           {"value": "all", "label": "All (folders and files)"},
+           {"value": "folders", "label": "Folders only"},
+           {"value": "files", "label": "Files only"}
+         ],
+         "description": "Restrict results to a single item type. Applied after file_pattern."},
+        {"name": "top", "label": "Max Results", "type": "number", "required": false, "default": 200}
+      ]
+    },
+    {
+      "key": "download_file_by_path",
+      "name": "Download File (by Path)",
+      "description": "Download a single file by its path. Preserves the original filename. Workflow-friendly for known file paths or when filename comes from a previous node.",
+      "method": "GET",
+      "category": "Workflow",
+      "parameters": [
+        {"name": "drive_id", "label": "Drive ID", "type": "text", "required": true},
+        {"name": "file_path", "label": "File Path", "type": "text", "required": true, "description": "Relative to drive root, e.g. 'Reports/Q3.pdf'"},
+        {"name": "dest_folder", "label": "Destination Folder", "type": "text", "required": false, "description": "Absolute path OR a subfolder under /uploads. Leave blank to use /uploads root."},
+        {"name": "conflict_behavior", "label": "If File Exists", "type": "select", "required": false, "default": "replace", "options": [
+          {"value": "replace", "label": "Overwrite (default)"},
+          {"value": "rename", "label": "Rename (add suffix)"},
+          {"value": "fail", "label": "Fail"}
+        ]}
+      ]
+    },
+    {
+      "key": "download_folder",
+      "name": "Download All Files in Folder",
+      "description": "Batch-download all files (matching optional name pattern and/or modified date) from a folder. Files keep their original names. Workflow use: 'process every new PDF in /Inbox since yesterday'.",
+      "method": "GET",
+      "category": "Workflow",
+      "parameters": [
+        {"name": "drive_id", "label": "Drive ID", "type": "text", "required": true},
+        {"name": "folder_path", "label": "Folder Path", "type": "text", "required": true},
+        {"name": "file_pattern", "label": "File Pattern", "type": "text", "required": false, "description": "Optional glob filter (e.g. '*.pdf')"},
+        {"name": "modified_after", "label": "Modified After", "type": "text", "required": false, "description": "ISO date/datetime — only download files modified after this time (e.g. '2026-05-12' or last run timestamp)"},
+        {"name": "max_files", "label": "Max Files", "type": "number", "required": false, "default": 50, "description": "Cap on number of files to download (1-500)"},
+        {"name": "dest_folder", "label": "Destination Folder", "type": "text", "required": false, "description": "Absolute path (e.g. 'C:\\temp\\downloads') OR a subfolder under /uploads (e.g. 'reports/2026'). Created automatically. Leave blank to use /uploads root."},
+        {"name": "conflict_behavior", "label": "If File Exists", "type": "select", "required": false, "default": "replace", "description": "What to do when a file with the same name already exists at the destination", "options": [
+          {"value": "replace", "label": "Overwrite (default)"},
+          {"value": "rename", "label": "Rename (add suffix)"},
+          {"value": "fail", "label": "Fail"}
+        ]}
+      ]
+    },
+    {
+      "key": "upload_file",
+      "name": "Upload File to Folder",
+      "description": "Upload a local file to a SharePoint folder. Requires 'Files.ReadWrite.All' Application permission. Handles large files automatically (chunked uploads above 4MB). Specify the destination using EITHER Parent Folder ID (recommended for workflows iterating by id) OR Destination Folder Path. If both are provided, Parent Folder ID wins.",
+      "method": "POST",
+      "category": "Workflow",
+      "parameters": [
+        {"name": "drive_id", "label": "Drive ID", "type": "text", "required": true},
+        {"name": "parent_item_id", "label": "Parent Folder ID", "type": "text", "required": false, "description": "SharePoint item_id of the destination folder. Useful when the destination comes from a previous list operation — pass a variable holding the folder's id. Leave blank to use Destination Folder Path instead."},
+        {"name": "folder_path", "label": "Destination Folder Path", "type": "text", "required": false, "description": "Drive-relative folder path, e.g. 'Shared Documents/Reports'. Required only if Parent Folder ID is blank."},
+        {"name": "source_file_path", "label": "Local File Path", "type": "text", "required": true, "description": "Local server path. From a workflow, pass a variable like '${generated_report}'"},
+        {"name": "filename", "label": "Destination Filename", "type": "text", "required": false, "description": "Override the filename in SharePoint (defaults to local filename)"},
+        {"name": "conflict_behavior", "label": "If File Exists", "type": "select", "required": false, "default": "rename", "options": [
+          {"value": "rename", "label": "Rename (add suffix)"},
+          {"value": "replace", "label": "Overwrite"},
+          {"value": "fail", "label": "Fail"}
+        ]}
+      ]
+    },
+    {
+      "key": "upload_content",
+      "name": "Upload Content as File",
+      "description": "Upload string or JSON content as a file. For workflows that generate text/JSON output and want to save it to SharePoint without writing to disk first.",
+      "method": "POST",
+      "category": "Workflow",
+      "parameters": [
+        {"name": "drive_id", "label": "Drive ID", "type": "text", "required": true},
+        {"name": "folder_path", "label": "Destination Folder Path", "type": "text", "required": true},
+        {"name": "filename", "label": "Filename", "type": "text", "required": true, "description": "e.g. 'output.json' or 'report.txt'"},
+        {"name": "content", "label": "File Content", "type": "textarea", "required": true, "description": "Text or JSON. Use {variable} from a previous workflow node."},
+        {"name": "conflict_behavior", "label": "If File Exists", "type": "select", "required": false, "default": "rename", "options": [
+          {"value": "rename", "label": "Rename (add suffix)"},
+          {"value": "replace", "label": "Overwrite"},
+          {"value": "fail", "label": "Fail"}
+        ]}
+      ]
+    },
+    {
+      "key": "delete_file",
+      "name": "Delete File",
+      "description": "Delete a file from SharePoint, by either item_id OR file_path. Workflow use case: clean up source files after processing. Requires 'Files.ReadWrite.All'.",
+      "method": "POST",
+      "category": "Workflow",
+      "parameters": [
+        {"name": "drive_id", "label": "Drive ID", "type": "text", "required": true},
+        {"name": "item_id", "label": "Item ID", "type": "text", "required": false, "description": "Either item_id or file_path is required"},
+        {"name": "file_path", "label": "File Path", "type": "text", "required": false, "description": "Alternative to item_id, e.g. 'Reports/Q3.pdf'"}
+      ]
+    },
+    {
+      "key": "create_folder",
+      "name": "Create Folder",
+      "description": "Create a folder (and any missing parent folders) in a document library. Useful for auto-creating output folders during a workflow run. Requires 'Files.ReadWrite.All'.",
+      "method": "POST",
+      "category": "Workflow",
+      "parameters": [
+        {"name": "drive_id", "label": "Drive ID", "type": "text", "required": true},
+        {"name": "folder_path", "label": "Folder Path", "type": "text", "required": true, "description": "Path to create, e.g. 'CustomerA/Processed/2026-Q2'. Parent folders are created automatically."},
+        {"name": "conflict_behavior", "label": "If Folder Exists", "type": "select", "required": false, "default": "fail", "options": [
+          {"value": "fail", "label": "Skip if exists (default)"},
+          {"value": "rename", "label": "Rename (add suffix)"},
+          {"value": "replace", "label": "Replace"}
+        ]}
+      ]
+    },
+    {
+      "key": "move_file",
+      "name": "Move File",
+      "description": "Move a file to a different folder within the same drive. Workflow use: move processed files from Inbox to Processed. Optionally rename during the move. Requires 'Files.ReadWrite.All'.",
+      "method": "POST",
+      "category": "Workflow",
+      "parameters": [
+        {"name": "drive_id", "label": "Drive ID", "type": "text", "required": true},
+        {"name": "item_id", "label": "Item ID", "type": "text", "required": false, "description": "Either item_id or file_path is required"},
+        {"name": "file_path", "label": "File Path", "type": "text", "required": false, "description": "Alternative to item_id, e.g. 'Inbox/report.pdf'"},
+        {"name": "dest_folder_path", "label": "Destination Folder", "type": "text", "required": true, "description": "Target folder path, e.g. 'Processed/2026-Q2'"},
+        {"name": "new_name", "label": "New Filename", "type": "text", "required": false, "description": "Optionally rename the file during the move"}
+      ]
+    },
+    {
+      "key": "copy_file",
+      "name": "Copy File",
+      "description": "Copy a file to a different folder within the same drive. Original stays in place. Workflow use: archive originals before processing. Requires 'Files.ReadWrite.All'.",
+      "method": "POST",
+      "category": "Workflow",
+      "parameters": [
+        {"name": "drive_id", "label": "Drive ID", "type": "text", "required": true},
+        {"name": "item_id", "label": "Item ID", "type": "text", "required": false, "description": "Either item_id or file_path is required"},
+        {"name": "file_path", "label": "File Path", "type": "text", "required": false, "description": "Alternative to item_id, e.g. 'Inbox/report.pdf'"},
+        {"name": "dest_folder_path", "label": "Destination Folder", "type": "text", "required": true, "description": "Target folder path, e.g. 'Archive/2026'"},
+        {"name": "new_name", "label": "New Filename", "type": "text", "required": false, "description": "Optionally rename the copy"}
+      ]
+    },
+    {
+      "key": "rename_file",
+      "name": "Rename File",
+      "description": "Rename a file or folder in place. Workflow use: prefix processed files with 'PROCESSED_'. Requires 'Files.ReadWrite.All'.",
+      "method": "POST",
+      "category": "Workflow",
+      "parameters": [
+        {"name": "drive_id", "label": "Drive ID", "type": "text", "required": true},
+        {"name": "item_id", "label": "Item ID", "type": "text", "required": false, "description": "Either item_id or file_path is required"},
+        {"name": "file_path", "label": "File Path", "type": "text", "required": false, "description": "Alternative to item_id"},
+        {"name": "new_name", "label": "New Name", "type": "text", "required": true, "description": "New filename including extension, e.g. 'PROCESSED_report.pdf'"}
+      ]
+    },
+    {
+      "key": "download_to_knowledge",
+      "name": "Import to Knowledge Base",
+      "description": "Download a SharePoint file and add it to an agent's knowledge base",
+      "method": "POST",
+      "category": "Knowledge",
+      "parameters": [
+        {"name": "drive_id", "label": "Drive ID", "type": "text", "required": true},
+        {"name": "item_id", "label": "Item ID", "type": "text", "required": true},
+        {"name": "agent_id", "label": "Agent ID", "type": "number", "required": true},
+        {"name": "description", "label": "Description", "type": "text", "required": false, "default": ""}
+      ]
+    },
+    {
+      "key": "import_folder_to_knowledge",
+      "name": "Bulk Import Folder to Knowledge Base",
+      "description": "Bulk version of Import to Knowledge — lists matching files in a folder (filtered by name pattern and/or modified date) and queues each one for background import. Returns immediately with the matched count. Per-file results appear in the Recent Activity log.",
+      "method": "POST",
+      "category": "Knowledge",
+      "parameters": [
+        {"name": "drive_id", "label": "Drive ID", "type": "text", "required": true},
+        {"name": "folder_path", "label": "Folder Path", "type": "text", "required": true, "description": "e.g. 'Shared Documents/Inbox'"},
+        {"name": "agent_id", "label": "Agent ID", "type": "number", "required": true},
+        {"name": "file_pattern", "label": "File Pattern", "type": "text", "required": false, "description": "Glob filter (e.g. '*.pdf')"},
+        {"name": "modified_after", "label": "Modified After", "type": "text", "required": false, "description": "ISO date/datetime — only import files modified after this. For 'new files since last run' workflows."},
+        {"name": "max_files", "label": "Max Files", "type": "number", "required": false, "default": 50, "description": "Cap on number of files (1-500)"},
+        {"name": "description", "label": "Knowledge Description", "type": "text", "required": false, "description": "Description applied to every imported document (defaults to the folder path)"}
+      ]
+    }
+  ],
+
+  "setup_instructions": "## SharePoint Service Account Setup\n\nThis integration uses **app-only authentication** — no user sign-in. Best for centralized SharePoint access shared across all AI Hub users and for workflow automation.\n\n### Step 1: Register Azure App\n1. Azure Portal → [App Registrations](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade) → **New registration**\n2. Name: `AI Hub SharePoint Service`\n3. Supported account types: **Accounts in this organizational directory only** (single-tenant is fine — app-only auth doesn't use /common/)\n4. Redirect URI: leave blank (not needed for app-only auth)\n5. Click **Register**\n\n### Step 2: Configure APPLICATION Permissions (different from delegated)\n1. **API permissions** → **Add a permission** → **Microsoft Graph**\n2. Select **Application permissions** (NOT Delegated permissions)\n3. Add the permissions you need:\n   - `Sites.Read.All` — read sites (always required)\n   - `Files.Read.All` — read files\n   - `Files.ReadWrite.All` — required for upload, overwrite, and delete operations (workflow use)\n   - `Sites.ReadWrite.All` — required if you want to write to specific site collections\n4. Click **Grant admin consent** — required for all application permissions\n5. Verify all rows show a green checkmark in the Status column\n\n### Step 3: Create Client Secret\n1. **Certificates & secrets** → **New client secret**\n2. Copy the **Value** immediately\n\n### Step 4: Find Your Tenant ID\nOn the app's Overview page, copy the **Directory (tenant) ID** — it's a GUID like `12345678-...`.\n\n### Step 5: Connect in AI Hub\nClick **Connect** below and paste the three values: tenant ID, application (client) ID, and client secret. AI Hub will fetch a service token and verify the connection on save — no user sign-in.\n\n### Workflow Operations\nThis integration ships with both **item_id-based** ops (browsing UI) and **path-based** ops (workflow-friendly):\n- `list_folder_by_path` / `download_file_by_path` / `download_folder` — read by path\n- `upload_file` / `upload_content` — write files (handles 4MB+ via chunked upload sessions)\n- `delete_file` — cleanup after processing\n\nFor workflow nodes, populate `drive_id` once (use `list_drives` to find it), then use path-based ops with dynamic filenames from previous node outputs.",
+
+  "supports_webhooks": false,
+  "is_builtin": true
+}

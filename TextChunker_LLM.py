@@ -44,11 +44,52 @@ except ImportError:
 # LLM CHUNKING PROMPTS
 # =============================================================================
 
-LLM_CHUNKING_SYSTEM_PROMPT = """You are a document chunking assistant. Your job is to split documents into logical chunks for semantic search retrieval.
+LLM_CHUNKING_SYSTEM_PROMPT = """You are a document chunking assistant. Your job is to split documents into logical chunks for semantic search retrieval and identify the section structure each chunk belongs to.
 
-You must return ONLY valid JSON - no explanation, no markdown fencing, just the JSON array."""
+You must return ONLY valid JSON - no explanation, no markdown fencing, just the JSON object."""
 
-LLM_CHUNKING_USER_PROMPT = """Split this document into logical chunks for semantic search retrieval.
+# New rich prompt — used when section-header context is enabled.
+# Asks the LLM to also produce a document_identifier and per-chunk section_breadcrumb / section_summary
+# so chunks remain self-locating when retrieved alongside chunks from other documents or other pages.
+LLM_CHUNKING_USER_PROMPT_WITH_SECTIONS = """Split this document into logical chunks for semantic search retrieval, and identify the section structure each chunk belongs to.
+
+CHUNKING RULES:
+1. NEVER split a table - keep all rows together with headers
+2. NEVER split mid-sentence
+3. Keep related paragraphs together when they discuss the same topic
+4. Target size: {chunk_size} characters per chunk (flexible - prioritize logical boundaries over exact size)
+5. If the document is short, it's fine to return just 1-2 chunks
+6. The document may contain page markers like "===== PAGE 14 =====". PRESERVE these markers in the chunk text exactly where they appear so page numbers can be derived. They are NOT section headers — ignore them when extracting section_breadcrumb.
+
+DOCUMENT-LEVEL FIELD (one per document):
+- document_identifier: a single line capturing what this document IS. Include parties/owners, document type, and any key date or subject. This is used to make chunks self-identifying when retrieved alongside chunks from other documents.
+  Examples:
+    "Lease — Acme Corp (Tenant) and Widget LLC (Landlord) at 123 Main St, executed 2024-01-15"
+    "Employee Handbook — ContosoCo, version 4.2, effective 2025-01-01"
+    "SOP — Vendor Onboarding, Finance Department, revised 2025-09"
+
+PER-CHUNK FIELDS:
+- text: the chunk content (preserve exact wording, including any "===== PAGE N =====" markers)
+- type: one of header | paragraph | table | list | mixed
+- section_breadcrumb: hierarchical path of the section/article/clause this chunk belongs to. Examples: "Article 7 (Maintenance) > 7.3 HVAC", "Chapter 2 > 2.1 Eligibility", "Schedule B > Item 4". If the document has no formal section structure, use a short topical label like "Introduction", "Definitions", or "Closing remarks".
+- section_summary: ONE sentence under 120 characters describing what the section as a whole is about. Two chunks from the same section MUST share the same section_summary so they can be linked.
+
+Return ONLY valid JSON in this exact format (no markdown fencing, no commentary):
+{{
+  "document_identifier": "<one-line description of what this document is>",
+  "chunks": [
+    {{"text": "...", "type": "paragraph", "section_breadcrumb": "...", "section_summary": "..."}},
+    {{"text": "...", "type": "table", "section_breadcrumb": "...", "section_summary": "..."}}
+  ]
+}}
+
+DOCUMENT TO CHUNK:
+{document}"""
+
+# Legacy boundary-only prompt — used when section-header context is disabled
+# (VECTOR_SMART_CHUNK_INCLUDE_SECTION_HEADER = False). Keeps token cost down for users
+# who only want logical chunk boundaries without the extra metadata.
+LLM_CHUNKING_USER_PROMPT_BOUNDARIES_ONLY = """Split this document into logical chunks for semantic search retrieval.
 
 RULES:
 1. NEVER split a table - keep all rows together with headers
@@ -69,6 +110,9 @@ Valid types: header, paragraph, table, list, mixed
 DOCUMENT TO CHUNK:
 {document}"""
 
+# Backward-compat alias (other code may import this name)
+LLM_CHUNKING_USER_PROMPT = LLM_CHUNKING_USER_PROMPT_BOUNDARIES_ONLY
+
 
 # =============================================================================
 # TEXT CHUNKER CLASS
@@ -84,25 +128,28 @@ class TextChunker:
     This is a drop-in replacement for the existing TextChunker.
     """
     
-    def __init__(self, 
-                 chunk_size: int = VECTOR_CHUNK_SIZE, 
+    def __init__(self,
+                 chunk_size: int = VECTOR_CHUNK_SIZE,
                  chunk_overlap: int = VECTOR_CHUNK_OVERLAP,
                  splitter_type: str = VECTOR_SPLITTER_TYPE,
-                 use_smart_chunking: bool = None):
+                 use_smart_chunking: bool = None,
+                 include_section_header: bool = None):
         """
         Initialize the text chunker.
-        
+
         Args:
             chunk_size: Target size for each chunk (in characters)
             chunk_overlap: Number of characters to overlap between chunks
             splitter_type: Type of splitter for standard mode
             use_smart_chunking: Override config setting (None = use config)
+            include_section_header: Override VECTOR_SMART_CHUNK_INCLUDE_SECTION_HEADER
+                (None = use config). Only meaningful when smart chunking is on.
         """
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.splitter_type = splitter_type
         self.logger = logging.getLogger(__name__)
-        
+
         # Determine if smart (LLM) chunking is enabled
         if use_smart_chunking is not None:
             self._use_smart = use_smart_chunking
@@ -111,14 +158,31 @@ class TextChunker:
                 self._use_smart = getattr(cfg, 'VECTOR_USE_SMART_CHUNKING', False)
             except:
                 self._use_smart = False
-        
+
         # Also enable smart chunking if splitter_type is 'smart' or 'llm'
         if splitter_type in ('smart', 'llm'):
             self._use_smart = True
-        
+
+        # Section-header sub-toggle (only relevant when smart chunking is on)
+        if include_section_header is not None:
+            self._include_section_header = include_section_header
+        else:
+            try:
+                self._include_section_header = getattr(cfg, 'VECTOR_SMART_CHUNK_INCLUDE_SECTION_HEADER', True)
+            except:
+                self._include_section_header = True
+
+        # Validator + coverage threshold
+        try:
+            self._validate_enabled = getattr(cfg, 'VECTOR_SMART_CHUNK_VALIDATE', True)
+            self._coverage_min = float(getattr(cfg, 'VECTOR_SMART_CHUNK_COVERAGE_MIN', 0.95))
+        except:
+            self._validate_enabled = True
+            self._coverage_min = 0.95
+
         # Initialize standard splitter (used as fallback or when smart=False)
         self.splitter = self._get_splitter()
-        
+
         # LLM function - lazy loaded
         self._llm_func = None
     
@@ -320,36 +384,49 @@ class TextChunker:
         # Single-pass chunking for normal-sized documents
         return self._llm_chunk_single(text, metadata, llm_func)
     
-    def _llm_chunk_single(self, text: str, metadata: Dict[str, Any], 
+    def _llm_chunk_single(self, text: str, metadata: Dict[str, Any],
                           llm_func) -> List[Dict[str, Any]]:
         """Process a document in a single LLM call."""
-        
-        # Build the prompt
-        prompt = LLM_CHUNKING_USER_PROMPT.format(
-            chunk_size=self.chunk_size,
-            document=text
-        )
-        
+
+        # Choose prompt based on whether section-header context is enabled
+        if self._include_section_header:
+            prompt = LLM_CHUNKING_USER_PROMPT_WITH_SECTIONS.format(
+                chunk_size=self.chunk_size,
+                document=text
+            )
+        else:
+            prompt = LLM_CHUNKING_USER_PROMPT_BOUNDARIES_ONLY.format(
+                chunk_size=self.chunk_size,
+                document=text
+            )
+
         # Call the LLM
-        self.logger.info(f"Calling LLM for chunking ({len(text)} chars)")
+        self.logger.info(
+            f"Calling LLM for chunking ({len(text)} chars, "
+            f"sections={self._include_section_header})"
+        )
         response = llm_func(prompt, system=LLM_CHUNKING_SYSTEM_PROMPT, temp=0.0)
-        
-        # Parse the response
-        chunks_data = self._parse_llm_response(response)
-        
+
+        # Parse the response — returns (chunks_data, document_identifier)
+        chunks_data, document_identifier = self._parse_llm_response(response)
+
         if not chunks_data:
             self.logger.warning("LLM returned no chunks, falling back to standard")
             return self._standard_chunk(text, metadata)
-        
-        # Validate chunks contain actual text from the document
-        chunks_data = self._validate_chunks(chunks_data, text)
-        
-        if not chunks_data:
-            self.logger.warning("No valid chunks after validation, falling back to standard")
-            return self._standard_chunk(text, metadata)
-        
-        # Convert to standard chunk format
-        return self._format_llm_chunks(chunks_data, metadata)
+
+        # Validate coverage: concatenated chunk text must cover ≥ coverage_min of source
+        if self._validate_enabled:
+            ok, coverage = self._validate_chunks(chunks_data, text)
+            if not ok:
+                self.logger.warning(
+                    f"Smart chunking coverage check failed: {coverage:.1%} < "
+                    f"{self._coverage_min:.0%}; falling back to standard chunking"
+                )
+                return self._standard_chunk(text, metadata)
+            self.logger.info(f"Smart chunking coverage: {coverage:.1%}")
+
+        # Convert to standard chunk format, threading section context if present
+        return self._format_llm_chunks(chunks_data, metadata, document_identifier)
     
     def _llm_chunk_windowed(self, text: str, metadata: Dict[str, Any], 
                             window_size: int) -> List[Dict[str, Any]]:
@@ -458,41 +535,66 @@ TEXT:
         
         return merged
     
-    def _parse_llm_response(self, response: str) -> List[Dict[str, Any]]:
+    def _parse_llm_response(self, response: str):
         """
-        Parse LLM response into chunk data, handling various response formats.
-        
+        Parse LLM response into chunk data, handling both response formats:
+          - New: {"document_identifier": "...", "chunks": [{...}, ...]}
+          - Legacy: [{"text": "...", "type": "..."}, ...]
+
         Args:
             response: Raw LLM response string
-            
+
         Returns:
-            List of chunk dictionaries with 'text' and 'type' keys
+            Tuple of (list of chunk dicts, document_identifier or None).
+            Each chunk dict has 'text', 'type', and optionally 'section_breadcrumb',
+            'section_summary' when present in the response.
         """
         if not response:
-            return []
-        
+            return [], None
+
         parsed = self._parse_json_response(response)
-        
+
         if not parsed:
-            return []
-        
-        # Validate structure
-        if not isinstance(parsed, list):
-            self.logger.warning(f"LLM response is not a list: {type(parsed)}")
-            return []
-        
-        # Validate each chunk has required fields
+            return [], None
+
+        document_identifier = None
+        items = None
+
+        # New wrapped format
+        if isinstance(parsed, dict) and 'chunks' in parsed:
+            document_identifier = str(parsed.get('document_identifier') or '').strip() or None
+            items = parsed.get('chunks')
+            if not isinstance(items, list):
+                self.logger.warning(f"LLM response 'chunks' field is not a list: {type(items)}")
+                return [], None
+        # Legacy array format
+        elif isinstance(parsed, list):
+            items = parsed
+        else:
+            self.logger.warning(f"Unrecognized LLM response shape: {type(parsed)}")
+            return [], None
+
         valid_chunks = []
-        for item in parsed:
-            if isinstance(item, dict) and 'text' in item:
-                chunk = {
-                    'text': str(item['text']).strip(),
-                    'type': str(item.get('type', 'mixed'))
-                }
-                if chunk['text']:  # Only add non-empty chunks
-                    valid_chunks.append(chunk)
-        
-        return valid_chunks
+        for item in items:
+            if not (isinstance(item, dict) and 'text' in item):
+                continue
+            text = str(item['text']).strip()
+            if not text:
+                continue
+            chunk = {
+                'text': text,
+                'type': str(item.get('type', 'mixed')),
+            }
+            # Optional section context fields — only include if non-empty
+            sb = item.get('section_breadcrumb')
+            if sb and str(sb).strip():
+                chunk['section_breadcrumb'] = str(sb).strip()
+            ss = item.get('section_summary')
+            if ss and str(ss).strip():
+                chunk['section_summary'] = str(ss).strip()
+            valid_chunks.append(chunk)
+
+        return valid_chunks, document_identifier
     
     def _parse_json_response(self, response: str) -> Any:
         """
@@ -549,25 +651,51 @@ TEXT:
         
         return None
     
-    def _validate_chunks(self, chunks_data: List[Dict], original_text: str) -> List[Dict]:
+    @staticmethod
+    def _normalize_for_coverage(s: str) -> str:
+        """Collapse whitespace for fair character-coverage comparison."""
+        return re.sub(r'\s+', '', s or '')
+
+    def _validate_chunks(self, chunks_data: List[Dict], original_text: str):
         """
-        Validate that chunks contain actual content from the document.
-        Currently bypassed — returns all chunks as-is.
+        Validate that the chunking LLM did not silently drop content.
+        Coverage check: concatenated chunk text (whitespace-normalized) must cover
+        at least self._coverage_min of the source text length.
+
+        Returns:
+            Tuple of (ok: bool, coverage: float).
         """
-        # TODO: implement a reliable validation strategy
-        return chunks_data
-    
-    def _format_llm_chunks(self, chunks_data: List[Dict], 
-                           metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Convert LLM chunk data to standard chunk format."""
-        
+        try:
+            normalized_source = self._normalize_for_coverage(original_text)
+            source_len = len(normalized_source)
+            if source_len == 0:
+                return True, 1.0
+
+            normalized_chunks = self._normalize_for_coverage(
+                ''.join(c.get('text', '') for c in chunks_data)
+            )
+            chunk_len = len(normalized_chunks)
+
+            # The LLM may have minor reformatting; we only care that we didn't lose data.
+            # Use ratio of chunk-len to source-len, capped at 1.0 (don't penalize duplication).
+            coverage = min(chunk_len / source_len, 1.0)
+            return coverage >= self._coverage_min, coverage
+        except Exception as e:
+            self.logger.warning(f"Coverage validation error (treating as pass): {e}")
+            return True, 1.0
+
+    def _format_llm_chunks(self, chunks_data: List[Dict],
+                           metadata: Dict[str, Any],
+                           document_identifier: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Convert LLM chunk data to standard chunk format, threading section context."""
+
         chunk_objects = []
         total_chunks = len(chunks_data)
-        
+
         for i, chunk_data in enumerate(chunks_data):
             chunk_text = chunk_data['text']
             chunk_type = chunk_data.get('type', 'mixed')
-            
+
             chunk_metadata = (metadata or {}).copy()
             chunk_metadata.update({
                 'chunk_index': i,
@@ -580,18 +708,27 @@ TEXT:
                 'contains_table': (chunk_type == 'table'),
                 'contains_list': (chunk_type == 'list'),
             })
-            
-            # Add navigation metadata
+
+            # Section-context fields (only present when smart chunking + section header are on
+            # AND the LLM actually provided them)
+            if document_identifier:
+                chunk_metadata['document_identifier'] = document_identifier
+            if 'section_breadcrumb' in chunk_data:
+                chunk_metadata['section_breadcrumb'] = chunk_data['section_breadcrumb']
+            if 'section_summary' in chunk_data:
+                chunk_metadata['section_summary'] = chunk_data['section_summary']
+
+            # Navigation metadata
             if i > 0:
                 chunk_metadata['has_previous_chunk'] = True
             if i < total_chunks - 1:
                 chunk_metadata['has_next_chunk'] = True
-            
+
             chunk_objects.append({
                 'text': chunk_text,
                 'metadata': chunk_metadata
             })
-        
+
         return chunk_objects
     
     # =========================================================================

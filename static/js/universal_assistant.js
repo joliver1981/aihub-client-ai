@@ -26,6 +26,12 @@
         maxHistoryDisplay: 100
     };
 
+    // Field names / ids / placeholders matching this pattern have their VALUE
+    // suppressed when building page context. Type=password and type=file are
+    // always suppressed regardless.
+    const SENSITIVE_FIELD_RE = /password|passwd|pwd|secret|token|api[-_ ]?key|auth(?!or)|credential|cvv|ssn|private[-_ ]?key/i;
+    const FIELD_VALUE_MAX_CHARS = 200;
+
     // ==========================================================================
     // Automatic Page Context Extraction
     // ==========================================================================
@@ -147,22 +153,52 @@
                 }
                 
                 if (label && label.length < 50) {
+                    const cleanLabel = label.split('\n')[0].trim();
                     const fieldInfo = {
-                        label: label.split('\n')[0].trim(),
+                        label: cleanLabel,
                         type: field.type || field.tagName.toLowerCase(),
                         hasValue: !!field.value
                     };
-                    
+
                     if (field.tagName === 'SELECT') {
                         fieldInfo.optionCount = field.options.length;
                         fieldInfo.selectedOption = field.options[field.selectedIndex]?.text;
+                    } else {
+                        const captured = PageContextExtractor.extractFieldValue(field, cleanLabel);
+                        if (captured !== null) {
+                            fieldInfo.value = captured;
+                        }
                     }
-                    
+
                     forms.push(fieldInfo);
                 }
             });
             
             return forms.slice(0, 20);
+        }
+
+        /**
+         * Safely capture a form field's current value.
+         * Returns null when the field is sensitive (so the caller omits the
+         * `value` property entirely); returns '' for safe-but-empty fields.
+         */
+        static extractFieldValue(field, label) {
+            const t = (field.type || '').toLowerCase();
+            if (t === 'password' || t === 'file') return null;
+
+            const haystack = [
+                field.name, field.id, field.autocomplete,
+                field.placeholder, label
+            ].filter(Boolean).join(' ');
+            if (SENSITIVE_FIELD_RE.test(haystack)) return null;
+
+            const raw = field.value;
+            if (raw === undefined || raw === null) return '';
+            const s = String(raw).trim();
+            if (!s) return '';
+            return s.length > FIELD_VALUE_MAX_CHARS
+                ? s.slice(0, FIELD_VALUE_MAX_CHARS) + '…'
+                : s;
         }
 
         static extractButtons() {

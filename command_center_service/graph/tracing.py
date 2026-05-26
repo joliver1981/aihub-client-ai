@@ -22,11 +22,31 @@ logger = logging.getLogger(__name__)
 _DATA_DIR = Path(__file__).parent.parent / "data"
 _TRACE_STORE = TraceStore(_DATA_DIR)
 
-# Truncation limits for LLM call tracing
-_SYSTEM_MSG_LIMIT = 2000
-_USER_MSG_LIMIT = 1500
-_RESPONSE_LIMIT = 3000
-_TOOL_CALLS_LIMIT = 1000
+# Truncation limits for LLM call tracing.
+#
+# These limits exist for two reasons:
+#   1. Append-only JSONL traces live on disk per-trace; runaway sizes would
+#      bloat `data/traces/...` quickly under heavy multi-turn use.
+#   2. The trace API reads whole files when serving the audit UI; we want
+#      the JSON parse to stay snappy.
+#
+# Tradeoff: smaller limits keep files lean but make "where did this row come
+# from?" walkbacks impossible because tool outputs and LLM responses get
+# truncated below the rendered payload size. The values below were chosen
+# to give us ~enough headroom to capture a typical full agent response or a
+# multi-row tool result without truncation, while staying well under the
+# soft per-trace cap (see _MAX_TRACE_BYTES below).
+_SYSTEM_MSG_LIMIT = 16000   # was 2000 — LLM system prompts (instruction blocks)
+_USER_MSG_LIMIT = 32000     # was 1500 — user/tool messages; most useful for provenance walkbacks
+_RESPONSE_LIMIT = 24000     # was 3000 — LLM response content
+_TOOL_CALLS_LIMIT = 16000   # was 1000 — serialized tool_calls list on the response
+
+# TODO(audit): soft per-trace cap. Target ~100 MB per .jsonl file before the
+# writer starts rejecting payloads or rotates to a sibling .jsonl.N file. Not
+# a single-line change in trace_store.log_event (needs a stat() check + a
+# decision path), so deferred. Files are per-trace so this is a worst-case
+# guard, not an everyday concern with the new char limits above.
+_MAX_TRACE_BYTES_SOFT_CAP = 100 * 1024 * 1024  # 100 MB — informational only today
 
 
 def _trace_meta_from_state(state: dict) -> TraceMeta | None:

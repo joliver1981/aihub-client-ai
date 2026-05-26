@@ -298,18 +298,19 @@ def extract_docx_text(file_bytes: bytes, filename: str = "document.docx") -> str
     """Extract text from Word document."""
     try:
         from docx import Document
+        from docx.oxml.ns import qn
     except ImportError:
         raise ImportError("python-docx not installed. Run: pip install python-docx")
-    
+
     try:
         doc = Document(io.BytesIO(file_bytes))
         text_parts = []
-        
+
         # Extract paragraphs
         for para in doc.paragraphs:
             if para.text.strip():
                 text_parts.append(para.text)
-        
+
         # Extract tables
         for table_idx, table in enumerate(doc.tables, 1):
             table_text = [f"\n[Table {table_idx}]"]
@@ -319,9 +320,33 @@ def extract_docx_text(file_bytes: bytes, filename: str = "document.docx") -> str
                     table_text.append(row_text)
             if len(table_text) > 1:
                 text_parts.append("\n".join(table_text))
-        
+
+        # Headers and footers (per section)
+        for section in doc.sections:
+            for hf_label, hf in (('Header', section.header), ('Footer', section.footer)):
+                hf_parts = []
+                for para in hf.paragraphs:
+                    if para.text.strip():
+                        hf_parts.append(para.text.strip())
+                for table in hf.tables:
+                    for row in table.rows:
+                        row_text = " | ".join(cell.text.strip() for cell in row.cells)
+                        if row_text.strip():
+                            hf_parts.append(row_text)
+                if hf_parts:
+                    text_parts.append(f"\n[{hf_label}]\n" + "\n".join(hf_parts))
+
+        # Text boxes / shapes — content lives in w:txbxContent elements that
+        # python-docx does NOT expose via doc.paragraphs/doc.tables
+        txbx_tag = qn('w:txbxContent')
+        t_tag = qn('w:t')
+        for txbx in doc.element.iter(txbx_tag):
+            box_text = "".join(t.text for t in txbx.iter(t_tag) if t.text)
+            if box_text.strip():
+                text_parts.append(box_text.strip())
+
         return "\n\n".join(text_parts).strip()
-        
+
     except Exception as e:
         logger.error(f"DOCX extraction failed for '{filename}': {e}")
         raise

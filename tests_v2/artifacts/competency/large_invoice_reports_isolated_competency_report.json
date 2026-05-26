@@ -1,0 +1,1181 @@
+{
+  "scoring": {
+    "overall_pct": 100.0,
+    "total_weight": 62.0,
+    "total_earned": 62.0,
+    "by_file": {
+      "01_fedex_invoice_global_logistics_q1_2026.pdf": {
+        "weight": 13.0,
+        "earned": 13.0,
+        "n": 13,
+        "pct": 100.0
+      },
+      "01_financial_report_global_logistics_fy2025.xlsx": {
+        "weight": 8.0,
+        "earned": 8.0,
+        "n": 8,
+        "pct": 100.0
+      },
+      "02_fedex_invoice_megaretail_q1_2026.pdf": {
+        "weight": 8.0,
+        "earned": 8.0,
+        "n": 8,
+        "pct": 100.0
+      },
+      "02_financial_report_megaretail_fy2025.xlsx": {
+        "weight": 7.0,
+        "earned": 7.0,
+        "n": 7,
+        "pct": 100.0
+      },
+      "03_fedex_invoice_pacific_mfg_q1_2026.pdf": {
+        "weight": 5.0,
+        "earned": 5.0,
+        "n": 5,
+        "pct": 100.0
+      },
+      "03_financial_report_pacific_mfg_fy2025.xlsx": {
+        "weight": 7.0,
+        "earned": 7.0,
+        "n": 7,
+        "pct": 100.0
+      },
+      "04_fedex_invoice_continental_no_repeat_headers_q1_2026.pdf": {
+        "weight": 7.0,
+        "earned": 7.0,
+        "n": 7,
+        "pct": 100.0
+      },
+      "05_fedex_invoice_titan_systems_long_no_repeat_q1_2026.pdf": {
+        "weight": 7.0,
+        "earned": 7.0,
+        "n": 7,
+        "pct": 100.0
+      }
+    },
+    "by_dim": {
+      "tier1_direct_lookup": {
+        "weight": 19.0,
+        "earned": 19.0,
+        "n": 19,
+        "pct": 100.0
+      },
+      "tier2_aggregation": {
+        "weight": 11.0,
+        "earned": 11.0,
+        "n": 11,
+        "pct": 100.0
+      },
+      "money_extraction": {
+        "weight": 23.0,
+        "earned": 23.0,
+        "n": 23,
+        "pct": 100.0
+      },
+      "tier3_filter_count": {
+        "weight": 13.0,
+        "earned": 13.0,
+        "n": 13,
+        "pct": 100.0
+      },
+      "tier4_comparison": {
+        "weight": 11.0,
+        "earned": 11.0,
+        "n": 11,
+        "pct": 100.0
+      },
+      "tier5_multi_step": {
+        "weight": 8.0,
+        "earned": 8.0,
+        "n": 8,
+        "pct": 100.0
+      },
+      "no_repeat_header": {
+        "weight": 7.0,
+        "earned": 7.0,
+        "n": 7,
+        "pct": 100.0
+      },
+      "no_repeat_header_long": {
+        "weight": 7.0,
+        "earned": 7.0,
+        "n": 7,
+        "pct": 100.0
+      }
+    },
+    "leak_count": 0
+  },
+  "results": [
+    {
+      "fixture": "01_fedex_invoice_global_logistics_q1_2026.pdf",
+      "question": "What is the account holder name on this FedEx invoice?",
+      "dimensions": [
+        "tier1_direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The account holder name is **\u201cGlobal Logistics Corp\u201d**.  \nSource: **01_fedex_invoice_global_logistics_q1_2026.pdf** (Page 1: \u201cAccount holder: Global Logistics Corp\u201d)",
+      "chat_status": 200,
+      "elapsed_s": 11.363286972045898,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_fedex_invoice_global_logistics_q1_2026.pdf",
+      "question": "What is the invoice number?",
+      "dimensions": [
+        "tier1_direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The invoice number is **GLC-FX-Q1-026114**.  \nSource: *01_fedex_invoice_global_logistics_q1_2026.pdf*",
+      "chat_status": 200,
+      "elapsed_s": 10.373073816299438,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_fedex_invoice_global_logistics_q1_2026.pdf",
+      "question": "What is the account number?",
+      "dimensions": [
+        "tier1_direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The account number is **2189-4471-X**.  \nSource: **01_fedex_invoice_global_logistics_q1_2026.pdf** (\u201cAccount number: 2189-4471-X\u201d)",
+      "chat_status": 200,
+      "elapsed_s": 9.699480772018433,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_fedex_invoice_global_logistics_q1_2026.pdf",
+      "question": "What billing period does this invoice cover?",
+      "dimensions": [
+        "tier1_direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The invoice covers the billing period **\u201cJanuary 1 \u2013 March 31, 2026\u201d**.  \nSource: **01_fedex_invoice_global_logistics_q1_2026.pdf**.",
+      "chat_status": 200,
+      "elapsed_s": 10.232497215270996,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_fedex_invoice_global_logistics_q1_2026.pdf",
+      "question": "How many total shipments are on this invoice?",
+      "dimensions": [
+        "tier2_aggregation"
+      ],
+      "weight": 1.0,
+      "answer": "There are **2,400 total shipments** on this invoice.\n\nSource: **01_fedex_invoice_global_logistics_q1_2026.pdf**, page 1 (\u201c**Total shipments: 2,400**\u201d).",
+      "chat_status": 200,
+      "elapsed_s": 12.678424596786499,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_fedex_invoice_global_logistics_q1_2026.pdf",
+      "question": "What is the grand total amount due on this invoice?",
+      "dimensions": [
+        "tier2_aggregation",
+        "money_extraction"
+      ],
+      "weight": 1.0,
+      "answer": "The grand total amount due is **$503,825.58**.\n\nSource: **01_fedex_invoice_global_logistics_q1_2026.pdf** \u2014 Page 112 shows **\u201cGRAND TOTAL $503,825.58\u201d**.",
+      "chat_status": 200,
+      "elapsed_s": 9.909751892089844,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_fedex_invoice_global_logistics_q1_2026.pdf",
+      "question": "What is the total amount of fuel surcharges on this invoice?",
+      "dimensions": [
+        "tier2_aggregation",
+        "money_extraction"
+      ],
+      "weight": 1.0,
+      "answer": "The total fuel surcharges on this invoice are **$118,884.88**.\n\nSource: **01_fedex_invoice_global_logistics_q1_2026.pdf**, page 112 (\u201c**Fuel surcharges $118,884.88**\u201d).",
+      "chat_status": 200,
+      "elapsed_s": 10.16683030128479,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_fedex_invoice_global_logistics_q1_2026.pdf",
+      "question": "How many FedEx Priority Overnight shipments are on this invoice?",
+      "dimensions": [
+        "tier3_filter_count"
+      ],
+      "weight": 1.0,
+      "answer": "There are **227 FedEx Priority Overnight shipments** on this invoice.  \nSource: **01_fedex_invoice_global_logistics_q1_2026.pdf** (Service summary on page 1; also confirmed on page 113).",
+      "chat_status": 200,
+      "elapsed_s": 10.131319761276245,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_fedex_invoice_global_logistics_q1_2026.pdf",
+      "question": "How many FedEx Ground shipments are on this invoice?",
+      "dimensions": [
+        "tier3_filter_count"
+      ],
+      "weight": 1.0,
+      "answer": "There are **737 FedEx Ground shipments** on this invoice.  \nSource: **01_fedex_invoice_global_logistics_q1_2026.pdf** (\u201cFedEx Ground \u2014 **737**\u201d in the service summary; page 1).",
+      "chat_status": 200,
+      "elapsed_s": 12.332885503768921,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_fedex_invoice_global_logistics_q1_2026.pdf",
+      "question": "How many FedEx Freight shipments (Priority + Economy combined) are on this invoice?",
+      "dimensions": [
+        "tier3_filter_count"
+      ],
+      "weight": 1.0,
+      "answer": "There are **314 FedEx Freight shipments** on this invoice.\n\nSource: **01_fedex_invoice_global_logistics_q1_2026.pdf** \u2014 page 1 shows:\n- \u201c**FedEx Freight Economy \u2014 124**\u201d\n- \u201c**FedEx Freight Priority \u2014 190**\u201d\n\nPage 113 also confirms:\n- \u201c**FedEx Freight (Priority+Economy) shipments: 314**\u201d",
+      "chat_status": 200,
+      "elapsed_s": 11.659895658493042,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_fedex_invoice_global_logistics_q1_2026.pdf",
+      "question": "Which FedEx service tier had the highest total charges?",
+      "dimensions": [
+        "tier4_comparison"
+      ],
+      "weight": 1.0,
+      "answer": "The highest total charges were for **\u201cFedEx Freight Priority\u201d \u2014 \u201c$226,744.98.\u201d**  \nSource: *01_fedex_invoice_global_logistics_q1_2026.pdf* (Page 1 service summary; also confirmed on Page 113: \u201c#1 service by total charges: FedEx Freight Priority \u2014 190 shipments, $226,744.98\u201d).",
+      "chat_status": 200,
+      "elapsed_s": 13.51638150215149,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_fedex_invoice_global_logistics_q1_2026.pdf",
+      "question": "What was the single largest individual shipment charge on this invoice?",
+      "dimensions": [
+        "tier4_comparison",
+        "money_extraction"
+      ],
+      "weight": 1.0,
+      "answer": "The single largest individual shipment charge was **$2,861.37** for **tracking 792655369073**.  \nSource: **01_fedex_invoice_global_logistics_q1_2026.pdf**\n\nThe invoice\u2019s audit summary states: **\u201cLargest single shipment charge: $2,861.37 (tracking 792655369073)\u201d**.",
+      "chat_status": 200,
+      "elapsed_s": 10.796306848526001,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_fedex_invoice_global_logistics_q1_2026.pdf",
+      "question": "If all fuel surcharges were removed, what would the new grand total be?",
+      "dimensions": [
+        "tier5_multi_step",
+        "money_extraction"
+      ],
+      "weight": 1.0,
+      "answer": "If all fuel surcharges were removed, the new grand total would be **$384,940.70**.\n\nSource: *01_fedex_invoice_global_logistics_q1_2026.pdf*  \n- \u201cGRAND TOTAL **$503,825.58**\u201d  \n- \u201cFuel surcharges **$118,884.88**\u201d",
+      "chat_status": 200,
+      "elapsed_s": 12.449382305145264,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_financial_report_global_logistics_fy2025.xlsx",
+      "question": "What is Global Logistics Corp's total revenue for FY2025?",
+      "dimensions": [
+        "tier1_direct_lookup",
+        "money_extraction"
+      ],
+      "weight": 1.0,
+      "answer": "Global Logistics Corp\u2019s total revenue for FY2025 is **$184,350,000.00**.\n\nSource: **01_financial_report_global_logistics_fy2025.xlsx**, sheet **\u201cAnchors\u201d** (\u201c**Total revenue FY2025 | $184,350,000.00**\u201d) and sheet **\u201cSummary\u201d** (\u201c**Total revenue (FY2025) | 184350000.0**\u201d).",
+      "chat_status": 200,
+      "elapsed_s": 8.36681866645813,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_financial_report_global_logistics_fy2025.xlsx",
+      "question": "What is Global Logistics Corp's net income for FY2025?",
+      "dimensions": [
+        "tier1_direct_lookup",
+        "money_extraction"
+      ],
+      "weight": 1.0,
+      "answer": "Global Logistics Corp's net income for FY2025 is **$15,847,500.00**.\n\nSource: **01_financial_report_global_logistics_fy2025.xlsx**, sheet **\u201cAnchors\u201d** (`Net income FY2025 | $15,847,500.00`)",
+      "chat_status": 200,
+      "elapsed_s": 6.080164432525635,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_financial_report_global_logistics_fy2025.xlsx",
+      "question": "How many employees does Global Logistics Corp have at year-end FY2025?",
+      "dimensions": [
+        "tier1_direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Global Logistics Corp had **1,842 employees** at year-end FY2025.\n\nSource: **01_financial_report_global_logistics_fy2025.xlsx** (Summary sheet)",
+      "chat_status": 200,
+      "elapsed_s": 14.423255681991577,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_financial_report_global_logistics_fy2025.xlsx",
+      "question": "What was the gross margin percentage for FY2025?",
+      "dimensions": [
+        "tier2_aggregation",
+        "money_extraction"
+      ],
+      "weight": 1.0,
+      "answer": "The FY2025 gross margin percentage was **41.28%**.\n\nSource: **01_financial_report_global_logistics_fy2025.xlsx** \u2014 the **Summary** sheet lists **\u201cGross margin | 0.4128\u201d**, which equals **41.28%**.",
+      "chat_status": 200,
+      "elapsed_s": 13.120515584945679,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_financial_report_global_logistics_fy2025.xlsx",
+      "question": "How many customers are listed in the customer concentration table?",
+      "dimensions": [
+        "tier3_filter_count"
+      ],
+      "weight": 1.0,
+      "answer": "The customer concentration table lists **25 customers**.\n\nThis is shown in the sheet title: **\"Top 25 customers by FY2025 revenue contribution\"** in **01_financial_report_global_logistics_fy2025.xlsx**.",
+      "chat_status": 200,
+      "elapsed_s": 5.630234718322754,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_financial_report_global_logistics_fy2025.xlsx",
+      "question": "Which department has the largest headcount?",
+      "dimensions": [
+        "tier4_comparison"
+      ],
+      "weight": 1.0,
+      "answer": "The department with the largest headcount is **Operations / Network** with **1124** employees.  \nSource: **01_financial_report_global_logistics_fy2025.xlsx** (\u201cDepartmental Spend\u201d sheet)",
+      "chat_status": 200,
+      "elapsed_s": 12.3573899269104,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_financial_report_global_logistics_fy2025.xlsx",
+      "question": "Which customer is the company's biggest by revenue?",
+      "dimensions": [
+        "tier4_comparison"
+      ],
+      "weight": 1.0,
+      "answer": "The biggest customer by revenue is **Vellichor Industries** with **FY2025 revenue of 21753300**.  \nSource: **01_financial_report_global_logistics_fy2025.xlsx**, sheet **\u201cCustomer Concentration\u201d**.",
+      "chat_status": 200,
+      "elapsed_s": 10.38618278503418,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_financial_report_global_logistics_fy2025.xlsx",
+      "question": "What percentage of total revenue does the top customer represent?",
+      "dimensions": [
+        "tier5_multi_step",
+        "money_extraction"
+      ],
+      "weight": 1.0,
+      "answer": "The top customer represents **11.8%** of total revenue.\n\nFrom **01_financial_report_global_logistics_fy2025.xlsx**, sheet **\u201cCustomer Concentration\u201d**, the top-ranked customer is **\u201cVellichor Industries\u201d** with **\u201c% of total\u201d = 0.118**, which equals **11.8%**.",
+      "chat_status": 200,
+      "elapsed_s": 13.528247117996216,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_fedex_invoice_megaretail_q1_2026.pdf",
+      "question": "What is the account holder name on this FedEx invoice?",
+      "dimensions": [
+        "tier1_direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The account holder name is **\u201cMega Retail Inc\u201d**. Source: **02_fedex_invoice_megaretail_q1_2026.pdf**.",
+      "chat_status": 200,
+      "elapsed_s": 10.111924171447754,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_fedex_invoice_megaretail_q1_2026.pdf",
+      "question": "What is the invoice number?",
+      "dimensions": [
+        "tier1_direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The invoice number is **\u201cMRI-FX-Q1-026891\u201d**.  \nSource: **02_fedex_invoice_megaretail_q1_2026.pdf** (Page 1)",
+      "chat_status": 200,
+      "elapsed_s": 10.461365699768066,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_fedex_invoice_megaretail_q1_2026.pdf",
+      "question": "How many shipments are on this invoice?",
+      "dimensions": [
+        "tier2_aggregation"
+      ],
+      "weight": 1.0,
+      "answer": "This invoice has **3,000 shipments**. Source: **02_fedex_invoice_megaretail_q1_2026.pdf** (\u201c**Total shipments: 3,000**\u201d).",
+      "chat_status": 200,
+      "elapsed_s": 13.026733875274658,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_fedex_invoice_megaretail_q1_2026.pdf",
+      "question": "What is the grand total amount due?",
+      "dimensions": [
+        "tier2_aggregation",
+        "money_extraction"
+      ],
+      "weight": 1.0,
+      "answer": "The grand total amount due is **$289,478.82**.  \nSource: **02_fedex_invoice_megaretail_q1_2026.pdf** (Page 140: \u201cGrand total due: $289,478.82\u201d; Page 139: \u201cGRAND TOTAL $289,478.82\u201d)",
+      "chat_status": 200,
+      "elapsed_s": 10.836841106414795,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_fedex_invoice_megaretail_q1_2026.pdf",
+      "question": "How many FedEx Ground shipments are on this invoice?",
+      "dimensions": [
+        "tier3_filter_count"
+      ],
+      "weight": 1.0,
+      "answer": "There are **1,357 FedEx Ground shipments** on the invoice.  \nSource: **02_fedex_invoice_megaretail_q1_2026.pdf** \u2014 the service summary lists **\u201cFedEx Ground 1,357\u201d**.",
+      "chat_status": 200,
+      "elapsed_s": 10.668753862380981,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_fedex_invoice_megaretail_q1_2026.pdf",
+      "question": "What is the total amount of residential delivery fees on this invoice?",
+      "dimensions": [
+        "tier3_filter_count",
+        "money_extraction"
+      ],
+      "weight": 1.0,
+      "answer": "The total amount of **residential delivery fees** is **$3,564.75**.\n\nSource: **02_fedex_invoice_megaretail_q1_2026.pdf**, page 139 (\u201cResidential delivery fees $3,564.75\u201d).",
+      "chat_status": 200,
+      "elapsed_s": 13.347513675689697,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_fedex_invoice_megaretail_q1_2026.pdf",
+      "question": "Which service tier had the highest total charges on this invoice?",
+      "dimensions": [
+        "tier4_comparison"
+      ],
+      "weight": 1.0,
+      "answer": "The highest total charges were for **\u201cFedEx Ground\u201d** at **\u201c$78,650.76\u201d**.  \nSource: **02_fedex_invoice_megaretail_q1_2026.pdf**\n\nThe document\u2019s audit page also states: **\u201c#1 service by total charges: FedEx Ground \u2014 1,357 shipments, $78,650.76.\u201d**",
+      "chat_status": 200,
+      "elapsed_s": 11.223865270614624,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_fedex_invoice_megaretail_q1_2026.pdf",
+      "question": "What percentage of the grand total is made up of fuel surcharges?",
+      "dimensions": [
+        "tier5_multi_step",
+        "money_extraction"
+      ],
+      "weight": 1.0,
+      "answer": "Fuel surcharges make up **15.56%** of the grand total.\n\nFrom **02_fedex_invoice_megaretail_q1_2026.pdf**:\n- **\u201cFuel surcharges\u201d**: **$45,029.14**\n- **\u201cGRAND TOTAL\u201d**: **$289,478.82**",
+      "chat_status": 200,
+      "elapsed_s": 16.514177083969116,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_financial_report_megaretail_fy2025.xlsx",
+      "question": "What is Mega Retail's total FY2025 revenue?",
+      "dimensions": [
+        "tier1_direct_lookup",
+        "money_extraction"
+      ],
+      "weight": 1.0,
+      "answer": "Mega Retail's total FY2025 revenue is **$412,900,000.00**.  \nSource: **02_financial_report_megaretail_fy2025.xlsx** (sheet: **Anchors** / **Summary**)",
+      "chat_status": 200,
+      "elapsed_s": 6.423993825912476,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_financial_report_megaretail_fy2025.xlsx",
+      "question": "How many active SKUs does Mega Retail have?",
+      "dimensions": [
+        "tier1_direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Mega Retail has **12,485 active SKUs**.\n\nSource: **02_financial_report_megaretail_fy2025.xlsx** \u2014 the file lists **\u201cActive SKUs | 12,485\u201d** in the **Anchors** sheet.",
+      "chat_status": 200,
+      "elapsed_s": 12.665771245956421,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_financial_report_megaretail_fy2025.xlsx",
+      "question": "How many stores does Mega Retail have at year-end?",
+      "dimensions": [
+        "tier1_direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Mega Retail had **284 stores at year-end**.\n\nSource: **02_financial_report_megaretail_fy2025.xlsx** \u2014 the Summary sheet lists **\u201cTotal store count (year-end) | 284.0\u201d**, and the Anchors sheet lists **\u201cTotal stores year-end | 284.\u201d**",
+      "chat_status": 200,
+      "elapsed_s": 12.328939199447632,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_financial_report_megaretail_fy2025.xlsx",
+      "question": "What is Mega Retail's e-commerce revenue?",
+      "dimensions": [
+        "tier2_aggregation",
+        "money_extraction"
+      ],
+      "weight": 1.0,
+      "answer": "Mega Retail's **e-commerce revenue** is **$228,440,000.00**.  \nSource: **02_financial_report_megaretail_fy2025.xlsx** \u2014 listed as **\u201cE-commerce revenue | 228440000.0\u201d** in the Summary sheet and **\u201cE-commerce revenue | $228,440,000.00\u201d** in the Anchors sheet.",
+      "chat_status": 200,
+      "elapsed_s": 8.211116313934326,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_financial_report_megaretail_fy2025.xlsx",
+      "question": "How many regions does Mega Retail track in its regional revenue table?",
+      "dimensions": [
+        "tier3_filter_count"
+      ],
+      "weight": 1.0,
+      "answer": "Mega Retail tracks **7 regions** in its regional revenue table. The sheet lists:\n\n- Northeast US\n- Mid-Atlantic US\n- Southeast US\n- Southwest US\n- Midwest US\n- West Coast US\n- Canada (toy)\n\nSource: `02_financial_report_megaretail_fy2025.xlsx` (Sheet: **Regional Revenue**; also confirmed in **Anchors** as \u201c**Number of regions tracked | 7**\u201d).",
+      "chat_status": 200,
+      "elapsed_s": 7.964951992034912,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_financial_report_megaretail_fy2025.xlsx",
+      "question": "Which region produces the largest share of Mega Retail's revenue?",
+      "dimensions": [
+        "tier4_comparison"
+      ],
+      "weight": 1.0,
+      "answer": "The region with the largest share of Mega Retail\u2019s revenue is **Southwest US**.\n\n- **TOTAL revenue:** **102490 ($ thousands)**\n- **Share of total company revenue:** **19.80%**\n\nSource: **02_financial_report_megaretail_fy2025.xlsx** (sheet: **Regional Revenue**)",
+      "chat_status": 200,
+      "elapsed_s": 15.469345808029175,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_financial_report_megaretail_fy2025.xlsx",
+      "question": "How much larger is Mega Retail's e-commerce revenue than its in-store revenue?",
+      "dimensions": [
+        "tier5_multi_step",
+        "money_extraction"
+      ],
+      "weight": 1.0,
+      "answer": "Mega Retail's e-commerce revenue is **$43,980,000** larger than its in-store revenue.\n\nSource: **02_financial_report_megaretail_fy2025.xlsx** \u2014 `\"E-commerce revenue | 228440000.0\"` and `\"In-store revenue | 184460000.0\"` in the **Summary** sheet.",
+      "chat_status": 200,
+      "elapsed_s": 9.448273420333862,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_fedex_invoice_pacific_mfg_q1_2026.pdf",
+      "question": "What is the account holder name?",
+      "dimensions": [
+        "tier1_direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The account holder name is **\u201cPacific Manufacturing LLC\u201d**.  \nSource: **03_fedex_invoice_pacific_mfg_q1_2026.pdf** (Page 1)",
+      "chat_status": 200,
+      "elapsed_s": 14.97979474067688,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_fedex_invoice_pacific_mfg_q1_2026.pdf",
+      "question": "What is the grand total due on this invoice?",
+      "dimensions": [
+        "tier2_aggregation",
+        "money_extraction"
+      ],
+      "weight": 1.0,
+      "answer": "The grand total due is **$1,592,426.45**. Source: **03_fedex_invoice_pacific_mfg_q1_2026.pdf** (\u201cGRAND TOTAL $1,592,426.45\u201d).",
+      "chat_status": 200,
+      "elapsed_s": 12.4229576587677,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_fedex_invoice_pacific_mfg_q1_2026.pdf",
+      "question": "How many FedEx Freight (Priority + Economy) shipments are on this invoice?",
+      "dimensions": [
+        "tier3_filter_count"
+      ],
+      "weight": 1.0,
+      "answer": "There are **1,326 FedEx Freight shipments** on this invoice.\n\nSource: **03_fedex_invoice_pacific_mfg_q1_2026.pdf** \u2014 page 103 states: **\u201cFedEx Freight (Priority+Economy) shipments: 1,326\u201d**.",
+      "chat_status": 200,
+      "elapsed_s": 13.211107730865479,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_fedex_invoice_pacific_mfg_q1_2026.pdf",
+      "question": "Which FedEx service tier accounts for the largest portion of charges?",
+      "dimensions": [
+        "tier4_comparison"
+      ],
+      "weight": 1.0,
+      "answer": "The largest service tier by charges is **\u201cFedEx Freight Priority\u201d** at **$953,685.81**.\n\nThe invoice\u2019s service summary lists:\n- **FedEx Freight Priority \u2014 786 shipments \u2014 $953,685.81**\n- **FedEx Freight Economy \u2014 540 shipments \u2014 $577,328.30**\n\nPage 103 also states: **\u201c#1 service by total charges: FedEx Freight Priority \u2014 786 shipments, $953,685.81\u201d**.  \nSource: **03_fedex_invoice_pacific_mfg_q1_2026.pdf**",
+      "chat_status": 200,
+      "elapsed_s": 13.878831624984741,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_fedex_invoice_pacific_mfg_q1_2026.pdf",
+      "question": "What proportion of this invoice's grand total is made up of fuel surcharges?",
+      "dimensions": [
+        "tier5_multi_step",
+        "money_extraction"
+      ],
+      "weight": 1.0,
+      "answer": "Fuel surcharges are **28.75%** of the invoice\u2019s grand total.\n\nFrom **03_fedex_invoice_pacific_mfg_q1_2026.pdf**:\n- **\u201cFuel surcharges\u201d**: **$457,889.06**\n- **\u201cGRAND TOTAL\u201d**: **$1,592,426.45**\n\nSo, $457,889.06 \u00f7 $1,592,426.45 \u00d7 100 = **28.75%**.",
+      "chat_status": 200,
+      "elapsed_s": 15.076459407806396,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_financial_report_pacific_mfg_fy2025.xlsx",
+      "question": "What is Pacific Manufacturing's total FY2025 revenue?",
+      "dimensions": [
+        "tier1_direct_lookup",
+        "money_extraction"
+      ],
+      "weight": 1.0,
+      "answer": "Pacific Manufacturing's total FY2025 revenue is **$248,700,000.00**.\n\nSource: **03_financial_report_pacific_mfg_fy2025.xlsx** (\u201cAnchors\u201d sheet: **\u201cTotal revenue FY2025 | $248,700,000.00\u201d**; \u201cSummary\u201d sheet: **\u201cTotal revenue (FY2025) | 248700000\u201d**).",
+      "chat_status": 200,
+      "elapsed_s": 6.028949499130249,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_financial_report_pacific_mfg_fy2025.xlsx",
+      "question": "How many production facilities does Pacific Manufacturing operate?",
+      "dimensions": [
+        "tier1_direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Pacific Manufacturing operates **7 production facilities**.\n\nFrom the **\u201cProduction by Plant\u201d** sheet in **03_financial_report_pacific_mfg_fy2025.xlsx**, the listed plants are:\n\n- Tacoma WA\n- Fresno CA\n- Phoenix AZ\n- Wichita KS\n- Toledo OH\n- Chattanooga TN\n- Greenville SC\n\nSource: **03_financial_report_pacific_mfg_fy2025.xlsx**",
+      "chat_status": 200,
+      "elapsed_s": 8.090596675872803,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_financial_report_pacific_mfg_fy2025.xlsx",
+      "question": "What was Pacific Manufacturing's EBITDA for FY2025?",
+      "dimensions": [
+        "tier2_aggregation",
+        "money_extraction"
+      ],
+      "weight": 1.0,
+      "answer": "Pacific Manufacturing's **EBITDA for FY2025** was **34,180,000**.\n\nSource: **03_financial_report_pacific_mfg_fy2025.xlsx** (\"Summary\" sheet)",
+      "chat_status": 200,
+      "elapsed_s": 12.146522045135498,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_financial_report_pacific_mfg_fy2025.xlsx",
+      "question": "How many inventory SKUs are tracked in the inventory snapshot?",
+      "dimensions": [
+        "tier3_filter_count"
+      ],
+      "weight": 1.0,
+      "answer": "There are 120 inventory SKUs tracked in the \"Inventory Snapshot\" sheet, excluding the blank row and header row. Source: 03_financial_report_pacific_mfg_fy2025.xlsx.",
+      "chat_status": 200,
+      "elapsed_s": 10.969810247421265,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_financial_report_pacific_mfg_fy2025.xlsx",
+      "question": "Which plant has the highest production output?",
+      "dimensions": [
+        "tier4_comparison"
+      ],
+      "weight": 1.0,
+      "answer": "The plant with the highest production output is **Tacoma WA**, with **5.19 million units produced**.  \nSource: **03_financial_report_pacific_mfg_fy2025.xlsx** (\u201cProduction by Plant\u201d sheet)",
+      "chat_status": 200,
+      "elapsed_s": 10.80382490158081,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_financial_report_pacific_mfg_fy2025.xlsx",
+      "question": "Which plant has the lowest production output?",
+      "dimensions": [
+        "tier4_comparison"
+      ],
+      "weight": 1.0,
+      "answer": "The plant with the lowest production output is **Greenville SC**, at **1.34 M units produced**.  \nSource: **03_financial_report_pacific_mfg_fy2025.xlsx** (\"Production by Plant\")",
+      "chat_status": 200,
+      "elapsed_s": 11.039127111434937,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_financial_report_pacific_mfg_fy2025.xlsx",
+      "question": "What is the gross margin percentage?",
+      "dimensions": [
+        "tier5_multi_step",
+        "money_extraction"
+      ],
+      "weight": 1.0,
+      "answer": "The gross margin percentage is **26.97%**.  \nSource: **03_financial_report_pacific_mfg_fy2025.xlsx**, sheet **\u201cAnchors\u201d** (\u201cGross margin | 26.97%\u201d).",
+      "chat_status": 200,
+      "elapsed_s": 6.152922868728638,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_fedex_invoice_continental_no_repeat_headers_q1_2026.pdf",
+      "question": "What is the account holder name on this FedEx invoice?",
+      "dimensions": [
+        "tier1_direct_lookup",
+        "no_repeat_header"
+      ],
+      "weight": 1.0,
+      "answer": "The account holder name is **\u201cContinental Distribution Co\u201d**.  \nSource: *04_fedex_invoice_continental_no_repeat_headers_q1_2026.pdf*, page 1 (\u201cAccount holder: Continental Distribution Co\u201d).",
+      "chat_status": 200,
+      "elapsed_s": 8.241765975952148,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_fedex_invoice_continental_no_repeat_headers_q1_2026.pdf",
+      "question": "What is the invoice number?",
+      "dimensions": [
+        "tier1_direct_lookup",
+        "no_repeat_header"
+      ],
+      "weight": 1.0,
+      "answer": "The invoice number is **CDC-FX-Q1-026557**.  \nSource: *04_fedex_invoice_continental_no_repeat_headers_q1_2026.pdf*",
+      "chat_status": 200,
+      "elapsed_s": 7.685338020324707,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_fedex_invoice_continental_no_repeat_headers_q1_2026.pdf",
+      "question": "What is the grand total amount due on this invoice?",
+      "dimensions": [
+        "tier2_aggregation",
+        "money_extraction",
+        "no_repeat_header"
+      ],
+      "weight": 1.0,
+      "answer": "The grand total amount due is **$165,334.13**.  \nSource: **04_fedex_invoice_continental_no_repeat_headers_q1_2026.pdf** \u2014 Page 23 shows **\u201cGRAND TOTAL $165,334.13\u201d**, and Page 24 confirms **\u201cGrand total due: $165,334.13.\u201d**",
+      "chat_status": 200,
+      "elapsed_s": 8.952019214630127,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_fedex_invoice_continental_no_repeat_headers_q1_2026.pdf",
+      "question": "How many FedEx Freight (Priority + Economy) shipments are on this invoice?",
+      "dimensions": [
+        "tier3_filter_count",
+        "no_repeat_header"
+      ],
+      "weight": 1.0,
+      "answer": "There are **106 FedEx Freight shipments** on this invoice.\n\nSource: **04_fedex_invoice_continental_no_repeat_headers_q1_2026.pdf**  \nThe document states: **\u201cFedEx Freight (Priority+Economy) shipments: 106\u201d** (page 24).  \nThis also matches the service summary on page 1: **\u201cFedEx Freight Economy 38\u201d** and **\u201cFedEx Freight Priority 68\u201d**.",
+      "chat_status": 200,
+      "elapsed_s": 9.251535177230835,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_fedex_invoice_continental_no_repeat_headers_q1_2026.pdf",
+      "question": "How many FedEx Ground shipments are on this invoice?",
+      "dimensions": [
+        "tier3_filter_count",
+        "no_repeat_header"
+      ],
+      "weight": 1.0,
+      "answer": "There are **294 FedEx Ground shipments** on this invoice.\n\nSource: **04_fedex_invoice_continental_no_repeat_headers_q1_2026.pdf** \u2014 page 1 service summary shows **\u201cFedEx Ground 294\u201d**, and page 24 confirms **\u201cFedEx Ground shipments: 294.\u201d**",
+      "chat_status": 200,
+      "elapsed_s": 8.234158277511597,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_fedex_invoice_continental_no_repeat_headers_q1_2026.pdf",
+      "question": "Which FedEx service tier accounts for the largest portion of charges?",
+      "dimensions": [
+        "tier4_comparison",
+        "no_repeat_header"
+      ],
+      "weight": 1.0,
+      "answer": "The largest portion of charges comes from **FedEx Freight Priority**.\n\nFrom **04_fedex_invoice_continental_no_repeat_headers_q1_2026.pdf**:\n- \u201c**#1 service by total charges: FedEx Freight Priority \u2014 68 shipments, $81,935.40**\u201d (page 24)\n- The service summary also lists \u201c**FedEx Freight Priority ... $81,935.40**\u201d (page 1).",
+      "chat_status": 200,
+      "elapsed_s": 9.07101845741272,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_fedex_invoice_continental_no_repeat_headers_q1_2026.pdf",
+      "question": "What percentage of the grand total is made up of fuel surcharges?",
+      "dimensions": [
+        "tier5_multi_step",
+        "money_extraction",
+        "no_repeat_header"
+      ],
+      "weight": 1.0,
+      "answer": "Fuel surcharges are **23.77%** of the grand total.\n\nFrom **04_fedex_invoice_continental_no_repeat_headers_q1_2026.pdf**:\n- \u201c**Fuel surcharges**\u201d = **$39,300.02**\n- \u201c**GRAND TOTAL**\u201d = **$165,334.13**",
+      "chat_status": 200,
+      "elapsed_s": 10.143188953399658,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_fedex_invoice_titan_systems_long_no_repeat_q1_2026.pdf",
+      "question": "What is the account holder name on this FedEx invoice?",
+      "dimensions": [
+        "tier1_direct_lookup",
+        "no_repeat_header_long"
+      ],
+      "weight": 1.0,
+      "answer": "The account holder name is **\u201cTitan Systems Holdings.\u201d**  \nSource: **05_fedex_invoice_titan_systems_long_no_repeat_q1_2026.pdf**, page 1.",
+      "chat_status": 200,
+      "elapsed_s": 10.464255571365356,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_fedex_invoice_titan_systems_long_no_repeat_q1_2026.pdf",
+      "question": "What is the invoice number?",
+      "dimensions": [
+        "tier1_direct_lookup",
+        "no_repeat_header_long"
+      ],
+      "weight": 1.0,
+      "answer": "The invoice number is **TSH-FX-Q1-026998**.  \nSource: *05_fedex_invoice_titan_systems_long_no_repeat_q1_2026.pdf*",
+      "chat_status": 200,
+      "elapsed_s": 12.821817874908447,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_fedex_invoice_titan_systems_long_no_repeat_q1_2026.pdf",
+      "question": "What is the grand total amount due on this invoice?",
+      "dimensions": [
+        "tier2_aggregation",
+        "money_extraction",
+        "no_repeat_header_long"
+      ],
+      "weight": 1.0,
+      "answer": "The grand total amount due is **$583,911.98**.\n\nSource: **05_fedex_invoice_titan_systems_long_no_repeat_q1_2026.pdf** \u2014 page 79 shows **\u201cGRAND TOTAL $583,911.98\u201d**, and page 80 confirms **\u201cGrand total due: $583,911.98.\u201d**",
+      "chat_status": 200,
+      "elapsed_s": 11.459337949752808,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_fedex_invoice_titan_systems_long_no_repeat_q1_2026.pdf",
+      "question": "How many FedEx Ground shipments are on this invoice?",
+      "dimensions": [
+        "tier3_filter_count",
+        "no_repeat_header_long"
+      ],
+      "weight": 1.0,
+      "answer": "There are **1,191 FedEx Ground shipments** on this invoice.\n\nSource: **05_fedex_invoice_titan_systems_long_no_repeat_q1_2026.pdf** \u2014 page 1 service summary shows **\u201cFedEx Ground 1,191\u201d**, and page 80 confirms **\u201cFedEx Ground shipments: 1,191.\u201d**",
+      "chat_status": 200,
+      "elapsed_s": 11.95861530303955,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_fedex_invoice_titan_systems_long_no_repeat_q1_2026.pdf",
+      "question": "How many FedEx Freight (Priority + Economy) shipments are on this invoice?",
+      "dimensions": [
+        "tier3_filter_count",
+        "no_repeat_header_long"
+      ],
+      "weight": 1.0,
+      "answer": "There are **328** FedEx Freight shipments total on this invoice.\n\nSource: **05_fedex_invoice_titan_systems_long_no_repeat_q1_2026.pdf**, page 80:  \n\u201c**FedEx Freight (Priority+Economy) shipments: 328**\u201d\n\nThis also matches page 1 service summary:  \n- \u201c**FedEx Freight Economy \u2014 132**\u201d  \n- \u201c**FedEx Freight Priority \u2014 196**\u201d",
+      "chat_status": 200,
+      "elapsed_s": 17.232311964035034,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_fedex_invoice_titan_systems_long_no_repeat_q1_2026.pdf",
+      "question": "Which FedEx service tier accounts for the largest portion of charges?",
+      "dimensions": [
+        "tier4_comparison",
+        "no_repeat_header_long"
+      ],
+      "weight": 1.0,
+      "answer": "The largest portion of charges comes from **\u201cFedEx Freight Priority\u201d**, with **\u201c$262,757.12\u201d** in total charges. Source: **05_fedex_invoice_titan_systems_long_no_repeat_q1_2026.pdf**.\n\nThe document also states: **\u201c#1 service by total charges: FedEx Freight Priority \u2014 196 shipments, $262,757.12\u201d** (page 80).",
+      "chat_status": 200,
+      "elapsed_s": 11.339836120605469,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_fedex_invoice_titan_systems_long_no_repeat_q1_2026.pdf",
+      "question": "What percentage of the grand total is made up of fuel surcharges?",
+      "dimensions": [
+        "tier5_multi_step",
+        "money_extraction",
+        "no_repeat_header_long"
+      ],
+      "weight": 1.0,
+      "answer": "Fuel surcharges are **23.10%** of the grand total.\n\nFrom **05_fedex_invoice_titan_systems_long_no_repeat_q1_2026.pdf**:\n- \u201c**Fuel surcharges $134,889.08**\u201d\n- \u201c**GRAND TOTAL $583,911.98**\u201d\n\nCalculated as: 134,889.08 \u00f7 583,911.98 \u00d7 100 = **23.10%**.",
+      "chat_status": 200,
+      "elapsed_s": 15.939671516418457,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    }
+  ],
+  "uploaded": [
+    [
+      "01_fedex_invoice_global_logistics_q1_2026.pdf",
+      200,
+      11.741930723190308
+    ],
+    [
+      "01_financial_report_global_logistics_fy2025.xlsx",
+      200,
+      82.14397525787354
+    ],
+    [
+      "02_fedex_invoice_megaretail_q1_2026.pdf",
+      200,
+      12.000401973724365
+    ],
+    [
+      "02_financial_report_megaretail_fy2025.xlsx",
+      200,
+      76.6611111164093
+    ],
+    [
+      "03_fedex_invoice_pacific_mfg_q1_2026.pdf",
+      200,
+      10.764120101928711
+    ],
+    [
+      "03_financial_report_pacific_mfg_fy2025.xlsx",
+      200,
+      72.54565358161926
+    ],
+    [
+      "04_fedex_invoice_continental_no_repeat_headers_q1_2026.pdf",
+      200,
+      7.037136077880859
+    ],
+    [
+      "05_fedex_invoice_titan_systems_long_no_repeat_q1_2026.pdf",
+      200,
+      10.071388721466064
+    ]
+  ]
+}

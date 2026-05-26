@@ -1,0 +1,93 @@
+{
+  "session_id": "3ca2535f-064f-4ac1-9fb4-94f02137f323",
+  "config_id": "speaker_program_demo",
+  "user_id": "13",
+  "status": "in_progress",
+  "current_section_id": "program",
+  "collected_data": {
+    "submitter": {
+      "submitter_name": "James Oliver",
+      "submitter_email": "james@example.com"
+    }
+  },
+  "section_status": {
+    "submitter": "complete",
+    "program": "not_started",
+    "schedule": "not_started",
+    "speaker": "not_started",
+    "venue": "not_started",
+    "details": "not_started"
+  },
+  "validation_errors": {},
+  "chat_history": [
+    {
+      "role": "assistant",
+      "content": "Hi \u2014 I can help you plan your pharma speaker program. We\u2019ll go section by section: your information, product & topic, schedule, speaker, venue, and a few final details. The intake team typically reviews submissions within one business day, and most programs need 4\u20136 weeks of lead time.\n\nWhat\u2019s your name?",
+      "ts": "2026-05-13T00:34:55.311481"
+    },
+    {
+      "role": "user",
+      "content": "hi",
+      "ts": "2026-05-13T00:34:57.945011"
+    },
+    {
+      "role": "assistant",
+      "content": "Hi! What\u2019s your name?",
+      "ts": "2026-05-13T00:34:57.945011"
+    },
+    {
+      "role": "user",
+      "content": "James Oliver",
+      "ts": "2026-05-13T00:35:01.141614"
+    },
+    {
+      "role": "assistant",
+      "content": "Thanks, James Oliver. What email should we use to reach you?",
+      "ts": "2026-05-13T00:35:01.141614"
+    },
+    {
+      "role": "user",
+      "content": "not-an-email",
+      "ts": "2026-05-13T00:35:04.291322"
+    },
+    {
+      "role": "assistant",
+      "content": "That doesn\u2019t look like a valid email address. What email should we use to reach you?",
+      "ts": "2026-05-13T00:35:04.291322"
+    },
+    {
+      "role": "user",
+      "content": "james@example.com",
+      "ts": "2026-05-13T00:35:09.028363"
+    },
+    {
+      "role": "assistant",
+      "content": "Thanks \u2014 I\u2019ve got james@example.com.\n\nWhat product is this speaker program for?",
+      "ts": "2026-05-13T00:35:09.028363"
+    },
+    {
+      "role": "user",
+      "content": "what are the available products?",
+      "ts": "2026-05-13T00:35:13.598658"
+    },
+    {
+      "role": "assistant",
+      "content": "Here are the available products:\n\n- 101 \u2014 Cardiomax XR\n- 102 \u2014 Oncoshield\n- 103 \u2014 GlycoControl 500\n- 104 \u2014 NeuroAxis\n\nWhich product is the program about?",
+      "ts": "2026-05-13T00:35:13.598658"
+    }
+  ],
+  "submission_log": [],
+  "created_at": "2026-05-13T00:34:53.538684",
+  "updated_at": "2026-05-13T00:35:13.598658",
+  "submitted_at": null,
+  "user_name": null,
+  "user_email": null,
+  "external_callback_url": null,
+  "external_callback_secret_ref": null,
+  "return_url": null,
+  "branding_override": null,
+  "voice_mode": false,
+  "rendered_lookups": [
+    "products"
+  ]
+}

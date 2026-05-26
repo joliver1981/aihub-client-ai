@@ -353,6 +353,36 @@ class SessionManager:
             session.user_context = user_context
             self._store.save_session_meta(session)
 
+    def check_session_ownership(self, session_id: str,
+                                user_id: Optional[int],
+                                tenant_id: Optional[int],
+                                role: int = 0) -> str:
+        """Classify a session-id access attempt for forgery diagnostics
+        (BUG-CC-SESSION-ID-FORGERY).
+
+        Returns one of:
+          - "missing"   : session does not exist; caller will create it
+          - "unstamped" : session exists but has no owner yet (legacy/new);
+                          caller may safely stamp it as their own
+          - "owned"     : session exists and owner matches the requester
+          - "mismatch"  : session exists and owner does NOT match. This is
+                          either an attacker who learned/guessed a
+                          session_id, OR a legitimate flow we don't yet
+                          know about (Phase 1 will WARN on these without
+                          rejecting so we can find out which).
+
+        This is a read-only classifier — does NOT modify any session.
+        Use the return value to decide whether to log, warn, or reject.
+        """
+        session = self._sessions.get(session_id)
+        if session is None:
+            return "missing"
+        if session.user_context is None:
+            return "unstamped"
+        if self._matches_owner(session, user_id, tenant_id, role):
+            return "owned"
+        return "mismatch"
+
     def pin_session(self, session_id: str, pinned: bool) -> bool:
         session = self._sessions.get(session_id)
         if session:

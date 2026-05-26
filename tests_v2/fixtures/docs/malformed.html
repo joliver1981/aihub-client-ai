@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head><title>XSS Test Fixture</title></head>
+<body>
+<h1>Header with <script>alert('xss1')</script> inline payload</h1>
+<p>Plain paragraph followed by <img src="x" onerror="alert('xss2')"></p>
+<a href="javascript:alert('xss3')">Click me</a>
+<a href="JaVaScRiPt:alert('xss4')">Mixed case</a>
+<svg onload="alert('xss5')"><circle cx="50" cy="50" r="40"/></svg>
+<iframe src="javascript:alert('xss6')"></iframe>
+<div onmouseover="alert('xss7')">Hover me</div>
+<style>body { background: url("javascript:alert('xss8')"); }</style>
+<p>"><script>alert('xss-polyglot')</script>
+<input type="image" src="x" onerror="alert('xss9')">
+<body onload="alert('xss10')">
+<unclosed-tag attr="value
+<p>Truncated content...
+</body>
+</html>

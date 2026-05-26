@@ -105,9 +105,9 @@ tailwind.config = {
                             <i class="fas fa-cloud-upload-alt"></i>
                             <p>Drop files here or browse</p>
                             <input type="file" id="contextFileInput" multiple
-                                accept=".pdf,.docx,.doc,.xlsx,.xls,.txt,.csv,.jpg,.jpeg,.png"
+                                accept=".pdf,.docx,.doc,.txt,.csv,.jpg,.jpeg,.png"
                                 style="display:none;">
-                            <small>PDF, Word, Excel, Text, Images</small>
+                            <small>PDF, Word, Text, Images</small>
                         </div>
 
                         <!-- Upload Queue -->
@@ -240,7 +240,7 @@ tailwind.config = {
         <div class="drop-overlay-content">
             <i class="fas fa-cloud-upload-alt"></i>
             <p>Drop files to add context</p>
-            <small>PDF, Word, Excel, Text, Images</small>
+            <small>PDF, Word, Text, Images</small>
         </div>
     </div>
 
@@ -463,6 +463,8 @@ document.addEventListener('DOMContentLoaded', function () {
     if (typeof ChatPanel !== 'undefined') {
         ChatPanel.init();
     }
+
+    setupAutoScroll();
 });
 
 // ===================================================================
@@ -633,9 +635,24 @@ function showWelcomeState() {
 // ===================================================================
 // sendMessage — uses skeleton loading
 // ===================================================================
+//
+// BUG-CHAOS-002 guard: rapid clicks on #send-btn during a slow LLM
+// response would produce duplicate user-message rows because the previous
+// fetch was still in flight. We track an in-flight flag, disable the
+// send button while in flight, and re-enable it in both the .then() and
+// .catch() handlers. Same pattern CC chat uses in
+// command-center.js (`this.isStreaming` guard).
+var _sendInFlight = false;
+
 function sendMessage() {
+    if (_sendInFlight) return;  // BUG-CHAOS-002: prevent re-entry
+
     var userMessage = document.getElementById('user-input').value;
     if (userMessage.trim() === '') return;
+
+    _sendInFlight = true;
+    var sendBtn = document.getElementById('send-btn');
+    if (sendBtn) sendBtn.disabled = true;
 
     hideWelcomeState();
 
@@ -668,7 +685,7 @@ function sendMessage() {
     aiRow.appendChild(skeleton.element);
     chatContent.appendChild(aiRow);
 
-    chatWindow.scrollTop = chatWindow.scrollHeight;
+    scrollChatToBottom(true);
 
     // Build payload
     var payload = {
@@ -761,7 +778,7 @@ function sendMessage() {
             chatHistory.push({ role: 'assistant', content: data.response });
         }
 
-        chatWindow.scrollTop = chatWindow.scrollHeight;
+        scrollChatToBottom();
     })
     .catch(function (error) {
         console.error('Error:', error);
@@ -778,8 +795,69 @@ function sendMessage() {
             '<i class="fas fa-exclamation-triangle"></i> Sorry, an error occurred: ' +
             escapeHtml(error.message || 'Unknown error') + '</div>';
         chatContent.appendChild(errorRow);
-        chatWindow.scrollTop = chatWindow.scrollHeight;
+        scrollChatToBottom();
+    })
+    .finally(function () {
+        // BUG-CHAOS-002 guard release: clear the in-flight flag and re-
+        // enable the Send button. Using .finally() so this fires for
+        // BOTH the success and the error path — even if the JS in either
+        // branch throws, the user can still send the next message.
+        _sendInFlight = false;
+        var btn = document.getElementById('send-btn');
+        if (btn) btn.disabled = false;
     });
+}
+
+// ===================================================================
+// Auto-scroll: stick-to-bottom with ResizeObserver
+// ---------------------------------------------------------------
+// A single one-shot pin (scrollTop = scrollHeight) fails for rich
+// content because tables, charts, syntax-highlighted code, and images
+// finish laying out after the call. The fix is to observe height
+// changes on #chat-content and re-pin while we're in "stick" mode.
+//
+// "Stick" is on when the user is near the bottom; it turns off when
+// they scroll up to read history, and back on when they scroll back
+// down. Sending a message also forces stick on.
+// ===================================================================
+var _stickToBottom = true;
+var _autoScrollWired = false;
+var STICK_THRESHOLD_PX = 80;
+
+function _isNearBottom(el) {
+    return (el.scrollHeight - el.scrollTop - el.clientHeight) <= STICK_THRESHOLD_PX;
+}
+
+function scrollChatToBottom(force) {
+    var chatWindow = document.getElementById('chat-window');
+    if (!chatWindow) return;
+    if (force) _stickToBottom = true;
+    if (!_stickToBottom) return;
+    chatWindow.scrollTop = chatWindow.scrollHeight;
+}
+
+function setupAutoScroll() {
+    if (_autoScrollWired) return;
+    var chatWindow = document.getElementById('chat-window');
+    var chatContent = document.getElementById('chat-content');
+    if (!chatWindow || !chatContent) return;
+
+    // Track whether user is "following" the bottom. Ignore programmatic
+    // scrolls we just made — those land at the bottom and keep stick on.
+    chatWindow.addEventListener('scroll', function () {
+        _stickToBottom = _isNearBottom(chatWindow);
+    }, { passive: true });
+
+    // Re-pin whenever the inner content grows (late renders, streaming,
+    // images loading, charts initializing, etc.).
+    if (typeof ResizeObserver !== 'undefined') {
+        var ro = new ResizeObserver(function () {
+            if (_stickToBottom) chatWindow.scrollTop = chatWindow.scrollHeight;
+        });
+        ro.observe(chatContent);
+    }
+
+    _autoScrollWired = true;
 }
 
 // ===================================================================
@@ -1078,8 +1156,7 @@ async function loadConversation(conversationId) {
             }
         });
 
-        var chatWindow = document.getElementById('chat-window');
-        chatWindow.scrollTop = chatWindow.scrollHeight;
+        scrollChatToBottom(true);
         console.log('Conversation loaded successfully with', conversation.messages.length, 'messages');
 
     } catch (error) {
@@ -1167,8 +1244,18 @@ function addFilesToQueue(files) {
     }
 
     var addedCount = 0;
+    var excelBlocked = false;
     for (var i = 0; i < files.length; i++) {
         var file = files[i];
+        // Excel files are not supported as agent knowledge — show the
+        // targeted message rather than the generic "Unsupported file type".
+        if (isExcelFile(file)) {
+            if (!excelBlocked) {
+                showToast("Excel files aren't supported as agent knowledge.", 'warning');
+                excelBlocked = true;
+            }
+            continue;
+        }
         if (isFileSupported(file)) {
             if (!uploadQueue.some(function (item) { return item.file.name === file.name; })) {
                 uploadQueue.push({
@@ -1199,9 +1286,17 @@ function addFilesToQueue(files) {
 }
 
 function isFileSupported(file) {
-    var supportedExtensions = ['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.txt', '.csv', '.jpg', '.jpeg', '.png'];
+    var supportedExtensions = ['.pdf', '.docx', '.doc', '.txt', '.csv', '.jpg', '.jpeg', '.png'];
     var fileName = file.name.toLowerCase();
     return supportedExtensions.some(function (ext) { return fileName.endsWith(ext); });
+}
+
+function isExcelFile(file) {
+    // All Excel variants the user might pick from the "All files" picker
+    // even though .xlsx / .xls are not in the accept= attribute.
+    var excelExtensions = ['.xlsx', '.xls', '.xlsm', '.xlsb'];
+    var fileName = file.name.toLowerCase();
+    return excelExtensions.some(function (ext) { return fileName.endsWith(ext); });
 }
 
 function updateUploadQueue() {
@@ -1295,7 +1390,8 @@ async function processUploadQueue() {
             results.push({
                 filename: item.file.name,
                 success: result.success,
-                message: result.message
+                message: result.message,
+                warning: result.warning || null
             });
             if (i < uploadQueue.length - 1) {
                 await delay(1000);
@@ -1325,16 +1421,19 @@ async function processUploadQueue() {
 
         var successCount = results.filter(function (r) { return r.success; }).length;
         var failCount = results.filter(function (r) { return !r.success; }).length;
+        var warnCount = results.filter(function (r) { return r.success && r.warning; }).length;
 
-        if (successCount > 0 && failCount === 0) {
+        if (successCount > 0 && failCount === 0 && warnCount === 0) {
             showToast('Successfully uploaded ' + successCount + ' document(s)', 'success');
+        } else if (successCount > 0 && failCount === 0 && warnCount > 0) {
+            showToast('Uploaded ' + successCount + ' document(s) — ' + warnCount + ' with extraction warnings (see below)', 'warning');
         } else if (successCount > 0 && failCount > 0) {
             showToast('Uploaded ' + successCount + ' document(s), ' + failCount + ' failed', 'warning');
         } else {
             showToast('Failed to upload documents', 'danger');
         }
 
-        if (failCount > 0) {
+        if (failCount > 0 || warnCount > 0) {
             showUploadResults(results);
         }
 
@@ -1381,7 +1480,11 @@ async function uploadSingleDocumentWithRetry(file, agentId, batchId, maxRetries)
             var result = await response.json();
 
             if (result.status === 'success') {
-                return { success: true, message: 'Uploaded successfully' };
+                return {
+                    success: true,
+                    message: 'Uploaded successfully',
+                    warning: result.extraction_warning || null
+                };
             } else {
                 lastError = result.message || 'Upload failed';
                 if (!result.message || !result.message.includes('duplicate key')) {
@@ -1590,20 +1693,35 @@ function truncateText(text, maxLength) {
 
 function showUploadResults(results) {
     var failedResults = results.filter(function (r) { return !r.success; });
-    if (failedResults.length === 0) return;
-
-    var html = '<div style="margin-bottom:0.5rem;padding:0.5rem;border-radius:0.4rem;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);font-size:0.8rem;">' +
-        '<strong>Upload Errors:</strong><ul style="margin:0.25rem 0 0 1rem;padding:0;">';
-    failedResults.forEach(function (r) {
-        html += '<li>' + escapeHtml(r.filename) + ': ' + escapeHtml(r.message) + '</li>';
-    });
-    html += '</ul></div>';
+    var warnedResults = results.filter(function (r) { return r.success && r.warning; });
+    if (failedResults.length === 0 && warnedResults.length === 0) return;
 
     var resultsDiv = document.getElementById('uploadResults');
     resultsDiv.style.display = 'block';
-    var tempDiv = document.createElement('div');
-    tempDiv.innerHTML = html;
-    resultsDiv.insertBefore(tempDiv.firstChild, resultsDiv.firstChild);
+
+    if (failedResults.length > 0) {
+        var errHtml = '<div style="margin-bottom:0.5rem;padding:0.5rem;border-radius:0.4rem;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);font-size:0.8rem;">' +
+            '<strong>Upload Errors:</strong><ul style="margin:0.25rem 0 0 1rem;padding:0;">';
+        failedResults.forEach(function (r) {
+            errHtml += '<li>' + escapeHtml(r.filename) + ': ' + escapeHtml(r.message) + '</li>';
+        });
+        errHtml += '</ul></div>';
+        var errDiv = document.createElement('div');
+        errDiv.innerHTML = errHtml;
+        resultsDiv.insertBefore(errDiv.firstChild, resultsDiv.firstChild);
+    }
+
+    if (warnedResults.length > 0) {
+        var warnHtml = '<div style="margin-bottom:0.5rem;padding:0.5rem;border-radius:0.4rem;background:rgba(234,179,8,0.1);border:1px solid rgba(234,179,8,0.4);font-size:0.8rem;">' +
+            '<strong>Extraction Warnings:</strong><ul style="margin:0.25rem 0 0 1rem;padding:0;">';
+        warnedResults.forEach(function (r) {
+            warnHtml += '<li>' + escapeHtml(r.filename) + ': ' + escapeHtml(r.warning) + '</li>';
+        });
+        warnHtml += '</ul></div>';
+        var warnDiv = document.createElement('div');
+        warnDiv.innerHTML = warnHtml;
+        resultsDiv.insertBefore(warnDiv.firstChild, resultsDiv.firstChild);
+    }
 }
 
 function toggleDocumentUpload() {
@@ -1801,5 +1919,7 @@ function startNewChat() {
     });
 })();
 </script>
+
+<script src="/static/js/chat_context.js"></script>
 
 {% endblock %}

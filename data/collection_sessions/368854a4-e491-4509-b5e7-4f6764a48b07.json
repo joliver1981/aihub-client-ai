@@ -1,0 +1,101 @@
+{
+  "session_id": "368854a4-e491-4509-b5e7-4f6764a48b07",
+  "config_id": "speaker_program_demo",
+  "user_id": "13",
+  "status": "in_progress",
+  "current_section_id": "submitter",
+  "collected_data": {
+    "program": {
+      "product_id": "101",
+      "topic_id": "201"
+    },
+    "schedule": {
+      "target_date": "2026-07-11"
+    },
+    "speaker": {
+      "speaker_id": "301",
+      "include_backup_speaker": false
+    },
+    "venue": {
+      "expected_attendees": 300
+    }
+  },
+  "section_status": {
+    "submitter": "in_progress",
+    "program": "in_progress",
+    "schedule": "in_progress",
+    "speaker": "in_progress",
+    "venue": "in_progress",
+    "details": "not_started"
+  },
+  "validation_errors": {},
+  "chat_history": [
+    {
+      "role": "assistant",
+      "content": "Hi \u2014 I can help you plan your pharma speaker program. We\u2019ll go through: your information, product & topic, schedule, speaker, venue, and a few final details. It usually takes just a few minutes, and the intake team reviews submissions within one business day.\n\nWhat\u2019s your name?",
+      "ts": "2026-05-13T00:37:58.984037"
+    },
+    {
+      "role": "user",
+      "content": "let's do Cardiomax XR",
+      "ts": "2026-05-13T00:38:02.116187"
+    },
+    {
+      "role": "assistant",
+      "content": "Got it \u2014 Cardiomax XR is selected.\n\nWhat\u2019s your name?",
+      "ts": "2026-05-13T00:38:02.116187"
+    },
+    {
+      "role": "user",
+      "content": "topic 201",
+      "ts": "2026-05-13T00:38:05.150563"
+    },
+    {
+      "role": "assistant",
+      "content": "Thanks \u2014 I\u2019ve got the topic saved.\n\nWhat\u2019s your name?",
+      "ts": "2026-05-13T00:38:05.150563"
+    },
+    {
+      "role": "user",
+      "content": "in 60 days",
+      "ts": "2026-05-13T00:38:08.545269"
+    },
+    {
+      "role": "assistant",
+      "content": "Got it \u2014 I\u2019ve noted the target date as July 11, 2026.\n\nWhat\u2019s your name?",
+      "ts": "2026-05-13T00:38:08.545269"
+    },
+    {
+      "role": "user",
+      "content": "Dr. Patricia Chen, no backup",
+      "ts": "2026-05-13T00:38:11.820143"
+    },
+    {
+      "role": "assistant",
+      "content": "Perfect \u2014 I\u2019ve got Dr. Patricia Chen as the primary speaker, with no backup speaker.\n\nWhat\u2019s your name?",
+      "ts": "2026-05-13T00:38:11.820143"
+    },
+    {
+      "role": "user",
+      "content": "we're expecting around 300 attendees",
+      "ts": "2026-05-13T00:38:14.631927"
+    },
+    {
+      "role": "assistant",
+      "content": "Got it \u2014 expected attendance is set to 300.\n\nWhat\u2019s your name?",
+      "ts": "2026-05-13T00:38:14.631927"
+    }
+  ],
+  "submission_log": [],
+  "created_at": "2026-05-13T00:37:57.205748",
+  "updated_at": "2026-05-13T00:38:14.631927",
+  "submitted_at": null,
+  "user_name": null,
+  "user_email": null,
+  "external_callback_url": null,
+  "external_callback_secret_ref": null,
+  "return_url": null,
+  "branding_override": null,
+  "voice_mode": false,
+  "rendered_lookups": []
+}

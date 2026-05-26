@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from cc_config import HOST, PORT, DEBUG, CORS_ORIGINS, print_service_urls
+from cc_config import HOST, PORT, DEBUG, CORS_ORIGINS, CC_UI, CC_UI_NEXT_GEN, print_service_urls
 from services import SessionManager
 from routes.health import router as health_router, init_health
 
@@ -141,6 +141,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Inspect routes not yet available: {e}")
 
+    # Import and init ops routes (Ops Command Room aggregation endpoints).
+    # These read from session_mgr + trace_store + an in-process counter; no
+    # parallel store. See routes/ops.py for the contract.
+    try:
+        from routes.ops import router as ops_router, init_ops_routes
+        init_ops_routes(session_mgr)
+        app.include_router(ops_router)
+        logger.info("Ops Room routes initialized")
+    except Exception as e:
+        logger.warning(f"Ops Room routes not yet available: {e}")
+
     # Import and init artifacts routes (with shared ArtifactManager).
     # Pass session_mgr so artifact routes can enforce ownership by looking
     # up the artifact's parent session (BUG-R3-006 fix).
@@ -196,7 +207,54 @@ if os.path.isdir(static_dir):
 
 @app.get("/")
 async def index():
-    """Serve the main UI page."""
+    """Serve the main UI page.
+
+    Which front-end is served at "/" depends on the CC_UI env var
+    (resolved at process start in cc_config). When CC_UI=next_gen the
+    experimental Ops Command Room page is served; otherwise the classic
+    UI is served unchanged. The classic file (static/index.html) is the
+    fallback whenever the next-gen file is missing, so a misconfigured
+    deploy still loads a working UI.
+    """
+    if CC_UI_NEXT_GEN:
+        ops_room_path = os.path.join(static_dir, "ops_room.html")
+        if os.path.isfile(ops_room_path):
+            logger.info("Serving Ops Command Room UI (CC_UI=next_gen)")
+            return FileResponse(ops_room_path)
+        logger.warning(
+            "CC_UI=next_gen but static/ops_room.html missing — "
+            "falling back to classic UI"
+        )
+
+    index_path = os.path.join(static_dir, "index.html")
+    if os.path.isfile(index_path):
+        return FileResponse(index_path)
+    return {"message": "Command Center Service running. Frontend not yet built."}
+
+
+@app.get("/classic")
+async def index_classic():
+    """Always serve the classic UI, regardless of CC_UI value.
+
+    Useful for side-by-side comparison while the next-gen UI is in
+    research-preview. Mirrors the original "/" behavior exactly.
+    """
+    index_path = os.path.join(static_dir, "index.html")
+    if os.path.isfile(index_path):
+        return FileResponse(index_path)
+    return {"message": "Command Center Service running. Frontend not yet built."}
+
+
+@app.get("/ops")
+async def index_ops_room():
+    """Always serve the experimental Ops Command Room UI, regardless of
+    CC_UI value. Useful for previewing the new layout without flipping
+    the env var, and for QA against the classic page on the same server.
+    Falls back to classic if the new template hasn't been built yet.
+    """
+    ops_room_path = os.path.join(static_dir, "ops_room.html")
+    if os.path.isfile(ops_room_path):
+        return FileResponse(ops_room_path)
     index_path = os.path.join(static_dir, "index.html")
     if os.path.isfile(index_path):
         return FileResponse(index_path)

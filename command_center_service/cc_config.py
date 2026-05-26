@@ -250,10 +250,33 @@ def print_service_urls():
 
 # ─── Service Configuration ──────────────────────────────────────────────
 
+# Command Center is browser-facing. Users navigate to the Command Center UI via the
+# main app's /cc redirect, which sends them to http://{request_host}:5091/?token=...
+# where request_host is whatever LAN IP / hostname the user's browser used. CC must
+# therefore be reachable on that interface, so it binds to all interfaces (0.0.0.0)
+# by default. Override CC_HOST only for unusual setups (e.g., binding to a single
+# specific interface).
 HOST = os.getenv("CC_HOST", "0.0.0.0")
 PORT = int(os.getenv("CC_PORT", "5091"))
 DEBUG = os.getenv("CC_DEBUG", "false").lower() == "true"
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
+
+
+# ─── UI Variant Toggle ──────────────────────────────────────────────────
+#
+# CC_UI selects which Command Center front-end the root route ("/") serves.
+#   - "classic"  (default) → existing UI (static/index.html)
+#   - "next_gen"           → experimental "Ops Command Room" UI
+#                            (static/ops_room.html) — dominant map, live
+#                            ticker, wider chat sidebar, mil-spec aesthetic.
+#
+# Anything other than "next_gen" falls back to "classic" so the historical
+# behavior is preserved when the variable is unset, empty, or mistyped.
+CC_UI = os.getenv("CC_UI", "classic").strip().lower()
+"""Command Center UI variant. 'classic' (default) or 'next_gen'."""
+
+CC_UI_NEXT_GEN = CC_UI == "next_gen"
+"""True when the experimental Ops Command Room UI is selected."""
 
 
 # ─── Feature Toggles ────────────────────────────────────────────────────
@@ -307,6 +330,12 @@ message maps to a CC-native capability (document search, web search,
 maps, image generation, run tool, build) before falling through to the
 full intent classifier. Replaces the legacy USE_INTENT_HEURISTICS keyword
 shortcuts with a semantic classifier that scales as new tools appear."""
+
+DELEGATION_TIMEOUT_SECONDS = float(os.getenv("CC_DELEGATION_TIMEOUT", "500"))
+"""HTTP timeout (seconds) for CC → agent delegation calls in delegate_to_agent().
+Covers the full round-trip including all NLQ pipeline LLM steps. Bumped from
+the original 240s because data-agent questions can take 5-8 sequential Anthropic
+proxy calls that exceed 240s under proxy/DB load. Override via CC_DELEGATION_TIMEOUT."""
 
 USE_INTENT_HEURISTICS = os.getenv("CC_INTENT_HEURISTICS", "false").lower() == "true"
 """Enable keyword-based heuristic shortcuts in classify_intent.

@@ -1,0 +1,806 @@
+[
+  {
+    "url": "/dashboard",
+    "title": "Dashboard",
+    "tags": [
+      "core"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 1678,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/chat",
+    "title": "Chat",
+    "tags": [
+      "chat"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2531,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "passed",
+    "action_message": "agent=748 uploads=[('01_helix_employee_handbook_2026.docx', 200), ('04_aurora_quarterly_financials_q1_2026.xlsx', 200)] chat_status=200 grounded_fact_seen=True answer_preview='Helix Innovations \u201cwas founded on March 14, 2018, by Dr. Aimee Tanaka and Marcus Welt in Portland, Oregon.\u201d  \\nSource: `01_helix_employee_handbook_2026.docx`'",
+    "action_time_ms": 157970,
+    "overall": "passed"
+  },
+  {
+    "url": "/landing",
+    "title": "Landing",
+    "tags": [
+      "core"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 726,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/index",
+    "title": "Index",
+    "tags": [
+      "core"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2344,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/api_check",
+    "title": "API Check",
+    "tags": [
+      "core"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 552,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/custom_agent_enhanced",
+    "title": "Custom Agent Builder",
+    "tags": [
+      "agent"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2651,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "passed",
+    "action_message": "agent_id=749 ui_visible=False api_delete=ok",
+    "action_time_ms": 2915,
+    "overall": "passed"
+  },
+  {
+    "url": "/custom_data_agent",
+    "title": "Custom Data Agent",
+    "tags": [
+      "agent"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2330,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/assistants",
+    "title": "Assistants list",
+    "tags": [
+      "agent"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2534,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/agent_dashboard",
+    "title": "Agent Dashboard",
+    "tags": [
+      "agent"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 697,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/agent_communication",
+    "title": "Agent Communication",
+    "tags": [
+      "agent"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 687,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/document-manager",
+    "title": "Document Manager",
+    "tags": [
+      "docs"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2549,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/document_processor",
+    "title": "Document Processor",
+    "tags": [
+      "docs"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2493,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/document_processor/job/new",
+    "title": "New Document Job",
+    "tags": [
+      "docs"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2319,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/document_scheduler",
+    "title": "Document Scheduler",
+    "tags": [
+      "docs"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2282,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/document_summarizer",
+    "title": "Document Summarizer",
+    "tags": [
+      "docs"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2335,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/data_assistants",
+    "title": "Data Assistants",
+    "tags": [
+      "data"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2331,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/data_chat",
+    "title": "Data Chat",
+    "tags": [
+      "data"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2509,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "passed",
+    "action_message": "prompt_sent='List the first 3 tables. TOUR_probe' response_observed=True",
+    "action_time_ms": 2812,
+    "overall": "passed"
+  },
+  {
+    "url": "/data_dictionary",
+    "title": "Data Dictionary",
+    "tags": [
+      "data"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2378,
+    "primary_ctrl_visible": true,
+    "console_errors": [
+      "Error: TypeError: Failed to fetch\n    at sendMessage (http://localhost:5001/data_chat:2128:9)\n    at HTMLButtonElement.onclick (http://localhost:5001/data_chat:1821:89)"
+    ],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "failed"
+  },
+  {
+    "url": "/data_explorer",
+    "title": "Data Explorer",
+    "tags": [
+      "data"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2324,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/connections",
+    "title": "Connections",
+    "tags": [
+      "data"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2389,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/workflow_tool",
+    "title": "Workflow Builder",
+    "tags": [
+      "workflow"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 1002,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "passed",
+    "action_message": "wf_id=1198 ui_visible=True api_delete=ok",
+    "action_time_ms": 1999,
+    "overall": "passed"
+  },
+  {
+    "url": "/monitoring",
+    "title": "Workflow Monitoring",
+    "tags": [
+      "workflow"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 949,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/approvals",
+    "title": "Approvals",
+    "tags": [
+      "workflow"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2324,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/jobs",
+    "title": "Scheduled Jobs",
+    "tags": [
+      "jobs"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2352,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "passed",
+    "action_message": "job_id=171 sched_id=271 ui_visible=False api_delete=ok",
+    "action_time_ms": 2624,
+    "overall": "passed"
+  },
+  {
+    "url": "/integrations",
+    "title": "Integrations",
+    "tags": [
+      "integ"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2379,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "passed",
+    "action_message": "template=azure_blob_storage integration_id=45 ui_visible=False api_delete=ok",
+    "action_time_ms": 2495,
+    "overall": "passed"
+  },
+  {
+    "url": "/mcp_servers",
+    "title": "MCP Servers (admin)",
+    "tags": [
+      "mcp"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2303,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "passed",
+    "action_message": "mcp_id=43 ui_visible=True api_delete=ok",
+    "action_time_ms": 2425,
+    "overall": "passed"
+  },
+  {
+    "url": "/mcp_user_servers",
+    "title": "MCP User Servers",
+    "tags": [
+      "mcp"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2333,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/my-connections",
+    "title": "My Connections",
+    "tags": [
+      "mcp"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2342,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/custom_tool",
+    "title": "Custom Tools",
+    "tags": [
+      "tool"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2317,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/compliance",
+    "title": "Compliance Mgmt",
+    "tags": [
+      "compliance"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2289,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "passed",
+    "action_message": "retailer_id=121 ui_visible=True api_delete=ok",
+    "action_time_ms": 2503,
+    "overall": "passed"
+  },
+  {
+    "url": "/compliance/schemas",
+    "title": "Compliance Schemas",
+    "tags": [
+      "compliance"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2332,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/users",
+    "title": "Users",
+    "tags": [
+      "admin"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2336,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/groups",
+    "title": "Groups",
+    "tags": [
+      "admin"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2471,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/admin/api-keys",
+    "title": "API Keys Config",
+    "tags": [
+      "admin"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2358,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/admin/identity_settings",
+    "title": "Identity Settings",
+    "tags": [
+      "admin"
+    ],
+    "nav_status": 404,
+    "nav_error": "server returned 404",
+    "load_time_ms": 2344,
+    "primary_ctrl_visible": false,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "failed"
+  },
+  {
+    "url": "/admin/tier",
+    "title": "Tier Usage",
+    "tags": [
+      "admin"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 887,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/admin/caution-settings",
+    "title": "Caution Settings",
+    "tags": [
+      "admin"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 585,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/admin/feedback-analysis",
+    "title": "Feedback Analysis",
+    "tags": [
+      "admin"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2493,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/admin/summarization-dashboard",
+    "title": "Summarization Dashboard",
+    "tags": [
+      "admin"
+    ],
+    "nav_status": 500,
+    "nav_error": "server returned 500",
+    "load_time_ms": 609,
+    "primary_ctrl_visible": false,
+    "console_errors": [
+      "Failed to load resource: the server responded with a status of 500 (INTERNAL SERVER ERROR)"
+    ],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "failed"
+  },
+  {
+    "url": "/assignments/manage",
+    "title": "Env Assignments",
+    "tags": [
+      "admin"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2453,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/environments/assignments",
+    "title": "Env Assignments (alt)",
+    "tags": [
+      "admin"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2409,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/local-secrets",
+    "title": "Local Secrets",
+    "tags": [
+      "admin"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2333,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/system_logs",
+    "title": "System Logs",
+    "tags": [
+      "admin"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2320,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/telemetry",
+    "title": "Telemetry Settings",
+    "tags": [
+      "admin"
+    ],
+    "nav_status": 404,
+    "nav_error": "server returned 404",
+    "load_time_ms": 2266,
+    "primary_ctrl_visible": false,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "failed"
+  },
+  {
+    "url": "/llm_unit_test",
+    "title": "LLM Unit Test",
+    "tags": [
+      "admin"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2299,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/solutions",
+    "title": "Solutions Gallery",
+    "tags": [
+      "solutions"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2298,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/solutions/author",
+    "title": "Solutions Author",
+    "tags": [
+      "solutions"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2287,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/solutions/author/new",
+    "title": "New Solution",
+    "tags": [
+      "solutions"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2919,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/email-processing/history",
+    "title": "Email Processing History",
+    "tags": [
+      "email"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2313,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  },
+  {
+    "url": "/preferences/",
+    "title": "User Preferences",
+    "tags": [
+      "user"
+    ],
+    "nav_status": 200,
+    "nav_error": null,
+    "load_time_ms": 2293,
+    "primary_ctrl_visible": true,
+    "console_errors": [],
+    "action_status": "no_action",
+    "action_message": "",
+    "action_time_ms": 0,
+    "overall": "passed"
+  }
+]

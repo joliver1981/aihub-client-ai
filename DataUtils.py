@@ -514,7 +514,12 @@ def Add_Job(job_id, job_desc, ai_system, ai_prompt, enabled, fn_type, fn_text, f
     return INSERT_SUCCESSFUL
 
 
-def Get_Quick_Job_DF(user_id, job_id=None):
+def Get_Quick_Job_DF(user_id, job_id=None, user_role=None):
+    if user_role is not None and user_role >= 3:
+        if job_id is None:
+            return _execute_sql("SELECT h.* FROM [dbo].[QuickJob] h")
+        return _execute_sql(f"SELECT h.* FROM [dbo].[QuickJob] h WHERE h.id = '{job_id}'")
+
     if job_id is None:
         df = _execute_sql(dcfg.SQL_SELECT_ALL_QUICK_JOBS.replace('{user_id}', format_string_for_insert(user_id)))
     else:
@@ -679,22 +684,24 @@ def select_all_agents_and_tools():
 
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
 
-        # Query to select all agents and their tools
+        # Query to select all agents and their tools. allow_personal_connections
+        # is read with ISNULL so pre-migration installs (column absent) still work.
         cursor.execute("""
-            SELECT 
+            SELECT
                 a.id as agent_id,
                 a.description as agent_description,
                 a.objective as agent_objective,
                 a.enabled as agent_enabled,
                 a.create_date as agent_create_date,
+                ISNULL(a.allow_personal_connections, 1) as allow_personal_connections,
                 t.tool_name,
                 t.custom_tool
-            FROM 
+            FROM
                 [dbo].[Agents] a
-            LEFT JOIN 
+            LEFT JOIN
                 [dbo].[AgentTools] t ON a.id = t.agent_id
             WHERE a.[is_data_agent] = 0
-            ORDER BY 
+            ORDER BY
                 a.id, t.tool_name
         """)
 
@@ -702,7 +709,7 @@ def select_all_agents_and_tools():
         rows = cursor.fetchall()
 
         # Process results into a list of dictionaries
-        agents = defaultdict(lambda: {'agent_description': '', 'agent_enabled': '', 'agent_create_date': '', 'tool_names': [], 'custom_tool': []})
+        agents = defaultdict(lambda: {'agent_description': '', 'agent_enabled': '', 'agent_create_date': '', 'tool_names': [], 'custom_tool': [], 'allow_personal_connections': 1})
 
         for row in rows:
             agent_id = row.agent_id
@@ -711,6 +718,7 @@ def select_all_agents_and_tools():
                 agents[agent_id]['agent_objective'] = row.agent_objective
                 agents[agent_id]['agent_enabled'] = row.agent_enabled
                 agents[agent_id]['agent_create_date'] = row.agent_create_date
+                agents[agent_id]['allow_personal_connections'] = int(row.allow_personal_connections or 0)
             if row.tool_name:
                 agents[agent_id]['tool_names'].append(row.tool_name)
                 agents[agent_id]['custom_tool'].append(row.custom_tool)
@@ -923,7 +931,8 @@ def get_agent_config(agent_id):
         conn.close()
 
 
-def insert_agent_with_tools(agent_description, agent_objective, agent_enabled, tool_names, core_tool_names):
+def insert_agent_with_tools(agent_description, agent_objective, agent_enabled, tool_names, core_tool_names,
+                            allow_personal_connections=1):
     try:
         # Establish the connection
         conn = pyodbc.connect(
@@ -933,11 +942,13 @@ def insert_agent_with_tools(agent_description, agent_objective, agent_enabled, t
         cursor = conn.cursor()
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
 
-        # Insert into Agents table
+        # Insert into Agents table. allow_personal_connections has a column
+        # default of 1, but we set it explicitly for clarity + so an explicit
+        # 0 from the UI is honored on first create.
         cursor.execute("""
-            INSERT INTO [dbo].[Agents] (description, objective, enabled)
-            VALUES (?, ?, ?)
-            """, agent_description, agent_objective, agent_enabled)
+            INSERT INTO [dbo].[Agents] (description, objective, enabled, allow_personal_connections)
+            VALUES (?, ?, ?, ?)
+            """, agent_description, agent_objective, agent_enabled, 1 if allow_personal_connections else 0)
         
         # Get the id of the newly inserted agent
         cursor.execute("SELECT @@IDENTITY AS 'Identity'")
@@ -1004,7 +1015,8 @@ def delete_agent(agent_id):
         conn.close()
 
 
-def update_agent_with_tools(agent_id, agent_description, agent_objective, agent_enabled, tool_names, core_tool_names):
+def update_agent_with_tools(agent_id, agent_description, agent_objective, agent_enabled, tool_names, core_tool_names,
+                            allow_personal_connections=1):
     try:
         # Establish the connection
         conn = pyodbc.connect(
@@ -1013,17 +1025,13 @@ def update_agent_with_tools(agent_id, agent_description, agent_objective, agent_
 
         cursor = conn.cursor()
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
-        print('Executing update:', f"""
-            UPDATE [dbo].[Agents] 
-            SET description={agent_description}, objective={agent_objective}, enabled={agent_enabled} 
-            WHERE id = {agent_id}
-            """)
-        # Insert into Agents table
-        cursor.execute(f"""
-            UPDATE [dbo].[Agents] 
-            SET description=?, objective=?, enabled=? 
+
+        cursor.execute("""
+            UPDATE [dbo].[Agents]
+            SET description=?, objective=?, enabled=?, allow_personal_connections=?
             WHERE id = ?
-            """, agent_description, agent_objective, agent_enabled, agent_id)
+            """, agent_description, agent_objective, agent_enabled,
+                 1 if allow_personal_connections else 0, agent_id)
         
         # Clear existing tools
         cursor.execute("DELETE FROM [dbo].[AgentTools] WHERE agent_id = ?", agent_id)
@@ -1052,11 +1060,121 @@ def update_agent_with_tools(agent_id, agent_description, agent_objective, agent_
         print(f"Error: {e}")
         conn.rollback()
         return None
-        
+
     finally:
         # Close the connection
         cursor.close()
         conn.close()
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Per-agent document-type allow list
+#
+# Junction table [dbo].[AgentDocumentTypes] (migration 008) stores zero or
+# more (agent_id, document_type) rows per agent. Semantics:
+#   - zero rows  → unrestricted (current behavior, no policy applied)
+#   - 1+ rows    → agent's documents tools are filtered to those types only
+#
+# These helpers mirror the pyodbc + sp_setTenantContext idiom used by
+# insert_agent_with_tools / update_agent_with_tools above.
+# ────────────────────────────────────────────────────────────────────────────
+
+def get_agent_doc_type_allow_list(agent_id):
+    """Return a list[str] of document types the agent is restricted to.
+
+    Returns None when there are no rows for this agent — the canonical
+    "unrestricted" sentinel callers (e.g. GeneralAgent) check against.
+    Returns [] only on a real DB error so callers can distinguish "policy
+    exists but is empty" from "no policy" via the None check.
+    """
+    conn = None
+    cursor = None
+    try:
+        conn = pyodbc.connect(
+            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+        )
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+
+        cursor.execute(
+            "SELECT document_type FROM [dbo].[AgentDocumentTypes] WHERE agent_id = ? ORDER BY document_type",
+            agent_id,
+        )
+        rows = cursor.fetchall()
+        if not rows:
+            return None  # no policy → unrestricted
+        return [r[0] for r in rows]
+    except Exception as e:
+        print(f"Error reading AgentDocumentTypes for agent {agent_id}: {e}")
+        # Fail-safe: on a DB read error, return None so the agent isn't
+        # accidentally locked out. The query path will still tenant-isolate.
+        return None
+    finally:
+        if cursor is not None:
+            cursor.close()
+        if conn is not None:
+            conn.close()
+
+
+def set_agent_doc_type_allow_list(agent_id, doc_types):
+    """Replace the agent's allow list with ``doc_types`` (list[str]).
+
+    DELETE-then-INSERT, transactional. An empty list clears all rows
+    (= unrestricted). Duplicate values in the input are de-duplicated.
+    Returns True on commit, False on rollback.
+    """
+    # Normalize: strip blanks, drop empties, dedupe while preserving order.
+    seen = set()
+    cleaned = []
+    for t in (doc_types or []):
+        if t is None:
+            continue
+        s = str(t).strip()
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        cleaned.append(s)
+
+    conn = None
+    cursor = None
+    try:
+        conn = pyodbc.connect(
+            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+        )
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+
+        # Replace existing rows wholesale — simpler than computing a diff
+        # and matches how update_agent_with_tools handles AgentTools.
+        cursor.execute(
+            "DELETE FROM [dbo].[AgentDocumentTypes] WHERE agent_id = ?",
+            agent_id,
+        )
+
+        for doc_type in cleaned:
+            cursor.execute(
+                """
+                INSERT INTO [dbo].[AgentDocumentTypes] (agent_id, document_type)
+                VALUES (?, ?)
+                """,
+                agent_id, doc_type,
+            )
+
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error writing AgentDocumentTypes for agent {agent_id}: {e}")
+        try:
+            if conn is not None:
+                conn.rollback()
+        except Exception:
+            pass
+        return False
+    finally:
+        if cursor is not None:
+            cursor.close()
+        if conn is not None:
+            conn.close()
 
 
 def insert_agent_with_connection(agent_description, agent_objective, agent_enabled, connection_id):
@@ -1582,15 +1700,18 @@ def fetch_user_agents_by_email(user_email):
 
 
 def execute_sql_query_as_df(query):
+    # Use a context manager so the connection is always closed and returned to
+    # pyodbc's internal pool (pyodbc.pooling is True by default). Previously the
+    # connection was leaked on every call, costing a fresh TCP+TLS+auth handshake
+    # per query and accumulating half-open connections against SQL Server.
     try:
-        conn = pyodbc.connect(
-                f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
-            )
-        conn.cursor().execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
-        # Execute the SQL query and fetch the results into a Pandas DataFrame
-        result_df = pd.read_sql_query(query, conn)
-
-        return result_df
+        with pyodbc.connect(
+            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+        ) as conn:
+            conn.cursor().execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+            # Execute the SQL query and fetch the results into a Pandas DataFrame
+            result_df = pd.read_sql_query(query, conn)
+            return result_df
     except Exception as e:
         print("Error:", str(e))
         return None

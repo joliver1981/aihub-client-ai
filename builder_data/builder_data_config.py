@@ -263,7 +263,7 @@ def print_service_urls():
 
 # ─── Service Configuration ──────────────────────────────────────────────
 
-HOST = os.getenv("DATA_SERVICE_HOST", "0.0.0.0")
+HOST = os.getenv("DATA_SERVICE_HOST", "127.0.0.1")
 PORT = int(os.getenv("DATA_SERVICE_PORT", "8200"))
 DEBUG = os.getenv("DATA_SERVICE_DEBUG", "false").lower() == "true"
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")

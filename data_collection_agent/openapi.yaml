@@ -1,0 +1,484 @@
+openapi: 3.0.3
+info:
+  title: Data Collection Agent — Runtime API
+  description: |
+    REST API for AI-guided data collection. External clients (e.g., MER360)
+    can use these endpoints to start a session, walk a user through filling
+    out a form, and submit the result.
+
+    The companion **Builder API** (under `/api/data-collection/builder/*`)
+    is intentionally undocumented here — it's an internal authoring API used
+    by the wizard UI, not by external integrators.
+
+    Auth: depends on deployment. Standalone mode bypasses auth (set
+    `DCA_REQUIRE_AUTH=1` to enforce). Platform-embedded mode honors the
+    platform's `api_key_or_session_required` decorator. Phase 1.3 adds an
+    optional `?prefill=<JWT>` query parameter for token-based deep-links.
+
+  version: "1.0.0"
+  contact:
+    name: Platform team
+servers:
+  - url: http://127.0.0.1:5099
+    description: Local standalone runner (default)
+  - url: https://example.com
+    description: Production deployment (replace with your URL)
+
+tags:
+  - name: Schemas
+    description: List and inspect available form schemas (data collection agents)
+  - name: Sessions
+    description: Lifecycle of an end-user data collection session
+  - name: Conversation
+    description: Send messages to the agent / get responses
+  - name: Direct UI ops
+    description: Operations the UI invokes outside the chat (navigate, inline edits, submit)
+  - name: Health
+    description: Health and discovery endpoints
+
+paths:
+
+  # ----------------------------------------------------------------
+  # Schemas
+  # ----------------------------------------------------------------
+  /api/data-collection/configs:
+    get:
+      tags: [Schemas]
+      summary: List all available schemas
+      description: |
+        Returns metadata for every schema in `configs/`. Files prefixed with
+        `_` (e.g. `_app_branding.json`) are excluded.
+      responses:
+        '200':
+          description: List of schema metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [success] }
+                  configs:
+                    type: array
+                    items: { $ref: '#/components/schemas/SchemaSummary' }
+
+  /api/data-collection/schema/{config_id}:
+    get:
+      tags: [Schemas]
+      summary: Get a schema by id
+      parameters:
+        - $ref: '#/components/parameters/ConfigId'
+      responses:
+        '200':
+          description: Full schema JSON (with lookup data resolved inline)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [success] }
+                  schema: { type: object, description: "The full schema dict" }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ----------------------------------------------------------------
+  # Sessions
+  # ----------------------------------------------------------------
+  /api/data-collection/sessions:
+    get:
+      tags: [Sessions]
+      summary: List sessions for the current user
+      parameters:
+        - name: config_id
+          in: query
+          schema: { type: string }
+          description: Filter to a specific schema
+        - name: include_submitted
+          in: query
+          schema: { type: boolean, default: false }
+          description: Include already-submitted sessions in the listing
+      responses:
+        '200':
+          description: List of sessions, most recent first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [success] }
+                  sessions:
+                    type: array
+                    items: { $ref: '#/components/schemas/Session' }
+
+    post:
+      tags: [Sessions]
+      summary: Create a new session
+      description: |
+        Creates a fresh session for a given schema. The agent's opening
+        greeting is generated server-side (`bootstrap_greeting`) and
+        included as the first assistant message in `chat_history`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [config_id]
+              properties:
+                config_id:
+                  type: string
+                  example: example
+      responses:
+        '200':
+          description: New session created, with greeting in chat_history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [success] }
+                  session: { $ref: '#/components/schemas/Session' }
+
+  /api/data-collection/session/{session_id}:
+    get:
+      tags: [Sessions]
+      summary: Load a session by id (used for resume)
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: The session
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [success] }
+                  session: { $ref: '#/components/schemas/Session' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Sessions]
+      summary: Delete / abandon a session
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Deletion result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  deleted: { type: boolean }
+
+  # ----------------------------------------------------------------
+  # Conversation
+  # ----------------------------------------------------------------
+  /api/data-collection/message:
+    post:
+      tags: [Conversation]
+      summary: Send a message to the agent
+      description: |
+        The agent processes the message, may invoke tools (update_field,
+        show_lookup_data, advance_section, etc.), and returns a text
+        response plus metadata (current section, validation errors,
+        rich_blocks for tables/cards, side-channel UI actions).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [session_id, message]
+              properties:
+                session_id: { type: string }
+                message:    { type: string, example: "Type B" }
+      responses:
+        '200':
+          description: Agent response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:    { type: string, enum: [success] }
+                  response:  { type: string }
+                  metadata:  { $ref: '#/components/schemas/MessageMetadata' }
+
+  # ----------------------------------------------------------------
+  # Direct UI operations (used by the runtime UI; useful for integrators too)
+  # ----------------------------------------------------------------
+  /api/data-collection/session/{session_id}/navigate:
+    post:
+      tags: [Direct UI ops]
+      summary: Move the conversation to a specific section (for back/edit)
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [section_id]
+              properties:
+                section_id: { type: string, example: basics }
+      responses:
+        '200':
+          description: Updated session
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:  { type: string, enum: [success] }
+                  session: { $ref: '#/components/schemas/Session' }
+
+  /api/data-collection/session/{session_id}/update-field:
+    post:
+      tags: [Direct UI ops]
+      summary: Set a single field directly (no chat round-trip)
+      description: |
+        Useful for prefill from external systems and for inline-edit in the
+        progress panel. Validates the value against the field's schema rules.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [section_id, field_id, value]
+              properties:
+                section_id: { type: string }
+                field_id:   { type: string }
+                value:
+                  description: "Type depends on the field. Strings are coerced."
+                  oneOf:
+                    - { type: string }
+                    - { type: number }
+                    - { type: boolean }
+                    - { type: array, items: { type: string } }
+      responses:
+        '200':
+          description: Updated session
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:  { type: string, enum: [success] }
+                  session: { $ref: '#/components/schemas/Session' }
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ValidationError' }
+
+  /api/data-collection/session/{session_id}/submit:
+    post:
+      tags: [Direct UI ops]
+      summary: Submit the session — runs the completion-action pipeline
+      description: |
+        Final validation gate, then runs every action declared in
+        `completion.actions` in order. If `continue_on_error` is set
+        on an action, pipeline keeps going on its failure; otherwise
+        stops and returns 207 with partial results.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: All actions succeeded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PipelineResult' }
+        '207':
+          description: Multi-status — pipeline ran but at least one action failed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PipelineResult' }
+        '400':
+          description: Validation failed before submission
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ValidationError' }
+
+  # ----------------------------------------------------------------
+  # Health
+  # ----------------------------------------------------------------
+  /api/data-collection/health:
+    get:
+      tags: [Health]
+      summary: Health check + capability discovery
+      responses:
+        '200':
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:   { type: string, enum: [ok] }
+                  configs:  { type: integer, description: "Number of available schemas" }
+                  action_types:
+                    type: array
+                    items: { type: string }
+                    example: [email, workflow, api, webhook, agent]
+
+components:
+  parameters:
+    ConfigId:
+      name: config_id
+      in: path
+      required: true
+      schema: { type: string }
+      description: The schema's id (matches its filename in `configs/`)
+      example: example
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+      description: UUID returned from `POST /sessions`
+
+  responses:
+    NotFound:
+      description: The requested resource does not exist
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              status: { type: string, enum: [error] }
+              error:  { type: string }
+
+  schemas:
+
+    SchemaSummary:
+      type: object
+      properties:
+        id:              { type: string, example: example }
+        name:            { type: string, example: "Example Intake Form" }
+        version:         { type: string, example: "1.0" }
+        description:     { type: string }
+        section_count:   { type: integer }
+        action_count:    { type: integer }
+
+    Session:
+      type: object
+      properties:
+        session_id:          { type: string, format: uuid }
+        config_id:           { type: string }
+        user_id:             { type: string }
+        status:
+          type: string
+          enum: [in_progress, review, submitted, draft, submission_failed]
+        current_section_id:  { type: string, nullable: true }
+        collected_data:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties: true
+          description: "Map of section_id → { field_id: value }"
+        section_status:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [not_started, in_progress, complete]
+        validation_errors:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+        chat_history:
+          type: array
+          items:
+            type: object
+            properties:
+              role:    { type: string, enum: [user, assistant, system] }
+              content: { type: string }
+              ts:      { type: string, format: date-time }
+        submission_log:
+          type: array
+          items: { $ref: '#/components/schemas/ActionResult' }
+        created_at:    { type: string, format: date-time }
+        updated_at:    { type: string, format: date-time }
+        submitted_at:  { type: string, format: date-time, nullable: true }
+
+    MessageMetadata:
+      type: object
+      properties:
+        phase:
+          type: string
+          enum: [greeting, collecting, section_confirm, review, submitted]
+        session_id:       { type: string }
+        config_id:        { type: string }
+        status:           { type: string }
+        current_section:  { type: string, nullable: true }
+        section_status:
+          type: object
+          additionalProperties: { type: string }
+        collected_data:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties: true
+        validation_errors:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties:
+              type: array
+              items: { type: string }
+        rich_blocks:
+          type: array
+          description: "Rich content blocks emitted by tools (tables, lists, alerts, etc.)"
+          items: { type: object, additionalProperties: true }
+        actions:
+          type: array
+          description: "Side-channel UI hints (e.g. `navigate_to_section`, `ready_to_submit`)"
+          items: { type: object, additionalProperties: true }
+
+    ActionResult:
+      type: object
+      properties:
+        action_type: { type: string, example: email }
+        label:       { type: string, example: "Notify intake team" }
+        success:     { type: boolean }
+        message:     { type: string }
+        details:     { type: object, additionalProperties: true }
+        duration_ms: { type: integer }
+        ts:          { type: string, format: date-time }
+
+    PipelineResult:
+      type: object
+      properties:
+        status:  { type: string, enum: [success, partial] }
+        message: { type: string }
+        pipeline:
+          type: object
+          properties:
+            results:
+              type: array
+              items: { $ref: '#/components/schemas/ActionResult' }
+            all_success:   { type: boolean }
+            stopped_early: { type: boolean }
+        session: { $ref: '#/components/schemas/Session' }
+
+    ValidationError:
+      type: object
+      properties:
+        status:             { type: string, enum: [error] }
+        error:              { type: string }
+        validation_errors:
+          type: object
+          additionalProperties:
+            oneOf:
+              - { type: array, items: { type: string } }
+              - type: object
+                additionalProperties:
+                  type: array
+                  items: { type: string }

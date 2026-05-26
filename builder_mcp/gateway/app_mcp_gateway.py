@@ -45,7 +45,7 @@ except ImportError:
     def rotate_logs_on_startup(path):
         pass
 
-from mcp_gateway_config import MCP_GATEWAY_PORT, MCP_GATEWAY_LOG, LOG_LEVEL
+from mcp_gateway_config import MCP_GATEWAY_HOST, MCP_GATEWAY_PORT, MCP_GATEWAY_LOG, LOG_LEVEL
 
 # ============================================================================
 # Logging Setup
@@ -94,12 +94,14 @@ app.add_middleware(
 
 class ConnectRequest(BaseModel):
     server_id: str
-    type: str = "local"                          # 'local' or 'remote'
+    type: str = "local"                          # 'local', 'remote', 'streamable-http', or 'sse'
     command: Optional[str] = None                 # For local servers
     args: Optional[List[str]] = None              # For local servers
     env_vars: Optional[Dict[str, str]] = None     # For local servers
     url: Optional[str] = None                     # For remote servers
     auth_headers: Optional[Dict[str, str]] = None # For remote servers
+    transport: Optional[str] = None               # 'streamable-http' | 'sse' | 'auto' (remote only)
+    verify_ssl: Optional[bool] = True
     timeout: Optional[int] = 30
 
 
@@ -114,6 +116,8 @@ class TestRequest(BaseModel):
     env_vars: Optional[Dict[str, str]] = None
     url: Optional[str] = None
     auth_headers: Optional[Dict[str, str]] = None
+    transport: Optional[str] = None
+    verify_ssl: Optional[bool] = True
     timeout: Optional[int] = 30
 
 
@@ -161,9 +165,11 @@ async def connect_server(req: ConnectRequest):
         config["command"] = req.command
         config["args"] = req.args or []
         config["env_vars"] = req.env_vars or {}
-    elif req.type == "remote":
+    elif req.type in ("remote", "streamable-http", "sse"):
         config["url"] = req.url
         config["auth_headers"] = req.auth_headers or {}
+        config["transport"] = req.transport
+        config["verify_ssl"] = req.verify_ssl if req.verify_ssl is not None else True
 
     result = await mcp_manager.connect(req.server_id, config)
 
@@ -221,9 +227,11 @@ async def test_server(req: TestRequest):
         config["command"] = req.command
         config["args"] = req.args or []
         config["env_vars"] = req.env_vars or {}
-    elif req.type == "remote":
+    elif req.type in ("remote", "streamable-http", "sse"):
         config["url"] = req.url
         config["auth_headers"] = req.auth_headers or {}
+        config["transport"] = req.transport
+        config["verify_ssl"] = req.verify_ssl if req.verify_ssl is not None else True
 
     result = await mcp_manager.test_connection(config)
     return result
@@ -253,14 +261,15 @@ async def shutdown_event():
 if __name__ == '__main__':
     import uvicorn
 
+    host = os.getenv('MCP_GATEWAY_HOST', MCP_GATEWAY_HOST)
     port = int(os.getenv('MCP_GATEWAY_PORT', str(MCP_GATEWAY_PORT)))
 
     # On Windows, ensure ProactorEventLoop is used for subprocess support
     if sys.platform == 'win32':
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
-    logger.info(f"Starting MCP Gateway on port {port}")
-    print(f"Starting MCP Gateway on port {port}")
+    logger.info(f"Starting MCP Gateway on {host}:{port}")
+    print(f"Starting MCP Gateway on {host}:{port}")
     print(f"Logs: {MCP_GATEWAY_LOG}")
 
     # Detect if running as a PyInstaller-frozen executable.
@@ -273,14 +282,14 @@ if __name__ == '__main__':
     if is_frozen:
         uvicorn.run(
             app,
-            host="0.0.0.0",
+            host=host,
             port=port,
             log_level="info"
         )
     else:
         uvicorn.run(
             "app_mcp_gateway:app",
-            host="0.0.0.0",
+            host=host,
             port=port,
             reload=False,
             log_level="info"

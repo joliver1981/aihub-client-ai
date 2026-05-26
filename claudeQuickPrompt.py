@@ -99,26 +99,32 @@ def _ensure_initialized():
     _INITIALIZED = True
 
 
-def claudeQuickPrompt(prompt, system="You are an assistant.", temp=0.0):
+def claudeQuickPrompt(prompt, system="You are an assistant.", temp=0.0, model=None):
     """
     Drop-in replacement for azureMiniQuickPrompt / azureQuickPrompt.
-    
+
     Mirrors the exact same signature and return type:
-        Input:  prompt (str), system (str), temp (float)
+        Input:  prompt (str), system (str), temp (float), model (str|None)
         Output: str — the AI response with markdown fences stripped
-    
+
     Supports both direct Anthropic API and proxy mode, matching
     the project's existing BYOK / proxy architecture.
-    
+
     Args:
         prompt: The user prompt to send
         system: System message (default: "You are an assistant.")
         temp:   Sampling temperature 0-1 (default: 0.0)
-        
+        model:  Optional model override. If None, uses cfg.ANTHROPIC_MODEL.
+                Use this to dispatch cheap calls (e.g. fan-out extraction,
+                rerank scoring) to cfg.ANTHROPIC_MINI without changing the
+                default for the rest of the system.
+
     Returns:
         str: The AI response text, with ```json/```sql/``` fences stripped
     """
     _ensure_initialized()
+
+    selected_model = model or _ANTHROPIC_MODEL
 
     try:
         messages = [{"role": "user", "content": prompt}]
@@ -126,7 +132,7 @@ def claudeQuickPrompt(prompt, system="You are an assistant.", temp=0.0):
         if _CLIENT:
             # ── Direct API mode ─────────────────────────────────────
             response = _CLIENT.messages.create(
-                model=_ANTHROPIC_MODEL,
+                model=selected_model,
                 max_tokens=_ANTHROPIC_MAX_TOKENS,
                 system=system,
                 messages=messages,
@@ -137,7 +143,7 @@ def claudeQuickPrompt(prompt, system="You are an assistant.", temp=0.0):
         elif _PROXY_CLIENT:
             # ── Proxy mode ──────────────────────────────────────────
             response = _PROXY_CLIENT.messages_create(
-                model=_ANTHROPIC_MODEL,
+                model=selected_model,
                 max_tokens=_ANTHROPIC_MAX_TOKENS,
                 system=system,
                 messages=messages,

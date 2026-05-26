@@ -1,0 +1,192 @@
+{
+  "agent_guidelines": "You are a friendly intake assistant. Walk the user through each section conversationally. Ask one or two questions at a time. When the user has to choose from a list, use show_lookup_data to display it. Be efficient \u2014 don't repeat questions, and confirm briefly between sections.",
+  "completion": {
+    "actions": [
+      {
+        "body_format": "auto_summary",
+        "cc_from_field": "submitter_email",
+        "continue_on_error": false,
+        "include_json_attachment": false,
+        "label": "Notify intake team",
+        "subject_template": "New {{request_type}}: {{title}}",
+        "to": [
+          "intake@example.com"
+        ],
+        "type": "email"
+      }
+    ],
+    "allow_save_draft": true,
+    "confirmation_message": "Your request has been submitted. The team will follow up shortly."
+  },
+  "description": "A small reference example showing all major schema features. Use it to verify the runtime works end-to-end.",
+  "helpful_context": "This intake form is used by internal teams to submit work requests to the operations group. Most requests are routine and fall under Type A. Time-sensitive items go through Type B (priority) and require manager sign-off; custom or unusual work is Type C. The team aims to acknowledge every submission within one business day and provide an ETA within three.",
+  "tips": [
+    "If the user isn't sure about request_type, suggest comparing the options side-by-side using compare_options.",
+    "Target date must be at least 7 days out \u2014 gently remind the user if they propose something sooner."
+  ],
+  "id": "example",
+  "lookup_data": {
+    "request_types": {
+      "source": "inline",
+      "values": [
+        {
+          "id": "type_a",
+          "label": "Type A \u2014 Standard",
+          "icon": "fa-bolt",
+          "description": "The default request type. Routine work with no special handling.",
+          "when_to_choose": "Pick this if your request isn't time-sensitive and doesn't require any custom configuration. Most requests fall here.",
+          "examples": [
+            "Routine inventory replenishment",
+            "Standard equipment order",
+            "Scheduled maintenance request"
+          ]
+        },
+        {
+          "id": "type_b",
+          "label": "Type B \u2014 Priority",
+          "icon": "fa-rocket",
+          "description": "Expedited handling for time-sensitive requests. Requires manager sign-off and may incur an expediting fee.",
+          "when_to_choose": "Use only when the timeline genuinely cannot wait \u2014 typically 24-48 hour turnaround.",
+          "examples": [
+            "Critical equipment replacement",
+            "Compliance deadline approaching",
+            "Customer-facing outage requiring fast response"
+          ]
+        },
+        {
+          "id": "type_c",
+          "label": "Type C \u2014 Custom",
+          "icon": "fa-puzzle-piece",
+          "description": "Bespoke or non-standard requests that don't fit Type A or Type B. The intake team will reach out to scope the work.",
+          "when_to_choose": "Choose this when your request involves unusual constraints, custom integrations, or anything outside normal operations.",
+          "examples": [
+            "New process needing pilot scoping",
+            "Cross-team initiative without an existing template",
+            "One-off custom integration"
+          ]
+        }
+      ]
+    }
+  },
+  "name": "Example Intake Form",
+  "sections": [
+    {
+      "description": "Core details about the request",
+      "fields": [
+        {
+          "id": "submitter_name",
+          "label": "Your Name",
+          "prompt_hint": "What's your name?",
+          "required": true,
+          "type": "text",
+          "validation": {
+            "max_length": 100,
+            "min_length": 2
+          }
+        },
+        {
+          "id": "submitter_email",
+          "label": "Your Email",
+          "prompt_hint": "What email address should we use to contact you?",
+          "required": true,
+          "type": "email"
+        },
+        {
+          "id": "request_type",
+          "label": "Request Type",
+          "options_ref": "request_types",
+          "prompt_hint": "What kind of request is this?",
+          "helpful_context": "Most requests are Type A. Type B is for genuine urgency and requires manager sign-off; Type C is for anything that doesn't fit a standard pattern.",
+          "required": true,
+          "type": "select",
+          "tips": [
+            "If you're unsure, ask the assistant to compare the three types side-by-side."
+          ]
+        },
+        {
+          "id": "target_date",
+          "label": "Target Date",
+          "prompt_hint": "When do you need this by? Must be at least a week out.",
+          "helpful_context": "The team needs at least a week to schedule routine work. Time-sensitive requests should use Type B (Priority) instead of compressing the target date.",
+          "required": true,
+          "type": "date",
+          "validation": {
+            "min_days_ahead": 7,
+            "rule": "future_date"
+          },
+          "examples": [
+            "2026-06-24",
+            "next Tuesday",
+            "in 10 days"
+          ],
+          "common_mistakes": [
+            "Picking a date in the past",
+            "Picking a date less than 7 days out (use Type B priority instead)"
+          ]
+        }
+      ],
+      "id": "basics",
+      "order": 1,
+      "title": "Basic Information"
+    },
+    {
+      "description": "More information about the request",
+      "fields": [
+        {
+          "id": "title",
+          "label": "Short Title",
+          "required": true,
+          "type": "text",
+          "validation": {
+            "max_length": 100,
+            "min_length": 5
+          }
+        },
+        {
+          "id": "description",
+          "label": "Description",
+          "prompt_hint": "Please describe what you need in a few sentences.",
+          "required": true,
+          "type": "textarea",
+          "validation": {
+            "max_length": 2000,
+            "min_length": 20
+          }
+        },
+        {
+          "id": "estimated_count",
+          "label": "Estimated Quantity",
+          "required": false,
+          "type": "number",
+          "validation": {
+            "max": 10000,
+            "min": 0
+          }
+        },
+        {
+          "id": "needs_followup",
+          "label": "Needs Follow-up Call",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "conditional": {
+            "show_when": {
+              "field": "needs_followup",
+              "operator": "==",
+              "value": true
+            }
+          },
+          "id": "followup_phone",
+          "label": "Follow-up Phone Number",
+          "required": true,
+          "type": "phone"
+        }
+      ],
+      "id": "details",
+      "order": 2,
+      "title": "Details"
+    }
+  ],
+  "version": "1.0"
+}

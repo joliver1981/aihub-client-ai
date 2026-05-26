@@ -218,6 +218,124 @@ def get_template(template_key):
         }), 500
 
 
+@integrations_bp.route('/templates/<template_key>/resync-from-disk', methods=['POST'])
+@api_key_or_session_required(min_role=2)
+def resync_template_from_disk(template_key):
+    """Force-overwrite a single template's IntegrationTemplates row with the
+    current JSON file content on disk. Use this when you've added operations
+    to a builtin template's JSON and want existing integrations using that
+    template to immediately see the new operations — without recreating
+    each integration.
+
+    Returns the operations count before/after for confirmation.
+    """
+    try:
+        from CommonUtils import get_db_connection
+        from pathlib import Path
+
+        # Locate the JSON file
+        app_root = os.getenv('APP_ROOT', '.')
+        candidates = [
+            Path(app_root) / 'integrations' / 'builtin' / f'{template_key}.json',
+            Path(__file__).parent / 'integrations' / 'builtin' / f'{template_key}.json',
+        ]
+        json_path = next((p for p in candidates if p.exists()), None)
+        if not json_path:
+            return jsonify({
+                'status': 'error',
+                'message': f"No builtin JSON found for '{template_key}'"
+            }), 404
+
+        with open(json_path, 'r', encoding='utf-8') as f:
+            tpl = json.load(f)
+
+        new_op_count = len(tpl.get('operations', []))
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+
+        # Get the current operations count for reporting
+        cursor.execute(
+            "SELECT operations FROM IntegrationTemplates WHERE template_key = ?",
+            template_key
+        )
+        existing = cursor.fetchone()
+        old_op_count = 0
+        if existing and existing[0]:
+            try:
+                old_op_count = len(json.loads(existing[0]))
+            except Exception:
+                pass
+
+        if existing:
+            cursor.execute("""
+                UPDATE IntegrationTemplates
+                   SET platform_name = ?, platform_category = ?, description = ?,
+                       logo_url = ?, auth_type = ?, auth_config = ?, base_url = ?,
+                       default_headers = ?, operations = ?,
+                       is_builtin = 1, is_active = 1
+                 WHERE template_key = ?
+            """, (
+                tpl.get('platform_name'),
+                tpl.get('platform_category'),
+                tpl.get('description'),
+                tpl.get('logo_url'),
+                tpl.get('auth_type'),
+                json.dumps(tpl.get('auth_config', {})),
+                tpl.get('base_url'),
+                json.dumps(tpl.get('default_headers', {})),
+                json.dumps(tpl.get('operations', [])),
+                template_key,
+            ))
+        else:
+            cursor.execute("""
+                INSERT INTO IntegrationTemplates (
+                    template_key, platform_name, platform_category, description,
+                    logo_url, auth_type, auth_config, base_url, default_headers,
+                    operations, is_builtin, is_active
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1)
+            """, (
+                template_key,
+                tpl.get('platform_name'),
+                tpl.get('platform_category'),
+                tpl.get('description'),
+                tpl.get('logo_url'),
+                tpl.get('auth_type'),
+                json.dumps(tpl.get('auth_config', {})),
+                tpl.get('base_url'),
+                json.dumps(tpl.get('default_headers', {})),
+                json.dumps(tpl.get('operations', [])),
+            ))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        # Invalidate the in-memory cache so subsequent reads pick up the change
+        try:
+            TemplateManager.reload()
+        except Exception as e:
+            logger.warning(f"Cache reload after resync failed (non-fatal): {e}")
+
+        return jsonify({
+            'status': 'success',
+            'template_key': template_key,
+            'json_path': str(json_path),
+            'operations_before': old_op_count,
+            'operations_after': new_op_count,
+            'message': (
+                f"'{template_key}' synced from disk. Operations: "
+                f"{old_op_count} → {new_op_count}. All existing integrations "
+                f"using this template will now see the new operation list."
+            )
+        })
+
+    except Exception as e:
+        logger.error(f"Error resyncing template '{template_key}': {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 @integrations_bp.route('/templates/reload', methods=['POST'])
 @api_key_or_session_required(min_role=2)
 def reload_templates():
@@ -235,11 +353,17 @@ def reload_templates():
     """
     try:
         templates = TemplateManager.reload()
-        
+
+        # reload() now also pushes builtin file changes into the DB so that
+        # existing UserIntegrations rows pick up new operations. The count
+        # of synced rows is logged but the message stays generic for the UI.
         return jsonify({
             'status': 'success',
             'templates_count': len(templates),
-            'message': 'Templates reloaded successfully'
+            'message': (
+                'Templates reloaded and synced to DB. '
+                'Existing integrations now see new operations from any updated builtin templates.'
+            )
         })
         
     except Exception as e:
@@ -955,6 +1079,245 @@ def execute_operation(integration_id):
 
 
 # =============================================================================
+# SharePoint Browse Endpoint
+# =============================================================================
+
+@integrations_bp.route('/<int:integration_id>/refresh-token', methods=['POST'])
+@api_key_or_session_required(min_role=2)
+def force_refresh_integration_token(integration_id):
+    """Force a SharePoint/OneDrive integration to discard its cached
+    OAuth access token and fetch a fresh one immediately.
+
+    Use this after changing the Azure app's API permissions — service
+    tokens have their scopes/roles baked in at issue time, so a token
+    minted before you added (for example) Files.ReadWrite.All won't have
+    that role even though Azure now grants it.
+
+    Returns whether a fresh token was successfully acquired.
+    """
+    try:
+        manager = get_integration_manager()
+        integration = manager.get_integration(integration_id)
+        if not integration:
+            return jsonify({'status': 'error', 'message': 'Integration not found'}), 404
+
+        template = manager.get_template(integration.get('template_key'))
+        if not template:
+            return jsonify({'status': 'error', 'message': 'Template not found'}), 404
+
+        # Only SharePoint executor exposes _force_refresh_token; reject others
+        if (template.get('execution_type') or '') != 'sharepoint':
+            return jsonify({
+                'status': 'error',
+                'message': (
+                    "This endpoint only works for SharePoint/OneDrive "
+                    "integrations (execution_type=sharepoint)."
+                )
+            }), 400
+
+        from sharepoint_executor import SharePointExecutor
+        executor = SharePointExecutor(integration, template)
+        ok = executor._force_refresh_token()
+        return jsonify({
+            'status': 'success' if ok else 'error',
+            'token_acquired': ok,
+            'integration_id': integration_id,
+            'message': (
+                'Fresh service token acquired. New permissions on the Azure app '
+                'will now be reflected in subsequent requests.'
+                if ok else
+                'Token refresh failed. Check the AI Hub log for the underlying error.'
+            )
+        })
+
+    except Exception as e:
+        logger.error(f"Error refreshing token for integration {integration_id}: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@integrations_bp.route('/<int:integration_id>/sharepoint/browse', methods=['POST'])
+@api_key_or_session_required(min_role=2)
+def sharepoint_browse(integration_id):
+    """
+    Convenience endpoint for the SharePoint browser UI.
+
+    Maps a path_type to the appropriate SharePoint executor operation,
+    so the front-end can navigate site → library → folder hierarchy
+    with a single endpoint.
+
+    Request body:
+        {
+            "path_type": "sites" | "drives" | "items" | "search",
+            "site_id": "...",
+            "drive_id": "...",
+            "item_id": "...",
+            "query": "...",
+            "top": 200
+        }
+    """
+    try:
+        manager = get_integration_manager()
+        data = request.get_json() or {}
+        path_type = data.get('path_type', 'sites')
+
+        operation_map = {
+            'sites':   ('list_sites',         {'query': data.get('query', '*')}),
+            'site_by_url': ('lookup_site_by_url', {'url': data.get('url', '')}),
+            'drives':  ('list_drives',        {'site_id': data.get('site_id', '')}),
+            'items':   ('list_items',         {
+                'drive_id': data.get('drive_id', ''),
+                'item_id':  data.get('item_id', ''),
+                'top':      data.get('top', 200),
+            }),
+            'mydrive': ('list_my_files',      {
+                'item_id': data.get('item_id', ''),
+                'top':     data.get('top', 200),
+            }),
+            'search':  ('search_files',       {
+                'drive_id': data.get('drive_id', ''),
+                'query':    data.get('query', ''),
+            }),
+        }
+
+        if path_type not in operation_map:
+            return jsonify({
+                'status': 'error',
+                'message': f"Invalid path_type '{path_type}'. "
+                           f"Must be one of: {', '.join(operation_map.keys())}"
+            }), 400
+
+        op_key, params = operation_map[path_type]
+        user_id = get_safe_user_id()
+
+        result = manager.execute_operation(
+            integration_id=integration_id,
+            operation_key=op_key,
+            parameters=params,
+            context={'user_id': user_id}
+        )
+
+        return jsonify({
+            'status': 'success' if result.get('success') else 'error',
+            'data': result.get('data'),
+            'error': result.get('error'),
+        })
+
+    except Exception as e:
+        logger.error(f"Error in SharePoint browse: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+# =============================================================================
+# App-Only (client_credentials) Setup Endpoint
+# =============================================================================
+
+@integrations_bp.route('/oauth/setup-app-only/<template_key>', methods=['POST'])
+@api_key_or_session_required(min_role=2)
+def setup_app_only_integration(template_key):
+    """
+    Set up an app-only / service-account integration that uses the OAuth2
+    client_credentials grant. No user sign-in / redirect — the user just
+    submits the app's own credentials and (optionally) tenant-specific
+    instance config (e.g. tenant_id for Microsoft Graph).
+
+    Request body:
+        {
+            "integration_name": "My SharePoint Service",
+            "credentials": {
+                "client_id": "...",
+                "client_secret": "..."
+            },
+            "instance_config": {
+                "tenant_id": "..."   // template-specific
+            }
+        }
+    """
+    try:
+        from flask_login import current_user
+
+        data = request.get_json() or {}
+        manager = get_integration_manager()
+
+        template = TemplateManager.get_template(template_key)
+        if not template:
+            return jsonify({'status': 'error', 'message': 'Template not found'}), 404
+
+        if (template.get('auth_config') or {}).get('grant_type') != 'client_credentials':
+            return jsonify({
+                'status': 'error',
+                'message': "This template doesn't support app-only setup "
+                           "(grant_type must be 'client_credentials')."
+            }), 400
+
+        integration_name = (data.get('integration_name') or '').strip()
+        credentials = data.get('credentials') or {}
+        instance_config = data.get('instance_config') or {}
+
+        if not integration_name:
+            return jsonify({'status': 'error', 'message': 'integration_name is required'}), 400
+        if not credentials.get('client_id') or not credentials.get('client_secret'):
+            return jsonify({
+                'status': 'error',
+                'message': 'client_id and client_secret are required'
+            }), 400
+
+        # Enforce required instance_id (e.g., tenant_id for Microsoft Graph)
+        if template.get('requires_instance_id'):
+            field = template.get('instance_id_field', 'instance_id')
+            if not instance_config.get(field):
+                return jsonify({
+                    'status': 'error',
+                    'message': f"{template.get('instance_id_label', field)} is required"
+                }), 400
+
+        user_id = get_safe_user_id()
+        success, integration_id, message = manager.create_integration(
+            template_key=template_key,
+            integration_name=integration_name,
+            credentials=credentials,
+            instance_config=instance_config,
+            user_id=user_id,
+        )
+
+        if not success or not integration_id:
+            return jsonify({'status': 'error', 'message': message}), 500
+
+        # Verify by fetching a token immediately. The OAuth2AuthHandler will
+        # substitute {tenant_id} in token_url and call the token endpoint.
+        from integration_manager import OAuth2AuthHandler
+        integration = manager.get_integration(integration_id)
+        handler = OAuth2AuthHandler()
+        token_result = handler.refresh_credentials(integration)
+
+        if not token_result or not token_result.get('access_token'):
+            logger.warning(
+                f"App-only integration {integration_id} created but token fetch "
+                "failed — integration will retry on first use."
+            )
+            return jsonify({
+                'status': 'success',
+                'integration_id': integration_id,
+                'token_acquired': False,
+                'warning': (
+                    "Integration saved, but could not acquire a service token. "
+                    "Check the tenant ID, client ID, client secret, and that "
+                    "admin consent has been granted for application permissions."
+                )
+            })
+
+        return jsonify({
+            'status': 'success',
+            'integration_id': integration_id,
+            'token_acquired': True,
+            'message': 'Service account integration created and verified.'
+        })
+
+    except Exception as e:
+        logger.error(f"Error setting up app-only integration: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+# =============================================================================
 # OAuth Flow Endpoints
 # =============================================================================
 
@@ -1360,12 +1723,12 @@ def get_execution_logs(integration_id):
             SELECT TOP (?)
                 log_id, operation_key, request_method, request_url,
                 response_status, response_time_ms, success, error_message,
-                executed_at
+                executed_at, response_body, request_body
             FROM IntegrationExecutionLog
             WHERE integration_id = ?
             ORDER BY executed_at DESC
         """, (limit, integration_id))
-        
+
         logs = []
         for row in cursor.fetchall():
             logs.append({
@@ -1377,7 +1740,9 @@ def get_execution_logs(integration_id):
                 'response_time_ms': row[5],
                 'success': bool(row[6]),
                 'error_message': row[7],
-                'executed_at': row[8].isoformat() if row[8] else None
+                'executed_at': row[8].isoformat() if row[8] else None,
+                'response_body': row[9],
+                'request_body': row[10],
             })
         
         cursor.close()

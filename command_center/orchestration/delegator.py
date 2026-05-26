@@ -19,7 +19,7 @@ async def delegate_to_agent(
     question: str,
     user_context: Optional[Dict[str, Any]] = None,
     conversation_history: Optional[list] = None,
-    timeout: float = 240.0,
+    timeout: Optional[float] = None,
     is_data_agent: bool = True,
     session_id: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -39,7 +39,10 @@ async def delegate_to_agent(
         is_data_agent: If True, use the internal Data Explorer endpoint
         session_id: CC session ID for engine cache reuse
     """
-    from cc_config import get_base_url, AI_HUB_API_KEY
+    from cc_config import get_base_url, AI_HUB_API_KEY, DELEGATION_TIMEOUT_SECONDS
+
+    if timeout is None:
+        timeout = DELEGATION_TIMEOUT_SECONDS
 
     base_url = get_base_url()
     headers = {
@@ -62,10 +65,14 @@ async def delegate_to_agent(
                 elif role == "assistant":
                     history.append({"role": "A", "content": content})
 
+        # Include user_id in the fallback session key so two concurrent users
+        # delegating to the same data agent get distinct engine cache entries
+        # (prevents cross-user state mixing in _internal_engines).
+        delegator_user_id = (user_context or {}).get("user_id", "anon")
         payload = {
             "agent_id": agent_id,
             "question": question,
-            "session_id": session_id or f"cc-{agent_id}",
+            "session_id": session_id or f"cc-{delegator_user_id}-{agent_id}",
             "history": history,
         }
         logger.info(f"[delegate_to_agent] Data agent {agent_id} via internal endpoint")

@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Dict, List, Optional, Any, Union, Tuple
 import pyodbc
 from math import ceil
@@ -13,10 +14,16 @@ from DocSummaryUtils import get_document_search_content
 from CommonUtils import build_filter_conditions, get_base_url
 
 
-def get_document_types():
+def get_document_types(allowed_document_types=None):
     """
     Execute a query to extract all available document types, returning a JSON structure.
-    
+
+    Args:
+        allowed_document_types: Optional list[str]. When provided and
+            non-empty, results are constrained to types in this allow list
+            (per-agent restriction). ``None`` or an empty list means no
+            restriction (current behavior).
+
     Returns:
         str: JSON string with document types
     """
@@ -24,17 +31,29 @@ def get_document_types():
         # Establish connection to the SQL Server database
         # You may need to adjust these connection parameters for your environment
         conn = get_db_connection()
-        
+
         # Create a cursor
         cursor = conn.cursor()
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
-        
-        # Execute the query
-        query = """
-        SELECT distinct d.document_type
-        FROM [dbo].[Documents] d
-        ORDER BY d.document_type
-        """
+
+        # Execute the query — narrow to the agent's allow list when present.
+        # Values come from [dbo].[AgentDocumentTypes] (admin-controlled);
+        # single quotes are escaped for safety, matching the inline-SQL
+        # style used elsewhere in this file.
+        if allowed_document_types:
+            quoted = ','.join("'" + str(t).replace("'", "''") + "'" for t in allowed_document_types)
+            query = f"""
+            SELECT distinct d.document_type
+            FROM [dbo].[Documents] d
+            WHERE d.document_type IN ({quoted})
+            ORDER BY d.document_type
+            """
+        else:
+            query = """
+            SELECT distinct d.document_type
+            FROM [dbo].[Documents] d
+            ORDER BY d.document_type
+            """
 
         print('Running query...')
         cursor.execute(query)
@@ -346,71 +365,106 @@ def create_search_message(suggestions_json):
     
     return message
 
+def _rerank_haiku_with_fallback(prompt: str, system: str) -> Optional[str]:
+    """
+    Cheap rerank LLM call: Haiku → cfg.ANTHROPIC_MINI fallback → None.
+    Returns response text or None if both attempts failed. Never raises.
+    """
+    haiku_model = getattr(cfg, 'KNOWLEDGE_HAIKU_MODEL', None)
+    fallback_model = getattr(cfg, 'ANTHROPIC_MINI', None)
+
+    try:
+        from claudeQuickPrompt import claudeQuickPrompt
+    except ImportError as e:
+        logging.warning(f"Re-ranker: claudeQuickPrompt unavailable: {e}")
+        return None
+
+    if haiku_model:
+        try:
+            resp = claudeQuickPrompt(prompt, system=system, temp=0.0, model=haiku_model)
+            if resp and resp.strip():
+                return resp
+        except Exception as e:
+            logging.warning(f"Re-ranker Haiku call failed ({haiku_model}): {e} — trying fallback")
+
+    if fallback_model and fallback_model != haiku_model:
+        try:
+            resp = claudeQuickPrompt(prompt, system=system, temp=0.0, model=fallback_model)
+            if resp and resp.strip():
+                return resp
+        except Exception as e:
+            logging.warning(f"Re-ranker fallback call also failed ({fallback_model}): {e}")
+
+    return None
+
+
 def rank_search_results(results: List[Dict[str, Any]], user_question: str) -> List[Dict[str, Any]]:
     """
-    Use AI to rank search results by relevance to the original user question
-    and deduplicate results.
-    
-    Parameters:
-    -----------
-    results : List[Dict[str, Any]]
-        List of search results to rank
-    user_question : str
-        The original user question
-        
-    Returns:
-    --------
-    List[Dict[str, Any]]
-        Ranked and deduplicated list of search results
+    Re-rank document search results by actual semantic relevance to the user's question
+    using a cheap LLM (Haiku, falling back to cfg.ANTHROPIC_MINI). Replaces the previous
+    pure-cosine ordering.
+
+    Behavior:
+      - Always deduplicates by (document_id, page_number) first (preserving the
+        previous "field search beats semantic on tie" rule).
+      - When cfg.DOC_USE_LLM_RERANK is True and there are multiple results, sends up to
+        cfg.DOC_RERANK_FETCH_N candidates to Haiku for relevance scoring.
+      - Keeps every chunk scoring >= cfg.DOC_RERANK_KEEP_THRESHOLD, capped at
+        cfg.DOC_RERANK_MAX_KEEP. No fixed "top 3" — score-driven.
+      - On any LLM failure or parse failure, returns the deduplicated cosine-ordered
+        list unchanged (today's behavior). Never worse than baseline.
     """
-    # First, deduplicate results
-    seen_pages = {}  # Use dict to store the highest-ranked instance of each page
-    
-    # Group by document & page
+    # ---- Step 1: dedupe (unchanged) ----
+    seen_pages = {}
     for result in results:
         key = (result.get("document_id"), result.get("page_number"))
         if key not in seen_pages:
             seen_pages[key] = result
-        elif result.get("search_method") == "field" and seen_pages[key].get("search_method") == "semantic":
-            # Prefer field search results over semantic if we have both
+        elif (
+            result.get("search_method") == "field"
+            and seen_pages[key].get("search_method") == "semantic"
+        ):
             seen_pages[key] = result
-    
+
     unique_results = list(seen_pages.values())
-    
-    # If we only have one result or none, return as is
+
     if len(unique_results) <= 1:
         return unique_results
-    else:
-        return unique_results  # NOTE: SKIPPING RESULT RANKING - TOO MUCH OVERHEAD W/ QUESTIONABLE VALUE!!!
-    
-    # Limit the number of results to analyze to avoid token limits
-    max_results_to_rank = 15
-    results_to_rank = unique_results[:max_results_to_rank]
-    
-    # Prepare the prompt for AI to rank results
-    system_prompt = """You are an expert document retrieval specialist.
-    Your task is to rank document search results by relevance to a user's original question.
-    Return only a JSON array of ranked results with their IDs and explanations."""
-    
-    # Prepare snippets for each result (limited to save tokens)
+
+    # ---- Step 2: opt-out via config ----
+    if not getattr(cfg, 'DOC_USE_LLM_RERANK', True):
+        return unique_results
+
+    # ---- Step 3: prepare candidates for the re-ranker ----
+    fetch_n = int(getattr(cfg, 'DOC_RERANK_FETCH_N', 30))
+    keep_threshold = float(getattr(cfg, 'DOC_RERANK_KEEP_THRESHOLD', 0.5))
+    max_keep = int(getattr(cfg, 'DOC_RERANK_MAX_KEEP', 30))
+
+    candidates = unique_results[:fetch_n]
+
+    # Build compact snippet payload — small per-item to keep token cost down.
     result_snippets = []
-    for i, result in enumerate(results_to_rank):
-        snippet = result.get("snippet", "")
-        if snippet and len(snippet) > 300:
-            snippet = snippet[:300] + "..."
-            
+    for i, result in enumerate(candidates):
+        snippet = result.get("snippet") or ""
+        if not snippet:
+            # Some search paths use 'text' or 'document' fields
+            snippet = result.get("text") or result.get("document") or ""
+        if snippet and len(snippet) > 400:
+            snippet = snippet[:400] + "..."
+
+        # A small bag of likely-relevant fields for context
         fields_text = ""
         if result.get("all_fields"):
-            # Include a few key fields that might help assess relevance
-            fields = result.get("all_fields", {})
+            fields = result.get("all_fields") or {}
             important_fields = []
             for k, v in fields.items():
-                if any(key_term in k.lower() for key_term in ["id", "number", "date", "name", "amount", "total"]):
+                kl = str(k).lower()
+                if any(t in kl for t in ("id", "number", "date", "name", "amount", "total")):
                     important_fields.append(f"{k}: {v}")
                 if len(important_fields) >= 3:
                     break
             fields_text = ", ".join(important_fields)
-            
+
         result_snippets.append({
             "id": i,
             "document_id": result.get("document_id"),
@@ -418,50 +472,71 @@ def rank_search_results(results: List[Dict[str, Any]], user_question: str) -> Li
             "document_type": result.get("document_type"),
             "snippet": snippet,
             "key_fields": fields_text,
-            "search_method": result.get("search_method", "unknown")
         })
-    
-    prompt = f"""
-    Given the user's question: "{user_question}"
-    
-    Rank these document snippets by relevance to the question:
-    {json.dumps(result_snippets, indent=2)}
-    
-    Return a JSON array with objects in the format:
-    [
-        {{"id": 0, "relevance_score": 0.95, "explanation": "This document directly addresses..."}},
-        ...
-    ]
-    
-    Sort the array by relevance_score in descending order (most relevant first).
-    Focus on how well the content answers the question, not just keyword matches.
-    """
-    
-    # Call Azure OpenAI to rank results
-    try:
-        ranking_json = azureQuickPrompt(prompt=prompt, system=system_prompt)
-        ranking = json.loads(ranking_json)
-        
-        # Create a new sorted list based on the ranking
-        ranked_unique_results = []
-        for rank_item in ranking:
-            result_id = rank_item.get("id")
-            if result_id is not None and result_id < len(results_to_rank):
-                result = results_to_rank[result_id].copy()
-                result["ai_relevance_score"] = rank_item.get("relevance_score")
-                result["relevance_explanation"] = rank_item.get("explanation")
-                ranked_unique_results.append(result)
-        
-        # Add any results that weren't ranked at the end (if they exist beyond max_results_to_rank)
-        ranked_ids = {rank_item.get("id") for rank_item in ranking if rank_item.get("id") is not None}
-        unranked_results = [r for i, r in enumerate(results_to_rank) if i not in ranked_ids]
-        remaining_results = unique_results[max_results_to_rank:]
-        
-        # Combine and return
-        return ranked_unique_results + unranked_results + remaining_results
-    except Exception as e:
-        # If ranking fails, return the original unique results
+
+    system_prompt = (
+        "You are a document retrieval relevance scorer. Given a user question and a list "
+        "of candidate document snippets, score each one's relevance to the question on a "
+        "scale of 0.0 to 1.0 (where 1.0 = directly answers the question, 0.0 = irrelevant). "
+        "Return ONLY a JSON array, one object per input candidate, in the same order, "
+        "with fields {id, relevance_score, explanation}. No prose, no markdown."
+    )
+    prompt = (
+        f"User question: \"{user_question}\"\n\n"
+        f"Candidates (JSON):\n{json.dumps(result_snippets, indent=2)}\n\n"
+        f"Score each candidate. Output JSON array only."
+    )
+
+    response = _rerank_haiku_with_fallback(prompt, system=system_prompt)
+    if not response:
+        # Both attempts failed — return baseline order, no penalty
         return unique_results
+
+    try:
+        ranking = json.loads(response)
+        if not isinstance(ranking, list):
+            return unique_results
+    except Exception as e:
+        logging.warning(f"Re-ranker JSON parse failed: {e}")
+        return unique_results
+
+    # ---- Step 4: filter + cap ----
+    scored = []
+    for rank_item in ranking:
+        if not isinstance(rank_item, dict):
+            continue
+        rid = rank_item.get("id")
+        score = rank_item.get("relevance_score")
+        if rid is None or score is None:
+            continue
+        try:
+            rid_int = int(rid)
+            score_f = float(score)
+        except (ValueError, TypeError):
+            continue
+        if not (0 <= rid_int < len(candidates)):
+            continue
+        if score_f < keep_threshold:
+            continue
+        result = candidates[rid_int].copy()
+        result["ai_relevance_score"] = score_f
+        result["relevance_explanation"] = rank_item.get("explanation", "")
+        scored.append((score_f, result))
+
+    if not scored:
+        # Nothing crossed the threshold — return baseline, no false confidence in zeros
+        return unique_results
+
+    # Sort by score desc, cap at max_keep
+    scored.sort(key=lambda kv: kv[0], reverse=True)
+    kept = [r for _s, r in scored[:max_keep]]
+
+    # Append any unique_results that weren't candidates (fetch_n cutoff) so
+    # we never DROP results entirely vs baseline — they trail unranked.
+    if len(unique_results) > fetch_n:
+        kept.extend(unique_results[fetch_n:])
+
+    return kept
 
 
 # TODO: Integrate this into document_search
@@ -495,6 +570,40 @@ def detect_high_token_usage(results: List[Dict]) -> bool:
 
     return HIGH_TOKEN_USAGE_DETECTED
 
+def _build_doc_type_filter(document_type, allowed_document_types, alias='d'):
+    """Render an inline-SQL fragment that constrains a query to a single
+    document type AND/OR an agent's allow list.
+
+    Returns ``(clause_with_AND_prefix, clause_without_AND)`` so callers can
+    drop the fragment into either ``WHERE x AND <clause>`` or ``WHERE <clause>``
+    shapes that exist throughout this file. Both strings are empty when
+    neither filter applies.
+
+    Style notes:
+      - The existing ``document_search`` code already uses inline f-string
+        interpolation for ``document_type`` (see lines around 957). Matching
+        that style is intentional — switching to parameterized would force
+        param-list reorders across many SQL branches.
+      - ``allowed_document_types`` values come from ``[dbo].[AgentDocumentTypes]``,
+        which only an admin can write. Single-quotes are doubled for safety.
+      - ``alias`` is the SQL alias for the Documents table in the surrounding
+        query (usually ``d``). Pass ``''`` when the query targets ``Documents``
+        without aliasing.
+    """
+    a = (alias + '.') if alias else ''
+    parts = []
+    if document_type:
+        esc = str(document_type).replace("'", "''")
+        parts.append(f"{a}document_type = '{esc}'")
+    if allowed_document_types:
+        quoted = ','.join("'" + str(t).replace("'", "''") + "'" for t in allowed_document_types)
+        parts.append(f"{a}document_type IN ({quoted})")
+    if not parts:
+        return ('', '')
+    inner = ' AND '.join(parts)
+    return (f' AND {inner}', inner)
+
+
 def document_search(
     conn_string: str,
     document_type: Optional[str] = None,
@@ -504,7 +613,8 @@ def document_search(
     max_results: int = 500,
     user_question: Optional[str] = None,
     check_completeness: bool = False,
-    ai_selected_fields: Optional[List[str]] = None
+    ai_selected_fields: Optional[List[str]] = None,
+    allowed_document_types: Optional[List[str]] = None,
 ) -> str:
     """
     Search documents with flexible field filtering and return results as JSON string.
@@ -580,11 +690,33 @@ def document_search(
     
     try:
         print('Starting document search...')
+
+        # ── Per-agent document-type allow list (security) ────────────────
+        # If an allow list was provided by the calling agent and the LLM
+        # explicitly passed a `document_type` outside that list, refuse the
+        # call BEFORE any query runs. The error message is intentionally
+        # uniform so the agent doesn't learn whether the type otherwise
+        # exists in this tenant.
+        if allowed_document_types and document_type and document_type not in allowed_document_types:
+            print(f"[doc-type-acl] DENIED document_search document_type={document_type} allow_list={allowed_document_types}")
+            response = {
+                "results": "",
+                "error": (
+                    f"Access denied: document_type '{document_type}' is not "
+                    f"permitted for this agent. Allowed types: "
+                    f"{sorted(allowed_document_types)}."
+                ),
+            }
+            return json.dumps(response, default=str)
+
         # Verify document type
         is_document_type_valid = True  # Default to True
         if document_type is not None:
-            # Only validate if a document type was actually provided
-            doc_types_json = get_document_types()
+            # Only validate if a document type was actually provided.
+            # When an allow list is set we narrow `valid_types` to the
+            # allow list itself so this validation step also enforces the
+            # ACL on tenants that have many types.
+            doc_types_json = get_document_types(allowed_document_types=allowed_document_types)
             doc_types_data = json.loads(doc_types_json)
             valid_types = doc_types_data.get('document_types', [])
             is_document_type_valid = document_type in valid_types
@@ -597,6 +729,26 @@ def document_search(
                 "error": f"Invalid document_type parameter value '{document_type}'. Use the get_document_types tool to get a list of valid document types and try again with a valid document_type parameter."
             }
             return json.dumps(response, default=str)
+
+        # Pre-render the SQL filter clause used throughout this function.
+        # `dt_clause_and` includes the leading ' AND ' and is dropped into
+        # WHERE clauses that already have a preceding predicate;
+        # `dt_clause_bare` is the same predicate without the ' AND ' prefix
+        # for queries where it stands alone (e.g. `WHERE <clause>`).
+        dt_clause_and, dt_clause_bare = _build_doc_type_filter(
+            document_type=document_type,
+            allowed_document_types=allowed_document_types,
+            alias='d',
+        )
+        # Same fragment but without an alias prefix for the metadata
+        # queries that hit the unaliased Documents table.
+        _, dt_clause_bare_noalias = _build_doc_type_filter(
+            document_type=document_type,
+            allowed_document_types=allowed_document_types,
+            alias='',
+        )
+        if allowed_document_types:
+            print(f"[doc-type-acl] applied document_search allow_list={allowed_document_types} document_type={document_type}")
 
         print('Connecting to database...')
         # Connect to database
@@ -614,15 +766,17 @@ def document_search(
         # Get metadata if requested
         if include_metadata:
             print('Getting metadata...')
-            # Get document types for reference
-            cursor.execute("SELECT DISTINCT document_type FROM Documents ORDER BY document_type")
+            # Get document types for reference (filtered by allow list / single type)
+            _md_where = f"WHERE {dt_clause_bare_noalias}" if dt_clause_bare_noalias else ""
+            cursor.execute(f"SELECT DISTINCT document_type FROM Documents {_md_where} ORDER BY document_type")
             document_types = [row[0] for row in cursor.fetchall()]
-            
-            # Get document counts
-            cursor.execute("""
-                SELECT document_type, COUNT(*) as doc_count 
-                FROM Documents 
-                GROUP BY document_type 
+
+            # Get document counts (filtered by allow list / single type)
+            cursor.execute(f"""
+                SELECT document_type, COUNT(*) as doc_count
+                FROM Documents
+                {_md_where}
+                GROUP BY document_type
                 ORDER BY doc_count DESC
             """)
             document_counts = {row[0]: row[1] for row in cursor.fetchall()}
@@ -672,14 +826,31 @@ def document_search(
                     
                     available_fields.append(field_info)
             else:
-                # Get all available fields with sample values
+                # Get all available fields with sample values.
+                #
+                # IMPORTANT: this branch previously queried DocumentFields
+                # without joining Documents, which meant a restricted agent
+                # would see field NAMES belonging to document types it
+                # cannot read — a metadata leak. We now JOIN through to
+                # Documents so the allow-list filter applies here too.
                 print('Getting all available fields with sample values...')
-                cursor.execute("""
-                    SELECT TOP(1000) df.field_name, COUNT(*) as field_count
-                    FROM DocumentFields df
-                    GROUP BY df.field_name
-                    ORDER BY field_count DESC, field_name
-                """)
+                if dt_clause_bare:
+                    cursor.execute(f"""
+                        SELECT TOP(1000) df.field_name, COUNT(*) as field_count
+                        FROM DocumentFields df
+                        JOIN DocumentPages dp ON df.page_id = dp.page_id
+                        JOIN Documents d ON dp.document_id = d.document_id
+                        WHERE {dt_clause_bare}
+                        GROUP BY df.field_name
+                        ORDER BY field_count DESC, field_name
+                    """)
+                else:
+                    cursor.execute("""
+                        SELECT TOP(1000) df.field_name, COUNT(*) as field_count
+                        FROM DocumentFields df
+                        GROUP BY df.field_name
+                        ORDER BY field_count DESC, field_name
+                    """)
                 
                 field_data = cursor.fetchall()
                 
@@ -692,16 +863,32 @@ def document_search(
                         'sample_values': []
                     }
                     
-                    # Get sample values for this field (across all document types)
+                    # Get sample values for this field (across all document types).
+                    # Same allow-list constraint as the field-listing query
+                    # above — without it, a restricted agent could fish out
+                    # actual field VALUES from disallowed types.
                     sample_count = cfg.DOC_FIELD_SAMPLE_VALUES_COUNT if hasattr(cfg, 'DOC_FIELD_SAMPLE_VALUES_COUNT') else 3
-                    cursor.execute("""
-                        SELECT TOP (?) DISTINCT df.field_value
-                        FROM DocumentFields df
-                        WHERE df.field_name = ?
-                        AND df.field_value IS NOT NULL 
-                        AND df.field_value != ''
-                        ORDER BY df.field_value
-                    """, (sample_count, field_name))
+                    if dt_clause_bare:
+                        cursor.execute(f"""
+                            SELECT TOP (?) DISTINCT df.field_value
+                            FROM DocumentFields df
+                            JOIN DocumentPages dp ON df.page_id = dp.page_id
+                            JOIN Documents d ON dp.document_id = d.document_id
+                            WHERE df.field_name = ?
+                            AND df.field_value IS NOT NULL
+                            AND df.field_value != ''
+                            AND {dt_clause_bare}
+                            ORDER BY df.field_value
+                        """, (sample_count, field_name))
+                    else:
+                        cursor.execute("""
+                            SELECT TOP (?) DISTINCT df.field_value
+                            FROM DocumentFields df
+                            WHERE df.field_name = ?
+                            AND df.field_value IS NOT NULL
+                            AND df.field_value != ''
+                            ORDER BY df.field_value
+                        """, (sample_count, field_name))
                     
                     sample_values = [row[0] for row in cursor.fetchall() if row[0]]
                     field_info['sample_values'] = sample_values[:sample_count]  # Ensure we don't exceed the limit
@@ -915,7 +1102,7 @@ def document_search(
                                 JOIN DocumentPages dp ON df.page_id = dp.page_id
                                 JOIN Documents d ON dp.document_id = d.document_id
                                 WHERE ({' OR '.join(regular_conditions)})
-                                {f"AND d.document_type = '{document_type}'" if document_type else ""}
+                                {dt_clause_and}
                                 
                                 UNION
                                 
@@ -923,7 +1110,7 @@ def document_search(
                                 FROM DocumentPages dp
                                 JOIN Documents d ON dp.document_id = d.document_id
                                 WHERE {' AND '.join(not_exists_clauses)}
-                                {f"AND d.document_type = '{document_type}'" if document_type else ""}
+                                {dt_clause_and}
                             """
                             all_params = regular_params + not_exists_params
                         else:
@@ -933,7 +1120,7 @@ def document_search(
                                 FROM DocumentPages dp
                                 JOIN Documents d ON dp.document_id = d.document_id
                                 WHERE {' AND '.join(not_exists_clauses)}
-                                {f"AND d.document_type = '{document_type}'" if document_type else ""}
+                                {dt_clause_and}
                             """
                             all_params = not_exists_params
                         
@@ -954,7 +1141,7 @@ def document_search(
                             JOIN DocumentPages dp ON df.page_id = dp.page_id
                             JOIN Documents d ON dp.document_id = d.document_id
                             WHERE ({' OR '.join(query_parts)})
-                            {f"AND d.document_type = '{document_type}'" if document_type else ""}
+                            {dt_clause_and}
 
                             UNION ALL
                             
@@ -963,7 +1150,7 @@ def document_search(
                             JOIN Documents d ON da.document_id = d.document_id
                             JOIN DocumentPages dp ON d.document_id = dp.document_id
                             WHERE ({' OR '.join(attribute_query_parts)})
-                            {f"AND d.document_type = '{document_type}'" if document_type else ""}
+                            {dt_clause_and}
                         """
 
                         # TODO: This is a hack that excludes the field filters until field search can accurately match up date values (requires better formatting upon extraction)
@@ -974,7 +1161,7 @@ def document_search(
                                 FROM DocumentFields df
                                 JOIN DocumentPages dp ON df.page_id = dp.page_id
                                 JOIN Documents d ON dp.document_id = d.document_id
-                                WHERE {f"d.document_type = '{document_type}'" if document_type else "1=1"}
+                                WHERE {dt_clause_bare if dt_clause_bare else "1=1"}
                             """
                             print("==========>>>>>>>>>> SQL:")
                             print(field_filter_sql)
@@ -1030,17 +1217,21 @@ def document_search(
                 # TODO: THIS SHOULD BE HANDLED OUTSIDE BY VECTOR SEARCHING
                 # Perform full-text search if search_query is provided
                 if search_query:
-                    # Add LIMIT to control result size
+                    # Add LIMIT to control result size.
+                    # The dt_clause_and fragment carries either the
+                    # single-type filter, the agent's allow-list filter,
+                    # or both (the original `(? IS NULL OR ...)` shape only
+                    # supported a single type).
                     print('Executing search query using full text from question...', search_query, document_type, max_results)
-                    cursor.execute("""
-                        SELECT TOP (?) dp.page_id, d.document_id, d.filename, d.document_type, 
+                    cursor.execute(f"""
+                        SELECT TOP (?) dp.page_id, d.document_id, d.filename, d.document_type,
                             dp.page_number, dp.full_text, d.page_count, d.archived_path [link_to_document]
                         FROM DocumentPages dp
                         JOIN Documents d ON dp.document_id = d.document_id
                         WHERE dp.full_text LIKE ?
-                        AND (? IS NULL OR d.document_type = ?) 
+                        {dt_clause_and}
                         ORDER BY dp.page_id
-                    """, (max_results, f'%{search_query}%', document_type, document_type))
+                    """, (max_results, f'%{search_query}%'))
                     
                     for page_id, document_id, filename, doc_type, page_number, full_text, page_count, link_to_document in cursor.fetchall():
                         # Create snippet
@@ -1087,15 +1278,16 @@ def document_search(
                             pivot_sql = ", " + ", ".join(pivot_columns) if pivot_columns else ""
                             
                             query = f"""
-                                SELECT dp.page_id, d.document_id, d.filename, d.document_type, 
+                                SELECT dp.page_id, d.document_id, d.filename, d.document_type,
                                     dp.page_number, dp.full_text, d.page_count, d.archived_path AS [link_to_document]
                                     {pivot_sql}
                                 FROM DocumentPages dp
                                 JOIN Documents d ON dp.document_id = d.document_id
-                                LEFT JOIN DocumentFields df ON dp.page_id = df.page_id 
+                                LEFT JOIN DocumentFields df ON dp.page_id = df.page_id
                                     AND df.field_name IN ({','.join([f"'{field}'" for field in ai_selected_fields])})
                                 WHERE dp.page_id IN ({placeholders})
-                                GROUP BY dp.page_id, d.document_id, d.filename, d.document_type, 
+                                {dt_clause_and}
+                                GROUP BY dp.page_id, d.document_id, d.filename, d.document_type,
                                     dp.page_number, dp.full_text, d.page_count, d.archived_path
                             """
 
@@ -1107,18 +1299,19 @@ def document_search(
                             pivot_columns = []
                             for field_name in ai_selected_fields:
                                 pivot_columns.append(f"MAX(CASE WHEN df.field_name = '{field_name}' THEN df.field_value END) AS [{field_name}]")
-                            
+
                             pivot_sql = ", " + ", ".join(pivot_columns) if pivot_columns else ""
-                            
+
                             query = f"""
-                                SELECT dp.page_id, d.document_id, d.filename, d.document_type, 
+                                SELECT dp.page_id, d.document_id, d.filename, d.document_type,
                                     dp.page_number, dp.full_text, d.page_count, d.archived_path AS [link_to_document]
                                     {pivot_sql}
                                 FROM DocumentPages dp
                                 JOIN Documents d ON dp.document_id = d.document_id
-                                LEFT JOIN DocumentFields df ON dp.page_id = df.page_id 
+                                LEFT JOIN DocumentFields df ON dp.page_id = df.page_id
                                 WHERE dp.page_id IN ({placeholders})
-                                GROUP BY dp.page_id, d.document_id, d.filename, d.document_type, 
+                                {dt_clause_and}
+                                GROUP BY dp.page_id, d.document_id, d.filename, d.document_type,
                                     dp.page_number, dp.full_text, d.page_count, d.archived_path
                             """
 
@@ -1126,13 +1319,14 @@ def document_search(
                         else:
                             print('Building field filter sql with regular fields...')
                             query = f"""
-                                SELECT dp.page_id, d.document_id, d.filename, d.document_type, 
+                                SELECT dp.page_id, d.document_id, d.filename, d.document_type,
                                     dp.page_number, dp.full_text, d.page_count, d.archived_path [link_to_document]
                                 FROM DocumentPages dp
                                 JOIN Documents d ON dp.document_id = d.document_id
                                 WHERE dp.page_id IN ({placeholders})
+                                {dt_clause_and}
                             """
-                            
+
                             query_params = page_ids_list
                         
                         print(86 * '!')
@@ -1955,8 +2149,9 @@ def get_document_page_by_number_util(conn_string: str, document_id: str, page_nu
 
 
 def get_document_universe(
-    conn_string: str, 
-    document_types: Optional[List[str]] = None
+    conn_string: str,
+    document_types: Optional[List[str]] = None,
+    allowed_document_types: Optional[List[str]] = None,
 ) -> str:
     """
     Provides comprehensive metadata about the document universe to help AI understand
@@ -2004,18 +2199,45 @@ def get_document_universe(
         conn = pyodbc.connect(conn_string)
         cursor = conn.cursor()
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
-        
+
+        # ── Per-agent document-type allow list ───────────────────────────
+        # Narrow `document_types` to the intersection with the agent's
+        # allow list when one is provided. This makes every downstream
+        # query in this function ACL-safe without further changes:
+        #   - allow list only        → document_types = allow list
+        #   - both supplied          → intersection (caller wanted a
+        #                               subset, ACL clamps to allowed)
+        #   - intersection is empty  → return an empty universe rather
+        #                               than the unrestricted fallback
+        # Note: `document_types` was already used as the canonical "scope"
+        # variable throughout this function, so reassigning it here
+        # rewires every existing query at once.
+        if allowed_document_types:
+            if document_types is None:
+                document_types = list(allowed_document_types)
+            else:
+                document_types = [t for t in document_types if t in allowed_document_types]
+                if not document_types:
+                    print(f"[doc-type-acl] get_document_universe: requested types intersect allow list to empty set; returning empty universe")
+                    return json.dumps({
+                        "document_types": [],
+                        "field_metadata": [],
+                        "common_combinations": [],
+                        "search_recommendations": [],
+                        "field_value_examples": {},
+                    })
+
         # 1. Dynamically get document types with counts
         if document_types is None:
             # Get all document types if none specified
             cursor.execute("""
-                SELECT 
-                    document_type, 
+                SELECT
+                    document_type,
                     COUNT(*) as doc_count,
                     MIN(processed_at) as first_seen,
                     MAX(processed_at) as last_seen
-                FROM Documents 
-                GROUP BY document_type 
+                FROM Documents
+                GROUP BY document_type
                 ORDER BY doc_count DESC
             """)
         else:
@@ -3384,7 +3606,8 @@ def document_search_super_enhanced_debug(
         conn_string: str,
         user_question: Optional[str] = None,
         max_results: int = 800,
-        check_completeness: bool = False
+        check_completeness: bool = False,
+        allowed_document_types: Optional[List[str]] = None,
     ) -> str:
     """
     Enhanced document search that uses AI to determine the best search strategy based on the user's question.
@@ -3417,18 +3640,21 @@ def document_search_super_enhanced_debug(
     search_attempts = []
     fallback_attempts = []
     
-    # Step 1: Determine relevant document types using the specialized prompt
+    # Step 1: Determine relevant document types using the specialized prompt.
+    # When the caller (an agent wrapper) supplied an allow list we feed
+    # the planner ONLY the types it can read so the LLM can't pick a
+    # disallowed type to begin with.
     print('Getting document types...')
-    document_types_json = get_document_types()
-    
+    document_types_json = get_document_types(allowed_document_types=allowed_document_types)
+
     # Use the specialized system prompt to determine relevant document types
     system = sysp.SYS_PROMPT_DOCUMENT_TYPE_SEARCH_SYSTEM
     prompt = sysp.SYS_PROMPT_DOCUMENT_TYPE_SEARCH_PROMPT.replace(
         '{list_of_documents}', document_types_json).replace(
         '{input_question}', user_question)
-    
+
     relevant_doc_types_json = azureMiniQuickPrompt(system=system, prompt=prompt)
-    
+
     try:
         relevant_doc_types = json.loads(relevant_doc_types_json)
         if not isinstance(relevant_doc_types, list):
@@ -3441,10 +3667,34 @@ def document_search_super_enhanced_debug(
         relevant_doc_types = []
         search_attempts.append("Failed to parse document type suggestions - proceeding with all document types")
         print('Failed to parse document type suggestions - proceeding with all document types')
-    
+
+    # ── Per-agent ACL: intersect planner picks with the allow list ──────
+    # Belt-and-braces over the get_document_types() narrowing above: even
+    # if the LLM returns a disallowed type via hallucination, we strip
+    # it here. Empty intersection falls back to the full allow list so
+    # the search remains useful instead of returning nothing.
+    if allowed_document_types:
+        before = list(relevant_doc_types)
+        relevant_doc_types = [t for t in relevant_doc_types if t in allowed_document_types]
+        if not relevant_doc_types:
+            relevant_doc_types = list(allowed_document_types)
+            search_attempts.append(
+                f"[doc-type-acl] planner picks {before} not in allow list "
+                f"{allowed_document_types}; falling back to full allow list"
+            )
+        elif before != relevant_doc_types:
+            search_attempts.append(
+                f"[doc-type-acl] planner picks intersected with allow list: "
+                f"{before} -> {relevant_doc_types}"
+            )
+
     # Step 2: Get document universe metadata for available fields and other metadata
     print('Getting document universe...')
-    universe_json = get_document_universe(conn_string, document_types=relevant_doc_types if relevant_doc_types else None)
+    universe_json = get_document_universe(
+        conn_string,
+        document_types=relevant_doc_types if relevant_doc_types else None,
+        allowed_document_types=allowed_document_types,
+    )
     universe_data = json.loads(universe_json)
     print('Universe Data: <disabled print>')
     
@@ -3664,7 +3914,8 @@ def document_search_super_enhanced_debug(
                             max_results=max_results // (len(semantic_terms) * len(relevant_doc_types)),
                             user_question=user_question,
                             check_completeness=False,
-                            ai_selected_fields=ai_selected_fields
+                            ai_selected_fields=ai_selected_fields,
+                            allowed_document_types=allowed_document_types,
                         )
                         
                         try:
@@ -3696,6 +3947,9 @@ def document_search_super_enhanced_debug(
                         VECTOR_SEARCH_ERROR = True
 
                 if VECTOR_SEARCH_ERROR:
+                    # Global recursive call: only fires when the calling
+                    # agent has no allow list (relevant_doc_types empty),
+                    # but pass the ACL kwarg anyway for defense-in-depth.
                     search_result_json = document_search(
                         conn_string=conn_string,
                         document_type=None,
@@ -3705,7 +3959,8 @@ def document_search_super_enhanced_debug(
                         max_results=max_results // len(semantic_terms),
                         user_question=user_question,
                         check_completeness=False,
-                        ai_selected_fields=ai_selected_fields
+                        ai_selected_fields=ai_selected_fields,
+                        allowed_document_types=allowed_document_types,
                     )
                     
                     try:
@@ -3761,7 +4016,8 @@ def document_search_super_enhanced_debug(
                     max_results=max_results,
                     user_question=user_question,
                     check_completeness=False,
-                    ai_selected_fields=ai_selected_fields
+                    ai_selected_fields=ai_selected_fields,
+                    allowed_document_types=allowed_document_types,
                 )
                 
                 try:
@@ -3817,7 +4073,8 @@ def document_search_super_enhanced_debug(
                         max_results=max_results,
                         user_question=user_question,
                         check_completeness=False,
-                        ai_selected_fields=ai_selected_fields
+                        ai_selected_fields=ai_selected_fields,
+                        allowed_document_types=allowed_document_types,
                     )
                     
                     try:
@@ -3864,7 +4121,8 @@ def document_search_super_enhanced_debug(
                             max_results=max_results // (len(key_terms) * len(relevant_doc_types or [None])),
                             user_question=user_question,
                             check_completeness=False,
-                            ai_selected_fields=ai_selected_fields
+                            ai_selected_fields=ai_selected_fields,
+                            allowed_document_types=allowed_document_types,
                         )
                         
                         try:
@@ -3893,7 +4151,8 @@ def document_search_super_enhanced_debug(
                 max_results=max_results,
                 user_question=user_question,
                 check_completeness=False,
-                ai_selected_fields=ai_selected_fields
+                ai_selected_fields=ai_selected_fields,
+                allowed_document_types=allowed_document_types,
             )
             
             try:
@@ -3926,7 +4185,7 @@ def document_search_super_enhanced_debug(
                 for field_name in common_id_fields:
                     if field_name in available_field_names:
                         existence_filter = [{"field_name": field_name, "operator": "is_not_null"}]
-                        
+
                         fallback_result_json = document_search(
                             conn_string=conn_string,
                             document_type=doc_type,
@@ -3936,7 +4195,8 @@ def document_search_super_enhanced_debug(
                             max_results=max_results // len(relevant_doc_types),
                             user_question=user_question,
                             check_completeness=False,
-                            ai_selected_fields=ai_selected_fields
+                            ai_selected_fields=ai_selected_fields,
+                            allowed_document_types=allowed_document_types,
                         )
                         
                         try:

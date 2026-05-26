@@ -211,3 +211,4 @@ data/model_overrides.json
 # Claude Code tool config
 .claude/
 training/data/
+training/runs/

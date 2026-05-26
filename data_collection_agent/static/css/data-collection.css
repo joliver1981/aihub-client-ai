@@ -1,0 +1,1401 @@
+/* =========================================================
+   Data Collection Agent — runtime page styles
+
+   Builds on the platform's existing chat-theme.css
+   (CSS custom properties for colors, fonts, etc.).
+   ========================================================= */
+
+.dca-page {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-primary, #0a0a0c);
+    color: var(--text-primary, #fafafa);
+    font-family: 'Outfit', sans-serif;
+    /* Wide content (tables, long URLs, code blocks) inside the chat must
+       NOT push the whole app sideways and pop the progress panel off
+       screen. Scroll containment lives on .dca-messages / .dca-msg-bubble
+       below; the page itself never scrolls horizontally. */
+    overflow: hidden;
+}
+
+/* ------------------------- Header ------------------------- */
+.dca-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1.25rem;
+    background: var(--bg-card, #18181b);
+    border-bottom: 1px solid var(--border-color, #27272a);
+}
+.dca-header-left { display: flex; align-items: center; gap: 0.75rem; }
+.dca-header-icon { font-size: 1.4rem; color: var(--cyber-cyan, #06b6d4); }
+.dca-header-title { margin: 0; font-size: 1.05rem; font-weight: 600; }
+.dca-header-subtitle { font-size: 0.78rem; color: var(--text-tertiary, #71717a); }
+
+.dca-header-right { display: flex; align-items: center; gap: 0.75rem; }
+.dca-progress-bar-wrap { display: flex; align-items: center; gap: 0.5rem; }
+.dca-progress-bar {
+    width: 200px; height: 6px;
+    background: var(--border-color, #27272a);
+    border-radius: 999px; overflow: hidden;
+}
+.dca-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--cyber-cyan, #06b6d4), var(--cyber-violet, #a78bfa));
+    width: 0%;
+    transition: width 250ms ease-out;
+}
+.dca-progress-label {
+    font-size: 0.75rem; color: var(--text-secondary, #a1a1aa);
+    min-width: 36px; text-align: right; font-family: 'JetBrains Mono', monospace;
+}
+
+/* --------------------------- Error banner --------------------------- */
+.dca-error-banner {
+    margin: 1rem 1.25rem;
+    padding: 1rem 1.25rem;
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    border-radius: 8px;
+    color: #fca5a5;
+}
+.dca-error-banner code {
+    background: rgba(255, 255, 255, 0.05);
+    padding: 0 4px; border-radius: 3px;
+}
+.dca-error-banner a { color: var(--cyber-cyan, #06b6d4); text-decoration: underline; }
+
+/* --------------------------- Layout --------------------------- */
+.dca-layout {
+    display: grid;
+    grid-template-columns: 220px 1fr 360px;
+    flex: 1; min-height: 0;
+    gap: 0;
+}
+
+/* ------------------------- Left sidebar ------------------------- */
+.dca-sidebar {
+    background: var(--bg-card, #18181b);
+    border-right: 1px solid var(--border-color, #27272a);
+    padding: 1rem 0.75rem;
+    overflow-y: auto;
+}
+.dca-sidebar-section { margin-bottom: 1.25rem; }
+.dca-sidebar-section-title {
+    font-size: 0.7rem; font-weight: 600;
+    color: var(--text-tertiary, #71717a);
+    text-transform: uppercase; letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+}
+.dca-sidebar-help {
+    font-size: 0.78rem; color: var(--text-secondary, #a1a1aa);
+    line-height: 1.4;
+}
+
+/* ----------------------------- Buttons ----------------------------- */
+.dca-btn-sm {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 0.4rem;
+    width: 100%;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-color, #27272a);
+    color: var(--text-primary, #fafafa);
+    padding: 0.4rem 0.6rem;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    cursor: pointer;
+    margin-bottom: 0.4rem;
+    transition: background 120ms ease;
+    text-decoration: none;
+}
+.dca-btn-sm:hover { background: rgba(6, 182, 212, 0.1); border-color: var(--cyber-cyan, #06b6d4); }
+
+.dca-btn-primary {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 0.4rem;
+    background: linear-gradient(135deg, var(--cyber-cyan, #06b6d4), var(--cyber-violet, #a78bfa));
+    color: #0a0a0c;
+    border: none;
+    padding: 0.6rem 1rem;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 80ms ease;
+}
+.dca-btn-primary:hover { transform: translateY(-1px); }
+.dca-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+/* ------------------------- Chat (main) ------------------------- */
+.dca-chat {
+    display: flex; flex-direction: column;
+    background: var(--bg-primary, #0a0a0c);
+    min-height: 0;
+    /* Critical: a grid column without min-width:0 will grow to fit the
+       widest child. Without this, a wide table emitted by the agent
+       blows out the chat column and pushes the right-side progress
+       panel off-screen. Forcing min-width:0 makes the column respect
+       its grid-template-columns size, and the wide content scrolls
+       inside the message bubble below. */
+    min-width: 0;
+    overflow: hidden;
+}
+.dca-messages {
+    flex: 1; overflow-y: auto; overflow-x: hidden;
+    padding: 1.25rem;
+    scrollbar-width: thin;
+    min-width: 0;
+}
+.dca-msg-row { display: flex; margin-bottom: 0.9rem; }
+.dca-msg-row.user { justify-content: flex-end; }
+.dca-msg-bubble {
+    max-width: 70%;
+    padding: 0.75rem 1rem;
+    border-radius: 12px;
+    line-height: 1.5;
+    font-size: 0.9rem;
+    word-wrap: break-word;
+}
+.dca-msg-row.assistant .dca-msg-bubble {
+    background: var(--bg-card, #18181b);
+    border: 1px solid var(--border-color, #27272a);
+}
+.dca-msg-row.user .dca-msg-bubble {
+    background: linear-gradient(135deg, rgba(6, 182, 212, 0.15), rgba(167, 139, 250, 0.15));
+    border: 1px solid rgba(6, 182, 212, 0.4);
+}
+.dca-msg-row.system .dca-msg-bubble {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px dashed var(--border-color, #27272a);
+    color: var(--text-tertiary, #71717a);
+    font-size: 0.78rem;
+    font-style: italic;
+    max-width: 90%;
+}
+.dca-rich-content {
+    margin-top: 0.5rem;
+    /* Wide tables emitted by the agent (lookup data, recommendations, etc.)
+       scroll horizontally INSIDE the bubble — they no longer push the
+       chat column wider, which used to shove the progress panel off
+       screen. */
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+.dca-rich-content table {
+    /* Tables size to their content; their wrapper above scrolls. */
+    max-width: none;
+}
+
+.dca-typing {
+    display: inline-flex; gap: 4px; padding: 0.5rem 0.75rem;
+    background: var(--bg-card, #18181b);
+    border-radius: 12px; border: 1px solid var(--border-color, #27272a);
+}
+.dca-typing-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--text-tertiary, #71717a);
+    animation: dca-bounce 1.4s infinite ease-in-out;
+}
+.dca-typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.dca-typing-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes dca-bounce {
+    0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
+    40% { transform: scale(1); opacity: 1; }
+}
+
+/* --------------------------- Composer --------------------------- */
+.dca-composer {
+    display: flex; gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    border-top: 1px solid var(--border-color, #27272a);
+    background: var(--bg-card, #18181b);
+}
+.dca-composer textarea {
+    flex: 1;
+    background: var(--bg-primary, #0a0a0c);
+    border: 1px solid var(--border-color, #27272a);
+    color: var(--text-primary, #fafafa);
+    border-radius: 8px;
+    padding: 0.6rem 0.75rem;
+    font-family: inherit;
+    font-size: 0.9rem;
+    resize: none;
+    outline: none;
+}
+.dca-composer textarea:focus {
+    border-color: var(--cyber-cyan, #06b6d4);
+    box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.2);
+}
+.dca-composer button { align-self: stretch; min-width: 48px; }
+
+.dca-submit-banner {
+    margin: 0.75rem 1.25rem;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    background: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(167, 139, 250, 0.1));
+    border: 1px solid rgba(6, 182, 212, 0.3);
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 1rem;
+}
+.dca-submit-banner-help {
+    margin: 0.2rem 0 0 0;
+    font-size: 0.78rem;
+    color: var(--text-secondary, #a1a1aa);
+}
+
+/* --------------------------- Progress Panel --------------------------- */
+.dca-progress-panel {
+    background: var(--bg-card, #18181b);
+    border-left: 1px solid var(--border-color, #27272a);
+    overflow-y: auto;
+    padding: 1rem 0.75rem;
+    scrollbar-width: thin;
+}
+.dca-progress-header {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 0.8rem; font-weight: 600;
+    color: var(--text-secondary, #a1a1aa);
+    margin-bottom: 0.75rem;
+    padding: 0 0.25rem;
+}
+.dca-progress-counter {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--text-tertiary, #71717a);
+}
+
+.dca-section {
+    border: 1px solid var(--border-color, #27272a);
+    border-radius: 8px;
+    margin-bottom: 0.5rem;
+    background: rgba(255, 255, 255, 0.01);
+    overflow: hidden;
+}
+.dca-section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.6rem 0.75rem;
+    cursor: pointer;
+    user-select: none;
+    transition: background 120ms ease;
+}
+.dca-section-header:hover { background: rgba(255, 255, 255, 0.03); }
+.dca-section.complete { border-color: rgba(34, 197, 94, 0.4); }
+.dca-section.in_progress { border-color: var(--cyber-cyan, #06b6d4); }
+.dca-section-status-icon {
+    font-size: 0.8rem; min-width: 16px; text-align: center;
+}
+.dca-section.complete .dca-section-status-icon { color: #22c55e; }
+.dca-section.in_progress .dca-section-status-icon { color: var(--cyber-cyan, #06b6d4); }
+.dca-section.not_started .dca-section-status-icon { color: var(--text-tertiary, #71717a); }
+.dca-section-title { font-size: 0.85rem; font-weight: 500; flex: 1; padding: 0 0.5rem; }
+.dca-section-edit-btn {
+    background: transparent; border: none;
+    color: var(--text-tertiary, #71717a);
+    cursor: pointer; font-size: 0.75rem;
+    padding: 0.2rem 0.4rem; border-radius: 4px;
+}
+.dca-section-edit-btn:hover { color: var(--cyber-cyan, #06b6d4); background: rgba(6, 182, 212, 0.08); }
+.dca-section.complete .dca-section-edit-btn { display: inline-block; }
+.dca-section:not(.complete) .dca-section-edit-btn { display: none; }
+
+.dca-section-body {
+    padding: 0 0.75rem 0.6rem 0.75rem;
+    border-top: 1px dashed var(--border-color, #27272a);
+}
+.dca-section.collapsed .dca-section-body { display: none; }
+
+.dca-field-row {
+    display: flex; justify-content: space-between; gap: 0.5rem;
+    padding: 0.3rem 0;
+    font-size: 0.78rem;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 100ms;
+}
+.dca-field-row:hover { background: rgba(255, 255, 255, 0.04); padding-left: 0.4rem; padding-right: 0.4rem; }
+.dca-field-label { color: var(--text-tertiary, #71717a); flex-shrink: 0; }
+.dca-field-value {
+    color: var(--text-primary, #fafafa);
+    font-weight: 500;
+    text-align: right;
+    word-break: break-word;
+}
+.dca-field-value.empty { color: var(--text-tertiary, #71717a); font-style: italic; font-weight: 400; }
+.dca-field-value.error { color: #f87171; }
+.dca-field-required-missing {
+    background: rgba(239, 68, 68, 0.1);
+    color: #fca5a5;
+    padding: 0 4px;
+    border-radius: 3px;
+}
+
+/* --------------------------- Modal --------------------------- */
+.dca-modal {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 1000;
+    display: flex; align-items: center; justify-content: center;
+}
+.dca-modal-card {
+    background: var(--bg-card, #18181b);
+    border: 1px solid var(--border-color, #27272a);
+    border-radius: 10px;
+    padding: 0;
+    min-width: 400px; max-width: 600px;
+    color: var(--text-primary, #fafafa);
+}
+.dca-modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid var(--border-color, #27272a);
+    font-weight: 600;
+}
+.dca-modal-body { padding: 1rem; }
+.dca-modal-body label {
+    display: block; font-size: 0.78rem; color: var(--text-tertiary, #71717a);
+    margin-bottom: 0.4rem;
+}
+.dca-modal-body input,
+.dca-modal-body textarea,
+.dca-modal-body select {
+    width: 100%;
+    background: var(--bg-primary, #0a0a0c);
+    border: 1px solid var(--border-color, #27272a);
+    color: var(--text-primary, #fafafa);
+    border-radius: 6px;
+    padding: 0.5rem 0.6rem;
+    font-family: inherit; font-size: 0.9rem;
+    outline: none;
+}
+.dca-modal-body input:focus,
+.dca-modal-body textarea:focus,
+.dca-modal-body select:focus {
+    border-color: var(--cyber-cyan, #06b6d4);
+    box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.2);
+}
+.dca-modal-error {
+    margin-top: 0.5rem;
+    color: #fca5a5; font-size: 0.78rem;
+}
+.dca-modal-footer {
+    display: flex; justify-content: flex-end; gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-top: 1px solid var(--border-color, #27272a);
+}
+
+/* --------------------------- Submission overlay --------------------------- */
+.dca-submission-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.75);
+    z-index: 1100;
+    display: flex; align-items: center; justify-content: center;
+}
+.dca-submission-card {
+    background: var(--bg-card, #18181b);
+    border: 1px solid var(--border-color, #27272a);
+    border-radius: 12px;
+    padding: 1.5rem;
+    min-width: 420px; max-width: 600px;
+    color: var(--text-primary, #fafafa);
+}
+.dca-submission-card h2 {
+    margin: 0 0 1rem 0;
+    font-size: 1.1rem; font-weight: 600;
+}
+.dca-submission-actions {
+    list-style: none; padding: 0; margin: 0 0 1rem 0;
+}
+.dca-submission-actions li {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border-color, #27272a);
+    display: flex; align-items: center; gap: 0.6rem;
+    font-size: 0.85rem;
+}
+.dca-submission-actions li.success .dca-submission-icon { color: #22c55e; }
+.dca-submission-actions li.error .dca-submission-icon { color: #f87171; }
+.dca-submission-actions li.pending .dca-submission-icon { color: var(--cyber-cyan, #06b6d4); }
+.dca-submission-icon {
+    width: 18px; min-width: 18px; text-align: center;
+}
+.dca-submission-message {
+    padding: 0.75rem;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    margin-bottom: 0.75rem;
+    color: var(--text-secondary, #a1a1aa);
+}
+
+/* --------------------------- Light mode --------------------------- */
+body.light-mode .dca-page { background: #f8fafc; color: #0f172a; }
+body.light-mode .dca-header,
+body.light-mode .dca-sidebar,
+body.light-mode .dca-progress-panel,
+body.light-mode .dca-composer,
+body.light-mode .dca-modal-card,
+body.light-mode .dca-submission-card { background: #ffffff; border-color: #e5e7eb; }
+body.light-mode .dca-msg-row.assistant .dca-msg-bubble { background: #ffffff; border-color: #e5e7eb; }
+body.light-mode .dca-composer textarea,
+body.light-mode .dca-modal-body input,
+body.light-mode .dca-modal-body textarea,
+body.light-mode .dca-modal-body select { background: #f8fafc; border-color: #e5e7eb; color: #0f172a; }
+body.light-mode .dca-section { background: #ffffff; }
+body.light-mode .dca-field-label { color: #64748b; }
+body.light-mode .dca-field-value { color: #0f172a; }
+
+/* =========================================================
+   Voice mode (Phase 2)
+
+   The voice composer replaces the text composer when voice mode is on.
+   Mic button has discrete visual states (idle / listening / processing /
+   speaking / error) driven by data-state attribute.
+   ========================================================= */
+
+.dca-voice-composer {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 1.25rem 1rem calc(1.25rem + env(safe-area-inset-bottom, 0)) 1rem;
+    border-top: 1px solid var(--border-color, #27272a);
+    background: var(--bg-card, #18181b);
+}
+
+.dca-voice-mic {
+    width: 84px; height: 84px;
+    border-radius: 50%;
+    border: none;
+    background: linear-gradient(135deg, var(--cyber-cyan, #06b6d4), var(--cyber-violet, #a78bfa));
+    color: #0a0a0c;
+    font-size: 1.6rem;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 12px rgba(6, 182, 212, 0.25);
+    transition: transform 120ms ease, box-shadow 120ms ease;
+    position: relative;
+}
+.dca-voice-mic:hover { transform: scale(1.04); }
+.dca-voice-mic:active { transform: scale(0.96); }
+
+/* States — driven by data-state on the button */
+.dca-voice-mic[data-state="idle"] {
+    /* default — gradient + cyan glow */
+}
+.dca-voice-mic[data-state="listening"] {
+    background: linear-gradient(135deg, #ef4444, #f87171);
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+    animation: dca-mic-pulse 1.5s infinite ease-in-out;
+}
+.dca-voice-mic[data-state="processing"] {
+    background: linear-gradient(135deg, #71717a, #a1a1aa);
+}
+.dca-voice-mic[data-state="processing"] i { animation: dca-spin 1s linear infinite; }
+.dca-voice-mic[data-state="speaking"] {
+    background: linear-gradient(135deg, #3b82f6, #06b6d4);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+    animation: dca-mic-pulse 1.2s infinite ease-in-out;
+}
+.dca-voice-mic[data-state="error"] {
+    background: linear-gradient(135deg, #dc2626, #f87171);
+}
+
+@keyframes dca-mic-pulse {
+    0%, 100% { box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4), 0 0 0 0 rgba(239, 68, 68, 0.5); }
+    50%      { box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4), 0 0 0 16px rgba(239, 68, 68, 0); }
+}
+@keyframes dca-spin {
+    to { transform: rotate(360deg); }
+}
+
+.dca-voice-state {
+    color: var(--text-secondary, #a1a1aa);
+    font-size: 0.85rem;
+    min-height: 1.2em;
+}
+.dca-voice-cancel {
+    background: transparent;
+    border: 1px solid var(--border-color, #27272a);
+    color: var(--text-tertiary, #71717a);
+    padding: 0.4rem 0.85rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    cursor: pointer;
+    display: inline-flex; align-items: center; gap: 0.4rem;
+}
+.dca-voice-cancel:hover { color: var(--cyber-cyan, #06b6d4); border-color: var(--cyber-cyan, #06b6d4); }
+
+/* Voice toggle button in header — pressed state */
+#dcaVoiceToggle[aria-pressed="true"] {
+    color: var(--cyber-cyan, #06b6d4);
+    background: rgba(6, 182, 212, 0.12);
+    border-radius: 6px;
+}
+#dcaMuteToggle[aria-pressed="true"] {
+    color: #f87171;
+}
+
+/* Voice toggle when the page isn't a secure context (HTTPS / localhost).
+   Dimmed + a small overlay icon so users see it's gated before they click.
+   Click still works — it shows an explanatory banner. */
+#dcaVoiceToggle.dca-voice-unavailable {
+    opacity: 0.45;
+    position: relative;
+}
+#dcaVoiceToggle.dca-voice-unavailable::after {
+    content: '\f071';  /* fa-triangle-exclamation */
+    font-family: 'Font Awesome 6 Free', 'Font Awesome 5 Free', sans-serif;
+    font-weight: 900;
+    position: absolute;
+    bottom: -2px;
+    right: -2px;
+    font-size: 0.55rem;
+    color: #fbbf24;
+    background: var(--bg-card, #18181b);
+    border-radius: 50%;
+    width: 12px; height: 12px;
+    display: flex; align-items: center; justify-content: center;
+}
+
+/* Phone-friendly tweaks */
+@media (max-width: 767px) {
+    .dca-voice-mic { width: 96px; height: 96px; font-size: 1.8rem; }
+    .dca-voice-state { font-size: 0.95rem; }
+}
+
+/* =========================================================
+   Responsive (Phase 1.1)
+
+   Breakpoints:
+     - Desktop  (>= 1024px): three-panel grid (sidebar + chat + progress)
+     - Tablet   (768-1023px): two-panel (chat + progress drawer)
+     - Phone    (< 768px): single-column, both sidebars become drawers
+
+   On smaller screens the sidebars become slide-in drawers controlled by
+   `body.dca-show-sidebar` / `body.dca-show-progress` classes that JS toggles
+   via the hamburger / progress buttons added to the mobile header.
+   ========================================================= */
+
+/* Mobile-only header buttons — hidden by default on desktop */
+.dca-mobile-only-btn { display: none !important; }
+
+/* Backdrop that dims chat when a drawer is open */
+.dca-drawer-backdrop {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 100;
+}
+body.dca-show-sidebar .dca-drawer-backdrop,
+body.dca-show-progress .dca-drawer-backdrop { display: block; }
+
+/* ============== Tablet: 768–1023px ============== */
+@media (max-width: 1023px) {
+    .dca-layout {
+        /* Drop the left sidebar from the grid; chat takes its space */
+        grid-template-columns: 1fr 320px;
+    }
+    .dca-sidebar {
+        position: fixed; top: 0; left: 0;
+        width: 240px; height: 100vh;
+        z-index: 110;
+        transform: translateX(-100%);
+        transition: transform 200ms ease-out;
+    }
+    body.dca-show-sidebar .dca-sidebar { transform: translateX(0); }
+
+    .dca-mobile-only-btn { display: inline-flex !important; }
+    /* Slightly tighter progress panel on tablet */
+    .dca-progress-bar { width: 140px; }
+}
+
+/* ============== Phone: < 768px ============== */
+@media (max-width: 767px) {
+    .dca-layout {
+        /* Single column — chat fills the screen */
+        grid-template-columns: 1fr;
+    }
+
+    .dca-header { padding: 0.6rem 0.75rem; }
+    .dca-header-title { font-size: 0.95rem; }
+    .dca-header-subtitle { font-size: 0.72rem; }
+    .dca-progress-bar-wrap { display: none; }   /* progress lives in the panel; header is too cramped */
+
+    .dca-sidebar {
+        width: 280px;
+        max-width: 85vw;
+    }
+
+    .dca-progress-panel {
+        position: fixed; top: 0; right: 0;
+        width: 320px; max-width: 90vw; height: 100vh;
+        z-index: 110;
+        transform: translateX(100%);
+        transition: transform 200ms ease-out;
+        border-left: 1px solid var(--border-color, #27272a);
+        box-shadow: -4px 0 16px rgba(0,0,0,0.4);
+    }
+    body.dca-show-progress .dca-progress-panel { transform: translateX(0); }
+
+    .dca-messages { padding: 0.85rem; }
+    .dca-msg-bubble { max-width: 85%; font-size: 0.95rem; }
+
+    .dca-composer {
+        padding: 0.6rem 0.75rem;
+        gap: 0.4rem;
+        /* Honor the iOS safe-area inset so the input isn't under the home bar */
+        padding-bottom: calc(0.6rem + env(safe-area-inset-bottom, 0));
+    }
+    .dca-composer textarea {
+        /* 16px prevents iOS Safari from auto-zooming the page on focus */
+        font-size: 16px;
+        padding: 0.55rem 0.7rem;
+    }
+    .dca-composer button {
+        min-width: 44px; min-height: 44px;   /* WCAG 2.5.5 / Apple HIG touch target */
+    }
+
+    .dca-submit-banner {
+        margin: 0.5rem 0.75rem;
+        padding: 0.6rem 0.75rem;
+        flex-direction: column;
+        align-items: stretch; gap: 0.5rem;
+    }
+    .dca-submit-banner .dca-btn-primary { width: 100%; min-height: 44px; }
+
+    /* Modals — fill the screen on phones */
+    .dca-modal-card {
+        min-width: 0;
+        width: 92vw;
+        max-width: 92vw;
+        max-height: 92vh;
+        overflow-y: auto;
+    }
+    .dca-modal-card-wide {
+        min-width: 0;
+        width: 92vw;
+        max-width: 92vw;
+    }
+    .dca-modal-body { max-height: 70vh; overflow-y: auto; }
+
+    .dca-submission-card {
+        min-width: 0;
+        width: 92vw;
+        max-width: 92vw;
+    }
+
+    /* Buttons in section progress cards — keep finger-tap-able */
+    .dca-section-edit-btn { padding: 0.4rem 0.55rem; font-size: 0.85rem; }
+
+    /* Use system font on phones for native feel */
+    body, .dca-page {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+            Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+    }
+}
+
+/* ============== Very small phone: < 380px (e.g. iPhone SE) ============== */
+@media (max-width: 379px) {
+    .dca-header-title { font-size: 0.9rem; }
+    .dca-header-icon { font-size: 1.15rem; }
+    .dca-msg-bubble { max-width: 90%; }
+}
+
+/* ============== Rich content — DCA-specific block types ============== */
+/* These render INSIDE assistant chat bubbles via DcaRichRenderer (see
+   dca-rich-renderer.js). Keep visuals consistent with chat-theme. */
+
+.dca-rich {
+    margin: 0.6rem 0;
+    font-family: 'Outfit', sans-serif;
+    color: var(--text-primary, #fafafa);
+}
+
+/* ----- info_card ----- */
+.dca-info-card {
+    display: grid;
+    grid-template-columns: 36px 1fr;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+    border-radius: 10px;
+    background: var(--bg-card, #18181b);
+    border: 1px solid var(--border-color, #27272a);
+    border-left: 3px solid var(--brand-accent, var(--cyber-violet, #a78bfa));
+}
+.dca-info-card-icon {
+    display: flex; align-items: flex-start; justify-content: center;
+    color: var(--brand-accent, var(--cyber-violet, #a78bfa));
+    font-size: 1.25rem; line-height: 1.4;
+}
+.dca-info-card-title {
+    font-weight: 600; font-size: 0.95rem;
+    margin-bottom: 0.2rem;
+}
+.dca-info-card-text { font-size: 0.88rem; line-height: 1.5; }
+.dca-info-card-text p { margin: 0 0 0.4rem 0; }
+.dca-info-card-text p:last-child { margin-bottom: 0; }
+.dca-info-card-footnote {
+    font-size: 0.72rem;
+    color: var(--text-tertiary, #71717a);
+    margin-top: 0.5rem;
+}
+.dca-kind-tip     .dca-info-card-icon,
+.dca-kind-tip { border-left-color: #fbbf24; }
+.dca-kind-tip     .dca-info-card-icon { color: #fbbf24; }
+.dca-kind-warning { border-left-color: #f87171; }
+.dca-kind-warning .dca-info-card-icon { color: #f87171; }
+.dca-kind-success { border-left-color: #34d399; }
+.dca-kind-success .dca-info-card-icon { color: #34d399; }
+
+/* ----- option_detail (single card explaining one option) ----- */
+.dca-option-detail {
+    background: var(--bg-card, #18181b);
+    border: 1px solid var(--border-color, #27272a);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+    overflow: hidden;
+}
+.dca-od-header {
+    display: flex; align-items: center; gap: 0.55rem;
+    font-size: 1rem; font-weight: 600;
+    margin-bottom: 0.35rem;
+}
+.dca-od-header i {
+    color: var(--brand-primary, var(--cyber-cyan, #06b6d4));
+}
+.dca-od-desc {
+    font-size: 0.88rem; color: var(--text-secondary, #a1a1aa);
+    line-height: 1.5; margin-bottom: 0.55rem;
+}
+.dca-od-fields {
+    display: grid; grid-template-columns: 1fr;
+    gap: 0.25rem;
+    margin: 0.45rem 0;
+}
+.dca-od-field {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 0.82rem;
+    padding: 0.25rem 0;
+    border-bottom: 1px dashed rgba(255,255,255,0.05);
+}
+.dca-od-field span { color: var(--text-tertiary, #71717a); }
+.dca-od-field b    { color: var(--text-primary, #fafafa); font-weight: 500; }
+.dca-od-when, .dca-od-examples {
+    font-size: 0.82rem; color: var(--text-secondary, #a1a1aa);
+    margin-top: 0.5rem; line-height: 1.5;
+}
+.dca-od-when b, .dca-od-examples b {
+    color: var(--text-primary, #fafafa);
+    font-weight: 600;
+}
+.dca-od-examples ul {
+    margin: 0.25rem 0 0 1.2rem; padding: 0;
+    list-style: disc;
+}
+.dca-od-examples li { padding: 0.1rem 0; }
+
+/* ----- comparison (side-by-side option cards) ----- */
+.dca-comparison-title {
+    font-size: 0.85rem; font-weight: 600;
+    color: var(--text-secondary, #a1a1aa);
+    margin-bottom: 0.5rem;
+}
+.dca-comparison-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.6rem;
+}
+.dca-cmp-card {
+    background: var(--bg-card, #18181b);
+    border: 1px solid var(--border-color, #27272a);
+    border-radius: 10px;
+    padding: 0.85rem 0.95rem;
+    display: flex; flex-direction: column;
+}
+.dca-cmp-card:hover {
+    border-color: var(--brand-primary, var(--cyber-cyan, #06b6d4));
+}
+.dca-cmp-card-header {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-weight: 600; font-size: 0.95rem;
+    margin-bottom: 0.35rem;
+}
+.dca-cmp-card-header i {
+    color: var(--brand-primary, var(--cyber-cyan, #06b6d4));
+}
+.dca-cmp-desc {
+    font-size: 0.82rem; color: var(--text-secondary, #a1a1aa);
+    line-height: 1.5;
+}
+
+/* ----- field_help ----- */
+.dca-field-help {
+    background: var(--bg-card, #18181b);
+    border: 1px solid var(--border-color, #27272a);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+}
+.dca-fh-header {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: 0.95rem; font-weight: 600;
+    margin-bottom: 0.55rem;
+    flex-wrap: wrap;
+}
+.dca-fh-header i {
+    color: var(--brand-primary, var(--cyber-cyan, #06b6d4));
+}
+.dca-fh-pill {
+    font-size: 0.65rem; font-weight: 500;
+    padding: 0.1rem 0.5rem; border-radius: 999px;
+    background: rgba(255,255,255,0.05);
+    color: var(--text-secondary, #a1a1aa);
+}
+.dca-fh-pill.required { background: rgba(244,114,182,0.18); color: #fbcfe8; }
+.dca-fh-pill.optional { background: rgba(167,139,250,0.18); color: #ddd6fe; }
+.dca-fh-pill.type     { background: rgba(6,182,212,0.18);   color: #a5f3fc; }
+.dca-fh-body {
+    font-size: 0.88rem; line-height: 1.5;
+    color: var(--text-primary, #fafafa);
+    margin-bottom: 0.5rem;
+}
+.dca-fh-body p { margin: 0 0 0.4rem 0; }
+.dca-fh-body p:last-child { margin-bottom: 0; }
+.dca-fh-section {
+    font-size: 0.83rem;
+    color: var(--text-secondary, #a1a1aa);
+    margin-top: 0.4rem;
+    line-height: 1.5;
+}
+.dca-fh-section b {
+    color: var(--text-primary, #fafafa);
+    font-weight: 600;
+}
+.dca-fh-section ul {
+    margin: 0.25rem 0 0 1.2rem; padding: 0;
+    list-style: disc;
+}
+.dca-fh-section li { padding: 0.1rem 0; }
+
+/* ----- tip_callout ----- */
+.dca-tip-callout {
+    display: flex; gap: 0.65rem; align-items: flex-start;
+    background: rgba(251,191,36,0.08);
+    border: 1px solid rgba(251,191,36,0.3);
+    color: #fde68a;
+    padding: 0.7rem 0.95rem;
+    border-radius: 8px;
+    font-size: 0.86rem;
+}
+.dca-tip-callout i { font-size: 1.05rem; margin-top: 0.1rem; }
+.dca-tc-title { font-weight: 600; margin-bottom: 0.15rem; }
+.dca-tc-msg p { margin: 0 0 0.3rem 0; }
+.dca-tc-msg p:last-child { margin-bottom: 0; }
+.dca-tip-callout.dca-kind-info {
+    background: rgba(6,182,212,0.08);
+    border-color: rgba(6,182,212,0.3);
+    color: #a5f3fc;
+}
+.dca-tip-callout.dca-kind-warning {
+    background: rgba(239,68,68,0.08);
+    border-color: rgba(239,68,68,0.3);
+    color: #fca5a5;
+}
+.dca-tip-callout.dca-kind-success {
+    background: rgba(34,197,94,0.08);
+    border-color: rgba(34,197,94,0.3);
+    color: #bbf7d0;
+}
+
+/* ----- table (DCA-rendered) -----
+   We render `table` blocks ourselves rather than via the platform's
+   richContent.css because the platform's dark-theme rules are gated on
+   selectors (.doc-page, .chat-page, .theme-dark) that don't match
+   .dca-page. With the platform renderer, tables came back styled as
+   light-on-light and were effectively invisible. This block is
+   self-contained for the runtime page. */
+.dca-table {
+    background: var(--bg-card, #18181b);
+    border: 1px solid var(--border-color, #27272a);
+    border-radius: 10px;
+    overflow: hidden;
+}
+.dca-table-title {
+    padding: 0.65rem 0.95rem;
+    font-size: 0.8rem; font-weight: 600;
+    color: var(--brand-accent, var(--cyber-violet, #a78bfa));
+    text-transform: uppercase; letter-spacing: 0.05em;
+    border-bottom: 1px solid var(--border-color, #27272a);
+    background: rgba(255,255,255,0.02);
+}
+.dca-table table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+    /* `auto` lets the browser size columns by content. Combined with
+       per-cell min-widths below, short identifiers stay on one line
+       and long descriptions wrap naturally. */
+    table-layout: auto;
+}
+.dca-table thead th {
+    text-align: left;
+    padding: 0.55rem 0.85rem;
+    font-weight: 600;
+    color: var(--text-secondary, #a1a1aa);
+    background: rgba(255,255,255,0.02);
+    border-bottom: 1px solid var(--border-color, #27272a);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    /* Header text shouldn't break on every character either. */
+    white-space: nowrap;
+}
+.dca-table tbody td {
+    padding: 0.55rem 0.85rem;
+    color: var(--text-primary, #fafafa);
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    /* `overflow-wrap: anywhere` only breaks within a word when there's
+       no other option — much gentler than the previous
+       `word-break: break-word` which let "type_a" wrap to "ty\npe\n_a"
+       at every legal break point. Identifier-style strings now stay on
+       one line; only genuinely-long unbroken sequences (URLs, IDs
+       wider than the column) get hyphenated. */
+    overflow-wrap: anywhere;
+    word-break: normal;
+    /* Floor on cell width so a short column header like "ID" doesn't
+       collapse the column to ~2ch. The browser will widen as needed. */
+    min-width: 4rem;
+    vertical-align: top;
+    line-height: 1.4;
+}
+/* Wider floor for free-text columns so descriptions / when_to_choose /
+   examples have room to breathe instead of getting squeezed by the
+   first cell's content. */
+.dca-table tbody td:nth-child(n+4) {
+    min-width: 9rem;
+}
+/* Cap any one column at a sensible max so a 2000-char description
+   doesn't push the whole table sideways into horizontal scroll. */
+.dca-table tbody td {
+    max-width: 24rem;
+}
+/* Container can horizontally scroll if the total natural width
+   genuinely exceeds the chat-bubble width. */
+.dca-table {
+    overflow-x: auto;
+}
+.dca-table tbody tr:last-child td { border-bottom: 0; }
+.dca-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+
+/* Cell renderers for non-scalar content (arrays of strings, dict
+   key/value pairs). Cleaner than dumping raw JSON. */
+.dca-table-cell-list {
+    margin: 0;
+    padding-left: 1.05rem;
+    font-size: 0.82rem;
+    color: var(--text-secondary, #a1a1aa);
+}
+.dca-table-cell-list li { padding: 0.06rem 0; }
+.dca-table-cell-kv {
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
+.dca-table-cell-kv b {
+    color: var(--text-tertiary, #71717a);
+    font-weight: 500;
+    margin-right: 0.3rem;
+}
+.dca-table-empty {
+    padding: 0.85rem 1rem;
+    color: var(--text-tertiary, #71717a);
+    font-style: italic;
+    background: var(--bg-card, #18181b);
+    border: 1px solid var(--border-color, #27272a);
+    border-radius: 8px;
+    font-size: 0.85rem;
+}
+
+/* ----- recap_panel ----- */
+.dca-recap-panel {
+    background: var(--bg-card, #18181b);
+    border: 1px solid var(--border-color, #27272a);
+    border-radius: 12px;
+    padding: 1rem 1.15rem 1.1rem 1.15rem;
+    overflow: hidden;
+}
+.dca-rp-header {
+    display: flex; align-items: center; gap: 0.55rem;
+    font-size: 1.05rem; font-weight: 600;
+    padding-bottom: 0.65rem;
+    border-bottom: 1px solid var(--border-color, #27272a);
+    margin-bottom: 0.7rem;
+}
+.dca-rp-header i { color: var(--brand-primary, var(--cyber-cyan, #06b6d4)); }
+.dca-rp-intro {
+    font-size: 0.85rem; color: var(--text-secondary, #a1a1aa);
+    margin-bottom: 0.7rem; line-height: 1.5;
+}
+.dca-rp-section { margin-bottom: 0.85rem; }
+.dca-rp-section:last-child { margin-bottom: 0; }
+.dca-rp-section-title {
+    font-size: 0.78rem; font-weight: 600;
+    color: var(--brand-accent, var(--cyber-violet, #a78bfa));
+    text-transform: uppercase; letter-spacing: 0.05em;
+    margin-bottom: 0.35rem;
+}
+.dca-rp-rows { display: flex; flex-direction: column; gap: 0.15rem; }
+.dca-rp-row {
+    display: grid;
+    grid-template-columns: minmax(80px, 33%) 1fr 32px;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.45rem 0.55rem;
+    border-radius: 6px;
+    font-size: 0.86rem;
+    background: rgba(255,255,255,0.02);
+}
+.dca-rp-row:hover { background: rgba(255,255,255,0.04); }
+.dca-rp-label {
+    color: var(--text-tertiary, #71717a);
+    font-weight: 500;
+}
+.dca-rp-value {
+    color: var(--text-primary, #fafafa);
+    word-break: break-word;
+}
+.dca-rp-edit-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-tertiary, #71717a);
+    border-radius: 4px;
+    width: 28px; height: 28px;
+    cursor: pointer;
+    transition: all 100ms ease;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.7rem;
+}
+.dca-rp-edit-btn:hover {
+    color: var(--brand-primary, var(--cyber-cyan, #06b6d4));
+    border-color: var(--border-color, #27272a);
+    background: rgba(255,255,255,0.05);
+}
+.dca-rp-empty {
+    color: var(--text-tertiary, #71717a);
+    font-style: italic;
+    font-size: 0.82rem;
+    padding: 0.3rem 0;
+}
+.dca-rp-missing {
+    margin-top: 0.85rem;
+    padding: 0.65rem 0.85rem;
+    background: rgba(251,191,36,0.08);
+    border: 1px solid rgba(251,191,36,0.3);
+    border-radius: 6px;
+    color: #fde68a;
+    font-size: 0.83rem;
+}
+.dca-rp-missing ul { margin: 0.25rem 0 0 1.2rem; padding: 0; }
+.dca-rp-missing li { padding: 0.05rem 0; }
+
+@media (max-width: 600px) {
+    .dca-comparison-grid {
+        grid-template-columns: 1fr;
+    }
+    .dca-rp-row {
+        grid-template-columns: 1fr 32px;
+        grid-template-rows: auto auto;
+    }
+    .dca-rp-label { grid-column: 1; grid-row: 1; }
+    .dca-rp-value { grid-column: 1; grid-row: 2; }
+    .dca-rp-edit-btn { grid-column: 2; grid-row: 1 / span 2; }
+}
+
+/* ============== Debug inspection panel (test/debug mode only) ============== */
+.dca-debug-btn { color: var(--cyber-violet, #a78bfa); }
+.dca-debug-btn[aria-pressed="true"] { background: rgba(167,139,250,0.18); }
+
+.dca-debug-panel {
+    position: fixed;
+    top: 0; right: 0; bottom: 0;
+    width: min(560px, 95vw);
+    min-width: 320px;
+    max-width: 100vw;
+    background: var(--bg-primary, #0a0a0c);
+    border-left: 1px solid var(--border-color, #27272a);
+    box-shadow: -8px 0 28px rgba(0,0,0,0.6);
+    z-index: 9999;
+    transform: translateX(100%);
+    transition: transform 180ms ease;
+    display: flex; flex-direction: column;
+    font-family: 'Outfit', sans-serif;
+    color: var(--text-primary, #fafafa);
+}
+/* Disable transition while user is dragging the resize handle so the
+   panel follows the mouse 1:1 instead of trailing behind. */
+.dca-debug-panel.resizing { transition: none; }
+
+.dca-debug-resizer {
+    position: absolute;
+    left: -3px; top: 0; bottom: 0;
+    width: 8px;
+    cursor: ew-resize;
+    z-index: 1;
+    background: transparent;
+}
+.dca-debug-resizer:hover,
+.dca-debug-panel.resizing .dca-debug-resizer {
+    background: linear-gradient(to right,
+        transparent,
+        rgba(167,139,250,0.35),
+        transparent);
+}
+.dca-debug-panel.open { transform: translateX(0); }
+
+.dca-debug-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-color, #27272a);
+    background: rgba(255,255,255,0.02);
+}
+.dca-debug-header-title {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-weight: 600; font-size: 0.95rem;
+}
+.dca-debug-header-title i { color: var(--cyber-violet, #a78bfa); }
+.dca-debug-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    background: rgba(167,139,250,0.18);
+    color: #ddd6fe;
+    padding: 0.1rem 0.5rem; border-radius: 999px;
+}
+.dca-debug-header-actions { display: flex; gap: 0.25rem; }
+
+.dca-debug-btn-mini {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border-color, #27272a);
+    color: var(--text-primary, #fafafa);
+    padding: 0.3rem 0.55rem;
+    border-radius: 5px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    display: inline-flex; align-items: center; gap: 0.35rem;
+}
+.dca-debug-btn-mini:hover { border-color: var(--cyber-violet, #a78bfa); }
+.dca-debug-btn-mini[aria-pressed="true"] {
+    background: rgba(167,139,250,0.18);
+    border-color: var(--cyber-violet, #a78bfa);
+}
+
+.dca-debug-filter-bar {
+    display: flex; flex-wrap: wrap; gap: 0.4rem 0.6rem;
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid var(--border-color, #27272a);
+    background: rgba(255,255,255,0.015);
+    font-size: 0.72rem;
+}
+.dca-debug-filter-chk {
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    cursor: pointer; user-select: none;
+    color: var(--text-secondary, #a1a1aa);
+}
+.dca-debug-filter-chk input { accent-color: var(--cyber-violet, #a78bfa); }
+
+.dca-debug-events {
+    flex: 1 1 0;
+    /* min-height: 0 is REQUIRED on flex children that need to scroll —
+       otherwise the default `min-height: auto` lets the container grow
+       with its content past the parent's bounds, and overflow-y has
+       nothing to clip against. Without this, events spill past the
+       bottom of the panel and can't be scrolled to. */
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0.6rem 0.85rem;
+    display: flex; flex-direction: column; gap: 0.55rem;
+}
+.dca-debug-empty {
+    color: var(--text-tertiary, #71717a);
+    text-align: center;
+    padding: 2rem 1rem;
+    font-size: 0.85rem;
+}
+
+.dca-debug-event {
+    border: 1px solid var(--border-color, #27272a);
+    background: var(--bg-card, #18181b);
+    border-radius: 6px;
+    overflow: hidden;
+    /* In a flex column with min-height:0 parent, children default to
+       flex-shrink:1 — combined with the parent's overflow:auto and
+       this card's overflow:hidden, the entries were collapsing to
+       essentially zero height and clipping their content. Force the
+       entry to take its natural (content-driven) height. */
+    flex: 0 0 auto;
+}
+.dca-debug-event-header {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.45rem 0.7rem;
+    cursor: pointer;
+    user-select: none;
+    font-size: 0.78rem;
+    /* Explicit min-height so the row is always clickable + visible
+       even when summary text is empty for some reason. */
+    min-height: 32px;
+}
+.dca-debug-event-header:hover { background: rgba(255,255,255,0.02); }
+.dca-debug-event-type {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    padding: 0.08rem 0.45rem;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.06);
+    color: var(--text-secondary, #a1a1aa);
+}
+.dca-debug-event-type.t-tool_call    { background: rgba(6,182,212,0.18);  color: #a5f3fc; }
+.dca-debug-event-type.t-tool_result  { background: rgba(34,197,94,0.18);  color: #bbf7d0; }
+.dca-debug-event-type.t-voice_normalize { background: rgba(167,139,250,0.18); color: #ddd6fe; }
+.dca-debug-event-type.t-llm_response { background: rgba(251,191,36,0.18); color: #fde68a; }
+.dca-debug-event-type.t-system_prompt { background: rgba(244,114,182,0.18); color: #fbcfe8; }
+.dca-debug-event-type.t-user_message { background: rgba(99,102,241,0.18); color: #c7d2fe; }
+.dca-debug-event-type.t-error        { background: rgba(239,68,68,0.18);  color: #fecaca; }
+
+.dca-debug-event-summary {
+    flex: 1;
+    color: var(--text-primary, #fafafa);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dca-debug-event-time {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--text-tertiary, #71717a);
+}
+.dca-debug-event-body {
+    /* Reset the <pre> defaults that would otherwise add margin / fight
+       our box. */
+    margin: 0;
+    padding: 0.55rem 0.7rem;
+    border-top: 1px solid var(--border-color, #27272a);
+    background: rgba(0,0,0,0.25);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--text-secondary, #a1a1aa);
+    white-space: pre-wrap;
+    word-break: break-word;
+    /* Cap each entry's body to a fraction of the viewport so even very
+       long payloads (full system prompts, raw LLM responses) get a
+       scrollbar instead of stretching the whole panel. min(...) means
+       on small screens we still leave headroom for other entries. */
+    max-height: min(60vh, 480px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    display: none;
+}
+.dca-debug-event.open .dca-debug-event-body { display: block; }
+.dca-debug-event.open .dca-debug-event-header i.dca-debug-chev {
+    transform: rotate(90deg);
+}
+
+/* "Expand to popup" button on each event — opens a large readable modal */
+.dca-debug-event-expand {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-tertiary, #71717a);
+    border-radius: 4px;
+    padding: 0.18rem 0.4rem;
+    cursor: pointer;
+    font-size: 0.72rem;
+    flex-shrink: 0;
+    line-height: 1;
+}
+.dca-debug-event-expand:hover {
+    color: var(--brand-primary, var(--cyber-cyan, #06b6d4));
+    border-color: var(--border-color, #27272a);
+    background: rgba(255,255,255,0.05);
+}
+
+/* Full-screen modal for viewing a single event in detail */
+.dca-debug-modal {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.75);
+    z-index: 10000;
+    display: none;
+    align-items: stretch; justify-content: center;
+    padding: 2vh 2vw;
+}
+.dca-debug-modal.open { display: flex; }
+
+.dca-debug-modal-card {
+    background: var(--bg-card, #18181b);
+    border: 1px solid var(--border-color, #27272a);
+    border-radius: 12px;
+    width: min(1000px, 96vw);
+    max-height: 96vh;
+    display: flex; flex-direction: column;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.55);
+    overflow: hidden;
+}
+.dca-debug-modal-header {
+    display: flex; align-items: center; gap: 0.6rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-color, #27272a);
+    background: rgba(255,255,255,0.02);
+}
+.dca-debug-modal-type {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    padding: 0.1rem 0.55rem;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.06);
+    color: var(--text-secondary, #a1a1aa);
+}
+.dca-debug-modal-time {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--text-tertiary, #71717a);
+}
+.dca-debug-modal-summary {
+    flex: 1;
+    color: var(--text-primary, #fafafa);
+    font-size: 0.85rem;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dca-debug-modal-copy,
+.dca-debug-modal-close {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border-color, #27272a);
+    color: var(--text-primary, #fafafa);
+    padding: 0.35rem 0.6rem;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.78rem;
+    flex-shrink: 0;
+}
+.dca-debug-modal-copy:hover,
+.dca-debug-modal-close:hover {
+    border-color: var(--brand-primary, var(--cyber-cyan, #06b6d4));
+}
+.dca-debug-modal-body {
+    margin: 0;
+    padding: 1rem 1.25rem;
+    flex: 1; min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: var(--text-primary, #fafafa);
+    background: rgba(0,0,0,0.25);
+    white-space: pre-wrap;
+    word-break: break-word;
+    tab-size: 2;
+}
+.dca-debug-chev {
+    transition: transform 120ms ease;
+    color: var(--text-tertiary, #71717a);
+    font-size: 0.65rem;
+}
+
+@media (max-width: 600px) {
+    .dca-debug-panel { width: 100vw; }
+}

@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+
+{% block page_title %}Compliance Schemas{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<div class="container-fluid p-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h3 class="mb-0">Compliance Extraction Schemas</h3>
+            <small class="text-muted">Define reusable field schemas that document sets can attach for extraction.</small>
+        </div>
+        <div>
+            <a href="/compliance" class="btn btn-outline-secondary"><i class="fas fa-arrow-left"></i> Back to Compliance</a>
+            <button class="btn btn-primary" onclick="showCreateSchema()"><i class="fas fa-plus"></i> New Schema</button>
+        </div>
+    </div>
+
+    <div id="schemasList"><div class="text-center p-4"><i class="fas fa-spinner fa-spin"></i></div></div>
+</div>
+</div><!-- /.doc-page -->
+
+<!-- Schema Editor Modal -->
+<div class="modal fade" id="schemaEditorModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="schemaEditorTitle">New Schema</h5>
+                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="font-weight-bold">Schema Name</label>
+                    <input type="text" class="form-control" id="schemaName" placeholder="e.g., Walmart Compliance v3, Custom Pallet Specs">
+                </div>
+                <div class="form-group">
+                    <label class="font-weight-bold">Description</label>
+                    <textarea class="form-control" id="schemaDescription" rows="2" placeholder="Optional notes about when to use this schema"></textarea>
+                </div>
+                <hr>
+                <!-- AIExtractNode field editor — same UI as the workflow AI Extract node -->
+                <div class="ai-extract-config">
+                    <div class="mb-3" id="ai-extract-fields-section">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <label class="form-label fw-bold mb-0">Fields to Extract</label>
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="AIExtractNode.addField()">
+                                <i class="bi bi-plus-lg"></i> Add Field
+                            </button>
+                        </div>
+                        <div id="ai-extract-fields-container" class="fields-container"></div>
+                        <div id="ai-extract-no-fields" class="text-muted text-center py-3 border rounded" style="display:none;">
+                            <i class="bi bi-info-circle"></i> No fields defined. Click "Add Field" to start.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button class="btn btn-primary" id="schemaSaveBtn" onclick="saveSchema()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bootstrap Icons (required by AIExtractNode template) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+<script src="/static/js/ai_extract_node.js"></script>
+
+<style>
+.schema-card { transition: box-shadow .15s; }
+.schema-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+.fields-container { max-height: 400px; overflow-y: auto; }
+.field-item { border-left: 3px solid #4a90d9; }
+.field-item .card-body { background: rgba(74,144,217,.04); }
+.children-container { border-color: #6c757d !important; }
+
+/* ---------------------------------------------------------------------------
+ * Bootstrap 5 → 4 compatibility shim, scoped to .ai-extract-config so it
+ * doesn't leak to other base.html (BS4) elements on the page. AIExtractNode's
+ * renderFields() emits BS5 classes (because the workflow builder is BS5);
+ * this maps them to working visuals under BS4.
+ * --------------------------------------------------------------------------- */
+.ai-extract-config .form-select,
+.ai-extract-config .form-select-sm {
+    display: inline-block;
+    width: 100%;
+    padding: .25rem 1.5rem .25rem .5rem;
+    font-size: .875rem;
+    line-height: 1.5;
+    color: #495057;
+    background-color: #fff;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23343a40' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M2 5l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right .5rem center;
+    background-size: 12px 8px;
+    border: 1px solid #ced4da;
+    border-radius: .2rem;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+}
+.ai-extract-config .form-label { display: inline-block; margin-bottom: .25rem; }
+.ai-extract-config .row.g-2 > [class*="col-"] { padding-right: .25rem; padding-left: .25rem; }
+.ai-extract-config .row.g-2 { margin-right: -.25rem; margin-left: -.25rem; }
+.ai-extract-config .me-1 { margin-right: .25rem !important; }
+.ai-extract-config .ms-1 { margin-left: .25rem !important; }
+.ai-extract-config .ps-2 { padding-left: .5rem !important; }
+.ai-extract-config .pe-2 { padding-right: .5rem !important; }
+.ai-extract-config .border-start { border-left: 1px solid #dee2e6 !important; }
+</style>
+
+<script>
+var _editingSchemaId = null;
+
+function escHtml(s) {
+    if (s == null) return '';
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function api(method, url, body) {
+    var opts = { method: method, headers: { 'Content-Type': 'application/json' } };
+    if (body !== undefined) opts.body = JSON.stringify(body);
+    return fetch(url, opts).then(function(r) {
+        if (!r.ok) return r.json().then(function(e){ throw new Error(e.error || ('HTTP ' + r.status)); });
+        return r.json();
+    });
+}
+
+function loadSchemas() {
+    api('GET', '/api/compliance/schemas').then(function(data) {
+        renderSchemas(data.schemas || []);
+    }).catch(function(e) {
+        $('#schemasList').html('<div class="alert alert-danger">Failed to load schemas: ' + escHtml(e.message) + '</div>');
+    });
+}
+
+function renderSchemas(schemas) {
+    if (!schemas.length) {
+        $('#schemasList').html('<div class="text-center p-5 text-muted"><i class="fas fa-folder-open fa-3x mb-3"></i><p>No schemas yet. Click "New Schema" to create one.</p></div>');
+        return;
+    }
+    var html = '<div class="row">';
+    schemas.forEach(function(s) {
+        html += '<div class="col-md-6 col-lg-4 mb-3">';
+        html += '<div class="card schema-card">';
+        html += '<div class="card-body">';
+        html += '<h5 class="card-title">' + escHtml(s.name) + '</h5>';
+        if (s.description) html += '<p class="card-text text-muted" style="font-size:13px;">' + escHtml(s.description) + '</p>';
+        html += '<p class="card-text"><small class="text-muted">';
+        html += '<i class="fas fa-link"></i> Used by ' + (s.used_by_count || 0) + ' set' + (s.used_by_count === 1 ? '' : 's');
+        html += '</small></p>';
+        html += '<div class="d-flex">';
+        html += '<button class="btn btn-sm btn-outline-primary mr-2" onclick="showEditSchema(' + s.schema_id + ')"><i class="fas fa-edit"></i> Edit</button>';
+        html += '<button class="btn btn-sm btn-outline-secondary mr-2" onclick="duplicateSchema(' + s.schema_id + ')"><i class="fas fa-copy"></i> Duplicate</button>';
+        html += '<button class="btn btn-sm btn-outline-danger ml-auto" onclick="deleteSchema(' + s.schema_id + ',' + JSON.stringify(s.name).replace(/"/g, '&quot;') + ')"><i class="fas fa-trash"></i></button>';
+        html += '</div>';
+        html += '</div></div></div>';
+    });
+    html += '</div>';
+    $('#schemasList').html(html);
+}
+
+function showCreateSchema() {
+    _editingSchemaId = null;
+    $('#schemaEditorTitle').text('New Schema');
+    $('#schemaName').val('');
+    $('#schemaDescription').val('');
+    AIExtractNode.currentFields = [];
+    AIExtractNode.fieldIdCounter = 0;
+    AIExtractNode.updateFieldsDisplay();
+    $('#schemaEditorModal').modal('show');
+}
+
+function showEditSchema(schemaId) {
+    _editingSchemaId = schemaId;
+    api('GET', '/api/compliance/schemas/' + schemaId).then(function(s) {
+        $('#schemaEditorTitle').text('Edit Schema');
+        $('#schemaName').val(s.name || '');
+        $('#schemaDescription').val(s.description || '');
+        var fields = s.fields || [];
+        if (typeof fields === 'string') {
+            try { fields = JSON.parse(fields); } catch (e) { fields = []; }
+        }
+        AIExtractNode.fieldIdCounter = 0;
+        AIExtractNode.currentFields = AIExtractNode.addIdsToFields(fields);
+        AIExtractNode.updateFieldsDisplay();
+        $('#schemaEditorModal').modal('show');
+    }).catch(function(e) {
+        alert('Failed to load schema: ' + e.message);
+    });
+}
+
+function saveSchema() {
+    var name = $('#schemaName').val().trim();
+    if (!name) {
+        alert('Schema name is required.');
+        return;
+    }
+    var fields = AIExtractNode.cleanFieldsForStorage(AIExtractNode.currentFields || []);
+    var body = {
+        name: name,
+        description: $('#schemaDescription').val(),
+        fields: fields
+    };
+    var promise = _editingSchemaId
+        ? api('PUT', '/api/compliance/schemas/' + _editingSchemaId, body)
+        : api('POST', '/api/compliance/schemas', body);
+    promise.then(function() {
+        $('#schemaEditorModal').modal('hide');
+        loadSchemas();
+    }).catch(function(e) {
+        alert('Save failed: ' + e.message);
+    });
+}
+
+function duplicateSchema(schemaId) {
+    api('GET', '/api/compliance/schemas/' + schemaId).then(function(s) {
+        var fields = s.fields || [];
+        if (typeof fields === 'string') {
+            try { fields = JSON.parse(fields); } catch (e) { fields = []; }
+        }
+        return api('POST', '/api/compliance/schemas', {
+            name: (s.name || 'Schema') + ' (copy)',
+            description: s.description || '',
+            fields: fields
+        });
+    }).then(function() {
+        loadSchemas();
+    }).catch(function(e) {
+        alert('Duplicate failed: ' + e.message);
+    });
+}
+
+function deleteSchema(schemaId, name) {
+    if (!confirm('Delete schema "' + name + '"?\n\nDocument sets currently using it will fall back to the default taxonomy.')) return;
+    api('DELETE', '/api/compliance/schemas/' + schemaId).then(function() {
+        loadSchemas();
+    }).catch(function(e) {
+        alert('Delete failed: ' + e.message);
+    });
+}
+
+$(document).ready(function() {
+    loadSchemas();
+});
+</script>
+
+{% endblock %}

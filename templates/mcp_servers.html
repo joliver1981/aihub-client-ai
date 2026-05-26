@@ -158,7 +158,7 @@
                             <div class="form-row">
                                 <div class="form-group col-md-8">
                                     <label for="serverUrl">MCP Endpoint URL *</label>
-                                    <input type="url" class="form-control" id="serverUrl" placeholder="https://api.example.com/mcp/v1" required>
+                                    <input type="url" class="form-control" id="serverUrl" placeholder="https://api.example.com/mcp" required>
                                 </div>
                                 <div class="form-group col-md-4">
                                     <label for="remoteCategory">Category</label>
@@ -171,7 +171,18 @@
                                         <option value="Database">Database</option>
                                         <option value="Communication">Communication</option>
                                         <option value="Development">Development</option>
+                                        <option value="Productivity">Productivity</option>
                                         <option value="Custom">Custom</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group col-md-6">
+                                    <label for="remoteTransport">Transport</label>
+                                    <select class="form-control" id="remoteTransport">
+                                        <option value="">Auto (try streamable-http, fall back to SSE)</option>
+                                        <option value="streamable-http">Streamable HTTP (MCP 2025-03+, e.g. Microsoft Learn)</option>
+                                        <option value="sse">SSE (legacy)</option>
                                     </select>
                                 </div>
                             </div>
@@ -190,6 +201,7 @@
                                             <option value="bearer">Bearer Token</option>
                                             <option value="apikey">API Key</option>
                                             <option value="basic">Basic Auth</option>
+                                            <option value="oauth2">OAuth 2.0</option>
                                             <option value="custom">Custom Headers</option>
                                         </select>
                                     </div>
@@ -213,6 +225,58 @@
                                         <div class="form-row">
                                             <div class="form-group col-md-6 mb-0"><label>Username</label><input type="text" class="form-control" id="basicUsername"></div>
                                             <div class="form-group col-md-6 mb-0"><label>Password</label><input type="password" class="form-control" id="basicPassword"></div>
+                                        </div>
+                                    </div>
+                                    <div id="authOauth2" class="auth-config" style="display:none;">
+                                        <div class="form-row">
+                                            <div class="form-group col-md-6">
+                                                <label>Grant Type</label>
+                                                <select class="form-control" id="oauthGrantType" onchange="toggleOauthFields()">
+                                                    <option value="client_credentials">Client Credentials (machine-to-machine)</option>
+                                                    <option value="authorization_code">Authorization Code (user consent)</option>
+                                                </select>
+                                            </div>
+                                            <div class="form-group col-md-6">
+                                                <label>Scope</label>
+                                                <input type="text" class="form-control" id="oauthScope" placeholder="e.g. https://graph.microsoft.com/.default">
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Token Endpoint *</label>
+                                            <input type="url" class="form-control" id="oauthTokenEndpoint" placeholder="https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token">
+                                        </div>
+                                        <div class="form-group" id="oauthAuthEndpointGroup" style="display:none;">
+                                            <label>Authorization Endpoint *</label>
+                                            <input type="url" class="form-control" id="oauthAuthEndpoint" placeholder="https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize">
+                                        </div>
+                                        <div class="form-row">
+                                            <div class="form-group col-md-6">
+                                                <label>Client ID *</label>
+                                                <input type="text" class="form-control" id="oauthClientId">
+                                            </div>
+                                            <div class="form-group col-md-6">
+                                                <label>Client Secret</label>
+                                                <input type="password" class="form-control" id="oauthClientSecret" placeholder="(leave blank to keep existing on edit)">
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Audience <small class="text-muted">(optional)</small></label>
+                                            <input type="text" class="form-control" id="oauthAudience">
+                                        </div>
+                                        <div class="alert alert-info py-2 small mb-2" id="oauthRedirectHint" style="display:none;">
+                                            Register this redirect URI with your IdP:
+                                            <code id="oauthRedirectUri">(loading...)</code>
+                                        </div>
+                                        <div id="oauthAuthorizeBox" style="display:none;">
+                                            <button type="button" class="btn btn-info btn-sm" onclick="oauthAuthorize()">
+                                                <i class="fas fa-key"></i> <span id="oauthAuthorizeBtnLabel">Authorize / Refresh Token</span>
+                                            </button>
+                                            <span id="oauthAuthorizeStatus" class="ml-2 small text-muted"></span>
+                                        </div>
+                                        <div id="oauthPerUserHint" class="alert alert-secondary py-2 small mb-0 mt-2" style="display:none;">
+                                            <i class="fas fa-users"></i>
+                                            <span id="oauthUserCount">0</span> user(s) in your tenant have connected this service via their My Connections page.
+                                            Each user authorizes themselves; admins don't authorize on their behalf.
                                         </div>
                                     </div>
                                     <div id="authCustom" class="auth-config" style="display:none;">
@@ -347,6 +411,10 @@
 
 <script>
 let allServers = [];
+let currentEditingServerId = null;
+let oauthAuthorized = false;
+let oauthUserCount = 0;
+let cachedRedirectUri = null;
 
 // ============================================================================
 // Page Load
@@ -417,7 +485,7 @@ function renderServers() {
 
             return `<tr data-server-type="${s.server_type}">
                 <td class="text-center">${icon}</td>
-                <td><strong>${s.server_name}</strong><br><small class="text-muted">${s.description || ''}</small></td>
+                <td><strong>${s.server_name}</strong> <small class="text-muted">#${s.server_id}</small><br><small class="text-muted">${s.description || ''}</small></td>
                 <td>${endpoint}</td>
                 <td>${s.category || '-'}</td>
                 <td>${statusBadge}</td>
@@ -460,6 +528,9 @@ function showAddServerModal() {
     document.getElementById('envVarsContainer').innerHTML = '';
     document.getElementById('customHeadersContainer').innerHTML = '';
     document.getElementById('testResults').style.display = 'none';
+    currentEditingServerId = null;
+    oauthAuthorized = false;
+    toggleAuthFields();
     $('.nav-tabs a[href="#remoteTab"]').tab('show');
     $('#serverModal').modal('show');
 }
@@ -473,16 +544,33 @@ async function editServer(serverId) {
         document.getElementById('serverModalTitle').textContent = 'Edit MCP Server';
         document.getElementById('testResults').style.display = 'none';
 
-        if (s.server_type === 'remote') {
+        if (s.server_type === 'remote' || s.server_type === 'streamable-http' || s.server_type === 'sse') {
             $('.nav-tabs a[href="#remoteTab"]').tab('show');
             document.getElementById('remoteServerName').value = s.server_name || '';
             document.getElementById('serverUrl').value = s.server_url || '';
             document.getElementById('authType').value = s.auth_type || 'none';
+            // transport: prefer explicit field, otherwise infer from server_type
+            const tr = s.transport || (s.server_type === 'streamable-http' ? 'streamable-http'
+                                       : s.server_type === 'sse' ? 'sse' : '');
+            document.getElementById('remoteTransport').value = tr;
             document.getElementById('remoteCategory').value = s.category || '';
             document.getElementById('remoteDescription').value = s.description || '';
             document.getElementById('requestTimeout').value = s.request_timeout || 30;
             document.getElementById('maxRetries').value = s.max_retries || 3;
             document.getElementById('verifySsl').checked = s.verify_ssl !== false;
+            currentEditingServerId = s.server_id;
+            oauthAuthorized = !!s.oauth_authorized;
+            oauthUserCount = s.oauth_user_count || 0;
+            if (s.auth_type === 'oauth2' && s.oauth_config) {
+                const cfg = s.oauth_config;
+                document.getElementById('oauthGrantType').value = cfg.oauth_grant_type || 'client_credentials';
+                document.getElementById('oauthTokenEndpoint').value = cfg.oauth_token_endpoint || '';
+                document.getElementById('oauthAuthEndpoint').value = cfg.oauth_auth_endpoint || '';
+                document.getElementById('oauthScope').value = cfg.oauth_scope || '';
+                document.getElementById('oauthClientId').value = cfg.oauth_client_id || '';
+                document.getElementById('oauthAudience').value = cfg.oauth_audience || '';
+                document.getElementById('oauthClientSecret').value = '';  // never re-displayed
+            }
             toggleAuthFields();
         } else {
             $('.nav-tabs a[href="#localTab"]').tab('show');
@@ -508,8 +596,13 @@ async function saveServer() {
 
     let data = {};
     if (isRemote) {
+        const transport = document.getElementById('remoteTransport').value || null;
+        const remoteServerType = transport === 'streamable-http' ? 'streamable-http'
+                              : transport === 'sse' ? 'sse'
+                              : 'remote';
         data = {
-            server_type: 'remote',
+            server_type: remoteServerType,
+            transport: transport,
             server_name: document.getElementById('remoteServerName').value,
             server_url: document.getElementById('serverUrl').value,
             auth_type: document.getElementById('authType').value,
@@ -615,7 +708,17 @@ async function testConnection() {
 
     let config = {};
     if (isRemote) {
-        config = { type: 'remote', url: document.getElementById('serverUrl').value, auth_headers: buildAuthHeaders() };
+        const transport = document.getElementById('remoteTransport').value || null;
+        const remoteType = transport === 'streamable-http' ? 'streamable-http'
+                         : transport === 'sse' ? 'sse'
+                         : 'remote';
+        config = {
+            type: remoteType,
+            transport: transport,
+            url: document.getElementById('serverUrl').value,
+            auth_headers: buildAuthHeaders(),
+            verify_ssl: document.getElementById('verifySsl').checked
+        };
     } else {
         config = { type: 'local', command: document.getElementById('serverCommand').value,
                    args: document.getElementById('serverArgs').value.split('\n').filter(l => l.trim()), env_vars: getEnvVars() };
@@ -669,11 +772,12 @@ async function assignToAgents(serverId) {
         if (!agents.length) {
             el.innerHTML = '<div class="alert alert-warning">No agents found.</div>';
         } else {
+            const truncate = (s, n) => { s = s || ''; return s.length > n ? s.substring(0, n).trimEnd() + '…' : s; };
             el.innerHTML = '<div class="list-group">' + agents.map(a =>
                 '<label class="list-group-item"><input type="checkbox" value="' + a.agent_id + '" ' +
                 (assignedIds.includes(a.agent_id) ? 'checked' : '') + ' class="mr-2">' +
                 '<strong>' + (a.agent_name || a.name || 'Agent ' + a.agent_id) + '</strong>' +
-                '<small class="text-muted d-block">' + (a.description || a.agent_description || '') + '</small></label>'
+                '<small class="text-muted d-block">' + truncate(a.description || a.agent_description, 500) + '</small></label>'
             ).join('') + '</div>';
         }
         $('#assignModal').modal('show');
@@ -696,14 +800,17 @@ async function saveAssignments() {
 // ============================================================================
 // Server Directory
 // ============================================================================
+let _directoryItems = [];
+const _esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 async function showServerDirectory() {
     try {
         const resp = await fetch('/api/mcp/directory');
-        const items = await resp.json();
+        _directoryItems = await resp.json();
         document.getElementById('directoryContent').innerHTML = '<div class="list-group">' +
-            items.map(i => '<div class="list-group-item list-group-item-action" onclick="useDirectoryItem(\'' + encodeURIComponent(JSON.stringify(i)) + '\')">' +
-                '<h6>' + i.name + ' <span class="badge badge-info">' + i.category + '</span></h6>' +
-                '<small>' + i.description + '</small></div>'
+            _directoryItems.map((i, idx) =>
+                '<div class="list-group-item list-group-item-action" onclick="useDirectoryItem(' + idx + ')">' +
+                '<h6>' + _esc(i.name) + ' <span class="badge badge-info">' + _esc(i.category) + '</span></h6>' +
+                '<small>' + _esc(i.description) + '</small></div>'
             ).join('') + '</div>';
     } catch (e) {
         document.getElementById('directoryContent').innerHTML = '<div class="alert alert-warning">Could not load directory</div>';
@@ -711,15 +818,38 @@ async function showServerDirectory() {
     $('#directoryModal').modal('show');
 }
 
-function useDirectoryItem(encoded) {
-    const item = JSON.parse(decodeURIComponent(encoded));
+function useDirectoryItem(idx) {
+    const item = (typeof idx === 'number') ? _directoryItems[idx]
+                : JSON.parse(decodeURIComponent(idx));  // backward compat
+    if (!item) return;
     $('#directoryModal').modal('hide');
     showAddServerModal();
+    if (item.server_type === 'local') {
+        $('.nav-tabs a[href="#localTab"]').tab('show');
+        document.getElementById('localServerName').value = item.name || '';
+        document.getElementById('localDescription').value = item.description || '';
+        document.getElementById('serverCommand').value = item.command || '';
+        document.getElementById('serverArgs').value = (item.args || []).join('\n');
+        document.getElementById('envVarsContainer').innerHTML = '';
+        if (item.env_vars) {
+            Object.entries(item.env_vars).forEach(([k, v]) => addEnvVar(k, v));
+        }
+        return;
+    }
     document.getElementById('remoteServerName').value = item.name || '';
     document.getElementById('serverUrl').value = item.url_template || '';
     document.getElementById('authType').value = item.auth_type || 'none';
     document.getElementById('remoteCategory').value = item.category || '';
     document.getElementById('remoteDescription').value = item.description || '';
+    if (item.transport) {
+        document.getElementById('remoteTransport').value = item.transport;
+    }
+    if (item.auth_type === 'oauth2' && item.oauth_defaults) {
+        document.getElementById('oauthGrantType').value = item.oauth_defaults.oauth_grant_type || 'client_credentials';
+        document.getElementById('oauthTokenEndpoint').value = item.oauth_defaults.oauth_token_endpoint || '';
+        document.getElementById('oauthAuthEndpoint').value = item.oauth_defaults.oauth_auth_endpoint || '';
+        document.getElementById('oauthScope').value = item.oauth_defaults.oauth_scope || '';
+    }
     toggleAuthFields();
 }
 
@@ -730,9 +860,85 @@ function toggleAuthFields() {
     document.querySelectorAll('.auth-config').forEach(el => el.style.display = 'none');
     const authType = document.getElementById('authType').value;
     if (authType && authType !== 'none') {
-        const el = document.getElementById('auth' + authType.charAt(0).toUpperCase() + authType.slice(1));
+        const id = 'auth' + authType.charAt(0).toUpperCase() + authType.slice(1);
+        const el = document.getElementById(id);
         if (el) el.style.display = 'block';
     }
+    if (authType === 'oauth2') {
+        toggleOauthFields();
+        ensureOauthRedirectUri();
+        const box = document.getElementById('oauthAuthorizeBox');
+        const status = document.getElementById('oauthAuthorizeStatus');
+        const btnLabel = document.getElementById('oauthAuthorizeBtnLabel');
+        const perUserHint = document.getElementById('oauthPerUserHint');
+        const userCountEl = document.getElementById('oauthUserCount');
+        const grantType = document.getElementById('oauthGrantType').value;
+
+        if (grantType === 'client_credentials') {
+            // Service-account / app-only — admin authorizes once for the org.
+            if (box) box.style.display = currentEditingServerId ? 'block' : 'none';
+            if (btnLabel) btnLabel.textContent = 'Authorize (service account)';
+            if (status) status.textContent = oauthAuthorized
+                ? '✓ Token on file'
+                : (currentEditingServerId ? 'Not yet authorized' : 'Save the server first, then authorize');
+            if (perUserHint) perUserHint.style.display = 'none';
+        } else {
+            // authorization_code — per-user. Admin does NOT authorize here.
+            if (box) box.style.display = 'none';
+            if (perUserHint) {
+                perUserHint.style.display = currentEditingServerId ? 'block' : 'none';
+                if (userCountEl) userCountEl.textContent = (oauthUserCount || 0);
+            }
+        }
+    } else {
+        const perUserHint = document.getElementById('oauthPerUserHint');
+        if (perUserHint) perUserHint.style.display = 'none';
+    }
+}
+
+function toggleOauthFields() {
+    const gt = document.getElementById('oauthGrantType').value;
+    document.getElementById('oauthAuthEndpointGroup').style.display = (gt === 'authorization_code') ? 'block' : 'none';
+}
+
+async function ensureOauthRedirectUri() {
+    const hint = document.getElementById('oauthRedirectHint');
+    if (!hint) return;
+    if (!cachedRedirectUri) {
+        try {
+            const resp = await fetch('/api/mcp/oauth/redirect_uri');
+            const data = await resp.json();
+            cachedRedirectUri = data.redirect_uri || '';
+        } catch (e) { cachedRedirectUri = ''; }
+    }
+    document.getElementById('oauthRedirectUri').textContent = cachedRedirectUri || '(unavailable)';
+    hint.style.display = (document.getElementById('oauthGrantType').value === 'authorization_code') ? 'block' : 'none';
+}
+
+async function oauthAuthorize() {
+    if (!currentEditingServerId) {
+        showToast('Save the server before authorizing', 'warning');
+        return;
+    }
+    const gt = document.getElementById('oauthGrantType').value;
+    if (gt === 'client_credentials') {
+        try {
+            const resp = await fetch('/api/mcp/oauth/authorize/' + currentEditingServerId);
+            const data = await resp.json();
+            if (data.status === 'success') {
+                oauthAuthorized = true;
+                document.getElementById('oauthAuthorizeStatus').textContent = '✓ Token acquired';
+                showToast('Access token acquired', 'success');
+            } else {
+                showToast('OAuth error: ' + (data.error || 'unknown'), 'danger');
+            }
+        } catch (e) { showToast('OAuth error: ' + e.message, 'danger'); }
+        return;
+    }
+    // authorization_code: open in new window
+    const url = '/api/mcp/oauth/authorize/' + currentEditingServerId;
+    window.open(url, 'mcpOauth', 'width=600,height=700');
+    document.getElementById('oauthAuthorizeStatus').textContent = 'Authorization window opened — complete the flow then close it.';
 }
 
 function getAuthConfig() {
@@ -741,18 +947,28 @@ function getAuthConfig() {
     if (authType === 'bearer') config.token = document.getElementById('bearerToken').value;
     else if (authType === 'apikey') { config.header = document.getElementById('apiKeyHeader').value; config.key = document.getElementById('apiKeyValue').value; }
     else if (authType === 'basic') { config.username = document.getElementById('basicUsername').value; config.password = document.getElementById('basicPassword').value; }
+    else if (authType === 'oauth2') {
+        config.oauth_grant_type = document.getElementById('oauthGrantType').value;
+        config.oauth_token_endpoint = document.getElementById('oauthTokenEndpoint').value;
+        config.oauth_auth_endpoint = document.getElementById('oauthAuthEndpoint').value;
+        config.oauth_client_id = document.getElementById('oauthClientId').value;
+        // empty client_secret means "keep existing" — handled by backend (it skips empty values)
+        config.oauth_client_secret = document.getElementById('oauthClientSecret').value;
+        config.oauth_scope = document.getElementById('oauthScope').value;
+        config.oauth_audience = document.getElementById('oauthAudience').value;
+    }
     else if (authType === 'custom') {
-        config.headers = {};
         document.querySelectorAll('#customHeadersContainer .input-group').forEach(g => {
             const n = g.querySelector('[data-header-name]').value;
             const v = g.querySelector('[data-header-value]').value;
-            if (n) config.headers[n] = v;
+            if (n) config[n] = v;
         });
     }
     return config;
 }
 
 function buildAuthHeaders() {
+    // Used only by the in-modal "Test Connection" (pre-save) — OAuth tests must be done after saving.
     const authType = document.getElementById('authType').value;
     const headers = {};
     if (authType === 'bearer') headers['Authorization'] = 'Bearer ' + document.getElementById('bearerToken').value;
@@ -830,5 +1046,7 @@ function toggleDocTheme() {
     }
 })();
 </script>
+
+<script src="/static/js/mcp_servers_context.js"></script>
 </div><!-- /.doc-page -->
 {% endblock %}

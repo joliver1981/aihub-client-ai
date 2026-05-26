@@ -331,7 +331,7 @@ def build_attachment_context(file_ids: List[str], user_message: str = "",
         size_kb = meta["size"] / 1024
         size_str = f"{size_kb / 1024:.1f} MB" if size_kb >= 1024 else f"{size_kb:.1f} KB"
 
-        lines.append(f"\n### 📎 {filename} ({size_str})")
+        lines.append(f"\n### 📎 {filename} ({size_str}) [file_id: {fid}]")
 
         result = _extract_and_cache(fid, meta, user_message)
 

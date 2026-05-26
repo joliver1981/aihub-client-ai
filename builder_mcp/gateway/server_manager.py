@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Any
 
 from stdio_transport import StdioTransport
 from sse_transport import SSETransport
+from streamable_http_transport import StreamableHTTPTransport
 from mcp_gateway_config import DEFAULT_CONNECT_TIMEOUT, DEFAULT_TOOL_CALL_TIMEOUT, TOOL_CACHE_TTL
 
 logger = logging.getLogger("MCPGateway")
@@ -63,13 +64,8 @@ class MCPServerManager:
                         env_vars=config.get('env_vars', {}),
                         timeout=config.get('timeout', DEFAULT_CONNECT_TIMEOUT)
                     )
-                elif server_type == 'remote':
-                    transport = SSETransport()
-                    await transport.connect(
-                        url=config.get('url', ''),
-                        auth_headers=config.get('auth_headers', {}),
-                        timeout=config.get('timeout', DEFAULT_CONNECT_TIMEOUT)
-                    )
+                elif server_type in ('remote', 'streamable-http', 'sse'):
+                    transport = await self._connect_remote(server_type, config)
                 else:
                     return {"status": "error", "error": f"Unknown server type: {server_type}"}
 
@@ -246,6 +242,53 @@ class MCPServerManager:
                 await self.disconnect(temp_id)
             except Exception:
                 pass
+
+    async def _connect_remote(self, server_type: str, config: dict):
+        """Select a remote transport based on server_type or explicit `transport` hint.
+
+        - server_type='streamable-http' or transport='streamable-http': use Streamable HTTP only
+        - server_type='sse' or transport='sse': use SSE only
+        - server_type='remote' (legacy default): auto — try Streamable HTTP first
+          (modern spec, used by most hosted MCPs incl. Microsoft Learn), fall back to SSE.
+        """
+        url = config.get('url', '')
+        auth_headers = config.get('auth_headers', {})
+        verify_ssl = config.get('verify_ssl', True)
+        timeout = config.get('timeout', DEFAULT_CONNECT_TIMEOUT)
+        transport_hint = (config.get('transport') or '').lower()
+        if transport_hint:
+            effective = transport_hint
+        elif server_type == 'streamable-http':
+            effective = 'streamable-http'
+        elif server_type == 'sse':
+            effective = 'sse'
+        else:
+            effective = 'auto'
+
+        if effective == 'streamable-http':
+            t = StreamableHTTPTransport()
+            await t.connect(url=url, auth_headers=auth_headers, timeout=timeout, verify_ssl=verify_ssl)
+            return t
+
+        if effective == 'sse':
+            t = SSETransport()
+            await t.connect(url=url, auth_headers=auth_headers, timeout=timeout)
+            return t
+
+        # auto: streamable-http -> sse fallback
+        try:
+            t = StreamableHTTPTransport()
+            await t.connect(url=url, auth_headers=auth_headers, timeout=timeout, verify_ssl=verify_ssl)
+            return t
+        except Exception as e:
+            logger.info(f"streamable-http connect failed ({e}); falling back to SSE")
+            try:
+                await t.close()
+            except Exception:
+                pass
+            t = SSETransport()
+            await t.connect(url=url, auth_headers=auth_headers, timeout=timeout)
+            return t
 
     async def _fetch_tools(self, server_id: str) -> list:
         """Fetch tools from a connected server and update cache"""

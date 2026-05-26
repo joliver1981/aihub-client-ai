@@ -1,0 +1,113 @@
+{
+  "$schema": "module33_workflow_tests",
+  "description": "Five safe workflows for live smoke testing the workflow execution engine. Update workflow_ids to match the IDs in your tenant if they differ.",
+  "base_url_env": "AI_HUB_BASE_URL",
+  "default_base_url": "http://10.0.0.7:5001",
+  "auth": {
+    "method": "api_key",
+    "header": "X-API-Key",
+    "env_var": "AI_HUB_API_KEY"
+  },
+  "global_polling": {
+    "interval_seconds": 2,
+    "max_seconds": 120
+  },
+  "workflows": [
+    {
+      "id": "WFE-285",
+      "workflow_id": 285,
+      "name": "E2E Test - File Read",
+      "purpose": "Canonical safe workflow: reads a small text file and stores its content in a variable. No external side-effects.",
+      "initiator": "live-test",
+      "expected_runtime_seconds": 5,
+      "expected_terminal_status": "Completed",
+      "expected_variables": [
+        {
+          "name": "file_content",
+          "predicate": "non_empty_string"
+        }
+      ],
+      "expected_step_count_min": 1,
+      "pausable": false,
+      "requires_approval": false,
+      "notes": "Known-safe baseline. If this fails, do not run the others."
+    },
+    {
+      "id": "WFE-A",
+      "workflow_id": null,
+      "name": "Set Variable Chain",
+      "purpose": "Two Set Variable nodes — verifies variable substitution and step-to-step state passing.",
+      "initiator": "live-test",
+      "expected_runtime_seconds": 5,
+      "expected_terminal_status": "Completed",
+      "expected_variables": [
+        {"name": "first", "predicate": "non_empty_string"},
+        {"name": "second", "predicate": "non_empty_string"}
+      ],
+      "expected_step_count_min": 2,
+      "pausable": false,
+      "requires_approval": false,
+      "notes": "Fill in workflow_id with the actual ID from your tenant before running."
+    },
+    {
+      "id": "WFE-B",
+      "workflow_id": null,
+      "name": "Conditional Branch - True Path",
+      "purpose": "Comparison that evaluates true; verifies the pass-connection branch executes.",
+      "initiator": "live-test",
+      "expected_runtime_seconds": 5,
+      "expected_terminal_status": "Completed",
+      "expected_variables": [
+        {"name": "result", "predicate": "equals", "value": "yes"}
+      ],
+      "expected_step_count_min": 3,
+      "pausable": false,
+      "requires_approval": false,
+      "notes": "Fill in workflow_id from your tenant. Should run the 'yes' branch."
+    },
+    {
+      "id": "WFE-C",
+      "workflow_id": null,
+      "name": "Loop over Folder Files (dry)",
+      "purpose": "Folder Selector + Loop + Set Variable inside loop, no destructive ops. Verifies loop body executes for each item.",
+      "initiator": "live-test",
+      "expected_runtime_seconds": 30,
+      "expected_terminal_status": "Completed",
+      "expected_variables": [
+        {"name": "processed_count", "predicate": "is_int_ge_1"}
+      ],
+      "expected_step_count_min": 5,
+      "pausable": true,
+      "requires_approval": false,
+      "notes": "Verifies loop accounting; uses tests_v2/fixtures/workflows/loop_input/ as the folder source."
+    },
+    {
+      "id": "WFE-D",
+      "workflow_id": null,
+      "name": "Pause/Resume Smoke",
+      "purpose": "Workflow with an artificial delay that allows the test to pause and resume mid-flight.",
+      "initiator": "live-test",
+      "expected_runtime_seconds": 60,
+      "expected_terminal_status": "Completed",
+      "expected_variables": [
+        {"name": "completed_ok", "predicate": "equals", "value": "true"}
+      ],
+      "expected_step_count_min": 2,
+      "pausable": true,
+      "requires_approval": false,
+      "notes": "Use during WFE-7 to test pause/resume."
+    }
+  ],
+  "predicates": {
+    "non_empty_string": "isinstance(v, str) and len(v) > 0",
+    "is_int_ge_1": "(isinstance(v, int) or (isinstance(v, str) and v.isdigit())) and int(v) >= 1",
+    "equals": "v == value"
+  },
+  "operator_runbook": [
+    "Before running, edit each workflow's workflow_id with the matching row from `GET /api/workflows/list`.",
+    "If a workflow doesn't exist yet, import the JSON definitions from tests_v2/fixtures/workflows/ via /save/workflow.",
+    "Each test is independent — if WFE-285 fails, stop and triage.",
+    "Treat any 5xx response as a hard failure; rerun once with verbose logging to capture the trace.",
+    "If the engine is configured with USE_WORKFLOW_EXECUTOR_SERVICE=true, the proxy adds one round-trip but the contract stays the same."
+  ]
+}

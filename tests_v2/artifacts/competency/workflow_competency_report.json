@@ -1,0 +1,241 @@
+{
+  "scoring": {
+    "overall_pct": 92.3076923076923,
+    "total_weight": 13.0,
+    "total_earned": 12.0,
+    "by_workflow": {
+      "var_chain_substitution": {
+        "weight": 3.0,
+        "earned": 3.0,
+        "pct": 100.0,
+        "status": "Completed"
+      },
+      "var_arithmetic": {
+        "weight": 2.0,
+        "earned": 1.0,
+        "pct": 50.0,
+        "status": "Completed"
+      },
+      "database_query_count": {
+        "weight": 2.0,
+        "earned": 2.0,
+        "pct": 100.0,
+        "status": "Completed"
+      },
+      "multi_step_chain": {
+        "weight": 3.0,
+        "earned": 3.0,
+        "pct": 100.0,
+        "status": "Completed"
+      },
+      "conditional_branch_true": {
+        "weight": 3.0,
+        "earned": 3.0,
+        "pct": 100.0,
+        "status": "Completed"
+      }
+    },
+    "by_dim": {
+      "terminates_cleanly": {
+        "weight": 5.0,
+        "earned": 5.0,
+        "n": 5,
+        "pct": 100.0
+      },
+      "variable_substitution": {
+        "weight": 4.0,
+        "earned": 4.0,
+        "n": 4,
+        "pct": 100.0
+      },
+      "variable_arithmetic": {
+        "weight": 1.0,
+        "earned": 0.0,
+        "n": 1,
+        "pct": 0.0
+      },
+      "database_query": {
+        "weight": 2.0,
+        "earned": 2.0,
+        "n": 2,
+        "pct": 100.0
+      },
+      "multi_step_chain": {
+        "weight": 1.0,
+        "earned": 1.0,
+        "n": 1,
+        "pct": 100.0
+      },
+      "conditional_branch": {
+        "weight": 1.0,
+        "earned": 1.0,
+        "n": 1,
+        "pct": 100.0
+      }
+    }
+  },
+  "results": [
+    {
+      "label": "var_chain_substitution",
+      "workflow_id": 1212,
+      "execution_id": "ce31723f-c356-4fda-acb5-c5572715df62",
+      "final_status": "Completed",
+      "elapsed_s": 2.075840473175049,
+      "variables": {
+        "a": "42",
+        "b": "42"
+      },
+      "assertion_results": [
+        [
+          "status_completed",
+          true,
+          "final_status='Completed'"
+        ],
+        [
+          "a_equals_42",
+          true,
+          "a='42'"
+        ],
+        [
+          "b_equals_42",
+          true,
+          "b='42'"
+        ]
+      ],
+      "raw_score": 3.0,
+      "total_weight": 3.0,
+      "errors": []
+    },
+    {
+      "label": "var_arithmetic",
+      "workflow_id": 1213,
+      "execution_id": "9f0babea-52fa-46ed-8c87-bb6c7f1df310",
+      "final_status": "Completed",
+      "elapsed_s": 2.05568265914917,
+      "variables": {
+        "a": "10",
+        "b": "1010101010"
+      },
+      "assertion_results": [
+        [
+          "status_completed",
+          true,
+          "final_status='Completed'"
+        ],
+        [
+          "b_evaluates_to_50",
+          false,
+          "b='1010101010'"
+        ]
+      ],
+      "raw_score": 1.0,
+      "total_weight": 2.0,
+      "errors": []
+    },
+    {
+      "label": "database_query_count",
+      "workflow_id": 1214,
+      "execution_id": "eaf8250f-f079-4e7a-a036-8b59ae524249",
+      "final_status": "Completed",
+      "elapsed_s": 2.064053773880005,
+      "variables": {
+        "product_count": {
+          "columns": [
+            "n"
+          ],
+          "rows": [
+            [
+              "200"
+            ]
+          ]
+        }
+      },
+      "assertion_results": [
+        [
+          "status_completed",
+          true,
+          "final_status='Completed'"
+        ],
+        [
+          "product_count_is_200",
+          true,
+          "product_count=\"{'columns': ['n'], 'rows': [['200']]}\""
+        ]
+      ],
+      "raw_score": 2.0,
+      "total_weight": 2.0,
+      "errors": []
+    },
+    {
+      "label": "multi_step_chain",
+      "workflow_id": 1215,
+      "execution_id": "18206565-f6d2-4f50-ac06-24a2c15d60c1",
+      "final_status": "Completed",
+      "elapsed_s": 2.0829761028289795,
+      "variables": {
+        "store_count": {
+          "columns": [
+            "n"
+          ],
+          "rows": [
+            [
+              "15"
+            ]
+          ]
+        },
+        "summary": "Stores in DB: {\"columns\": [\"n\"], \"rows\": [[\"15\"]]}"
+      },
+      "assertion_results": [
+        [
+          "status_completed",
+          true,
+          "final_status='Completed'"
+        ],
+        [
+          "store_count_is_15",
+          true,
+          "store_count=\"{'columns': ['n'], 'rows': [['15']]}\""
+        ],
+        [
+          "summary_chains",
+          true,
+          "summary='Stores in DB: {\"columns\": [\"n\"], \"rows\": [[\"15\"]]}'"
+        ]
+      ],
+      "raw_score": 3.0,
+      "total_weight": 3.0,
+      "errors": []
+    },
+    {
+      "label": "conditional_branch_true",
+      "workflow_id": 1216,
+      "execution_id": "a6416f1f-d535-4105-a445-98485fd5549c",
+      "final_status": "Completed",
+      "elapsed_s": 2.0651862621307373,
+      "variables": {
+        "result": "high",
+        "x": "10"
+      },
+      "assertion_results": [
+        [
+          "status_completed",
+          true,
+          "final_status='Completed'"
+        ],
+        [
+          "x_equals_10",
+          true,
+          "x='10'"
+        ],
+        [
+          "result_is_high",
+          true,
+          "result='high'"
+        ]
+      ],
+      "raw_score": 3.0,
+      "total_weight": 3.0,
+      "errors": []
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "session_id": "4e813cf0-3a60-4cb9-88b2-39cf9037ad07",
+  "config_id": "speaker_program_demo",
+  "user_id": "",
+  "status": "in_progress",
+  "current_section_id": "submitter",
+  "collected_data": {},
+  "section_status": {
+    "submitter": "in_progress",
+    "program": "not_started",
+    "schedule": "not_started",
+    "speaker": "not_started",
+    "venue": "not_started",
+    "details": "not_started"
+  },
+  "validation_errors": {},
+  "chat_history": [
+    {
+      "role": "assistant",
+      "content": "Hi \u2014 I can help you plan the Pharma Speaker Program. We\u2019ll go through: your information, product & topic, schedule, speaker, venue, and a few final details. The intake team usually reviews submissions within one business day, and typical lead time is 4\u20136 weeks.\n\nWhat\u2019s your name?",
+      "ts": "2026-05-13T00:32:52.941678"
+    }
+  ],
+  "submission_log": [],
+  "created_at": "2026-05-13T00:32:50.521949",
+  "updated_at": "2026-05-13T00:32:52.941678",
+  "submitted_at": null,
+  "user_name": null,
+  "user_email": null,
+  "external_callback_url": null,
+  "external_callback_secret_ref": null,
+  "return_url": null,
+  "branding_override": null,
+  "voice_mode": false,
+  "rendered_lookups": []
+}

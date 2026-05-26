@@ -24,6 +24,11 @@ tools:
     display_name: "Run Python Code"
     description: "This function allows for the creation of tools dynamically by accepting a string of Python code, executing it, and capturing any output or errors as a string."
 
+  - name: calculator
+    display_name: "Calculator"
+    description: "Evaluates an arithmetic expression and returns the exact numeric result. Use for any math on numbers — subtraction, percentages, totals, differences, multi-step calculations. Supports + - * / // % ** and abs/round/min/max/sum/sqrt. Whitelisted; no code execution."
+    routing_hint: "Always prefer this tool over computing results in your head, especially when numbers come from documents."
+
   # Communication Tools
   - name: send_email_message
     display_name: "Send Email"

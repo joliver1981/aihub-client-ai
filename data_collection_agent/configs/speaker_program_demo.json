@@ -1,0 +1,350 @@
+{
+  "id": "speaker_program_demo",
+  "name": "Pharma Speaker Program — Planning",
+  "version": "1.0",
+  "description": "Plan a speaker program for an internal pharma audience. Captures product, topic, date, speaker, and venue with compliance filtering at each step.",
+
+  "agent_guidelines": "You are an internal program planning assistant. Walk the user through each section conversationally. Use compare_options when helping them weigh choices for product, speaker, or venue. Use recommend_options when they ask for your suggestion. Use the venue lookup tools (Google Places, Yelp) when they want to research a venue not in our compliant list.",
+
+  "helpful_context": "This intake form drives early-stage planning of pharma speaker programs. Compliance gates apply at every step: only currently-certified speakers, compliance-approved topics, and approved venues are shown. The intake team reviews submissions within one business day and follows up with logistics. Typical lead time is 4-6 weeks; programs requiring less than 2 weeks need manager approval.",
+
+  "tips": [
+    "Speakers shown after the user picks a product are filtered to those currently certified on that product. Expired certifications drop them off the list.",
+    "Topics are filtered to compliance-approved options for the chosen product.",
+    "Venues are filtered to those with current compliance approval; capacity filter narrows to venues large enough for the expected audience.",
+    "Use recommend_options on speakers to surface the top picks ranked by tier and recent event activity."
+  ],
+
+  "custom_tools": [
+    "google_places_venue_lookup",
+    "yelp_venue_reviews"
+  ],
+
+  "sections": [
+    {
+      "id": "submitter",
+      "title": "Your Information",
+      "description": "Who's submitting this request",
+      "order": 1,
+      "fields": [
+        {
+          "id": "submitter_name",
+          "label": "Your Name",
+          "type": "text",
+          "required": true,
+          "prompt_hint": "What's your name?",
+          "validation": { "min_length": 2, "max_length": 100 }
+        },
+        {
+          "id": "submitter_email",
+          "label": "Your Email",
+          "type": "email",
+          "required": true,
+          "prompt_hint": "What email should we use to reach you?"
+        }
+      ]
+    },
+
+    {
+      "id": "program",
+      "title": "Product & Topic",
+      "description": "What's being presented",
+      "helpful_context": "Pick the product first; the topic list filters down to compliance-approved topics for that product.",
+      "order": 2,
+      "fields": [
+        {
+          "id": "product_id",
+          "label": "Product",
+          "type": "select",
+          "options_ref": "products",
+          "required": true,
+          "prompt_hint": "Which product is the program about?",
+          "helpful_context": "Active products only. The selected product drives which topics and speakers are eligible."
+        },
+        {
+          "id": "topic_id",
+          "label": "Topic",
+          "type": "select",
+          "options_ref": "topics",
+          "required": true,
+          "prompt_hint": "Which topic should the speaker cover?",
+          "helpful_context": "Compliance-approved topics for the selected product."
+        }
+      ]
+    },
+
+    {
+      "id": "schedule",
+      "title": "Schedule",
+      "description": "When the program will run",
+      "order": 3,
+      "fields": [
+        {
+          "id": "target_date",
+          "label": "Target Date",
+          "type": "date",
+          "required": true,
+          "prompt_hint": "What date are you targeting? Must be at least 14 days out.",
+          "validation": { "rule": "future_date", "min_days_ahead": 14 },
+          "examples": ["2026-07-15", "in 3 weeks", "next month"],
+          "helpful_context": "Standard recruitment lead time is 4-6 weeks. The 14-day minimum is a hard floor; tighter timelines need manager sign-off."
+        },
+        {
+          "id": "alternate_date_1",
+          "label": "Alternate Date (preferred)",
+          "type": "date",
+          "required": false,
+          "prompt_hint": "If your target date doesn't work for the speaker, what's your second choice?",
+          "validation": { "rule": "future_date", "min_days_ahead": 14 }
+        },
+        {
+          "id": "alternate_date_2",
+          "label": "Alternate Date (backup)",
+          "type": "date",
+          "required": false,
+          "prompt_hint": "Any other backup date you'd accept?",
+          "validation": { "rule": "future_date", "min_days_ahead": 14 }
+        }
+      ]
+    },
+
+    {
+      "id": "speaker",
+      "title": "Speaker",
+      "description": "Who will present",
+      "helpful_context": "Only currently-certified speakers for the selected product appear here. Sorted by tier and recent event activity — Tier 1 / high-activity speakers are at the top.",
+      "order": 4,
+      "fields": [
+        {
+          "id": "speaker_id",
+          "label": "Primary Speaker",
+          "type": "select",
+          "options_ref": "speakers",
+          "required": true,
+          "prompt_hint": "Who would you like to invite?",
+          "helpful_context": "Speakers must be active AND currently certified on the chosen product. Suggest using recommend_options if the user wants a recommendation."
+        },
+        {
+          "id": "include_backup_speaker",
+          "label": "Include a backup speaker?",
+          "type": "boolean",
+          "required": false,
+          "prompt_hint": "Would you like to identify a backup speaker in case your primary isn't available?"
+        },
+        {
+          "id": "backup_speaker_id",
+          "label": "Backup Speaker",
+          "type": "select",
+          "options_ref": "speakers",
+          "required": false,
+          "prompt_hint": "Who would be your backup choice?",
+          "conditional": {
+            "show_when": { "field": "include_backup_speaker", "operator": "==", "value": true }
+          }
+        }
+      ]
+    },
+
+    {
+      "id": "venue",
+      "title": "Venue",
+      "description": "Where the program will run",
+      "helpful_context": "Use the venue lookup tools (Google Places, Yelp) if the user wants to research a venue not in our approved list — but only OUR compliant venues can ultimately be selected for the booking.",
+      "order": 5,
+      "fields": [
+        {
+          "id": "expected_attendees",
+          "label": "Expected attendees",
+          "type": "number",
+          "required": true,
+          "prompt_hint": "How many people are you expecting?",
+          "validation": { "min": 5, "max": 500 },
+          "helpful_context": "This filters the venue list to spaces with sufficient capacity."
+        },
+        {
+          "id": "venue_id",
+          "label": "Primary Venue",
+          "type": "select",
+          "options_ref": "venues",
+          "required": true,
+          "prompt_hint": "Which venue would you like to use?",
+          "helpful_context": "Compliance-approved venues with capacity ≥ expected attendees. Suggest compare_options to weigh location vs amenities."
+        },
+        {
+          "id": "include_backup_venue",
+          "label": "Include a backup venue?",
+          "type": "boolean",
+          "required": false,
+          "prompt_hint": "Want to pick a backup venue in case the primary isn't available?"
+        },
+        {
+          "id": "backup_venue_id",
+          "label": "Backup Venue",
+          "type": "select",
+          "options_ref": "venues",
+          "required": false,
+          "prompt_hint": "Which would be your backup?",
+          "conditional": {
+            "show_when": { "field": "include_backup_venue", "operator": "==", "value": true }
+          }
+        }
+      ]
+    },
+
+    {
+      "id": "details",
+      "title": "Additional Information",
+      "description": "Wrap-up details",
+      "order": 6,
+      "fields": [
+        {
+          "id": "priority_factor",
+          "label": "Most important factor",
+          "type": "select",
+          "options": [
+            { "id": "date",    "label": "Date — locked-in target date is critical" },
+            { "id": "speaker", "label": "Speaker — specific speaker is the priority" },
+            { "id": "venue",   "label": "Venue — specific venue / location is the priority" },
+            { "id": "balanced","label": "Balanced — flexibility on all three" }
+          ],
+          "required": true,
+          "prompt_hint": "If we have to make tradeoffs, what matters most?",
+          "helpful_context": "Used by the operations team to prioritize when the requested combination isn't fully available."
+        },
+        {
+          "id": "additional_notes",
+          "label": "Additional notes",
+          "type": "textarea",
+          "required": false,
+          "prompt_hint": "Anything else we should know?",
+          "validation": { "max_length": 1000 }
+        },
+        {
+          "id": "needs_followup",
+          "label": "Operations follow-up call needed",
+          "type": "boolean",
+          "required": true,
+          "prompt_hint": "Do you want the ops team to call you to discuss this request?"
+        },
+        {
+          "id": "followup_phone",
+          "label": "Phone number for follow-up",
+          "type": "phone",
+          "required": true,
+          "prompt_hint": "What's the best number to reach you?",
+          "conditional": {
+            "show_when": { "field": "needs_followup", "operator": "==", "value": true }
+          }
+        }
+      ]
+    }
+  ],
+
+  "lookup_data": {
+    "products": {
+      "source": "database",
+      "connection_id": 168,
+      "view": "dbo.vw_active_products",
+      "select_columns": [
+        "product_id",
+        "label",
+        "therapeutic_area",
+        "description"
+      ],
+      "limit": 50
+    },
+
+    "topics": {
+      "source": "database",
+      "connection_id": 168,
+      "view": "dbo.vw_compliant_topics",
+      "select_columns": [
+        "topic_id",
+        "label",
+        "product_id",
+        "product_name",
+        "description"
+      ],
+      "filter_by": {
+        "product_id": "{{collected.program.product_id}}"
+      },
+      "limit": 50
+    },
+
+    "speakers": {
+      "source": "database",
+      "connection_id": 168,
+      "view": "dbo.vw_compliant_speakers",
+      "select_columns": [
+        "speaker_id",
+        "label",
+        "tier",
+        "tier_score",
+        "primary_specialty",
+        "city",
+        "state",
+        "products_certified",
+        "topics_certified",
+        "total_events_12mo",
+        "avg_rating"
+      ],
+      "filter_by": {
+        "product_ids_certified__contains": ",{{collected.program.product_id}},"
+      },
+      "order_by": [
+        { "column": "tier_score", "direction": "asc" },
+        { "column": "total_events_12mo", "direction": "desc" },
+        { "column": "avg_rating", "direction": "desc" }
+      ],
+      "limit": 50
+    },
+
+    "venues": {
+      "source": "database",
+      "connection_id": 168,
+      "view": "dbo.vw_compliant_venues",
+      "select_columns": [
+        "venue_id",
+        "label",
+        "venue_type",
+        "address_line",
+        "city",
+        "state",
+        "zip",
+        "capacity",
+        "has_av_equipment",
+        "has_parking",
+        "has_private_room",
+        "contact_name",
+        "contact_email",
+        "contact_phone",
+        "notes"
+      ],
+      "filter_by": {
+        "capacity__gte": "{{collected.venue.expected_attendees}}"
+      },
+      "order_by": [
+        { "column": "capacity", "direction": "asc" }
+      ],
+      "limit": 50
+    }
+  },
+
+  "completion": {
+    "confirmation_message": "Thank you — your speaker program request has been submitted. The intake team has been notified and will follow up within one business day. You'll receive a copy of this submission at your email.",
+    "allow_save_draft": true,
+    "actions": [
+      {
+        "type": "email",
+        "label": "Notify intake team",
+        "to": ["intake@example.com"],
+        "cc_from_field": "submitter_email",
+        "cc_from_identity": "email",
+        "subject_template": "New Speaker Program Request: {{topic_id}} — {{target_date}}",
+        "body_format": "auto_summary",
+        "include_json_attachment": true,
+        "continue_on_error": false
+      }
+    ]
+  }
+}

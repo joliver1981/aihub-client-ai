@@ -210,7 +210,7 @@ class SmartContentRenderer:
             2. Preserve the original content accurately
             3. Detect tables even if they're in text format
             4. Identify code blocks with their language
-            5. Recognize metrics/KPIs that should be highlighted
+            5. Recognize metrics/KPIs — short scannable values only; prose belongs in a table or text block
             6. Suggest visualizations where appropriate
             7. Always display FULL DATA
             8. Output valid JSON only.
@@ -514,13 +514,26 @@ class SmartContentRenderer:
                     "trend": self._detect_trend(str(value))
                 })
 
+        # Guard: if any value is too long to fit on a card, downgrade to a
+        # 2-column table so prose doesn't get stuffed into KPI cards.
+        LONG_VALUE_THRESHOLD = 60
+        if any(len(str(m.get('value', ''))) > LONG_VALUE_THRESHOLD for m in metrics):
+            return {
+                "type": "table",
+                "content": {
+                    "headers": ["Field", "Value"],
+                    "rows": [[m.get('label', ''), m.get('value', '')] for m in metrics],
+                },
+                "metadata": {**metadata, "downgraded_from": "metrics"},
+            }
+
         # Determine display style based on metadata or metric count
         display_style = metadata.get('display', 'cards')
         if display_style == 'kpi_cards' or len(metrics) <= 10:
             display_style = 'cards'
         elif len(metrics) > 10:
             display_style = 'list'
-        
+
         return {
             "type": "metrics",
             "content": metrics,

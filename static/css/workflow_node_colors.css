@@ -173,6 +173,20 @@
 }
 
 
+/* --- COMPLIANCE - Black (formal / regulatory) --- */
+
+.workflow-node[data-type="Compliance Process"],
+.workflow-node[data-type="Compliance Excel Export"] {
+    background: linear-gradient(135deg, #2d2d2d 0%, #000000 100%) !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+
+.workflow-node[data-type="Compliance Process"]:hover,
+.workflow-node[data-type="Compliance Excel Export"]:hover {
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.55);
+}
+
+
 /* --- TEXT COLOR FOR ALL NODES --- */
 
 .workflow-node[data-type="Database"] .node-content,
@@ -188,7 +202,9 @@
 .workflow-node[data-type="Human Approval"] .node-content,
 .workflow-node[data-type="Set Variable"] .node-content,
 .workflow-node[data-type="Execute Application"] .node-content,
-.workflow-node[data-type="Server"] .node-content {
+.workflow-node[data-type="Server"] .node-content,
+.workflow-node[data-type="Compliance Process"] .node-content,
+.workflow-node[data-type="Compliance Excel Export"] .node-content {
     color: white !important;
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
 }

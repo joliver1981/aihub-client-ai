@@ -234,19 +234,23 @@ def get_base_url():
     return base_url
 
 def get_document_api_base_url():
-    """Return full base URL
-    
+    """Return full base URL for the Document API (internal service).
+
+    Internal services default to loopback (127.0.0.1) — that's where the
+    corresponding wsgi_doc_api.py defaults to binding. Override INTERNAL_HOST
+    only for advanced multi-machine deployments.
+
     Returns:
         Base URL
     """
     # Get the protocol from environment or default to http
     protocol = os.getenv('PROTOCOL', 'http')
-    
-    # Get host from environment
-    host = os.getenv('HOST', 'localhost')
+
+    # Internal service — dial loopback by default (matches wsgi_doc_api.py bind)
+    host = os.getenv('INTERNAL_HOST', '127.0.0.1')
     if host == "0.0.0.0":
         host = get_local_ip()
-    
+
     # Calculate document API port by adding 10 to the current port
     try:
         current_port = int(os.getenv('HOST_PORT', '5001'))
@@ -254,10 +258,10 @@ def get_document_api_base_url():
     except ValueError:
         # Fallback to default port if HOST_PORT is not a valid integer
         document_port = 5011
-    
+
     # Construct the base URL
     base_url = f"{protocol}://{host}:{document_port}"
-    
+
     # Return
     return base_url
 
@@ -274,47 +278,55 @@ def get_scheduler_api_base_url():
     return get_base_url()
 
 def get_vector_api_base_url():
-    """Return full base URL
-    
+    """Return full base URL for the Vector API (internal service).
+
+    Internal services default to loopback (127.0.0.1) — that's where the
+    corresponding wsgi_vector_api.py defaults to binding. Override INTERNAL_HOST
+    only for advanced multi-machine deployments.
+
     Returns:
         Base URL
     """
     # Get the protocol from environment or default to http
     protocol = os.getenv('PROTOCOL', 'http')
-    
-    # Get host from environment
-    host = os.getenv('HOST', 'localhost')
+
+    # Internal service — dial loopback by default (matches wsgi_vector_api.py bind)
+    host = os.getenv('INTERNAL_HOST', '127.0.0.1')
     if host == "0.0.0.0":
         host = get_local_ip()
-    
-    # Calculate document API port by adding 10 to the current port
+
+    # Calculate Vector API port by adding 30 to the base port
     try:
         current_port = int(os.getenv('HOST_PORT', '5001'))
         document_port = current_port + 30
     except ValueError:
         # Fallback to default port if HOST_PORT is not a valid integer
         document_port = 5031
-    
+
     # Construct the base URL
     base_url = f"{protocol}://{host}:{document_port}"
-    
+
     # Return
     return base_url
 
 def get_agent_api_base_url():
-    """Return full base URL
-    
+    """Return full base URL for the Agent API (internal service).
+
+    Internal services default to loopback (127.0.0.1) — that's where the
+    corresponding wsgi_agent_api.py defaults to binding. Override INTERNAL_HOST
+    only for advanced multi-machine deployments.
+
     Returns:
         Base URL
     """
     # Get the protocol from environment or default to http
     protocol = os.getenv('PROTOCOL', 'http')
-    
-    # Get host from environment
-    host = os.getenv('HOST', 'localhost')
+
+    # Internal service — dial loopback by default (matches wsgi_agent_api.py bind)
+    host = os.getenv('INTERNAL_HOST', '127.0.0.1')
     if host == "0.0.0.0":
         host = get_local_ip()
-    
+
     # Calculate API port by adding 40 to the current port
     try:
         current_port = int(os.getenv('HOST_PORT', '5001'))
@@ -322,80 +334,92 @@ def get_agent_api_base_url():
     except ValueError:
         # Fallback to default port if HOST_PORT is not a valid integer
         api_port = 5041
-    
+
     # Construct the base URL
     base_url = f"{protocol}://{host}:{api_port}"
-    
+
     # Return
     return base_url
 
 def get_knowledge_api_base_url():
-    """Return full base URL
-    
+    """Return full base URL for the Knowledge API (internal service).
+
+    Internal services default to loopback (127.0.0.1) — that's where the
+    corresponding wsgi_knowledge_api.py defaults to binding. Override INTERNAL_HOST
+    only for advanced multi-machine deployments.
+
     Returns:
         Base URL
     """
     # Get the protocol from environment or default to http
     protocol = os.getenv('PROTOCOL', 'http')
-    
-    # Get host from environment
-    host = os.getenv('HOST', 'localhost')
+
+    # Internal service — dial loopback by default (matches wsgi_knowledge_api.py bind)
+    host = os.getenv('INTERNAL_HOST', '127.0.0.1')
     if host == "0.0.0.0":
         host = get_local_ip()
-    
-    # Calculate API port by adding 40 to the current port
+
+    # Calculate Knowledge API port by adding 50 to the base port
     try:
         current_port = int(os.getenv('HOST_PORT', '5001'))
         api_port = current_port + 50
     except ValueError:
         # Fallback to default port if HOST_PORT is not a valid integer
         api_port = 5051
-    
+
     # Construct the base URL
     base_url = f"{protocol}://{host}:{api_port}"
-    
+
     # Return
     return base_url
 
 def get_executor_api_base_url():
-    """Return full base URL
-    
+    """Return full base URL for the Executor service (internal service).
+
+    Internal services default to loopback (127.0.0.1) — that's where the
+    corresponding wsgi_executor_service.py defaults to binding. Override
+    INTERNAL_HOST only for advanced multi-machine deployments.
+
     Returns:
         Base URL
     """
     # Get the protocol from environment or default to http
     protocol = os.getenv('PROTOCOL', 'http')
-    
-    # Get host from environment
-    host = os.getenv('HOST', 'localhost')
+
+    # Internal service — dial loopback by default (matches wsgi_executor_service.py bind)
+    host = os.getenv('INTERNAL_HOST', '127.0.0.1')
     if host == "0.0.0.0":
         host = get_local_ip()
-    
-    # Calculate API port by adding 40 to the current port
+
+    # Calculate Executor API port by adding 60 to the base port
     try:
         current_port = int(os.getenv('HOST_PORT', '5001'))
         api_port = current_port + 60
     except ValueError:
         # Fallback to default port if HOST_PORT is not a valid integer
         api_port = 5061
-    
+
     # Construct the base URL
     base_url = f"{protocol}://{host}:{api_port}"
-    
+
     # Return
     return base_url
 
 def get_mcp_gateway_api_base_url():
-    """Return full base URL for MCP Gateway service
+    """Return full base URL for MCP Gateway service (internal service).
+
+    Internal services default to loopback (127.0.0.1) — that's where the
+    MCP gateway (mcp_gateway_config.py MCP_GATEWAY_HOST) defaults to binding.
+    Override INTERNAL_HOST only for advanced multi-machine deployments.
 
     Returns:
-        Base URL (e.g. http://localhost:5071)
+        Base URL (e.g. http://127.0.0.1:5071)
     """
     # Get the protocol from environment or default to http
     protocol = os.getenv('PROTOCOL', 'http')
 
-    # Get host from environment
-    host = os.getenv('HOST', 'localhost')
+    # Internal service — dial loopback by default
+    host = os.getenv('INTERNAL_HOST', '127.0.0.1')
     if host == "0.0.0.0":
         host = get_local_ip()
 
@@ -414,13 +438,17 @@ def get_mcp_gateway_api_base_url():
     return base_url
 
 def get_cloud_storage_api_base_url():
-    """Return full base URL for Cloud Storage Gateway service
+    """Return full base URL for Cloud Storage Gateway service (internal service).
+
+    Internal services default to loopback (127.0.0.1). Override INTERNAL_HOST
+    only for advanced multi-machine deployments.
 
     Returns:
-        Base URL (e.g. http://localhost:5081)
+        Base URL (e.g. http://127.0.0.1:5081)
     """
     protocol = os.getenv('PROTOCOL', 'http')
-    host = os.getenv('HOST', 'localhost')
+    # Internal service — dial loopback by default
+    host = os.getenv('INTERNAL_HOST', '127.0.0.1')
     if host == "0.0.0.0":
         host = get_local_ip()
 
@@ -434,13 +462,17 @@ def get_cloud_storage_api_base_url():
     return f"{protocol}://{host}:{api_port}"
 
 def get_command_center_api_base_url():
-    """Return full base URL for Command Center service
+    """Return full base URL for Command Center service (internal service).
+
+    Internal services default to loopback (127.0.0.1). Override INTERNAL_HOST
+    only for advanced multi-machine deployments.
 
     Returns:
-        Base URL (e.g. http://localhost:5091)
+        Base URL (e.g. http://127.0.0.1:5091)
     """
     protocol = os.getenv('PROTOCOL', 'http')
-    host = os.getenv('HOST', 'localhost')
+    # Internal service — dial loopback by default
+    host = os.getenv('INTERNAL_HOST', '127.0.0.1')
     if host == "0.0.0.0":
         host = get_local_ip()
 

@@ -4,12 +4,17 @@ Flask Blueprint providing REST API for MCP server CRUD and gateway actions.
 
 CRUD operations (list, create, update, delete) hit the DATABASE directly.
 Action operations (test, list tools, call tool) proxy to the GATEWAY service.
+OAuth actions (authorize, callback) live here too — refresh/exchange runs server-side.
 """
 import os
 import json
+import secrets
+import hashlib
+import base64
 import logging
-from flask import Blueprint, request, jsonify, session
-from flask_login import login_required
+from urllib.parse import urlparse
+from flask import Blueprint, request, jsonify, session, redirect, url_for
+from flask_login import login_required, current_user
 from flask_cors import cross_origin
 from role_decorators import api_key_or_session_required
 from CommonUtils import get_db_connection
@@ -36,6 +41,27 @@ def _get_gateway_client():
     """Get a lazy-initialized MCPGatewayClient instance"""
     from builder_mcp.client.mcp_gateway_client import MCPGatewayClient
     return MCPGatewayClient()
+
+
+def _graph_stdio_script_path() -> str:
+    """Absolute path to the in-repo Graph stdio MCP server.
+
+    Used as a directory-entry default. Avoids the `-m` invocation which would
+    require the launching Python to already have the repo root on sys.path.
+    """
+    # __file__ is .../builder_mcp/routes/mcp_routes.py — three dirname()s lands
+    # at the repo root.
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    return os.path.join(repo_root, 'builder_mcp', 'servers', 'graph_stdio_server.py')
+
+
+def _internal_graph_url() -> str:
+    """URL the MCP gateway calls back to reach our in-process Graph MCP endpoint.
+
+    Always loopback to the main app's HOST_PORT.
+    """
+    port = os.getenv('HOST_PORT', '5001')
+    return f"http://127.0.0.1:{port}/api/internal/mcp/graph"
 
 
 # ============================================================================
@@ -102,12 +128,15 @@ def list_servers():
                 'agent_count': row[18]
             }
 
-            # For local servers, parse connection_config for convenience
-            if server['server_type'] == 'local' and server['connection_config']:
+            # Parse connection_config for convenience
+            if server['connection_config']:
                 try:
                     config = json.loads(server['connection_config'])
-                    server['command'] = config.get('command')
-                    server['args'] = config.get('args', [])
+                    if server['server_type'] == 'local':
+                        server['command'] = config.get('command')
+                        server['args'] = config.get('args', [])
+                    else:
+                        server['transport'] = config.get('transport')
                 except (json.JSONDecodeError, TypeError):
                     pass
 
@@ -135,21 +164,31 @@ def create_server():
         cursor = conn.cursor()
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
 
-        if server_type == 'remote':
-            auth_config = data.get('auth_config', {})
+        if server_type in ('remote', 'streamable-http', 'sse'):
+            auth_config = data.get('auth_config', {}) or {}
+            # DB has a CHECK constraint allowing only 'local' or 'remote' — store the
+            # actual transport choice in connection_config JSON instead.
+            transport = data.get('transport')
+            if not transport and server_type in ('streamable-http', 'sse'):
+                transport = server_type
+            connection_config_json = json.dumps({
+                'transport': transport,
+                'verify_ssl': data.get('verify_ssl', True),
+            })
             cursor.execute("""
                 INSERT INTO MCPServers (
-                    server_name, server_type, server_url, auth_type,
+                    server_name, server_type, server_url, auth_type, connection_config,
                     description, category, icon, enabled, created_by, created_date,
                     request_timeout, max_retries, verify_ssl
                 )
                 OUTPUT INSERTED.server_id
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, getutcdate(), ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, getutcdate(), ?, ?, ?)
             """, (
                 data.get('server_name'),
                 'remote',
                 data.get('server_url'),
                 data.get('auth_type', 'none'),
+                connection_config_json,
                 data.get('description', ''),
                 data.get('category', ''),
                 data.get('icon', ''),
@@ -162,14 +201,16 @@ def create_server():
 
             server_id = cursor.fetchone()[0]
 
-            # Store auth credentials encrypted
+            # Store auth credentials encrypted. Strip empty values to avoid clobbering.
             if auth_config:
                 encryption_key = _get_encryption_key()
                 for key, value in auth_config.items():
+                    if value is None or value == '':
+                        continue
                     cursor.execute("""
                         INSERT INTO MCPServerCredentials (server_id, credential_key, credential_value)
-                        VALUES (?, ?, ENCRYPTBYPASSPHRASE(?, ?))
-                    """, (server_id, key, encryption_key, value))
+                        VALUES (?, ?, ENCRYPTBYPASSPHRASE(?, CAST(? AS NVARCHAR(MAX))))
+                    """, (server_id, key, encryption_key, str(value)))
         else:
             # Local server
             connection_config = {
@@ -258,24 +299,71 @@ def get_server(server_id):
             'verify_ssl': row[17]
         }
 
-        # Parse local config
-        if server['server_type'] == 'local' and server['connection_config']:
+        # Parse connection config
+        if server['connection_config']:
             try:
                 config = json.loads(server['connection_config'])
-                server['command'] = config.get('command')
-                server['args'] = config.get('args', [])
-                server['env_vars'] = config.get('env_vars', {})
+                if server['server_type'] == 'local':
+                    server['command'] = config.get('command')
+                    server['args'] = config.get('args', [])
+                    server['env_vars'] = config.get('env_vars', {})
+                else:
+                    server['transport'] = config.get('transport')
             except (json.JSONDecodeError, TypeError):
                 pass
 
-        # Get credential keys (not values) for remote servers
-        if server['server_type'] == 'remote':
+        # Get credential keys (not values) for remote servers, plus OAuth readiness.
+        # For OAuth servers, also decrypt and return the non-secret config fields
+        # (endpoints, scope, client_id, grant type, audience) so the edit form
+        # can repopulate them. Secret fields (client_secret, access/refresh token)
+        # are never returned to the browser.
+        if server['server_type'] in ('remote', 'streamable-http', 'sse'):
             cursor.execute("""
                 SELECT credential_key
                 FROM MCPServerCredentials
                 WHERE server_id = ?
             """, server_id)
-            server['credential_keys'] = [r[0] for r in cursor.fetchall()]
+            keys = [r[0] for r in cursor.fetchall()]
+            server['credential_keys'] = keys
+            if server.get('auth_type') == 'oauth2':
+                # Per-user authorization now lives in MCPUserTokens. Report
+                # whether the CURRENT user has authorized (used by the edit
+                # modal to label the Authorize button) and how many users
+                # have authorized in total (for the admin overview).
+                from builder_mcp.agent_integration.oauth_manager import has_user_token
+                this_user_authorized = False
+                if current_user.is_authenticated:
+                    try:
+                        this_user_authorized = has_user_token(server_id, int(current_user.id))
+                    except Exception:
+                        pass
+                server['oauth_authorized'] = this_user_authorized
+                # How many distinct users have a token row?
+                try:
+                    cursor.execute("""
+                        SELECT COUNT(DISTINCT user_id) FROM MCPUserTokens
+                        WHERE server_id = ? AND user_id <> 0
+                    """, server_id)
+                    server['oauth_user_count'] = int(cursor.fetchone()[0] or 0)
+                except Exception:
+                    server['oauth_user_count'] = 0
+                encryption_key = _get_encryption_key()
+                non_secret_keys = (
+                    'oauth_grant_type', 'oauth_token_endpoint', 'oauth_auth_endpoint',
+                    'oauth_scope', 'oauth_client_id', 'oauth_audience',
+                )
+                placeholders = ','.join('?' for _ in non_secret_keys)
+                cursor.execute(f"""
+                    SELECT credential_key,
+                           CONVERT(NVARCHAR(MAX), DECRYPTBYPASSPHRASE(?, credential_value)) as v
+                    FROM MCPServerCredentials
+                    WHERE server_id = ? AND credential_key IN ({placeholders})
+                """, encryption_key, server_id, *non_secret_keys)
+                oauth_cfg = {}
+                for row in cursor.fetchall():
+                    if row[1] is not None:
+                        oauth_cfg[row[0]] = row[1]
+                server['oauth_config'] = oauth_cfg
 
         cursor.close()
         conn.close()
@@ -307,10 +395,18 @@ def update_server(server_id):
 
         server_type = data.get('server_type', row[1])
 
-        if server_type == 'remote':
+        if server_type in ('remote', 'streamable-http', 'sse'):
+            transport = data.get('transport')
+            if not transport and server_type in ('streamable-http', 'sse'):
+                transport = server_type
+            connection_config_json = json.dumps({
+                'transport': transport,
+                'verify_ssl': data.get('verify_ssl', True),
+            })
             cursor.execute("""
                 UPDATE MCPServers
                 SET server_name = ?, server_type = ?, server_url = ?, auth_type = ?,
+                    connection_config = ?,
                     description = ?, category = ?, icon = ?,
                     request_timeout = ?, max_retries = ?, verify_ssl = ?
                 WHERE server_id = ?
@@ -319,6 +415,7 @@ def update_server(server_id):
                 'remote',
                 data.get('server_url'),
                 data.get('auth_type', 'none'),
+                connection_config_json,
                 data.get('description', ''),
                 data.get('category', ''),
                 data.get('icon', ''),
@@ -328,16 +425,23 @@ def update_server(server_id):
                 server_id
             ))
 
-            # Update credentials
+            # Update credentials. Per-user OAuth runtime tokens live in
+            # MCPUserTokens (separate table) so a config edit here never
+            # touches them — users don't need to re-authorize on edit.
             auth_config = data.get('auth_config')
             if auth_config is not None:
-                cursor.execute("DELETE FROM MCPServerCredentials WHERE server_id = ?", server_id)
+                cursor.execute("""
+                    DELETE FROM MCPServerCredentials
+                    WHERE server_id = ?
+                """, server_id)
                 encryption_key = _get_encryption_key()
                 for key, value in auth_config.items():
+                    if value is None or value == '':
+                        continue
                     cursor.execute("""
                         INSERT INTO MCPServerCredentials (server_id, credential_key, credential_value)
-                        VALUES (?, ?, ENCRYPTBYPASSPHRASE(?, ?))
-                    """, (server_id, key, encryption_key, value))
+                        VALUES (?, ?, ENCRYPTBYPASSPHRASE(?, CAST(? AS NVARCHAR(MAX))))
+                    """, (server_id, key, encryption_key, str(value)))
         else:
             connection_config = {
                 'command': data.get('command'),
@@ -551,7 +655,7 @@ def get_server_agents(server_id):
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
 
         cursor.execute("""
-            SELECT ams.agent_id, ams.enabled, ams.assigned_date, ams.assigned_by
+            SELECT ams.agent_id, ams.enabled, ams.added_date
             FROM AgentMCPServers ams
             WHERE ams.server_id = ?
         """, server_id)
@@ -561,8 +665,7 @@ def get_server_agents(server_id):
             agents.append({
                 'agent_id': row[0],
                 'enabled': row[1],
-                'assigned_date': row[2].isoformat() if row[2] else None,
-                'assigned_by': row[3]
+                'added_date': row[2].isoformat() if row[2] else None,
             })
 
         cursor.close()
@@ -600,9 +703,9 @@ def update_server_agents(server_id):
         # Add new assignments
         for agent_id in agent_ids:
             cursor.execute("""
-                INSERT INTO AgentMCPServers (agent_id, server_id, enabled, assigned_date, assigned_by)
-                VALUES (?, ?, 1, getutcdate(), ?)
-            """, (agent_id, server_id, session.get('user_email', 'unknown')))
+                INSERT INTO AgentMCPServers (agent_id, server_id, enabled)
+                VALUES (?, ?, 1)
+            """, (agent_id, server_id))
 
         conn.commit()
         cursor.close()
@@ -629,32 +732,60 @@ def get_server_directory():
     """Get directory of known MCP server templates"""
     directory = [
         {
+            'name': 'Microsoft Learn',
+            'category': 'Development',
+            'server_type': 'streamable-http',
+            'transport': 'streamable-http',
+            'url_template': 'https://learn.microsoft.com/api/mcp',
+            'auth_type': 'none',
+            'description': 'Search Microsoft Learn documentation, code samples and reference content (no auth required).',
+            'provider': 'Microsoft'
+        },
+        {
+            'name': 'Microsoft 365',
+            'category': 'Productivity',
+            'server_type': 'streamable-http',
+            'transport': 'streamable-http',
+            'url_template': _internal_graph_url(),
+            'auth_type': 'oauth2',
+            'oauth_defaults': {
+                'oauth_grant_type': 'authorization_code',
+                'oauth_token_endpoint': 'https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token',
+                'oauth_auth_endpoint': 'https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize',
+                'oauth_scope': 'User.Read Mail.Read Mail.Send Calendars.Read offline_access',
+            },
+            'description': "Outlook email and calendar access for the signed-in user. Setup: replace the tenant id placeholder in both endpoint URLs with your Entra tenant GUID, paste your Azure app's Client ID and Client Secret, Save, then click Authorize.",
+            'provider': 'Microsoft'
+        },
+        {
+            'name': 'Microsoft Graph (OAuth)',
+            'category': 'Productivity',
+            'server_type': 'streamable-http',
+            'transport': 'streamable-http',
+            'url_template': 'https://graph.microsoft.com/mcp',
+            'auth_type': 'oauth2',
+            'oauth_defaults': {
+                'oauth_grant_type': 'client_credentials',
+                'oauth_token_endpoint': 'https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token',
+                'oauth_auth_endpoint': 'https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize',
+                'oauth_scope': 'https://graph.microsoft.com/.default'
+            },
+            'description': 'Microsoft 365 / Graph API via OAuth 2.0. Replace {tenant_id} and add your app registration client_id and client_secret.',
+            'provider': 'Microsoft'
+        },
+        {
             'name': 'Salesforce CRM',
             'category': 'CRM',
+            'server_type': 'remote',
             'url_template': 'https://{instance}.salesforce.com/services/mcp/v1',
             'auth_type': 'oauth2',
             'description': 'Customer relationship management',
             'provider': 'Salesforce'
         },
         {
-            'name': 'SAP ERP',
-            'category': 'ERP',
-            'url_template': 'https://{hostname}/sap/opu/mcp/v1',
-            'auth_type': 'oauth2',
-            'description': 'Enterprise resource planning',
-            'provider': 'SAP'
-        },
-        {
-            'name': 'Microsoft Azure',
-            'category': 'Cloud',
-            'url_template': 'https://management.azure.com/mcp/v1',
-            'auth_type': 'oauth2',
-            'description': 'Azure cloud services',
-            'provider': 'Microsoft'
-        },
-        {
             'name': 'GitHub',
             'category': 'Development',
+            'server_type': 'remote',
             'url_template': 'https://api.github.com/mcp/v1',
             'auth_type': 'bearer',
             'description': 'Code repository and collaboration',
@@ -663,6 +794,7 @@ def get_server_directory():
         {
             'name': 'Slack',
             'category': 'Communication',
+            'server_type': 'remote',
             'url_template': 'https://slack.com/api/mcp/v1',
             'auth_type': 'bearer',
             'description': 'Team messaging and collaboration',
@@ -670,6 +802,134 @@ def get_server_directory():
         },
     ]
     return jsonify(directory)
+
+
+# ============================================================================
+# OAuth 2.0 — authorize / callback
+# ============================================================================
+
+def _oauth_redirect_uri() -> str:
+    """Build the redirect URI used by the authorization code flow."""
+    return url_for('mcp.oauth_callback', _external=True)
+
+
+@mcp_bp.route('/oauth/redirect_uri', methods=['GET'])
+@api_key_or_session_required(min_role=2)
+@cross_origin()
+def oauth_redirect_uri():
+    """Return the OAuth redirect URI for the user to register with the IdP."""
+    return jsonify({'redirect_uri': _oauth_redirect_uri()})
+
+
+@mcp_bp.route('/oauth/authorize/<int:server_id>', methods=['GET'])
+@api_key_or_session_required(min_role=2)
+def oauth_authorize(server_id):
+    """Start the authorization-code flow for an MCP server. Redirects user to the IdP.
+
+    For client_credentials grant types this endpoint just forces a token fetch
+    and returns a JSON status, since no user interaction is needed.
+    """
+    try:
+        from builder_mcp.agent_integration.oauth_manager import (
+            build_authorize_url, get_access_token, _load_server_config,
+        )
+
+        cfg = _load_server_config(server_id)
+        grant_type = (cfg.get('oauth_grant_type') or '').lower()
+
+        if grant_type == 'client_credentials':
+            # No user-interaction needed; just force a token fetch for the
+            # service-account pseudo-user. Admin-only operation.
+            try:
+                token = get_access_token(server_id, user_id=None)
+                return jsonify({'status': 'success', 'has_token': bool(token)})
+            except Exception as e:
+                return jsonify({'status': 'error', 'error': str(e)}), 400
+
+        if grant_type != 'authorization_code':
+            return jsonify({'status': 'error',
+                            'error': f"server not configured for OAuth (grant_type={grant_type!r})"}), 400
+
+        # authorization_code → per-user. Capture the currently-logged-in user
+        # so the callback knows whose tokens to store.
+        if not current_user.is_authenticated:
+            return jsonify({'status': 'error',
+                            'error': 'You must be logged in to authorize a personal connection'}), 401
+
+        # PKCE
+        verifier = secrets.token_urlsafe(64)
+        challenge = base64.urlsafe_b64encode(
+            hashlib.sha256(verifier.encode()).digest()
+        ).decode().rstrip('=')
+
+        state = secrets.token_urlsafe(32)
+        session_key = f'mcp_oauth_state_{state}'
+        session[session_key] = {
+            'server_id': server_id,
+            'user_id': int(current_user.id),
+            'code_verifier': verifier,
+        }
+
+        redirect_uri = _oauth_redirect_uri()
+        url = build_authorize_url(server_id, redirect_uri, state, code_challenge=challenge)
+        return redirect(url)
+
+    except Exception as e:
+        logger.error(f"Error starting OAuth authorize for server {server_id}: {e}")
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+
+@mcp_bp.route('/oauth/callback', methods=['GET'])
+def oauth_callback():
+    """OAuth 2.0 authorization-code redirect handler.
+
+    Note: no role decorator — the IdP redirects the browser here and Flask's session
+    cookie carries the original user. We do enforce state-token match below.
+    """
+    try:
+        from builder_mcp.agent_integration.oauth_manager import exchange_authorization_code
+
+        error = request.args.get('error')
+        if error:
+            return f"<h3>OAuth error</h3><pre>{error}: {request.args.get('error_description', '')}</pre>", 400
+
+        code = request.args.get('code')
+        state = request.args.get('state')
+        if not code or not state:
+            return "<h3>OAuth callback missing code or state</h3>", 400
+
+        session_key = f'mcp_oauth_state_{state}'
+        ctx = session.pop(session_key, None)
+        if not ctx:
+            return "<h3>OAuth state mismatch — re-initiate the authorization flow</h3>", 400
+
+        server_id = ctx['server_id']
+        user_id = ctx.get('user_id')
+        verifier = ctx.get('code_verifier')
+        if not user_id:
+            return "<h3>OAuth callback missing user context — re-initiate the flow</h3>", 400
+
+        token = exchange_authorization_code(
+            server_id=server_id,
+            user_id=user_id,
+            code=code,
+            redirect_uri=_oauth_redirect_uri(),
+            code_verifier=verifier,
+        )
+
+        if token:
+            return (
+                "<html><body style='font-family:sans-serif;padding:2rem;'>"
+                "<h3>&#10004; MCP server authorized</h3>"
+                "<p>You can close this window and return to the MCP Servers page.</p>"
+                "<script>setTimeout(function(){window.close();},1500);</script>"
+                "</body></html>"
+            )
+        return "<h3>Token exchange returned no access_token</h3>", 500
+
+    except Exception as e:
+        logger.error(f"OAuth callback error: {e}")
+        return f"<h3>OAuth callback error</h3><pre>{e}</pre>", 500
 
 
 # ============================================================================

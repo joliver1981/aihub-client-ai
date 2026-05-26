@@ -343,27 +343,44 @@ print('')
 
 app = Flask(__name__)
 
+# Reverse-proxy posture. Off by default — only enable when a TLS-terminating
+# proxy fronts the app AND strips/replaces client-sent X-Forwarded-* headers;
+# trusting them otherwise lets remote clients spoof IP and scheme.
+_BEHIND_PROXY = os.getenv('USE_REVERSE_PROXY', 'false').strip().lower() in ('true', '1', 'yes')
 try:
-    # Conditional reverse proxy support
+    _PROXY_HOPS = max(1, int(os.getenv('REVERSE_PROXY_HOPS', '1')))
+except (TypeError, ValueError):
+    _PROXY_HOPS = 1
+
+if _BEHIND_PROXY:
     from werkzeug.middleware.proxy_fix import ProxyFix
-    behind_proxy = os.getenv('USE_REVERSE_PROXY', 'false').lower() in ('true', '1', 'yes')
-    if behind_proxy:
-        app.wsgi_app = ProxyFix(
-            app.wsgi_app,
-            x_for=1,
-            x_proto=1,
-            x_host=1,
-            x_port=1
-        )
-        print('Reverse proxy support enabled')
-    else:
-        print('Running in direct mode (no reverse proxy)')
-except Exception as e:
-    print('Reverse Proxy Error:', str(e))
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app,
+        x_for=_PROXY_HOPS,
+        x_proto=_PROXY_HOPS,
+        x_host=_PROXY_HOPS,
+        x_port=_PROXY_HOPS,
+        x_prefix=_PROXY_HOPS,
+    )
+    print(f'[startup] Reverse proxy ENABLED (trusting {_PROXY_HOPS} hop)')
+else:
+    print('[startup] Reverse proxy disabled (direct HTTP)')
 
 cors = CORS(app)
 app.config.from_object(app_config)
 app.config['SECRET_KEY'] = cfg.SECRET_KEY
+
+# Reverse-proxy companion settings: cookies are HTTPS-only and url_for emits
+# https so notification/email/share links match the public scheme. Tied to the
+# same USE_REVERSE_PROXY flag so flipping it back to false reverts everything.
+if _BEHIND_PROXY:
+    app.config['SESSION_COOKIE_SECURE'] = True
+    app.config['SESSION_COOKIE_HTTPONLY'] = True
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+    app.config['REMEMBER_COOKIE_SECURE'] = True
+    app.config['REMEMBER_COOKIE_HTTPONLY'] = True
+    app.config['PREFERRED_URL_SCHEME'] = 'https'
+
 # Build the raw ODBC connection string — same format DataUtils uses successfully.
 # We pass it via SQLAlchemy's `creator` parameter (below) instead of embedding it
 # in the URI, because URI-based passwords get mangled by URL parsing when they
@@ -379,7 +396,12 @@ _odbc_raw = (
 # The actual connection is created by the `creator` callable in SQLALCHEMY_ENGINE_OPTIONS.
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mssql+pyodbc://'
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    'creator': lambda: pyodbc.connect(_odbc_raw)
+    'creator': lambda: pyodbc.connect(_odbc_raw),
+    # Azure SQL silently drops idle TCP connections. Pre-ping validates the
+    # connection before handing it out so a dead one is transparently replaced
+    # instead of failing the first query (sp_setTenantContext) with 10054.
+    'pool_pre_ping': True,
+    'pool_recycle': 1500,
 }
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 UPLOAD_FOLDER = os.path.join(os.getenv('APP_ROOT', os.path.dirname(os.path.abspath(__file__))), cfg.APP_UPLOADS_FOLDER)
@@ -428,7 +450,14 @@ class User(db.Model, UserMixin):
     last_sso_login = db.Column(db.DateTime, nullable=True)
     mfa_enabled = db.Column(db.Boolean, nullable=False, default=False)
     mfa_secret = db.Column(db.String(255), nullable=True)
-    mfa_backup_codes = db.Column(db.Text, nullable=True)
+    # Bounded NVARCHAR rather than Text/NVARCHAR(MAX): MFA backup codes are
+    # at most a few hundred chars (e.g. 10 short tokens serialized as JSON).
+    # NVARCHAR(MAX) is overkill, AND the legacy {SQL Server} ODBC driver
+    # throws HY104 "Invalid precision value (0)" when binding NULL/empty
+    # parameters to NVARCHAR(MAX) columns — which breaks user provisioning
+    # for any external-identity user whose backup codes aren't yet generated.
+    # A bounded length avoids that driver-level binding issue entirely.
+    mfa_backup_codes = db.Column(db.String(4000), nullable=True)
     mfa_enrolled_at = db.Column(db.DateTime, nullable=True)
 
     @classmethod
@@ -576,51 +605,83 @@ else:
 # Dictionary for user-specific agents (keyed by agent_id and user_id)
 user_specific_agents = {}
 
+def _get_user_mcp_signature(user_id):
+    """Return a stable signature of which MCP servers the user has tokens for.
+
+    Used as a cache-invalidation key on (agent_id, user_id) — if the user
+    connects or disconnects a service in My Connections, the signature
+    changes and the cached per-user agent is rebuilt with the new tool set.
+    """
+    try:
+        from CommonUtils import get_db_connection
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+            cur.execute("""
+                SELECT DISTINCT server_id FROM MCPUserTokens
+                WHERE user_id = ? ORDER BY server_id
+            """, int(user_id))
+            ids = sorted(int(r[0]) for r in cur.fetchall())
+            cur.close()
+            return tuple(ids)
+        finally:
+            try: conn.close()
+            except Exception: pass
+    except Exception as e:
+        logger.debug(f"Could not compute MCP signature for user {user_id}: {e}")
+        return tuple()
+
+
 def get_agent_for_user(agent_id, user_id):
     """
     Get or create an agent for a specific user.
     Returns either a user-specific agent or the general agent.
-    Validates cached agents by comparing document count to detect stale state.
+
+    A user-specific agent is used when EITHER:
+      - the user has user-specific knowledge documents assigned, OR
+      - the user has authorized one or more personal MCP connections
+        (My Connections — Microsoft 365, etc.) and the agent allows them.
+    Cache key: (agent_id, user_id). Invalidated when doc count OR MCP token
+    signature changes.
     """
-    # Check if user has specific knowledge documents
     user_knowledge = get_agent_knowledge_for_user(agent_id, user_id)
+    current_doc_count = len(user_knowledge) if user_knowledge else 0
+    mcp_signature = _get_user_mcp_signature(user_id)
 
-    if not user_knowledge:
-        # No user-specific documents - use general agent
-        # Also evict any stale cached agent for this user (docs may have been deleted)
-        agent_key = (agent_id, str(user_id))
-        if agent_key in user_specific_agents:
-            logger.info(f"Evicting cached user-specific agent {agent_id} for user {user_id} (no docs remain)")
-            del user_specific_agents[agent_key]
-        logger.info(f"Using general agent {agent_id} for user {user_id}")
-        return active_agents.get(agent_id)
-
-    current_doc_count = len(user_knowledge)
-
-    # User has specific documents - check for existing user-specific agent
+    needs_user_specific = bool(user_knowledge) or bool(mcp_signature)
     agent_key = (agent_id, str(user_id))
 
-    if agent_key in user_specific_agents:
-        cached_agent = user_specific_agents[agent_key]
-        # Validate cached agent: compare document count to detect stale state
-        cached_doc_count = getattr(cached_agent, '_user_doc_count', None)
-        if cached_doc_count == current_doc_count:
-            logger.info(f"Reusing user-specific agent {agent_id} for user {user_id} (doc count {current_doc_count} matches)")
-            return cached_agent
-        else:
-            logger.info(f"Evicting stale user-specific agent {agent_id} for user {user_id} "
-                        f"(cached doc count {cached_doc_count} != current {current_doc_count})")
+    if not needs_user_specific:
+        # No personalization required — use the shared general agent. Clean up
+        # any stale cached user-specific copy.
+        if agent_key in user_specific_agents:
+            logger.info(f"Evicting cached user-specific agent {agent_id} for user {user_id} "
+                        f"(no docs, no MCP tokens remain)")
             del user_specific_agents[agent_key]
+        return active_agents.get(agent_id)
 
-    # Create new user-specific agent
-    logger.info(f"Creating user-specific agent {agent_id} for user {user_id} ({current_doc_count} docs)")
+    # Validate cache against BOTH doc count and MCP signature
+    if agent_key in user_specific_agents:
+        cached = user_specific_agents[agent_key]
+        if (getattr(cached, '_user_doc_count', None) == current_doc_count
+                and getattr(cached, '_user_mcp_signature', None) == mcp_signature):
+            logger.info(f"Reusing user-specific agent {agent_id} for user {user_id} "
+                        f"(docs={current_doc_count}, mcp={len(mcp_signature)})")
+            return cached
+        logger.info(f"Evicting stale user-specific agent {agent_id} for user {user_id} "
+                    f"(docs/MCP signature changed)")
+        del user_specific_agents[agent_key]
+
+    logger.info(f"Creating user-specific agent {agent_id} for user {user_id} "
+                f"(docs={current_doc_count}, mcp_servers={len(mcp_signature)})")
     try:
         new_agent = GeneralAgent(agent_id, user_id=str(user_id))
         new_agent._user_doc_count = current_doc_count
+        new_agent._user_mcp_signature = mcp_signature
         user_specific_agents[agent_key] = new_agent
     except Exception as e:
         logger.error(f"Failed to create user-specific agent: {str(e)}")
-        # Fallback to general agent
         return active_agents.get(agent_id)
 
     return user_specific_agents[agent_key]
@@ -880,7 +941,14 @@ def get_session_llm_data_engine(session_id):
             return None
 
         logger.debug('Loaded object from dict...')
+        _t0 = time.time()
         _deserialized_llm_data_engine = pickle.loads(_serialized_llm_data_engine)
+        _elapsed = time.time() - _t0
+        _size_kb = len(_serialized_llm_data_engine) / 1024.0
+        logger.warning(
+            f"[DATA_EXPLORER_TIMING] pickle_load={_elapsed:.2f}s "
+            f"size={_size_kb:.1f}KB session={session_id}"
+        )
         logger.debug('Loaded object from pickle (deserialized)...')
         return _deserialized_llm_data_engine
     except Exception as e:
@@ -890,7 +958,15 @@ def get_session_llm_data_engine(session_id):
 
 def update_session_llm_data_engine(session_id, updated_llm_data_engine):
     try:
-        llm_data_engines[session_id] = pickle.dumps(updated_llm_data_engine)
+        _t0 = time.time()
+        _blob = pickle.dumps(updated_llm_data_engine)
+        llm_data_engines[session_id] = _blob
+        _elapsed = time.time() - _t0
+        _size_kb = len(_blob) / 1024.0
+        logger.warning(
+            f"[DATA_EXPLORER_TIMING] pickle_save={_elapsed:.2f}s "
+            f"size={_size_kb:.1f}KB session={session_id}"
+        )
         logger.debug(f"Updated LLMDataEngine for session ID: {session_id}")
     except Exception as e:
         logger.error(f"Error updating LLMDataEngine in session: {e}")
@@ -2530,27 +2606,47 @@ def add_agent():
         agent_enabled = data.get('agent_enabled', True)
         tool_names = data.get('tool_names', [])  # Custom tools
         core_tool_names = data.get('core_tool_names', [])  # Core tools
-        
+        # Per-agent document-type allow list. Empty list / missing key →
+        # "no restriction" (the unrestricted sentinel: no rows in
+        # [dbo].[AgentDocumentTypes]). Non-empty list → restrict the
+        # agent's documents tools to those types.
+        allowed_document_types = data.get('allowed_document_types', []) or []
+        # Per-agent toggle for picking up the calling user's personal MCP
+        # connections (Flow B). Defaults to True so new agents "just work"
+        # with whatever the user has authorized in My Connections.
+        allow_personal_connections = data.get('allow_personal_connections', True)
+
         # Resolve dependencies for core tools
         from tool_dependency_manager import get_tools_for_agent
         final_core_tools = get_tools_for_agent(core_tool_names, include_optional_deps=False)
-        
+
         # Log what dependencies were added
         added_deps = set(final_core_tools) - set(core_tool_names)
         if added_deps:
             logger.info(f"Auto-adding tool dependencies for new agent: {added_deps}")
-        
+
         # Call the function to insert/update agent with resolved tools
         if agent_id == 0:
-            agent_id = insert_agent_with_tools(agent_description, agent_objective, 
-                                             agent_enabled, tool_names, final_core_tools)
+            agent_id = insert_agent_with_tools(agent_description, agent_objective,
+                                             agent_enabled, tool_names, final_core_tools,
+                                             allow_personal_connections=allow_personal_connections)
         else:
-            agent_id = update_agent_with_tools(agent_id, agent_description, agent_objective, 
-                                             agent_enabled, tool_names, final_core_tools)
-        
+            agent_id = update_agent_with_tools(agent_id, agent_description, agent_objective,
+                                             agent_enabled, tool_names, final_core_tools,
+                                             allow_personal_connections=allow_personal_connections)
+
         if agent_id:
+            # Persist the document-type allow list (replace-all semantics:
+            # an empty list clears any previous restriction). Must run
+            # BEFORE load_agents so the rebuilt GeneralAgent picks it up.
+            try:
+                from DataUtils import set_agent_doc_type_allow_list
+                set_agent_doc_type_allow_list(agent_id, allowed_document_types)
+            except Exception as e:
+                logger.error(f"Failed to save document-type allow list for agent {agent_id}: {e}")
+
             # Reload agents
-            #global active_agents 
+            #global active_agents
             #active_agents = load_agents()
             load_agents(agent_id=agent_id)
 
@@ -2562,9 +2658,29 @@ def add_agent():
             return jsonify({'status': 'success', 'message': agent_id})
         else:
             return jsonify({'status': 'error', 'message': 'Failed to insert agent'}), 500
-    
+
     except Exception as e:
         logger.error(f"Error in add_agent: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/get_agent_doc_type_restrictions/<int:agent_id>', methods=['GET'])
+@api_key_or_session_required()
+def get_agent_doc_type_restrictions(agent_id):
+    """Return the document-type allow list for an agent.
+
+    Response shape:
+        {"allowed_document_types": ["invoice", "receipt"]}
+
+    An empty list means the agent is unrestricted (current behavior; no
+    rows in [dbo].[AgentDocumentTypes] for this agent).
+    """
+    try:
+        from DataUtils import get_agent_doc_type_allow_list
+        allow = get_agent_doc_type_allow_list(agent_id)
+        return jsonify({'allowed_document_types': allow or []})
+    except Exception as e:
+        logger.error(f"Error reading allow list for agent {agent_id}: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
@@ -3779,7 +3895,7 @@ def get_user_group(group_id=None):
 @cross_origin()
 @login_required
 def get_quick_jobs():
-    df = Get_Quick_Job_DF(user_id=current_user.id)
+    df = Get_Quick_Job_DF(user_id=current_user.id, user_role=current_user.role)
     json_df = dataframe_to_json(df)
     return jsonify(json_df)
 
@@ -3788,7 +3904,7 @@ def get_quick_jobs():
 @cross_origin()
 @login_required
 def get_quick_job(job_id=None):
-    df = Get_Quick_Job_DF(job_id)
+    df = Get_Quick_Job_DF(user_id=current_user.id, job_id=job_id, user_role=current_user.role)
     json_df = dataframe_to_json(df)
     return jsonify(json_df)
 
@@ -4335,7 +4451,7 @@ def chat_general():
             active_agent.initialize_chat_history(eval(hist))
             print('Running active agent...')
             response = active_agent.run(prompt, use_smart_render=True, user_id=user_id)
-            chat_history = active_agents[int(agent_id)].get_chat_history()
+            chat_history = active_agent.get_chat_history()
         else:
             print('Agent Name:', active_agents[int(agent_id)].AGENT_NAME)
             active_agents[int(agent_id)].initialize_chat_history(eval(hist))
@@ -4409,7 +4525,7 @@ def chat_general():
 
                 structured_response = smart_renderer.analyze_and_render(response, {
                     "agent_id": agent_id,
-                    "agent_name": active_agents[int(agent_id)].AGENT_NAME,
+                    "agent_name": active_agent.AGENT_NAME,
                     "query": prompt
                 })
                 result = {
@@ -11033,7 +11149,15 @@ def process_document_as_knowledge(file_path, agent_id, description='', user_id=N
         # Check if the request was successful
         if response.status_code == 200:
             result = response.json()
-            
+
+            logger.info(
+                f"Document API processing finished: status={result.get('status')}, "
+                f"document_id={result.get('document_id')}, "
+                f"page_count={result.get('page_count')}, "
+                f"document_type={result.get('document_type')}, "
+                f"file={file_path}"
+            )
+
             # Add as knowledge if document was processed successfully
             if result['status'] == 'success' and 'document_id' in result:
                 knowledge_id = add_agent_knowledge(
@@ -11067,8 +11191,24 @@ def process_document_as_knowledge(file_path, agent_id, description='', user_id=N
                         "knowledge_id": knowledge_id,
                         "document_id": result['document_id'],
                         "document_type": result.get('document_type', 'unknown'),
-                        "page_count": page_count
+                        "page_count": page_count,
+                        "total_chars": total_chars
                     }
+                    # Warn when a text-based document extracted very little — often means
+                    # scanned content, embedded images, password-protected, or shapes the
+                    # extractor could not read. User may want to convert to PDF and retry.
+                    file_ext = os.path.splitext(file_path)[1].lower()
+                    if file_ext in {'.docx', '.doc', '.pdf', '.txt', '.md', '.html', '.htm'} and total_chars < 50:
+                        resp["extraction_warning"] = (
+                            f"Only {total_chars} characters of text were extracted from this file. "
+                            f"It may contain primarily images/scans, be password-protected, or use "
+                            f"formatting the extractor could not read. If the agent cannot answer "
+                            f"questions from this document, try converting it to PDF and re-uploading."
+                        )
+                        logger.warning(
+                            f"Low-extraction document added as knowledge: "
+                            f"file={file_path}, total_chars={total_chars}, page_count={page_count}"
+                        )
                     # Hint for large docs: advanced search indexing runs in background
                     if page_count > 5 or total_chars > 100_000:
                         resp["background_processing"] = True
@@ -11850,6 +11990,10 @@ register_ai_extract_routes(app)
 from onboarding_routes import onboarding_bp
 app.register_blueprint(onboarding_bp)
 
+# Import Data Collection Agent (guided data collection + schema builder wizard)
+from data_collection_agent import create_dca_blueprint
+app.register_blueprint(create_dca_blueprint())
+
 # Import local secrets routes
 from local_secrets_routes import secrets_bp
 app.register_blueprint(secrets_bp)
@@ -11874,6 +12018,12 @@ from integration_routes import integrations_bp
 # Register the blueprint
 app.register_blueprint(integrations_bp)
 
+# NOTE: previous versions ran a startup template sync here. It was removed
+# because it surfaced UNIQUE KEY conflicts on existing builtin rows (the
+# sync logic in integration_template_loader.sync_builtin_to_db needs its
+# own fix). Use the "Reload Templates" button on the Integrations gallery
+# to sync manually until that's reworked.
+
 # Add route for the page
 @app.route('/integrations')
 @developer_required()
@@ -11896,6 +12046,15 @@ app.register_blueprint(data_explorer_bp)
 # Import and register the MCP blueprint
 from builder_mcp.routes.mcp_routes import mcp_bp
 app.register_blueprint(mcp_bp)
+
+# Internal MCP server endpoints (in-process providers — Graph etc.).
+# Speaks MCP streamable-http to the gateway over loopback.
+from builder_mcp.routes.mcp_internal_routes import mcp_internal_bp
+app.register_blueprint(mcp_internal_bp)
+
+# My Connections — per-user OAuth authorization surface.
+from builder_mcp.routes.my_connections_routes import my_connections_bp
+app.register_blueprint(my_connections_bp)
 
 # Import and register the Builder Document Search blueprint
 try:
@@ -11929,6 +12088,14 @@ try:
     print("[INFO] Registered Solutions Gallery blueprints")
 except ImportError as e:
     print(f"[WARN] Could not load Solutions Gallery blueprints: {e}")
+
+# Retailer Compliance Module
+try:
+    from compliance_routes import compliance_bp
+    app.register_blueprint(compliance_bp)
+    print("[INFO] Registered Compliance Module blueprint")
+except ImportError as e:
+    print(f"[WARN] Could not load Compliance Module blueprint: {e}")
 
 # MCP Server Management page (new builder_mcp UI)
 @app.route('/mcp_servers')

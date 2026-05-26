@@ -72,6 +72,37 @@ class CollectionSession:
     updated_at: str = ''
     submitted_at: Optional[str] = None
 
+    # ----- Phase 1.3: external integration (all optional) -----
+    user_name: Optional[str] = None
+    user_email: Optional[str] = None
+    # If set, the submission pipeline auto-fires a webhook to this URL after
+    # the schema's configured actions run (or in place of them if no actions
+    # are configured). MER360 / other deep-link callers use this.
+    external_callback_url: Optional[str] = None
+    # Optional reference to a local secret to sign the callback with
+    external_callback_secret_ref: Optional[str] = None
+    # URL the UI offers as "Back to <caller>" after submission
+    return_url: Optional[str] = None
+    # Branding overrides carried over from a JWT prefill so the look stays
+    # consistent across page reloads / session resume
+    branding_override: Optional[Dict[str, Any]] = None
+
+    # ----- Phase 2: voice mode (per session, user-toggleable) -----
+    # When True, the agent receives a voice-friendly prompt addendum that
+    # tells it to be conversational, drop markdown, summarize lists rather
+    # than enumerate them, etc. The frontend reads this to decide whether
+    # to speak responses aloud.
+    voice_mode: bool = False
+
+    # Lookup refs that have already been rendered as a visual at some
+    # point in this session's chat. Used by show_lookup_data and friends
+    # to refuse re-rendering the same lookup back-to-back (the same
+    # table is still scrolled-up in the chat — re-rendering it just
+    # clutters the conversation). Refs are appended in render order;
+    # consumers can ask "is X in the most recent N renders?" to dedup
+    # without permanently blocking re-display later in a long session.
+    rendered_lookups: List[str] = field(default_factory=list)
+
     def to_dict(self) -> Dict:
         return asdict(self)
 
@@ -92,6 +123,14 @@ class CollectionSession:
             created_at=data.get('created_at', ''),
             updated_at=data.get('updated_at', ''),
             submitted_at=data.get('submitted_at'),
+            user_name=data.get('user_name'),
+            user_email=data.get('user_email'),
+            external_callback_url=data.get('external_callback_url'),
+            external_callback_secret_ref=data.get('external_callback_secret_ref'),
+            return_url=data.get('return_url'),
+            branding_override=data.get('branding_override'),
+            voice_mode=bool(data.get('voice_mode', False)),
+            rendered_lookups=list(data.get('rendered_lookups') or []),
         )
 
     def get_field_value(self, section_id: str, field_id: str) -> Any:
@@ -263,6 +302,16 @@ def set_status(session_id: str, status: str) -> Optional[CollectionSession]:
     session.status = status
     if status == STATUS_SUBMITTED:
         session.submitted_at = datetime.utcnow().isoformat()
+    save_session(session)
+    return session
+
+
+def set_voice_mode(session_id: str, enabled: bool) -> Optional[CollectionSession]:
+    """Toggle voice mode for a session. Returns the updated session."""
+    session = load_session(session_id)
+    if not session:
+        return None
+    session.voice_mode = bool(enabled)
     save_session(session)
     return session
 

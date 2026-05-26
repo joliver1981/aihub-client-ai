@@ -1,0 +1,50 @@
+{
+  "draft_id": "78655c35795249f4",
+  "created_at": "2026-05-18T18:11:33.313018+00:00",
+  "updated_at": "2026-05-18T18:11:33.313018+00:00",
+  "manifest": {
+    "id": "horizon-compliance",
+    "name": "Horizon Compliance",
+    "version": "1.0.2",
+    "vertical": "compliance",
+    "tags": [
+      "compliance"
+    ],
+    "description": "Vendor compliance solution for Horizon",
+    "author": "JO",
+    "homepage_url": "",
+    "credentials": [],
+    "post_install": [],
+    "assets": {
+      "agents": [],
+      "tools": [],
+      "workflows": [
+        "Customer Onboarding - Horizon Replica (w SP v2).json"
+      ],
+      "integrations": [],
+      "connections": [],
+      "environments": [],
+      "knowledge": [],
+      "data": {}
+    }
+  },
+  "selections": {
+    "agent_ids": [],
+    "data_agent_ids": [],
+    "tool_names": [],
+    "workflow_names": [
+      "Customer Onboarding - Horizon Replica (w SP v2)"
+    ],
+    "integration_ids": [],
+    "connection_ids": [],
+    "environment_ids": [],
+    "knowledge_document_ids": []
+  },
+  "branding": {
+    "display_name": "",
+    "tagline": "",
+    "logo_path": "",
+    "primary_color": ""
+  },
+  "readme": "# Horizon Vendor Compliance\n\nWorkflow that automates vendor compliance documents for various customers"
+}

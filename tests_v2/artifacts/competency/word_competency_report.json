@@ -1,0 +1,552 @@
+{
+  "scoring": {
+    "overall_pct": 100.0,
+    "total_weight": 27.0,
+    "total_earned": 27.0,
+    "by_file": {
+      "01_clean_handbook.docx": {
+        "weight": 6.0,
+        "earned": 6.0,
+        "n": 6,
+        "pct": 100.0
+      },
+      "02_tables_heavy_report.docx": {
+        "weight": 5.0,
+        "earned": 5.0,
+        "n": 5,
+        "pct": 100.0
+      },
+      "03_embedded_charts_kpis.docx": {
+        "weight": 5.0,
+        "earned": 5.0,
+        "n": 5,
+        "pct": 100.0
+      },
+      "04_tracked_changes_contract.docx": {
+        "weight": 5.0,
+        "earned": 5.0,
+        "n": 4,
+        "pct": 100.0
+      },
+      "05_long_doc_toc_footnotes.docx": {
+        "weight": 6.0,
+        "earned": 6.0,
+        "n": 6,
+        "pct": 100.0
+      }
+    },
+    "by_dim": {
+      "direct_lookup": {
+        "weight": 19.0,
+        "earned": 19.0,
+        "n": 19,
+        "pct": 100.0
+      },
+      "bullet_extract": {
+        "weight": 3.0,
+        "earned": 3.0,
+        "n": 3,
+        "pct": 100.0
+      },
+      "table_in_word": {
+        "weight": 5.0,
+        "earned": 5.0,
+        "n": 5,
+        "pct": 100.0
+      },
+      "comparison": {
+        "weight": 3.0,
+        "earned": 3.0,
+        "n": 3,
+        "pct": 100.0
+      },
+      "chart_caption": {
+        "weight": 2.0,
+        "earned": 2.0,
+        "n": 2,
+        "pct": 100.0
+      },
+      "tracked_change_accepted": {
+        "weight": 2.0,
+        "earned": 2.0,
+        "n": 1,
+        "pct": 100.0
+      },
+      "long_doc_retrieval": {
+        "weight": 2.0,
+        "earned": 2.0,
+        "n": 2,
+        "pct": 100.0
+      },
+      "footnote_extract": {
+        "weight": 1.0,
+        "earned": 1.0,
+        "n": 1,
+        "pct": 100.0
+      },
+      "not_present": {
+        "weight": 1.0,
+        "earned": 1.0,
+        "n": 1,
+        "pct": 100.0
+      }
+    },
+    "leak_count": 0
+  },
+  "results": [
+    {
+      "fixture": "01_clean_handbook.docx",
+      "question": "Who founded Veridian Labs and when?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Veridian Labs \u201cwas founded in March 2014 by Dr. Anika Vorhees and Marcus Holloway in Cambridge, Massachusetts.\u201d  \nSource: **01_clean_handbook.docx**.",
+      "chat_status": 200,
+      "elapsed_s": 3.787714719772339,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_clean_handbook.docx",
+      "question": "How many manufacturing or operating sites does Veridian Labs have?",
+      "dimensions": [
+        "direct_lookup",
+        "bullet_extract"
+      ],
+      "weight": 1.0,
+      "answer": "Veridian Labs has **5 sites**.\n\nFrom **01_clean_handbook.docx**: \u201c**As of January 2026 the company employs 412 people across 5 sites.**\u201d\n\nThe listed sites are:\n- Cambridge, MA \u2014 Headquarters\n- Eindhoven, Netherlands\n- Penang, Malaysia\n- Bangalore, India\n- Austin, TX\n\nSource: **01_clean_handbook.docx**",
+      "chat_status": 200,
+      "elapsed_s": 3.6545639038085938,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_clean_handbook.docx",
+      "question": "How many vacation days does an employee with 7 years of service receive at Veridian Labs?",
+      "dimensions": [
+        "bullet_extract",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "An employee with **7 years of service** receives **25 vacation days per year** at Veridian Labs.\n\nSource: **01_clean_handbook.docx**, which states: **\u201c6\u201310 years of service: 25 days per year.\u201d**",
+      "chat_status": 200,
+      "elapsed_s": 3.6445648670196533,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_clean_handbook.docx",
+      "question": "What is the daily per diem for travel to Tokyo?",
+      "dimensions": [
+        "bullet_extract"
+      ],
+      "weight": 1.0,
+      "answer": "The daily per diem for travel to Tokyo is **$115/day**.\n\nSource: **01_clean_handbook.docx** \u2014 \u201c**Tier 1 (NYC, SF, London, Tokyo, Singapore): $115/day**\u201d",
+      "chat_status": 200,
+      "elapsed_s": 4.266313314437866,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_clean_handbook.docx",
+      "question": "How often are performance reviews held at Veridian Labs?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "At Veridian Labs, performance reviews are held **semi-annually, in April and October**.  \nSource: **01_clean_handbook.docx** (\u201cPerformance reviews are conducted semi-annually, in April and October.\u201d)",
+      "chat_status": 200,
+      "elapsed_s": 3.154017686843872,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "01_clean_handbook.docx",
+      "question": "Does Veridian Labs have a code of conduct that protects whistleblowers from retaliation?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Yes. In **01_clean_handbook.docx**, under **\u201c5. Conduct & Reporting,\u201d** it says:\n\n> \u201cConcerns may be reported anonymously to ethics@veridianlabs.com.\u201d  \n> \u201cRetaliation against reporters is grounds for termination.\u201d\n\nSo Veridian Labs does have a conduct/reporting policy that protects whistleblowers from retaliation. Source: **01_clean_handbook.docx**.",
+      "chat_status": 200,
+      "elapsed_s": 3.8470895290374756,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_tables_heavy_report.docx",
+      "question": "Which Eldoria Logistics hub had the highest throughput in Q1 2026?",
+      "dimensions": [
+        "table_in_word",
+        "comparison"
+      ],
+      "weight": 1.0,
+      "answer": "The highest-throughput Eldoria Logistics hub in Q1 2026 was **Memphis**, with a **Q1 avg of 49,100 parcels/day**.  \nSource: **02_tables_heavy_report.docx**\n\nDirect quote: \u201c**Memphis was Q1's highest-throughput hub at 49,100 parcels/day.**\u201d",
+      "chat_status": 200,
+      "elapsed_s": 4.104990720748901,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_tables_heavy_report.docx",
+      "question": "What was Memphis's Q1 average daily parcel throughput?",
+      "dimensions": [
+        "table_in_word",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Memphis's **Q1 average daily parcel throughput was 49,100 parcels/day**.  \nSource: **02_tables_heavy_report.docx** (\u201cMemphis | 48200 | 47800 | 51300 | **49100**\u201d)",
+      "chat_status": 200,
+      "elapsed_s": 3.2133073806762695,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_tables_heavy_report.docx",
+      "question": "Which service tier missed its on-time delivery SLA in Q1 2026?",
+      "dimensions": [
+        "table_in_word",
+        "comparison"
+      ],
+      "weight": 1.0,
+      "answer": "The service tier that missed its on-time delivery SLA in Q1 2026 was **Priority overnight**.\n\nExact document detail: **\u201cPriority Overnight was the only service tier to miss its SLA (98.6% vs 99.0%, -0.4 pp).\u201d**  \nSource: **02_tables_heavy_report.docx**",
+      "chat_status": 200,
+      "elapsed_s": 3.804039478302002,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_tables_heavy_report.docx",
+      "question": "What was the top revenue lane (origin \u2192 destination) for Eldoria Logistics in Q1?",
+      "dimensions": [
+        "table_in_word",
+        "comparison"
+      ],
+      "weight": 1.0,
+      "answer": "The top Q1 revenue lane for Eldoria Logistics was **Memphis \u2192 Atlanta**.\n\nThe report states: **\u201cThe Memphis\u2192Atlanta lane generated $2,840K in Q1, our top revenue lane.\u201d**  \nSource: **02_tables_heavy_report.docx**",
+      "chat_status": 200,
+      "elapsed_s": 4.3476293087005615,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "02_tables_heavy_report.docx",
+      "question": "What was Cologne's average damage claim amount in Q1 2026?",
+      "dimensions": [
+        "table_in_word",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Cologne's **average damage claim amount in Q1 2026 was $215 per claim**.  \nSource: **02_tables_heavy_report.docx**\n\nExact table entry:\n- **Cologne | 142 | 215 | 30.5** under **\"Hub | Claims filed | Avg claim ($) | Total paid ($K)\"**",
+      "chat_status": 200,
+      "elapsed_s": 3.8991947174072266,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_embedded_charts_kpis.docx",
+      "question": "How many active accounts did Atlas Networks have in March 2026?",
+      "dimensions": [
+        "chart_caption",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Atlas Networks had **89,700 active accounts in March 2026**.\n\nSource: **03_embedded_charts_kpis.docx** \u2014 \u201c**Active accounts: 89,700 (March 2026).**\u201d",
+      "chat_status": 200,
+      "elapsed_s": 3.412158966064453,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_embedded_charts_kpis.docx",
+      "question": "What is Atlas Networks' FY2026 total ARR?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Atlas Networks' FY2026 total ARR is **$248M**.\n\nSource: **03_embedded_charts_kpis.docx** \u2014 \u201c**FY2026 ARR totals $248M, up 18.4% year-on-year.**\u201d",
+      "chat_status": 200,
+      "elapsed_s": 3.498699426651001,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_embedded_charts_kpis.docx",
+      "question": "What share of Atlas Networks' FY2026 ARR comes from the Atlas Core product line?",
+      "dimensions": [
+        "chart_caption",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Atlas Core accounts for **42% of FY2026 ARR**.  \nSource: **03_embedded_charts_kpis.docx**\n\nExact text: \u201c**Figure 2 \u2014 Atlas Core remains the largest line at 42% of ARR.**\u201d",
+      "chat_status": 200,
+      "elapsed_s": 3.7938027381896973,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_embedded_charts_kpis.docx",
+      "question": "Who is Atlas Networks' CEO and CFO?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Atlas Networks' **CEO is Larissa Verma** and **CFO is Hideo Tanaka**.  \nSource: **03_embedded_charts_kpis.docx** (\u201cAtlas Networks \u2014 FY2026 Board Update\u201d) which states: **\u201cCEO: Larissa Verma. CFO: Hideo Tanaka.\u201d**",
+      "chat_status": 200,
+      "elapsed_s": 4.146667003631592,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "03_embedded_charts_kpis.docx",
+      "question": "How many customers does Atlas Networks serve, and in how many countries?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Atlas Networks serves **4,200 customers across 23 countries**.  \nSource: **03_embedded_charts_kpis.docx**\n\nExact text: \u201c**Atlas Networks operates a fleet-management SaaS platform serving 4,200 customers across 23 countries.**\u201d",
+      "chat_status": 200,
+      "elapsed_s": 3.2508773803710938,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_tracked_changes_contract.docx",
+      "question": "What is the monthly fee Cyrene Industries pays Westbrook & Vale under the MSA?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The monthly fee is **\u201c$48,500 USD\u201d**.  \nSource: **04_tracked_changes_contract.docx**\n\nExact text: **\u201cClient shall pay Provider a monthly fee of $48,500 USD.\u201d**",
+      "chat_status": 200,
+      "elapsed_s": 7.476007699966431,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_tracked_changes_contract.docx",
+      "question": "What is the initial term of the Master Services Agreement?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The initial term is **\u201ctwenty-four (24) months, commencing on the Effective Date.\u201d**  \nSource: **04_tracked_changes_contract.docx**",
+      "chat_status": 200,
+      "elapsed_s": 4.864088296890259,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_tracked_changes_contract.docx",
+      "question": "What is the current penalty per business day for late delivery under Section 5?",
+      "dimensions": [
+        "tracked_change_accepted"
+      ],
+      "weight": 2.0,
+      "answer": "The current penalty under Section 5 is **\"$12,500 USD per business day\"**. Source: **04_tracked_changes_contract.docx**.\n\nThe document states:  \n**\u201cAfter accepting all tracked changes, Section 5 reads: 'The penalty for late delivery is $12,500 USD per business day, capped at thirty (30) days.'\u201d**",
+      "chat_status": 200,
+      "elapsed_s": 3.674865245819092,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 2.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "04_tracked_changes_contract.docx",
+      "question": "How long does the confidentiality obligation survive after termination?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The confidentiality obligation survives for **\u201cfive (5) years following termination.\u201d**  \nSource: **04_tracked_changes_contract.docx**\n\nExact text from Section 3:\n> \u201cBoth parties agree to keep Confidential Information secret for a period of five (5) years following termination.\u201d",
+      "chat_status": 200,
+      "elapsed_s": 3.2764358520507812,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_long_doc_toc_footnotes.docx",
+      "question": "What is the peak event throughput of the Hyperion Logistics Network?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The Hyperion Logistics Network peak event throughput is **28,000 events/sec**.\n\nSource: **05_long_doc_toc_footnotes.docx** \u2014 \u201cHyperion Logistics Network is \u2026 designed for high-throughput dispatch (**peak 28,000 events/sec**)\u201d and \u201cHLN peak throughput: **28,000 events/sec**.\u201d",
+      "chat_status": 200,
+      "elapsed_s": 3.433405637741089,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_long_doc_toc_footnotes.docx",
+      "question": "Which 3 cloud regions does Hyperion Logistics Network deploy to?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "Hyperion Logistics Network deploys to these 3 regions:\n\n- `us-east-1`\n- `eu-central-1`\n- `ap-southeast-2`\n\nSource: `05_long_doc_toc_footnotes.docx` \u2014 \u201cHLN is built around 3 primary regions: us-east-1, eu-central-1, and ap-southeast-2.\u201d",
+      "chat_status": 200,
+      "elapsed_s": 3.670523166656494,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_long_doc_toc_footnotes.docx",
+      "question": "When was the last successful disaster-recovery drill performed?",
+      "dimensions": [
+        "long_doc_retrieval",
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The last successful disaster-recovery drill was performed on **February 14, 2026**.  \nSource: **05_long_doc_toc_footnotes.docx** (\u201cLast successful DR drill: February 14, 2026.\u201d)",
+      "chat_status": 200,
+      "elapsed_s": 3.101511001586914,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_long_doc_toc_footnotes.docx",
+      "question": "Who authored RFC-HLN-031 and when was it approved?",
+      "dimensions": [
+        "footnote_extract",
+        "long_doc_retrieval"
+      ],
+      "weight": 1.0,
+      "answer": "RFC-HLN-031 was authored by **Mei-Ling Park**.\n\nI found two different approval dates in **05_long_doc_toc_footnotes.docx**:\n\n- Main text: \u201c**This RFC was authored by Mei-Ling Park and approved on October 18, 2025.**\u201d\n- Footnote [fn1]: \u201c**RFC-HLN-031: 'Stateless Multi-Region Router' \u2014 published October 18, 2025 by Mei-Ling Park. Approved by Platform Engineering Council on October 25, 2025.**\u201d\n\nSo the document gives a conflicting answer on the approval date:\n- **October 18, 2025** \u2014 from the main body\n- **October 25, 2025** \u2014 from footnote [fn1], specifically \u201cApproved by Platform Engineering Council\u201d\n\nSource: **05_long_doc_toc_footnotes.docx**",
+      "chat_status": 200,
+      "elapsed_s": 7.636237382888794,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_long_doc_toc_footnotes.docx",
+      "question": "Does Hyperion Logistics Network use Azure as one of its cloud providers?",
+      "dimensions": [
+        "not_present"
+      ],
+      "weight": 1.0,
+      "answer": "No. The document says Hyperion Logistics Network \u201cis a multi-region, multi-tenant fleet routing platform deployed across **AWS and GCP**.\u201d It does not mention Azure as a cloud provider.  \nSource: `05_long_doc_toc_footnotes.docx`",
+      "chat_status": 200,
+      "elapsed_s": 3.33189058303833,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    },
+    {
+      "fixture": "05_long_doc_toc_footnotes.docx",
+      "question": "What programming language is the router-core service written in, and what is its p95 latency?",
+      "dimensions": [
+        "direct_lookup"
+      ],
+      "weight": 1.0,
+      "answer": "The `router-core` service is written in **Rust**, and its **latency p95 = 84 ms end-to-end**.  \nSource: `05_long_doc_toc_footnotes.docx` (\u201cThe routing layer is implemented as a Rust service named router-core\u2026 Latency p95 = 84 ms end-to-end.\u201d)",
+      "chat_status": 200,
+      "elapsed_s": 3.665289878845215,
+      "matched": true,
+      "leaked": false,
+      "raw_score": 1.0,
+      "followup_used": false,
+      "transcript_summary": ""
+    }
+  ],
+  "uploaded": [
+    [
+      "01_clean_handbook.docx",
+      200,
+      5.579452753067017
+    ],
+    [
+      "02_tables_heavy_report.docx",
+      200,
+      5.398498296737671
+    ],
+    [
+      "03_embedded_charts_kpis.docx",
+      200,
+      5.429896116256714
+    ],
+    [
+      "04_tracked_changes_contract.docx",
+      200,
+      5.514235496520996
+    ],
+    [
+      "05_long_doc_toc_footnotes.docx",
+      200,
+      5.162008762359619
+    ]
+  ]
+}

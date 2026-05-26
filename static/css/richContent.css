@@ -788,10 +788,15 @@
     overflow-x: auto;  /* Allow horizontal scroll if needed */
 }
 
-/* Ensure the chat content area can accommodate wide content */
+/* Ensure the chat content area can accommodate wide content.
+   NOTE: #chat-content is deliberately excluded here. Setting overflow-x
+   on it forces overflow-y to compute to the same value (CSS spec),
+   which turns #chat-content into a vertical scroller and prevents the
+   parent .chat-messages from scrolling — breaking auto-scroll-to-bottom.
+   Wide rich-content blocks already handle their own horizontal scroll
+   via .content-table-wrapper / .rich-content-block. */
 .chat-container,
-.chat-box,
-#chat-content {
+.chat-box {
     overflow-x: auto;  /* Allow horizontal scroll for very wide content */
 }
 
