@@ -92,57 +92,62 @@ tailwind.config = {
                 </div>
             </div>
 
-            <!-- Document Context (collapsible) -->
+            <!-- Upload progress / queue (kept; drop-zone removed — drag anywhere on the page) -->
             <div id="documentUploadCard" style="display:none;">
                 <div class="sidebar-section">
-                    <div class="sidebar-collapse-header" onclick="toggleCollapse('documentUpload')">
-                        <span class="sidebar-label" style="margin-bottom:0;"><i class="fas fa-file-upload" style="margin-right:0.4rem;"></i>Document Context</span>
-                        <i class="fas fa-chevron-down sidebar-collapse-arrow" id="documentUploadIcon"></i>
+                    <!-- Hidden file input still here so the paperclip button (#attach-btn) keeps working -->
+                    <input type="file" id="contextFileInput" multiple
+                        accept=".pdf,.docx,.doc,.txt,.csv,.jpg,.jpeg,.png"
+                        style="display:none;">
+
+                    <!-- Upload Queue (visible only while uploading) -->
+                    <div class="upload-queue" id="uploadQueue" style="display:none;margin-top:0.5rem;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+                            <span style="font-size:0.8rem;font-weight:600;">Queue (<span id="queueCount">0</span>)</span>
+                            <div style="display:flex;gap:0.3rem;">
+                                <button class="chat-btn-sm chat-btn-success" onclick="processUploadQueue()">
+                                    <i class="fas fa-upload"></i> Upload
+                                </button>
+                                <button class="chat-btn-sm chat-btn-danger" onclick="clearUploadQueue()">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div id="queueItems" class="queue-items-container"></div>
                     </div>
-                    <div id="documentUploadContent" class="sidebar-collapse-body show">
-                        <!-- Compact Upload Zone -->
-                        <div class="doc-upload-zone" id="documentUploadZone">
-                            <i class="fas fa-cloud-upload-alt"></i>
-                            <p>Drop files here or browse</p>
-                            <input type="file" id="contextFileInput" multiple
-                                accept=".pdf,.docx,.doc,.txt,.csv,.jpg,.jpeg,.png"
-                                style="display:none;">
-                            <small>PDF, Word, Text, Images</small>
-                        </div>
 
-                        <!-- Upload Queue -->
-                        <div class="upload-queue" id="uploadQueue" style="display:none;margin-top:0.75rem;">
-                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
-                                <span style="font-size:0.8rem;font-weight:600;">Queue (<span id="queueCount">0</span>)</span>
-                                <div style="display:flex;gap:0.3rem;">
-                                    <button class="chat-btn-sm chat-btn-success" onclick="processUploadQueue()">
-                                        <i class="fas fa-upload"></i> Upload
-                                    </button>
-                                    <button class="chat-btn-sm chat-btn-danger" onclick="clearUploadQueue()">
-                                        <i class="fas fa-trash"></i>
-                                    </button>
-                                </div>
+                    <!-- Upload Progress -->
+                    <div id="uploadProgress" style="display:none;margin-top:0.5rem;">
+                        <div class="upload-progress-bar-wrap">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            <span style="font-size:0.8rem;">Uploading: <span id="currentUpload"></span></span>
+                            <div class="upload-progress-track">
+                                <div class="upload-progress-fill" id="uploadProgressBar" style="width:0%"></div>
                             </div>
-                            <div id="queueItems" class="queue-items-container"></div>
+                            <small style="color:var(--text-muted);">
+                                Processed: <span id="processedCount">0</span> / <span id="totalCount">0</span>
+                            </small>
                         </div>
+                    </div>
 
-                        <!-- Upload Progress -->
-                        <div id="uploadProgress" style="display:none;margin-top:0.75rem;">
-                            <div class="upload-progress-bar-wrap">
-                                <i class="fas fa-spinner fa-spin"></i>
-                                <span style="font-size:0.8rem;">Uploading: <span id="currentUpload"></span></span>
-                                <div class="upload-progress-track">
-                                    <div class="upload-progress-fill" id="uploadProgressBar" style="width:0%"></div>
-                                </div>
-                                <small style="color:var(--text-muted);">
-                                    Processed: <span id="processedCount">0</span> / <span id="totalCount">0</span>
-                                </small>
-                            </div>
-                        </div>
+                    <!-- Upload Results -->
+                    <div id="uploadResults" style="display:none;margin-top:0.5rem;">
+                        <div id="resultsList" class="results-container"></div>
+                    </div>
+                </div>
+            </div>
 
-                        <!-- Upload Results / Existing Documents -->
-                        <div id="uploadResults" style="display:none;margin-top:0.75rem;">
-                            <div id="resultsList" class="results-container"></div>
+            <!-- Generated Artifacts (tool-produced files: split PDFs, exports, etc.) -->
+            <div id="generatedArtifactsCard" style="display:none;">
+                <div class="sidebar-section">
+                    <div class="sidebar-collapse-header" onclick="toggleCollapse('generatedArtifacts')">
+                        <span class="sidebar-label" style="margin-bottom:0;"><i class="fas fa-file-export" style="margin-right:0.4rem;"></i>Generated Artifacts <span id="generatedArtifactsCount" style="opacity:0.6;font-weight:normal;"></span></span>
+                        <i class="fas fa-chevron-down sidebar-collapse-arrow" id="generatedArtifactsIcon"></i>
+                    </div>
+                    <div id="generatedArtifactsContent" class="sidebar-collapse-body show">
+                        <div id="generatedArtifactsList" style="display:flex;flex-direction:column;gap:0.3rem;"></div>
+                        <div id="generatedArtifactsEmpty" style="font-size:0.78rem;opacity:0.6;padding:0.5rem 0;">
+                            None yet. Ask the agent to split a PDF, export data, etc.
                         </div>
                     </div>
                 </div>
@@ -687,6 +692,59 @@ function sendMessage() {
 
     scrollChatToBottom(true);
 
+    // ── Progressive "still working" hints for long-running responses ──────
+    // Two ephemeral status lines reassure the user during slow generations
+    // (large CSV/Excel/Word). They update the pending AI row in place and are
+    // cleared the moment a response OR error arrives (see .finally() below).
+    // Thresholds intentionally sit BELOW the server-side deadline
+    // (cfg.CHAT_LLM_DEADLINE_S); if that deadline is hit, the server returns
+    // its own friendly "capped at N minutes" message which replaces these.
+    var HINT_1_MS = 60000;    // 1 minute — first reassurance
+    var HINT_2_MS = 240000;   // 4 minutes — task is genuinely long
+    function _setPendingHint(msg) {
+        // Anchor the hint INSIDE the skeleton's content container so it sits
+        // in the message content column (below the shimmer) rather than
+        // floating as a third flex item beside the avatar. Rendered as a
+        // subtle amber "still working" banner — sleek and visually distinct
+        // from real chat messages, so it never reads as agent output.
+        var host = (skeleton && skeleton.element) || document.getElementById('ai-pending-row');
+        if (!host) return;
+        var hint = host.querySelector('.ai-status-hint');
+        if (!hint) {
+            hint = document.createElement('div');
+            hint.className = 'ai-status-hint';
+            hint.style.cssText = [
+                'display:flex', 'align-items:center', 'gap:8px',
+                'margin-top:10px', 'padding:8px 12px',
+                'font-size:0.85em', 'font-style:italic',
+                'color:#c08a1e',
+                'background:rgba(255,193,7,0.08)',
+                'border:1px solid rgba(255,193,7,0.25)',
+                'border-left:3px solid #ffc107',
+                'border-radius:8px',
+                'max-width:fit-content',
+                'animation:fadeIn 0.3s ease-in'
+            ].join(';');
+            var ic = document.createElement('i');
+            ic.className = 'fas fa-hourglass-half';
+            ic.style.cssText = 'opacity:0.85;';
+            var span = document.createElement('span');
+            span.className = 'ai-status-hint-text';
+            hint.appendChild(ic);
+            hint.appendChild(span);
+            host.appendChild(hint);
+        }
+        var textSpan = hint.querySelector('.ai-status-hint-text');
+        if (textSpan) textSpan.textContent = msg;
+        scrollChatToBottom(true);
+    }
+    var _hintTimer1 = setTimeout(function () {
+        _setPendingHint('Still working on this — looks like a larger response, hang tight…');
+    }, HINT_1_MS);
+    var _hintTimer2 = setTimeout(function () {
+        _setPendingHint('This is a longer-running task and is still processing. Thanks for your patience…');
+    }, HINT_2_MS);
+
     // Build payload
     var payload = {
         agent_id: document.getElementById('agent_id').value,
@@ -707,6 +765,8 @@ function sendMessage() {
             currentConversationId = data.conversation_id;
             console.log('Conversation ID received from server:', currentConversationId);
         }
+        // Refresh sidebar — the agent may have produced new artifacts this turn.
+        if (typeof refreshChatFilesSidebar === 'function') refreshChatFilesSidebar();
 
         // Destroy skeleton
         skeleton.destroy();
@@ -798,6 +858,11 @@ function sendMessage() {
         scrollChatToBottom();
     })
     .finally(function () {
+        // Clear the progressive "still working" hint timers regardless of
+        // success/error so they never fire after the response has landed.
+        clearTimeout(_hintTimer1);
+        clearTimeout(_hintTimer2);
+
         // BUG-CHAOS-002 guard release: clear the in-flight flag and re-
         // enable the Send button. Using .finally() so this fires for
         // BOTH the success and the error path — even if the JS in either
@@ -1069,6 +1134,7 @@ async function loadConversation(conversationId) {
         }
 
         currentConversationId = conversationId;
+        if (typeof refreshChatFilesSidebar === 'function') refreshChatFilesSidebar();
 
         // Select the agent from this conversation (without triggering change event)
         var convAgentId = conversation.agent_id;
@@ -1194,6 +1260,7 @@ function initializeDocumentUpload(agentId) {
     uploadQueue = [];
     updateUploadQueue();
     loadExistingDocuments(agentId);
+    if (typeof refreshChatFilesSidebar === 'function') refreshChatFilesSidebar();
 }
 
 function setupDocumentUploadZone() {
@@ -1354,6 +1421,18 @@ async function processUploadQueue() {
         return;
     }
 
+    // Lazy-create the conversation so uploaded files are scoped to it and
+    // tools like manipulate_pdf can find them. Mirrors the chat handler's
+    // own lazy-create on first message. Failure is non-fatal: upload still
+    // succeeds for agent knowledge; the chat_files tee just gets skipped.
+    if (!currentConversationId) {
+        try {
+            await createNewConversation(agentId);
+        } catch (e) {
+            console.warn('Lazy conversation create failed; uploads will not be tee\'d to chat_files', e);
+        }
+    }
+
     var hasLargeFiles = uploadQueue.some(function (item) { return item.file.size > 5 * 1024 * 1024; });
     if (hasLargeFiles) {
         showToast('Large documents detected — processing may take several minutes.', 'info');
@@ -1440,6 +1519,7 @@ async function processUploadQueue() {
         if (successCount > 0) {
             setTimeout(function () {
                 loadExistingDocuments(agentId);
+                if (typeof refreshChatFilesSidebar === 'function') refreshChatFilesSidebar();
             }, 500);
         }
     }, 1000);
@@ -1464,6 +1544,13 @@ async function uploadSingleDocumentWithRetry(file, agentId, batchId, maxRetries)
 
             if (currentUserId) {
                 formData.append('user_id', currentUserId);
+            }
+
+            // Tee the upload into the per-conversation chat_files store so
+            // tools (manipulate_pdf, etc.) can find the file by file_id.
+            // Backend tee is additive — agent knowledge upload is unaffected.
+            if (typeof currentConversationId !== 'undefined' && currentConversationId) {
+                formData.append('conversation_id', currentConversationId);
             }
 
             var docTimeoutMinutes = {{ DOC_PROCESSING_TIMEOUT_MINUTES | default(30) }};
@@ -1585,7 +1672,7 @@ function displayExistingDocuments() {
     resultsDiv.style.display = 'block';
     resultsDiv.innerHTML =
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">' +
-        '<span style="font-size:0.8rem;font-weight:600;">Documents (' + existingDocuments.length + ')</span>' +
+        '<span style="font-size:0.8rem;font-weight:600;">Agent Files (' + existingDocuments.length + ')</span>' +
         '<button class="chat-btn-sm chat-btn-danger" onclick="deleteAllDocuments()"><i class="fas fa-trash-alt"></i> All</button>' +
         '</div>' +
         '<div id="resultsList" class="results-container"></div>';
@@ -1606,6 +1693,18 @@ function displayExistingDocuments() {
             ? Number(doc.total_rows).toLocaleString() + ' rows'
             : (doc.page_count || 0) + ' pages';
 
+        // agent_files file_id is the agent_knowledge document_id; if we have
+        // both currentUserId and currentAgentId we can offer a download link.
+        var downloadBtn = '';
+        if (doc.document_id && currentUserId && currentAgentId) {
+            var dlUrl = '/api/chat/agent_files/' + encodeURIComponent(currentAgentId) +
+                        '/' + encodeURIComponent(currentUserId) +
+                        '/' + encodeURIComponent(doc.document_id) + '/download';
+            downloadBtn = '<a href="' + dlUrl + '" download title="Download ' + escapeHtml(doc.filename) +
+                          '" class="chat-btn-sm" style="text-decoration:none;color:inherit;">' +
+                          '<i class="fas fa-download"></i></a>';
+        }
+
         docItem.innerHTML =
             '<div style="display:flex;align-items:center;justify-content:space-between;">' +
             '<div style="display:flex;align-items:center;gap:0.4rem;">' +
@@ -1614,6 +1713,7 @@ function displayExistingDocuments() {
             '</div>' +
             '<div style="display:flex;align-items:center;gap:0.4rem;">' +
             '<small style="color:var(--text-tertiary,#71717a);">' + sizeDisplay + '</small>' +
+            downloadBtn +
             '<button class="chat-btn-sm chat-btn-danger" onclick="deleteDocument(' + doc.knowledge_id + ',\'' + escapeHtml(doc.filename).replace(/'/g, "\\'") + '\')">' +
             '<i class="fas fa-trash"></i></button>' +
             '</div></div>';
@@ -1918,6 +2018,79 @@ function startNewChat() {
         toggleHistorySidebar();
     });
 })();
+
+// ===================================================================
+// Chat Files Sidebar (Conversation Files + Generated Artifacts)
+// Fed by /api/chat/conversations/<conv_id>/files
+// ===================================================================
+function _iconForArtifactType(t) {
+    var m = { pdf: 'fa-file-pdf', excel: 'fa-file-excel', csv: 'fa-file-csv',
+              json: 'fa-file-code', text: 'fa-file-alt', image: 'fa-file-image',
+              pptx: 'fa-file-powerpoint' };
+    return m[(t || '').toLowerCase()] || 'fa-file';
+}
+
+function _renderFileRow(entry, downloadUrl) {
+    var name = (entry.filename || 'file').replace(/</g, '&lt;');
+    var size = entry.size_display || '';
+    var ext = (name.split('.').pop() || '').toLowerCase();
+    var icon = _iconForArtifactType(ext === 'xlsx' || ext === 'xls' ? 'excel' : ext);
+    var safeUrl = downloadUrl.replace(/"/g, '&quot;');
+    return (
+        '<a href="' + safeUrl + '" download ' +
+        'style="display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0.5rem;' +
+        'border-radius:0.35rem;text-decoration:none;color:inherit;font-size:0.82rem;' +
+        'background:rgba(255,255,255,0.03);transition:background 0.15s;" ' +
+        'onmouseover="this.style.background=\'rgba(255,255,255,0.07)\'" ' +
+        'onmouseout="this.style.background=\'rgba(255,255,255,0.03)\'">' +
+        '<i class="fas ' + icon + '" style="opacity:0.85;"></i>' +
+        '<span title="' + name + '" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + name + '</span>' +
+        '<span style="opacity:0.6;font-size:0.72rem;">' + size + '</span>' +
+        '</a>'
+    );
+}
+
+async function refreshChatFilesSidebar() {
+    var convId = currentConversationId;
+    var outputsCard = document.getElementById('generatedArtifactsCard');
+    if (!outputsCard) return;
+
+    if (!convId) {
+        outputsCard.style.display = 'none';
+        return;
+    }
+
+    try {
+        var resp = await fetch('/api/chat/conversations/' + encodeURIComponent(convId) + '/files');
+        if (!resp.ok) {
+            console.warn('Failed to fetch chat files:', resp.status);
+            outputsCard.style.display = 'none';
+            return;
+        }
+        var data = await resp.json();
+        var outputs = (data.outputs || []);
+
+        outputsCard.style.display = 'block';
+        var outList = document.getElementById('generatedArtifactsList');
+        var outEmpty = document.getElementById('generatedArtifactsEmpty');
+        var outCount = document.getElementById('generatedArtifactsCount');
+        outCount.textContent = outputs.length ? '(' + outputs.length + ')' : '';
+        if (outputs.length === 0) {
+            outList.innerHTML = '';
+            outEmpty.style.display = '';
+        } else {
+            outEmpty.style.display = 'none';
+            outList.innerHTML = outputs.map(function (f) {
+                return _renderFileRow(f, f.download_url);
+            }).join('');
+        }
+    } catch (e) {
+        console.warn('refreshChatFilesSidebar failed:', e);
+    }
+}
+
+// Expose for other modules
+window.refreshChatFilesSidebar = refreshChatFilesSidebar;
 </script>
 
 <script src="/static/js/chat_context.js"></script>

@@ -1,0 +1,37 @@
+{
+  "company": "Northwind Outdoor",
+  "regions": [
+    {
+      "name": "West",
+      "stores": [
+        {
+          "store_id": "W-01",
+          "departments": [
+            {
+              "name": "Sales",
+              "headcount": 4
+            },
+            {
+              "name": "Returns",
+              "headcount": 2
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "East",
+      "stores": [
+        {
+          "store_id": "E-09",
+          "departments": [
+            {
+              "name": "Sales",
+              "headcount": 7
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

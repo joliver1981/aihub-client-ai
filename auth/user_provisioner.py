@@ -92,10 +92,13 @@ class UserProvisioner:
                 if name and name != user.name:
                     user.name = name
 
-                # Update role based on current group membership (if mapping configured)
+                # Update role based on current group membership (if mapping configured).
+                # If the user is no longer in any mapped group, leave their role
+                # unchanged — don't silently downgrade an existing user. Admins
+                # who want to revoke access should disable the local account.
                 if group_role_mapping and groups:
                     new_role = self._resolve_role(groups, group_role_mapping, user.role)
-                    if new_role != user.role:
+                    if new_role is not None and new_role != user.role:
                         logger.info(f"Updating role for {username}: {user.role} -> {new_role}")
                         user.role = new_role
 
@@ -121,7 +124,8 @@ class UserProvisioner:
 
                 if group_role_mapping and groups:
                     new_role = self._resolve_role(groups, group_role_mapping, existing_local.role)
-                    existing_local.role = new_role
+                    if new_role is not None:
+                        existing_local.role = new_role
 
                 session.commit()
                 logger.info(f"Linked local user '{username}' to {auth_provider} identity")
@@ -132,10 +136,22 @@ class UserProvisioner:
                 logger.info(f"Auto-provision disabled, rejecting unknown {auth_provider} user: {username}")
                 return None
 
-            # Determine role from group mapping
+            # Determine role from group mapping.
+            # If a group mapping is configured, require the user to be a
+            # member of at least one mapped group — otherwise refuse to
+            # auto-provision. "You configured a mapping, so unmapped users
+            # shouldn't get in" is the least-surprising behavior.
             role = default_role
-            if group_role_mapping and groups:
-                role = self._resolve_role(groups, group_role_mapping, default_role)
+            if group_role_mapping:
+                resolved = self._resolve_role(groups or [], group_role_mapping, default_role)
+                if resolved is None:
+                    logger.info(
+                        f"Rejecting auto-provision for {username}: "
+                        f"not a member of any mapped group "
+                        f"(user groups: {groups or []})"
+                    )
+                    return None
+                role = resolved
 
             # Create new user
             # Generate a random unusable password (external auth users don't use local passwords)
@@ -228,10 +244,23 @@ class UserProvisioner:
             return None
 
     @staticmethod
-    def _resolve_role(groups: list, group_role_mapping: Dict[str, int], default_role: int) -> int:
-        """Map group memberships to the highest matching AI Hub role."""
-        matched_role = default_role
+    def _resolve_role(groups: list, group_role_mapping: Dict[str, int], default_role: int):
+        """
+        Map group memberships to the highest matching AI Hub role.
+
+        Returns the matched role (int) if the user is in at least one mapped
+        group, otherwise None. Comparison is case-insensitive and ignores
+        leading/trailing whitespace — AD group names are case-insensitive,
+        but Python string equality is not.
+        """
+        if not group_role_mapping or not groups:
+            return None
+        normalized_user_groups = {str(g).strip().casefold() for g in groups if g}
+        matched_role = None
         for group_name, role in group_role_mapping.items():
-            if group_name in groups:
-                matched_role = max(matched_role, role)
-        return matched_role
+            if str(group_name).strip().casefold() in normalized_user_groups:
+                if matched_role is None or role > matched_role:
+                    matched_role = role
+        if matched_role is None:
+            return None
+        return max(matched_role, default_role)

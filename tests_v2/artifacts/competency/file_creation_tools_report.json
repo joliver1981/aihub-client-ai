@@ -1,0 +1,858 @@
+[
+  {
+    "test_id": "T01",
+    "label": "CSV \u2014 explicit data",
+    "prompt": "Please create a CSV file called q3_products with the following three rows of data. Columns: sku, product_name, unit_price.\n- TNT-2200, Sierra 2P Tent, 175.00\n- BPK-3100, Trailhead 40L Pack, 125.00\n- SLP-1200, Meadow 30\u00b0F Sleeping Bag, 159.99",
+    "expected_tool": "create_csv",
+    "conv_id": "conv_c88f2d9cafb9",
+    "http_status": 200,
+    "elapsed_s": 7.2099449634552,
+    "artifact_block": {
+      "artifact_id": "57af34e392b7",
+      "created_at": "2026-05-29T13:09:17.077035",
+      "download_url": "/api/chat/artifacts/conv_c88f2d9cafb9/57af34e392b7/download",
+      "filename": "q3_products.csv",
+      "size_bytes": 141,
+      "size_display": "141 B"
+    },
+    "artifact_path": "C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_c88f2d9cafb9\\outputs\\57af34e392b7_q3_products.csv",
+    "checks": [
+      {
+        "name": "HTTP 200",
+        "passed": true,
+        "detail": "got 200"
+      },
+      {
+        "name": "artifact discovered via /conversations/{id}/files",
+        "passed": true,
+        "detail": "artifact_id=57af34e392b7 file=q3_products.csv"
+      },
+      {
+        "name": "file present on disk",
+        "passed": true,
+        "detail": "path=C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_c88f2d9cafb9\\outputs\\57af34e392b7_q3_products.csv"
+      },
+      {
+        "name": "file extension is .csv",
+        "passed": true,
+        "detail": "got '.csv'"
+      },
+      {
+        "name": "download endpoint returns same bytes as on-disk file",
+        "passed": true,
+        "detail": "disk=141B downloaded=141B"
+      },
+      {
+        "name": "headers contain expected fields",
+        "passed": true,
+        "detail": "got ['sku', 'product_name', 'unit_price']"
+      },
+      {
+        "name": "row count \u2265 3",
+        "passed": true,
+        "detail": "3 rows"
+      },
+      {
+        "name": "row count \u2264 3",
+        "passed": true,
+        "detail": "3 rows"
+      },
+      {
+        "name": "contains 'TNT-2200'",
+        "passed": true,
+        "detail": "present"
+      },
+      {
+        "name": "contains 'Sierra 2P Tent'",
+        "passed": true,
+        "detail": "present"
+      },
+      {
+        "name": "contains '175'",
+        "passed": true,
+        "detail": "present"
+      }
+    ],
+    "response_preview": "Done \u2014 I created the CSV file q3_products.csv. success rich_content",
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "T02",
+    "label": "CSV \u2014 agent invents data from concept",
+    "prompt": "Create a CSV called outdoor_products listing 5 outdoor gear products (any reasonable ones) with columns: name, category, price_usd.",
+    "expected_tool": "create_csv",
+    "conv_id": "conv_9e7e6599abd0",
+    "http_status": 200,
+    "elapsed_s": 6.354830026626587,
+    "artifact_block": {
+      "artifact_id": "ab105f56ee49",
+      "created_at": "2026-05-29T13:09:24.293435",
+      "download_url": "/api/chat/artifacts/conv_9e7e6599abd0/ab105f56ee49/download",
+      "filename": "outdoor_products.csv",
+      "size_bytes": 214,
+      "size_display": "214 B"
+    },
+    "artifact_path": "C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_9e7e6599abd0\\outputs\\ab105f56ee49_outdoor_products.csv",
+    "checks": [
+      {
+        "name": "HTTP 200",
+        "passed": true,
+        "detail": "got 200"
+      },
+      {
+        "name": "artifact discovered via /conversations/{id}/files",
+        "passed": true,
+        "detail": "artifact_id=ab105f56ee49 file=outdoor_products.csv"
+      },
+      {
+        "name": "file present on disk",
+        "passed": true,
+        "detail": "path=C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_9e7e6599abd0\\outputs\\ab105f56ee49_outdoor_products.csv"
+      },
+      {
+        "name": "file extension is .csv",
+        "passed": true,
+        "detail": "got '.csv'"
+      },
+      {
+        "name": "download endpoint returns same bytes as on-disk file",
+        "passed": true,
+        "detail": "disk=214B downloaded=214B"
+      },
+      {
+        "name": "headers contain expected fields",
+        "passed": true,
+        "detail": "got ['name', 'category', 'price_usd']"
+      },
+      {
+        "name": "row count \u2265 4",
+        "passed": true,
+        "detail": "5 rows"
+      },
+      {
+        "name": "row count \u2264 10",
+        "passed": true,
+        "detail": "5 rows"
+      }
+    ],
+    "response_preview": "Done \u2014 I created the CSV file `outdoor_products.csv`. success rich_content",
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "T03",
+    "label": "CSV \u2014 large request (500 rows) must produce VALID output",
+    "prompt": "Please generate a CSV called bulk_sales with 500 rows of synthetic sales data \u2014 columns: order_id, customer, amount. Generate all 500 rows and make sure the output is valid.",
+    "expected_tool": "create_csv",
+    "conv_id": "conv_b6cfd5ee2872",
+    "http_status": 200,
+    "elapsed_s": 142.72972583770752,
+    "artifact_block": {
+      "artifact_id": "97d74724a75e",
+      "created_at": "2026-05-29T13:11:46.752033",
+      "download_url": "/api/chat/artifacts/conv_b6cfd5ee2872/97d74724a75e/download",
+      "filename": "bulk_sales.csv",
+      "size_bytes": 13829,
+      "size_display": "13.5 KB"
+    },
+    "artifact_path": "C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_b6cfd5ee2872\\outputs\\97d74724a75e_bulk_sales.csv",
+    "checks": [
+      {
+        "name": "HTTP 200",
+        "passed": true,
+        "detail": "got 200"
+      },
+      {
+        "name": "artifact discovered via /conversations/{id}/files",
+        "passed": true,
+        "detail": "artifact_id=97d74724a75e file=bulk_sales.csv"
+      },
+      {
+        "name": "file present on disk",
+        "passed": true,
+        "detail": "path=C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_b6cfd5ee2872\\outputs\\97d74724a75e_bulk_sales.csv"
+      },
+      {
+        "name": "file extension is .csv",
+        "passed": true,
+        "detail": "got '.csv'"
+      },
+      {
+        "name": "download endpoint returns same bytes as on-disk file",
+        "passed": true,
+        "detail": "disk=13829B downloaded=13829B"
+      },
+      {
+        "name": "headers contain expected fields",
+        "passed": true,
+        "detail": "got ['order_id', 'customer', 'amount']"
+      },
+      {
+        "name": "row count \u2265 250",
+        "passed": true,
+        "detail": "500 rows"
+      }
+    ],
+    "response_preview": "Done \u2014 I created the CSV `bulk_sales` with 500 rows of synthetic sales data. success rich_content",
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "T04",
+    "label": "Excel \u2014 single sheet",
+    "prompt": "Create an Excel file called q3_revenue. One sheet named Sales with columns region, revenue. Rows:\nNorth 2100000\nSouth 2080000\nEast 2430000\nWest 2870000",
+    "expected_tool": "create_excel",
+    "conv_id": "conv_f3ceef318fa4",
+    "http_status": 200,
+    "elapsed_s": 6.582125902175903,
+    "artifact_block": {
+      "artifact_id": "c8fba46b6020",
+      "created_at": "2026-05-29T13:11:52.915468",
+      "download_url": "/api/chat/artifacts/conv_f3ceef318fa4/c8fba46b6020/download",
+      "filename": "q3_revenue.xlsx",
+      "size_bytes": 5024,
+      "size_display": "4.9 KB"
+    },
+    "artifact_path": "C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_f3ceef318fa4\\outputs\\c8fba46b6020_q3_revenue.xlsx",
+    "checks": [
+      {
+        "name": "HTTP 200",
+        "passed": true,
+        "detail": "got 200"
+      },
+      {
+        "name": "artifact discovered via /conversations/{id}/files",
+        "passed": true,
+        "detail": "artifact_id=c8fba46b6020 file=q3_revenue.xlsx"
+      },
+      {
+        "name": "file present on disk",
+        "passed": true,
+        "detail": "path=C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_f3ceef318fa4\\outputs\\c8fba46b6020_q3_revenue.xlsx"
+      },
+      {
+        "name": "file extension is .xlsx",
+        "passed": true,
+        "detail": "got '.xlsx'"
+      },
+      {
+        "name": "download endpoint returns same bytes as on-disk file",
+        "passed": true,
+        "detail": "disk=5024B downloaded=5024B"
+      },
+      {
+        "name": "workbook opens",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "sheet count >= 1",
+        "passed": true,
+        "detail": "got ['Sales']"
+      },
+      {
+        "name": "all sheet names within 31-char Excel limit",
+        "passed": true,
+        "detail": "all ok"
+      },
+      {
+        "name": "expected sheet labels present",
+        "passed": true,
+        "detail": "all present"
+      },
+      {
+        "name": "each sheet has >= 4 rows",
+        "passed": true,
+        "detail": "all ok"
+      }
+    ],
+    "response_preview": "Create an Excel file called q3_revenue. One sheet named Sales with columns region, revenue. Rows:\nNorth 2100000\nSouth 2080000\nEast 2430000\nWest 2870000 text region revenue North 2100000 South 2080000 East 2430000 West 2870000 table Done. success Revenue by Region bar_chart region revenue rich_content",
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "T05",
+    "label": "Excel \u2014 multi-sheet (3 tabs)",
+    "prompt": "Create an Excel file called quarterly_summary with three sheets: 'Q1', 'Q2', 'Q3'. Each sheet has columns region and revenue, with one row per region: North, South, East, West. Use realistic but invented numbers.",
+    "expected_tool": "create_excel",
+    "conv_id": "conv_520ddf4b5492",
+    "http_status": 200,
+    "elapsed_s": 7.915071487426758,
+    "artifact_block": {
+      "artifact_id": "b2f409273571",
+      "created_at": "2026-05-29T13:12:02.197776",
+      "download_url": "/api/chat/artifacts/conv_520ddf4b5492/b2f409273571/download",
+      "filename": "quarterly_summary.xlsx",
+      "size_bytes": 6322,
+      "size_display": "6.2 KB"
+    },
+    "artifact_path": "C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_520ddf4b5492\\outputs\\b2f409273571_quarterly_summary.xlsx",
+    "checks": [
+      {
+        "name": "HTTP 200",
+        "passed": true,
+        "detail": "got 200"
+      },
+      {
+        "name": "artifact discovered via /conversations/{id}/files",
+        "passed": true,
+        "detail": "artifact_id=b2f409273571 file=quarterly_summary.xlsx"
+      },
+      {
+        "name": "file present on disk",
+        "passed": true,
+        "detail": "path=C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_520ddf4b5492\\outputs\\b2f409273571_quarterly_summary.xlsx"
+      },
+      {
+        "name": "file extension is .xlsx",
+        "passed": true,
+        "detail": "got '.xlsx'"
+      },
+      {
+        "name": "download endpoint returns same bytes as on-disk file",
+        "passed": true,
+        "detail": "disk=6322B downloaded=6322B"
+      },
+      {
+        "name": "workbook opens",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "sheet count >= 3",
+        "passed": true,
+        "detail": "got ['Q1', 'Q2', 'Q3']"
+      },
+      {
+        "name": "all sheet names within 31-char Excel limit",
+        "passed": true,
+        "detail": "all ok"
+      },
+      {
+        "name": "expected sheet labels present",
+        "passed": true,
+        "detail": "all present"
+      },
+      {
+        "name": "each sheet has >= 4 rows",
+        "passed": true,
+        "detail": "all ok"
+      }
+    ],
+    "response_preview": "Done \u2014 I created the Excel file `quarterly_summary.xlsx` with sheets `Q1`, `Q2`, and `Q3`. success rich_content",
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "T06",
+    "label": "Excel \u2014 long sheet name should be truncated to 31 chars",
+    "prompt": "Create an Excel file called arr_forecast with ONE sheet whose name is exactly 'Annual Recurring Revenue Forecast for Fiscal Year 2025 and Beyond'. Columns: month, arr_usd. Rows:\nJanuary 1200000\nFebruary 1280000\nMarch 1340000",
+    "expected_tool": "create_excel",
+    "conv_id": "conv_58d8d2753d6e",
+    "http_status": 200,
+    "elapsed_s": 7.789959192276001,
+    "artifact_block": {
+      "artifact_id": "f817db2d9735",
+      "created_at": "2026-05-29T13:12:08.981921",
+      "download_url": "/api/chat/artifacts/conv_58d8d2753d6e/f817db2d9735/download",
+      "filename": "arr_forecast.xlsx",
+      "size_bytes": 5031,
+      "size_display": "4.9 KB"
+    },
+    "artifact_path": "C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_58d8d2753d6e\\outputs\\f817db2d9735_arr_forecast.xlsx",
+    "checks": [
+      {
+        "name": "HTTP 200",
+        "passed": true,
+        "detail": "got 200"
+      },
+      {
+        "name": "artifact discovered via /conversations/{id}/files",
+        "passed": true,
+        "detail": "artifact_id=f817db2d9735 file=arr_forecast.xlsx"
+      },
+      {
+        "name": "file present on disk",
+        "passed": true,
+        "detail": "path=C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_58d8d2753d6e\\outputs\\f817db2d9735_arr_forecast.xlsx"
+      },
+      {
+        "name": "file extension is .xlsx",
+        "passed": true,
+        "detail": "got '.xlsx'"
+      },
+      {
+        "name": "download endpoint returns same bytes as on-disk file",
+        "passed": true,
+        "detail": "disk=5031B downloaded=5031B"
+      },
+      {
+        "name": "workbook opens",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "sheet count >= 1",
+        "passed": true,
+        "detail": "got ['Annual Recurring Revenue Foreca']"
+      },
+      {
+        "name": "all sheet names within 31-char Excel limit",
+        "passed": true,
+        "detail": "all ok"
+      },
+      {
+        "name": "expected sheet labels present",
+        "passed": true,
+        "detail": "all present"
+      },
+      {
+        "name": "each sheet has >= 3 rows",
+        "passed": true,
+        "detail": "all ok"
+      }
+    ],
+    "response_preview": "User's question for context: Create an Excel file called arr_forecast with ONE sheet whose name is exactly 'Annual Recurring Revenue Forecast for Fiscal Year 2025 and Beyond'. Columns: month, arr_usd. Rows:\nJanuary 1200000\nFebruary 1280000\nMarch 1340000\n\nImportant to remember:\n1. Identify ALL distinct content blocks\n2. Preserve the original content accurately\n3. Detect tables even if they're in text format\n4. Identify code blocks with their language\n5. Recognize metrics/KPIs \u2014 short scannable values only; prose belongs in a table or text block\n6. Suggest visualizations where appropriate\n7. Alw",
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "T07",
+    "label": "Word \u2014 simple multi-section",
+    "prompt": "Create a Word document called q3_planning with the title 'Q3 Planning'. Two sections: 'Summary' with a paragraph about Q3 priorities, and 'Recommendations' with three bullet-style paragraphs of recommendations.",
+    "expected_tool": "create_word_doc",
+    "conv_id": "conv_d3b5f91a47e7",
+    "http_status": 200,
+    "elapsed_s": 7.790987014770508,
+    "artifact_block": {
+      "artifact_id": "2bfda17243fb",
+      "created_at": "2026-05-29T13:12:18.871270",
+      "download_url": "/api/chat/artifacts/conv_d3b5f91a47e7/2bfda17243fb/download",
+      "filename": "q3_planning.docx",
+      "size_bytes": 36950,
+      "size_display": "36.1 KB"
+    },
+    "artifact_path": "C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_d3b5f91a47e7\\outputs\\2bfda17243fb_q3_planning.docx",
+    "checks": [
+      {
+        "name": "HTTP 200",
+        "passed": true,
+        "detail": "got 200"
+      },
+      {
+        "name": "artifact discovered via /conversations/{id}/files",
+        "passed": true,
+        "detail": "artifact_id=2bfda17243fb file=q3_planning.docx"
+      },
+      {
+        "name": "file present on disk",
+        "passed": true,
+        "detail": "path=C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_d3b5f91a47e7\\outputs\\2bfda17243fb_q3_planning.docx"
+      },
+      {
+        "name": "file extension is .docx",
+        "passed": true,
+        "detail": "got '.docx'"
+      },
+      {
+        "name": "download endpoint returns same bytes as on-disk file",
+        "passed": true,
+        "detail": "disk=36950B downloaded=36950B"
+      },
+      {
+        "name": "docx opens",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "title appears as heading near top",
+        "passed": true,
+        "detail": "top headings: ['Q3 Planning', 'Summary', 'Recommendations']"
+      },
+      {
+        "name": "heading contains 'Summary'",
+        "passed": true,
+        "detail": "ok"
+      },
+      {
+        "name": "heading contains 'Recommendations'",
+        "passed": true,
+        "detail": "ok"
+      },
+      {
+        "name": "body contains 'Q3'",
+        "passed": true,
+        "detail": ""
+      }
+    ],
+    "response_preview": "Done \u2014 I created the Word document `q3_planning.docx`. success rich_content",
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "T08",
+    "label": "Word \u2014 with a table",
+    "prompt": "Create a Word document called regional_sales titled 'Regional Sales Summary'. Include one section 'Regional Breakdown' with a table \u2014 headers: Region, Revenue; rows: North 2.1M; South 2.08M; East 2.43M; West 2.87M.",
+    "expected_tool": "create_word_doc",
+    "conv_id": "conv_c4db514c0a35",
+    "http_status": 200,
+    "elapsed_s": 6.3400609493255615,
+    "artifact_block": {
+      "artifact_id": "c3700b55db49",
+      "created_at": "2026-05-29T13:12:26.087340",
+      "download_url": "/api/chat/artifacts/conv_c4db514c0a35/c3700b55db49/download",
+      "filename": "regional_sales.docx",
+      "size_bytes": 36830,
+      "size_display": "36.0 KB"
+    },
+    "artifact_path": "C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_c4db514c0a35\\outputs\\c3700b55db49_regional_sales.docx",
+    "checks": [
+      {
+        "name": "HTTP 200",
+        "passed": true,
+        "detail": "got 200"
+      },
+      {
+        "name": "artifact discovered via /conversations/{id}/files",
+        "passed": true,
+        "detail": "artifact_id=c3700b55db49 file=regional_sales.docx"
+      },
+      {
+        "name": "file present on disk",
+        "passed": true,
+        "detail": "path=C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_c4db514c0a35\\outputs\\c3700b55db49_regional_sales.docx"
+      },
+      {
+        "name": "file extension is .docx",
+        "passed": true,
+        "detail": "got '.docx'"
+      },
+      {
+        "name": "download endpoint returns same bytes as on-disk file",
+        "passed": true,
+        "detail": "disk=36830B downloaded=36830B"
+      },
+      {
+        "name": "docx opens",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "title appears as heading near top",
+        "passed": true,
+        "detail": "top headings: ['Regional Sales Summary', 'Regional Breakdown']"
+      },
+      {
+        "name": "heading contains 'Regional Breakdown'",
+        "passed": true,
+        "detail": "ok"
+      },
+      {
+        "name": "body contains 'West'",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "has at least one table",
+        "passed": true,
+        "detail": "got 1 table(s)"
+      }
+    ],
+    "response_preview": "Done \u2014 I created the Word document for you. success rich_content",
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "T09",
+    "label": "Word \u2014 three named sections (Executive Summary / Findings / Recs)",
+    "prompt": "Create a Word document called fy26_brief with the title 'FY2026 Strategic Brief'. Include three sections named 'Executive Summary', 'Key Findings', and 'Recommendations', each with one short paragraph.",
+    "expected_tool": "create_word_doc",
+    "conv_id": "conv_f9103ae30efe",
+    "http_status": 200,
+    "elapsed_s": 7.461002349853516,
+    "artifact_block": {
+      "artifact_id": "11a4fc4f56d3",
+      "created_at": "2026-05-29T13:12:34.006530",
+      "download_url": "/api/chat/artifacts/conv_f9103ae30efe/11a4fc4f56d3/download",
+      "filename": "fy26_brief.docx",
+      "size_bytes": 36895,
+      "size_display": "36.0 KB"
+    },
+    "artifact_path": "C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_f9103ae30efe\\outputs\\11a4fc4f56d3_fy26_brief.docx",
+    "checks": [
+      {
+        "name": "HTTP 200",
+        "passed": true,
+        "detail": "got 200"
+      },
+      {
+        "name": "artifact discovered via /conversations/{id}/files",
+        "passed": true,
+        "detail": "artifact_id=11a4fc4f56d3 file=fy26_brief.docx"
+      },
+      {
+        "name": "file present on disk",
+        "passed": true,
+        "detail": "path=C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_f9103ae30efe\\outputs\\11a4fc4f56d3_fy26_brief.docx"
+      },
+      {
+        "name": "file extension is .docx",
+        "passed": true,
+        "detail": "got '.docx'"
+      },
+      {
+        "name": "download endpoint returns same bytes as on-disk file",
+        "passed": true,
+        "detail": "disk=36895B downloaded=36895B"
+      },
+      {
+        "name": "docx opens",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "title appears as heading near top",
+        "passed": true,
+        "detail": "top headings: ['FY2026 Strategic Brief', 'Executive Summary', 'Key Findings']"
+      },
+      {
+        "name": "heading contains 'Executive Summary'",
+        "passed": true,
+        "detail": "ok"
+      },
+      {
+        "name": "heading contains 'Key Findings'",
+        "passed": true,
+        "detail": "ok"
+      },
+      {
+        "name": "heading contains 'Recommendations'",
+        "passed": true,
+        "detail": "ok"
+      }
+    ],
+    "response_preview": "Done \u2014 I created the Word document. success rich_content",
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "T10",
+    "label": "Markdown \u2014 README-style",
+    "prompt": "Create a markdown (.md) file called project_readme. Content: a heading '# Northwind Outdoor \u2014 README', a subheading '## Overview' with one paragraph, and a subheading '## Installation' with three numbered steps.",
+    "expected_tool": "create_text_file",
+    "conv_id": "conv_d2d3735b564d",
+    "http_status": 200,
+    "elapsed_s": 5.915193319320679,
+    "artifact_block": {
+      "artifact_id": "efd92ea9e655",
+      "created_at": "2026-05-29T13:12:40.894097",
+      "download_url": "/api/chat/artifacts/conv_d2d3735b564d/efd92ea9e655/download",
+      "filename": "project_readme.md",
+      "size_bytes": 422,
+      "size_display": "422 B"
+    },
+    "artifact_path": "C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_d2d3735b564d\\outputs\\efd92ea9e655_project_readme.md",
+    "checks": [
+      {
+        "name": "HTTP 200",
+        "passed": true,
+        "detail": "got 200"
+      },
+      {
+        "name": "artifact discovered via /conversations/{id}/files",
+        "passed": true,
+        "detail": "artifact_id=efd92ea9e655 file=project_readme.md"
+      },
+      {
+        "name": "file present on disk",
+        "passed": true,
+        "detail": "path=C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_d2d3735b564d\\outputs\\efd92ea9e655_project_readme.md"
+      },
+      {
+        "name": "file extension is .md",
+        "passed": true,
+        "detail": "got '.md'"
+      },
+      {
+        "name": "download endpoint returns same bytes as on-disk file",
+        "passed": true,
+        "detail": "disk=422B downloaded=422B"
+      },
+      {
+        "name": "extension is .md",
+        "passed": true,
+        "detail": "got '.md'"
+      },
+      {
+        "name": "contains 'Northwind'",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "contains 'Overview'",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "contains 'Installation'",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "md-specific content valid",
+        "passed": true,
+        "detail": "ok"
+      }
+    ],
+    "response_preview": "Done \u2014 I created the Markdown file `project_readme.md`. success rich_content",
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "T11",
+    "label": "JSON \u2014 config file",
+    "prompt": "Create a JSON file called app_config containing this config: app_name = NorthwindOutdoor, version = 1.0, debug = false, features list with three items: 'ecommerce', 'wholesale', 'retail'.",
+    "expected_tool": "create_text_file",
+    "conv_id": "conv_678d256840bf",
+    "http_status": 200,
+    "elapsed_s": 5.295153379440308,
+    "artifact_block": {
+      "artifact_id": "57442e4f4c7d",
+      "created_at": "2026-05-29T13:12:46.429731",
+      "download_url": "/api/chat/artifacts/conv_678d256840bf/57442e4f4c7d/download",
+      "filename": "app_config.json",
+      "size_bytes": 140,
+      "size_display": "140 B"
+    },
+    "artifact_path": "C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_678d256840bf\\outputs\\57442e4f4c7d_app_config.json",
+    "checks": [
+      {
+        "name": "HTTP 200",
+        "passed": true,
+        "detail": "got 200"
+      },
+      {
+        "name": "artifact discovered via /conversations/{id}/files",
+        "passed": true,
+        "detail": "artifact_id=57442e4f4c7d file=app_config.json"
+      },
+      {
+        "name": "file present on disk",
+        "passed": true,
+        "detail": "path=C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_678d256840bf\\outputs\\57442e4f4c7d_app_config.json"
+      },
+      {
+        "name": "file extension is .json",
+        "passed": true,
+        "detail": "got '.json'"
+      },
+      {
+        "name": "download endpoint returns same bytes as on-disk file",
+        "passed": true,
+        "detail": "disk=140B downloaded=140B"
+      },
+      {
+        "name": "extension is .json",
+        "passed": true,
+        "detail": "got '.json'"
+      },
+      {
+        "name": "contains 'NorthwindOutdoor'",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "contains 'ecommerce'",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "json-specific content valid",
+        "passed": true,
+        "detail": "ok"
+      }
+    ],
+    "response_preview": "Done \u2014 I created the JSON file `app_config.json`. success rich_content",
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "T12",
+    "label": "HTML \u2014 simple page",
+    "prompt": "Create an HTML file called landing_page. Content: a full HTML document with a top-level heading 'Hello from Northwind' and an unordered list of three items: 'Tents', 'Backpacks', 'Sleeping bags'.",
+    "expected_tool": "create_text_file",
+    "conv_id": "conv_4106c5c58b30",
+    "http_status": 200,
+    "elapsed_s": 5.860070705413818,
+    "artifact_block": {
+      "artifact_id": "b2e71ee7c985",
+      "created_at": "2026-05-29T13:12:52.884501",
+      "download_url": "/api/chat/artifacts/conv_4106c5c58b30/b2e71ee7c985/download",
+      "filename": "landing_page.html",
+      "size_bytes": 314,
+      "size_display": "314 B"
+    },
+    "artifact_path": "C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_4106c5c58b30\\outputs\\b2e71ee7c985_landing_page.html",
+    "checks": [
+      {
+        "name": "HTTP 200",
+        "passed": true,
+        "detail": "got 200"
+      },
+      {
+        "name": "artifact discovered via /conversations/{id}/files",
+        "passed": true,
+        "detail": "artifact_id=b2e71ee7c985 file=landing_page.html"
+      },
+      {
+        "name": "file present on disk",
+        "passed": true,
+        "detail": "path=C:\\src\\aihub-client-ai-dev\\data\\chat_files\\conv_4106c5c58b30\\outputs\\b2e71ee7c985_landing_page.html"
+      },
+      {
+        "name": "file extension is .html",
+        "passed": true,
+        "detail": "got '.html'"
+      },
+      {
+        "name": "download endpoint returns same bytes as on-disk file",
+        "passed": true,
+        "detail": "disk=314B downloaded=314B"
+      },
+      {
+        "name": "extension is .html",
+        "passed": true,
+        "detail": "got '.html'"
+      },
+      {
+        "name": "contains 'Northwind'",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "contains 'Tents'",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "contains 'Backpacks'",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "contains 'Sleeping bags'",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "html-specific content valid",
+        "passed": true,
+        "detail": "ok"
+      }
+    ],
+    "response_preview": "Done \u2014 I created the HTML file. success rich_content",
+    "verdict": "PASS",
+    "note": ""
+  }
+]

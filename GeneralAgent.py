@@ -1139,6 +1139,334 @@ def run_python_code(code: str) -> str:
 
     return str(result)
 
+
+@tool
+def manipulate_pdf(
+    file_id: str,
+    operation: str,
+    pages: str = "all",
+    degrees: int = 90,
+) -> str:
+    """Split, extract pages from, or rotate a PDF file the user uploaded.
+    Use this INSTEAD of generating Python code when the user wants PDF
+    modifications. Outputs are saved as downloadable artifacts the user
+    can click in the chat.
+
+    Args:
+        file_id: ID of the uploaded PDF (from the attached files in context,
+                 shown as [file_id: xxxxx] in the system prompt)
+        operation: One of:
+            - "split_all"     — one PDF per page
+            - "extract_pages" — single PDF containing selected `pages`
+            - "rotate"        — rotate selected `pages` by `degrees`
+        pages: Page spec like "1,3,5-7" or "all" (1-indexed). Ignored for split_all.
+        degrees: 90, 180, or 270 (clockwise). Only used by rotate.
+    """
+    import json as _json
+
+    import active_chat_context
+    import chat_file_manager
+    import pdf_tools
+
+    conv_id = active_chat_context.get_active_conversation_id()
+    agent_id_ctx = active_chat_context.get_active_agent_id()
+    user_id_ctx = active_chat_context.get_active_user_id()
+
+    if not conv_id:
+        return (
+            "Cannot manipulate PDF: no active conversation. "
+            "This tool requires the chat session to be initialized."
+        )
+
+    # Files live in agent_files (durable, agent+user scoped). Tool outputs
+    # still land in chat_files/{conv}/outputs/ — those are per-conversation.
+    path = None
+    if agent_id_ctx is not None and user_id_ctx is not None:
+        path = chat_file_manager.get_agent_input_path(agent_id_ctx, user_id_ctx, file_id)
+    if not path:
+        return (
+            f"File '{file_id}' not found for this agent. "
+            "Make sure the file appears in the Available Files list with a "
+            "matching [file_id: ...] tag."
+        )
+    if path.suffix.lower() != ".pdf":
+        return f"File '{path.name}' is not a PDF."
+
+    try:
+        pdf_bytes = path.read_bytes()
+        name_stem = path.stem.split("_", 1)[-1].rsplit(".pdf", 1)[0]
+        op = (operation or "").strip().lower()
+        if op in ("split_all", "split"):
+            outputs = pdf_tools.split_all(pdf_bytes, name_stem)
+        elif op in ("extract_pages", "extract"):
+            outputs = pdf_tools.extract_pages(pdf_bytes, name_stem, pages)
+        elif op == "rotate":
+            outputs = pdf_tools.rotate(pdf_bytes, name_stem, int(degrees), pages)
+        else:
+            return (
+                f"Unknown operation '{operation}'. "
+                "Use one of: split_all, extract_pages, rotate."
+            )
+    except ValueError as ve:
+        return f"PDF operation failed: {ve}"
+    except Exception as e:
+        logger.error(f"manipulate_pdf error: {e}", exc_info=True)
+        return f"PDF operation failed: {e}"
+
+    blocks = []
+    for fname, fbytes in outputs:
+        try:
+            meta = chat_file_manager.save_output(conv_id, fbytes, fname)
+        except Exception as e:
+            logger.error(f"Failed to save artifact {fname}: {e}")
+            continue
+        blocks.append({
+            "type": "artifact",
+            "name": meta["filename"],
+            "artifactType": "pdf",
+            "size": meta["size_display"],
+            "artifact_id": meta["artifact_id"],
+            "download_url": meta["download_url"],
+        })
+
+    if not blocks:
+        return "PDF operation produced no artifacts (write failed)."
+    return _json.dumps(blocks)
+
+
+def _save_artifact_and_block(name: str, fbytes: bytes, artifact_type: str) -> str:
+    """Internal helper: save an output file to the active conversation's
+    outputs/ dir and return a JSON-encoded artifact block list (one entry)."""
+    import json as _json
+    import active_chat_context
+    import chat_file_manager
+
+    conv_id = active_chat_context.get_active_conversation_id()
+    if not conv_id:
+        return (
+            "Cannot create file: no active conversation. "
+            "This tool requires the chat session to be initialized."
+        )
+    try:
+        meta = chat_file_manager.save_output(conv_id, fbytes, name)
+    except Exception as e:
+        logger.error(f"Failed to save artifact {name}: {e}", exc_info=True)
+        return f"Failed to save file: {e}"
+    return _json.dumps([{
+        "type": "artifact",
+        "name": meta["filename"],
+        "artifactType": artifact_type,
+        "size": meta["size_display"],
+        "artifact_id": meta["artifact_id"],
+        "download_url": meta["download_url"],
+    }])
+
+
+@tool
+def create_csv(name: str, rows: str) -> str:
+    """Create a CSV file from tabular data.
+
+    Args:
+        name: Filename (without extension; .csv is added).
+        rows: JSON array of objects. Headers come from the FIRST object's keys
+              in their existing order; missing keys in later objects render as
+              empty cells. Example: '[{"name":"Alice","age":30},{"name":"Bob","age":25}]'
+    """
+    import csv as _csv
+    import io as _io
+    import json as _json
+
+    try:
+        data = _json.loads(rows) if isinstance(rows, str) else rows
+    except _json.JSONDecodeError as e:
+        return f"create_csv: invalid JSON for `rows`: {e}"
+
+    if not isinstance(data, list):
+        return "create_csv: `rows` must be a JSON array of objects."
+    if not data:
+        return "create_csv: `rows` is empty — nothing to write."
+    if not isinstance(data[0], dict):
+        return "create_csv: each row must be a JSON object (got non-object)."
+
+    headers = list(data[0].keys())
+    buf = _io.StringIO(newline="")
+    writer = _csv.DictWriter(buf, fieldnames=headers, restval="", extrasaction="ignore")
+    writer.writeheader()
+    for row in data:
+        if isinstance(row, dict):
+            writer.writerow(row)
+    # UTF-8 with BOM so Excel opens it cleanly on Windows.
+    fbytes = "﻿".encode("utf-8") + buf.getvalue().encode("utf-8")
+    fname = name if name.lower().endswith(".csv") else f"{name}.csv"
+    return _save_artifact_and_block(fname, fbytes, "csv")
+
+
+@tool
+def create_excel(name: str, sheets: str) -> str:
+    """Create an Excel (.xlsx) file with one or more sheets. Bold + frozen
+    header row, auto-sized columns.
+
+    Args:
+        name: Filename (without extension; .xlsx is added).
+        sheets: JSON array of {"name": str, "rows": [...]}. Each row is an
+                object whose first-object keys become the sheet's headers.
+                Example: '[{"name":"Q1","rows":[{"region":"N","rev":12}]},
+                           {"name":"Q2","rows":[{"region":"N","rev":15}]}]'
+    """
+    import io as _io
+    import json as _json
+
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font
+    except ImportError:
+        return "create_excel: openpyxl is not installed on this server."
+
+    try:
+        sheet_list = _json.loads(sheets) if isinstance(sheets, str) else sheets
+    except _json.JSONDecodeError as e:
+        return f"create_excel: invalid JSON for `sheets`: {e}"
+
+    if not isinstance(sheet_list, list) or not sheet_list:
+        return "create_excel: `sheets` must be a non-empty JSON array."
+
+    wb = Workbook()
+    wb.remove(wb.active)  # drop the default empty sheet
+    bold = Font(bold=True)
+
+    for i, sheet_spec in enumerate(sheet_list):
+        if not isinstance(sheet_spec, dict):
+            return f"create_excel: sheet #{i+1} must be a JSON object."
+        sheet_name = str(sheet_spec.get("name") or f"Sheet{i+1}")[:31]  # Excel limit
+        rows_data = sheet_spec.get("rows") or []
+        if not isinstance(rows_data, list):
+            return f"create_excel: sheet '{sheet_name}' rows must be a JSON array."
+
+        ws = wb.create_sheet(title=sheet_name)
+        if not rows_data:
+            continue
+        if not isinstance(rows_data[0], dict):
+            return f"create_excel: rows in sheet '{sheet_name}' must be JSON objects."
+
+        headers = list(rows_data[0].keys())
+        ws.append(headers)
+        for cell in ws[1]:
+            cell.font = bold
+        ws.freeze_panes = "A2"
+
+        for r in rows_data:
+            if isinstance(r, dict):
+                ws.append([r.get(h, "") for h in headers])
+
+        # Autosize columns (cap at 50 chars to avoid absurd widths)
+        for col_idx, header in enumerate(headers, start=1):
+            max_len = len(str(header))
+            for r in rows_data:
+                v = r.get(header, "") if isinstance(r, dict) else ""
+                max_len = max(max_len, len(str(v)))
+            ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = min(max_len + 2, 50)
+
+    buf = _io.BytesIO()
+    wb.save(buf)
+    fname = name if name.lower().endswith(".xlsx") else f"{name}.xlsx"
+    return _save_artifact_and_block(fname, buf.getvalue(), "excel")
+
+
+@tool
+def create_text_file(name: str, content: str, format: str = "txt") -> str:
+    """Create a plain text file in one of: txt, md, html, json.
+
+    Args:
+        name: Filename (without extension; the right one is added).
+        content: The full text/markdown/html/json string to save.
+        format: One of "txt", "md", "html", "json". Default "txt".
+    """
+    fmt = (format or "txt").lower().lstrip(".")
+    allowed = {"txt", "md", "html", "json"}
+    if fmt not in allowed:
+        return f"create_text_file: format must be one of {sorted(allowed)} (got {fmt!r})."
+    if content is None:
+        return "create_text_file: `content` is required."
+    type_map = {"txt": "text", "md": "text", "html": "text", "json": "json"}
+    fbytes = str(content).encode("utf-8")
+    fname = name if name.lower().endswith(f".{fmt}") else f"{name}.{fmt}"
+    return _save_artifact_and_block(fname, fbytes, type_map[fmt])
+
+
+@tool
+def create_word_doc(name: str, title: str, sections: str) -> str:
+    """Create a Word (.docx) document.
+
+    Args:
+        name: Filename (without extension; .docx is added).
+        title: Document title (rendered as Heading 1 at the top).
+        sections: JSON array of section objects. Each section:
+                  {"heading": str, "level": int?, "paragraphs": [str, ...], "table": {...}?}
+                  where `table` (optional) is {"headers":[...],"rows":[[...]]}.
+                  `level` (optional) is the heading level 1-9 (default 2). Use
+                  it to nest headings: a top section at level 2 with sub-topics
+                  at level 3, etc. The document `title` is always Heading 1.
+                  Example: '[{"heading":"Financials","level":2},
+                             {"heading":"Revenue","level":3,"table":{...}},
+                             {"heading":"Expenses","level":3,"paragraphs":["..."]}]'
+    """
+    import io as _io
+    import json as _json
+
+    try:
+        from docx import Document
+    except ImportError:
+        return "create_word_doc: python-docx is not installed on this server."
+
+    try:
+        sec_list = _json.loads(sections) if isinstance(sections, str) else sections
+    except _json.JSONDecodeError as e:
+        return f"create_word_doc: invalid JSON for `sections`: {e}"
+
+    if not isinstance(sec_list, list):
+        return "create_word_doc: `sections` must be a JSON array."
+
+    doc = Document()
+    if title:
+        doc.add_heading(str(title), level=1)
+
+    for i, sec in enumerate(sec_list):
+        if not isinstance(sec, dict):
+            return f"create_word_doc: section #{i+1} must be a JSON object."
+        heading = sec.get("heading")
+        if heading:
+            # Optional per-section heading level (default 2), clamped to the
+            # Word-supported 1-9 range so the LLM can build nested hierarchies
+            # (e.g. level-2 section with level-3 sub-topics).
+            try:
+                _lvl = int(sec.get("level", 2))
+            except (TypeError, ValueError):
+                _lvl = 2
+            _lvl = max(1, min(9, _lvl))
+            doc.add_heading(str(heading), level=_lvl)
+        for para in (sec.get("paragraphs") or []):
+            doc.add_paragraph(str(para))
+        tbl = sec.get("table")
+        if tbl and isinstance(tbl, dict):
+            headers = tbl.get("headers") or []
+            rows = tbl.get("rows") or []
+            if headers:
+                t = doc.add_table(rows=1 + len(rows), cols=len(headers))
+                t.style = "Light Grid Accent 1"
+                for c, h in enumerate(headers):
+                    t.rows[0].cells[c].text = str(h)
+                for r_idx, row in enumerate(rows, start=1):
+                    if not isinstance(row, list):
+                        continue
+                    for c, val in enumerate(row[:len(headers)]):
+                        t.rows[r_idx].cells[c].text = str(val)
+
+    buf = _io.BytesIO()
+    doc.save(buf)
+    fname = name if name.lower().endswith(".docx") else f"{name}.docx"
+    return _save_artifact_and_block(fname, buf.getvalue(), "docx")
+
+
 # Database Query Tool
 @tool
 def query_database(connection_id: int, query: str) -> str:
@@ -2117,6 +2445,34 @@ class GeneralAgent():
             "`calculator` tool. Do not compute results in your head."
         )
 
+        # PDF manipulation directive — pairs with auto-attached `manipulate_pdf`.
+        # The dynamic "Available files" block is prepended to each user prompt
+        # by run() so the model has the actual file_ids when it calls the tool.
+        self.SYSTEM += (
+            "\n\nWhen the user asks to split, extract pages from, or rotate "
+            "a PDF they uploaded, call the `manipulate_pdf` tool. Pass the "
+            "file_id from the [file_id: ...] tag shown in the Available Files "
+            "list. Do NOT generate Python code for PDF operations — the tool "
+            "produces downloadable artifacts directly. Operations: "
+            "\"split_all\", \"extract_pages\" (with pages=\"1,3,5-7\"), "
+            "\"rotate\" (with degrees=90/180/270)."
+        )
+
+        self.SYSTEM += (
+            "\n\nTo give the user a downloadable file, call the matching tool: "
+            "`create_csv`, `create_excel`, `create_text_file`, or `create_word_doc`. "
+            "Pass tabular data as a JSON array of objects (first object's keys "
+            "become the column headers). When emitting JSON as a tool argument, "
+            "the output must be complete and parseable — every opening bracket "
+            "has a matching close, no trailing commas, no truncation mid-array. "
+            "Never sacrifice JSON validity for length."
+        )
+
+        self.SYSTEM += (
+            "\n\nDo not write markdown links to files you generate; the UI "
+            "shows download cards automatically."
+        )
+
         # 1. Load the language model (handles BYOK, direct OpenAI, and Azure)
         self.llm = self._create_llm(temperature=self.TEMPERATURE)
 
@@ -2204,6 +2560,24 @@ class GeneralAgent():
                 calculator_tool = globals().get('calculator')
                 if calculator_tool is not None:
                     self.tools.append(calculator_tool)
+
+            # Auto-attach manipulate_pdf to EVERY agent. Users expect
+            # ChatGPT-style PDF handling on uploaded files; the tool no-ops
+            # safely when no PDF is in the conversation.
+            if not any(getattr(t, 'name', None) == 'manipulate_pdf'
+                       for t in self.tools):
+                pdf_tool = globals().get('manipulate_pdf')
+                if pdf_tool is not None:
+                    self.tools.append(pdf_tool)
+
+            # Auto-attach file-creation tools to EVERY agent. Each is a
+            # focused per-format tool — see docstrings in GeneralAgent.py
+            # near manipulate_pdf for details.
+            for _fname in ('create_csv', 'create_excel', 'create_text_file', 'create_word_doc'):
+                if not any(getattr(t, 'name', None) == _fname for t in self.tools):
+                    _tool = globals().get(_fname)
+                    if _tool is not None:
+                        self.tools.append(_tool)
 
             # Apply routing hints from core_tools.yaml to tool descriptions
             try:
@@ -2522,6 +2896,13 @@ class GeneralAgent():
         if reasoning_effort:
             temperature = 1.0
 
+        # Hard per-response deadline. max_retries=0 so a timed-out call is
+        # NOT retried (langchain's default of 2 retries would otherwise
+        # multiply the deadline ~3x and blow past the client read-timeout).
+        # See cfg.CHAT_LLM_DEADLINE_S for the rationale and the matching
+        # friendly-message handling in app.py's /chat/general handler.
+        _llm_deadline = int(getattr(cfg, 'CHAT_LLM_DEADLINE_S', 590))
+
         if config['api_type'] == 'open_ai':
             return ChatOpenAI(
                 model=config['model'],
@@ -2529,6 +2910,8 @@ class GeneralAgent():
                 temperature=temperature,
                 reasoning_effort=reasoning_effort,
                 streaming=False,
+                request_timeout=_llm_deadline,
+                max_retries=0,
             )
         else:
             return AzureChatOpenAI(
@@ -2540,6 +2923,8 @@ class GeneralAgent():
                 temperature=temperature,
                 reasoning_effort=reasoning_effort,
                 streaming=False,
+                request_timeout=_llm_deadline,
+                max_retries=0,
             )
 
     def _set_user_request_id(self):
@@ -3493,10 +3878,40 @@ class GeneralAgent():
                 # Stash literal user input for the knowledge tool's doc detector
                 # (see comment at GeneralAgent.run for rationale).
                 self._latest_user_input = input_prompt
+
+                # Prepend Available Files block so the model has real file_ids
+                # to pass to manipulate_pdf and other file-aware tools.
+                # Sourced from agent_files (durable, agent+user scoped).
+                try:
+                    import active_chat_context
+                    import chat_file_manager as _cfm
+                    _agent_id_ctx = active_chat_context.get_active_agent_id()
+                    _user_id_ctx = active_chat_context.get_active_user_id()
+                    if _agent_id_ctx is None:
+                        _agent_id_ctx = getattr(self, 'agent_id', None)
+                    if _agent_id_ctx is not None and _user_id_ctx is not None:
+                        _files = _cfm.list_agent_files(_agent_id_ctx, _user_id_ctx)
+                        if _files:
+                            _lines = ["[Available files for this agent]"]
+                            for _f in _files:
+                                _lines.append(
+                                    f"- {_f['filename']} ({_f['size_display']}) "
+                                    f"[file_id: {_f['file_id']}]"
+                                )
+                            input_prompt = "\n".join(_lines) + "\n\n" + input_prompt
+                except Exception as _e:
+                    logger.debug(f"Could not build agent files addendum: {_e}")
+
                 result = self.agent_executor.invoke({"input": input_prompt, "chat_history": self.chat_history})
 
                 # Extract the output from the result
                 output = result.get("output", str(result))
+
+                try:
+                    from link_sanitizer import strip_fabricated_file_links
+                    output = strip_fabricated_file_links(output)
+                except Exception as _e:
+                    logger.debug(f"link sanitizer failed (non-fatal): {_e}")
 
                 print('RAW OUTPUT TYPE:', type(output))
                 print('RAW OUTPUT:', output)

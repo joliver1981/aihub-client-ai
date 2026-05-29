@@ -1,0 +1,27 @@
+{
+  "company": "Northwind Outdoor",
+  "departments": [
+    {
+      "name": "Engineering",
+      "employees": [
+        {
+          "name": "Ada",
+          "role": "Engineer"
+        },
+        {
+          "name": "Linus",
+          "role": "Lead"
+        }
+      ]
+    },
+    {
+      "name": "Sales",
+      "employees": [
+        {
+          "name": "Grace",
+          "role": "Rep"
+        }
+      ]
+    }
+  ]
+}

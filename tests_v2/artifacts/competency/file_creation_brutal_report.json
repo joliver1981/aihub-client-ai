@@ -1,0 +1,733 @@
+[
+  {
+    "test_id": "B1",
+    "label": "company\u2192regions\u2192stores\u2192departments\u2192{name,headcount}",
+    "skill": "4-level nested JSON",
+    "prompt": "Create a JSON file called hierarchy with this EXACT 4-level nested structure: top object {company, regions:[]}; each region {name, stores:[]}; each store {store_id, departments:[]}; each department {name, headcount}.\ncompany: Northwind Outdoor.\nRegion 'West' has store 'W-01' with departments Sales(4) and Returns(2). Region 'East' has store 'E-09' with department Sales(7). Use those exact numbers.",
+    "conv_id": "conv_232ce55312f1",
+    "http_status": 200,
+    "elapsed_s": 8.39545464515686,
+    "artifacts": [
+      {
+        "artifact_id": "29e8469ffedb",
+        "created_at": "2026-05-29T13:15:10.947709",
+        "download_url": "/api/chat/artifacts/conv_232ce55312f1/29e8469ffedb/download",
+        "filename": "hierarchy.json",
+        "size_bytes": 622,
+        "size_display": "622 B"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected type(s) ['.json'] produced",
+        "passed": true,
+        "detail": "got ['.json']"
+      },
+      {
+        "name": "valid JSON",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "company == Northwind Outdoor",
+        "passed": true,
+        "detail": "Northwind Outdoor"
+      },
+      {
+        "name": "regions array len 2",
+        "passed": true,
+        "detail": "2"
+      },
+      {
+        "name": "West region present",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "4-level leaf: W-01 Sales=4 & Returns=2",
+        "passed": true,
+        "detail": "sales=4 returns=2"
+      },
+      {
+        "name": "E-09 Sales=7",
+        "passed": true,
+        "detail": ""
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "B2",
+    "label": "multiline quoted cells must not inflate the row count",
+    "skill": "literal newlines inside CSV cells",
+    "prompt": "Create a CSV called notes with columns id, body. Exactly 3 rows. Each body must contain MULTIPLE LINES (real line breaks inside the single cell):\nid 1, body: a two-line note where line one says 'first' and line two says 'second'.\nid 2, body: a three-line shopping list: 'milk' / 'eggs' / 'bread', each on its own line.\nid 3, body: single line 'done'.\nKeep it as exactly 3 data rows even though some cells span lines.",
+    "conv_id": "conv_2ddd33df96e6",
+    "http_status": 200,
+    "elapsed_s": 5.327773332595825,
+    "artifacts": [
+      {
+        "artifact_id": "28534d1dbd95",
+        "created_at": "2026-05-29T13:15:17.428834",
+        "download_url": "/api/chat/artifacts/conv_2ddd33df96e6/28534d1dbd95/download",
+        "filename": "notes.csv",
+        "size_bytes": 59,
+        "size_display": "59 B"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected type(s) ['.csv'] produced",
+        "passed": true,
+        "detail": "got ['.csv']"
+      },
+      {
+        "name": "exactly 3 data rows (newlines did NOT inflate)",
+        "passed": true,
+        "detail": "3 rows"
+      },
+      {
+        "name": "at least 2 cells contain real line breaks",
+        "passed": true,
+        "detail": "2 multiline"
+      },
+      {
+        "name": "two-line note has 'first' & 'second'",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "list note has milk/eggs/bread",
+        "passed": true,
+        "detail": ""
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "B3",
+    "label": "'=SUM(A1:A2)' kept as literal text, not executed/altered",
+    "skill": "formula / CSV-injection preservation",
+    "prompt": "Create a CSV called formulas with columns label, raw_value. Store these raw_value entries EXACTLY as literal text (they are data, not formulas to evaluate):\nsum_formula => =SUM(A1:A2)\nmath => =1+1\ncmd => =cmd|'/c calc'!A1\nplus => +1234\nDo not evaluate or modify them; preserve every character.",
+    "conv_id": "conv_caaf31a7ddee",
+    "http_status": 200,
+    "elapsed_s": 6.272243499755859,
+    "artifacts": [
+      {
+        "artifact_id": "40b95c0c7e72",
+        "created_at": "2026-05-29T13:15:22.910297",
+        "download_url": "/api/chat/artifacts/conv_caaf31a7ddee/40b95c0c7e72/download",
+        "filename": "formulas.csv",
+        "size_bytes": 91,
+        "size_display": "91 B"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected type(s) ['.csv'] produced",
+        "passed": true,
+        "detail": "got ['.csv']"
+      },
+      {
+        "name": "'=SUM(A1:A2)' preserved literally",
+        "passed": true,
+        "detail": "['=SUM(A1:A2)', '=1+1', \"=cmd|'/c calc'!A1\", '+1234']"
+      },
+      {
+        "name": "'=1+1' preserved (not evaluated to 2)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "'=cmd|'/c calc'!A1' injection string preserved",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "'+1234' preserved with leading +",
+        "passed": true,
+        "detail": ""
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "B4",
+    "label": "20-digit account # and 15-dp decimal kept exactly",
+    "skill": "big-integer & precision preservation",
+    "prompt": "Create a CSV called precision with columns field, value. Preserve these values EXACTLY as text \u2014 no rounding, no scientific notation, no dropped digits:\naccount => 12345678901234567890\npi => 3.141592653589793\ncard => 4111 1111 1111 1111\nzip => 00501",
+    "conv_id": "conv_2fb03bb0a05f",
+    "http_status": 200,
+    "elapsed_s": 6.5838634967803955,
+    "artifacts": [
+      {
+        "artifact_id": "09d0b7efb154",
+        "created_at": "2026-05-29T13:15:29.795719",
+        "download_url": "/api/chat/artifacts/conv_2fb03bb0a05f/09d0b7efb154/download",
+        "filename": "precision.csv",
+        "size_bytes": 105,
+        "size_display": "105 B"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected type(s) ['.csv'] produced",
+        "passed": true,
+        "detail": "got ['.csv']"
+      },
+      {
+        "name": "20-digit account preserved exactly",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "pi to 15 dp preserved",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "card '4111 1111 1111 1111' preserved",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "zip '00501' keeps leading zeros",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "no scientific notation leaked",
+        "passed": true,
+        "detail": ""
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "B5",
+    "label": "Arabic/Hebrew/Chinese/Japanese/emoji round-trip",
+    "skill": "RTL + CJK + emoji + diacritics",
+    "prompt": "Create a JSON file called greetings: an object mapping language to its greeting, using these EXACT strings:\narabic: \u0645\u0631\u062d\u0628\u0627\nhebrew: \u05e9\u05dc\u05d5\u05dd\nchinese: \u4f60\u597d\njapanese: \u3053\u3093\u306b\u3061\u306f\nemoji: \ud83d\ude80\ud83d\udd25\ud83c\udfaf\nfrench: caf\u00e9 (with the accent)\nPreserve every character exactly.",
+    "conv_id": "conv_1e2021126d6d",
+    "http_status": 200,
+    "elapsed_s": 5.689681053161621,
+    "artifacts": [
+      {
+        "artifact_id": "56f01a6efaf8",
+        "created_at": "2026-05-29T13:15:36.496052",
+        "download_url": "/api/chat/artifacts/conv_1e2021126d6d/56f01a6efaf8/download",
+        "filename": "greetings.json",
+        "size_bytes": 156,
+        "size_display": "156 B"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected type(s) ['.json'] produced",
+        "passed": true,
+        "detail": "got ['.json']"
+      },
+      {
+        "name": "valid JSON",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "Arabic \u0645\u0631\u062d\u0628\u0627 present",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "Hebrew \u05e9\u05dc\u05d5\u05dd present",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "Chinese \u4f60\u597d present",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "Japanese \u3053\u3093\u306b\u3061\u306f present",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "emoji \ud83d\ude80\ud83d\udd25\ud83c\udfaf present",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "caf\u00e9 accent preserved",
+        "passed": true,
+        "detail": ""
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "B6",
+    "label": "30 columns in exact order, 5 aligned rows",
+    "skill": "30-column wide CSV",
+    "prompt": "Create a CSV called wide with EXACTLY 30 columns named c1, c2, c3, \u2026 through c30 (in that order). Generate 5 rows; in every row, the value of each column must equal the column name followed by the row number, e.g. row 1 of column c7 is 'c7r1'. Fill all 30 columns for all 5 rows.",
+    "conv_id": "conv_d0d75f70e6e9",
+    "http_status": 200,
+    "elapsed_s": 17.5077965259552,
+    "artifacts": [
+      {
+        "artifact_id": "8cd0d75b16ce",
+        "created_at": "2026-05-29T13:15:54.806431",
+        "download_url": "/api/chat/artifacts/conv_d0d75f70e6e9/8cd0d75b16ce/download",
+        "filename": "wide.csv",
+        "size_bytes": 975,
+        "size_display": "975 B"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected type(s) ['.csv'] produced",
+        "passed": true,
+        "detail": "got ['.csv']"
+      },
+      {
+        "name": "exactly 30 columns",
+        "passed": true,
+        "detail": "30"
+      },
+      {
+        "name": "columns c1..c30 in order",
+        "passed": true,
+        "detail": "first5=['c1', 'c2', 'c3', 'c4', 'c5'] last3=['c28', 'c29', 'c30']"
+      },
+      {
+        "name": "5 data rows",
+        "passed": true,
+        "detail": "5"
+      },
+      {
+        "name": "cell c7/row1 == 'c7r1' (alignment)",
+        "passed": true,
+        "detail": "got c7r1"
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "B7",
+    "label": "csv + xlsx + docx + json from one request, consistent",
+    "skill": "FOUR artifacts in one turn",
+    "prompt": "From this dataset (product, units): Tent 120, Pack 80, Stove 50 \u2014 produce FOUR downloadable files in this one response:\n1. a CSV called q_raw with the three rows,\n2. an Excel called q_sheet with the same three rows,\n3. a Word doc called q_brief titled 'Quarter Brief' naming the best-selling product,\n4. a JSON called q_data with an array of the three {product, units} objects.\nThe best-selling product is Tent (120) \u2014 make sure that's reflected in the Word brief.",
+    "conv_id": "conv_f64e24c98eab",
+    "http_status": 200,
+    "elapsed_s": 7.946934700012207,
+    "artifacts": [
+      {
+        "artifact_id": "459159af8d13",
+        "created_at": "2026-05-29T13:16:02.462192",
+        "download_url": "/api/chat/artifacts/conv_f64e24c98eab/459159af8d13/download",
+        "filename": "q_data.json",
+        "size_bytes": 93,
+        "size_display": "93 B"
+      },
+      {
+        "artifact_id": "14a2de5ff891",
+        "created_at": "2026-05-29T13:16:02.456181",
+        "download_url": "/api/chat/artifacts/conv_f64e24c98eab/14a2de5ff891/download",
+        "filename": "q_brief.docx",
+        "size_bytes": 36702,
+        "size_display": "35.8 KB"
+      },
+      {
+        "artifact_id": "8bc257a71685",
+        "created_at": "2026-05-29T13:16:02.411930",
+        "download_url": "/api/chat/artifacts/conv_f64e24c98eab/8bc257a71685/download",
+        "filename": "q_sheet.xlsx",
+        "size_bytes": 5003,
+        "size_display": "4.9 KB"
+      },
+      {
+        "artifact_id": "2f376e4d2d4d",
+        "created_at": "2026-05-29T13:16:02.392509",
+        "download_url": "/api/chat/artifacts/conv_f64e24c98eab/2f376e4d2d4d/download",
+        "filename": "q_raw.csv",
+        "size_bytes": 47,
+        "size_display": "47 B"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected type(s) ['.csv', '.xlsx', '.docx', '.json'] produced",
+        "passed": true,
+        "detail": "got ['.csv', '.docx', '.json', '.xlsx']"
+      },
+      {
+        "name": ".csv artifact produced",
+        "passed": true,
+        "detail": "got ['.csv', '.docx', '.json', '.xlsx']"
+      },
+      {
+        "name": ".xlsx artifact produced",
+        "passed": true,
+        "detail": "got ['.csv', '.docx', '.json', '.xlsx']"
+      },
+      {
+        "name": ".docx artifact produced",
+        "passed": true,
+        "detail": "got ['.csv', '.docx', '.json', '.xlsx']"
+      },
+      {
+        "name": ".json artifact produced",
+        "passed": true,
+        "detail": "got ['.csv', '.docx', '.json', '.xlsx']"
+      },
+      {
+        "name": "CSV has 3 rows incl. Tent/120",
+        "passed": true,
+        "detail": "3 rows"
+      },
+      {
+        "name": "JSON array has 3 product objects",
+        "passed": true,
+        "detail": "[{'product': 'Tent', 'units': 120}, {'product': 'Pack', 'units': 80}, {'product': 'Stove', 'units': 50}]"
+      },
+      {
+        "name": "Word brief names best-seller 'Tent'",
+        "passed": true,
+        "detail": "Quarter Brief\nSummary\nThe best-selling product is Tent with 120 units.\nOther products in the dataset are Pack with 80 un"
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "B8",
+    "label": "Word H1/H2/H3 nesting, two tables, second has correct total",
+    "skill": "3 heading levels + 2 tables (one computed)",
+    "prompt": "Create a Word document called report titled 'Annual Report' (Heading 1). Add a Heading 2 'Financials' with a Heading 3 'Revenue' under it containing a table (Quarter, Amount: Q1 100, Q2 150, Q3 200, Q4 250). Then a Heading 3 'Expenses' under Financials containing a SECOND table (Category, Amount: Salaries 300, Other 120) plus a TOTAL row equal to the exact sum (420).",
+    "conv_id": "conv_499d37915d09",
+    "http_status": 200,
+    "elapsed_s": 8.604260444641113,
+    "artifacts": [
+      {
+        "artifact_id": "bf59064f408a",
+        "created_at": "2026-05-29T13:16:10.401006",
+        "download_url": "/api/chat/artifacts/conv_499d37915d09/bf59064f408a/download",
+        "filename": "report.docx",
+        "size_bytes": 36894,
+        "size_display": "36.0 KB"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected type(s) ['.docx'] produced",
+        "passed": true,
+        "detail": "got ['.docx']"
+      },
+      {
+        "name": "has Heading 1",
+        "passed": true,
+        "detail": "['Annual Report']"
+      },
+      {
+        "name": "has Heading 2 'Financials'",
+        "passed": true,
+        "detail": "['Financials']"
+      },
+      {
+        "name": "has Heading 3 'Revenue' & 'Expenses'",
+        "passed": true,
+        "detail": "['Revenue', 'Expenses']"
+      },
+      {
+        "name": "two tables",
+        "passed": true,
+        "detail": "2 tables"
+      },
+      {
+        "name": "Expenses TOTAL row == 420",
+        "passed": true,
+        "detail": ""
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "B9",
+    "label": "50 contiguous objects (id 1..50), valid JSON",
+    "skill": "JSON array of 50 objects",
+    "prompt": "Create a JSON file called series containing an array of EXACTLY 50 objects. Each object has 'id' (1 through 50, in order) and 'square' (id \u00d7 id). Generate all 50 \u2014 do not truncate or summarise. Output must be valid JSON.",
+    "conv_id": "conv_bf99f0fbb970",
+    "http_status": 200,
+    "elapsed_s": 21.814971446990967,
+    "artifacts": [
+      {
+        "artifact_id": "100590344ddb",
+        "created_at": "2026-05-29T13:16:34.225217",
+        "download_url": "/api/chat/artifacts/conv_bf99f0fbb970/100590344ddb/download",
+        "filename": "series.json",
+        "size_bytes": 1149,
+        "size_display": "1.1 KB"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected type(s) ['.json'] produced",
+        "passed": true,
+        "detail": "got ['.json']"
+      },
+      {
+        "name": "valid JSON",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "is an array",
+        "passed": true,
+        "detail": "list"
+      },
+      {
+        "name": "exactly 50 objects",
+        "passed": true,
+        "detail": "50"
+      },
+      {
+        "name": "ids 1..50 contiguous",
+        "passed": true,
+        "detail": "first=[1.0, 2.0, 3.0] last=[48.0, 49.0, 50.0]"
+      },
+      {
+        "name": "square == id*id for all",
+        "passed": true,
+        "detail": ""
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "B10",
+    "label": "net total is correctly NEGATIVE",
+    "skill": "signed accounting arithmetic",
+    "prompt": "Create a CSV called ledger with columns line, amount. Amounts: Revenue 5000, COGS -3000, OpEx -2500, Interest -200, Other +150. Add a final row line 'NET' whose amount is the exact signed sum of the five amounts.",
+    "conv_id": "conv_aad9f64f0177",
+    "http_status": 200,
+    "elapsed_s": 7.597401142120361,
+    "artifacts": [
+      {
+        "artifact_id": "b3363d160cb3",
+        "created_at": "2026-05-29T13:16:40.929776",
+        "download_url": "/api/chat/artifacts/conv_aad9f64f0177/b3363d160cb3/download",
+        "filename": "ledger.csv",
+        "size_bytes": 90,
+        "size_display": "90 B"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected type(s) ['.csv'] produced",
+        "passed": true,
+        "detail": "got ['.csv']"
+      },
+      {
+        "name": "NET row present",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "NET == -550 (signed sum correct)",
+        "passed": true,
+        "detail": "got -550.0"
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "B11",
+    "label": "one cell with comma + double-quote + newline together",
+    "skill": "triple-threat CSV field",
+    "prompt": "Create a CSV called tricky with columns id, text. Exactly 2 rows. Row 1 text must be this EXACT value, which contains a comma, a pair of double quotes, AND a line break:\nHello, he said \"go\"\nthen left\nRow 2 text: simple\nPreserve row 1 as a single cell.",
+    "conv_id": "conv_121ca790c307",
+    "http_status": 200,
+    "elapsed_s": 6.393142223358154,
+    "artifacts": [
+      {
+        "artifact_id": "53677f09f038",
+        "created_at": "2026-05-29T13:16:46.920689",
+        "download_url": "/api/chat/artifacts/conv_121ca790c307/53677f09f038/download",
+        "filename": "tricky.csv",
+        "size_bytes": 59,
+        "size_display": "59 B"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected type(s) ['.csv'] produced",
+        "passed": true,
+        "detail": "got ['.csv']"
+      },
+      {
+        "name": "exactly 2 data rows",
+        "passed": true,
+        "detail": "2 rows"
+      },
+      {
+        "name": "row1 has a comma",
+        "passed": true,
+        "detail": "'Hello, he said \"go\"\\nthen left'"
+      },
+      {
+        "name": "row1 has double-quotes",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "row1 has a newline",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "row1 reads 'Hello, he said \"go\"\\nthen left'",
+        "passed": true,
+        "detail": "'Hello, he said \"go\"\\nthen left'"
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "B12",
+    "label": "Sheet2 is Sheet1 transposed; cross-checked values match",
+    "skill": "Excel transpose reasoning",
+    "prompt": "Create an Excel file called pivot with TWO sheets.\nSheet 'ByRow': columns Month, Sales with rows Jan 100, Feb 200, Mar 300.\nSheet 'Transposed': the SAME data transposed \u2014 first column label 'Metric', then one column per month (Jan, Feb, Mar). One row labelled 'Sales' with values 100, 200, 300 under the right months.",
+    "conv_id": "conv_981f35afafd9",
+    "http_status": 200,
+    "elapsed_s": 5.6713526248931885,
+    "artifacts": [
+      {
+        "artifact_id": "8d857bd9d780",
+        "created_at": "2026-05-29T13:16:53.682516",
+        "download_url": "/api/chat/artifacts/conv_981f35afafd9/8d857bd9d780/download",
+        "filename": "pivot.xlsx",
+        "size_bytes": 5637,
+        "size_display": "5.5 KB"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected type(s) ['.xlsx'] produced",
+        "passed": true,
+        "detail": "got ['.xlsx']"
+      },
+      {
+        "name": "has ByRow sheet",
+        "passed": true,
+        "detail": "['ByRow', 'Transposed']"
+      },
+      {
+        "name": "has Transposed sheet",
+        "passed": true,
+        "detail": "['ByRow', 'Transposed']"
+      },
+      {
+        "name": "month headers Jan/Feb/Mar in transposed sheet",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "values 100/200/300 present in transposed sheet",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "'Sales' row carries 100,200,300 across month columns",
+        "passed": true,
+        "detail": ""
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "B13",
+    "label": "2-level bullet nesting + table + python AND json fences",
+    "skill": "nested markdown + multi-language code blocks",
+    "prompt": "Create a markdown file called guide with: a '# Guide' heading; a '## Steps' section with a 2-LEVEL nested bullet list (top items with indented sub-bullets); a '## Schema' section with a markdown table (field, type); and a '## Snippets' section containing TWO fenced code blocks \u2014 one tagged 'python' and one tagged 'json'.",
+    "conv_id": "conv_5a54f4370446",
+    "http_status": 200,
+    "elapsed_s": 7.263625860214233,
+    "artifacts": [
+      {
+        "artifact_id": "0f33e56f47cf",
+        "created_at": "2026-05-29T13:17:02.020048",
+        "download_url": "/api/chat/artifacts/conv_5a54f4370446/0f33e56f47cf/download",
+        "filename": "guide.md",
+        "size_bytes": 543,
+        "size_display": "543 B"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected type(s) ['.md'] produced",
+        "passed": true,
+        "detail": "got ['.md']"
+      },
+      {
+        "name": "'# Guide' heading",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "'## Steps' / '## Schema' / '## Snippets'",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "2-level nested bullet list",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "markdown table present",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "python fenced block",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "json fenced block",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": ">=2 fenced blocks total (>=4 backticks-fences)",
+        "passed": true,
+        "detail": "4 fences"
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  }
+]

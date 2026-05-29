@@ -1,0 +1,5 @@
+{
+  "log_path": "C:\\Logs\\app\\trace.txt",
+  "regex": "^\\d{3}-\\d{4}$",
+  "quote_sample": "He said \"hello\""
+}

@@ -1,0 +1,51 @@
+﻿order_id,customer,region,amount,order_date
+ORD-1001,Acme Retail,North,1245.5,2025-01-03
+ORD-1002,BlueWave Supplies,South,890.75,2025-01-04
+ORD-1003,Cedar & Co,East,1560.0,2025-01-05
+ORD-1004,Delta Traders,West,430.2,2025-01-06
+ORD-1005,Evergreen Market,North,2205.99,2025-01-07
+ORD-1006,Falcon Industries,South,1189.4,2025-01-08
+ORD-1007,Golden Horizon,East,760.1,2025-01-09
+ORD-1008,Harbor Goods,West,980.65,2025-01-10
+ORD-1009,Ironwood Partners,North,1750.3,2025-01-11
+ORD-1010,Juniper Wholesale,South,640.0,2025-01-12
+ORD-1011,Kingfisher Stores,East,2120.45,2025-01-13
+ORD-1012,Lighthouse Retail,West,1345.9,2025-01-14
+ORD-1013,Maple Street Shop,North,555.25,2025-01-15
+ORD-1014,NorthPeak Supply,South,1899.99,2025-01-16
+ORD-1015,Oakline Commerce,East,705.7,2025-01-17
+ORD-1016,Pioneer Mart,West,1433.8,2025-01-18
+ORD-1017,Quartz Distribution,North,1678.55,2025-01-19
+ORD-1018,Riverbend Sales,South,925.15,2025-01-20
+ORD-1019,Summit Outfitters,East,2488.0,2025-01-21
+ORD-1020,Timberline Goods,West,810.45,2025-01-22
+ORD-1021,Union Market,North,1310.6,2025-01-23
+ORD-1022,Valley View Retail,South,999.99,2025-01-24
+ORD-1023,Westbrook Supply,East,1544.25,2025-01-25
+ORD-1024,Xenon Trading,West,620.8,2025-01-26
+ORD-1025,Yellowstone Goods,North,2011.1,2025-01-27
+ORD-1026,Zenith Merchants,South,745.35,2025-01-28
+ORD-1027,Atlas Retail Group,East,1135.5,2025-01-29
+ORD-1028,Beacon Supply Co,West,1588.75,2025-01-30
+ORD-1029,Cobalt Commerce,North,680.2,2025-01-31
+ORD-1030,Driftwood Traders,South,1725.95,2025-02-01
+ORD-1031,Elm City Sales,East,945.0,2025-02-02
+ORD-1032,Frontier Goods,West,1266.4,2025-02-03
+ORD-1033,Granite Wholesale,North,2340.85,2025-02-04
+ORD-1034,Highland Supply,South,590.6,2025-02-05
+ORD-1035,Ivory Retailers,East,1477.3,2025-02-06
+ORD-1036,Jetstream Market,West,835.9,2025-02-07
+ORD-1037,Keystone Goods,North,1933.45,2025-02-08
+ORD-1038,Lakefront Supply,South,710.1,2025-02-09
+ORD-1039,Monarch Traders,East,1655.65,2025-02-10
+ORD-1040,Noble House Retail,West,1022.25,2025-02-11
+ORD-1041,Orchid Sales,North,2144.7,2025-02-12
+ORD-1042,Prairie Supply,South,688.55,2025-02-13
+ORD-1043,Quarry Commerce,East,1399.95,2025-02-14
+ORD-1044,Redwood Merchants,West,875.35,2025-02-15
+ORD-1045,Silverline Goods,North,1842.2,2025-02-16
+ORD-1046,Topaz Trading,South,960.8,2025-02-17
+ORD-1047,Urban Peak Retail,East,1522.4,2025-02-18
+ORD-1048,Vista Wholesale,West,799.99,2025-02-19
+ORD-1049,Willow Creek Supply,North,2075.6,2025-02-20
+ORD-1050,Yorktown Traders,South,1111.15,2025-02-21

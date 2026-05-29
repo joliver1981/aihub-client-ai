@@ -1,0 +1,4 @@
+﻿emp_id,first_name,last_name,email,department,title,hire_date,salary,manager,location,phone,status,level,cost_center,region
+E1001,Maya,Patel,maya.patel@northwind.example.com,Finance,Senior Financial Analyst,2021-04-12,94500,Daniel Kim,"Chicago, IL",(312) 555-0148,Active,L4,FIN-210,North America
+E1002,Jordan,Reed,jordan.reed@northwind.example.com,Engineering,Software Engineer II,2022-09-19,118000,Priya Nair,"Austin, TX",(512) 555-0176,Active,L3,ENG-305,North America
+E1003,Elena,Garcia,elena.garcia@northwind.example.com,Human Resources,HR Business Partner,2020-01-27,87200,Michelle Owens,"Seattle, WA",(206) 555-0119,Active,L4,HR-115,North America

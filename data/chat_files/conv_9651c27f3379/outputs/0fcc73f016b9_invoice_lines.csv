@@ -1,0 +1,5 @@
+﻿item,quantity,unit_price,line_total
+Widget A,12,4.5,54
+Widget B,7,19.99,139.93
+Widget C,100,0.85,85
+TOTAL,,,278.93

@@ -1,0 +1,5 @@
+﻿label,raw_value
+sum_formula,=SUM(A1:A2)
+math,=1+1
+cmd,=cmd|'/c calc'!A1
+plus,+1234

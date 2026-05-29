@@ -19,7 +19,8 @@ class RichContentRenderer {
             'image': this.renderImage.bind(this),
             'html_table': this.renderHtmlTable.bind(this),
             'list': this.renderList.bind(this),
-            'sql': this.renderSql.bind(this)
+            'sql': this.renderSql.bind(this),
+            'artifact': this.renderArtifact.bind(this)
         };
         
         this.chartInstances = new Map();
@@ -778,7 +779,46 @@ class RichContentRenderer {
     renderHtmlTable(block) {
         return `<div class="content-html-table">${block.content}</div>`;
     }
-    
+
+    /**
+     * Render a downloadable artifact (file produced by a tool, e.g. manipulate_pdf).
+     * Block shape: { type: 'artifact', name, artifactType, size, artifact_id, download_url }
+     */
+    renderArtifact(block) {
+        const name = this.escapeHtml(block.name || 'artifact');
+        const size = this.escapeHtml(block.size || '');
+        const url = block.download_url || '#';
+        const type = (block.artifactType || '').toLowerCase();
+        const iconMap = {
+            pdf: 'fa-file-pdf',
+            excel: 'fa-file-excel',
+            csv: 'fa-file-csv',
+            json: 'fa-file-code',
+            text: 'fa-file-alt',
+            image: 'fa-file-image',
+            pptx: 'fa-file-powerpoint'
+        };
+        const icon = iconMap[type] || 'fa-file';
+        return `
+            <a class="content-artifact" href="${url}" download
+               style="display:flex;align-items:center;gap:0.75rem;padding:0.6rem 0.85rem;
+                      border:1px solid var(--border-color,#3a3f4b);border-radius:0.5rem;
+                      text-decoration:none;color:inherit;margin:0.25rem 0;
+                      background:var(--bg-secondary,rgba(255,255,255,0.03));
+                      transition:background 0.15s;"
+               onmouseover="this.style.background='var(--bg-hover,rgba(255,255,255,0.06))'"
+               onmouseout="this.style.background='var(--bg-secondary,rgba(255,255,255,0.03))'">
+                <i class="fas ${icon}" style="font-size:1.5rem;opacity:0.85;"></i>
+                <div style="flex:1;min-width:0;">
+                    <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${name}</div>
+                    <div style="font-size:0.78rem;opacity:0.7;">${size}${type ? ' · ' + type.toUpperCase() : ''}</div>
+                </div>
+                <i class="fas fa-download" style="opacity:0.7;"></i>
+            </a>
+        `;
+    }
+
+
     /**
      * Render list - handles both simple strings and link objects
      */

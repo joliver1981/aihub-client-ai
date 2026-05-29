@@ -1,0 +1,51 @@
+﻿order_id,customer,region,amount,order_date
+ORD-1001,Acme Retail,North,1249.5,2025-01-03
+ORD-1002,BluePeak Supplies,South,842.15,2025-01-04
+ORD-1003,Crestline Foods,East,2310.0,2025-01-05
+ORD-1004,Delta Office Co,West,675.4,2025-01-06
+ORD-1005,Evergreen Market,North,1540.75,2025-01-07
+ORD-1006,Falcon Industrial,South,3199.99,2025-01-08
+ORD-1007,Golden Horizon,East,487.2,2025-01-09
+ORD-1008,Harbor & Pine,West,928.6,2025-01-10
+ORD-1009,Ironwood Labs,North,2765.3,2025-01-11
+ORD-1010,Juniper Goods,South,1125.0,2025-01-12
+ORD-1011,Keystone Apparel,East,640.95,2025-01-13
+ORD-1012,Lakeside Traders,West,1988.8,2025-01-14
+ORD-1013,Maple Street Shop,North,745.1,2025-01-15
+ORD-1014,Northstar Ventures,South,3520.45,2025-01-16
+ORD-1015,Oak & Ember,East,899.99,2025-01-17
+ORD-1016,Pioneer Wholesale,West,1675.25,2025-01-18
+ORD-1017,Quartz Systems,North,2890.0,2025-01-19
+ORD-1018,Redwood Health,South,430.7,2025-01-20
+ORD-1019,Summit Electric,East,1210.55,2025-01-21
+ORD-1020,Timberline Home,West,2560.9,2025-01-22
+ORD-1021,Urban Orchard,North,980.35,2025-01-23
+ORD-1022,Valley Tech,South,1415.8,2025-01-24
+ORD-1023,Westbridge Auto,East,3075.6,2025-01-25
+ORD-1024,Xenon Media,West,522.4,2025-01-26
+ORD-1025,Yellow Cedar Co,North,1888.15,2025-01-27
+ORD-1026,Zenith Parts,South,760.0,2025-01-28
+ORD-1027,Apex Outfitters,East,2155.95,2025-01-29
+ORD-1028,Bayshore Cafe,West,699.85,2025-01-30
+ORD-1029,Cobalt Networks,North,3333.33,2025-01-31
+ORD-1030,Driftwood Designs,South,1180.2,2025-02-01
+ORD-1031,Elm Ridge Books,East,540.65,2025-02-02
+ORD-1032,Frontier Agri,West,2499.0,2025-02-03
+ORD-1033,Granite Logistics,North,905.75,2025-02-04
+ORD-1034,Highland Sports,South,1722.1,2025-02-05
+ORD-1035,Ivory Lane,East,660.45,2025-02-06
+ORD-1036,Jetstream Energy,West,2850.0,2025-02-07
+ORD-1037,Kingfisher Tools,North,1499.95,2025-02-08
+ORD-1038,Liberty Medical,South,815.3,2025-02-09
+ORD-1039,Monarch Furniture,East,2240.7,2025-02-10
+ORD-1040,Nimbus Stationery,West,495.0,2025-02-11
+ORD-1041,Orchid Beauty,North,1340.25,2025-02-12
+ORD-1042,Prairie Works,South,2715.8,2025-02-13
+ORD-1043,Quarry Hardware,East,780.9,2025-02-14
+ORD-1044,Riverbend Foods,West,1595.55,2025-02-15
+ORD-1045,Solstice Travel,North,3425.1,2025-02-16
+ORD-1046,Trailhead Bikes,South,920.4,2025-02-17
+ORD-1047,Union Printworks,East,1265.75,2025-02-18
+ORD-1048,Verdant Living,West,2078.65,2025-02-19
+ORD-1049,Willow Creek Co,North,610.5,2025-02-20
+ORD-1050,Zephyr Consulting,South,2955.25,2025-02-21

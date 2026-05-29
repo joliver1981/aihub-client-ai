@@ -29,6 +29,27 @@ tools:
     description: "Evaluates an arithmetic expression and returns the exact numeric result. Use for any math on numbers — subtraction, percentages, totals, differences, multi-step calculations. Supports + - * / // % ** and abs/round/min/max/sum/sqrt. Whitelisted; no code execution."
     routing_hint: "Always prefer this tool over computing results in your head, especially when numbers come from documents."
 
+  - name: manipulate_pdf
+    display_name: "Manipulate PDF"
+    description: "Split, extract pages from, or rotate an uploaded PDF. Produces downloadable artifacts in the chat. Auto-attached to every agent."
+    routing_hint: "Use this instead of generating Python code when the user wants PDF modifications."
+
+  - name: create_csv
+    display_name: "Create CSV"
+    description: "Create a downloadable CSV file from a JSON array of objects. Auto-attached to every agent."
+
+  - name: create_excel
+    display_name: "Create Excel"
+    description: "Create a downloadable .xlsx (multi-sheet supported) from JSON. Bold + frozen header row, auto-sized columns. Auto-attached to every agent."
+
+  - name: create_text_file
+    display_name: "Create Text File"
+    description: "Create a downloadable plain-text file (.txt, .md, .html, or .json). Auto-attached to every agent."
+
+  - name: create_word_doc
+    display_name: "Create Word Doc"
+    description: "Create a downloadable .docx with title, nestable section headings (per-section level 1-9), paragraphs, and optional tables. Auto-attached to every agent."
+
   # Communication Tools
   - name: send_email_message
     display_name: "Send Email"

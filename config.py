@@ -319,6 +319,16 @@ USE_TWO_STAGE_ARCHITECTURE = os.getenv('USE_TWO_STAGE_ARCHITECTURE', 'false').lo
 COMMAND_GENERATOR_MODEL = os.getenv('COMMAND_GENERATOR_MODEL', '')  # e.g., 'ft:gpt-4.1-mini-2025-04-14:your-org::abc123'
 COMMAND_GENERATOR_DEPLOYMENT = os.getenv('COMMAND_GENERATOR_DEPLOYMENT', '')  # Azure deployment name if using Azure
 MAX_GENERAL_AGENT_ITERATIONS = 10                       # Prevents runaway tool calls
+# Server-side deadline (seconds) for a single general-agent LLM response.
+# Philosophy: if the model CAN finish a long task, let it — but cap it so a
+# runaway request can't hang forever. If exceeded, /chat/general returns a
+# friendly, config-aware message instead of a raw error. The cap message
+# quotes round(CHAT_LLM_DEADLINE_S / 60) minutes dynamically, so changing
+# this value automatically updates the user-facing wording.
+# IMPORTANT: keep this slightly BELOW any client/proxy read-timeout (the UI
+# fetch + tests use 600s) so the friendly response can round-trip before the
+# client gives up.
+CHAT_LLM_DEADLINE_S = int(os.getenv('CHAT_LLM_DEADLINE_S', '600'))
 WORKFLOW_EXECUTION_TIMEOUT = 3600                       # Timeout for workflow executions over API
 MAX_ATTACHMENT_SIZE_MB = 100                            # Max size of email attachment for text extraction
 MAX_ATTACHMENT_CHARS = 500000                           # Max characters returned from text extraction for email attachments

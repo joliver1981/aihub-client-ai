@@ -57,7 +57,12 @@ def _artifact_accessible_to(meta, user_id: Optional[int], tenant_id: Optional[in
         return role >= 2
     if _session_mgr is None:
         return False
-    owned = _session_mgr.get_session_for(session_id, user_id, tenant_id, role)
+    # Artifacts are stored scoped as "{user_id}/{session_id}" (per-user disk
+    # isolation), but the SessionManager is keyed by the BARE session_id.
+    # Strip any scope prefix before the ownership lookup, otherwise every
+    # download/metadata request is denied with a 404 (BUG-CC-ARTIFACT-SCOPE).
+    bare_session_id = session_id.split("/")[-1]
+    owned = _session_mgr.get_session_for(bare_session_id, user_id, tenant_id, role)
     return owned is not None
 
 

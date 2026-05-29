@@ -89,3 +89,33 @@ class ArtifactMetadata:
             "artifact_id": self.artifact_id,
             "download_url": f"/api/artifacts/{self.artifact_id}/download",
         }
+
+    def persist_dict(self) -> dict:
+        """Full, reload-able representation written to the on-disk sidecar so
+        metadata survives restarts and is shared across ArtifactManager
+        instances (the in-memory cache alone is lost on restart and not
+        shared between separately-imported instances)."""
+        return {
+            "artifact_id": self.artifact_id,
+            "name": self.name,
+            "artifact_type": self.artifact_type.value,
+            "size_bytes": self.size_bytes,
+            "session_id": self.session_id,
+            "created_at": self.created_at.isoformat(),
+        }
+
+    @classmethod
+    def from_persist(cls, d: dict) -> "ArtifactMetadata":
+        created = d.get("created_at")
+        try:
+            created_dt = datetime.fromisoformat(created) if created else None
+        except (TypeError, ValueError):
+            created_dt = None
+        return cls(
+            artifact_id=d["artifact_id"],
+            name=d.get("name", d["artifact_id"]),
+            artifact_type=ArtifactType(d.get("artifact_type", "text")),
+            size_bytes=int(d.get("size_bytes", 0) or 0),
+            session_id=d.get("session_id", ""),
+            created_at=created_dt,
+        )

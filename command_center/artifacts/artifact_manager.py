@@ -4,6 +4,7 @@ Command Center — Artifact Manager
 Create, store, and serve downloadable file artifacts.
 """
 
+import json
 import logging
 import os
 import uuid
@@ -17,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 # Default artifact TTL: 24 hours
 DEFAULT_TTL_SECONDS = 86400
+
+# Suffix for the on-disk metadata sidecar written next to each artifact.
+_META_SUFFIX = ".meta.json"
 
 
 class ArtifactManager:
@@ -67,16 +71,43 @@ class ArtifactManager:
         )
         self._metadata[artifact_id] = metadata
 
+        # Persist a sidecar so the metadata survives restarts and is visible
+        # to any ArtifactManager instance reading the same storage dir (the
+        # in-memory cache alone caused list-empty / download-404 — see
+        # _load_meta_from_disk).
+        try:
+            (session_dir / f"{artifact_id}{_META_SUFFIX}").write_text(
+                json.dumps(metadata.persist_dict()), encoding="utf-8")
+        except Exception as e:
+            logger.warning(f"Could not write artifact sidecar for {artifact_id}: {e}")
+
         logger.info(f"Created artifact: {name} ({metadata.size_display}) id={artifact_id}")
         return metadata
 
+    def _load_meta_from_disk(self, artifact_id: str) -> Optional[ArtifactMetadata]:
+        """Rehydrate metadata for one artifact from its on-disk sidecar.
+        Returns None (and does not raise) if no sidecar is found."""
+        try:
+            matches = list(self.storage_dir.glob(f"**/{artifact_id}{_META_SUFFIX}"))
+        except Exception:
+            matches = []
+        for sidecar in matches:
+            try:
+                meta = ArtifactMetadata.from_persist(
+                    json.loads(sidecar.read_text(encoding="utf-8")))
+                self._metadata[meta.artifact_id] = meta  # warm the cache
+                return meta
+            except Exception as e:
+                logger.warning(f"Bad artifact sidecar {sidecar}: {e}")
+        return None
+
     def get_metadata(self, artifact_id: str) -> Optional[ArtifactMetadata]:
-        """Get metadata for an artifact."""
-        return self._metadata.get(artifact_id)
+        """Get metadata for an artifact (cache, then on-disk sidecar)."""
+        return self._metadata.get(artifact_id) or self._load_meta_from_disk(artifact_id)
 
     def get_file_path(self, artifact_id: str) -> Optional[Path]:
         """Get the filesystem path for an artifact."""
-        meta = self._metadata.get(artifact_id)
+        meta = self.get_metadata(artifact_id)
         if not meta:
             return None
 
@@ -88,23 +119,53 @@ class ArtifactManager:
             return file_path
         return None
 
+    def _scan_disk_metadata(self) -> Dict[str, ArtifactMetadata]:
+        """Rebuild the full metadata map from every sidecar on disk."""
+        found: Dict[str, ArtifactMetadata] = {}
+        try:
+            for sidecar in self.storage_dir.glob(f"**/*{_META_SUFFIX}"):
+                try:
+                    meta = ArtifactMetadata.from_persist(
+                        json.loads(sidecar.read_text(encoding="utf-8")))
+                    found[meta.artifact_id] = meta
+                except Exception as e:
+                    logger.warning(f"Bad artifact sidecar {sidecar}: {e}")
+        except Exception as e:
+            logger.warning(f"Could not scan artifact sidecars: {e}")
+        return found
+
     def list_artifacts(self, session_id: str) -> List[Dict[str, Any]]:
-        """List all artifacts for a session."""
-        return [
-            meta.to_dict()
-            for meta in self._metadata.values()
-            if meta.session_id == session_id
-        ]
+        """List all artifacts for a session.
+
+        Matches both the bare session_id AND the scoped form the export tool
+        actually stores ("{user_id}/{session_id}"). Merges the in-memory
+        cache with on-disk sidecars so artifacts created by another instance
+        or before a restart are still found.
+        """
+        merged: Dict[str, ArtifactMetadata] = dict(self._scan_disk_metadata())
+        merged.update(self._metadata)  # in-memory wins on conflict
+        self._metadata.update(merged)  # warm the cache
+
+        def _matches(meta: ArtifactMetadata) -> bool:
+            sid = meta.session_id or ""
+            return sid == session_id or sid.endswith("/" + session_id)
+
+        return [m.to_dict() for m in merged.values() if _matches(m)]
 
     def delete_artifact(self, artifact_id: str) -> bool:
         """Delete an artifact."""
-        meta = self._metadata.pop(artifact_id, None)
+        meta = self._metadata.pop(artifact_id, None) or self._load_meta_from_disk(artifact_id)
         if not meta:
             return False
+        self._metadata.pop(artifact_id, None)
 
-        file_path = self.get_file_path(artifact_id)
-        if file_path and file_path.exists():
+        session_dir = self.storage_dir / (meta.session_id or "")
+        file_path = session_dir / f"{artifact_id}{meta.extension}"
+        if file_path.exists():
             file_path.unlink()
+        sidecar = session_dir / f"{artifact_id}{_META_SUFFIX}"
+        if sidecar.exists():
+            sidecar.unlink()
 
         logger.info(f"Deleted artifact: {artifact_id}")
         return True

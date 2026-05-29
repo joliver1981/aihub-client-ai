@@ -1,0 +1,761 @@
+[
+  {
+    "test_id": "H1",
+    "label": "CSV with commas, quotes, apostrophes & umlauts inside fields",
+    "skill": "data fidelity (special chars/unicode)",
+    "prompt": "Create a CSV called customers with exactly these 4 customers. Columns: name, city, note. Keep every value EXACTLY as written, including punctuation and accents:\n1. name: Acme, Inc.  | city: Reno, NV | note: prefers email\n2. name: O'Brien & Sons | city: London | note: said \"call before noon\"\n3. name: Cafe D\u00fcsseldorf | city: D\u00fcsseldorf | note: umlauts: \u00e4 \u00f6 \u00fc \u00df\n4. name: Globex | city: Z\u00fcrich | note: VIP; net-30",
+    "conv_id": "conv_0e0db6beab90",
+    "http_status": 200,
+    "elapsed_s": 5.921987533569336,
+    "artifacts": [
+      {
+        "artifact_id": "41eef1507880",
+        "created_at": "2026-05-29T13:13:02.666236",
+        "download_url": "/api/chat/artifacts/conv_0e0db6beab90/41eef1507880/download",
+        "filename": "customers.csv",
+        "size_bytes": 188,
+        "size_display": "188 B"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected file type(s) ['.csv'] produced",
+        "passed": true,
+        "detail": "got ['.csv']"
+      },
+      {
+        "name": "4 data rows",
+        "passed": true,
+        "detail": "4 rows"
+      },
+      {
+        "name": "headers name/city/note",
+        "passed": true,
+        "detail": "['name', 'city', 'note']"
+      },
+      {
+        "name": "'Acme, Inc.' kept as one field (comma not split)",
+        "passed": true,
+        "detail": "names=['Acme, Inc.', \"O'Brien & Sons\", 'Cafe D\u00fcsseldorf', 'Globex']"
+      },
+      {
+        "name": "apostrophe value 'O'Brien & Sons' intact",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "embedded double-quotes preserved",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "umlauts \u00e4 \u00f6 \u00fc \u00df preserved",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "Z\u00fcrich / D\u00fcsseldorf accents preserved",
+        "passed": true,
+        "detail": ""
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "H2",
+    "label": "CSV invoice with a computed line_total column",
+    "skill": "computed values (arithmetic correctness)",
+    "prompt": "Create a CSV called invoice_lines with these items and ADD a line_total column equal to quantity multiplied by unit_price. Columns: item, quantity, unit_price, line_total.\n- Widget A, qty 12, unit_price 4.50\n- Widget B, qty 7, unit_price 19.99\n- Widget C, qty 100, unit_price 0.85\nThen add a final row with item 'TOTAL' and line_total equal to the sum of all line_totals.",
+    "conv_id": "conv_9651c27f3379",
+    "http_status": 200,
+    "elapsed_s": 16.067333221435547,
+    "artifacts": [
+      {
+        "artifact_id": "0fcc73f016b9",
+        "created_at": "2026-05-29T13:13:16.682766",
+        "download_url": "/api/chat/artifacts/conv_9651c27f3379/0fcc73f016b9/download",
+        "filename": "invoice_lines.csv",
+        "size_bytes": 123,
+        "size_display": "123 B"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected file type(s) ['.csv'] produced",
+        "passed": true,
+        "detail": "got ['.csv']"
+      },
+      {
+        "name": "has line_total column",
+        "passed": true,
+        "detail": "['item', 'quantity', 'unit_price', 'line_total']"
+      },
+      {
+        "name": "Widget A line_total == 54.0",
+        "passed": true,
+        "detail": "got 54.0"
+      },
+      {
+        "name": "Widget B line_total == 139.93",
+        "passed": true,
+        "detail": "got 139.93"
+      },
+      {
+        "name": "Widget C line_total == 85.0",
+        "passed": true,
+        "detail": "got 85.0"
+      },
+      {
+        "name": "TOTAL row == 278.93",
+        "passed": true,
+        "detail": "got 278.93"
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "H3",
+    "label": "CSV product codes 00123 / 00045 must keep leading zeros",
+    "skill": "code preservation (leading zeros)",
+    "prompt": "Create a CSV called product_codes with columns code, name. Use these EXACT codes as text (do not drop leading zeros): 00123 = Trail Tent, 00045 = Camp Stove, 01000 = Headlamp, 000007 = Carabiner.",
+    "conv_id": "conv_2e3f100bebe6",
+    "http_status": 200,
+    "elapsed_s": 5.151992321014404,
+    "artifacts": [
+      {
+        "artifact_id": "f9e504a56ac2",
+        "created_at": "2026-05-29T13:13:24.169745",
+        "download_url": "/api/chat/artifacts/conv_2e3f100bebe6/f9e504a56ac2/download",
+        "filename": "product_codes.csv",
+        "size_bytes": 84,
+        "size_display": "84 B"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected file type(s) ['.csv'] produced",
+        "passed": true,
+        "detail": "got ['.csv']"
+      },
+      {
+        "name": "code 00123 present with leading zeros",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "code 00045 present with leading zeros",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "code 01000 present with leading zeros",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "code 000007 present with leading zeros",
+        "passed": true,
+        "detail": ""
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "H4",
+    "label": "Excel Detail + Summary; summary totals must match detail",
+    "skill": "cross-sheet aggregation",
+    "prompt": "Create an Excel file called regional_report with TWO sheets.\nSheet 'Detail' lists these 6 sales records \u2014 columns region, rep, amount:\nWest, Ann, 1200\nWest, Bo, 800\nEast, Cy, 1500\nEast, Di, 500\nNorth, Ed, 900\nNorth, Fi, 1100\nSheet 'Summary' has columns region, total_amount with one row per region, where total_amount is the SUM of that region's detail amounts. Make the numbers consistent between the two sheets.",
+    "conv_id": "conv_7c7ca297b561",
+    "http_status": 200,
+    "elapsed_s": 8.660362958908081,
+    "artifacts": [
+      {
+        "artifact_id": "541c721f58fd",
+        "created_at": "2026-05-29T13:13:32.528767",
+        "download_url": "/api/chat/artifacts/conv_7c7ca297b561/541c721f58fd/download",
+        "filename": "regional_report.xlsx",
+        "size_bytes": 5722,
+        "size_display": "5.6 KB"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected file type(s) ['.xlsx'] produced",
+        "passed": true,
+        "detail": "got ['.xlsx']"
+      },
+      {
+        "name": "has Detail sheet",
+        "passed": true,
+        "detail": "['Detail', 'Summary']"
+      },
+      {
+        "name": "has Summary sheet",
+        "passed": true,
+        "detail": "['Detail', 'Summary']"
+      },
+      {
+        "name": "Summary West total == 2000",
+        "passed": true,
+        "detail": "got 2000.0"
+      },
+      {
+        "name": "Summary East total == 2000",
+        "passed": true,
+        "detail": "got 2000.0"
+      },
+      {
+        "name": "Summary North total == 2000",
+        "passed": true,
+        "detail": "got 2000.0"
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "H5",
+    "label": "Excel summarise orders by category (count + total)",
+    "skill": "group-by / pivot reasoning",
+    "prompt": "Create an Excel file called category_summary. From this order data, produce ONE sheet 'Summary' grouped by category with columns category, order_count, total_amount.\nOrders (category, amount): Tents 300, Tents 200, Tents 500, Packs 150, Packs 250, Cookware 90, Cookware 110, Cookware 100.",
+    "conv_id": "conv_59139fc2d2f3",
+    "http_status": 200,
+    "elapsed_s": 11.13434910774231,
+    "artifacts": [
+      {
+        "artifact_id": "f09778381026",
+        "created_at": "2026-05-29T13:13:43.188620",
+        "download_url": "/api/chat/artifacts/conv_59139fc2d2f3/f09778381026/download",
+        "filename": "category_summary.xlsx",
+        "size_bytes": 5052,
+        "size_display": "4.9 KB"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected file type(s) ['.xlsx'] produced",
+        "passed": true,
+        "detail": "got ['.xlsx']"
+      },
+      {
+        "name": "Tents: count 3 & total 1000 present",
+        "passed": true,
+        "detail": "nums=[3.0, 1000.0]"
+      },
+      {
+        "name": "Packs: count 2 & total 400 present",
+        "passed": true,
+        "detail": "nums=[2.0, 400.0]"
+      },
+      {
+        "name": "Cookware: count 3 & total 300 present",
+        "passed": true,
+        "detail": "nums=[3.0, 300.0]"
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "H6",
+    "label": "Word Q3 report: title + 3 sections + accurate data table",
+    "skill": "structured document (table fidelity)",
+    "prompt": "Create a Word document called q3_report titled 'Q3 Regional Performance'. Three sections:\n1. 'Executive Summary' \u2014 one short paragraph.\n2. 'Results by Region' \u2014 a table with columns Region, Revenue, YoY%. Rows: West 2.87M 12%, East 2.43M 8%, North 2.10M 5%, South 2.08M 3%.\n3. 'Recommendations' \u2014 exactly three bullet paragraphs.",
+    "conv_id": "conv_8ea6bc54e8cb",
+    "http_status": 200,
+    "elapsed_s": 7.4680891036987305,
+    "artifacts": [
+      {
+        "artifact_id": "d16986f100af",
+        "created_at": "2026-05-29T13:13:52.828503",
+        "download_url": "/api/chat/artifacts/conv_8ea6bc54e8cb/d16986f100af/download",
+        "filename": "q3_report.docx",
+        "size_bytes": 37119,
+        "size_display": "36.2 KB"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected file type(s) ['.docx'] produced",
+        "passed": true,
+        "detail": "got ['.docx']"
+      },
+      {
+        "name": "title 'Q3 Regional Performance' present near top",
+        "passed": true,
+        "detail": "Q3 Regional Performance | Executive Summary | Results by Region | Recommendations"
+      },
+      {
+        "name": "section 'Executive Summary'",
+        "passed": true,
+        "detail": "Q3 Regional Performance | Executive Summary | Results by Region | Recommendations"
+      },
+      {
+        "name": "section 'Results by Region'",
+        "passed": true,
+        "detail": "Q3 Regional Performance | Executive Summary | Results by Region | Recommendations"
+      },
+      {
+        "name": "section 'Recommendations'",
+        "passed": true,
+        "detail": "Q3 Regional Performance | Executive Summary | Results by Region | Recommendations"
+      },
+      {
+        "name": "has a table",
+        "passed": true,
+        "detail": "1 tables"
+      },
+      {
+        "name": "table contains West / 2.87M / 12%",
+        "passed": true,
+        "detail": "Region | Revenue | YoY% | West | 2.87M | 12% | East | 2.43M | 8% | North | 2.10M | 5% | South | 2.08M | 3% | "
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "H7",
+    "label": "Word doc whose table TOTAL row sums the line items",
+    "skill": "computed values in a document table",
+    "prompt": "Create a Word document called budget titled 'Department Budget'. One section 'Line Items' containing a table with columns Item, Amount and these rows: Salaries 120000, Software 18000, Travel 9500, Equipment 22500. Add a final TOTAL row whose Amount is the exact sum of the four items.",
+    "conv_id": "conv_dd1fa7811ed3",
+    "http_status": 200,
+    "elapsed_s": 7.555887699127197,
+    "artifacts": [
+      {
+        "artifact_id": "b4c1b528ff0e",
+        "created_at": "2026-05-29T13:14:00.367547",
+        "download_url": "/api/chat/artifacts/conv_dd1fa7811ed3/b4c1b528ff0e/download",
+        "filename": "budget.docx",
+        "size_bytes": 36855,
+        "size_display": "36.0 KB"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected file type(s) ['.docx'] produced",
+        "passed": true,
+        "detail": "got ['.docx']"
+      },
+      {
+        "name": "has a table",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "four line items present",
+        "passed": true,
+        "detail": "[120000.0, 18000.0, 9500.0, 22500.0]"
+      },
+      {
+        "name": "TOTAL row == 170000",
+        "passed": true,
+        "detail": "got 170000.0"
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "H8",
+    "label": "JSON org chart: nested departments\u2192employees arrays",
+    "skill": "nested JSON schema fidelity",
+    "prompt": "Create a JSON file called org with this exact structure: a top-level object with keys 'company' (string) and 'departments' (array). Each department is an object with 'name' and 'employees' (array of objects each having 'name' and 'role').\ncompany: Northwind Outdoor\nEngineering: Ada (Engineer), Linus (Lead)\nSales: Grace (Rep)",
+    "conv_id": "conv_87ca595a40e3",
+    "http_status": 200,
+    "elapsed_s": 8.177936315536499,
+    "artifacts": [
+      {
+        "artifact_id": "faa5317d3e46",
+        "created_at": "2026-05-29T13:14:07.441945",
+        "download_url": "/api/chat/artifacts/conv_87ca595a40e3/faa5317d3e46/download",
+        "filename": "org.json",
+        "size_bytes": 413,
+        "size_display": "413 B"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected file type(s) ['.json'] produced",
+        "passed": true,
+        "detail": "got ['.json']"
+      },
+      {
+        "name": "valid JSON",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "company == Northwind Outdoor",
+        "passed": true,
+        "detail": "Northwind Outdoor"
+      },
+      {
+        "name": "departments is a non-empty array",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "Engineering dept present",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "Engineering employees have name+role objects",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "Ada & Linus present",
+        "passed": true,
+        "detail": "{'Linus', 'Ada'}"
+      },
+      {
+        "name": "Sales\u2192Grace present",
+        "passed": true,
+        "detail": ""
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "H9",
+    "label": "HTML with h1, an h2+table, and an h2+3-item list",
+    "skill": "HTML structural correctness",
+    "prompt": "Create an HTML file called metrics_page. It must contain: a single <h1> titled 'Northwind Metrics'; an <h2> 'Key Metrics' immediately followed by a table with 3 data rows (metric, value): Revenue 9.48M, Orders 12500, NPS 62; then an <h2> 'Notes' followed by an unordered list of exactly 3 items.",
+    "conv_id": "conv_fcbddcf438c1",
+    "http_status": 200,
+    "elapsed_s": 8.266286611557007,
+    "artifacts": [
+      {
+        "artifact_id": "3cce09f92474",
+        "created_at": "2026-05-29T13:14:17.431727",
+        "download_url": "/api/chat/artifacts/conv_fcbddcf438c1/3cce09f92474/download",
+        "filename": "metrics_page.html",
+        "size_bytes": 788,
+        "size_display": "788 B"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected file type(s) ['.html'] produced",
+        "passed": true,
+        "detail": "got ['.html']"
+      },
+      {
+        "name": "exactly one <h1>",
+        "passed": true,
+        "detail": "1"
+      },
+      {
+        "name": ">=2 <h2>",
+        "passed": true,
+        "detail": "2"
+      },
+      {
+        "name": "has <table>",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": ">=3 table rows",
+        "passed": true,
+        "detail": "4"
+      },
+      {
+        "name": "<ul> with exactly 3 <li>",
+        "passed": true,
+        "detail": "li=3"
+      },
+      {
+        "name": "metric values 9.48M / 12500 / 62 present",
+        "passed": true,
+        "detail": ""
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "H10",
+    "label": "Markdown with a parameter table + fenced bash code block",
+    "skill": "markdown structural correctness",
+    "prompt": "Create a markdown file called api_guide with: a level-1 heading '# Sync API'; a level-2 '## Parameters' section containing a markdown table with columns param, type, required and 3 rows; and a level-2 '## Example' section containing a fenced code block tagged as bash with a sample curl command.",
+    "conv_id": "conv_5b49eda5f71d",
+    "http_status": 200,
+    "elapsed_s": 8.944231271743774,
+    "artifacts": [
+      {
+        "artifact_id": "d40f8365f7f2",
+        "created_at": "2026-05-29T13:14:24.372521",
+        "download_url": "/api/chat/artifacts/conv_5b49eda5f71d/d40f8365f7f2/download",
+        "filename": "api_guide.md",
+        "size_bytes": 376,
+        "size_display": "376 B"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected file type(s) ['.md'] produced",
+        "passed": true,
+        "detail": "got ['.md']"
+      },
+      {
+        "name": "level-1 heading '#'",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "level-2 '## Parameters'",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "level-2 '## Example'",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "markdown table (pipes + --- separator)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "fenced code block tagged bash",
+        "passed": true,
+        "detail": ""
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "H11",
+    "label": "One turn \u2192 BOTH a CSV of raw data AND a Word summary",
+    "skill": "multi-artifact orchestration",
+    "prompt": "I have this sales data (rep, region, amount): Ann West 1200, Bo East 1850, Cy North 1500, Di West 2100, Ed East 900. Please give me BOTH: (1) a CSV called sales_raw containing all five rows, and (2) a Word document called sales_summary titled 'Sales Summary' that names the single top-performing rep by amount and states their amount.",
+    "conv_id": "conv_c775e79ada38",
+    "http_status": 200,
+    "elapsed_s": 9.56642198562622,
+    "artifacts": [
+      {
+        "artifact_id": "6bc867eb7330",
+        "created_at": "2026-05-29T13:14:35.761190",
+        "download_url": "/api/chat/artifacts/conv_c775e79ada38/6bc867eb7330/download",
+        "filename": "sales_summary.docx",
+        "size_bytes": 36659,
+        "size_display": "35.8 KB"
+      },
+      {
+        "artifact_id": "0b93af8e56e5",
+        "created_at": "2026-05-29T13:14:35.720190",
+        "download_url": "/api/chat/artifacts/conv_c775e79ada38/0b93af8e56e5/download",
+        "filename": "sales_raw.csv",
+        "size_bytes": 93,
+        "size_display": "93 B"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected file type(s) ['.csv', '.docx'] produced",
+        "passed": true,
+        "detail": "got ['.csv', '.docx']"
+      },
+      {
+        "name": "a .csv artifact was produced",
+        "passed": true,
+        "detail": "['6bc867eb7330_sales_summary.docx', '0b93af8e56e5_sales_raw.csv']"
+      },
+      {
+        "name": "a .docx artifact was produced",
+        "passed": true,
+        "detail": "['6bc867eb7330_sales_summary.docx', '0b93af8e56e5_sales_raw.csv']"
+      },
+      {
+        "name": "CSV has all 5 rows",
+        "passed": true,
+        "detail": "5 rows"
+      },
+      {
+        "name": "CSV contains the data (Ann/Di/2100)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "Word names top performer 'Di'",
+        "passed": true,
+        "detail": "Sales Summary\nTop Performer\nThe top-performing rep is Di with sales of 2100."
+      },
+      {
+        "name": "Word states amount 2100",
+        "passed": true,
+        "detail": ""
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "H12",
+    "label": "CSV with 15 columns, 3 rows, all headers present",
+    "skill": "wide-schema fidelity",
+    "prompt": "Create a CSV called employee_master with EXACTLY these 15 columns in this order: emp_id, first_name, last_name, email, department, title, hire_date, salary, manager, location, phone, status, level, cost_center, region. Generate 3 rows of realistic, internally-consistent data.",
+    "conv_id": "conv_3b8ca95bbe96",
+    "http_status": 200,
+    "elapsed_s": 9.471874713897705,
+    "artifacts": [
+      {
+        "artifact_id": "8839eb3105ae",
+        "created_at": "2026-05-29T13:14:46.150462",
+        "download_url": "/api/chat/artifacts/conv_3b8ca95bbe96/8839eb3105ae/download",
+        "filename": "employee_master.csv",
+        "size_bytes": 658,
+        "size_display": "658 B"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected file type(s) ['.csv'] produced",
+        "passed": true,
+        "detail": "got ['.csv']"
+      },
+      {
+        "name": "all 15 columns present",
+        "passed": true,
+        "detail": "missing []"
+      },
+      {
+        "name": "column order preserved",
+        "passed": true,
+        "detail": "got ['emp_id', 'first_name', 'last_name', 'email', 'department', 'title', 'hire_date', 'salary', 'manager', 'location', 'phone', 'status', 'level', 'cost_center', 'region']"
+      },
+      {
+        "name": "3 data rows",
+        "passed": true,
+        "detail": "3 rows"
+      },
+      {
+        "name": "emails look valid",
+        "passed": true,
+        "detail": ""
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "H13",
+    "label": "Excel: normalise messy casing/spacing/decimals",
+    "skill": "data cleaning judgment",
+    "prompt": "Clean up this messy data and put it in an Excel file called cleaned with columns name, department, amount. Normalise: names to Title Case, department to Title Case, amounts to exactly two decimals.\nRaw: 'john smith,SALES,1200.5' ; 'JANE DOE,sales,980' ; '  Bob Lee ,ops, 1500'",
+    "conv_id": "conv_f0a38cd36b9d",
+    "http_status": 200,
+    "elapsed_s": 7.631668567657471,
+    "artifacts": [
+      {
+        "artifact_id": "290ad8b107a9",
+        "created_at": "2026-05-29T13:14:52.770820",
+        "download_url": "/api/chat/artifacts/conv_f0a38cd36b9d/290ad8b107a9/download",
+        "filename": "cleaned.xlsx",
+        "size_bytes": 5054,
+        "size_display": "4.9 KB"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected file type(s) ['.xlsx'] produced",
+        "passed": true,
+        "detail": "got ['.xlsx']"
+      },
+      {
+        "name": "3 data rows",
+        "passed": true,
+        "detail": "3 rows"
+      },
+      {
+        "name": "names Title-Cased (John Smith / Jane Doe / Bob Lee)",
+        "passed": true,
+        "detail": "['John Smith', 'Jane Doe', 'Bob Lee']"
+      },
+      {
+        "name": "departments Title-Cased (Sales/Ops)",
+        "passed": true,
+        "detail": "['Sales', 'Sales', 'Ops']"
+      },
+      {
+        "name": "amounts numeric & 2-decimal (1200.50/980.00/1500.00)",
+        "passed": true,
+        "detail": "['1200.50', '980.00', '1500.00']"
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  },
+  {
+    "test_id": "H14",
+    "label": "JSON containing quotes, backslashes & a Windows path",
+    "skill": "JSON escaping fidelity",
+    "prompt": "Create a JSON file called config with these exact string values (they contain characters that must be escaped):\nlog_path: C:\\Logs\\app\\trace.txt\nregex: ^\\d{3}-\\d{4}$\nquote_sample: He said \"hello\"\nPut them under a top-level object with keys log_path, regex, quote_sample. The file must be valid JSON.",
+    "conv_id": "conv_f479281591c0",
+    "http_status": 200,
+    "elapsed_s": 4.846621990203857,
+    "artifacts": [
+      {
+        "artifact_id": "c47f48feee66",
+        "created_at": "2026-05-29T13:14:59.902385",
+        "download_url": "/api/chat/artifacts/conv_f479281591c0/c47f48feee66/download",
+        "filename": "config.json",
+        "size_bytes": 113,
+        "size_display": "113 B"
+      }
+    ],
+    "checks": [
+      {
+        "name": "expected file type(s) ['.json'] produced",
+        "passed": true,
+        "detail": "got ['.json']"
+      },
+      {
+        "name": "valid JSON (escaping correct)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "log_path == C:\\Logs\\app\\trace.txt",
+        "passed": true,
+        "detail": "'C:\\\\Logs\\\\app\\\\trace.txt'"
+      },
+      {
+        "name": "regex == ^\\d{3}-\\d{4}$",
+        "passed": true,
+        "detail": "'^\\\\d{3}-\\\\d{4}$'"
+      },
+      {
+        "name": "quote_sample == He said \"hello\"",
+        "passed": true,
+        "detail": "'He said \"hello\"'"
+      }
+    ],
+    "score": 1.0,
+    "verdict": "PASS",
+    "note": ""
+  }
+]

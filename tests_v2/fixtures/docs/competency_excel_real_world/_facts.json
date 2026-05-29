@@ -1,0 +1,133 @@
+{
+  "R1_title_block_sales.xlsx": {
+    "fixture": "R1_title_block_sales.xlsx",
+    "expected_headers": [
+      "Region",
+      "Channel",
+      "SKU Family",
+      "Units Sold",
+      "Net Revenue"
+    ],
+    "header_row_index_1based": 4,
+    "title_text": "Northwind Outdoor Co. \u2014 Q3 FY2025 Sales by Region",
+    "subtitle_text": "Reporting period: July 1, 2025 \u2013 September 30, 2025. Currency: USD.",
+    "data_row_count": 20,
+    "grand_total_units": 12370,
+    "grand_total_revenue": 1736500.0,
+    "grand_total_revenue_formatted": "$1,736,500.00",
+    "highest_revenue_single_row": {
+      "Region": "West",
+      "Channel": "Ecommerce",
+      "SKU Family": "Tents",
+      "Units Sold": 920,
+      "Net Revenue": 165600.0,
+      "formatted": "$165,600.00"
+    },
+    "highest_region_by_revenue": "West",
+    "lowest_region_by_revenue": "South"
+  },
+  "R2_subtotals_inventory.xlsx": {
+    "fixture": "R2_subtotals_inventory.xlsx",
+    "expected_headers": [
+      "SKU",
+      "Description",
+      "On-hand Units",
+      "Stock Value"
+    ],
+    "header_row_index_1based": 2,
+    "data_row_count": 12,
+    "subtotal_rows": [
+      "Western DC",
+      "Central DC",
+      "Eastern DC"
+    ],
+    "subtotals": {
+      "Western DC": {
+        "units": 1540,
+        "value": 227350.0,
+        "value_formatted": "$227,350.00"
+      },
+      "Central DC": {
+        "units": 1420,
+        "value": 208750.0,
+        "value_formatted": "$208,750.00"
+      },
+      "Eastern DC": {
+        "units": 1640,
+        "value": 242500.0,
+        "value_formatted": "$242,500.00"
+      }
+    },
+    "grand_total_units": 4600,
+    "grand_total_value": 678600.0,
+    "grand_total_value_formatted": "$678,600.00",
+    "highest_subtotal_warehouse": "Eastern DC",
+    "warehouse_count": 3
+  },
+  "R3_multi_row_header.xlsx": {
+    "fixture": "R3_multi_row_header.xlsx",
+    "header_rows_count": 2,
+    "top_level_groups": [
+      "Region",
+      "Q1 FY25",
+      "Q2 FY25",
+      "Q3 FY25"
+    ],
+    "metric_headers_per_group": [
+      "Units",
+      "Revenue"
+    ],
+    "data_row_count": 4,
+    "q3_west_revenue": 2880000,
+    "q3_west_revenue_formatted": "$2,880,000",
+    "q3_total_revenue": 9600000,
+    "q3_total_revenue_formatted": "$9,600,000",
+    "highest_q3_units_region": "West"
+  },
+  "R4_cross_sheet_formulas.xlsx": {
+    "fixture": "R4_cross_sheet_formulas.xlsx",
+    "expected_sheet_names": [
+      "Revenue",
+      "COGS",
+      "P&L",
+      "Notes"
+    ],
+    "visible_sheet_count": 4,
+    "q3_total_revenue": 9480000,
+    "q3_total_revenue_formatted": "$9,480,000",
+    "q3_total_cogs": 5680000,
+    "q3_total_cogs_formatted": "$5,680,000",
+    "q3_gross_profit": 3800000,
+    "q3_gross_profit_formatted": "$3,800,000",
+    "q3_gross_margin": 0.4008438818565401,
+    "q3_gross_margin_formatted": "40.08%",
+    "notes_writedown_amount": "$180,000",
+    "notes_writedown_skus": [
+      "SLP-1100",
+      "SLP-1102"
+    ]
+  },
+  "R5_currency_dates_percent.xlsx": {
+    "fixture": "R5_currency_dates_percent.xlsx",
+    "expected_headers": [
+      "Order #",
+      "Customer",
+      "Order Date",
+      "Order Total",
+      "Discount %",
+      "Final Amount"
+    ],
+    "header_row_index_1based": 3,
+    "data_row_count": 8,
+    "order_date_min": "2025-08-12",
+    "order_date_max": "2025-08-28",
+    "highest_order_total": 32600.0,
+    "highest_order_total_formatted": "$32,600.00",
+    "highest_order_customer": "Backcountry",
+    "highest_discount_pct": 0.15,
+    "highest_discount_pct_formatted": "15%",
+    "total_final_amount": 140788.5,
+    "total_final_amount_formatted": "$140,788.50",
+    "rei_order_count": 2
+  }
+}

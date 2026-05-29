@@ -4446,22 +4446,56 @@ def chat_general():
                 data={"agent_id": agent_id}
                 )
         
-        if active_agent:
-            print('Agent Name:', active_agent.AGENT_NAME)
-            active_agent.initialize_chat_history(eval(hist))
-            print('Running active agent...')
-            response = active_agent.run(prompt, use_smart_render=True, user_id=user_id)
-            chat_history = active_agent.get_chat_history()
-        else:
-            print('Agent Name:', active_agents[int(agent_id)].AGENT_NAME)
-            active_agents[int(agent_id)].initialize_chat_history(eval(hist))
-            print(86 * '-')
-            print('Running regular agent...')
-            # Run the agent - this will now return structured content if modified
-            response = active_agents[int(agent_id)].run(prompt, use_smart_render=True, user_id=user_id)
-            print('Finished running regular agent, updating chat history...')
-            chat_history = active_agents[int(agent_id)].get_chat_history()
-            print('Done.')
+        # Bind active chat context so tools (manipulate_pdf, etc.) can
+        # resolve which conversation/user/agent they're running for via ContextVars.
+        from active_chat_context import bind_active_chat
+        try:
+            _bound_agent_id = int(agent_id) if agent_id is not None else None
+        except (TypeError, ValueError):
+            _bound_agent_id = None
+
+        # One-shot lazy migration of legacy chat_files inputs -> agent_files.
+        # No-op after the first successful run (sentinel-gated).
+        try:
+            import chat_file_manager as _cfm
+            from local_history_routes import get_history_manager as _ghm
+
+            def _conv_lookup(conv):
+                try:
+                    c = _ghm().get_conversation(conv)
+                    if c and c.get("agent_id") and c.get("user_id"):
+                        return {"agent_id": int(c["agent_id"]), "user_id": int(c["user_id"])}
+                except Exception:
+                    return None
+                return None
+
+            def _knowledge_lookup(a_id, u_id):
+                items = get_agent_knowledge_for_user(a_id, user_id=u_id) or []
+                return [
+                    {"filename": i.get("filename"), "document_id": i.get("document_id")}
+                    for i in items if i.get("filename") and i.get("document_id")
+                ]
+            _cfm.migrate_chat_files_to_agent_files(_conv_lookup, _knowledge_lookup)
+        except Exception as _mig_err:
+            logger.debug(f"chat_files migration skipped (non-fatal): {_mig_err}")
+
+        with bind_active_chat(conversation_id, user_id, _bound_agent_id):
+            if active_agent:
+                print('Agent Name:', active_agent.AGENT_NAME)
+                active_agent.initialize_chat_history(eval(hist))
+                print('Running active agent...')
+                response = active_agent.run(prompt, use_smart_render=True, user_id=user_id)
+                chat_history = active_agent.get_chat_history()
+            else:
+                print('Agent Name:', active_agents[int(agent_id)].AGENT_NAME)
+                active_agents[int(agent_id)].initialize_chat_history(eval(hist))
+                print(86 * '-')
+                print('Running regular agent...')
+                # Run the agent - this will now return structured content if modified
+                response = active_agents[int(agent_id)].run(prompt, use_smart_render=True, user_id=user_id)
+                print('Finished running regular agent, updating chat history...')
+                chat_history = active_agents[int(agent_id)].get_chat_history()
+                print('Done.')
 
         logger.info('========== OUTPUT ==========')
         logger.info('Response:' + str(response))
@@ -4552,7 +4586,64 @@ def chat_general():
     except Exception as e:
         print(str(e))
         logger.error(str(e))
-        
+
+        # ── LLM deadline exceeded → friendly, config-aware message ──────────
+        # If the model ran past cfg.CHAT_LLM_DEADLINE_S, the LLM client raises
+        # a timeout. Rather than surfacing a raw error (which looks like a
+        # broken app), return a readable message that also tells the user the
+        # current cap. The cap minutes are derived from the config value, so
+        # this wording updates automatically if the deadline changes.
+        def _looks_like_timeout(exc):
+            seen = set()
+            while exc is not None and id(exc) not in seen:
+                seen.add(id(exc))
+                if 'timeout' in type(exc).__name__.lower():
+                    return True
+                exc = getattr(exc, '__cause__', None) or getattr(exc, '__context__', None)
+            return False
+
+        if _looks_like_timeout(e):
+            _deadline = int(getattr(cfg, 'CHAT_LLM_DEADLINE_S', 590))
+            # Format minutes cleanly: whole number when it divides evenly
+            # (600 -> "10 minutes"), otherwise one decimal (270 -> "4.5
+            # minutes"). Avoids Python's banker's-rounding surprise where
+            # round(4.5) == 4.
+            _mins = _deadline / 60.0
+            if abs(_mins - round(_mins)) < 0.05:
+                _cap_str = f"{int(round(_mins))} minute{'s' if int(round(_mins)) != 1 else ''}"
+            else:
+                _cap_str = f"{_mins:.1f} minutes"
+            logger.warning(
+                f"[chat/general] LLM deadline ({_deadline}s) exceeded "
+                f"for agent {agent_id}"
+            )
+            try:
+                capture_exception(e, {'agent_id': agent_id, 'reason': 'llm_deadline'})
+            except Exception:
+                pass
+            return jsonify({
+                "status": "success",
+                "conversation_id": locals().get('conversation_id', None),
+                "response_type": "rich_content",
+                "chat_history": locals().get('hist', '[]'),
+                "response": {
+                    "type": "rich_content",
+                    "blocks": [{
+                        "type": "warning",
+                        "content": (
+                            "I wasn't able to finish this within the time "
+                            "available — usually because the request is "
+                            "producing a very large amount of data. Try "
+                            "asking for a smaller batch, or breaking it into "
+                            "a few separate requests.\n\n"
+                            f"_Note: in the current configuration, AI "
+                            f"processing is capped at {_cap_str} per response._"
+                        ),
+                        "metadata": {"recoverable": True, "reason": "llm_deadline"}
+                    }]
+                }
+            })
+
         # Return error as rich content if possible
         if smart_renderer:
             error_response = {
@@ -4564,8 +4655,8 @@ def chat_general():
                 }]
             }
             result = {
-                "status": "error", 
-                "response": error_response, 
+                "status": "error",
+                "response": error_response,
                 "chat_history": [],
                 "conversation_id": None,
                 "response_type": "rich_content"
@@ -11331,6 +11422,11 @@ def add_agent_knowledge_route():
         user_id = None
         user_id = request.form.get('user_id')
         batch_id = request.form.get('batch_id', None)
+        # Optional: conversation_id for tee-ing the raw bytes into the
+        # per-conversation chat_files store so tools (manipulate_pdf, etc.)
+        # can operate on them. Absent for callers outside the /chat flow —
+        # in that case we skip the tee entirely.
+        conversation_id = request.form.get('conversation_id') or None
 
         if user_id == '':
             user_id = None
@@ -11469,6 +11565,57 @@ def add_agent_knowledge_route():
         except Exception as cleanup_err:
             logger.warning(f"Cleanup error: {cleanup_err}")
 
+        # Tee the raw bytes into agent_files/{agent_id}/{user_id}/ keyed by
+        # document_id so tools like manipulate_pdf can resolve them, and so
+        # the sidebar can construct download URLs straight from the existing
+        # /get/agent_knowledge_user response. Strictly additive — any failure
+        # is logged and swallowed so the existing agent_knowledge response
+        # is unchanged.
+        if result.get('status') == 'success' and result.get('document_id') and user_id:
+            try:
+                import chat_file_manager
+                # Re-read bytes: temp file may already be removed above for the
+                # non-Excel path, so prefer the original request stream if still
+                # available; otherwise the Excel persistent_path; otherwise skip.
+                tee_bytes = None
+                try:
+                    file.stream.seek(0)
+                    tee_bytes = file.stream.read()
+                except Exception:
+                    pass
+                if not tee_bytes:
+                    try:
+                        if 'persistent_path' in locals() and os.path.exists(persistent_path):
+                            with open(persistent_path, 'rb') as _pf:
+                                tee_bytes = _pf.read()
+                    except Exception:
+                        pass
+
+                if tee_bytes:
+                    tee_meta = chat_file_manager.save_agent_input(
+                        agent_id, user_id, tee_bytes, file.filename,
+                        file_id=str(result['document_id']),
+                    )
+                    result['agent_file_id'] = tee_meta['file_id']
+                    logger.info(
+                        f"[add_agent_knowledge] tee'd to agent_files "
+                        f"agent={agent_id} user={user_id} doc={result['document_id']} "
+                        f"name={file.filename}"
+                    )
+                else:
+                    logger.debug(
+                        f"[add_agent_knowledge] tee skipped — no bytes available "
+                        f"agent={agent_id} doc={result.get('document_id')} name={file.filename}"
+                    )
+            except chat_file_manager.FileTooLargeError as too_big:
+                logger.warning(
+                    f"[add_agent_knowledge] tee skipped — too large for agent_files: {too_big}"
+                )
+            except Exception as tee_err:
+                logger.warning(
+                    f"[add_agent_knowledge] tee failed (non-fatal): {tee_err}"
+                )
+
         return jsonify(result)
 
     except Exception as e:
@@ -11478,6 +11625,121 @@ def add_agent_knowledge_route():
             "status": "error",
             "message": f"Error: {str(e)}"
         }), 500
+
+
+def _user_owns_conversation(conversation_id: str) -> bool:
+    """Ownership check for chat_files. True if the current user owns the
+    conversation, or is an admin (role >= 3). Mirrors the existing pattern
+    in local_history_routes.get_conversation."""
+    try:
+        if not current_user.is_authenticated:
+            return False
+        from local_history_routes import get_history_manager, is_history_enabled
+        if not is_history_enabled():
+            # When history is disabled there's no ownership record. Allow the
+            # caller — files in chat_files are scoped by conversation_id which
+            # is opaque, and the user must already know it to request.
+            return True
+        manager = get_history_manager()
+        conv = manager.get_conversation(conversation_id)
+        if not conv:
+            return False
+        if getattr(current_user, 'role', 0) >= 3:
+            return True
+        return conv.get('user_id') == current_user.id
+    except Exception as e:
+        logger.warning(f"Ownership check failed for conv={conversation_id}: {e}")
+        return False
+
+
+@app.route('/api/chat/conversations/<conversation_id>/files', methods=['GET'])
+@login_required
+def list_chat_files(conversation_id):
+    """List inputs (user uploads) and outputs (tool-generated artifacts)
+    for the given conversation. Used by the chat sidebar to render the
+    Conversation Files and Generated Artifacts sections."""
+    if not _user_owns_conversation(conversation_id):
+        return jsonify({"status": "error", "message": "Access denied"}), 403
+    try:
+        import chat_file_manager
+        listing = chat_file_manager.list_files(conversation_id)
+        return jsonify({"status": "success", **listing})
+    except Exception as e:
+        logger.error(f"Error listing chat files for {conversation_id}: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/chat/artifacts/<conversation_id>/<artifact_id>/download', methods=['GET'])
+@login_required
+def download_chat_artifact(conversation_id, artifact_id):
+    """Download a tool-generated artifact. Ownership-checked."""
+    if not _user_owns_conversation(conversation_id):
+        return jsonify({"status": "error", "message": "Access denied"}), 403
+    try:
+        import chat_file_manager
+        path = chat_file_manager.get_output_path(conversation_id, artifact_id)
+        if not path or not path.exists():
+            return jsonify({"status": "error", "message": "Artifact not found"}), 404
+        # Strip the {artifact_id}_ prefix so the user sees the original name.
+        download_name = path.name.split('_', 1)[-1] if '_' in path.name else path.name
+        return send_file(
+            str(path),
+            as_attachment=True,
+            download_name=download_name,
+        )
+    except Exception as e:
+        logger.error(f"Error downloading artifact {artifact_id} in conv {conversation_id}: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/chat/agent_files/<int:agent_id>/<int:user_id>/<file_id>/download', methods=['GET'])
+@login_required
+def download_agent_file(agent_id, user_id, file_id):
+    """Download a file from agent_files (durable, agent + user scoped).
+    Ownership: requester must match user_id or be an admin."""
+    try:
+        if not current_user.is_authenticated:
+            return jsonify({"status": "error", "message": "Access denied"}), 403
+        is_admin = getattr(current_user, 'role', 0) >= 3
+        if current_user.id != user_id and not is_admin:
+            return jsonify({"status": "error", "message": "Access denied"}), 403
+        import chat_file_manager
+        path = chat_file_manager.get_agent_input_path(agent_id, user_id, file_id)
+        if not path or not path.exists():
+            return jsonify({"status": "error", "message": "File not found"}), 404
+        download_name = path.name.split('_', 1)[-1] if '_' in path.name else path.name
+        return send_file(
+            str(path),
+            as_attachment=True,
+            download_name=download_name,
+        )
+    except Exception as e:
+        logger.error(f"Error downloading agent file agent={agent_id} user={user_id} file={file_id}: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/chat/files/<conversation_id>/<file_id>/download', methods=['GET'])
+@login_required
+def download_chat_input(conversation_id, file_id):
+    """Download an input file (something the user uploaded). Lets the sidebar
+    'Conversation Files' list be clickable. Ownership-checked."""
+    if not _user_owns_conversation(conversation_id):
+        return jsonify({"status": "error", "message": "Access denied"}), 403
+    try:
+        import chat_file_manager
+        path = chat_file_manager.get_input_path(conversation_id, file_id)
+        if not path or not path.exists():
+            return jsonify({"status": "error", "message": "File not found"}), 404
+        download_name = path.name.split('_', 1)[-1] if '_' in path.name else path.name
+        return send_file(
+            str(path),
+            as_attachment=True,
+            download_name=download_name,
+        )
+    except Exception as e:
+        logger.error(f"Error downloading input {file_id} in conv {conversation_id}: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 # Route to update knowledge
 @app.route('/update/agent_knowledge/<int:knowledge_id>', methods=['POST'])

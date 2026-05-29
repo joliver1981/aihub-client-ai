@@ -470,16 +470,40 @@ const CCRenderers = {
             excel: '📊', pdf: '📄', csv: '📋', json: '🔧', image: '🖼️', pptx: '📽️', text: '📝',
         };
 
+        // The download route enforces session ownership and needs the
+        // caller's user context as query params. window.open() can't send
+        // a body or our auth header, so append user_id/tenant_id/role from
+        // the global CC.userContext. Without these the request arrives
+        // unauthenticated (user_id None) and the route returns 404.
+        const dlUrl = this._artifactDownloadUrl(block);
+
         wrapper.innerHTML = `
             <div class="icon">${iconMap[block.artifactType] || '📎'}</div>
             <div class="info">
                 <div class="name">${block.name || 'Download'}</div>
                 <div class="size">${block.size || ''} ${block.description || ''}</div>
             </div>
-            <button class="download-btn" onclick="window.open('${block.download_url || '#'}')">Download</button>
+            <button class="download-btn" onclick="window.open('${dlUrl}')">Download</button>
         `;
 
         return wrapper;
+    },
+
+    _artifactDownloadUrl(block) {
+        let url = (block && block.download_url) || '#';
+        if (url === '#') return url;
+        try {
+            const uc = (typeof CC !== 'undefined' && CC && CC.userContext) ? CC.userContext : null;
+            if (uc) {
+                const sep = url.indexOf('?') === -1 ? '?' : '&';
+                const parts = [];
+                if (uc.user_id != null) parts.push('user_id=' + encodeURIComponent(uc.user_id));
+                if (uc.tenant_id != null) parts.push('tenant_id=' + encodeURIComponent(uc.tenant_id));
+                if (uc.role != null) parts.push('role=' + encodeURIComponent(uc.role));
+                if (parts.length) url = url + sep + parts.join('&');
+            }
+        } catch (e) { /* fall back to bare url */ }
+        return url;
     },
 
     _renderImage(block) {
