@@ -1,0 +1,11 @@
+# Browser Use Service - ISOLATED conda env `aihub-browseruse` (Python 3.11).
+# Do NOT install these into the main app env (aihub2.1): browser-use pins openai==2.16.0
+# and pulls starlette>=1.x, which break langchain-openai (needs >=2.20) and fastapi (<0.47)
+# in the main app. That isolation is the whole point of this service.
+browser-use            # brings its own playwright, openai, pydantic, anthropic, etc.
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-dotenv>=1.0.0
+pyotp>=2.9.0            # TOTP 2FA codes (browser-use also depends on pyotp)
+requests>=2.31.0
+# browser-use 0.12.x uses cdp-use (CDP), NOT playwright; it drives a local Chrome/Chromium.
