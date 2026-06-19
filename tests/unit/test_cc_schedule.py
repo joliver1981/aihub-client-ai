@@ -84,6 +84,27 @@ def test_create_cc_schedule_error_does_not_store(isolated, monkeypatch):
     assert store.list_tasks(13) == []  # nothing stored on failure
 
 
+def test_interval_schedule_gets_start_date_anchor(isolated, monkeypatch):
+    captured = {}
+
+    class _Resp:
+        status_code = 201
+
+        def json(self):
+            return {"id": 600}
+
+    monkeypatch.setattr(sl.requests, "post",
+                        lambda url, json=None, headers=None, timeout=None:
+                        (captured.__setitem__("payload", json) or _Resp()))
+    res = sl.create_cc_schedule({"user_id": 5}, {}, "Every 10m", "do it",
+                                {"type": "interval", "interval_minutes": 10}, "every 10 min")
+    assert res["status"] == "ok"
+    sched = captured["payload"]["schedule"]
+    assert sched["type"] == "interval" and sched["interval_minutes"] == 10
+    # MUST be anchored, else the engine's reschedule poll drifts the next fire forever.
+    assert sched.get("start_date")
+
+
 def test_cancel_cc_schedule(isolated, monkeypatch):
     store.add_task(13, "555", "Daily orders", "p", "cron")
     monkeypatch.setattr(sl.requests, "delete",

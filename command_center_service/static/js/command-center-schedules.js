@@ -17,6 +17,17 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
+  // Render a server timestamp in the browser's LOCAL timezone. The server stores UTC;
+  // timezone-less values (e.g. the scheduler's naive-UTC "2026-06-19T23:32:26") are treated
+  // as UTC by appending 'Z' before parsing.
+  function fmtLocal(s) {
+    if (!s) return null;
+    var iso = String(s);
+    if (!/[zZ]$|[+-]\d\d:?\d\d$/.test(iso)) iso += 'Z';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return String(s);
+    return d.toLocaleString();
+  }
 
   const CCSchedules = {
     async refreshBadge() {
@@ -62,8 +73,8 @@
           return '<div style="border:1px solid rgba(128,128,128,.3);border-radius:8px;padding:10px 12px;margin-bottom:8px;display:flex;justify-content:space-between;gap:10px">' +
             '<div><div style="font-weight:600">' + esc(t.task_name) + '</div>' +
             '<div style="font-size:12px;opacity:.7">' + esc(t.schedule_desc) +
-            ' · next run: ' + esc(t.next_run || '—') +
-            ' · last run: ' + esc(t.last_run || 'never') +
+            ' · next run: ' + esc(fmtLocal(t.next_run) || '—') +
+            ' · last run: ' + esc(fmtLocal(t.last_run) || 'never') +
             (t.last_status ? ' [' + esc(t.last_status) + ']' : '') + '</div></div>' +
             '<button onclick="CCSchedules.cancel(\'' + esc(t.job_id) + '\')" ' +
             'style="align-self:center;background:none;border:1px solid rgba(128,128,128,.4);border-radius:6px;padding:4px 10px;cursor:pointer;color:inherit">Cancel</button>' +
@@ -97,7 +108,7 @@
           return '<div style="border:1px solid ' + border + ';border-radius:8px;padding:10px 12px;margin-bottom:8px">' +
             '<div style="display:flex;justify-content:space-between;gap:8px">' +
             '<span style="font-weight:600">' + esc(res.task_name) + newTag + '</span>' +
-            '<span style="font-size:12px;opacity:.6">' + esc(res.ts) + '</span></div>' +
+            '<span style="font-size:12px;opacity:.6">' + esc(fmtLocal(res.ts) || res.ts) + '</span></div>' +
             '<div style="font-size:13px;white-space:pre-wrap;margin-top:6px">' + esc((res.summary || '').slice(0, 1500)) + '</div>' +
             arts + '</div>';
         }).join('');

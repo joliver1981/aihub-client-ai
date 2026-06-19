@@ -55,6 +55,17 @@ def create_cc_schedule(user_context: Optional[Dict[str, Any]],
             owner_email = (get_user_contact(uid) or {}).get("email", "")
         except Exception:
             owner_email = ""
+
+    # Interval triggers MUST be anchored with a StartDate. Without one, the engine re-creates
+    # the IntervalTrigger every 60s poll (start_date defaults to "now") and reschedule_job
+    # pushes the next fire one whole interval into the future every cycle -> the job NEVER
+    # fires. Anchor at creation time (UTC, stored as-is). Cron triggers are absolute and don't
+    # need this. (The legacy UI scheduling path always supplied a start_time, so it was unaffected.)
+    if isinstance(schedule, dict) and schedule.get("type") == "interval" and not schedule.get("start_date"):
+        from datetime import datetime, timezone
+        schedule = {**schedule,
+                    "start_date": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")}
+
     payload = {
         "name": task_name,
         "type": "command_center",
