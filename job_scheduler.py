@@ -90,7 +90,8 @@ class JobSchedulerService:
         self.job_types = {
             'document': self._execute_document_job,
             'agent': self._execute_agent_job,
-            'workflow': self._execute_workflow_job
+            'workflow': self._execute_workflow_job,
+            'command_center': self._execute_command_center_job
         }
 
         print('API Base URL:', self.api_base_url)
@@ -997,7 +998,72 @@ class JobSchedulerService:
             )
 
             _ = self._log_agent_job(target_id, f'Error executing agent job: {str(e)}')
-    
+
+    def _execute_command_center_job(self, job_data: Dict[str, Any]):
+        """Execute a Command Center scheduled task: re-run the CC graph as the stored user via
+        the CC service's internal /api/scheduled/run endpoint (X-API-Key). The prompt, the
+        stored identity, and the snapshotted active agent all come from the job parameters.
+        Mirrors _execute_agent_job but targets Command Center instead of the General Agent."""
+        scheduled_job_id = job_data['scheduled_job_id']
+        schedule_id = job_data['schedule_id']
+        job_name = job_data['job_name']
+        parameters = job_data.get('parameters', {})
+
+        def _pv(name, default=''):
+            v = parameters.get(name, default)
+            return v.get('value', default) if isinstance(v, dict) else v
+
+        logger.info(f"Executing command_center job: {job_name} (ID: {scheduled_job_id})")
+        execution_id = self._create_execution_record(scheduled_job_id, schedule_id)
+        try:
+            self._update_execution_record(execution_id, 'running')
+
+            user_context = {
+                'user_id': _pv('user_id'),
+                'tenant_id': _pv('tenant_id'),
+                'role': _pv('role'),
+                'username': _pv('username'),
+                'name': _pv('name'),
+                'email': _pv('user_email'),
+            }
+            payload = {
+                'prompt': _pv('prompt'),
+                'task_name': _pv('task_name') or job_name,
+                'user_context': user_context,
+                'agent_id': _pv('agent_id') or None,
+                'agent_name': _pv('agent_name') or None,
+                'job_id': scheduled_job_id,
+            }
+
+            from CommonUtils import get_command_center_api_base_url
+            api_url = f"{get_command_center_api_base_url()}/api/scheduled/run"
+            headers = {'X-API-Key': os.getenv('API_KEY', '')}
+            response = requests.post(api_url, json=payload, headers=headers, timeout=600)
+            response.raise_for_status()
+            response_data = response.json()
+
+            status = response_data.get('status', 'completed')
+            summary = (response_data.get('summary') or '')[:500]
+            self._update_execution_record(
+                execution_id,
+                'completed' if status == 'completed' else 'failed',
+                result_message=f"CC task {status}. {summary}"
+            )
+            self._increment_run_count(schedule_id)
+            self._update_last_run_time(schedule_id, datetime.now())
+            logger.info(f"command_center job execution completed: {job_name}")
+
+        except Exception as e:
+            error_details = traceback.format_exc()
+            logger.error(f"Error executing command_center job {job_name}: {str(e)}")
+            logger.error(error_details)
+            self._update_execution_record(
+                execution_id,
+                'failed',
+                result_message=f"Error executing command_center job: {str(e)}",
+                error_details=error_details
+            )
+
     def _execute_workflow_job(self, job_data: Dict[str, Any]):
         """
         Execute a workflow job.
