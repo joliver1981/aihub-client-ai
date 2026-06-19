@@ -56,6 +56,12 @@ class PortalFetchRequest(BaseModel):
     username_secret: str | None = Field(None, description="local_secrets key holding the username")
     password_secret: str | None = Field(None, description="local_secrets key holding the password")
     totp_secret: str | None = Field(None, description="local_secrets key holding the TOTP shared secret")
+    # Inline raw creds for a ONE-OFF ad-hoc run (before a portal is saved). When present they
+    # take precedence over the *_secret key names. Used only for the first run; once a portal
+    # is saved the caller reverts to key names and creds never transit in the clear again.
+    username: str | None = Field(None, description="raw username (one-off ad-hoc run)")
+    password: str | None = Field(None, description="raw password (one-off ad-hoc run)")
+    totp: str | None = Field(None, description="raw TOTP shared secret (one-off ad-hoc run)")
     session_id: str | None = None
     user_id: str | None = None
     max_steps: int | None = None
@@ -72,14 +78,21 @@ async def portal_fetch(req: PortalFetchRequest, _: None = Depends(require_intern
     if not config.ENABLED:
         raise HTTPException(status_code=403, detail="browser_use disabled (BROWSER_USE_ENABLED=false)")
 
-    # Resolve creds from the encrypted store by KEY NAME - the caller never sends raw secrets.
+    # Inline raw creds (ad-hoc one-off) win; otherwise resolve creds from the encrypted store
+    # by KEY NAME. The saved-portal path always uses key names, so creds stay out of the clear.
     creds = {}
-    if req.username_secret:
-        creds["username"] = config.get_secret(req.username_secret)
-    if req.password_secret:
-        creds["password"] = config.get_secret(req.password_secret)
-    if req.totp_secret:
-        creds["totp_secret"] = config.get_secret(req.totp_secret)
+    if req.username and req.password:
+        creds["username"] = req.username
+        creds["password"] = req.password
+        if req.totp:
+            creds["totp_secret"] = req.totp
+    else:
+        if req.username_secret:
+            creds["username"] = config.get_secret(req.username_secret)
+        if req.password_secret:
+            creds["password"] = config.get_secret(req.password_secret)
+        if req.totp_secret:
+            creds["totp_secret"] = config.get_secret(req.totp_secret)
 
     allowed_domains = config.resolve_allowed_domains(req.start_url)
     log.info("portal/fetch portal=%s url=%s session=%s allowlist=%s",
