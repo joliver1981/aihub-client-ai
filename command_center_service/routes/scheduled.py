@@ -27,15 +27,23 @@ def init_scheduled_routes(graph):
 
 
 def _internal_ok(request: Request) -> bool:
-    """Trusted-caller gate: the scheduler service posts with the platform API key."""
-    expected = ""
+    """Trusted-caller gate. The Job Scheduler posts with the platform API key
+    (os.getenv('API_KEY')); the CC service also has its own AI_HUB_API_KEY (which may be a
+    separately-generated internal key). Accept EITHER so the scheduler's call is authorized."""
+    got = request.headers.get("x-api-key") or request.headers.get("X-API-Key") or ""
+    if not got:
+        return False
+    accepted = set()
+    pk = os.getenv("API_KEY")
+    if pk:
+        accepted.add(pk)
     try:
         from cc_config import AI_HUB_API_KEY
-        expected = AI_HUB_API_KEY or ""
+        if AI_HUB_API_KEY:
+            accepted.add(AI_HUB_API_KEY)
     except Exception:
-        expected = os.getenv("API_KEY", "")
-    got = request.headers.get("x-api-key") or request.headers.get("X-API-Key") or ""
-    return bool(expected) and got == expected
+        pass
+    return got in accepted
 
 
 def _last_ai_text(final_state) -> str:
