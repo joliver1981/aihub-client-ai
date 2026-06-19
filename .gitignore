@@ -136,8 +136,10 @@ schemas/*.yml
 # Uploaded files
 uploads/
 
-# Tools
-tools/
+# Tools: runtime-GENERATED custom tools live in the repo-root ./tools/ only.
+# Leading slash anchors this to the root so it does NOT also ignore source dirs
+# named "tools" deeper in the tree (e.g. command_center/tools/ = app source).
+/tools/
 
 # Agent knowledge
 agent_knowledge_/
