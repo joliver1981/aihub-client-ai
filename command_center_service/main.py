@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from cc_config import HOST, PORT, DEBUG, CORS_ORIGINS, CC_UI, CC_UI_NEXT_GEN, print_service_urls
@@ -174,6 +174,24 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Upload routes not yet available: {e}")
 
+    # Scheduled-run endpoint (INTERNAL; the Job Scheduler service posts here with X-API-Key
+    # when a 'command_center' job fires). Runs the graph headlessly + writes the results thread.
+    try:
+        from routes.scheduled import router as scheduled_router, init_scheduled_routes
+        init_scheduled_routes(compiled_graph)
+        app.include_router(scheduled_router)
+        logger.info("Scheduled-run route initialized")
+    except Exception as e:
+        logger.warning(f"Scheduled-run route not available: {e}")
+
+    # Scheduled Tasks panel API (user-facing; CC-JWT scoped to the signed-in user).
+    try:
+        from routes.schedules_panel import router as schedules_panel_router
+        app.include_router(schedules_panel_router)
+        logger.info("Schedules panel routes initialized")
+    except Exception as e:
+        logger.warning(f"Schedules panel routes not available: {e}")
+
     logger.info(f"Command Center Service ready on {HOST}:{PORT}")
     yield
     logger.info("Command Center Service shutting down")
@@ -234,11 +252,13 @@ async def index():
 
 @app.get("/classic")
 async def index_classic():
-    """Always serve the classic UI, regardless of CC_UI value.
+    """Serve the classic UI ONLY when it is the active mode.
 
-    Useful for side-by-side comparison while the next-gen UI is in
-    research-preview. Mirrors the original "/" behavior exactly.
+    Strict either/or: when the Ops Room is active (CC_UI=next_gen), the classic
+    UI is not available — redirect to the active UI at /.
     """
+    if CC_UI_NEXT_GEN:
+        return RedirectResponse(url="/")
     index_path = os.path.join(static_dir, "index.html")
     if os.path.isfile(index_path):
         return FileResponse(index_path)
@@ -247,11 +267,13 @@ async def index_classic():
 
 @app.get("/ops")
 async def index_ops_room():
-    """Always serve the experimental Ops Command Room UI, regardless of
-    CC_UI value. Useful for previewing the new layout without flipping
-    the env var, and for QA against the classic page on the same server.
-    Falls back to classic if the new template hasn't been built yet.
+    """Serve the Ops Room UI ONLY when it is the active mode.
+
+    Strict either/or: when classic is active (CC_UI != next_gen), the Ops Room
+    is not available — redirect to the active UI at /.
     """
+    if not CC_UI_NEXT_GEN:
+        return RedirectResponse(url="/")
     ops_room_path = os.path.join(static_dir, "ops_room.html")
     if os.path.isfile(ops_room_path):
         return FileResponse(ops_room_path)

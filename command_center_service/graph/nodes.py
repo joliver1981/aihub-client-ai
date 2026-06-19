@@ -8,6 +8,7 @@ Nodes read from and write to CommandCenterState.
 import asyncio
 import json
 import logging
+import os
 import time as _trace_time
 from typing import Any
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
@@ -16,6 +17,76 @@ from graph import CommandCenterState
 from graph.tracing import trace_llm_call
 
 logger = logging.getLogger(__name__)
+
+# Minimum role for privileged CC operations (platform mutations / tool exec).
+# Role model: 1 = User, 2 = Developer, 3 = Admin.
+MIN_DEV_ROLE = 2
+
+
+def _has_dev_role(state) -> bool:
+    """True when the verified user is Developer (2) or Admin (3).
+
+    Identity comes from the JWT-verified user_context stamped into graph state
+    (see /api/chat). Missing/low role → deny, so privileged ops stay gated even
+    if user_context is absent.
+    """
+    try:
+        role = (state.get("user_context") or {}).get("role")
+        return role is not None and int(role) >= MIN_DEV_ROLE
+    except (TypeError, ValueError):
+        return False
+
+
+# Platform-mutation (build) access. Mirrors builder_service/permissions.py:
+# Developer+ by default, openable to all users via CC_BUILD_ALLOW_ALL_USERS.
+# This is the EARLY UX gate; the builder service enforces the authoritative
+# check regardless of how a request reaches it.
+_BUILD_ALLOW_ALL = os.getenv("CC_BUILD_ALLOW_ALL_USERS", "false").lower() == "true"
+
+# Polite refusal shown to a non-Developer who tries to build/create resources.
+_BUILD_DENIED_MSG = (
+    "Creating or modifying platform resources (agents, workflows, tools, "
+    "documents, knowledge) requires a Developer role. Your account doesn't "
+    "have permission to do that — please contact an administrator."
+)
+
+
+def _build_allowed(state) -> bool:
+    """True if this user may perform platform mutations via the Builder."""
+    return _BUILD_ALLOW_ALL or _has_dev_role(state)
+
+
+# Code interpreter (run_python) availability. All users by default; flip
+# CODE_INTERPRETER_ALLOW_ALL_USERS=false to restrict to Developer+ (role>=2).
+_CODE_INTERPRETER_ENABLED = os.getenv("CODE_INTERPRETER_ENABLED", "true").lower() == "true"
+_CODE_INTERPRETER_ALLOW_ALL = os.getenv("CODE_INTERPRETER_ALLOW_ALL_USERS", "true").lower() == "true"
+
+
+def _code_interpreter_allowed(state) -> bool:
+    """True if this user may run code via the interpreter."""
+    return _CODE_INTERPRETER_ALLOW_ALL or _has_dev_role(state)
+
+
+# Browser Use (fetch_from_portal) availability. Default Developer+ only — portal automation
+# logs into external sites with stored creds — flip BROWSER_USE_ALLOW_ALL_USERS=true to open up.
+_PORTAL_FETCH_ENABLED = os.getenv("BROWSER_USE_ENABLED", "true").lower() == "true"
+_PORTAL_FETCH_ALLOW_ALL = os.getenv("BROWSER_USE_ALLOW_ALL_USERS", "false").lower() == "true"
+
+
+def _portal_fetch_allowed(state) -> bool:
+    """True if this user may pull files from web portals via the Browser Use service."""
+    return _PORTAL_FETCH_ALLOW_ALL or _has_dev_role(state)
+
+
+# Self-scheduling (schedule_task) availability. Default Developer+ only — a scheduled task
+# re-runs the agent unattended; flip CC_SCHEDULE_ALLOW_ALL_USERS=true to open to all users.
+_SCHEDULE_ENABLED = os.getenv("CC_SCHEDULE_ENABLED", "true").lower() == "true"
+_SCHEDULE_ALLOW_ALL = os.getenv("CC_SCHEDULE_ALLOW_ALL_USERS", "false").lower() == "true"
+
+
+def _schedule_allowed(state) -> bool:
+    """True if this user may schedule recurring Command Center tasks."""
+    return _SCHEDULE_ALLOW_ALL or _has_dev_role(state)
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────
@@ -1174,9 +1245,10 @@ Reply with ONLY one word: CONTINUE, CC_CAPABLE, or REROUTE."""
         except Exception:
             pass
 
-    # Always scan the platform (cached, so fast after first call)
+    # Always scan the platform (cached, so fast after first call).
+    # Pass user_context so the landscape is filtered to THIS user's agents.
     try:
-        landscape = await scan_platform()
+        landscape = await scan_platform(state.get("user_context"))
     except Exception as e:
         logger.warning(f"Landscape scan failed in classify_intent: {e}")
         landscape = {}
@@ -1238,7 +1310,7 @@ async def converse(state: CommandCenterState) -> dict:
     # Always scan platform for real data (cached 60s, fast after first call)
     from command_center.orchestration.landscape_scanner import scan_platform
     try:
-        landscape = await scan_platform()
+        landscape = await scan_platform(state.get("user_context"))
         logger.info(f"[converse] Landscape: {len(landscape.get('agents', []))} agents, {len(landscape.get('data_agents', []))} data agents")
     except Exception as e:
         logger.error(f"[converse] Landscape scan failed: {e}")
@@ -1254,7 +1326,62 @@ async def converse(state: CommandCenterState) -> dict:
     current_date = now.strftime("%A, %B %d, %Y at %I:%M %p")
     current_year = now.year
     last_year = current_year - 1
-    
+
+    # Portal automation context (only when enabled + the user may use it). Lists the user's
+    # SAVED portals (names + URLs only, never creds) so the agent reuses them by name.
+    _portal_prompt = ""
+    if _PORTAL_FETCH_ENABLED and _portal_fetch_allowed(state):
+        _saved_line = ""
+        try:
+            from command_center.tools import portal_registry as _reg
+            _pl = _reg.list_portals((state.get("user_context") or {}).get("user_id"))
+            if _pl:
+                _saved_line = ("\nAlready saved (use by name, no URL/login needed): "
+                               + ", ".join(f"{p['name']} ({p['url']})" for p in _pl) + ".")
+        except Exception:
+            pass
+        _portal_prompt = (
+            "## PORTAL AUTOMATION (fetch_from_portal / save_portal / lookup_portal)\n"
+            "You can log into external web portals and download files for the user (RPA).\n"
+            "- DO IT NOW: if the user gives a portal URL and a login, call fetch_from_portal "
+            "with portal_name, start_url, task, username, password and log in immediately. "
+            "Don't refuse or stall.\n"
+            "- OFFER TO SAVE: after a successful ad-hoc run where the user supplied a login, "
+            "offer to save it (\"Want me to save this so you don't have to share your login "
+            "next time?\"). If they agree, call save_portal(name, url, username, password). "
+            "Credentials are stored encrypted; only a reference is kept.\n"
+            "- REUSE SAVED: for a saved portal, call fetch_from_portal with just portal_name "
+            "and task - the URL and credentials resolve automatically; never ask the user to "
+            "resend a saved login. Use lookup_portal to list/confirm saved portals.\n"
+            "- Files return to the user as downloadable artifacts." + _saved_line
+        )
+
+    # Self-scheduling context (only when enabled + the user may use it). Lists the user's
+    # existing scheduled tasks so the agent can reference/avoid duplicating them.
+    _schedule_prompt = ""
+    if _SCHEDULE_ENABLED and _schedule_allowed(state):
+        _existing = ""
+        try:
+            from scheduling import schedule_logic as _sl
+            _ts = _sl.list_cc_schedules(state.get("user_context") or {})
+            if _ts:
+                _existing = ("\nExisting scheduled tasks: "
+                             + ", ".join(f"{t['task_name']} ({t.get('schedule_desc','?')})" for t in _ts) + ".")
+        except Exception:
+            pass
+        _schedule_prompt = (
+            "## SCHEDULED TASKS (schedule_task / list_scheduled_tasks / cancel_scheduled_task)\n"
+            "You can schedule yourself to re-run a task automatically on a recurring cadence, "
+            "even when the user is offline.\n"
+            "- When the user asks for something recurring (\"every morning\", \"each weekday at "
+            "8am\", \"every 6 hours\"), call schedule_task with a clear task_name, the prompt to "
+            "run each time, and EITHER a cron expression OR every_hours/every_days/every_minutes.\n"
+            "- Each run's output is saved to the user's Scheduled Tasks panel with a "
+            "notification; the user need not be online to receive it.\n"
+            "- Use list_scheduled_tasks to show what's scheduled and cancel_scheduled_task to "
+            "stop one." + _existing
+        )
+
     system_prompt = COMMAND_CENTER_SYSTEM_PROMPT + f"""
 
 ## CURRENT DATE/TIME
@@ -1319,6 +1446,7 @@ You have a send_email tool that sends emails via the platform email service.
 - send_email accepts: to_address, subject, message, and an optional artifact_id
 - To email a file: FIRST call export_data to create the file, note the artifact_id from the result, THEN call send_email with that artifact_id
 - Do NOT delegate email tasks to general agents — use YOUR OWN send_email tool
+- To email the USER THEMSELVES ("email me", "send me…"), FIRST call get_my_contact_info to get their email address, THEN send_email to it. Never guess the user's address.
 - Example workflow: user says "create an Excel of top 10 customers and email it to bob@example.com"
   1. Call export_data(format="excel", name="top_10_customers", data='[...]') → get artifact_id from result
   2. Call send_email(to_address="bob@example.com", subject="Top 10 Customers", message="Please find the report attached.", artifact_id="<artifact_id from step 1>")
@@ -1329,6 +1457,14 @@ If the user asks to use a tool that was previously created, use run_generated_to
 
 ## IMAGE GENERATION
 {"You CAN generate images using the generate_image tool (DALL-E 3). When a user asks to create/draw/generate an image, use generate_image with a detailed prompt. Available sizes: 1024x1024, 1024x1792 (portrait), 1792x1024 (landscape)." if IMAGE_GENERATION_ENABLED else "Image generation is NOT available on this instance. If asked to create images, politely explain that image generation is not enabled."}
+
+## CODE INTERPRETER (run_python)
+{'''You have a run_python tool that executes real Python (pandas, numpy, matplotlib, scipy, seaborn, openpyxl available). USE IT for: calculations, statistics, parsing/transforming data, and creating charts, plots, or spreadsheet/CSV files. PREFER computing real numbers over estimating them.
+- Files the user uploaded to this chat are already in the working directory — read them by filename (e.g. pd.read_csv('data.csv')).
+- ANY file your code writes (plt.savefig('chart.png'), df.to_excel('out.xlsx'), etc.) is automatically returned to the user as a downloadable artifact; images also display inline. Use print() for text results.
+- Write complete, self-contained scripts. You cannot ask the user mid-execution.''' if _CODE_INTERPRETER_ENABLED else "Code execution is not available on this instance."}
+{_portal_prompt}
+{_schedule_prompt}
 
 ## WEB SEARCH — REAL-TIME INFORMATION
 You have a search_web tool that performs live internet searches via Tavily (with DuckDuckGo fallback).
@@ -1500,10 +1636,13 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         MULTI-TURN: The builder maintains conversation history. When the builder asks
         follow-up questions, relay them to the user. When the user answers, call this
         tool again with their answer. The builder will remember the full conversation."""
+        # Platform mutations are Developer+ only.
+        if not _build_allowed(state):
+            return _BUILD_DENIED_MSG
         from command_center.orchestration.delegator import delegate_to_builder
-        
+
         cc_session_id = state.get("session_id", "cc-default")
-        
+
         # Get or create a persistent builder session ID tied to this CC session
         active = state.get("active_delegation") or {}
         builder_sid = active.get("builder_session_id") or f"cc-builder-{cc_session_id}"
@@ -1767,6 +1906,9 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             tool_name: Name of the saved tool (snake_case)
             parameters: JSON string of parameters to pass to the tool
         """
+        # Executing generated/custom tool code is Developer+ only.
+        if not _build_allowed(state):
+            return _BUILD_DENIED_MSG
         from command_center.tools.tool_factory import get_generated_tool
         from command_center.tools.tool_sandbox import test_tool_in_sandbox
 
@@ -2302,11 +2444,328 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             logger.error(f"[converse/tool] Email send failed: {e}")
             return f"Email send failed: {str(e)}"
 
-    tools = [query_data_agent, query_general_agent, delegate_to_builder_agent, save_user_preference, recall_all_memories, forget_preference, switch_active_agent, export_data, run_generated_tool, manipulate_pdf, generate_map, search_web, send_email]
+    @lc_tool
+    async def run_python(code: str) -> str:
+        """Run Python code to analyze data, do calculations, or create charts/files.
+
+        Use this for ANYTHING computational: math, statistics, parsing or
+        transforming data, and especially generating charts/plots (matplotlib),
+        spreadsheets (pandas/openpyxl), or other files. PREFER this over guessing
+        numbers — compute them.
+
+        The full data-science stack is available (pandas, numpy, matplotlib,
+        scipy, seaborn, openpyxl). Files the user uploaded to this chat are
+        already present in the working directory — open them by their filename
+        (e.g. open('sales.csv') or pd.read_csv('sales.csv')). ANY file your code
+        writes to the working directory (e.g. plt.savefig('chart.png'),
+        df.to_excel('out.xlsx')) is automatically returned to the user as a
+        downloadable artifact, and images are shown inline. Use print() for text
+        results.
+
+        Args:
+            code: The Python source to execute.
+        """
+        if not _code_interpreter_allowed(state):
+            return ("Running code requires a Developer role on this instance. "
+                    "Your account doesn't have permission to do that.")
+        from command_center.tools import code_interpreter as _ci
+        from cc_config import CODE_INTERPRETER_PYTHON as _CI_PY, CODE_INTERPRETER_TIMEOUT as _CI_TO
+
+        _sid = state.get("session_id", "")
+        _uc = state.get("user_context") or {}
+        logger.info(f"[converse/tool] run_python ({len(code or '')} chars) session={_sid}")
+        try:
+            res = await _ci.execute(
+                code, session_id=_sid, user_context=_uc,
+                python_exe=(_CI_PY or None), timeout=(_CI_TO or None),
+            )
+        except Exception as e:
+            logger.error(f"[converse/tool] run_python failed: {e}", exc_info=True)
+            return f"Code execution failed to start: {e}"
+
+        stdout = (res.get("stdout") or "").strip()
+        stderr = (res.get("stderr") or "").strip()
+        out_blocks = res.get("blocks") or []  # image/artifact blocks from generated files
+
+        # Failure paths (no output files) → return a plain string so the LLM
+        # relays it as normal assistant text.
+        if res.get("timed_out"):
+            return f"The code timed out: {stderr or 'execution exceeded the time limit.'}"
+        if res.get("returncode", 0) != 0:
+            tail = "\n".join(stderr.splitlines()[-15:]) if stderr else "Unknown error."
+            msg = f"The code raised an error:\n```\n{tail}\n```"
+            if stdout:
+                msg = f"Output before the error:\n```\n{stdout}\n```\n\n" + msg
+            return msg
+
+        # Success WITH generated files (chart/CSV/xlsx): return ONLY direct-render
+        # block types (image/artifact) as a JSON list so converse renders them
+        # inline. converse requires EVERY element of a list to be a direct-block
+        # type ("image"/"artifact"/...), so we must NOT mix in a "text" block —
+        # the converse layer auto-prepends a short intro for images. Any stdout
+        # is logged but not shown when files are produced (the file IS the answer).
+        if out_blocks:
+            if stdout:
+                logger.info(f"[converse/tool] run_python stdout (with {len(out_blocks)} output block(s)): {stdout[:200]}")
+            return json.dumps(out_blocks)
+
+        # Success, no files → plain stdout (or a friendly note) as a string.
+        if stdout:
+            return f"```\n{stdout}\n```"
+        return "Code ran successfully (no output)."
+
+    @lc_tool
+    async def fetch_from_portal(portal_name: str, task: str, start_url: str = "",
+                               username: str = "", password: str = "", totp: str = "") -> str:
+        """Log into a web portal and download files from it (RPA). Three ways to call it:
+
+        1. AD-HOC (first time): the user gives a URL and a login in chat. Pass portal_name,
+           start_url, task, username, password (and totp if given). Log in and download right
+           away - do NOT refuse or stall.
+        2. SAVED portal: the user saved this portal before. Pass just portal_name and task
+           (omit start_url/username/password) - the URL and credentials resolve automatically;
+           the user does NOT need to share the login again.
+        3. After an ad-hoc run, OFFER to save the portal with save_portal so #2 works next time.
+
+        Downloaded files come back to the user as downloadable artifacts.
+
+        Args:
+            portal_name: a short name for the portal (e.g. 'acme'); used to find saved creds.
+            task: what to do once logged in, e.g. 'download my latest receipts'.
+            start_url: the login URL. Required for an ad-hoc run; optional if the portal is saved.
+            username: login username - ONLY for an ad-hoc first run the user typed in chat.
+            password: login password - ONLY for an ad-hoc first run.
+            totp: TOTP 2FA shared secret, if the user provides one (optional).
+        """
+        if not _portal_fetch_allowed(state):
+            return ("Pulling files from web portals requires a Developer role on this "
+                    "instance. Your account doesn't have permission to do that.")
+        from command_center.tools import portal_fetch as _pf
+        from command_center.tools import portal_registry as _reg
+        _sid = state.get("session_id", "")
+        _uc = state.get("user_context") or {}
+        _uid = _uc.get("user_id")
+
+        entry = _reg.lookup_portal(_uid, portal_name) if portal_name else None
+        eff_url = start_url or (entry or {}).get("url") or ""
+        inline = None
+        overrides = None
+        if username and password:
+            inline = {"username": username, "password": password, "totp": totp or ""}
+        elif entry:
+            overrides = {"username_secret": entry.get("username_secret"),
+                         "password_secret": entry.get("password_secret"),
+                         "totp_secret": entry.get("totp_secret")}
+        if not eff_url:
+            return (f"I don't have a login URL for '{portal_name}'. Share the portal's URL "
+                    "(and your login, unless it's already saved) and I'll do it.")
+        _mode = "inline" if inline else ("saved" if overrides else "legacy")
+        logger.info(f"[converse/tool] fetch_from_portal portal={portal_name} url={eff_url} "
+                    f"mode={_mode} session={_sid}")
+        try:
+            res = await asyncio.to_thread(_pf.fetch_portal, portal_name, eff_url, task, _sid, _uc,
+                                          360, overrides, inline)
+        except Exception as e:
+            logger.error(f"[converse/tool] fetch_from_portal failed: {e}", exc_info=True)
+            return f"Portal fetch failed to start: {e}"
+
+        blocks = res.get("blocks") or []
+        if blocks:
+            # Downloaded files → return ONLY artifact blocks (download chips) as a JSON
+            # list so converse renders them inline (same gate as run_python).
+            return json.dumps(blocks)
+        if res.get("status") != "ok":
+            return f"Couldn't complete the portal task: {res.get('error') or 'unknown error'}."
+        # Completed but nothing downloaded → plain-text summary.
+        return str(res.get("final_result") or "The portal task completed but no files were downloaded.")
+
+    @lc_tool
+    async def save_portal(name: str, url: str, username: str, password: str,
+                         totp: str = "", allowed_domains: str = "") -> str:
+        """Save a web portal and its credentials so the user doesn't have to share the login
+        again. Call this after a successful ad-hoc run when the user agrees to save (or asks
+        you to remember a portal). Credentials are stored ENCRYPTED on the server; only a
+        reference is kept. Afterwards, fetch_from_portal works with just the portal name.
+
+        Args:
+            name: short name to remember the portal by (e.g. 'acme').
+            url: the portal's login URL.
+            username: login username to store.
+            password: login password to store.
+            totp: TOTP 2FA shared secret to store (optional).
+            allowed_domains: extra comma-separated domains to permit (e.g. an SSO login host);
+                usually leave blank - the portal's own domain is allowed automatically.
+        """
+        if not _portal_fetch_allowed(state):
+            return "Saving portals requires a Developer role on this instance."
+        from command_center.tools import portal_registry as _reg
+        _uc = state.get("user_context") or {}
+        _uid = _uc.get("user_id")
+        doms = [d.strip() for d in (allowed_domains or "").split(",") if d.strip()] or None
+        try:
+            entry = await asyncio.to_thread(_reg.save_portal, _uid, name, url, username,
+                                            password, totp or None, doms)
+        except Exception as e:
+            logger.error(f"[converse/tool] save_portal failed: {e}", exc_info=True)
+            return f"Couldn't save the portal: {e}"
+        return (f"Saved '{entry['name']}' ({entry['url']}). Next time just ask me to use "
+                f"{entry['slug']} and I'll log in with the stored credentials - no need to "
+                "share them again.")
+
+    @lc_tool
+    async def lookup_portal(name: str = "") -> str:
+        """List the user's saved portals, or look one up by name, so you can reuse a saved
+        portal without asking for the URL or login again. Returns names and URLs only
+        (never credentials).
+
+        Args:
+            name: a portal name to look up; leave blank to list all saved portals.
+        """
+        if not _portal_fetch_allowed(state):
+            return "Portal access requires a Developer role on this instance."
+        from command_center.tools import portal_registry as _reg
+        _uc = state.get("user_context") or {}
+        _uid = _uc.get("user_id")
+        if name:
+            e = await asyncio.to_thread(_reg.lookup_portal, _uid, name)
+            if not e:
+                names = ", ".join(p["name"] for p in _reg.list_portals(_uid)) or "(none saved)"
+                return f"No saved portal matches '{name}'. Saved portals: {names}."
+            return (f"{e.get('name')} -> {e.get('url')} (credentials stored; ready to use - "
+                    "call fetch_from_portal with just the portal name).")
+        portals = await asyncio.to_thread(_reg.list_portals, _uid)
+        if not portals:
+            return "You have no saved portals yet."
+        return "Saved portals:\n" + "\n".join(f"- {p['name']} -> {p['url']}" for p in portals)
+
+    @lc_tool
+    async def schedule_task(task_name: str, prompt: str, cron: str = "",
+                           every_hours: int = 0, every_days: int = 0, every_minutes: int = 0) -> str:
+        """Schedule a recurring task that re-runs this Command Center agent automatically at a
+        set cadence, EVEN WHEN THE USER IS OFFLINE. Each run's output is saved to the user's
+        Scheduled Tasks panel with a notification.
+
+        Provide EITHER a 5-field cron expression OR one of every_minutes/every_hours/every_days.
+        Examples: weekdays at 8am -> cron="0 8 * * 1-5"; every 6 hours -> every_hours=6.
+
+        Args:
+            task_name: a short label for the task (e.g. 'Daily Acme orders').
+            prompt: the instruction to run each time, phrased as if the user asked it now.
+            cron: 5-field cron expression (optional).
+            every_hours: run every N hours (interval alternative to cron).
+            every_days: run every N days.
+            every_minutes: run every N minutes.
+        """
+        if not _schedule_allowed(state):
+            return "Scheduling recurring tasks requires a Developer role on this instance."
+        _uc = state.get("user_context") or {}
+        if not _uc.get("user_id"):
+            return "I can't schedule a task without a signed-in user."
+        if cron:
+            schedule = {"type": "cron", "cron_expression": cron.strip()}
+            desc = f"cron '{cron.strip()}'"
+        elif every_minutes or every_hours or every_days:
+            schedule = {"type": "interval"}
+            if every_days:
+                schedule["interval_days"] = int(every_days)
+            if every_hours:
+                schedule["interval_hours"] = int(every_hours)
+            if every_minutes:
+                schedule["interval_minutes"] = int(every_minutes)
+            desc = "every " + ", ".join(
+                f"{v} {u}" for v, u in
+                [(every_days, "day(s)"), (every_hours, "hour(s)"), (every_minutes, "minute(s)")] if v)
+        else:
+            return ("Tell me how often to run it — a cron expression, or "
+                    "every_hours / every_days / every_minutes.")
+        from scheduling import schedule_logic as _sl
+        try:
+            res = await asyncio.to_thread(_sl.create_cc_schedule, _uc,
+                                          state.get("active_delegation") or {},
+                                          task_name, prompt, schedule, desc)
+        except Exception as e:
+            logger.error(f"[converse/tool] schedule_task failed: {e}", exc_info=True)
+            return f"Couldn't schedule the task: {e}"
+        if res.get("status") != "ok":
+            return f"Couldn't schedule the task: {res.get('error')}"
+        return (f"Scheduled '{task_name}' to run {desc}. Results will appear in your Scheduled "
+                "Tasks panel with a notification — you don't need to be online. Ask me to "
+                "'list my scheduled tasks' anytime.")
+
+    @lc_tool
+    async def list_scheduled_tasks() -> str:
+        """List this user's scheduled Command Center tasks (name, cadence, last run/status)."""
+        if not _schedule_allowed(state):
+            return "Scheduling requires a Developer role on this instance."
+        from scheduling import schedule_logic as _sl
+        tasks = await asyncio.to_thread(_sl.list_cc_schedules, state.get("user_context") or {})
+        if not tasks:
+            return "You have no scheduled tasks yet."
+        lines = [f"- {t['task_name']} ({t.get('schedule_desc','?')}) — "
+                 f"last run: {t.get('last_run') or 'never'} [{t.get('last_status') or '—'}]"
+                 for t in tasks]
+        return "Your scheduled tasks:\n" + "\n".join(lines)
+
+    @lc_tool
+    async def cancel_scheduled_task(task: str) -> str:
+        """Cancel/stop a scheduled task by its name or id so it stops running.
+
+        Args:
+            task: the task name (or job id) to cancel.
+        """
+        if not _schedule_allowed(state):
+            return "Scheduling requires a Developer role on this instance."
+        from scheduling import schedule_logic as _sl
+        res = await asyncio.to_thread(_sl.cancel_cc_schedule, state.get("user_context") or {}, task)
+        if res.get("status") != "ok":
+            return f"Couldn't cancel it: {res.get('error')}"
+        return f"Cancelled '{res.get('task_name')}'. It won't run again."
+
+    @lc_tool
+    async def get_my_contact_info() -> str:
+        """Look up the SIGNED-IN user's own contact info (name, email, phone). Use this to
+        resolve "me" / "my email" — e.g. BEFORE emailing the user themselves with send_email
+        ("email me a summary"). Returns only the current user's info, never anyone else's.
+        Works in scheduled/unattended runs too (it only needs the user id)."""
+        _uc = state.get("user_context") or {}
+        _uid = _uc.get("user_id")
+        if not _uid:
+            return "There's no signed-in user in this context."
+        # Prefer fields already on the context (scheduled runs snapshot the email in); fall
+        # back to a live lookup against the platform user directory.
+        email = _uc.get("email") or ""
+        name = _uc.get("name") or ""
+        phone = _uc.get("phone") or ""
+        if not email:
+            try:
+                import user_lookup
+                info = await asyncio.to_thread(user_lookup.get_user_contact, _uid)
+            except Exception as e:
+                logger.warning(f"[converse/tool] get_my_contact_info lookup failed: {e}")
+                info = {}
+            email = email or info.get("email", "")
+            name = name or info.get("name", "")
+            phone = phone or info.get("phone", "")
+        if not (email or name or phone):
+            return "I couldn't look up your contact info right now."
+        return ("Your contact info — name: " + (name or "—") +
+                ", email: " + (email or "—") + ", phone: " + (phone or "—"))
+
+    tools = [query_data_agent, query_general_agent, delegate_to_builder_agent, save_user_preference, recall_all_memories, forget_preference, switch_active_agent, export_data, run_generated_tool, manipulate_pdf, generate_map, search_web, send_email, get_my_contact_info]
     if IMAGE_GENERATION_ENABLED:
         tools.append(generate_image)
     if DOCUMENT_SEARCH_ENABLED:
         tools.append(search_documents)
+    if _CODE_INTERPRETER_ENABLED:
+        tools.append(run_python)
+    if _PORTAL_FETCH_ENABLED:
+        tools.append(fetch_from_portal)
+        tools.append(save_portal)
+        tools.append(lookup_portal)
+    if _SCHEDULE_ENABLED:
+        tools.append(schedule_task)
+        tools.append(list_scheduled_tasks)
+        tools.append(cancel_scheduled_task)
 
     try:
         llm = get_llm(mini=False, streaming=False)
@@ -2346,6 +2805,14 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     "search_web": search_web,
                     "search_documents": search_documents,
                     "send_email": send_email,
+                    "run_python": run_python,
+                    "fetch_from_portal": fetch_from_portal,
+                    "save_portal": save_portal,
+                    "lookup_portal": lookup_portal,
+                    "schedule_task": schedule_task,
+                    "list_scheduled_tasks": list_scheduled_tasks,
+                    "cancel_scheduled_task": cancel_scheduled_task,
+                    "get_my_contact_info": get_my_contact_info,
                 }
 
                 tool_fn = tool_map.get(tool_name)
@@ -2721,7 +3188,7 @@ async def scan_landscape(state: CommandCenterState) -> dict:
     """Scan the platform for all available agents, tools, workflows."""
     try:
         from command_center.orchestration.landscape_scanner import scan_platform
-        landscape = await scan_platform()
+        landscape = await scan_platform(state.get("user_context"))
         logger.info(f"Landscape scan: {len(landscape.get('agents', []))} agents, "
                      f"{len(landscape.get('tools', []))} tools, "
                      f"{len(landscape.get('workflows', []))} workflows")
@@ -3064,6 +3531,11 @@ async def gather_data(state: CommandCenterState) -> dict:
 
         # Special-case: builder delegation should never go through delegate_to_agent
         if str(active.get("agent_type") or "").lower() == "builder" or str(agent_id).lower() == "builder":
+            # Same Developer+ gate as the build node — a non-dev must not be able
+            # to continue a builder delegation either.
+            if not _build_allowed(state):
+                logger.info("[gather_data] builder delegation refused — user lacks Developer role")
+                return {"messages": [AIMessage(content=_BUILD_DENIED_MSG)], "active_delegation": None}
             from command_center.orchestration.delegator import delegate_to_builder
             cc_sid = state.get("session_id", "cc-default")
             builder_sid = active.get("builder_session_id") or f"cc-builder-{cc_sid}"
@@ -3168,7 +3640,7 @@ async def gather_data(state: CommandCenterState) -> dict:
             await _emit_progress("fallback", f"{agent_name} couldn't answer, looking for alternatives...")
 
             try:
-                _fb_landscape = await scan_platform()
+                _fb_landscape = await scan_platform(state.get("user_context"))
                 _fb_data_agents = [a for a in _fb_landscape.get('data_agents', []) if a.get('enabled')]
             except Exception:
                 _fb_data_agents = []
@@ -3269,7 +3741,7 @@ async def gather_data(state: CommandCenterState) -> dict:
     # ── No active delegation — find the right agent ────────────────────
     # Get available data agents
     try:
-        landscape = await scan_platform()
+        landscape = await scan_platform(state.get("user_context"))
     except Exception as e:
         logger.error(f"[gather_data] Landscape scan failed: {e}")
         landscape = {}
@@ -4413,10 +4885,17 @@ def _extract_created_resources(plan_data: dict) -> list:
 
 async def build(state: CommandCenterState) -> dict:
     """Delegate build/create requests to the Builder Agent service.
-    
+
     Acts as a middleman — relays builder responses (including questions)
     back to the user, and passes user answers back to the builder.
     """
+    # Platform mutations are Developer+ only (unless CC_BUILD_ALLOW_ALL_USERS).
+    # Refuse early so we never spin up a builder session for a user who can't
+    # build. The builder service enforces the same rule authoritatively.
+    if not _build_allowed(state):
+        logger.info("[build] refused — user lacks Developer role for platform mutations")
+        return {"messages": [AIMessage(content=_BUILD_DENIED_MSG)]}
+
     from command_center.orchestration.delegator import delegate_to_builder
 
     messages = state.get("messages", [])
@@ -4752,6 +5231,10 @@ async def design_tool(state: CommandCenterState) -> dict:
     """LLM generates config.json + code.py for a new tool."""
     from cc_config import get_llm
 
+    # Creating new tools mutates the platform — Developer+ only.
+    if not _build_allowed(state):
+        return {"messages": [AIMessage(content=_BUILD_DENIED_MSG)]}
+
     messages = state.get("messages", [])
     last_msg = messages[-1] if messages else None
     user_text = last_msg.content if last_msg and hasattr(last_msg, 'content') else ""
@@ -4826,6 +5309,12 @@ async def sandbox_test(state: CommandCenterState) -> dict:
 
 async def save_tool(state: CommandCenterState) -> dict:
     """Persist a successfully tested tool to disk + audit table."""
+    # Backstop: persisting a tool is a platform mutation. design_tool already
+    # gates entry, but guard here too so the node can't be reached out-of-band.
+    if not _build_allowed(state):
+        logger.info("[save_tool] refused — user lacks Developer role")
+        return {"messages": [AIMessage(content=_BUILD_DENIED_MSG)]}
+
     results = state.get("delegation_results", {})
     tool_spec = results.get("_tool_design", {})
 

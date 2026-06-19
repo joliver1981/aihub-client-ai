@@ -485,6 +485,40 @@ def get_command_center_api_base_url():
 
     return f"{protocol}://{host}:{api_port}"
 
+def get_browser_use_api_base_url():
+    """Return full base URL for the Browser Use service (internal service).
+
+    Internal services default to loopback (127.0.0.1). Override INTERNAL_HOST
+    only for advanced multi-machine deployments.
+
+    Port: BROWSER_USE_PORT if set (production override), else HOST_PORT + 100.
+    The service binds its port from the same BROWSER_USE_PORT, so both stay in sync.
+
+    Returns:
+        Base URL (e.g. http://127.0.0.1:5101)
+    """
+    protocol = os.getenv('PROTOCOL', 'http')
+    # Internal service — dial loopback by default
+    host = os.getenv('INTERNAL_HOST', '127.0.0.1')
+    if host == "0.0.0.0":
+        host = get_local_ip()
+
+    # BROWSER_USE_PORT overrides; default = base port + 100
+    override = os.getenv('BROWSER_USE_PORT')
+    if override:
+        try:
+            api_port = int(override)
+        except ValueError:
+            api_port = 5101
+    else:
+        try:
+            current_port = int(os.getenv('HOST_PORT', '5001'))
+            api_port = current_port + 100
+        except ValueError:
+            api_port = 5101
+
+    return f"{protocol}://{host}:{api_port}"
+
 def normalize_boolean(value):
     """
     Normalize various representations to Python boolean values (True/False).
@@ -501,6 +535,58 @@ def normalize_boolean(value):
     
     # For everything else, use Python's truthiness
     return bool(value)
+
+
+def _installed_odbc_drivers():
+    """List the ODBC drivers actually installed on this machine ([] on failure)."""
+    try:
+        return list(pyodbc.drivers())
+    except Exception:
+        return []
+
+
+def resolve_odbc_driver(db_type_lower, requested_driver=None):
+    """
+    Pick an ODBC driver name that is actually installed for the given engine.
+
+    Driver names vary per machine ('PostgreSQL Unicode' vs 'PostgreSQL
+    Unicode(x64)', 'ODBC Driver 17' vs '18 for SQL Server'). If the requested
+    name is installed it wins; otherwise the best installed match for the
+    engine is substituted so pyodbc.connect doesn't fail with IM002.
+    Returns the requested name unchanged when nothing better is found.
+    """
+    installed = _installed_odbc_drivers()
+
+    if requested_driver:
+        for d in installed:
+            if d.strip().lower() == str(requested_driver).strip().lower():
+                return d  # requested driver is installed — use its exact registered name
+        if not installed:
+            return requested_driver  # can't enumerate drivers; trust the caller
+
+    def best(*substring_sets):
+        # ordered preference: first substring-set matching an installed driver wins
+        for subs in substring_sets:
+            for d in installed:
+                dl = d.lower()
+                if all(s in dl for s in subs):
+                    return d
+        return None
+
+    match = None
+    if db_type_lower in ('sql server', 'sqlserver'):
+        match = best(('odbc driver 18', 'sql server'), ('odbc driver 17', 'sql server'),
+                     ('odbc driver 13', 'sql server'), ('sql server',))
+    elif db_type_lower in ('postgres', 'postgresql'):
+        match = best(('postgresql', 'unicode', 'x64'), ('postgresql', 'unicode'), ('postgresql',))
+    elif db_type_lower == 'mysql':
+        match = best(('mysql', 'unicode'), ('mysql',))
+    elif db_type_lower == 'oracle':
+        match = best(('oracle',))
+    elif db_type_lower == 'snowflake':
+        match = best(('snowflake',))
+
+    return match or requested_driver
 
 
 def generate_connection_string(database_type, server, port, database_name, user_name, password, parameters='', odbc_driver=None):
@@ -532,6 +618,14 @@ def generate_connection_string(database_type, server, port, database_name, user_
             odbc_driver = 'SnowflakeDSIIDriver'
         else:
             odbc_driver = 'SQL Server'
+
+    # Swap in the installed equivalent when the requested/default driver name
+    # isn't registered on this machine (e.g. 'PostgreSQL Unicode(x64)'),
+    # so pyodbc doesn't fail with IM002.
+    _resolved = resolve_odbc_driver(db_type_lower, odbc_driver)
+    if _resolved and _resolved != odbc_driver:
+        logging.info(f"[generate_connection_string] ODBC driver '{odbc_driver}' not installed; using '{_resolved}'")
+        odbc_driver = _resolved
 
     # Generate connection string based on database type
     if db_type_lower in ('sql server', 'sqlserver'):

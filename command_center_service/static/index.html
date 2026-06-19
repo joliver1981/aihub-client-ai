@@ -40,6 +40,10 @@
                         <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
                     </svg>
                 </button>
+                <button class="cc-btn-icon" onclick="CCSchedules.open()" title="Scheduled Tasks" style="position:relative">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                    <span id="schedule-badge" style="display:none;position:absolute;top:-4px;right:-4px;background:#c0490d;color:#fff;border-radius:8px;font-size:10px;line-height:14px;min-width:14px;height:14px;text-align:center;padding:0 3px"></span>
+                </button>
             </div>
 
             <!-- Suggestions -->
@@ -166,8 +170,22 @@
             });
         }
     </script>
-    <script src="/static/js/cc-renderers.js?v=10"></script>
+    <script src="/static/js/cc-renderers.js?v=11"></script>
     <script src="/static/js/cc-memory.js?v=3"></script>
-    <script src="/static/js/command-center.js?v=18"></script>
+    <!-- Scheduled Tasks panel (CC-native, isolated add-on) -->
+    <div id="schedules-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
+      <div style="background:#1e1e1e;color:#eee;width:min(720px,92vw);max-height:86vh;overflow:auto;border-radius:12px;padding:20px 22px;box-shadow:0 12px 40px rgba(0,0,0,.4)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <h2 style="margin:0;font-size:18px">⏰ Scheduled Tasks</h2>
+          <button onclick="CCSchedules.close()" style="background:none;border:none;font-size:20px;cursor:pointer;color:inherit">✕</button>
+        </div>
+        <div id="schedules-tasks" style="margin-bottom:18px"></div>
+        <h3 style="font-size:14px;margin:6px 0 8px;opacity:.8">Recent results</h3>
+        <div id="schedules-results"></div>
+      </div>
+    </div>
+
+    <script src="/static/js/command-center.js?v=22"></script>
+    <script src="/static/js/command-center-schedules.js?v=1"></script>
 </body>
 </html>
