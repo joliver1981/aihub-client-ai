@@ -281,10 +281,16 @@ def create_job():
         schedule = data.get('schedule')
         if schedule:
             schedule_id = _create_schedule(cursor, job_id, schedule)
-            
+
             if not schedule_id:
                 return jsonify({'error': 'Failed to create schedule'}), 500
-        
+
+            # Persist the schedule. _create_schedule INSERTs but does not commit, and the
+            # job/params commits above don't cover it — so without this the ScheduleDefinitions
+            # row is rolled back on conn.close() and the job never fires. Latent bug, surfaced
+            # by the inline job+schedule create path (only reached when 'schedule' is supplied).
+            conn.commit()
+
         # Return the created job
         cursor.close()
         conn.close()
