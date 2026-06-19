@@ -2698,10 +2698,11 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         if not _schedule_allowed(state):
             return "Scheduling requires a Developer role on this instance."
         from scheduling import schedule_logic as _sl
-        tasks = await asyncio.to_thread(_sl.list_cc_schedules, state.get("user_context") or {})
+        tasks = await asyncio.to_thread(_sl.list_cc_schedules_with_next_run, state.get("user_context") or {})
         if not tasks:
             return "You have no scheduled tasks yet."
         lines = [f"- {t['task_name']} ({t.get('schedule_desc','?')}) — "
+                 f"next run: {t.get('next_run') or '—'}, "
                  f"last run: {t.get('last_run') or 'never'} [{t.get('last_status') or '—'}]"
                  for t in tasks]
         return "Your scheduled tasks:\n" + "\n".join(lines)

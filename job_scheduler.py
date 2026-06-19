@@ -341,6 +341,16 @@ class JobSchedulerService:
                         )
                         logger.info(f"Added new job to scheduler: {apscheduler_job_id}")
 
+                    # Persist the engine's computed next fire time so the panel/API can show
+                    # "next run" (the DB NextRunTime is otherwise only its initial value).
+                    try:
+                        _ap_job = self.scheduler.get_job(apscheduler_job_id)
+                        self._update_next_run_time(
+                            schedule_id,
+                            getattr(_ap_job, 'next_run_time', None) if _ap_job else None)
+                    except Exception as _nr_err:
+                        logger.debug(f"next_run_time update skipped for {apscheduler_job_id}: {_nr_err}")
+
             # Get deactivated schedules to remove
             inactive_query = """
             SELECT j.JobType, j.ScheduledJobId, s.ScheduleId

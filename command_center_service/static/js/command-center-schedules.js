@@ -62,6 +62,7 @@
           return '<div style="border:1px solid rgba(128,128,128,.3);border-radius:8px;padding:10px 12px;margin-bottom:8px;display:flex;justify-content:space-between;gap:10px">' +
             '<div><div style="font-weight:600">' + esc(t.task_name) + '</div>' +
             '<div style="font-size:12px;opacity:.7">' + esc(t.schedule_desc) +
+            ' · next run: ' + esc(t.next_run || '—') +
             ' · last run: ' + esc(t.last_run || 'never') +
             (t.last_status ? ' [' + esc(t.last_status) + ']' : '') + '</div></div>' +
             '<button onclick="CCSchedules.cancel(\'' + esc(t.job_id) + '\')" ' +

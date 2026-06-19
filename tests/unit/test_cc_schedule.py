@@ -93,6 +93,31 @@ def test_cancel_cc_schedule(isolated, monkeypatch):
     assert store.get_task(13, "555") is None
 
 
+def test_get_next_run_and_enriched_list(isolated, monkeypatch):
+    store.add_task(13, "555", "Daily orders", "p", "cron '0 8 * * 1-5'")
+
+    class _Resp:
+        status_code = 200
+
+        def json(self):
+            return {"id": 555, "schedules": [
+                {"is_active": True, "next_run_time": "2026-06-20T08:00:00"},
+                {"is_active": False, "next_run_time": "2026-06-19T08:00:00"},  # inactive -> ignored
+            ]}
+
+    monkeypatch.setattr(sl.requests, "get", lambda *a, **k: _Resp())
+    assert sl.get_next_run("555") == "2026-06-20T08:00:00"
+    tasks = sl.list_cc_schedules_with_next_run({"user_id": 13})
+    assert tasks[0]["next_run"] == "2026-06-20T08:00:00"
+
+    # scheduler unreachable -> None, no crash (graceful)
+    def _boom(*a, **k):
+        raise RuntimeError("down")
+
+    monkeypatch.setattr(sl.requests, "get", _boom)
+    assert sl.get_next_run("555") is None
+
+
 # --- user_lookup.get_user_contact ------------------------------------------
 
 def test_user_lookup_resolves_email(monkeypatch):

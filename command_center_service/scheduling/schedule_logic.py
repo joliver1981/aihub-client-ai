@@ -97,6 +97,33 @@ def list_cc_schedules(user_context: Optional[Dict[str, Any]]) -> List[Dict[str, 
     return store.list_tasks((user_context or {}).get("user_id"))
 
 
+def get_next_run(job_id: Any) -> Optional[str]:
+    """Best-effort: the next scheduled fire time (ISO/UTC string) for a job, read from the
+    scheduler API, or None if unavailable (e.g. scheduler not yet restarted)."""
+    if not job_id:
+        return None
+    try:
+        r = requests.get(f"{_scheduler_base()}/api/scheduler/jobs/{job_id}",
+                         headers={"X-API-Key": _api_key()}, timeout=8)
+        if r.status_code != 200:
+            return None
+        scheds = (r.json() or {}).get("schedules") or []
+        times = [s.get("next_run_time") for s in scheds
+                 if s.get("is_active") and s.get("next_run_time")]
+        return min(times) if times else None
+    except Exception:
+        return None
+
+
+def list_cc_schedules_with_next_run(user_context: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """list_cc_schedules + a best-effort next_run per task (one scheduler call each). Used by
+    the panel and the list tool; the lightweight list_cc_schedules feeds the system prompt."""
+    tasks = store.list_tasks((user_context or {}).get("user_id"))
+    for t in tasks:
+        t["next_run"] = get_next_run(t.get("job_id"))
+    return tasks
+
+
 def cancel_cc_schedule(user_context: Optional[Dict[str, Any]], name_or_id: str) -> Dict[str, Any]:
     """Cancel a scheduled task by job id or task name: deactivate it in the scheduler and
     drop it from the user's local store."""

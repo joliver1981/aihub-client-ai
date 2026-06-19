@@ -35,8 +35,9 @@ async def get_schedules(request: Request):
     if uc is None:
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     from scheduling import schedule_store as store
+    from scheduling import schedule_logic as sl
     uid = uc.get("user_id")
-    return {"tasks": store.list_tasks(uid), "unread_count": store.unread_count(uid)}
+    return {"tasks": sl.list_cc_schedules_with_next_run(uc), "unread_count": store.unread_count(uid)}
 
 
 @router.get("/results")
