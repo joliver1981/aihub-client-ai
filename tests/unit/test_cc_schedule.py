@@ -96,22 +96,36 @@ def test_cancel_cc_schedule(isolated, monkeypatch):
 # --- user_lookup.get_user_contact ------------------------------------------
 
 def test_user_lookup_resolves_email(monkeypatch):
+    import json as _json
     import user_lookup
     monkeypatch.setattr(user_lookup, "_base_and_key", lambda: ("http://127.0.0.1:5001", "k"))
+    records = [
+        {"id": 13, "name": "Jo", "email": "jo@x.com", "phone": "555", "user_name": "jo"},
+        {"id": 99, "email": "other@x.com"},
+    ]
 
-    class _Resp:
+    # REAL shape: /get/users returns jsonify(df.to_json(orient='records')) -> r.json() is a
+    # JSON-encoded STRING (this is what broke get_user_contact in production).
+    class _StrResp:
         status_code = 200
 
         def json(self):
-            return [
-                {"id": 13, "name": "Jo", "email": "jo@x.com", "phone": "555", "user_name": "jo"},
-                {"id": 99, "email": "other@x.com"},
-            ]
+            return _json.dumps(records)
 
-    monkeypatch.setattr(user_lookup.requests, "get", lambda *a, **k: _Resp())
+    monkeypatch.setattr(user_lookup.requests, "get", lambda *a, **k: _StrResp())
     info = user_lookup.get_user_contact(13)
     assert info["email"] == "jo@x.com" and info["name"] == "Jo" and info["phone"] == "555"
     assert user_lookup.get_user_contact(12345) == {}  # not found -> empty
+
+    # Defensive: a plain list body also works.
+    class _ListResp:
+        status_code = 200
+
+        def json(self):
+            return records
+
+    monkeypatch.setattr(user_lookup.requests, "get", lambda *a, **k: _ListResp())
+    assert user_lookup.get_user_contact(13)["email"] == "jo@x.com"
 
 
 # --- job_scheduler._execute_command_center_job -----------------------------

@@ -6,6 +6,7 @@ the same endpoint chat.py uses to resolve a user's role). Used by the CC `get_my
 tool to resolve "me"/"my email", and by self-scheduling to snapshot the task owner's email.
 Returns only the requested user's record; callers pass the signed-in user's own id.
 """
+import json
 import logging
 from typing import Any, Dict
 
@@ -40,8 +41,22 @@ def get_user_contact(user_id: Any) -> Dict[str, Any]:
         if r.status_code != 200:
             return {}
         data = r.json()
-        users = data if isinstance(data, list) else data.get("users", [])
+        # /get/users returns jsonify(df.to_json(orient='records')) — i.e. a JSON-encoded
+        # STRING of a records list — so r.json() is a str that must be parsed again.
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except Exception:
+                return {}
+        if isinstance(data, list):
+            users = data
+        elif isinstance(data, dict):
+            users = data.get("users", [])
+        else:
+            users = []
         for u in users:
+            if not isinstance(u, dict):
+                continue
             try:
                 row_id = int(u.get("id", u.get("user_id", 0)) or 0)
             except (TypeError, ValueError):
