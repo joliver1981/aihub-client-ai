@@ -117,8 +117,31 @@ async def chat(request: Request):
     body = await request.json()
     user_message = body.get("message", "").strip()
     session_id = body.get("session_id")
-    user_context = body.get("user_context")
     attachments = body.get("attachments")  # Optional list of file_ids
+
+    # ---- Identity: trust the signed CC session JWT, NOT the request body. ----
+    # The token is sent as `Authorization: Bearer <jwt>` (fallback: body.token).
+    # Body `user_context` is no longer trusted as the identity source — it can
+    # be forged (BUG-CC-SESSION-ID-FORGERY). During migration this runs in
+    # shadow mode: if no valid JWT is present we log and fall back to the body
+    # so legacy clients keep working. Set CC_REQUIRE_JWT=1 to enforce (401).
+    import shared_auth
+    _auth_header = request.headers.get("authorization") or request.headers.get("Authorization") or ""
+    _bearer = _auth_header[7:].strip() if _auth_header[:7].lower() == "bearer " else ""
+    _jwt_token = _bearer or body.get("token") or ""
+    _verified, _jwt_err = shared_auth.verify_token(_jwt_token, shared_auth.AUD_CC)
+    if _verified is not None:
+        user_context = shared_auth.cc_user_context_from_claims(_verified)
+    else:
+        # Enforced by default. Set CC_REQUIRE_JWT=0 to drop to shadow mode
+        # (log + fall back to body user_context) for a phased prod rollout.
+        if os.environ.get("CC_REQUIRE_JWT", "1") == "1":
+            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+        logger.warning(
+            f"[chat] no valid CC JWT ({_jwt_err}); shadow mode — falling back to "
+            f"body user_context. Set CC_REQUIRE_JWT=1 to enforce."
+        )
+        user_context = body.get("user_context")
 
     # Ensure user_context includes role — required for builder permission checks.
     # When the CC token expires, the frontend falls back to cached user_id without
@@ -134,9 +157,26 @@ async def chat(request: Request):
                 timeout=5.0,
             )
             if resp.status_code == 200:
-                users = resp.json() if isinstance(resp.json(), list) else resp.json().get("users", [])
+                # /get/users returns jsonify(df.to_json(orient='records')) — a JSON-encoded
+                # STRING — so resp.json() may be a str needing a second parse. Support BOTH
+                # the double-encoded string and an already-decoded list/dict (fail-safe).
+                _body = resp.json()
+                if isinstance(_body, str):
+                    import json as _json
+                    try:
+                        _body = _json.loads(_body)
+                    except Exception:
+                        _body = []
+                if isinstance(_body, list):
+                    users = _body
+                elif isinstance(_body, dict):
+                    users = _body.get("users", [])
+                else:
+                    users = []
                 uid = int(user_context["user_id"])
                 for u in users:
+                    if not isinstance(u, dict):
+                        continue
                     if int(u.get("user_id", u.get("id", 0))) == uid:
                         user_context["role"] = u.get("role", u.get("role_id", 1))
                         user_context.setdefault("username", u.get("username", ""))
@@ -180,7 +220,9 @@ async def chat(request: Request):
                     f"owned_by(uid={getattr(owner, 'user_id', None)}, "
                     f"tid={getattr(owner, 'tenant_id', None)})"
                 )
-                if os.environ.get("CC_SESSION_OWNERSHIP_ENFORCE", "0") == "1":
+                # Enforced by default. Set CC_SESSION_OWNERSHIP_ENFORCE=0 to
+                # drop to log-only (shadow) for a phased prod rollout.
+                if os.environ.get("CC_SESSION_OWNERSHIP_ENFORCE", "1") == "1":
                     return JSONResponse(
                         {"error": "Session not found"}, status_code=404
                     )
@@ -411,7 +453,7 @@ async def chat(request: Request):
             # Quick landscape scan to show what we're working with
             try:
                 from command_center.orchestration.landscape_scanner import scan_platform
-                landscape = await scan_platform()
+                landscape = await scan_platform(user_context)
                 n_agents = len(landscape.get("agents", [])) + len(landscape.get("data_agents", []))
                 n_conns = len(landscape.get("connections", []))
                 if n_agents > 0:
