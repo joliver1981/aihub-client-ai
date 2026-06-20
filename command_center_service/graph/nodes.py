@@ -1353,7 +1353,12 @@ async def converse(state: CommandCenterState) -> dict:
             "- REUSE SAVED: for a saved portal, call fetch_from_portal with just portal_name "
             "and task - the URL and credentials resolve automatically; never ask the user to "
             "resend a saved login. Use lookup_portal to list/confirm saved portals.\n"
-            "- Files return to the user as downloadable artifacts." + _saved_line
+            "- DELIVERY & HONESTY: a downloaded file reaches the user ONLY as the inline "
+            "download chip that fetch_from_portal returns. If the tool result does not include "
+            "a downloaded file, then NO file was captured - say the download did not complete; "
+            "do NOT claim you delivered a file, do NOT invent a download link or a "
+            "Downloads-folder/'artifact area', and do NOT promise to save to the user's local "
+            "disk (e.g. C:\\tmp) - you cannot. Files are delivered only as the chip." + _saved_line
         )
 
     # Self-scheduling context (only when enabled + the user may use it). Lists the user's
@@ -2574,10 +2579,19 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             # Downloaded files → return ONLY artifact blocks (download chips) as a JSON
             # list so converse renders them inline (same gate as run_python).
             return json.dumps(blocks)
+        # No artifact was produced. Do NOT relay res['final_result'] — that is the in-browser
+        # agent's narration and can optimistically claim "downloaded / saved to disk" even when
+        # nothing was actually captured. Returning it verbatim is what let the agent hallucinate
+        # a download. Be explicit so the agent tells the user the truth.
         if res.get("status") != "ok":
-            return f"Couldn't complete the portal task: {res.get('error') or 'unknown error'}."
-        # Completed but nothing downloaded → plain-text summary.
-        return str(res.get("final_result") or "The portal task completed but no files were downloaded.")
+            return (f"The portal task failed: {res.get('error') or 'unknown error'}. "
+                    "No file was downloaded and there is no artifact to give the user.")
+        return ("The portal task ran but NO file was captured (0 files downloaded), so there is "
+                "no artifact or download to give the user. The download likely did not actually "
+                "start (e.g. the button opened the file inline instead of triggering a browser "
+                "download). Tell the user plainly that the download did not complete — do NOT "
+                "claim a file was delivered, and do NOT invent a download link or a "
+                "Downloads-folder / 'artifact area' to retrieve it from.")
 
     @lc_tool
     async def save_portal(name: str, url: str, username: str, password: str,

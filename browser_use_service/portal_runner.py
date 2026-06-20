@@ -21,11 +21,24 @@ import os
 import time
 
 
+_PARTIAL_SUFFIXES = (".crdownload", ".partial", ".part", ".tmp")
+
+
 def _snapshot(d):
-    try:
-        return {n: os.path.getmtime(os.path.join(d, n)) for n in os.listdir(d)}
-    except FileNotFoundError:
-        return {}
+    """Recursive fingerprint of a download dir: relpath -> (size, mtime_ns). Skips in-flight
+    partial-download files so a half-written download isn't counted as a finished one."""
+    snap = {}
+    for root, _dirs, files in os.walk(d):
+        for n in files:
+            if n.lower().endswith(_PARTIAL_SUFFIXES):
+                continue
+            p = os.path.join(root, n)
+            try:
+                st = os.stat(p)
+                snap[os.path.relpath(p, d)] = (st.st_size, st.st_mtime_ns)
+            except OSError:
+                continue
+    return snap
 
 
 def _build_llm(model):
@@ -103,9 +116,13 @@ async def run_portal_fetch(task, start_url, creds, download_dir, llm_model,
             pass
 
     full_task = (
-        f"Go to {start_url}.{login_hint} Then: {task}. Save any downloaded files to disk. "
-        "As soon as a file has downloaded once, the task is complete - call done and stop; "
-        "do NOT click the download again or repeat steps."
+        f"Go to {start_url}.{login_hint} Then: {task}. "
+        "IMPORTANT: downloaded files are saved AUTOMATICALLY by the system to the correct "
+        "folder. Do NOT choose a save location, do NOT type a file path, and IGNORE any "
+        "instruction to save to a specific local folder (e.g. C:\\tmp) - just trigger the "
+        "download from the page itself. As soon as a file has downloaded once the task is "
+        "complete - call done and stop; do NOT click the download again or repeat steps. Only "
+        "report a file as downloaded if the browser actually downloaded it."
     )
 
     llm = _build_llm(llm_model)
@@ -136,11 +153,23 @@ async def run_portal_fetch(task, start_url, creds, download_dir, llm_model,
         except Exception:
             pass
 
+    # A one-shot diff can miss a download still writing when agent.run() returns. Wait (bounded)
+    # for the file set to change and any partial-download files to clear before diffing. If
+    # nothing ever downloads (e.g. the link opened inline), this just times out and the harvest
+    # is correctly empty.
+    import glob as _glob
     after = _snapshot(download_dir)
+    for _ in range(5):
+        partials = (_glob.glob(os.path.join(download_dir, "**", "*.crdownload"), recursive=True)
+                    + _glob.glob(os.path.join(download_dir, "**", "*.partial"), recursive=True))
+        if after != before and not partials:
+            break
+        await asyncio.sleep(1)
+        after = _snapshot(download_dir)
     new_files = [
-        os.path.join(download_dir, n)
-        for n, m in after.items()
-        if n not in before or before[n] != m
+        os.path.join(download_dir, rel)
+        for rel, fp in after.items()
+        if rel not in before or before[rel] != fp
     ]
 
     return {
