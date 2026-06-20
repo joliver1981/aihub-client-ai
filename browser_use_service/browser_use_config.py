@@ -69,7 +69,10 @@ ALLOW_ALL_USERS = os.getenv("BROWSER_USE_ALLOW_ALL_USERS", "false").lower() == "
 # sending it to a second vendor). browser-use's ChatAnthropic/ChatOpenAI read their RAW api
 # key from os.environ — ensure_llm_api_key() populates it from the encrypted .env value.
 LLM_MODEL = os.getenv("BROWSER_USE_LLM_MODEL", "claude-opus-4-8")
-HEADLESS = os.getenv("BROWSER_USE_HEADLESS", "true").lower() == "true"
+# Headed (false) is the DEFAULT: headless Chrome silently blocks office/binary file downloads
+# (.docx/.xlsx/.zip) it deems risky with no UI context, so portal downloads only work headed
+# (verified live). Override to true only where downloads aren't needed or a virtual display exists.
+HEADLESS = os.getenv("BROWSER_USE_HEADLESS", "false").lower() == "true"
 TIMEOUT_SECONDS = int(os.getenv("BROWSER_USE_TIMEOUT", "300"))
 MAX_STEPS = int(os.getenv("BROWSER_USE_MAX_STEPS", "50"))
 

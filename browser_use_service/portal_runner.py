@@ -61,7 +61,14 @@ def _build_llm(model):
 def _build_session(download_dir, headless, allowed_domains=None):
     """0.12.x BrowserSession takes headless / downloads_path / accept_downloads directly.
     `allowed_domains` (when given) hard-limits navigation at the browser layer — the agent
-    cannot be talked into leaving the portal's domain (prompt-injection containment)."""
+    cannot be talked into leaving the portal's domain (prompt-injection containment).
+
+    NOTE: file DOWNLOADS require headed (headless=False). Headless Chrome silently blocks
+    office/binary file types (.docx/.xlsx/.zip) it deems risky when there's no UI context
+    (plain text/CSV is allowed) — the download fires no event and nothing lands on disk.
+    Verified live: identical click captures the .docx headed, captures nothing headless.
+    --safebrowsing-disable-download-protection did NOT lift the block. So this service should
+    run headed (BROWSER_USE_HEADLESS=false) for reliable downloads."""
     from browser_use import BrowserSession
     kwargs = dict(headless=headless, downloads_path=download_dir, accept_downloads=True)
     if allowed_domains:
