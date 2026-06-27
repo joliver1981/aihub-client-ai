@@ -870,7 +870,21 @@
         }
 
         .new-content-area {
-            padding: -1px -1px; /* Was:10px 30px; (adjusted for banners) */
+            /* Horizontal padding (15px) absorbs the -15px side gutters of a bare
+               Bootstrap `.row` placed directly in the content area, so such a row
+               no longer overflows the page by ~15px (AIHUB-0002). The previous
+               `padding: -1px -1px` was invalid — negative padding clamps to 0, which
+               left no padding to absorb the gutters. Vertical padding stays 0; the
+               original `10px 30px` was reduced for full-bleed tier banners, which the
+               rule below breaks back out to full width. */
+            padding: 0 15px;
+        }
+
+        /* Keep tier banners edge-to-edge (full-bleed) despite the restored side
+           padding above — they sit directly inside `.new-content-area`. */
+        .new-content-area > .tier-banner {
+            margin-left: -15px;
+            margin-right: -15px;
         }
 
         .new-sidebar.collapsed .new-nav-link {
