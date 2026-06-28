@@ -3,7 +3,7 @@ echo ============================================================
 echo  AI Hub OneDir Build Process (AI-DEV) v3
 echo  Creates folder-based executables (AV-friendly)
 echo  Source: C:\src\aihub-client-ai-dev
-echo  Services: 13 total
+echo  Services: 14 total (13 PyInstaller + 1 Strategy-B source: Browser Use)
 echo ============================================================
 echo.
 
@@ -241,6 +241,34 @@ echo [13/13] Complete - Output: dist\command_center_service\
 
 echo.
 echo ============================================================
+echo  [14] Browser Use service (Strategy B: source + env + chromium)
+echo ============================================================
+:: browser_use_service is NOT PyInstaller-built. It runs from SOURCE under its own isolated env
+:: (aihub-browseruse) and drives a bundled Chromium over CDP. Ship all three into dist\ so the
+:: installer needs no provisioning on the target:
+::   dist\browser_use_service\   - service source (no _scratch/__pycache__/logs)
+::   dist\browser_use_env\       - copy of the aihub-browseruse conda env (BROWSER_USE_PYTHON)
+::   dist\browser_use_chromium\  - bundled Chromium (chrome-win64) from the Playwright cache
+:: NOTE: chromium revision (chromium-1223) is pinned to the installed browser-use/Playwright build;
+:: bump it here if browser-use is upgraded (check %LOCALAPPDATA%\ms-playwright).
+
+echo [14] Copying browser_use_service source...
+robocopy "%PROJECT_PATH%\browser_use_service" "%PROJECT_PATH%\dist\browser_use_service" /MIR /XD _scratch __pycache__ .pytest_cache /XF *.log /NFL /NDL /NJH /NJS /NP
+if %ERRORLEVEL% GEQ 8 ( echo ERROR: browser_use_service source copy failed! & pause & exit /b 1 )
+
+echo [14] Copying isolated env (aihub-browseruse) -^> dist\browser_use_env...
+robocopy "%CONDA_PATH%\envs\aihub-browseruse" "%PROJECT_PATH%\dist\browser_use_env" /MIR /NFL /NDL /NJH /NJS /NP
+if %ERRORLEVEL% GEQ 8 ( echo ERROR: browser_use_env copy failed! & pause & exit /b 1 )
+
+echo [14] Copying bundled Chromium (chromium-1223)...
+robocopy "%LOCALAPPDATA%\ms-playwright\chromium-1223" "%PROJECT_PATH%\dist\browser_use_chromium\chromium-1223" /MIR /NFL /NDL /NJH /NJS /NP
+if %ERRORLEVEL% GEQ 8 ( echo ERROR: browser_use_chromium copy failed! & pause & exit /b 1 )
+:: robocopy returns 1-7 on success; reset ERRORLEVEL so the clean-exit path isn't tripped
+cmd /c exit 0
+echo [14] Complete - Output: dist\browser_use_service\, dist\browser_use_env\, dist\browser_use_chromium\
+
+echo.
+echo ============================================================
 echo  BUILD COMPLETE - OneDir Structure (AI-DEV) v3
 echo ============================================================
 echo.
@@ -258,6 +286,9 @@ echo   - builder_service\            (Builder Agent Service)
 echo   - builder_data\               (Data Pipeline Agent)
 echo   - cloud_gateway\              (Cloud Storage Gateway)
 echo   - command_center_service\     (Command Center Service)
+echo   - browser_use_service\        (Browser Use / portal RPA - source)
+echo   - browser_use_env\            (Isolated env for Browser Use)
+echo   - browser_use_chromium\       (Bundled Chromium for Browser Use)
 echo.
 echo NOTE: ExecuteQuickJob was not included in this build.
 echo       Add it if needed using the same pattern.

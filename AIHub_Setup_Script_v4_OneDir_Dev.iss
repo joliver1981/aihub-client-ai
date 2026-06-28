@@ -60,6 +60,10 @@ Source: "C:\src\aihub-client-ai-dev\dist\builder_service\*"; DestDir: "{app}\bui
 Source: "C:\src\aihub-client-ai-dev\dist\builder_data\*"; DestDir: "{app}\builder_data"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "C:\src\aihub-client-ai-dev\dist\cloud_gateway\*"; DestDir: "{app}\cloud_gateway"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "C:\src\aihub-client-ai-dev\dist\command_center_service\*"; DestDir: "{app}\command_center_service"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Browser Use (Strategy B): runs from SOURCE under its own isolated env + bundled Chromium (not PyInstaller-built)
+Source: "C:\src\aihub-client-ai-dev\dist\browser_use_service\*"; DestDir: "{app}\browser_use_service"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "C:\src\aihub-client-ai-dev\dist\browser_use_env\*"; DestDir: "{app}\browser_use_env"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "C:\src\aihub-client-ai-dev\dist\browser_use_chromium\*"; DestDir: "{app}\browser_use_chromium"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Non-PyInstaller files (unchanged)
 Source: "C:\src\nssm-2.24\win64\nssm.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -316,8 +320,8 @@ end;
 procedure StopAndRemoveServices();
 var
   ResultCode: Integer;
-  Services: array[0..12] of String;
-  Executables: array[0..12] of String;
+  Services: array[0..13] of String;
+  Executables: array[0..13] of String;
   NssmPath: String;
   I: Integer;
 begin
@@ -334,6 +338,7 @@ begin
   Services[10] := 'AIHubBuilderData';
   Services[11] := 'AIHubCloudGateway';
   Services[12] := 'AIHubCommandCenter';
+  Services[13] := 'AIHubBrowserUse';
 
   // Corresponding executable names for taskkill
   Executables[0] := 'app.exe';
@@ -349,6 +354,9 @@ begin
   Executables[10] := 'builder_data.exe';
   Executables[11] := 'app_cloud_gateway.exe';
   Executables[12] := 'command_center_service.exe';
+  // Strategy-B service: image is the SHARED 'python.exe' — PHASE 4 below SKIPS taskkill for it on
+  // purpose (NSSM stop/remove already handled it) so we never blanket-kill unrelated client Pythons.
+  Executables[13] := 'python.exe';
   // ONEDIR: Executables remain the same name, just in subfolders
 
   Log('========================================');
@@ -367,7 +375,7 @@ begin
   // PHASE 1: Disable service recovery to prevent auto-restart
   // =========================================================================
   Log('Phase 1: Disabling service recovery...');
-  for I := 0 to 12 do
+  for I := 0 to 13 do
   begin
     DisableServiceRecovery(Services[I]);
   end;
@@ -380,7 +388,7 @@ begin
   if FileExists(NssmPath) then
   begin
     Log('Using NSSM to stop services: ' + NssmPath);
-    for I := 0 to 12 do
+    for I := 0 to 13 do
     begin
       Log('Stopping service: ' + Services[I]);
       Exec(NssmPath, 'stop ' + Services[I], '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
@@ -390,7 +398,7 @@ begin
   else
   begin
     Log('WARNING: NSSM not found, using sc.exe to stop services');
-    for I := 0 to 12 do
+    for I := 0 to 13 do
     begin
       Log('Stopping service: ' + Services[I]);
       Exec('sc.exe', 'stop "' + Services[I] + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
@@ -409,7 +417,7 @@ begin
   Log('Phase 3: Removing service registrations...');
   if FileExists(NssmPath) then
   begin
-    for I := 0 to 12 do
+    for I := 0 to 13 do
     begin
       Log('Removing service: ' + Services[I]);
       Exec(NssmPath, 'remove ' + Services[I] + ' confirm', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
@@ -418,7 +426,7 @@ begin
   end
   else
   begin
-    for I := 0 to 12 do
+    for I := 0 to 13 do
     begin
       Log('Removing service: ' + Services[I]);
       Exec('sc.exe', 'delete "' + Services[I] + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
@@ -434,13 +442,21 @@ begin
   // This is a safety net AFTER services are properly removed
   // =========================================================================
   Log('Phase 4: Final cleanup of any orphan processes...');
-  for I := 0 to 12 do
+  for I := 0 to 13 do
   begin
-    Exec('taskkill.exe', '/F /IM ' + Executables[I], '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    if ResultCode = 0 then
-      Log('  Killed orphan: ' + Executables[I])
-    else if ResultCode <> 128 then  // 128 = process not found (expected)
-      Log('  ' + Executables[I] + ' taskkill result: ' + IntToStr(ResultCode));
+    // FOOTGUN GUARD: never `taskkill /F /IM python.exe` — that would kill UNRELATED client Python
+    // processes. The Strategy-B Browser Use service (image python.exe) is already stopped+removed via
+    // NSSM above, so skip the orphan-kill for it.
+    if Executables[I] = 'python.exe' then
+      Log('  Skipping taskkill for shared image: ' + Executables[I])
+    else
+    begin
+      Exec('taskkill.exe', '/F /IM ' + Executables[I], '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      if ResultCode = 0 then
+        Log('  Killed orphan: ' + Executables[I])
+      else if ResultCode <> 128 then  // 128 = process not found (expected)
+        Log('  ' + Executables[I] + ' taskkill result: ' + IntToStr(ResultCode));
+    end;
   end;
 
   // Also clean up any lingering nssm.exe processes
@@ -719,6 +735,7 @@ var
   EnvConfigFile: String;
   LocalUser, LocalPwd, LocalDomain: String;
   UseSystemAccount: Boolean;
+  BrowserUsePython: String;
 begin
   EnvConfigFile := ExpandConstant('{app}\.env');
 
@@ -967,7 +984,30 @@ begin
   Exec(ExpandConstant('{app}\nssm.exe'), 'start AIHubCommandCenter', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Log('AIHubCommandCenter service started');
 
-  Log('All 13 services installed and started successfully');
+  // =========================================================================
+  // Service 14: Browser Use (Strategy B - the bundled conda python runs main.py from SOURCE)
+  // =========================================================================
+  BrowserUsePython := ExpandConstant('{app}\browser_use_env\python.exe');
+  // Install python.exe as the Application; pass main.py as a RELATIVE parameter with AppDirectory set
+  // to the service folder. NSSM strips quotes on a spaced absolute main.py path, so relative
+  // AppParameters + AppDirectory is the robust form (per the browser-use client-ship notes).
+  ShellExec('', ExpandConstant('{app}\nssm.exe'),
+    'install AIHubBrowserUse "' + BrowserUsePython + '"',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{app}\nssm.exe'), 'set AIHubBrowserUse AppDirectory "' + ExpandConstant('{app}\browser_use_service') + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{app}\nssm.exe'), 'set AIHubBrowserUse AppParameters main.py', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+  if not UseSystemAccount then
+    Exec(ExpandConstant('{app}\nssm.exe'), 'set AIHubBrowserUse ObjectName ' + LocalDomain + '\' + LocalUser + ' ' + LocalPwd, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+  // Pass env so prod can override the port without a rebuild, and so APP_ROOT is the shared {app} root.
+  Exec(ExpandConstant('{app}\nssm.exe'), 'set AIHubBrowserUse AppEnvironmentExtra HOST_PORT=5001 APP_ROOT=' + ExpandConstant('{app}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{app}\nssm.exe'), 'set AIHubBrowserUse Description "AI Hub Browser Use (portal RPA) service"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  ConfigureServiceRecovery('AIHubBrowserUse');
+  Exec(ExpandConstant('{app}\nssm.exe'), 'start AIHubBrowserUse', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Log('AIHubBrowserUse service started');
+
+  Log('All 14 services installed and started successfully');
 
   // Get the configured port for browser launch
   GetConfiguredPort();
@@ -1257,6 +1297,8 @@ Filename: "{app}\nssm.exe"; Parameters: "stop AIHubBuilderData"; Flags: runhidde
 Filename: "{app}\nssm.exe"; Parameters: "remove AIHubBuilderData confirm"; Flags: runhidden
 Filename: "{app}\nssm.exe"; Parameters: "stop AIHubCommandCenter"; Flags: runhidden waituntilterminated
 Filename: "{app}\nssm.exe"; Parameters: "remove AIHubCommandCenter confirm"; Flags: runhidden
+Filename: "{app}\nssm.exe"; Parameters: "stop AIHubBrowserUse"; Flags: runhidden waituntilterminated
+Filename: "{app}\nssm.exe"; Parameters: "remove AIHubBrowserUse confirm"; Flags: runhidden
 
 [UninstallRegistry]
 Root: HKLM; Subkey: "Software\AI Hub\Config"; Flags: deletekey
