@@ -89,6 +89,18 @@ def _schedule_allowed(state) -> bool:
     return _SCHEDULE_ALLOW_ALL or _has_dev_role(state)
 
 
+# SFTP / FTP file transfer (sftp_list_files / sftp_download / sftp_upload) availability.
+# Default Developer+ only — these connect to external servers with user-supplied
+# credentials and move files in/out — flip SFTP_ALLOW_ALL_USERS=true to open to all users.
+_SFTP_ENABLED = os.getenv("SFTP_ENABLED", "true").lower() == "true"
+_SFTP_ALLOW_ALL = os.getenv("SFTP_ALLOW_ALL_USERS", "false").lower() == "true"
+
+
+def _sftp_allowed(state) -> bool:
+    """True if this user may transfer files over SFTP/FTP."""
+    return _SFTP_ALLOW_ALL or _has_dev_role(state)
+
+
 # ─── Helpers ──────────────────────────────────────────────────────────────
 
 def _build_delegation_context(messages: list, session_resources: list = None, max_chars: int = 1500) -> str:
@@ -1387,6 +1399,23 @@ async def converse(state: CommandCenterState) -> dict:
             "stop one." + _existing
         )
 
+    _sftp_prompt = ""
+    if _SFTP_ENABLED and _sftp_allowed(state):
+        _sftp_prompt = (
+            "## SFTP / FTP FILE TRANSFER (sftp_list_files / sftp_download / sftp_upload)\n"
+            "You can connect to an SFTP, FTP, or FTPS server to move files, using credentials the "
+            "user provides in chat. Nothing is stored — the host/login is used only for that call.\n"
+            "- sftp_list_files: list what's on the server (name, size, modified, age) before transferring.\n"
+            "- sftp_download: pull a remote file down; it comes back to the user as a download chip "
+            "automatically — do NOT fabricate a link or claim delivery if the tool reports an error.\n"
+            "- sftp_upload: push a file the user uploaded to THIS chat up to the server (reference it "
+            "by its filename).\n"
+            "- DO IT NOW: if the user gives a host, login, and path, call the tool right away — do not "
+            "stall or ask for confirmation you already have. Default protocol is 'sftp' (port 22); set "
+            "protocol='ftp' or 'ftps' (port 21) when the user says so.\n"
+            "- If the user shares a password, never repeat it back in your reply."
+        )
+
     system_prompt = COMMAND_CENTER_SYSTEM_PROMPT + f"""
 
 ## CURRENT DATE/TIME
@@ -1470,6 +1499,7 @@ If the user asks to use a tool that was previously created, use run_generated_to
 - Write complete, self-contained scripts. You cannot ask the user mid-execution.''' if _CODE_INTERPRETER_ENABLED else "Code execution is not available on this instance."}
 {_portal_prompt}
 {_schedule_prompt}
+{_sftp_prompt}
 
 ## WEB SEARCH — REAL-TIME INFORMATION
 You have a search_web tool that performs live internet searches via Tavily (with DuckDuckGo fallback).
@@ -2766,6 +2796,147 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         return ("Your contact info — name: " + (name or "—") +
                 ", email: " + (email or "—") + ", phone: " + (phone or "—"))
 
+    @lc_tool
+    async def sftp_list_files(host: str, username: str = "", password: str = "",
+                              remote_dir: str = ".", port: int = 0,
+                              protocol: str = "sftp") -> str:
+        """List files in a directory on an SFTP, FTP, or FTPS server.
+
+        Use this to see what files are on a remote server (name, size, modified,
+        age) before downloading. The user must supply the server host and login,
+        typically pasted into the chat. Nothing is stored — credentials are used
+        only for this one call.
+
+        Args:
+            host: server hostname or IP (e.g. 'sftp.example.com').
+            username: login username (omit for anonymous FTP).
+            password: login password (omit for anonymous FTP).
+            remote_dir: directory to list (default '.', the login directory).
+            port: server port; 0 = default (22 for sftp, 21 for ftp/ftps).
+            protocol: one of 'sftp' (default), 'ftp', or 'ftps'.
+        """
+        if not _sftp_allowed(state):
+            return ("Transferring files over SFTP/FTP requires a Developer role on this "
+                    "instance. Your account doesn't have permission to do that.")
+        from command_center.tools import sftp_transfer as _sft
+        logger.info(f"[converse/tool] sftp_list_files {protocol} host={host} dir={remote_dir}")
+        res = await asyncio.to_thread(
+            _sft.list_dir, host, username, password, remote_dir or ".",
+            (port or None), protocol)
+        if not res.get("ok"):
+            return f"Could not list the remote directory: {res.get('error')}"
+        return res.get("report") or "The directory is empty."
+
+    @lc_tool
+    async def sftp_download(host: str, remote_path: str, username: str = "",
+                            password: str = "", port: int = 0,
+                            protocol: str = "sftp") -> str:
+        """Download a file from an SFTP, FTP, or FTPS server and give it to the user.
+
+        The downloaded file is returned to the user as a downloadable artifact (a
+        download chip) — you do NOT need to do anything else to deliver it. The user
+        must supply the server host, login, and the remote file path. Nothing is
+        stored — credentials are used only for this one call.
+
+        Args:
+            host: server hostname or IP.
+            remote_path: full path to the file on the server (e.g. '/outbox/report.csv').
+            username: login username (omit for anonymous FTP).
+            password: login password (omit for anonymous FTP).
+            port: server port; 0 = default (22 sftp, 21 ftp/ftps).
+            protocol: one of 'sftp' (default), 'ftp', or 'ftps'.
+        """
+        if not _sftp_allowed(state):
+            return ("Transferring files over SFTP/FTP requires a Developer role on this "
+                    "instance. Your account doesn't have permission to do that.")
+        import shutil
+        import tempfile
+        from command_center.tools import sftp_transfer as _sft
+        from command_center.tools import portal_fetch as _pf
+        _sid = state.get("session_id", "")
+        _uc = state.get("user_context") or {}
+        logger.info(f"[converse/tool] sftp_download {protocol} host={host} path={remote_path}")
+        tmpdir = tempfile.mkdtemp(prefix="cc_sftp_")
+        try:
+            res = await asyncio.to_thread(
+                _sft.download, host, username, password, remote_path, tmpdir,
+                (port or None), protocol)
+            if not res.get("ok"):
+                return f"Could not download the file: {res.get('error')}"
+            # Register the downloaded file as a CC artifact -> download chip
+            # (same path code_interpreter/portal downloads use).
+            blocks = _pf._register_artifacts([res["local_path"]], _sid, _uc)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+        if blocks:
+            return json.dumps(blocks)
+        return ("The file was downloaded but could not be prepared as a download. Tell the "
+                "user plainly that the download did not complete — do NOT invent a link.")
+
+    @lc_tool
+    async def sftp_upload(host: str, filename: str, username: str = "",
+                          password: str = "", remote_dir: str = ".",
+                          port: int = 0, protocol: str = "sftp") -> str:
+        """Upload a file the user attached to THIS chat to an SFTP, FTP, or FTPS server.
+
+        `filename` must be the name of a file the user uploaded to this conversation.
+        The user supplies the server host, login, and destination directory. Nothing
+        is stored — credentials are used only for this one call.
+
+        Args:
+            host: server hostname or IP.
+            filename: name of a file the user uploaded to this chat to send.
+            username: login username (omit for anonymous FTP).
+            password: login password (omit for anonymous FTP).
+            remote_dir: destination directory on the server (default '.').
+            port: server port; 0 = default (22 sftp, 21 ftp/ftps).
+            protocol: one of 'sftp' (default), 'ftp', or 'ftps'.
+        """
+        if not _sftp_allowed(state):
+            return ("Transferring files over SFTP/FTP requires a Developer role on this "
+                    "instance. Your account doesn't have permission to do that.")
+        from command_center.tools import sftp_transfer as _sft
+        _sid = state.get("session_id", "")
+        _uc = state.get("user_context") or {}
+        # Resolve the chat-uploaded file with the SAME ownership check the
+        # attachment / code-interpreter paths use.
+        local_path = None
+        try:
+            from routes.upload import (
+                get_files_for_session, get_file_path, _file_is_accessible_to,
+            )
+            uid = _uc.get("user_id")
+            tid = _uc.get("tenant_id")
+            try:
+                role = int(_uc.get("role") or 0)
+            except (TypeError, ValueError):
+                role = 0
+            want = (filename or "").strip().lower()
+            for meta in (get_files_for_session(_sid) or []):
+                if (meta.get("filename") or "").strip().lower() != want:
+                    continue
+                if uid is not None and not _file_is_accessible_to(meta, uid, tid, role):
+                    continue
+                fid = meta.get("file_id")
+                path = get_file_path(fid) if fid else None
+                if path and os.path.exists(path):
+                    local_path = path
+                    break
+        except Exception as e:
+            logger.warning(f"[converse/tool] sftp_upload file resolve failed: {e}")
+        if not local_path:
+            return (f"I couldn't find a file named '{filename}' that you uploaded to this "
+                    "chat. Please upload it here first, then ask me to send it.")
+        logger.info(f"[converse/tool] sftp_upload {protocol} host={host} file={filename}")
+        res = await asyncio.to_thread(
+            _sft.upload, host, username, password, local_path, remote_dir or ".",
+            None, (port or None), protocol)
+        if not res.get("ok"):
+            return f"Could not upload the file: {res.get('error')}"
+        where = f"{host}:{port}" if port else host
+        return (f"Uploaded '{res.get('name')}' to {protocol}://{where} "
+                f"at {res.get('remote_path')}.")
+
     tools = [query_data_agent, query_general_agent, delegate_to_builder_agent, save_user_preference, recall_all_memories, forget_preference, switch_active_agent, export_data, run_generated_tool, manipulate_pdf, generate_map, search_web, send_email, get_my_contact_info]
     if IMAGE_GENERATION_ENABLED:
         tools.append(generate_image)
@@ -2773,6 +2944,10 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         tools.append(search_documents)
     if _CODE_INTERPRETER_ENABLED:
         tools.append(run_python)
+    if _SFTP_ENABLED:
+        tools.append(sftp_list_files)
+        tools.append(sftp_download)
+        tools.append(sftp_upload)
     if _PORTAL_FETCH_ENABLED:
         tools.append(fetch_from_portal)
         tools.append(save_portal)
@@ -2821,6 +2996,9 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     "search_documents": search_documents,
                     "send_email": send_email,
                     "run_python": run_python,
+                    "sftp_list_files": sftp_list_files,
+                    "sftp_download": sftp_download,
+                    "sftp_upload": sftp_upload,
                     "fetch_from_portal": fetch_from_portal,
                     "save_portal": save_portal,
                     "lookup_portal": lookup_portal,

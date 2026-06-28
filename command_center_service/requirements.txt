@@ -10,3 +10,4 @@ python-dotenv>=1.0.0
 openpyxl>=3.1.0
 reportlab>=4.0.0
 Pillow>=10.0.0
+paramiko>=3.4.0  # SFTP file transfer (sftp_list_files/sftp_download/sftp_upload). FTP/FTPS use stdlib ftplib.
