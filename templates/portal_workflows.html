@@ -1,0 +1,378 @@
+{% extends "base.html" %}
+
+{% block page_title %}Portal Workflows{% endblock %}
+
+{% block content %}
+<style>
+  .pw-wrap { max-width: 980px; padding: 12px 0 24px 28px; }
+  .pw-step { border: 1px solid #e3e6ea; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; background: #fff; }
+  .pw-step .pw-grip { color: #adb5bd; cursor: default; }
+  .pw-badge-type { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+  .pw-type-det { background: #e1f5ee; color: #0f6e56; }
+  .pw-type-llm { background: #cecbf6; color: #3c3489; }
+  .pw-type-chk { background: #eef0f2; color: #495057; }
+  .pw-anchor input { font-family: monospace; font-size: 13px; }
+  .pw-result-step { font-size: 13px; padding: 4px 0; border-bottom: 1px solid #f1f3f5; }
+  .pw-pill { font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+  .pw-ok { background:#e1f5ee; color:#0f6e56; } .pw-healed { background:#faeeda; color:#854f0b; }
+  .pw-failed { background:#fcebeb; color:#a32d2d; } .pw-fallback { background:#e6f1fb; color:#185fa5; }
+  .pw-muted { color:#868e96; font-size:12px; }
+</style>
+
+<div class="pw-wrap">
+  <div class="alert alert-info" style="font-size:14px;">
+    <strong>Two ways to fetch from a portal.</strong>
+    <em>Auto-mode</em> (the Command Center chat) just does the task end-to-end — simplest, best for one-offs.
+    <em>Workflow mode</em> (this screen) records deterministic steps and lets you weave in LLM steps
+    (e.g. <span class="pw-muted">"download the most recent invoice"</span>) for tasks you run repeatedly or that need to be reliable.
+  </div>
+
+  <div class="form-row align-items-end mb-3">
+    <div class="form-group col-md-5 mb-1">
+      <label class="pw-muted mb-1">Saved workflows</label>
+      <select id="pw-saved" class="form-control"></select>
+    </div>
+    <div class="form-group col-md-7 mb-1">
+      <button id="pw-new" class="btn btn-outline-secondary btn-sm">New</button>
+      <button id="pw-load" class="btn btn-outline-primary btn-sm">Load</button>
+      <button id="pw-import" class="btn btn-outline-secondary btn-sm">Import JSON</button>
+      <a href="{{ url_for('portal_workflows_bp.runs_monitor_page') }}" class="btn btn-outline-info btn-sm">Live runs</a>
+      <button id="pw-delete" class="btn btn-outline-danger btn-sm float-right">Delete</button>
+    </div>
+  </div>
+
+  <div class="card mb-3"><div class="card-body">
+    <div class="form-row">
+      <div class="form-group col-md-6">
+        <label class="pw-muted mb-1">Name</label>
+        <input id="pw-name" class="form-control" placeholder="Acme — latest invoice">
+      </div>
+      <div class="form-group col-md-6">
+        <label class="pw-muted mb-1">Portal (for credentials)</label>
+        <select id="pw-portal" class="form-control"></select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group col-md-6">
+        <label class="pw-muted mb-1">Start URL</label>
+        <input id="pw-start" class="form-control" placeholder="https://portal.example.com/login">
+      </div>
+      <div class="form-group col-md-6">
+        <label class="pw-muted mb-1">Goal (used if the agent has to take over)</label>
+        <input id="pw-goal" class="form-control" placeholder="Log in and download the latest invoice">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group col-md-12 mb-0">
+        <label style="cursor:pointer;font-weight:normal" class="mb-0">
+          <input type="checkbox" id="pw-oversight" checked> <b>Agent oversight</b>
+          <span class="pw-muted">— if a recorded step gets stuck (e.g. a page changed, or a 2FA code
+          was entered but not submitted), an AI steps in and finishes the task using the Goal above.
+          Recommended.</span>
+        </label>
+      </div>
+    </div>
+    <div class="form-row mt-2">
+      <div class="form-group col-md-6 mb-0">
+        <label class="pw-muted mb-1">Human take-over window (seconds, optional — default 900)</label>
+        <input id="pw-takeover" type="number" class="form-control form-control-sm" placeholder="900">
+      </div>
+    </div>
+  </div></div>
+
+  <h6 class="pw-muted">Steps</h6>
+  <div id="pw-steps"></div>
+
+  <div class="mb-3">
+    <span class="pw-muted mr-2">Add step</span>
+    <div class="btn-group btn-group-sm" role="group">
+      <button class="pw-add btn btn-outline-secondary" data-t="goto">Navigate</button>
+      <button class="pw-add btn btn-outline-secondary" data-t="login">Log in</button>
+      <button class="pw-add btn btn-outline-secondary" data-t="click">Click</button>
+      <button class="pw-add btn btn-outline-secondary" data-t="fill">Fill</button>
+      <button class="pw-add btn btn-outline-secondary" data-t="wait">Wait</button>
+      <button class="pw-add btn btn-outline-secondary" data-t="upload">Upload</button>
+      <button class="pw-add btn btn-outline-primary" data-t="agent">LLM step</button>
+      <button class="pw-add btn btn-outline-primary" data-t="human">Human step</button>
+      <button class="pw-add btn btn-outline-primary" data-t="verify_code">Verify code (2FA)</button>
+      <button class="pw-add btn btn-outline-secondary" data-t="verify">Verify</button>
+    </div>
+  </div>
+
+  <div class="mb-4">
+    <button id="pw-save" class="btn btn-primary">Save</button>
+    <button id="pw-run" class="btn btn-success">Test run</button>
+    <button id="pw-schedule-toggle" class="btn btn-outline-info">Schedule…</button>
+    <span id="pw-status" class="pw-muted ml-2"></span>
+    <div id="pw-schedule" class="mt-2 p-2" style="display:none;border:1px solid #2a2f3a;border-radius:6px;max-width:600px;">
+      <div class="pw-muted mb-2" style="font-size:12px;">Run this saved workflow automatically in the background.
+        For fully hands-off 2FA, give the workflow a <b>Verify code (2FA)</b> step <i>and</i> a TOTP secret on the linked portal.
+        Without TOTP it pauses and <b>emails you a link to take over</b> and enter the code (~15&nbsp;min window) — just like the chat.</div>
+      <div class="form-row align-items-center">
+        <div class="col-auto pw-muted" style="font-size:13px;">Run every</div>
+        <div class="col-auto"><select id="pw-sched-freq" class="form-control form-control-sm">
+          <option value="1h">hour</option>
+          <option value="6h">6 hours</option>
+          <option value="12h">12 hours</option>
+          <option value="24h" selected>day</option>
+          <option value="7d">week</option>
+        </select></div>
+        <div class="col-auto"><button id="pw-sched-create" class="btn btn-sm btn-info">Create schedule</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="pw-results" class="card" style="display:none;"><div class="card-body">
+    <h6 class="mb-2">Run result <span id="pw-result-summary" class="pw-muted"></span></h6>
+    <div id="pw-result-steps"></div>
+  </div></div>
+</div>
+
+<script>
+(function(){
+  var steps = [];
+  var DET = {goto:'pw-type-det', login:'pw-type-det', click:'pw-type-det', fill:'pw-type-det',
+             wait:'pw-type-det', upload:'pw-type-det', agent:'pw-type-llm', human:'pw-type-llm',
+             verify_code:'pw-type-llm', verify:'pw-type-chk'};
+  var LABEL = {goto:'Navigate', login:'Log in', click:'Click', fill:'Fill', wait:'Wait', upload:'Upload',
+               agent:'LLM step', human:'Human step', verify_code:'Verify code (2FA)', verify:'Verify'};
+
+  // Escape for use inside an HTML attribute value. jQuery's .text().html() escapes < > & but NOT
+  // quotes — so a selector like [id="username"] would break out of value="..." and the box would
+  // show only "[id=". Escape quotes too so any anchor (name/placeholder/text with quotes) renders.
+  function esc(s){ return $('<div>').text(s==null?'':s).html().replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+  function newStep(t){
+    if(t==='goto') return {type:'goto', url:''};
+    if(t==='login') return {type:'login', username_anchor:{}, password_anchor:{}, submit_anchor:{}};
+    if(t==='click') return {type:'click', anchor:{}};
+    if(t==='fill') return {type:'fill', anchor:{}, value:''};
+    if(t==='wait') return {type:'wait', timeout:3, until:null};
+    if(t==='agent') return {type:'agent', prompt:'', max_steps:8};
+    if(t==='human') return {type:'human', reason:'Enter the 2-step verification code', timeout:300};
+    if(t==='verify_code') return {type:'verify_code', reason:'Enter the 2-step verification code', timeout:900};
+    if(t==='upload') return {type:'upload', anchor:{}};
+    if(t==='verify') return {type:'verify', downloaded:true};
+    return {type:t};
+  }
+  // One labeled row: a caption (what element this targets) + the two ways to find it.
+  // The element is matched by CSS selector if given, otherwise by its visible text — so a blank
+  // selector with text filled in is a valid "smart default", not an error.
+  function anchorRow(label, obj, key, idx){
+    obj = obj || {};
+    return '<div class="form-row pw-anchor align-items-center mb-1">'
+      + '<div class="col-3 pw-muted" style="font-size:12px;">'+esc(label)+'</div>'
+      + '<div class="col"><input class="form-control form-control-sm" placeholder="CSS selector (optional)" '
+      + 'data-idx="'+idx+'" data-anchor="'+key+'" data-k="css" value="'+esc(obj.css||'')+'" title="'+esc(obj.css||'')+'"></div>'
+      + '<div class="col"><input class="form-control form-control-sm" placeholder="visible text / label" '
+      + 'data-idx="'+idx+'" data-anchor="'+key+'" data-k="text" value="'+esc(obj.text||'')+'" title="'+esc(obj.text||'')+'"></div>'
+      + '</div>';
+  }
+  // Header explaining the two input columns (the caption column is left blank).
+  function anchorHeader(){
+    return '<div class="form-row pw-muted align-items-center mb-1" style="font-size:11px;">'
+      + '<div class="col-3"></div>'
+      + '<div class="col">CSS selector (advanced — optional)</div>'
+      + '<div class="col">Visible text / label</div>'
+      + '</div>';
+  }
+  function fields(s, idx){
+    if(s.type==='goto')
+      return '<input class="form-control form-control-sm" placeholder="https://..." data-idx="'+idx+'" data-k="url" value="'+esc(s.url||'')+'">';
+    if(s.type==='login')
+      return anchorHeader()
+           + anchorRow('Username field', s.username_anchor, 'username_anchor', idx)
+           + anchorRow('Password field', s.password_anchor, 'password_anchor', idx)
+           + anchorRow('Submit button', s.submit_anchor, 'submit_anchor', idx)
+           + '<div class="pw-muted">Leave a row blank to use smart defaults (email/user field, password field, submit button).</div>';
+    if(s.type==='click') return anchorHeader() + anchorRow('Element to click', s.anchor, 'anchor', idx);
+    if(s.type==='fill')
+      return anchorHeader() + anchorRow('Field to fill', s.anchor, 'anchor', idx)
+           + '<div class="form-row"><div class="col-3 pw-muted" style="font-size:12px;">Value</div><div class="col"><input class="form-control form-control-sm" placeholder="value to type" data-idx="'+idx+'" data-k="value" value="'+esc(s.value||'')+'"></div>'
+           + '<div class="col"><select class="form-control form-control-sm" data-idx="'+idx+'" data-k="secret">'
+           + ['','username','password','totp'].map(function(o){return '<option '+(s.secret===o?'selected':'')+' value="'+o+'">'+(o?('secret: '+o):'(literal value)')+'</option>';}).join('')
+           + '</select></div></div>';
+    if(s.type==='wait')
+      return '<div class="form-row"><div class="col-3"><input type="number" class="form-control form-control-sm" placeholder="seconds" data-idx="'+idx+'" data-k="timeout" value="'+esc(s.timeout||3)+'"></div>'
+           + '<div class="col"><input class="form-control form-control-sm" placeholder="wait until CSS/text appears (optional)" data-idx="'+idx+'" data-anchor="until" data-k="css" value="'+esc((s.until||{}).css||'')+'"></div></div>';
+    if(s.type==='agent')
+      return '<textarea class="form-control form-control-sm" rows="2" placeholder="e.g. download the most recent invoice by date" data-idx="'+idx+'" data-k="prompt">'+esc(s.prompt||'')+'</textarea>'
+           + '<div class="form-row mt-1"><div class="col-3"><input type="number" class="form-control form-control-sm" placeholder="max steps" data-idx="'+idx+'" data-k="max_steps" value="'+esc(s.max_steps||8)+'"></div></div>';
+    if(s.type==='human')
+      return '<div class="form-row"><div class="col-3 pw-muted" style="font-size:12px;">Ask the operator to</div>'
+           + '<div class="col"><input class="form-control form-control-sm" placeholder="e.g. enter the 2-step verification code" data-idx="'+idx+'" data-k="reason" value="'+esc(s.reason||'')+'"></div>'
+           + '<div class="col-3"><input type="number" class="form-control form-control-sm" placeholder="timeout (s)" data-idx="'+idx+'" data-k="timeout" value="'+esc(s.timeout||300)+'"></div></div>'
+           + '<div class="pw-muted">Pauses the run and pings a person to take over (e.g. for 2FA), then resumes.</div>';
+    if(s.type==='verify_code')
+      return '<div class="form-row"><div class="col-3 pw-muted" style="font-size:12px;">If no TOTP, ask operator to</div>'
+           + '<div class="col"><input class="form-control form-control-sm" placeholder="e.g. enter the 2-step verification code" data-idx="'+idx+'" data-k="reason" value="'+esc(s.reason||'')+'"></div>'
+           + '<div class="col-3"><input type="number" class="form-control form-control-sm" placeholder="timeout (s)" data-idx="'+idx+'" data-k="timeout" value="'+esc(s.timeout||300)+'"></div></div>'
+           + '<div class="pw-muted">Enters the 2FA code <b>automatically</b> if the linked portal has a saved TOTP secret; otherwise pauses for a person to take over. Use this (not Human step) so the workflow can run unattended/scheduled.</div>';
+    if(s.type==='verify')
+      return '<label class="pw-muted mb-1"><input type="checkbox" data-idx="'+idx+'" data-k="downloaded" '+(s.downloaded?'checked':'')+'> a file downloaded</label>'
+           + anchorRow('or element present', s.anchor||{}, 'anchor', idx);
+    if(s.type==='upload')
+      return anchorHeader() + anchorRow('File input', s.anchor, 'anchor', idx)
+           + '<div class="pw-muted">Uploads a file you provide at run time (a chat attachment, or the file passed to a scheduled / Portal-node run) into this file input. The file itself is never stored in the workflow.</div>';
+    return '';
+  }
+  function render(){
+    var html = steps.map(function(s, idx){
+      return '<div class="pw-step">'
+        + '<div class="d-flex align-items-center mb-2">'
+        + '<span class="pw-grip mr-2">&#8942;</span>'
+        + '<span class="badge pw-badge-type '+DET[s.type]+' mr-2">'+LABEL[s.type]+'</span>'
+        + '<span class="pw-muted mr-auto">step '+(idx+1)+'</span>'
+        + '<button class="btn btn-sm btn-link pw-up" data-idx="'+idx+'">&uarr;</button>'
+        + '<button class="btn btn-sm btn-link pw-down" data-idx="'+idx+'">&darr;</button>'
+        + '<button class="btn btn-sm btn-link text-danger pw-rm" data-idx="'+idx+'">remove</button>'
+        + '</div>' + fields(s, idx) + '</div>';
+    }).join('');
+    $('#pw-steps').html(html || '<div class="pw-muted mb-2">No steps yet — add one below, or Load a saved workflow.</div>');
+  }
+
+  // field edits update state in place (no re-render, keeps focus)
+  $('#pw-steps').on('input change', '[data-idx]', function(){
+    var $e=$(this), idx=+$e.data('idx'), k=$e.data('k'), anchor=$e.data('anchor');
+    var val = $e.attr('type')==='checkbox' ? $e.is(':checked') : $e.val();
+    if(k==='timeout' || k==='max_steps') val = parseInt(val||'0',10)||0;
+    if(anchor){
+      steps[idx][anchor] = steps[idx][anchor] || {};
+      if(anchor==='until' && !val){ steps[idx].until = null; return; }
+      if(anchor==='until') steps[idx].until = steps[idx].until || {};
+      var tgt = anchor==='until' ? steps[idx].until : steps[idx][anchor];
+      if(val) tgt[k]=val; else delete tgt[k];
+    } else {
+      steps[idx][k]=val;
+    }
+  });
+  $('#pw-steps').on('click', '.pw-rm', function(){ steps.splice(+$(this).data('idx'),1); render(); });
+  $('#pw-steps').on('click', '.pw-up', function(){ var i=+$(this).data('idx'); if(i>0){ steps.splice(i-1,0,steps.splice(i,1)[0]); render(); } });
+  $('#pw-steps').on('click', '.pw-down', function(){ var i=+$(this).data('idx'); if(i<steps.length-1){ steps.splice(i+1,0,steps.splice(i,1)[0]); render(); } });
+  $('.pw-add').on('click', function(){ steps.push(newStep($(this).data('t'))); render(); });
+
+  function loadWorkflow(wf){
+    $('#pw-name').val(wf.name||''); $('#pw-start').val(wf.start_url||'');
+    $('#pw-goal').val(wf.goal||''); if(wf.portal_slug) $('#pw-portal').val(wf.portal_slug);
+    $('#pw-oversight').prop('checked', wf.agent_oversight !== false);   // default ON
+    $('#pw-takeover').val(wf.takeover_timeout||'');
+    steps = (wf.steps||[]).map(function(s){ return JSON.parse(JSON.stringify(s)); }); render();
+  }
+  function refreshSaved(){
+    $.getJSON('/api/portal-workflows', function(d){
+      var opts = '<option value="">— pick a saved workflow —</option>'
+        + (d.workflows||[]).map(function(w){ return '<option value="'+esc(w.slug)+'">'+esc(w.name)+' ('+w.step_count+' steps)</option>'; }).join('');
+      $('#pw-saved').html(opts);
+    });
+  }
+  function refreshPortals(){
+    $.getJSON('/api/portals', function(d){
+      var opts = '<option value="">— none —</option>'
+        + (d.portals||[]).map(function(p){ return '<option value="'+esc(p.slug)+'">'+esc(p.name)+'</option>'; }).join('');
+      $('#pw-portal').html(opts);
+    });
+  }
+  function status(msg, cls){ $('#pw-status').removeClass('text-danger text-success').addClass(cls||'').text(msg); }
+
+  $('#pw-new').on('click', function(){ steps=[]; $('#pw-name,#pw-start,#pw-goal').val(''); $('#pw-oversight').prop('checked', true); render(); status('New workflow'); });
+  $('#pw-load').on('click', function(){
+    var name=$('#pw-saved').val(); if(!name) return;
+    $.getJSON('/api/portal-workflows/'+encodeURIComponent(name), function(d){ if(d.workflow) loadWorkflow(d.workflow); status('Loaded'); });
+  });
+  $('#pw-import').on('click', function(){
+    var raw = prompt('Paste a workflow JSON (e.g. the draft from an Auto-mode run):');
+    if(!raw) return;
+    try { loadWorkflow(JSON.parse(raw)); status('Imported draft — review and Save'); }
+    catch(e){ status('Invalid JSON', 'text-danger'); }
+  });
+  $('#pw-delete').on('click', function(){
+    var name=$('#pw-saved').val(); if(!name || !confirm('Delete '+name+'?')) return;
+    $.ajax({url:'/api/portal-workflows/'+encodeURIComponent(name), type:'DELETE', success:function(){
+      // clear the editor too — the thing you were viewing no longer exists
+      steps=[]; $('#pw-name,#pw-start,#pw-goal').val(''); $('#pw-saved').val(''); render();
+      refreshSaved(); status('Deleted');
+    }});
+  });
+
+  function body(){
+    return { name:$('#pw-name').val().trim(), portal_slug:$('#pw-portal').val()||null,
+             start_url:$('#pw-start').val().trim()||null, goal:$('#pw-goal').val().trim()||null,
+             agent_oversight:$('#pw-oversight').is(':checked'),
+             takeover_timeout:(parseInt($('#pw-takeover').val()||'0',10)||0)||null, steps:steps };
+  }
+  function save(cb){
+    var b=body();
+    if(!b.name){ status('Name is required', 'text-danger'); return; }
+    $.ajax({url:'/api/portal-workflows', type:'POST', contentType:'application/json', data:JSON.stringify(b),
+      success:function(d){ status('Saved', 'text-success'); refreshSaved(); $('#pw-saved').val(d.saved.slug); if(cb) cb(d.saved.slug); },
+      error:function(x){ var r=x.responseJSON||{}; status((r.error||'Save failed')+(r.problems?': '+r.problems.join('; '):''), 'text-danger'); }});
+  }
+  $('#pw-save').on('click', function(){ save(); });
+
+  function renderResult(d){
+    $('#pw-results').show();
+    $('#pw-result-summary').text((d.final_result||d.status||'')+(d.error?(' — '+d.error):''));
+    var cls={ok:'pw-ok', healed:'pw-healed', failed:'pw-failed', fallback:'pw-fallback'};
+    $('#pw-result-steps').html((d.steps||[]).map(function(s){
+      return '<div class="pw-result-step"><span class="pw-pill '+(cls[s.status]||'')+'">'+esc(s.status)+'</span> '
+        + '<strong>'+esc(s.type)+'</strong> <span class="pw-muted">'+esc(s.detail||'')+'</span></div>';
+    }).join('') + '<div class="pw-result-step"><strong>'+(d.file_count||0)+'</strong> file(s) downloaded</div>');
+  }
+  $('#pw-run').on('click', function(){
+    save(function(slug){
+      status('Running… this opens a real browser and may take a minute', '');
+      $('#pw-run').prop('disabled', true);
+      $.ajax({url:'/api/portal-workflows/'+encodeURIComponent(slug)+'/run', type:'POST', contentType:'application/json', data:'{}',
+        success:function(d){ renderResult(d); status('Run finished', d.status==='ok'?'text-success':'text-danger'); },
+        error:function(x){ status((x.responseJSON||{}).error||'Run failed', 'text-danger'); },
+        complete:function(){ $('#pw-run').prop('disabled', false); }});
+    });
+  });
+
+  // --- Schedule: register the saved workflow as a recurring scheduler job ---
+  var PW_USER_ID = {{ (current_user.id if current_user.is_authenticated else 0)|tojson }};
+  function intervalSchedule(freq){
+    // Anchor with start_date=now (UTC) so the interval actually fires (a missing StartDate never does).
+    var now = new Date(), pad = function(n){ return (n<10?'0':'')+n; };
+    var sd = now.getFullYear()+'-'+pad(now.getMonth()+1)+'-'+pad(now.getDate())+' '
+           + pad(now.getHours())+':'+pad(now.getMinutes())+':'+pad(now.getSeconds());
+    var s = { type:'interval', start_date: sd, timezone_offset: now.getTimezoneOffset() };
+    if(freq==='1h') s.interval_hours=1;
+    else if(freq==='6h') s.interval_hours=6;
+    else if(freq==='12h') s.interval_hours=12;
+    else if(freq==='7d') s.interval_weeks=1;
+    else s.interval_days=1;   // 24h default
+    return s;
+  }
+  $('#pw-schedule-toggle').on('click', function(){ $('#pw-schedule').toggle(); });
+  $('#pw-sched-create').on('click', function(){
+    save(function(slug){   // ensure it's saved first (need a slug to target)
+      var nm = $('#pw-name').val().trim() || slug;
+      var payload = {
+        name: 'Portal: '+nm, type:'portal_workflow', target_id: slug,
+        created_by: String(PW_USER_ID), description: 'Scheduled portal workflow',
+        parameters: { user_id: { value: String(PW_USER_ID), type:'string' } },
+        schedule: intervalSchedule($('#pw-sched-freq').val())
+      };
+      $('#pw-sched-create').prop('disabled', true);
+      $.ajax({ url:'/api/scheduler/jobs', type:'POST', contentType:'application/json', data:JSON.stringify(payload),
+        success:function(){ status('Scheduled ✓ — runs every '+$('#pw-sched-freq option:selected').text(), 'text-success'); },
+        error:function(x){ status('Schedule failed: '+((x.responseJSON||{}).error||('HTTP '+x.status)), 'text-danger'); },
+        complete:function(){ $('#pw-sched-create').prop('disabled', false); } });
+    });
+  });
+
+  // Deep-link: /portal-workflows?load=<slug> (used by the CC "Save as workflow" button) loads
+  // that saved draft straight into the editor.
+  function loadFromQuery(){
+    var m = /[?&]load=([^&]+)/.exec(window.location.search);
+    if(!m) return;
+    var slug = decodeURIComponent(m[1]);
+    $.getJSON('/api/portal-workflows/'+encodeURIComponent(slug), function(d){
+      if(d && d.workflow){ loadWorkflow(d.workflow); $('#pw-saved').val(slug); status('Loaded recorded draft — review, then Save'); }
+    });
+  }
+
+  refreshSaved(); refreshPortals(); render(); loadFromQuery();
+})();
+</script>
+{% endblock %}
