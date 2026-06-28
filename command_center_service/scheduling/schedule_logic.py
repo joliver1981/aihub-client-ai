@@ -104,6 +104,68 @@ def create_cc_schedule(user_context: Optional[Dict[str, Any]],
     return {"status": "ok", "job_id": job_id}
 
 
+def create_portal_workflow_schedule(user_context: Optional[Dict[str, Any]],
+                                    slug: str, task_name: str,
+                                    schedule: Dict[str, Any], schedule_desc: str,
+                                    email_after: bool = False) -> Dict[str, Any]:
+    """Create a REAL recurring 'portal_workflow' scheduled job in the shared scheduler. TargetId =
+    the saved portal-workflow slug; the owner user_id is a job parameter (the executor
+    _execute_portal_workflow_job needs it to resolve the per-user workflow + creds). Mirrors
+    create_cc_schedule (incl. the interval start_date anchor) and records the task in the user's
+    local store so it shows in the Scheduled Tasks panel + list/cancel tools. Returns
+    {status:'ok', job_id} or {status:'error', error} — never a fabricated success."""
+    uc = user_context or {}
+    uid = uc.get("user_id")
+    if not uid:
+        return {"status": "error", "error": "no signed-in user"}
+    if not slug:
+        return {"status": "error", "error": "no portal-workflow slug to schedule"}
+
+    # Anchor interval triggers (same rationale as create_cc_schedule).
+    if isinstance(schedule, dict) and schedule.get("type") == "interval" and not schedule.get("start_date"):
+        from datetime import datetime, timezone
+        schedule = {**schedule,
+                    "start_date": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")}
+
+    # The executor resolves the per-user workflow + creds from user_id, so it MUST be a job
+    # parameter (target_id is numeric and only used for the legacy per-user-id routing). The
+    # workflow itself is identified by slug.
+    payload = {
+        "name": task_name,
+        "type": "portal_workflow",
+        "target_id": int(uid) if str(uid).isdigit() else 0,
+        "description": f"Scheduled portal workflow '{slug}' for user {uid}",
+        "created_by": f"cc_user_{uid}",
+        "parameters": {
+            "workflow_slug": _param(slug),
+            "user_id": _param(uid),
+            "tenant_id": _param(uc.get("tenant_id")),
+            "email_after": _param("1" if email_after else "0"),
+        },
+        "schedule": schedule,
+    }
+    try:
+        r = requests.post(f"{_scheduler_base()}/api/scheduler/jobs",
+                          json=payload, headers={"X-API-Key": _api_key()}, timeout=30)
+    except Exception as e:
+        return {"status": "error", "error": f"could not reach scheduler: {e}"}
+    if r.status_code not in (200, 201):
+        return {"status": "error", "error": f"scheduler returned {r.status_code}: {r.text[:200]}"}
+    try:
+        job_id = (r.json() or {}).get("id")
+    except Exception:
+        job_id = None
+    if not job_id:
+        return {"status": "error", "error": "scheduler did not return a job id"}
+    # Mirror into the user's local store so it shows in the Scheduled Tasks panel + list/cancel
+    # tools. Best-effort: the job is already created, so a store failure must not be fatal.
+    try:
+        store.add_task(uid, job_id, task_name, f"Portal workflow: {slug}", schedule_desc)
+    except Exception as e:
+        logger.warning(f"[schedule] portal task store mirror failed (job {job_id} created): {e}")
+    return {"status": "ok", "job_id": job_id}
+
+
 def list_cc_schedules(user_context: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return store.list_tasks((user_context or {}).get("user_id"))
 
@@ -149,4 +211,25 @@ def cancel_cc_schedule(user_context: Optional[Dict[str, Any]], name_or_id: str) 
     except Exception as e:
         logger.warning(f"[schedule] delete job {job_id} failed (removing locally anyway): {e}")
     store.remove_task(uid, job_id)
+    return {"status": "ok", "task_name": task.get("task_name"), "job_id": job_id}
+
+
+def run_cc_schedule_now(user_context: Optional[Dict[str, Any]], name_or_id: str) -> Dict[str, Any]:
+    """Trigger an immediate, out-of-band run of a scheduled task the user owns. Ownership is
+    enforced against the per-user store (only a task in THIS user's store may be triggered); the
+    actual run goes through the shared scheduler's /api/scheduler/run/<job_id> (X-API-Key,
+    server-side). Portal-workflow / command_center jobs run async there (HTTP 202), so this returns
+    promptly and the result lands in the task's run history. Does NOT affect the recurring schedule."""
+    uid = (user_context or {}).get("user_id")
+    task = store.get_task(uid, name_or_id) or store.find_task_by_name(uid, name_or_id)
+    if not task:
+        return {"status": "error", "error": f"no scheduled task matching '{name_or_id}'"}
+    job_id = task["job_id"]
+    try:
+        r = requests.post(f"{_scheduler_base()}/api/scheduler/run/{job_id}",
+                          headers={"X-API-Key": _api_key()}, timeout=30)
+    except Exception as e:
+        return {"status": "error", "error": f"could not reach scheduler: {e}"}
+    if r.status_code not in (200, 202):
+        return {"status": "error", "error": f"scheduler returned {r.status_code}: {r.text[:200]}"}
     return {"status": "ok", "task_name": task.get("task_name"), "job_id": job_id}
