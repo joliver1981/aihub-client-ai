@@ -2412,8 +2412,11 @@ def list_agents_summary():
                 FROM Agents
                 ORDER BY description
             """)
+            allowed_ids = _agent_visibility_filter()
             agents = []
             for row in cursor.fetchall():
+                if allowed_ids is not None and row.agent_id not in allowed_ids:
+                    continue
                 agents.append({
                     'agent_id': row.agent_id,
                     'agent_name': row.agent_name,
@@ -2529,9 +2532,12 @@ def list_agents_for_selection():
                 WHERE enabled = 1
                 ORDER BY description
             """)
-            
+
+            allowed_ids = _agent_visibility_filter()
             agents = []
             for row in cursor.fetchall():
+                if allowed_ids is not None and row.agent_id not in allowed_ids:
+                    continue
                 agents.append({
                     'value': str(row.agent_id),  # Value for the select option
                     'label': f"{row.agent_name} (ID: {row.agent_id})",  # Display text
