@@ -2568,28 +2568,41 @@ Guidelines:
             if conn.get('type', 'pass') == 'pass':
                 queue.append(conn['target'])
         
+        # Prefer the End Loop explicitly tagged for THIS loop. For nested loops a
+        # BFS from an outer Start-Loop reaches the INNER End Loop first, but that
+        # one belongs to the inner loop -- returning it makes the outer loop resume
+        # in the wrong place (skipping the nodes between the inner End Loop and the
+        # outer End Loop). So keep searching for our match, and only fall back to
+        # the first End Loop seen for legacy workflows whose End Loop nodes carry
+        # no loopNodeId tag.
+        first_end_loop = None
         while queue:
             node_id = queue.pop(0)
             if node_id in visited:
                 continue
             visited.add(node_id)
-            
+
             # Find the node
             node = next((n for n in nodes if n['id'] == node_id), None)
             if not node:
                 continue
-            
+
             # Check if this is an End Loop node
             if node.get('type') == 'End Loop':
-                return node_id
-            
+                end_loop_for = node.get('config', {}).get('loopNodeId')
+                if end_loop_for == loop_node_id:
+                    return node_id
+                if first_end_loop is None:
+                    first_end_loop = node_id
+                # Not ours -> keep traversing past it to find our matching End Loop
+
             # Add connected nodes to queue
             next_connections = [c for c in connections if c['source'] == node_id]
             for conn in next_connections:
                 if conn['target'] not in visited:
                     queue.append(conn['target'])
 
-        return None
+        return first_end_loop
 
     def _check_loop_integrity(self, workflow_data: Dict) -> List[Dict]:
         """Scan a workflow for Loop nodes that have no reachable End Loop.
@@ -7077,12 +7090,30 @@ Guidelines:
             logger.debug(f"Node Type: {node.get('type', '')}")
             # Check if it's an End Loop node
             if node.get('type') == 'End Loop':
-                # Don't execute End Loop during iterations
-                logger.info("Reached End Loop node, returning to loop")
+                end_loop_for = node.get('config', {}).get('loopNodeId')
+                # Only OUR End Loop terminates this body walk. An End Loop tagged
+                # for a different (inner) loop means that nested loop already ran
+                # to completion earlier in this same walk; stopping here would skip
+                # every node BETWEEN the inner End Loop and our End Loop (e.g. an
+                # Upload step placed after a nested loop) on each outer iteration.
+                # A missing tag keeps the old behavior (stop), so non-nested and
+                # legacy workflows are unaffected.
+                if (not end_loop_for) or end_loop_for == loop_node_id:
+                    # Don't execute End Loop during iterations
+                    logger.info("Reached End Loop node, returning to loop")
+                    self.log_execution(
+                        execution_id, current_node_id, "debug",
+                        "Reached End Loop node, returning to loop")
+                    break
+                # Inner loop's End Loop: fall through and execute it like a normal
+                # node (this finalizes the inner loop and returns the next node),
+                # so the outer body continues to the nodes placed after it.
+                logger.info(
+                    f"Passing through nested End Loop (belongs to {end_loop_for}); "
+                    f"continuing outer loop body")
                 self.log_execution(
                     execution_id, current_node_id, "debug",
-                    "Reached End Loop node, returning to loop")
-                break
+                    f"Passing through nested End Loop (belongs to {end_loop_for})")
             
             logger.info(f"Executing node...")
             logger.debug(f"Node Execution Parameters")
@@ -8223,19 +8254,36 @@ Guidelines:
         import os
         
         try:
-            exists = os.path.exists(file_path)
-            
+            # Support glob wildcards (e.g. "Dollar Tree*.xlsx"). If the path
+            # contains any of * ? [ we treat it as a pattern and report existence
+            # when at least one file matches; otherwise it's an exact-path check.
+            is_pattern = any(ch in file_path for ch in '*?[')
+            if is_pattern:
+                matches = glob.glob(file_path)
+                exists = len(matches) > 0
+            else:
+                matches = None
+                exists = os.path.exists(file_path)
+
             self.log_execution(
                 execution_id, node_id, "info",
-                f"File existence check for {file_path}: {exists}")
-            
+                f"File existence check for {file_path}: {exists}"
+                + (f" ({len(matches)} match(es))" if is_pattern else ""))
+
+            data = {
+                'operation': 'check',
+                'filePath': file_path,
+                'exists': exists
+            }
+            if is_pattern:
+                data['pattern'] = True
+                data['matchCount'] = len(matches)
+                # Expose the first match so a downstream node can use the resolved path
+                data['firstMatch'] = matches[0] if matches else None
+
             return {
                 'success': True,
-                'data': {
-                    'operation': 'check',
-                    'filePath': file_path,
-                    'exists': exists
-                }
+                'data': data
             }
             
         except Exception as e:
