@@ -110,3 +110,17 @@ async def cancel_schedule(job_id: str, request: Request):
     if res.get("status") != "ok":
         return JSONResponse(res, status_code=404)
     return res
+
+
+@router.post("/{job_id}/run")
+async def run_schedule_now(job_id: str, request: Request):
+    """Manually trigger an immediate, out-of-band run of one of the user's scheduled tasks
+    (the "Run now" button) - ownership enforced against the per-user store in schedule_logic."""
+    uc = _user(request)
+    if uc is None:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from scheduling import schedule_logic as sl
+    res = sl.run_cc_schedule_now(uc, job_id)
+    if res.get("status") != "ok":
+        return JSONResponse(res, status_code=404)
+    return res

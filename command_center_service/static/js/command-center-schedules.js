@@ -76,8 +76,12 @@
             ' · next run: ' + esc(fmtLocal(t.next_run) || '—') +
             ' · last run: ' + esc(fmtLocal(t.last_run) || 'never') +
             (t.last_status ? ' [' + esc(t.last_status) + ']' : '') + '</div></div>' +
+            '<div style="display:flex;gap:6px;align-self:center">' +
+            '<button onclick="CCSchedules.run(\'' + esc(t.job_id) + '\')" ' +
+            'style="background:none;border:1px solid rgba(128,128,128,.4);border-radius:6px;padding:4px 10px;cursor:pointer;color:inherit">Run now</button>' +
             '<button onclick="CCSchedules.cancel(\'' + esc(t.job_id) + '\')" ' +
-            'style="align-self:center;background:none;border:1px solid rgba(128,128,128,.4);border-radius:6px;padding:4px 10px;cursor:pointer;color:inherit">Cancel</button>' +
+            'style="background:none;border:1px solid rgba(128,128,128,.4);border-radius:6px;padding:4px 10px;cursor:pointer;color:inherit">Cancel</button>' +
+            '</div>' +
             '</div>';
         }).join('');
       } catch (e) {
@@ -121,6 +125,15 @@
       if (!window.confirm('Cancel this scheduled task? It will stop running.')) return;
       try { await fetch('/api/schedules/' + encodeURIComponent(jobId), { method: 'DELETE', headers: headers() }); }
       catch (e) { /* ignore */ }
+      this.loadTasks();
+    },
+
+    async run(jobId) {
+      try {
+        const r = await fetch('/api/schedules/' + encodeURIComponent(jobId) + '/run', { method: 'POST', headers: headers(), body: '{}' });
+        const d = await r.json().catch(function () { return {}; });
+        window.alert((d && d.status === 'ok') ? 'Run started — results will appear in the thread shortly.' : ('Could not start run' + (d && d.error ? ': ' + d.error : '')));
+      } catch (e) { window.alert('Could not start run.'); }
       this.loadTasks();
     },
 
