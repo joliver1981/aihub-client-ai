@@ -16,10 +16,12 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-# ext -> CC ArtifactType value (same families code_interpreter uses for common files)
+# ext -> CC ArtifactType value (the families code_interpreter uses for common files).
+# Anything not listed falls back to "binary" so the download still renders as a chip.
 _EXT_TO_ARTIFACT_TYPE = {
     ".csv": "csv", ".xlsx": "excel", ".xls": "excel", ".pdf": "pdf",
     ".json": "json", ".txt": "text", ".png": "image", ".jpg": "image", ".jpeg": "image",
+    ".docx": "docx", ".doc": "doc", ".pptx": "pptx", ".zip": "zip",
 }
 
 
@@ -66,16 +68,107 @@ def _register_artifacts(files: List[str], session_id: str,
                 data = fh.read()
             if mgr is not None and ArtifactType is not None:
                 ext = os.path.splitext(name)[1].lower()
-                type_val = _EXT_TO_ARTIFACT_TYPE.get(ext, "text")
+                type_val = _EXT_TO_ARTIFACT_TYPE.get(ext, "binary")
                 try:
                     atype = ArtifactType(type_val)
                 except Exception:
-                    atype = ArtifactType.TEXT
+                    atype = getattr(ArtifactType, "BINARY", ArtifactType.TEXT)
                 meta = mgr.create(name, atype, data, scoped_session)
                 blocks.append(meta.to_content_block())
         except Exception as e:
             logger.warning(f"[portal_fetch] could not register {fpath}: {e}")
     return blocks
+
+
+# session_id -> last async run_id started for it, so chat polling can find the live run
+# even when the model forgets to thread the run_id back through the conversation.
+_LAST_AUTO_RUN: Dict[str, str] = {}
+
+
+def _portal_payload(portal_name, start_url, task, session_id,
+                    user_context, secret_key_overrides, inline_creds) -> Dict[str, Any]:
+    payload = {
+        "task": task, "start_url": start_url, "portal_name": portal_name,
+        "session_id": session_id or None,
+        "user_id": str((user_context or {}).get("user_id", "")) or None,
+    }
+    if inline_creds and inline_creds.get("username") and inline_creds.get("password"):
+        payload["username"] = inline_creds["username"]
+        payload["password"] = inline_creds["password"]
+        if inline_creds.get("totp"):
+            payload["totp"] = inline_creds["totp"]
+    else:
+        keys = secret_key_overrides or _secret_keys(portal_name)
+        payload.update({k: v for k, v in keys.items() if v})
+    return payload
+
+
+def _internal_headers() -> Dict[str, str]:
+    h = {}
+    api_key = os.getenv("API_KEY")
+    if api_key:
+        h["X-AIHub-Internal"] = api_key
+    return h
+
+
+def cobrowse_link(run_id: str) -> str:
+    """Main-app 'take over' link. Ownership is checked + a token minted when the user clicks it."""
+    base = os.getenv("APP_PUBLIC_BASE_URL")
+    if not base:
+        try:
+            from CommonUtils import get_base_url
+            base = get_base_url()
+        except Exception:
+            base = ""
+    return f"{(base or '').rstrip('/')}/portal-workflows/cobrowse/{run_id}"
+
+
+def start_portal_fetch(portal_name: str, start_url: str, task: str,
+                       session_id: str = "", user_context: Optional[Dict[str, Any]] = None,
+                       secret_key_overrides: Optional[Dict[str, str]] = None,
+                       inline_creds: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """Start an async auto-mode run (returns {run_id}); the run keeps going in the background so
+    the chat can poll and surface a 'take over' prompt if it pauses for 2FA."""
+    try:
+        from CommonUtils import get_browser_use_api_base_url
+        base = get_browser_use_api_base_url()
+    except Exception as e:
+        return {"error": f"service URL unavailable: {e}"}
+    payload = _portal_payload(portal_name, start_url, task, session_id, user_context,
+                              secret_key_overrides, inline_creds)
+    try:
+        resp = requests.post(f"{base}/portal/start", json=payload, headers=_internal_headers(), timeout=60)
+    except Exception as e:
+        return {"error": f"could not reach Browser Use service at {base}: {e}"}
+    if resp.status_code != 200:
+        return {"error": f"service returned {resp.status_code}: {resp.text[:200]}"}
+    try:
+        data = resp.json()
+    except Exception as e:
+        return {"error": f"bad service response: {e}"}
+    if data.get("run_id") and session_id:
+        _LAST_AUTO_RUN[session_id] = data["run_id"]
+    return data
+
+
+def get_portal_result(run_id: str, timeout: int = 15) -> Dict[str, Any]:
+    """Poll an async run: {done, status, needs_human, reason} while live; {done:True, ...manifest}
+    once finished."""
+    try:
+        from CommonUtils import get_browser_use_api_base_url
+        base = get_browser_use_api_base_url()
+    except Exception as e:
+        return {"error": str(e), "done": False}
+    try:
+        resp = requests.get(f"{base}/portal/result/{run_id}", headers=_internal_headers(), timeout=timeout)
+    except Exception as e:
+        return {"error": str(e), "done": False}
+    if resp.status_code != 200:
+        return {"error": f"service returned {resp.status_code}", "done": False}
+    try:
+        return resp.json()
+    except Exception as e:
+        return {"error": f"bad service response: {e}", "done": False}
 
 
 def fetch_portal(portal_name: str, start_url: str, task: str,
@@ -146,4 +239,7 @@ def fetch_portal(portal_name: str, start_url: str, task: str,
         "final_result": data.get("final_result"),
         "blocks": blocks,
         "file_count": len(blocks),
+        # draft_workflow is present only when the service captured a re-runnable workflow draft
+        # from this ad-hoc fetch, so the user can save it as a reusable portal workflow.
+        "draft_workflow": data.get("draft_workflow"),
     }
