@@ -1,21 +1,32 @@
 """
-shared_auth.py — shared signed-JWT helpers for cross-service identity in AI Hub.
+shared_auth.py — Shared HS256 JWT helpers for cross-service identity.
 
-Three token kinds, distinguished by their audience (`aud`):
-  - CC session token       (AUD_CC)        — the Command Center web/session JWT
-  - delegation assertion   (AUD_INTERNAL)  — short-lived, a single delegated call
-  - co-browse token        (AUD_COBROWSE)  — portal take-over live-view access
+Top-level module so BOTH the main Flask app and the command_center_service
+(and any other service) can import it directly: ``from shared_auth import ...``.
+Both processes add the repo root to ``sys.path`` and call
+``secure_config.load_secure_config()``, so ``API_KEY`` is present in
+``os.environ`` in each — which is what makes a shared signing secret possible
+without provisioning anything new.
 
-Secret resolution (get_jwt_secret), in priority order:
-  1. CC_JWT_SECRET env, if set — pin this in the shared .env to make every process agree.
-  2. else HMAC-SHA256(API_KEY, b"cc-jwt-v1").hexdigest() — deterministic, so any process that
-     shares the same API_KEY derives the SAME secret without a pinned value. (This is why the
-     CC service and main app must resolve the same API_KEY / secrets store; see cc_config /
-     frozen-onedir APP_ROOT handling.)
-  3. else None (not configured) — signing/verifying will report it instead of crashing.
+Two token types, distinguished by the ``aud`` claim:
 
-Both the main app (signs CC tokens) and the CC service (verifies them) import this module, so the
-secret + algorithm + audiences stay in lock-step.
+  * CC session token  (``aud="command-center"``, ~4h) — carries the
+    logged-in user's identity to the CC frontend; replaces the old opaque,
+    in-memory token.
+  * Delegation assertion (``aud="aihub-internal"``, ~5m) — minted by CC for
+    each delegated call so downstream endpoints can authorize the *user*
+    (not merely the tenant API key).
+
+Secret resolution (``get_jwt_secret``):
+  1. ``CC_JWT_SECRET`` env var, if set (rotation / override).
+  2. otherwise a dedicated key derived as ``HMAC-SHA256(API_KEY, "cc-jwt-v1")``.
+``API_KEY`` is per-install, so tokens never validate across tenants — which
+is consistent with the platform's tenant boundary.
+
+Design notes:
+  * ``import jwt`` is done lazily (like data_collection_agent/auth_token.py) so
+    this module stays importable even where PyJWT is not installed.
+  * Verification never raises — it returns ``(claims, error)``.
 """
 import hashlib
 import hmac
@@ -27,30 +38,43 @@ from typing import Any, Dict, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 ALGO = "HS256"
+
+# Audience (``aud``) values — one per token type.
 AUD_CC = "command-center"
 AUD_INTERNAL = "aihub-internal"
 AUD_COBROWSE = "portal-cobrowse"
-DEFAULT_CC_TTL = 172800          # 2 days
-DEFAULT_ASSERTION_TTL = 300      # 5 minutes
-DEFAULT_COBROWSE_TTL = 900       # 15 minutes
-_SECRET_INFO = b"cc-jwt-v1"
+
+# Default lifetimes (seconds).
+DEFAULT_CC_TTL = 172800
+DEFAULT_ASSERTION_TTL = 300
+DEFAULT_COBROWSE_TTL = 900
 
 
 def get_cc_token_ttl() -> int:
-    """CC session token lifetime (seconds); overridable via CC_TOKEN_TTL_SECONDS."""
+    """Resolve the CC session-token lifetime in seconds.
+
+    Single source of truth for token expiry: the ``CC_TOKEN_TTL_SECONDS`` env
+    var, defaulting to 48 hours. Read at call time so a .env change takes
+    effect on restart without import-order concerns.
+    """
     try:
         return int(os.environ.get("CC_TOKEN_TTL_SECONDS", DEFAULT_CC_TTL))
     except (TypeError, ValueError):
         return DEFAULT_CC_TTL
 
 
+_SECRET_INFO = b"cc-jwt-v1"
+
+
 def get_jwt_secret() -> Optional[str]:
-    """Resolve the shared signing secret: explicit CC_JWT_SECRET, else derived from API_KEY,
-    else None. The derived form is HMAC-SHA256(API_KEY, "cc-jwt-v1") so every process with the
-    same API_KEY agrees without a pinned secret."""
-    secret = os.environ.get("CC_JWT_SECRET")
-    if secret:
-        return secret
+    """Resolve the shared HS256 secret, or None if nothing is configured.
+
+    Priority: CC_JWT_SECRET env, else HMAC-SHA256(API_KEY, 'cc-jwt-v1').
+    Callers should treat None as 'JWT path not configured'.
+    """
+    explicit = os.environ.get("CC_JWT_SECRET")
+    if explicit:
+        return explicit
     api_key = os.environ.get("API_KEY") or os.environ.get("AI_HUB_API_KEY")
     if not api_key:
         return None
@@ -59,97 +83,126 @@ def get_jwt_secret() -> Optional[str]:
 
 def is_configured() -> bool:
     """Whether a signing secret is available in this process."""
-    return bool(get_jwt_secret())
+    return get_jwt_secret() is not None
 
 
 def _encode(payload: Dict[str, Any], aud: str, ttl_seconds: int,
             secret: Optional[str] = None) -> str:
     import jwt
-    secret = secret or get_jwt_secret()
+    if secret is None:
+        secret = get_jwt_secret()
     if not secret:
         raise RuntimeError(
-            "No JWT secret configured. Set CC_JWT_SECRET, or ensure API_KEY is loaded "
-            "(secure_config.load_secure_config()).")
-    payload = dict(payload)
+            "No JWT secret configured. Set CC_JWT_SECRET, or ensure API_KEY is loaded (secure_config.load_secure_config()).")
+    body = dict(payload)
     now = int(time.time())
-    payload.setdefault("iat", now)
-    payload.setdefault("exp", now + int(ttl_seconds))
-    payload["aud"] = aud
-    return jwt.encode(payload, secret, algorithm=ALGO)
+    body.setdefault("iat", now)
+    body.setdefault("exp", now + int(ttl_seconds))
+    body["aud"] = aud
+    return jwt.encode(body, secret, algorithm=ALGO)
 
 
 def sign_cc_token(user_context: Dict[str, Any], ttl_seconds: Optional[int] = None,
                   secret: Optional[str] = None) -> str:
     """Mint a CC session token from a user_context dict."""
-    ttl = get_cc_token_ttl() if ttl_seconds is None else ttl_seconds
+    if ttl_seconds is None:
+        ttl_seconds = get_cc_token_ttl()
+    uc = user_context or {}
+    uid = uc.get("user_id")
     payload = {
-        "sub": str(user_context.get("user_id")),
-        "role": user_context.get("role"),
-        "tenant_id": user_context.get("tenant_id"),
-        "username": user_context.get("username", ""),
-        "name": user_context.get("name", ""),
+        "sub": str(uid) if uid is not None else None,
+        "role": uc.get("role"),
+        "tenant_id": uc.get("tenant_id"),
+        "username": uc.get("username", ""),
+        "name": uc.get("name", ""),
     }
-    return _encode(payload, AUD_CC, ttl, secret)
+    return _encode(payload, AUD_CC, ttl_seconds, secret)
 
 
-def sign_user_assertion(user_id, tenant_id, role, ttl_seconds: Optional[int] = None,
+def sign_user_assertion(user_id: Any, tenant_id: Any, role: Any,
+                        ttl_seconds: int = DEFAULT_ASSERTION_TTL,
                         secret: Optional[str] = None) -> str:
     """Mint a short-lived delegation assertion for a single delegated call."""
-    ttl = DEFAULT_ASSERTION_TTL if ttl_seconds is None else ttl_seconds
-    payload = {"sub": str(user_id), "tenant_id": tenant_id, "role": role}
-    return _encode(payload, AUD_INTERNAL, ttl, secret)
+    payload = {
+        "sub": str(user_id) if user_id is not None else None,
+        "tenant_id": tenant_id,
+        "role": role,
+    }
+    return _encode(payload, AUD_INTERNAL, ttl_seconds, secret)
 
 
-def sign_cobrowse_token(run_id, user_id, role, ttl_seconds: Optional[int] = None,
+def sign_cobrowse_token(run_id: str, user_id: Any = None, role: Any = None,
+                        ttl_seconds: int = DEFAULT_COBROWSE_TTL,
                         secret: Optional[str] = None) -> str:
-    """Mint a co-browse take-over token scoped to one portal run."""
-    ttl = DEFAULT_COBROWSE_TTL if ttl_seconds is None else ttl_seconds
-    payload = {"sub": str(user_id), "role": role, "run_id": str(run_id)}
-    return _encode(payload, AUD_COBROWSE, ttl, secret)
+    """Mint a short-lived token scoped to ONE run for the live-view / takeover endpoints.
+    Bound to run_id + the operator's identity so the browser_use_service can authorize the
+    co-browse WebSocket and control calls without a full CC session."""
+    payload = {
+        "sub": str(user_id) if user_id is not None else None,
+        "role": role,
+        "run_id": run_id,
+    }
+    return _encode(payload, AUD_COBROWSE, ttl_seconds, secret)
 
 
-def verify_token(token: str, expected_aud: str,
-                 secret: Optional[str] = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-    """Verify a signed token for the expected audience. Returns (claims, None) on success or
-    (None, error_message) otherwise. Never raises."""
-    if not token:
-        return None, "no token"
-    secret = secret or get_jwt_secret()
-    if not secret:
-        return None, "no secret configured"
-    try:
-        import jwt
-        claims = jwt.decode(token, secret, algorithms=[ALGO], audience=expected_aud,
-                            options={"require": ["exp"]})
-        if not isinstance(claims, dict):
-            return None, "invalid token: not a claims object"
-        return claims, None
-    except ImportError:
-        return None, "PyJWT not installed"
-    except Exception as e:
-        # Map the specific PyJWT exception types to stable messages (callers/tests rely on them).
-        name = type(e).__name__
-        if name == "ExpiredSignatureError":
-            return None, "token expired"
-        if name == "InvalidAudienceError":
-            return None, "wrong audience"
-        if name == "InvalidSignatureError":
-            return None, "bad signature"
-        if name in ("DecodeError", "InvalidTokenError") or "InvalidToken" in name:
-            return None, "invalid token: " + str(e)
-        return None, "unexpected error: " + str(e)
-
-
-def verify_cobrowse_token(token: str, secret: Optional[str] = None):
+def verify_cobrowse_token(token: str,
+                          secret: Optional[str] = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """Verify a co-browse token; returns (claims, error). claims carry run_id + sub + role."""
     return verify_token(token, AUD_COBROWSE, secret)
 
 
-def claim_user_id(claims: Dict[str, Any]):
-    """Return the `sub` claim parsed back to int when possible (else the raw value)."""
-    sub = claims.get("sub")
+def verify_token(token: str, expected_aud: str,
+                 secret: Optional[str] = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Verify a token and return (claims, error). Never raises.
+
+    On success returns (claims_dict, None). On any failure returns
+    (None, "<reason>"). ``exp`` is required; ``aud`` must equal expected_aud.
+    """
+    if not token:
+        return None, "no token"
+    if secret is None:
+        secret = get_jwt_secret()
+    if not secret:
+        return None, "JWT not configured (no CC_JWT_SECRET / API_KEY)"
     try:
-        return int(sub)
+        import jwt
+        from jwt.exceptions import (
+            ExpiredSignatureError,
+            InvalidSignatureError,
+            InvalidTokenError,
+            InvalidAudienceError,
+            DecodeError,
+        )
+    except ImportError:
+        return None, "PyJWT not installed in this environment"
+    try:
+        claims = jwt.decode(
+            token,
+            secret,
+            algorithms=[ALGO],
+            audience=expected_aud,
+            options={"require": ["exp"]},
+        )
+        if not isinstance(claims, dict):
+            return None, "claims is not an object"
+        return claims, None
+    except ExpiredSignatureError:
+        return None, "token expired"
+    except InvalidAudienceError:
+        return None, "wrong audience"
+    except InvalidSignatureError:
+        return None, "bad signature"
+    except (InvalidTokenError, DecodeError) as e:
+        return None, "invalid token: " + f"{e}"
+    except Exception as e:
+        return None, "unexpected error: " + f"{e}"
+
+
+def claim_user_id(claims: Dict[str, Any]) -> Any:
+    """Return the `sub` claim parsed back to int when possible (else raw)."""
+    sub = (claims or {}).get("sub")
+    try:
+        return int(sub) if sub is not None else None
     except (TypeError, ValueError):
         return sub
 
@@ -166,71 +219,84 @@ def cc_user_context_from_claims(claims: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def verify_cc_token(token: str, legacy_lookup=None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-    """Verify a CC session token to a user_context. Primary path is the signed JWT; during the
-    migration window an optional `legacy_lookup(token) -> record` resolves an opaque in-memory
-    session (record carries user fields + an `expires` aware-datetime)."""
-    claims, err = verify_token(token, AUD_CC)
-    if claims is not None:
-        return cc_user_context_from_claims(claims), None
+    """Verify a CC session token, returning (user_context, error).
+
+    During migration, if ``token`` is not a valid JWT and ``legacy_lookup`` is
+    provided (a callable ``token -> stored_dict | None``, e.g. ``cc_tokens.get``),
+    fall back to the legacy in-memory store so live sessions survive cutover.
+    Remove the fallback once no LEGACY-fallback warnings are observed.
+    """
+    user_ctx_claims, err = verify_token(token, AUD_CC)
+    if user_ctx_claims is not None:
+        return cc_user_context_from_claims(user_ctx_claims), None
     if legacy_lookup is not None:
         try:
-            rec = legacy_lookup(token)
+            stored = legacy_lookup(token)
         except Exception:
-            rec = None
-        if rec:
+            stored = None
+        if stored:
             import datetime as _dt
-            expires = rec.get("expires")
-            if expires is not None and _dt.datetime.now(_dt.timezone.utc) >= expires:
-                return None, "session expired"
-            logger.warning("shared_auth: validated CC token via LEGACY in-memory fallback - "
-                           "migrate this caller to JWT and remove the fallback.")
+            exp = stored.get("expires")
+            if exp is not None and _dt.datetime.now(_dt.timezone.utc) > exp:
+                return None, "token expired (legacy)"
+            logger.warning(
+                "shared_auth: validated CC token via LEGACY in-memory fallback — migrate this caller to JWT and remove the fallback.")
             return {
-                "user_id": rec.get("user_id"),
-                "role": rec.get("role"),
-                "tenant_id": rec.get("tenant_id"),
-                "username": rec.get("username", ""),
-                "name": rec.get("name", ""),
+                "user_id": stored.get("user_id"),
+                "role": stored.get("role"),
+                "tenant_id": stored.get("tenant_id"),
+                "username": stored.get("username", ""),
+                "name": stored.get("name", ""),
             }, None
     return None, err
 
 
-def _cli_main(argv) -> int:
-    """Mint / verify AI Hub shared JWTs from the command line (debug aid)."""
+def _cli_main(argv=None):
     import argparse
     import json
     p = argparse.ArgumentParser(description="Mint / verify AI Hub shared JWTs")
     sub = p.add_subparsers(dest="cmd", required=True)
-    m = sub.add_parser("mint-cc", help="Mint a CC session token")
-    m.add_argument("--user-id", required=True)
-    m.add_argument("--role", type=int, default=1)
-    m.add_argument("--tenant-id", default=None)
-    m.add_argument("--name", default="")
-    m.add_argument("--username", default="")
-    m.add_argument("--ttl", type=int, default=DEFAULT_CC_TTL)
-    a = sub.add_parser("mint-assertion", help="Mint a delegation assertion")
-    a.add_argument("--user-id", required=True)
-    a.add_argument("--role", type=int, default=1)
-    a.add_argument("--tenant-id", default=None)
-    a.add_argument("--ttl", type=int, default=DEFAULT_ASSERTION_TTL)
-    v = sub.add_parser("verify", help="Verify a token and dump claims")
-    v.add_argument("token")
-    v.add_argument("--aud", default=AUD_CC)
+
+    pm = sub.add_parser("mint-cc", help="Mint a CC session token")
+    pm.add_argument("--user-id", type=int, required=True)
+    pm.add_argument("--role", type=int, default=1)
+    pm.add_argument("--tenant-id", type=int, default=1)
+    pm.add_argument("--name", default="")
+    pm.add_argument("--username", default="")
+    pm.add_argument("--ttl", type=int, default=DEFAULT_CC_TTL)
+
+    pa = sub.add_parser("mint-assertion", help="Mint a delegation assertion")
+    pa.add_argument("--user-id", type=int, required=True)
+    pa.add_argument("--role", type=int, default=1)
+    pa.add_argument("--tenant-id", type=int, default=1)
+    pa.add_argument("--ttl", type=int, default=DEFAULT_ASSERTION_TTL)
+
+    pv = sub.add_parser("verify", help="Verify a token and dump claims")
+    pv.add_argument("token")
+    pv.add_argument("--aud", default=AUD_CC, choices=[AUD_CC, AUD_INTERNAL])
+
     args = p.parse_args(argv)
+
     if not is_configured():
-        print("ERROR: no JWT secret (set CC_JWT_SECRET or API_KEY).")
-        return 2
+        print("ERROR: no JWT secret (set CC_JWT_SECRET or API_KEY).", flush=True)
+        return 1
+
     if args.cmd == "mint-cc":
-        print(sign_cc_token({"user_id": args.user_id, "role": args.role,
-                             "tenant_id": args.tenant_id, "name": args.name,
-                             "username": args.username}, ttl_seconds=args.ttl))
+        print(sign_cc_token({
+            "user_id": args.user_id,
+            "role": args.role,
+            "tenant_id": args.tenant_id,
+            "name": args.name,
+            "username": args.username,
+        }, ttl_seconds=args.ttl))
     elif args.cmd == "mint-assertion":
         print(sign_user_assertion(args.user_id, args.tenant_id, args.role, ttl_seconds=args.ttl))
     elif args.cmd == "verify":
         claims, err = verify_token(args.token, args.aud)
         if err:
-            print("INVALID: " + err)
+            print("INVALID: " + f"{err}")
             return 1
-        print(json.dumps(claims))
+        print(json.dumps(claims, indent=2, default=str))
     return 0
 
 

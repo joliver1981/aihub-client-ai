@@ -1783,28 +1783,59 @@ def cleanup_expired_cc_tokens():
     for token in expired:
         del cc_tokens[token]
 
+
+def _mint_cc_token(user_context):
+    """Mint a signed CC session JWT (HS256) carrying the user's identity.
+
+    Also records a legacy in-memory entry as a transitional fallback so that
+    verify_cc_token can still validate if JWT signing is momentarily
+    misconfigured. Remove the legacy write once all clients send JWTs.
+    """
+    token = None
+    ttl_seconds = 172800
+    try:
+        import shared_auth
+        ttl_seconds = shared_auth.get_cc_token_ttl()
+        token = shared_auth.sign_cc_token(user_context)
+    except Exception as e:
+        logger.error(f"[cc-token] JWT mint failed, using opaque fallback token: {e}")
+        token = secrets.token_urlsafe(32)
+
+    cc_tokens[token] = {
+        **user_context,
+        'expires': dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=ttl_seconds)
+    }
+    return token
+
+
 @app.route('/command-center')
 @developer_required()
 def command_center_redirect():
     """
     Generate a secure token and redirect to the command center service.
     The command center service will validate this token to get user context.
+
+    Access: Developer+ (role >= 2) by default. When cfg.CC_ALLOW_ALL_USERS is
+    set, ANY authenticated user (role >= 1) may enter — for testing/rollout
+    before CC is certified for all users. Per-user data scoping inside CC
+    (landscape filtering, delegation authz, role-gated tools) still applies.
     """
+    if not getattr(cfg, 'CC_ALLOW_ALL_USERS', False):
+        if hasattr(current_user, 'role') and current_user.role < 2:
+            flash('You do not have permission to access this page. Developer access required.', 'danger')
+            return redirect(url_for('home'))
+
     # Clean up expired tokens periodically
     cleanup_expired_cc_tokens()
 
     # Generate secure token
-    token = secrets.token_urlsafe(32)
-
-    # Store token with user context (expires in 4 hours)
-    cc_tokens[token] = {
+    token = _mint_cc_token({
         'user_id': current_user.id,
         'role': current_user.role,
         'tenant_id': current_user.TenantId,
         'username': current_user.username,
         'name': current_user.name,
-        'expires': dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=4)
-    }
+    })
 
     # Get command center service URL from config or use default
     cc_port = os.environ.get('CC_SERVICE_PORT', '5091')
@@ -1828,27 +1859,19 @@ def validate_cc_token():
     if not token:
         return jsonify({'valid': False, 'error': 'No token provided'}), 400
 
-    # Check if token exists
-    if token not in cc_tokens:
-        return jsonify({'valid': False, 'error': 'Invalid token'}), 401
-
-    token_data = cc_tokens[token]
-
-    # Check if token has expired
-    if dt.datetime.now(dt.timezone.utc) > token_data['expires']:
-        del cc_tokens[token]
-        return jsonify({'valid': False, 'error': 'Token expired'}), 401
+    import shared_auth
+    user_ctx, err = shared_auth.verify_cc_token(token, legacy_lookup=cc_tokens.get)
+    if err or not user_ctx:
+        return jsonify({'valid': False, 'error': err or 'Invalid token'}), 401
 
     # Token is valid - return user context
-    # Note: We don't delete the token here so it can be revalidated during the session
-    # The token will expire naturally after 1 hour
     return jsonify({
         'valid': True,
-        'user_id': token_data['user_id'],
-        'role': token_data['role'],
-        'tenant_id': token_data['tenant_id'],
-        'username': token_data['username'],
-        'name': token_data['name']
+        'user_id': user_ctx.get('user_id'),
+        'role': user_ctx.get('role'),
+        'tenant_id': user_ctx.get('tenant_id'),
+        'username': user_ctx.get('username', ''),
+        'name': user_ctx.get('name', '')
     })
 
 
@@ -1875,7 +1898,6 @@ def cc_generate_token():
         user = user_df.iloc[0]
         cleanup_expired_cc_tokens()
 
-        token = secrets.token_urlsafe(32)
         user_context = {
             'user_id': int(user_id),
             'role': int(user.get('role', 1)),
@@ -1884,15 +1906,13 @@ def cc_generate_token():
             'name': str(user.get('name', '')),
         }
 
-        cc_tokens[token] = {
-            **user_context,
-            'expires': dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=4)
-        }
+        token = _mint_cc_token(user_context)
+        import shared_auth as _sa
 
         return jsonify({
             'token': token,
             'user_context': user_context,
-            'expires_in': 14400,
+            'expires_in': _sa.get_cc_token_ttl(),
         })
 
     except Exception as e:
@@ -1912,16 +1932,13 @@ def cc_auto_token():
     """
     cleanup_expired_cc_tokens()
 
-    token = secrets.token_urlsafe(32)
-
-    cc_tokens[token] = {
+    token = _mint_cc_token({
         'user_id': current_user.id,
         'role': current_user.role,
         'tenant_id': current_user.TenantId,
         'username': current_user.username,
         'name': current_user.name,
-        'expires': dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=4)
-    }
+    })
 
     return jsonify({'token': token})
 
@@ -2345,6 +2362,31 @@ def get_agents():
     
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+def _agent_visibility_filter():
+    """Resolve the per-user agent-id filter for agent-listing endpoints.
+
+    When the caller presents a valid X-AIHub-User assertion (CC delegation),
+    return the set of agent ids that user may see — or None for admins / no
+    assertion (meaning "no filtering", preserving prior behavior). Used by the
+    /api/agents/list and /api/agents/summary endpoints so the Command Center
+    landscape only shows agents the user can actually access.
+    """
+    assertion = request.headers.get('X-AIHub-User', '')
+    if not assertion:
+        return None
+    try:
+        import shared_auth
+        claims, err = shared_auth.verify_token(assertion, shared_auth.AUD_INTERNAL)
+        if not claims:
+            logger.warning(f'[agents] invalid X-AIHub-User assertion: {err}')
+            return None
+        from DataUtils import accessible_agent_ids
+        return accessible_agent_ids(shared_auth.claim_user_id(claims), claims.get('role'))
+    except Exception as e:
+        logger.warning(f'[agents] visibility filter error: {e}')
+        return None
 
 
 @app.route('/api/agents/summary', methods=['GET'])
