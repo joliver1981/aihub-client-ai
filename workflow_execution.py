@@ -563,6 +563,9 @@ class WorkflowExecutionEngine:
             elif node_type == 'Compliance Excel Export':
                 print('Executing Compliance Excel Export node...')
                 result = self._execute_compliance_excel_export_node(execution_id, node, variables)
+            elif node_type == 'Portal':
+                print('Executing Portal node...')
+                result = self._execute_portal_node(execution_id, node, variables)
             # elif node_type == 'Server':
             #     result = self._execute_server_node(execution_id, node, variables)
             # And so on...
@@ -4250,10 +4253,110 @@ Guidelines:
                 if key not in result:
                     return None
                 result = result[key]
-        
+
         return result
 
-    def _update_workflow_variable(self, execution_id: str, variable_name: str, 
+    def _execute_portal_node(self, execution_id, node, variables):
+        """Run a saved Command Center portal workflow as a backend workflow step and expose the
+        downloaded file paths to downstream nodes.
+
+        Executes ENTIRELY server-side (no browser, no live user session): the owner user_id is
+        stamped into the node config at save time (app.save_workflow_to_database) and is used here
+        to resolve the per-user saved portal workflow + its encrypted credentials. Reuses the same
+        in-process entrypoint the scheduler/internal route use (run_workflow_by_name), so 2FA/TOTP,
+        downloads and domain confinement behave exactly as in Command Center.
+
+        Config keys: portalWorkflowSlug (the saved workflow), ownerUserId (stamped server-side),
+        outputVariable (object: status/file_count/files/final_result), filesVariable (bare list of
+        downloaded file paths), timeout (seconds), continueOnError. Returns the standard
+        {success, data, error} node contract.
+        """
+        node_id = node.get('id')
+        config = node.get('config', {}) or {}
+        slug = config.get('portalWorkflowSlug') or config.get('workflowSlug') or config.get('workflow_slug') or ''
+        owner_user_id = config.get('ownerUserId') or config.get('owner_user_id')
+        output_variable = (config.get('outputVariable') or '').strip()
+        files_variable = (config.get('filesVariable') or '').strip()
+        continue_on_error = bool(config.get('continueOnError', False))
+        try:
+            timeout = int(config.get('timeout') or 0) or 1200
+        except (TypeError, ValueError):
+            timeout = 1200
+        agent_fallback = bool(config.get('agentFallback', True))
+
+        # Resolve any upload-files variable (a workflow variable holding file path(s)) into
+        # the inputs the portal workflow expects, so an upstream node can feed it documents.
+        run_inputs = None
+        upload_var = (config.get('uploadFilesVariable') or '').strip()
+        if upload_var:
+            _name = upload_var
+            if _name.startswith('${') and _name.endswith('}'):
+                _name = _name[2:-1].strip()
+            _val = variables.get(_name)
+            _up_files = []
+            if isinstance(_val, str) and _val.strip():
+                _up_files = [_val.strip()]
+            elif isinstance(_val, (list, tuple)):
+                _up_files = [str(x) for x in _val if x]
+            if _up_files:
+                run_inputs = {'files': _up_files}
+
+        def _fail(msg, status='error', err=None):
+            self.log_execution(execution_id, node_id, 'error', msg)
+            data = {'status': status, 'error': (err or msg), 'files': [], 'file_count': 0}
+            return {'success': bool(continue_on_error), 'error': msg, 'data': data}
+
+        if not slug:
+            return _fail('Portal node: no portal workflow selected')
+        if not owner_user_id:
+            return _fail('Portal node has no owner. Re-save the workflow so the portal step is bound to your account (portal credentials are stored per user).')
+
+        self.log_execution(execution_id, node_id, 'info',
+                           f"Portal node: running saved portal workflow '{slug}' as user {owner_user_id}")
+        try:
+            from command_center.tools.portal_workflow_run import run_workflow_by_name
+            result = run_workflow_by_name(
+                slug,
+                session_id=f"wf-{execution_id}-{node_id}",
+                user_context={'user_id': owner_user_id},
+                timeout=timeout,
+                agent_fallback=agent_fallback,
+                inputs=run_inputs,
+            )
+        except Exception as e:
+            return _fail(f"Portal node failed to run '{slug}': {e}", err=str(e))
+
+        files = result.get('files') or []
+        status = result.get('status', 'error')
+        ok = status == 'ok'
+        output_obj = {
+            'status': status,
+            'file_count': len(files),
+            'files': files,
+            'final_result': result.get('final_result'),
+            'error': result.get('error'),
+        }
+
+        if output_variable:
+            self._update_workflow_variable(
+                execution_id, output_variable,
+                self._determine_variable_type(output_obj), output_obj)
+            variables[output_variable] = output_obj
+        if files_variable:
+            self._update_workflow_variable(
+                execution_id, files_variable,
+                self._determine_variable_type(files), files)
+            variables[files_variable] = files
+
+        self.log_execution(
+            execution_id, node_id, ('info' if ok else 'warning'),
+            f"Portal workflow '{slug}': status={status}, files={len(files)}" + (f", error={result.get('error')}" if result.get('error') else ''))
+
+        if not ok and not continue_on_error:
+            return {'success': False, 'error': (result.get('error') or f"portal workflow '{slug}' did not complete"), 'data': output_obj}
+        return {'success': True, 'data': output_obj}
+
+    def _update_workflow_variable(self, execution_id: str, variable_name: str,
                                 variable_type: str, variable_value: Any):
         """Update a workflow variable in the database
         

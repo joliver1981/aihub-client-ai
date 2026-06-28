@@ -1460,6 +1460,73 @@ def run_job_now(job_id):
         
         auth_headers = {'X-API-Key': os.getenv('API_KEY', '')}
 
+        # Portal-workflow / Command-Center jobs may take minutes (browser automation, agent
+        # turns). Fire them in a background thread so the HTTP request returns immediately and
+        # finalize the execution record asynchronously when the work completes.
+        if job_type in ('portal_workflow', 'command_center'):
+            import threading
+
+            def _finish_async(exec_id, status, message):
+                try:
+                    c = get_db_connection()
+                    cur = c.cursor()
+                    set_tenant_context(cur)
+                    cur.execute(
+                        "UPDATE ScheduleExecutionHistory SET Status = ?, EndTime = getutcdate(), ResultMessage = ? WHERE ExecutionId = ?",
+                        status, message, exec_id)
+                    c.commit()
+                    cur.close()
+                    c.close()
+                except Exception as _e:
+                    logger.error(f"run_job_now: failed to finalize execution {exec_id}: {_e}")
+
+            def _run_async():
+                try:
+                    if job_type == 'portal_workflow':
+                        slug = parameters.get('workflow_slug') or target_id
+                        owner = parameters.get('user_id') or parameters.get('owner_id')
+                        api_url = f"{api_base_url}/api/portal-workflows/internal/run"
+                        payload = {
+                            'slug': slug,
+                            'user_id': owner,
+                            'initiator': 'manual',
+                            'email_after': str(parameters.get('email_after') or '0'),
+                        }
+                        resp = requests.post(api_url, json=payload, headers=auth_headers, timeout=1500)
+                    else:
+                        from CommonUtils import get_command_center_api_base_url
+                        api_url = f"{get_command_center_api_base_url()}/api/scheduled/run"
+                        user_context = {
+                            'user_id': parameters.get('user_id'),
+                            'tenant_id': parameters.get('tenant_id'),
+                            'role': parameters.get('role'),
+                            'username': parameters.get('username'),
+                            'name': parameters.get('name'),
+                            'email': parameters.get('user_email'),
+                        }
+                        payload = {
+                            'prompt': parameters.get('prompt'),
+                            'task_name': parameters.get('task_name') or job_name,
+                            'user_context': user_context,
+                            'agent_id': parameters.get('agent_id') or None,
+                            'agent_name': parameters.get('agent_name') or None,
+                            'job_id': job_id,
+                        }
+                        resp = requests.post(api_url, json=payload, headers=auth_headers, timeout=600)
+                    ok = resp.status_code == 200
+                    msg = f"Manual run {'succeeded' if ok else 'failed'} ({resp.status_code}). {resp.text[:400]}"
+                    _finish_async(execution_id, 'completed' if ok else 'failed', msg)
+                except Exception as _e:
+                    _finish_async(execution_id, 'failed', f"Manual run error: {_e}")
+
+            threading.Thread(target=_run_async, daemon=True, name=f"manual-run-{job_id}").start()
+            return jsonify({
+                'success': True,
+                'status': 'accepted',
+                'message': f'Job {job_id} ({job_name}) run started',
+                'execution_id': execution_id,
+            }), 202
+
         if job_type == 'document':
             # Document job
             api_url = f"{api_base_url}/api/document_processor/job/{target_id}/run"
