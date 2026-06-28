@@ -1089,6 +1089,15 @@ class WorkflowExecutionEngine:
                     input_data = [flat_data]
                 else:
                     input_data = [input_data]
+            elif input_data is None or isinstance(input_data, str):
+                # Fail-safe: upstream handed us a scalar (a placeholder string or null where an
+                # array of rows was expected). Don't crash and don't write a garbage row -- treat
+                # it as "no rows" and fall through to the normal 0-row success path.
+                log_execution_func(
+                    execution_id, node_id, "warning",
+                    f"Excel update received a non-tabular value "
+                    f"({type(input_data).__name__}: {str(input_data)[:120]!r}); treating as no rows to write.")
+                input_data = []
             elif not isinstance(input_data, list):
                 raise ValueError(f"Input data must be a dict or list, got {type(input_data).__name__}")
             
@@ -2371,6 +2380,15 @@ Guidelines:
         
         for field_name, field_info in fields_result.items():
             value = field_info.get('value')
+            # Safety net: if a repeated_group/group field's value came back as a scalar
+            # (e.g. Opus 4.8 emitting a placeholder string or null while putting the real
+            # array/object under a top-level key of the same name), prefer that structured
+            # form. Only triggers when value isn't already a list/dict, so ordinary scalar
+            # fields are untouched.
+            if not isinstance(value, (list, dict)):
+                recovered = extraction_result.get(field_name)
+                if isinstance(recovered, (list, dict)):
+                    value = recovered
             extracted_data[field_name] = value
             
             # Log any field-specific assumptions

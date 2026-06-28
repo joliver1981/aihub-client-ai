@@ -3651,6 +3651,95 @@ def populate_schema_with_claude_chunked(
     
     return merged_result
 
+
+def _escape_unescaped_inner_quotes(text: str) -> str:
+    """Best-effort repair of JSON containing unescaped double-quote characters
+    inside string values (a common LLM defect, e.g. Must include "S" hook).
+
+    Walks the text as a JSON character stream. While inside a string, a double
+    quote is treated as the string's CLOSING quote only when what follows it is
+    a structurally valid continuation of JSON:
+      - end-of-input, or '}' or ']'                 (end of container)
+      - ':' followed by a JSON value start          (it was an object key)
+      - ',' followed by a JSON value/key start      (next element/pair)
+    Any other in-string double quote is an unescaped inner quote and gets
+    escaped. The look-PAST-the-delimiter check distinguishes a real separator
+    ("a", "b") from an inner quote inside prose ("Impact Stackout", must use).
+    Already-escaped sequences (\\" \\\\ \\n ...) are copied through verbatim, so
+    output that MIXES correctly-escaped and unescaped quotes is handled.
+
+    This is intentionally conservative: it only ever ADDS escape characters to
+    in-string quotes, so well-formed JSON is returned unchanged. It runs only
+    after a strict json.loads has already failed.
+    """
+    out = []
+    in_string = False
+    i = 0
+    n = len(text)
+    ws = ' \t\r\n'
+
+    def _next_nonws(p):
+        while p < n and text[p] in ws:
+            p += 1
+        return p
+
+    def _is_value_start(p):
+        # Does a JSON value (or object key) plausibly begin at position p?
+        if p >= n:
+            return False
+        c = text[p]
+        if c == '"' or c == '{' or c == '[' or c == '-' or c.isdigit():
+            return True
+        return (text.startswith('true', p) or text.startswith('false', p)
+                or text.startswith('null', p))
+
+    while i < n:
+        ch = text[i]
+        if not in_string:
+            out.append(ch)
+            if ch == '"':
+                in_string = True
+            i += 1
+            continue
+        # inside a string
+        if ch == '\\':
+            # escaped sequence: copy this char and the next verbatim
+            out.append(ch)
+            if i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+            else:
+                i += 1
+            continue
+        if ch == '"':
+            k = _next_nonws(i + 1)
+            nxt = text[k] if k < n else ''
+            if nxt == '' or nxt in '}]':
+                close = True
+            elif nxt == ':':
+                close = _is_value_start(_next_nonws(k + 1))
+            elif nxt == ',':
+                p2 = _next_nonws(k + 1)
+                c2 = text[p2] if p2 < n else ''
+                # trailing comma (",}" / ",]") is a separate defect -- treat the
+                # quote as a closer so we don't corrupt it; otherwise require a
+                # real value/key after the comma.
+                close = (c2 == '' or c2 in '}]') or _is_value_start(p2)
+            else:
+                close = False
+            if close:
+                out.append(ch)
+                in_string = False
+            else:
+                out.append('\\')        # unescaped inner quote -> escape
+                out.append(ch)
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return ''.join(out)
+
+
 def populate_schema_with_claude(
     pdf_path: str,
     schema_fields: Dict[str, str],
@@ -3884,11 +3973,22 @@ def populate_schema_with_claude(
             output_text = output_text.replace("```json", "").replace("```", "")
         populated = json.loads(output_text)
     except json.JSONDecodeError as e:
-        logger.error(f"JSON parse failed. Text length: {len(output_text)}")
-        logger.error(f"Text ends with: ...{output_text[-500:] if len(output_text) > 500 else output_text}")
-        raise RuntimeError(
-            f"Claude output was not valid JSON. Raw output:\n{output_text}"
-        ) from e
+        # Recovery: models occasionally emit unescaped double-quotes inside string
+        # values (e.g. Must include "S" hook), which breaks strict JSON even when
+        # the structure is otherwise sound. Escape only the unescaped inner quotes
+        # and re-parse. If that still fails, raise the original error for diagnosis.
+        try:
+            repaired_text = _escape_unescaped_inner_quotes(output_text)
+            populated = json.loads(repaired_text)
+            logger.warning(
+                "Claude JSON had unescaped inner quote(s); auto-repaired and parsed successfully."
+            )
+        except json.JSONDecodeError:
+            logger.error(f"JSON parse failed. Text length: {len(output_text)}")
+            logger.error(f"Text ends with: ...{output_text[-500:] if len(output_text) > 500 else output_text}")
+            raise RuntimeError(
+                f"Claude output was not valid JSON. Raw output:\n{output_text}"
+            ) from e
 
     return populated
 
