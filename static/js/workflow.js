@@ -49,7 +49,11 @@ document.addEventListener('DOMContentLoaded', function() {
     jsPlumbInstance = jsPlumb.getInstance({
         ConnectionsDetachable: true,
         Container: "workflow-canvas",
-        Connector: ["Bezier", { curviness: 50 }],
+        // Workflow canvas readability: orthogonal Flowchart routing for cleaner-looking workflows
+        // (matches the connector the AI command-executor already uses, so hand-drawn
+        // and AI-built connections render consistently). To revert: ["Bezier", { curviness: 50 }]
+        // Softer alternative: ["StateMachine", { curviness: 10 }]
+        Connector: ["Flowchart", { stub: 30, gap: 5, cornerRadius: 5 }],
         DragOptions: { 
             cursor: "pointer", 
             zIndex: 2000,
@@ -2768,7 +2772,9 @@ function createNode(type, x, y) {
     
     // Make the node draggable with custom drag handler
     jsPlumbInstance.draggable(node, {
-        grid: [10, 10],
+        // Workflow canvas readability: snap to the 20px visual grid drawn on #workflow-canvas so
+        // nodes line up with the grid the user actually sees. To revert: [10, 10]
+        grid: [20, 20],
         // Use a custom drag handler to prevent transform issues
         drag: function(params) {
             // Update position using left/top instead of transform
@@ -3251,7 +3257,9 @@ function loadWorkflow(workflow) {
             
             // Make node draggable
             jsPlumbInstance.draggable(element, {
-                grid: [10, 10],
+                // Workflow canvas readability: snap to the 20px visual grid (load path; keep in sync
+                // with the createNode draggable above). To revert: [10, 10]
+                grid: [20, 20],
                 drag: function(params) {
                     element.style.left = params.pos[0] + 'px';
                     element.style.top = params.pos[1] + 'px';
