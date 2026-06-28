@@ -1353,24 +1353,7 @@ async def converse(state: CommandCenterState) -> dict:
         except Exception:
             pass
         _portal_prompt = (
-            "## PORTAL AUTOMATION (fetch_from_portal / save_portal / lookup_portal)\n"
-            "You can log into external web portals and download files for the user (RPA).\n"
-            "- DO IT NOW: if the user gives a portal URL and a login, call fetch_from_portal "
-            "with portal_name, start_url, task, username, password and log in immediately. "
-            "Don't refuse or stall.\n"
-            "- OFFER TO SAVE: after a successful ad-hoc run where the user supplied a login, "
-            "offer to save it (\"Want me to save this so you don't have to share your login "
-            "next time?\"). If they agree, call save_portal(name, url, username, password). "
-            "Credentials are stored encrypted; only a reference is kept.\n"
-            "- REUSE SAVED: for a saved portal, call fetch_from_portal with just portal_name "
-            "and task - the URL and credentials resolve automatically; never ask the user to "
-            "resend a saved login. Use lookup_portal to list/confirm saved portals.\n"
-            "- DELIVERY & HONESTY: a downloaded file reaches the user ONLY as the inline "
-            "download chip that fetch_from_portal returns. If the tool result does not include "
-            "a downloaded file, then NO file was captured - say the download did not complete; "
-            "do NOT claim you delivered a file, do NOT invent a download link or a "
-            "Downloads-folder/'artifact area', and do NOT promise to save to the user's local "
-            "disk (e.g. C:\\tmp) - you cannot. Files are delivered only as the chip." + _saved_line
+            '## PORTAL AUTOMATION (fetch_from_portal / save_portal / lookup_portal / list_portal_workflows / describe_portal_workflow / run_portal_workflow)\nYou can log into external web portals to DOWNLOAD files for the user AND UPLOAD files to them (RPA).\n- DO IT NOW: if the user gives a portal URL and a login, call fetch_from_portal with portal_name, start_url, task, username, password and log in immediately. Don\'t refuse or stall.\n- UPLOAD A FILE: you CAN upload files to portals. Do NOT refuse on the assumption that a file isn\'t reachable, and do NOT try to \'verify the file exists\' yourself first - you CANNOT know in advance whether a given path is readable by the server, so let the TOOL try. Pass the file straight through: for an ad-hoc upload to any portal, call fetch_from_portal with file=<the path, or the name of a file attached to this chat> and a task describing the upload; for a saved portal workflow that already has an upload step, call run_portal_workflow(name, file=...). The tool actually attempts to read the file and reports the truth - NEVER claim you \'can\'t access\' or \'can\'t verify\' a file without having tried it through the tool. ONLY if the tool itself returns a \'couldn\'t find\' message do you ask the user to fix the path or attach the file - and when they correct it, call fetch_from_portal AGAIN with the new file (do not just re-check a previous run). An upload SUCCEEDS when the tool returns an \'Upload completed\' confirmation - there is NO download chip for an upload, so do NOT report a download/file as \'failed\' or \'not captured\' for an upload; just relay the upload confirmation (and any file name/size it includes).\n- CHOOSING a saved workflow vs ad-hoc: when a task might match a SAVED portal workflow, check first with list_portal_workflows (it shows each one\'s target + whether it uploads or downloads); use describe_portal_workflow to inspect its steps. If one clearly matches the site AND the task, prefer running it (deterministic and repeatable). If none fits, or it\'s a one-off/new portal, do it ad-hoc with fetch_from_portal. If your confidence is LOW that a saved workflow matches (only a loose name/target/goal match, or several could fit), ASK the user to confirm which to run (or whether to do it ad-hoc) BEFORE acting - don\'t guess.\n- OFFER TO SAVE: after a successful ad-hoc run where the user supplied a login, offer to save it ("Want me to save this so you don\'t have to share your login next time?"). If they agree, call save_portal(name, url, username, password). Credentials are stored encrypted; only a reference is kept.\n- REUSE SAVED: for a saved portal, call fetch_from_portal with just portal_name and task - the URL and credentials resolve automatically; never ask the user to resend a saved login. Use lookup_portal to list/confirm saved portals.\n- 2FA / TAKE OVER: if fetch_from_portal returns a \'🔐 ... Take over here: <link>\' message, the portal hit a 2-step verification (or similar) it can\'t do alone and has PAUSED for the user. Relay that message and the link VERBATIM - do not paraphrase or drop the link. After the user says they\'ve taken over / handed back (or asks if it\'s ready), call check_portal_download to fetch the file.\n- SAVED PORTAL WORKFLOWS: a *portal* workflow is a recorded login-and-download sequence for THIS portal feature - it is NOT the platform\'s regular Workflows (Workflow Designer / Workflow Agent), which are a different system you do NOT run with these tools. ONLY when the user clearly means a saved PORTAL/download workflow, call run_portal_workflow(name) (use list_portal_workflows to find the exact name). It runs headless/unattended. IMPORTANT: the bare word "workflow" usually means a regular Workflow, NOT a portal one. If the user says "run workflow X" without portal/download context, do NOT assume it\'s a portal workflow - ask which they mean.\n- SCHEDULING A RECURRING PORTAL DOWNLOAD: if the user wants a portal login-and-download to REPEAT on a cadence ("run this every 20 minutes", "every morning", "each weekday at 8am"), call schedule_portal_workflow - do NOT use delegate_to_builder_agent or schedule_task for this. It schedules the portal workflow recorded from the fetch you did THIS chat (saving it first if needed) as a real recurring headless job and returns the real job id. Pass email_after_run=true if the user wants the file emailed after each run. schedule_portal_workflow reuses the run already recorded this chat - when scheduling, do NOT also call fetch_from_portal or run_portal_workflow (that would needlessly repeat the login/2FA and download a duplicate). CRITICAL: relay the tool\'s result verbatim - if it returns an error or says nothing was scheduled, tell the user that honestly; NEVER claim a schedule was created unless the tool returned a job number. Only if the user has NOT run this portal at all yet this chat, run the portal fetch ONCE first, then schedule.\n- DELIVERY & HONESTY: a downloaded file reaches the user ONLY as the inline download chip that fetch_from_portal returns. If the tool result does not include a downloaded file, then NO file was captured - say the download did not complete; do NOT claim you delivered a file, do NOT invent a download link or a Downloads-folder/\'artifact area\', and do NOT promise to save to the user\'s local disk (e.g. C:\\tmp) - you cannot. Files are delivered only as the chip.' + _saved_line
         )
 
     # Self-scheduling context (only when enabled + the user may use it). Lists the user's
@@ -1387,16 +1370,7 @@ async def converse(state: CommandCenterState) -> dict:
         except Exception:
             pass
         _schedule_prompt = (
-            "## SCHEDULED TASKS (schedule_task / list_scheduled_tasks / cancel_scheduled_task)\n"
-            "You can schedule yourself to re-run a task automatically on a recurring cadence, "
-            "even when the user is offline.\n"
-            "- When the user asks for something recurring (\"every morning\", \"each weekday at "
-            "8am\", \"every 6 hours\"), call schedule_task with a clear task_name, the prompt to "
-            "run each time, and EITHER a cron expression OR every_hours/every_days/every_minutes.\n"
-            "- Each run's output is saved to the user's Scheduled Tasks panel with a "
-            "notification; the user need not be online to receive it.\n"
-            "- Use list_scheduled_tasks to show what's scheduled and cancel_scheduled_task to "
-            "stop one." + _existing
+            '## SCHEDULED TASKS (schedule_task / list_scheduled_tasks / cancel_scheduled_task)\nYou can schedule yourself to re-run a task automatically on a recurring cadence, even when the user is offline.\n- When the user asks for something recurring ("every morning", "each weekday at 8am", "every 6 hours"), call schedule_task with a clear task_name, the prompt to run each time, and EITHER a cron expression OR every_hours/every_days/every_minutes.\n- Each run\'s output is saved to the user\'s Scheduled Tasks panel with a notification; the user need not be online to receive it.\n- Use list_scheduled_tasks to show what\'s scheduled and cancel_scheduled_task to stop one.\n- EXCEPTION: for a recurring PORTAL download (logging into a website and downloading a file), do NOT use schedule_task - use schedule_portal_workflow instead.' + _existing
         )
 
     _sftp_prompt = ""
@@ -2549,37 +2523,136 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             return f"```\n{stdout}\n```"
         return "Code ran successfully (no output)."
 
+    async def _deliver_portal_result(res, _uid, _sid, _uc):
+        """A finished auto-run manifest -> download chips (+ a Save-as-workflow button), or an
+        honest 'no file' message. Shared by fetch_from_portal and check_portal_download."""
+        from command_center.tools import portal_fetch as _pf
+        blocks = _pf._register_artifacts(res.get("files") or [], _sid, _uc)
+        if blocks:
+            draft = res.get("draft_workflow")
+            if draft and draft.get("steps"):
+                try:
+                    from command_center.tools import portal_workflows as _wf
+                    from cc_config import get_base_url
+                    _saved = await asyncio.to_thread(
+                        _wf.save_workflow, _uid, draft.get("name") or "Recorded portal run",
+                        draft["steps"], None, draft.get("start_url"), draft.get("goal"))
+                    blocks = list(blocks) + [{
+                        "type": "action",
+                        "action": "open_url",
+                        "icon": "route",
+                        "url": f"{get_base_url()}/portal-workflows?load={_saved['slug']}",
+                        "label": "Save as workflow",
+                        "hint": "Edit these recorded steps + add LLM steps for next time",
+                        "cta": "Open builder",
+                    }]
+                except Exception as _e:
+                    logger.warning(f"[converse/tool] draft workflow save failed: {_e}")
+            return json.dumps(blocks)
+        if res.get("is_upload"):
+            if res.get("status") == "ok":
+                return ("Upload completed. " + (res.get("final_result")
+                        or "The file was uploaded to the portal.")).strip()
+            return (f"The upload did NOT complete: {res.get('error') or 'unknown error'}. "
+                    "Tell the user the upload failed; do NOT claim the file was uploaded.")
+        if res.get("status") != "ok":
+            return (f"The portal task failed: {res.get('error') or 'unknown error'}. "
+                    "No file was downloaded and there is no artifact to give the user.")
+        return ("The portal task ran but NO file was captured (0 files downloaded), so there is "
+                "no artifact or download to give the user. Tell the user plainly that the "
+                "download did not complete — do NOT claim a file was delivered or invent a "
+                "download link.")
+
+    def _resolve_portal_upload_file(file, session_id, user_context):
+        """Resolve a file the user wants to UPLOAD to a portal into an absolute server path.
+        Order: (1) a file the user attached to THIS chat (ownership-scoped, the same check
+        sftp_upload / the attachment path use); (2) a path on this machine the environment can
+        read — no app-level allowlist, the OS governs access on this on-prem install. Returns
+        (path, None) on success or (None, reason) so the caller can tell the user what to do."""
+        import os as _os
+        f = (file or "").strip()
+        if not f:
+            return (None, "no file specified")
+        uc = user_context or {}
+        try:
+            from routes.upload import (get_files_for_session, get_file_path,
+                                       _file_is_accessible_to)
+            uid = uc.get("user_id")
+            tid = uc.get("tenant_id")
+            try:
+                role = int(uc.get("role") or 0)
+            except (TypeError, ValueError):
+                role = 0
+            want = f.lower()
+            for meta in (get_files_for_session(session_id) or []):
+                if (meta.get("filename") or "").strip().lower() != want:
+                    continue
+                if uid is not None and not _file_is_accessible_to(meta, uid, tid, role):
+                    continue
+                fid = meta.get("file_id")
+                path = get_file_path(fid) if fid else None
+                if path and _os.path.isfile(str(path)):
+                    logger.info(f"[portal upload] resolved chat attachment {f!r} -> {path}")
+                    return (str(path), None)
+        except Exception as e:
+            logger.warning(f"[converse/tool] portal upload attachment resolve failed: {e}")
+        try:
+            p = _os.path.abspath(_os.path.expanduser(f))
+            if _os.path.isfile(p):
+                logger.info(f"[portal upload] resolved server path {f!r} -> {p}")
+                return (p, None)
+            logger.info(f"[portal upload] server path NOT a readable file: {f!r} -> {p!r}")
+        except Exception as _e:
+            logger.warning(f"[portal upload] path check failed for {f!r}: {_e}")
+        return (None, f"I couldn't find '{f}'. Attach it to this chat, or give the full path "
+                "to a file on this machine that I can read, and I'll upload it.")
+
     @lc_tool
     async def fetch_from_portal(portal_name: str, task: str, start_url: str = "",
-                               username: str = "", password: str = "", totp: str = "") -> str:
-        """Log into a web portal and download files from it (RPA). Three ways to call it:
+                               username: str = "", password: str = "", totp: str = "",
+                               file: str = "") -> str:
+        """Log into a web portal and DOWNLOAD files from it, or UPLOAD a file to it (RPA, ad-hoc).
+        Three ways to call it:
 
         1. AD-HOC (first time): the user gives a URL and a login in chat. Pass portal_name,
-           start_url, task, username, password (and totp if given). Log in and download right
+           start_url, task, username, password (and totp if given). Log in and act right
            away - do NOT refuse or stall.
         2. SAVED portal: the user saved this portal before. Pass just portal_name and task
            (omit start_url/username/password) - the URL and credentials resolve automatically;
            the user does NOT need to share the login again.
         3. After an ad-hoc run, OFFER to save the portal with save_portal so #2 works next time.
 
-        Downloaded files come back to the user as downloadable artifacts.
+        UPLOAD: to upload a file, pass `file` (the name of a file the user attached to this chat,
+        or a full path on this machine) and describe the upload in `task` (e.g. 'go to the Upload
+        page and upload the file'). This drives the browser to attach the file to the page's file
+        input - it works ad-hoc on any portal, no pre-recorded workflow needed. Downloaded files
+        come back as downloadable artifacts.
 
         Args:
             portal_name: a short name for the portal (e.g. 'acme'); used to find saved creds.
-            task: what to do once logged in, e.g. 'download my latest receipts'.
+            task: what to do once logged in, e.g. 'download my latest receipts' or 'upload the file'.
             start_url: the login URL. Required for an ad-hoc run; optional if the portal is saved.
             username: login username - ONLY for an ad-hoc first run the user typed in chat.
             password: login password - ONLY for an ad-hoc first run.
             totp: TOTP 2FA shared secret, if the user provides one (optional).
+            file: a file to UPLOAD - the name of a file attached to this chat, or a server path.
+                  Omit for download-only tasks.
         """
         if not _portal_fetch_allowed(state):
-            return ("Pulling files from web portals requires a Developer role on this "
-                    "instance. Your account doesn't have permission to do that.")
+            return ("Pulling files from web portals requires a Developer role on this instance. "
+                    "Your account doesn't have permission to do that.")
         from command_center.tools import portal_fetch as _pf
         from command_center.tools import portal_registry as _reg
         _sid = state.get("session_id", "")
         _uc = state.get("user_context") or {}
         _uid = _uc.get("user_id")
+
+        upload_files = None
+        if file:
+            _p, _reason = _resolve_portal_upload_file(file, _sid, _uc)
+            if not _p:
+                return _reason
+            upload_files = [_p]
 
         entry = _reg.lookup_portal(_uid, portal_name) if portal_name else None
         eff_url = start_url or (entry or {}).get("url") or ""
@@ -2597,31 +2670,202 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         _mode = "inline" if inline else ("saved" if overrides else "legacy")
         logger.info(f"[converse/tool] fetch_from_portal portal={portal_name} url={eff_url} "
                     f"mode={_mode} session={_sid}")
-        try:
-            res = await asyncio.to_thread(_pf.fetch_portal, portal_name, eff_url, task, _sid, _uc,
-                                          360, overrides, inline)
-        except Exception as e:
-            logger.error(f"[converse/tool] fetch_from_portal failed: {e}", exc_info=True)
-            return f"Portal fetch failed to start: {e}"
 
-        blocks = res.get("blocks") or []
-        if blocks:
-            # Downloaded files → return ONLY artifact blocks (download chips) as a JSON
-            # list so converse renders them inline (same gate as run_python).
-            return json.dumps(blocks)
-        # No artifact was produced. Do NOT relay res['final_result'] — that is the in-browser
-        # agent's narration and can optimistically claim "downloaded / saved to disk" even when
-        # nothing was actually captured. Returning it verbatim is what let the agent hallucinate
-        # a download. Be explicit so the agent tells the user the truth.
-        if res.get("status") != "ok":
-            return (f"The portal task failed: {res.get('error') or 'unknown error'}. "
-                    "No file was downloaded and there is no artifact to give the user.")
-        return ("The portal task ran but NO file was captured (0 files downloaded), so there is "
-                "no artifact or download to give the user. The download likely did not actually "
-                "start (e.g. the button opened the file inline instead of triggering a browser "
-                "download). Tell the user plainly that the download did not complete — do NOT "
-                "claim a file was delivered, and do NOT invent a download link or a "
-                "Downloads-folder / 'artifact area' to retrieve it from.")
+        # Start the run, then poll — surfacing progress and a take-over chip if it needs a human.
+        start = await asyncio.to_thread(
+            _pf.start_portal_fetch, portal_name, eff_url, task, _sid, _uc, overrides, inline,
+            upload_files=upload_files)
+        if start.get("error"):
+            return f"I couldn't start the portal run: {start['error']}"
+        run_id = start.get("run_id")
+        if not run_id:
+            return "I couldn't start the portal run (no run id returned)."
+
+        try:
+            from graph.progress import get_queue as _get_pq
+            _pq = _get_pq(_sid)
+        except Exception:
+            _pq = None
+
+        async def _say(phase: str, message: str):
+            if _pq is not None:
+                try:
+                    await _pq.emit("status", {"phase": phase, "message": message})
+                except Exception:
+                    return None
+            return None
+
+        async def _say_blocks(blocks: list):
+            if _pq is not None:
+                try:
+                    await _pq.emit("status", {"blocks": blocks})
+                except Exception:
+                    return None
+            return None
+
+        import time as _time
+        # Wait this long before the portal asks for a human; then extend for the take-over.
+        _no_human_budget = int(os.getenv("PORTAL_FETCH_WAIT_SECONDS", "180"))
+        _human_budget = int(os.getenv("PORTAL_TAKEOVER_WAIT_SECONDS", "900"))
+        await _say("portal", f"Opening {portal_name or 'the portal'} and signing in…")
+        deadline = _time.time() + _no_human_budget
+        announced = False
+        last_beat = 0.0
+        seen_alive = False
+        gone_strikes = 0
+        res = {}
+        while _time.time() < deadline:
+            res = await asyncio.to_thread(_pf.get_portal_result, run_id, 15)
+            if res.get("done"):
+                break
+            _err = str(res.get("error") or "")
+            if "404" in _err or "no such run" in _err.lower():
+                gone_strikes += 1
+                # The run vanished. Tolerate a few transient misses (the worker may be
+                # registering it); only give up after several consecutive strikes.
+                if gone_strikes >= 5:
+                    return ("That portal run is no longer active (the browser service may have "
+                            "restarted). Ask me to fetch from the portal again and I'll retry.")
+            else:
+                if not res.get("error"):
+                    seen_alive = True
+                gone_strikes = 0
+            now = _time.time()
+            if res.get("needs_human"):
+                if not announced:
+                    announced = True
+                    deadline = now + _human_budget
+                    link = _pf.cobrowse_link(run_id)
+                    reason = res.get("reason") or "a verification / login step"
+                    await _say_blocks([
+                        {"type": "text",
+                         "text": f"🔐 **This portal needs you for {reason}.** I've opened it and "
+                                 "paused. Click **Take over the browser** below, complete the "
+                                 "step (e.g. type the code you received), then click **Hand "
+                                 "back** — I'll grab the file automatically. No need to ask me "
+                                 "again."},
+                        {"type": "action",
+                         "action": "open_url",
+                         "icon": "route",
+                         "url": link,
+                         "label": "Take over the browser",
+                         "hint": "Opens the live portal session — finish the step, then hand back",
+                         "cta": "Take over"},
+                    ])
+                await _say("takeover", "Waiting for you to finish the verification step in the "
+                           "take-over window…")
+            elif now - last_beat > 10:
+                last_beat = now
+                await _say("portal", "Working in the portal…")
+            await asyncio.sleep(2)
+
+        if res.get("done"):
+            return await _deliver_portal_result(res, _uid, _sid, _uc)
+
+        if res.get("needs_human"):
+            link = _pf.cobrowse_link(run_id)
+            return (f"The portal is still waiting for you to finish the verification step. If "
+                    f"you haven't yet, take over here: {link} — I'll deliver the file "
+                    "automatically once you hand back. Relay this link to the user verbatim.")
+        return ("The portal run is taking longer than usual but is still working in the "
+                "background. I'll keep going — the file will be delivered here the moment it's "
+                "ready.")
+
+    @lc_tool
+    async def check_portal_download() -> str:
+        """Check on a portal download you started earlier — use this after the user has taken over
+        for a 2FA/login step and handed back, or to see if a background run finished. Returns the
+        downloaded file if it's ready, otherwise the current status."""
+        if not _portal_fetch_allowed(state):
+            return "Pulling files from web portals requires a Developer role on this instance."
+        from command_center.tools import portal_fetch as _pf
+        _sid = state.get("session_id", "")
+        _uc = state.get("user_context") or {}
+        _uid = _uc.get("user_id")
+        run_id = _pf._LAST_AUTO_RUN.get(_sid)
+        if not run_id:
+            return ("I don't have a recent portal run to check. Ask me to fetch from a portal "
+                    "first.")
+
+        try:
+            from graph.progress import get_queue as _get_pq
+            _pq = _get_pq(_sid)
+        except Exception:
+            _pq = None
+
+        async def _say(phase: str, message: str):
+            if _pq is not None:
+                try:
+                    await _pq.emit("status", {"phase": phase, "message": message})
+                except Exception:
+                    return None
+            return None
+
+        async def _say_blocks(blocks: list):
+            if _pq is not None:
+                try:
+                    await _pq.emit("status", {"blocks": blocks})
+                except Exception:
+                    return None
+            return None
+
+        import time as _time
+        _budget = int(os.getenv("PORTAL_CHECK_WAIT_SECONDS", "240"))
+        deadline = _time.time() + _budget
+        announced = False
+        last_beat = 0.0
+        seen_alive = False
+        gone_strikes = 0
+        res = {}
+        while _time.time() < deadline:
+            res = await asyncio.to_thread(_pf.get_portal_result, run_id, 15)
+            if res.get("done"):
+                break
+            _err = str(res.get("error") or "")
+            if "404" in _err or "no such run" in _err.lower():
+                gone_strikes += 1
+                if gone_strikes >= 5:
+                    return ("That portal run is no longer active (the browser service may have "
+                            "restarted). Ask me to fetch from the portal again and I'll retry.")
+            else:
+                if not res.get("error"):
+                    seen_alive = True
+                gone_strikes = 0
+            now = _time.time()
+            if res.get("needs_human"):
+                if not announced:
+                    announced = True
+                    link = _pf.cobrowse_link(run_id)
+                    reason = res.get("reason") or "a verification / login step"
+                    await _say_blocks([
+                        {"type": "text",
+                         "text": f"🔐 **Still waiting for you on {reason}.** Click **Take over "
+                                 "the browser**, finish the step, then click **Hand back** — "
+                                 "I'll grab the file automatically."},
+                        {"type": "action",
+                         "action": "open_url",
+                         "icon": "route",
+                         "url": link,
+                         "label": "Take over the browser",
+                         "hint": "Opens the live portal session — finish the step, then hand back",
+                         "cta": "Take over"},
+                    ])
+                await _say("takeover", "Waiting for you to finish the verification step…")
+            elif now - last_beat > 10:
+                last_beat = now
+                await _say("portal", "Checking on the portal download…")
+            await asyncio.sleep(2)
+
+        if res.get("done"):
+            return await _deliver_portal_result(res, _uid, _sid, _uc)
+
+        if res.get("needs_human"):
+            link = _pf.cobrowse_link(run_id)
+            return (f"Still waiting for you to take over: {link} — finish the step and click "
+                    'Hand back, then say "check the download" again. Relay this link to the '
+                    "user.")
+        return ("Still working on it in the background — give it a little longer, then ask me "
+                "to check again.")
 
     @lc_tool
     async def save_portal(name: str, url: str, username: str, password: str,
@@ -2681,6 +2925,268 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         if not portals:
             return "You have no saved portals yet."
         return "Saved portals:\n" + "\n".join(f"- {p['name']} -> {p['url']}" for p in portals)
+
+    @lc_tool
+    async def list_portal_workflows() -> str:
+        """List the user's saved PORTAL workflows - recorded browser/RPA login-and-download
+        sequences for the Portal Workflows feature. These are NOT the platform's regular Workflows
+        (built in the Workflow Designer / Workflow Agent); do NOT use this for those. Returns
+        portal-workflow names + step counts only (never credentials)."""
+        if not _portal_fetch_allowed(state):
+            return "Portal workflows require a Developer role on this instance."
+        from command_center.tools import portal_workflows as _wf
+        _uc = state.get("user_context") or {}
+        _uid = _uc.get("user_id")
+        wfs = await asyncio.to_thread(_wf.list_workflows, _uid)
+        if not wfs:
+            return ('You have no saved portal workflows yet. Record one on the Portal Workflows '
+                    'page (or run a portal task in chat and choose "Save as workflow").')
+        lines = []
+        for w in wfs:
+            cap = "uploads" if w.get("uploads") else "downloads"
+            target = w.get("portal_slug") or w.get("start_url") or "—"
+            goal = (w.get("goal") or "").strip()
+            goal = (" — " + goal[:80] + ("…" if len(goal) > 80 else "")) if goal else ""
+            last = f", last: {w['last_run_status']}" if w.get("last_run_status") else ""
+            lines.append(f"- {w['name']} [{cap}] target: {target} "
+                         f"({w.get('step_count', 0)} steps{last}){goal}")
+        return ("Saved portal workflows (call describe_portal_workflow for one's steps):\n"
+                + "\n".join(lines))
+
+    @lc_tool
+    async def describe_portal_workflow(name: str) -> str:
+        """Show what a saved PORTAL workflow does, so you can decide whether it fits the user's
+        request BEFORE running it. Returns its target portal/URL, goal, whether it uploads or
+        downloads, and an ordered step summary (never any credentials). Use this when the user's
+        intent only loosely matches a saved workflow and you want to confirm it's the right one.
+
+        Args:
+            name: the saved portal-workflow's name (use list_portal_workflows to find it).
+        """
+        if not _portal_fetch_allowed(state):
+            return "Portal workflows require a Developer role on this instance."
+        from command_center.tools import portal_workflows as _wf
+        _uc = state.get("user_context") or {}
+        _uid = _uc.get("user_id")
+        wf = await asyncio.to_thread(_wf.get_workflow, _uid, name)
+        if not wf:
+            return (f"No saved portal workflow matches '{name}'. Call list_portal_workflows to "
+                    "see the exact names.")
+        steps = wf.get("steps") or []
+        types = [s.get("type") for s in steps if isinstance(s, dict)]
+
+        def _label(s):
+            t = s.get("type")
+            a = s.get("anchor") or {}
+            who = a.get("text") or a.get("css") or a.get("name") or ""
+            if t == "goto":
+                return f"go to {s.get('url', '')}"
+            if t == "login":
+                return "log in"
+            if t == "click":
+                return f"click {who or 'element'}"
+            if t == "fill":
+                if s.get("value"):
+                    extra = f" = {s.get('value')}"
+                elif s.get("secret"):
+                    extra = f" ({s.get('secret')})"
+                else:
+                    extra = ""
+                return f"fill {who or 'field'}{extra}"
+            if t == "wait":
+                return "wait"
+            if t == "agent":
+                return f"AI step: {(s.get('prompt') or s.get('task') or '')[:60]}"
+            if t == "verify":
+                return "verify a file downloaded" if s.get("downloaded") else "verify"
+            if t == "human":
+                return "pause for a person"
+            if t == "verify_code":
+                return "enter a 2FA / verification code"
+            if t == "upload":
+                return f"upload the provided file into {who or 'the file input'}"
+            return t or "?"
+
+        cap = "uploads a file" if "upload" in types else "downloads file(s)"
+        summary = "; ".join(f"{i + 1}. {_label(s)}" for i, s in enumerate(steps)) or "(no steps)"
+        target = wf.get("portal_slug") or wf.get("start_url") or "—"
+        return (f"Portal workflow '{wf.get('name', name)}':\n- This workflow {cap}.\n- Target: "
+                f"{target}\n- Goal: {wf.get('goal') or '(none)'}\n- Last run: "
+                f"{wf.get('last_run_status') or 'never run'}\n- Steps: {summary}")
+
+    @lc_tool
+    async def run_portal_workflow(name: str, file: str = "") -> str:
+        """Run a saved PORTAL workflow - a recorded browser/RPA sequence that logs into a web
+        portal to download (or upload) files - by name, returning any downloads as download chips.
+
+        To UPLOAD with this tool, the saved workflow must contain an 'upload' step; pass `file`
+        (a chat attachment name or a server path) and it's handed to that step. For a one-off
+        upload to a portal that has NO saved workflow, use fetch_from_portal(file=...) instead.
+
+        This is ONLY for Portal Workflows (the portal login-and-download feature). It is NOT the
+        platform's regular Workflows (Workflow Designer / Workflow Agent), which are a different
+        system you do NOT run with this tool. Use it when the user clearly means a saved
+        PORTAL/download workflow, or to SCHEDULE a portal download (e.g. "every morning run the
+        Acme portal workflow and email me the file") - it runs headless/unattended. Replays the
+        exact saved steps; credentials resolve automatically from the linked portal (the user
+        never reshares a login). If unsure of the exact saved name, call list_portal_workflows
+        first. If the user just says "run workflow X" with no portal/download context, do NOT
+        assume it's a portal one - ask whether they mean a portal workflow or a regular Workflow.
+
+        Args:
+            name: the saved portal-workflow's name (e.g. 'localhost-portal (recorded)').
+            file: a file to UPLOAD (chat attachment name or server path), if the workflow has an
+                  upload step; omit for download-only workflows.
+        """
+        if not _portal_fetch_allowed(state):
+            return ("Running portal workflows requires a Developer role on this instance. Your "
+                    "account doesn't have permission to do that.")
+        from command_center.tools import portal_workflow_run as _wfr
+        _sid = state.get("session_id", "")
+        _uc = state.get("user_context") or {}
+        _inputs = None
+        if file:
+            _p, _reason = _resolve_portal_upload_file(file, _sid, _uc)
+            if not _p:
+                return _reason
+            _inputs = {"files": [_p]}
+        logger.info(f"[converse/tool] run_portal_workflow name={name!r} session={_sid} "
+                    f"upload={'yes' if _inputs else 'no'}")
+        try:
+            res = await asyncio.to_thread(_wfr.run_workflow_by_name, name, _sid, _uc, 600,
+                                          inputs=_inputs)
+        except Exception as e:
+            logger.error(f"[converse/tool] run_portal_workflow failed: {e}", exc_info=True)
+            return f"Portal workflow run failed to start: {e}"
+
+        blocks = res.get("blocks") or []
+        if blocks:
+            return json.dumps(blocks)
+
+        if res.get("is_upload"):
+            if res.get("status") == "ok":
+                return ("Upload completed. " + (res.get("final_result")
+                        or f"The portal workflow '{name}' uploaded the file.")).strip()
+            return (f"The portal workflow '{name}' upload did NOT complete: "
+                    f"{res.get('error') or 'unknown error'}. Tell the user the upload failed; "
+                    "do NOT claim the file was uploaded.")
+        if res.get("status") != "ok":
+            return (f"The portal workflow '{name}' failed: {res.get('error') or 'unknown error'}. "
+                    "No file was downloaded and there is no artifact to give the user.")
+        return (f"The portal workflow '{name}' ran but NO file was captured (0 files downloaded), "
+                "so there is no artifact or download to give the user. Tell the user plainly that "
+                "the download did not complete - do NOT claim a file was delivered, and do NOT "
+                "invent a download link or a Downloads-folder/'artifact area' to retrieve it "
+                "from.")
+
+    @lc_tool
+    async def schedule_portal_workflow(every_minutes: int = 0, every_hours: int = 0,
+                                       every_days: int = 0, cron: str = "", name: str = "",
+                                       email_after_run: bool = False) -> str:
+        """Schedule a PORTAL login-and-download to run automatically on a recurring cadence,
+        headless/unattended on the server. Use THIS — never delegate_to_builder_agent or
+        schedule_task — whenever the user wants a portal download to REPEAT (e.g. right after a
+        portal fetch they say "run this every 20 minutes" or "every morning").
+
+        It schedules the portal workflow recorded from the portal fetch the user did in THIS chat
+        (saving it first if needed). If there's no recorded run yet, it says so and does NOT invent
+        a schedule. Provide ONE cadence: every_minutes OR every_hours OR every_days OR a cron.
+
+        Args:
+            every_minutes: run every N minutes (e.g. 20).
+            every_hours: run every N hours.
+            every_days: run every N days.
+            cron: 5-field cron expression (alternative to the interval args).
+            name: the saved portal-workflow name to schedule; omit to use this session's last run.
+            email_after_run: if true, email the downloaded file to the owner after each run.
+        """
+        if not _portal_fetch_allowed(state):
+            return ("Scheduling portal downloads requires a Developer role on this instance. "
+                    "Your account doesn't have permission to do that.")
+        if not _schedule_allowed(state):
+            return "Scheduling recurring tasks requires a Developer role on this instance."
+        _uc = state.get("user_context") or {}
+        _uid = _uc.get("user_id")
+        _sid = state.get("session_id", "")
+        if not _uid:
+            return "I can't schedule a task without a signed-in user."
+
+        if cron:
+            schedule = {"type": "cron", "cron_expression": cron.strip()}
+            desc = f"cron '{cron.strip()}'"
+        elif every_minutes or every_hours or every_days:
+            schedule = {"type": "interval"}
+            if every_days:
+                schedule["interval_days"] = int(every_days)
+            if every_hours:
+                schedule["interval_hours"] = int(every_hours)
+            if every_minutes:
+                schedule["interval_minutes"] = int(every_minutes)
+            desc = "every " + ", ".join(f"{v} {u}" for v, u in (
+                (every_days, "day(s)"), (every_hours, "hour(s)"), (every_minutes, "minute(s)"))
+                if v)
+        else:
+            return ("Tell me how often to run it — every_minutes, every_hours, every_days, or a "
+                    "cron expression.")
+
+        from command_center.tools import portal_workflows as _wf
+        from command_center.tools import portal_fetch as _pf
+
+        if name:
+            wf = await asyncio.to_thread(_wf.get_workflow, _uid, name)
+            if not wf:
+                _names = ", ".join(w.get("name", "") for w in
+                                   (await asyncio.to_thread(_wf.list_workflows, _uid) or [])
+                                   ) or "(none saved)"
+                return (f"I couldn't find a saved portal workflow called '{name}'. Saved: "
+                        f"{_names}. Run the portal fetch first, or give me the exact saved name.")
+            slug, wf_name = wf.get("slug"), wf.get("name")
+        else:
+            run_id = _pf._LAST_AUTO_RUN.get(_sid)
+            if not run_id:
+                return ("I don't have a recent portal run in this chat to schedule. Run the "
+                        "portal fetch once first (so I can record its steps), then ask me to "
+                        "schedule it.")
+            res = await asyncio.to_thread(_pf.get_portal_result, run_id, 15)
+            draft = res.get("draft_workflow") if isinstance(res, dict) else None
+            if not (draft and draft.get("steps")):
+                return ("I can't schedule that portal run yet — the last run didn't produce a "
+                        "reusable recorded workflow (it may not have completed a download). Run "
+                        "the portal fetch to completion first, then ask me to schedule it.")
+            try:
+                saved = await asyncio.to_thread(
+                    _wf.save_workflow, _uid, draft.get("name") or "Recorded portal run",
+                    draft["steps"], None, draft.get("start_url"), draft.get("goal"))
+            except Exception as e:
+                logger.error(f"[converse/tool] schedule_portal_workflow save failed: {e}",
+                             exc_info=True)
+                return f"I couldn't save the portal workflow to schedule it: {e}"
+            slug, wf_name = saved.get("slug"), saved.get("name")
+
+        from scheduling import schedule_logic as _sl
+        try:
+            sched = await asyncio.to_thread(
+                _sl.create_portal_workflow_schedule, _uc, slug, f"Portal: {wf_name}",
+                schedule, desc, bool(email_after_run))
+        except Exception as e:
+            logger.error(f"[converse/tool] schedule_portal_workflow failed: {e}", exc_info=True)
+            return f"Couldn't schedule the portal workflow: {e}"
+
+        if sched.get("status") != "ok" or not sched.get("job_id"):
+            return (f"I could NOT create the schedule: {sched.get('error') or 'unknown error'}. "
+                    "Nothing was scheduled — do NOT tell the user it was scheduled.")
+        logger.info(f"[converse/tool] schedule_portal_workflow slug={slug} "
+                    f"job_id={sched['job_id']} cadence={desc} email={bool(email_after_run)} "
+                    f"session={_sid}")
+        _email_line = (" I'll email the downloaded file to you after each run (if a run produces "
+                       "multiple files, the first is attached).") if email_after_run else ""
+        return (f"Scheduled the '{wf_name}' portal workflow to run {desc} (job #"
+                f"{sched['job_id']}). It runs headless on the server, so it works while you're "
+                "offline." + _email_line + " It's in your Scheduled Tasks. If a run hits a 2FA "
+                "step and the portal has no saved TOTP secret, it pauses and EMAILS you a link to "
+                "take over and enter the code (about a 15-minute window) — so it still works, "
+                "just not fully hands-off. Save a TOTP secret on the portal for fully unattended "
+                "runs.")
 
     @lc_tool
     async def schedule_task(task_name: str, prompt: str, cron: str = "",
@@ -2950,8 +3456,14 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         tools.append(sftp_upload)
     if _PORTAL_FETCH_ENABLED:
         tools.append(fetch_from_portal)
+        tools.append(check_portal_download)
         tools.append(save_portal)
         tools.append(lookup_portal)
+        tools.append(list_portal_workflows)
+        tools.append(describe_portal_workflow)
+        tools.append(run_portal_workflow)
+        if _SCHEDULE_ENABLED:
+            tools.append(schedule_portal_workflow)
     if _SCHEDULE_ENABLED:
         tools.append(schedule_task)
         tools.append(list_scheduled_tasks)
@@ -3000,8 +3512,13 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     "sftp_download": sftp_download,
                     "sftp_upload": sftp_upload,
                     "fetch_from_portal": fetch_from_portal,
+                    "check_portal_download": check_portal_download,
                     "save_portal": save_portal,
                     "lookup_portal": lookup_portal,
+                    "list_portal_workflows": list_portal_workflows,
+                    "describe_portal_workflow": describe_portal_workflow,
+                    "run_portal_workflow": run_portal_workflow,
+                    "schedule_portal_workflow": schedule_portal_workflow,
                     "schedule_task": schedule_task,
                     "list_scheduled_tasks": list_scheduled_tasks,
                     "cancel_scheduled_task": cancel_scheduled_task,
