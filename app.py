@@ -5775,13 +5775,23 @@ def update_workflow_category(workflow_id):
         }), 500
 
 
-def save_workflow_to_database(workflow_name, workflow_data):
+def save_workflow_to_database(workflow_name, workflow_data, owner_id=None):
     """Helper function to save workflow and its variables to SQL Server"""
     try:
         workflow_id = None
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
+        # Stamp the saving user's id into any Portal nodes so backend portal execution can resolve
+        # the owner's per-user saved portal workflow + encrypted credentials (portal creds are
+        # stored per user). Done server-side at save time; the node config carries ownerUserId.
+        if owner_id is not None:
+            for _node in (workflow_data.get('nodes') or []):
+                if isinstance(_node, dict) and _node.get('type') == 'Portal':
+                    _cfg = _node.setdefault('config', {})
+                    if not _cfg.get('ownerUserId'):
+                        _cfg['ownerUserId'] = str(owner_id)
+
         # Convert workflow data to JSON string
         workflow_json = json.dumps(workflow_data)
         
@@ -5940,7 +5950,8 @@ def save_workflow():
         workflow_name = os.path.splitext(filename)[0]  # Remove .json extension
         logger.info(f"Saving workflow to database: {workflow_name}")
         workflow_id = None
-        workflow_id = save_workflow_to_database(workflow_name, workflow_data)
+        _owner_id = current_user.id if current_user.is_authenticated else None
+        workflow_id = save_workflow_to_database(workflow_name, workflow_data, owner_id=_owner_id)
         
         response = {
             "status": "success",
