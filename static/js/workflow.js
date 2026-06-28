@@ -2655,7 +2655,17 @@ function saveNodeConfig() {
             // collector picked up (e.g. an empty parameters: "{}" string).
             Object.assign(config, intConfig);
         }
-        
+
+        // Special handling for Portal node - mirrors the Integration node above.
+        // The generic input-iteration coerces the numeric `timeout` to a string
+        // and would miss the explicit defaults (agentFallback=true), so delegate
+        // to the module's collector for a clean object matching the backend
+        // _execute_portal_node config contract.
+        if (nodeType === 'Portal' && typeof collectPortalNodeConfig === 'function') {
+            const portalConfig = collectPortalNodeConfig();
+            Object.assign(config, portalConfig);
+        }
+
         console.log(`Saving node config: ${formatJsonOutput(config)}`);
 
         // Save configuration
@@ -2736,10 +2746,13 @@ function createNode(type, x, y) {
         case 'Excel Export':
             icon.className = 'bi bi-file-earmark-excel';
             break;
+        case 'Portal':
+            icon.className = 'bi bi-box-arrow-in-right';
+            break;
         default:
             icon.className = 'bi bi-box';
     }
-    
+
     // contentContainer.appendChild(icon);
     // contentContainer.appendChild(document.createTextNode(' ' + (type === 'Loop' ? 'Start Loop' : type)));
     // node.appendChild(contentContainer);
@@ -3215,10 +3228,13 @@ function loadWorkflow(workflow) {
                 case 'Excel Export':
                     icon.className = 'bi bi-file-earmark-excel';
                     break;
+                case 'Portal':
+                    icon.className = 'bi bi-box-arrow-in-right';
+                    break;
                 default:
                     icon.className = 'bi bi-box';
             }
-            
+
             contentContainer.appendChild(icon);
             //contentContainer.appendChild(document.createTextNode(' ' + node.label));
             // Use the saved label for every node type. For Loop nodes, fall

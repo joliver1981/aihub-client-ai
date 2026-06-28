@@ -1197,7 +1197,10 @@ textarea[name="approvalData"].is-invalid {
                 <div class="tool-item" draggable="true" data-type="Integration">
                     <i class="bi bi-plug"></i> Integration
                 </div>
-                
+                <div class="tool-item" draggable="true" data-type="Portal">
+                    <i class="bi bi-box-arrow-in-right"></i> Portal
+                </div>
+
                 <!-- AI & Documents -->
                 <div class="category-header">AI & Documents</div>
                 <div class="tool-item" draggable="true" data-type="Document">
@@ -1579,6 +1582,7 @@ textarea[name="approvalData"].is-invalid {
     <script src="{{ url_for('static', filename='js/workflow.js') }}"></script>
     <script src="{{ url_for('static', filename='js/workflow_fn_updates.js') }}"></script>
     <script src="/static/js/integration_node.js"></script>
+    <script src="/static/js/portal_node.js?v=1"></script>
 
     <!-- AI Coding Assistant Coding -->
     <script src="{{ url_for('static', filename='js/workflow_command_executor.js') }}"></script>
