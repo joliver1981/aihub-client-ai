@@ -82,6 +82,7 @@ ALL PASS
 | `run_all.py` | start all three and block (the one a tester leaves running) |
 | `selftest.py` | start + round-trip list/upload/download over all three (paramiko/ftplib); exit 0 on success |
 | `verify_cc_client.py` | start + drive the **real** `command_center/tools/sftp_transfer.py` (list/download/upload × sftp/ftp/ftps) — proves the actual CC tool code works against the server |
+| `CC_AGENT_TEST_PLAN.md` | **human test plan** — step-by-step prompts to drive the CC **agent/UI** SFTP tools against this server (list/download/upload, negative/honesty cases, pass criteria) |
 | `requirements.txt` | the server/client stack for the `testftp` env |
 
 ## Manual connection examples
