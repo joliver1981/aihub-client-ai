@@ -77,6 +77,9 @@ LLM_MODEL = os.getenv("BROWSER_USE_LLM_MODEL", "claude-opus-4-8")
 HEADLESS = os.getenv("BROWSER_USE_HEADLESS", "true").lower() == "true"
 TIMEOUT_SECONDS = int(os.getenv("BROWSER_USE_TIMEOUT", "300"))
 MAX_STEPS = int(os.getenv("BROWSER_USE_MAX_STEPS", "50"))
+# Max concurrent in-flight portal runs (each drives a real browser); /portal/start and
+# /portal/fetch reject with 429 once run_registry.RUNS reaches this.
+MAX_SESSIONS = int(os.getenv("BROWSER_USE_MAX_SESSIONS", "5"))
 
 # --- Navigation allowlist (prompt-injection containment) ---
 # When RESTRICT_DOMAINS is on, the browser is hard-limited (at the browser layer, OUTSIDE the

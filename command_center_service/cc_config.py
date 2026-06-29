@@ -337,6 +337,12 @@ Covers the full round-trip including all NLQ pipeline LLM steps. Bumped from
 the original 240s because data-agent questions can take 5-8 sequential Anthropic
 proxy calls that exceed 240s under proxy/DB load. Override via CC_DELEGATION_TIMEOUT."""
 
+# Code interpreter (run_python) overrides. Empty / 0 means code_interpreter resolves its own
+# default — the shipped python-bundle, not the dev conda path. Set CODE_INTERPRETER_PYTHON to a
+# Python that has the data-science stack (matplotlib/pandas/numpy) where the host env lacks it.
+CODE_INTERPRETER_PYTHON = os.getenv("CODE_INTERPRETER_PYTHON", "")
+CODE_INTERPRETER_TIMEOUT = int(os.getenv("CODE_INTERPRETER_TIMEOUT", "0") or 0)
+
 USE_INTENT_HEURISTICS = os.getenv("CC_INTENT_HEURISTICS", "false").lower() == "true"
 """Enable keyword-based heuristic shortcuts in classify_intent.
 When enabled, hard-coded keyword matches (e.g. 'search for', 'on a map',
