@@ -3891,6 +3891,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 if _round < _MAX_TOOL_ROUNDS:
                     final_response = await llm_with_tools.ainvoke(_convo)
                 else:
+                    logger.warning(f"[converse] hit tool-round cap ({_MAX_TOOL_ROUNDS}); forcing a "
+                                   "text wrap-up — the agent may not have finished its tool plan.")
                     final_response = await llm.ainvoke(_convo)
                 trace_llm_call(state, node="converse", step=f"converse_round{_round}",
                                messages=_convo, response=final_response,
