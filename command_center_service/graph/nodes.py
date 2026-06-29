@@ -516,6 +516,7 @@ Capabilities:
 - map: geographic visualization, choropleth, showing locations on a map
 - image_generation: generating/drawing images, illustrations, pictures
 - run_tool: running a specific custom/generated tool — tool names that may be mentioned: {tool_names}
+- portal: logging into an external website/portal in a browser to UPLOAD or DOWNLOAD a file (RPA / web automation), or running a saved portal workflow — this is ONE browser task even when the user spells out the steps (open the site, sign in, upload/download, verify)
 - build: creating, configuring, or modifying platform resources (agents, workflows, connections, tools)
 - none: does NOT cleanly match any of the above — includes database queries, delegations to data/general agents, multi-step requests, ambiguous requests, and ordinary chat
 
@@ -527,6 +528,7 @@ Reply with ONLY a JSON object, no other text:
 Rules:
 - Use confidence >= 0.7 ONLY when you are clearly sure this maps to a single CC capability.
 - For multi-step requests (e.g. "find the contract AND export it to excel"), use "none" — let the full classifier handle them.
+- BUT a portal / browser-automation task (log in to a website/portal and upload or download a file, an "Upload Bay", a saved portal workflow) is ONE capability — classify it as "portal" even when the user lists the individual steps; do NOT treat it as a multi-step "none".
 - For ambiguous requests ("show me sales" could be a database query or a dashboard), use "none".
 - Database/data-agent queries (sales, revenue, orders, headcount, inventory metrics) → "none"."""
 
@@ -567,7 +569,7 @@ def _parse_capability_router_response(resp) -> dict:
     except (TypeError, ValueError):
         conf = 0.0
 
-    cc_native_chat = {"document_search", "web_search", "map", "image_generation", "run_tool"}
+    cc_native_chat = {"document_search", "web_search", "map", "image_generation", "run_tool", "portal"}
     if cap == "build":
         intent = "build"
     elif cap in cc_native_chat:
@@ -624,6 +626,11 @@ async def _run_capability_router(
     if not _DSE:
         prompt_body = prompt_body.replace(
             "- document_search: finding documents, contracts, invoices, leases, policies, reports, records in the document repository (not database rows)\n",
+            "",
+        )
+    if not _PORTAL_FETCH_ENABLED:
+        prompt_body = prompt_body.replace(
+            "- portal: logging into an external website/portal in a browser to UPLOAD or DOWNLOAD a file (RPA / web automation), or running a saved portal workflow — this is ONE browser task even when the user spells out the steps (open the site, sign in, upload/download, verify)\n",
             "",
         )
 
@@ -1222,18 +1229,6 @@ Reply with ONLY one word: CONTINUE, CC_CAPABLE, or REROUTE."""
                        "what is the price of", "how much is"]
         if any(sig in ut for sig in web_signals):
             logger.info("Detected web search / real-time request — routing to converse")
-            return _intent_result({"intent": "chat"})
-
-        # Heuristic: portal / browser-automation (log in to a website, upload/download via a
-        # portal or Upload Bay, run a saved portal workflow) → converse, which has the
-        # fetch_from_portal / run_portal_workflow tools. The multi-step plan-execute path has NO
-        # browser tool, so a portal task phrased as ordered steps would otherwise decompose into
-        # search_web and never touch the site (then the model invents a result). A browser portal
-        # interaction IS a single tool call (it logs in, uploads/downloads, verifies) — never split it.
-        if _PORTAL_FETCH_ENABLED and ("portal" in ut or "upload bay" in ut) and any(
-            sig in ut for sig in ["log in", "sign in", "log on", "logon", "upload", "download",
-                                  "http://", "https://", "log into"]):
-            logger.info("Detected portal / browser-automation request — routing to converse")
             return _intent_result({"intent": "chat"})
 
         # Heuristic: document search → converse (has search_documents tool)
