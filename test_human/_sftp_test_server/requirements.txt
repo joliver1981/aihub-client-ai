@@ -1,0 +1,10 @@
+# Local SFTP/FTP/FTPS test server stack (install into the `testftp` conda env).
+#   & "C:\Users\james\miniconda3\envs\testftp\python.exe" -m pip install -r requirements.txt
+asyncssh>=2.24      # SFTP server (SSH)
+pyftpdlib>=2.2      # FTP + explicit-FTPS server
+pyOpenSSL>=24       # REQUIRED for pyftpdlib's TLS_FTPHandler (FTPS) — without it FTPS is silently unavailable
+paramiko>=5.0       # SFTP client (same lib the CC sftp tool uses) — for selftest.py
+cryptography>=43    # self-signed TLS cert generation (FTPS)
+
+# Verified working set (testftp env, 2026-06-28):
+#   asyncssh==2.24.0  pyftpdlib==2.2.0  pyOpenSSL==26.3.0  paramiko==5.0.0  cryptography==49.0.0
