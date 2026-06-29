@@ -3816,31 +3816,39 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             _has_tc = bool(hasattr(final_response, 'tool_calls') and final_response.tool_calls)
             logger.info(f"[converse] Follow-up response: {len(_fc)} chars, has_tool_calls={_has_tc}, preview={_fc[:150]!r}")
 
-            # If the follow-up ALSO wants to call tools, the content field may contain
-            # garbled tool routing text (to=functions.*). Strip it and use only tool results.
-            if _has_tc:
-                logger.info(f"[converse] Follow-up wants MORE tool calls — executing second round")
-                # Execute second round of tool calls
-                tool_results_2 = []
+            # Keep executing tool rounds while the model keeps asking for tools, up to a cap,
+            # BINDING TOOLS each round so the agent can actually ACT. The old code allowed only a
+            # single extra round and then forced a TOOL-LESS final pass (llm, not llm_with_tools);
+            # an agent that spent its two rounds exploring (e.g. list_portal_workflows then
+            # describe_portal_workflow) could never reach the execution call (run_portal_workflow /
+            # fetch_from_portal) and would just narrate its intent ("Using the saved portal
+            # workflow") with nothing reaching the browser. The loop lets explore->act complete.
+            _MAX_TOOL_ROUNDS = 6
+            _round = 1
+            _convo = follow_up_messages
+            while _has_tc and _round < _MAX_TOOL_ROUNDS:
+                _round += 1
+                logger.info(f"[converse] Follow-up wants MORE tool calls — executing round {_round}")
+                tool_results_n = []
                 for tc in final_response.tool_calls:
                     tool_name = tc["name"]
                     tool_args = tc["args"]
-                    logger.info(f"[converse] Round 2 tool call: {tool_name}({tool_args})")
+                    logger.info(f"[converse] Round {_round} tool call: {tool_name}({tool_args})")
                     tool_fn = tool_map.get(tool_name)
                     if tool_fn:
                         try:
-                            r2 = await tool_fn.ainvoke(tool_args)
+                            rn = await tool_fn.ainvoke(tool_args)
                         except Exception as _tool_err2:
                             logger.warning(
-                                f"[converse] Round-2 tool '{tool_name}' failed: {str(_tool_err2)[:400]}"
+                                f"[converse] Round-{_round} tool '{tool_name}' failed: {str(_tool_err2)[:400]}"
                             )
-                            r2 = (
+                            rn = (
                                 f"The {tool_name} tool could not complete — parameters "
                                 f"may be missing or invalid. Please retry with complete fields."
                             )
                     else:
-                        r2 = f"Unknown tool: {tool_name}"
-                    tool_results_2.append(ToolMessage(content=str(r2), tool_call_id=tc["id"]))
+                        rn = f"Unknown tool: {tool_name}"
+                    tool_results_n.append(ToolMessage(content=str(rn), tool_call_id=tc["id"]))
 
                     # Track delegation
                     if tool_name in ("query_data_agent", "query_general_agent"):
@@ -3852,8 +3860,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                             "history": [],
                         }
 
-                # Check for direct blocks from round 2
-                for tr in tool_results_2:
+                # Check for direct blocks from this round
+                for tr in tool_results_n:
                     try:
                         parsed = json.loads(tr.content)
                         if isinstance(parsed, list) and parsed and all(
@@ -3876,14 +3884,20 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                         result["active_delegation"] = active_deleg
                     return result
 
-                # Final LLM pass after round 2
-                follow_up_2 = follow_up_messages + [final_response] + tool_results_2
-                _r2_t0 = _trace_time.perf_counter()
-                final_response = await llm.ainvoke(follow_up_2)
-                trace_llm_call(state, node="converse", step="converse_round2",
-                               messages=follow_up_2, response=final_response,
-                               elapsed_ms=int((_trace_time.perf_counter() - _r2_t0) * 1000), model_hint="full")
-                logger.info(f"[converse] Round 2 follow-up: {len(final_response.content)} chars")
+                _convo = _convo + [final_response] + tool_results_n
+                _rN_t0 = _trace_time.perf_counter()
+                # Keep tools bound so the agent can still act; only the final capped pass drops
+                # them to force a text wrap-up instead of another (impossible) tool round.
+                if _round < _MAX_TOOL_ROUNDS:
+                    final_response = await llm_with_tools.ainvoke(_convo)
+                else:
+                    final_response = await llm.ainvoke(_convo)
+                trace_llm_call(state, node="converse", step=f"converse_round{_round}",
+                               messages=_convo, response=final_response,
+                               elapsed_ms=int((_trace_time.perf_counter() - _rN_t0) * 1000), model_hint="full")
+                _has_tc = bool(getattr(final_response, "tool_calls", None))
+                logger.info(f"[converse] Round {_round} follow-up: {len(final_response.content)} chars, "
+                            f"has_tool_calls={_has_tc}")
 
             # ── Output sanitizer: catch raw JSON / tool metadata leaking to user ──
             final_response = _sanitize_llm_response(final_response, llm)
