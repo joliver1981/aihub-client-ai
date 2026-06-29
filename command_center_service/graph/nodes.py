@@ -516,11 +516,11 @@ Capabilities:
 - map: geographic visualization, choropleth, showing locations on a map
 - image_generation: generating/drawing images, illustrations, pictures
 - run_tool: running a specific custom/generated tool — tool names that may be mentioned: {tool_names}
-- portal: logging into an external website/portal in a browser to UPLOAD or DOWNLOAD a file (RPA / web automation), or running a saved portal workflow — this is ONE browser task even when the user spells out the steps (open the site, sign in, upload/download, verify)
-- build: creating, configuring, or modifying platform resources (agents, workflows, connections, tools)
+- portal: a BROWSER / web-automation task on an external website or portal — logging in to UPLOAD or DOWNLOAD a file (RPA), running a SAVED portal workflow, SAVING a portal login for reuse, or SCHEDULING a recurring portal login-and-upload/download. ONE task even when the user spells out the steps (open the site, sign in, upload/download, verify).
+- build: creating, configuring, or modifying PLATFORM resources — agents, the platform's own Workflows (Workflow Designer), connections, custom tools. NOTE: a portal login-and-upload/download (even "save it and schedule it daily") is NOT a platform workflow — that is "portal".
 - none: does NOT cleanly match any of the above — includes database queries, delegations to data/general agents, multi-step requests, ambiguous requests, and ordinary chat
 
-User message: "{user_text}"
+{recent_conversation}User message: "{user_text}"
 
 Reply with ONLY a JSON object, no other text:
 {{"capability": "<one of the above>", "confidence": <float 0.0-1.0>}}
@@ -529,6 +529,7 @@ Rules:
 - Use confidence >= 0.7 ONLY when you are clearly sure this maps to a single CC capability.
 - For multi-step requests (e.g. "find the contract AND export it to excel"), use "none" — let the full classifier handle them.
 - BUT a portal / browser-automation task (log in to a website/portal and upload or download a file, an "Upload Bay", a saved portal workflow) is ONE capability — classify it as "portal" even when the user lists the individual steps; do NOT treat it as a multi-step "none".
+- A terse follow-up to a PORTAL interaction in the recent conversation — "yes save it", "save it and run it every day at 10am", "schedule it daily", "run it every morning" — is "portal" (saving/scheduling a portal login is done in chat via save_portal / schedule_portal_workflow), NOT "build".
 - For ambiguous requests ("show me sales" could be a database query or a dashboard), use "none".
 - Database/data-agent queries (sales, revenue, orders, headcount, inventory metrics) → "none"."""
 
@@ -619,9 +620,20 @@ async def _run_capability_router(
         from cc_config import DOCUMENT_SEARCH_ENABLED as _DSE
     except Exception:
         _DSE = True
+    # Recent conversation so a terse follow-up ("save it and run it daily") resolves to the right
+    # capability — e.g. saving/scheduling the PORTAL the prior turn just ran, not a Builder workflow.
+    _conv = ""
+    try:
+        _msgs = state.get("messages", []) if isinstance(state, dict) else []
+        _ctext = _format_conversation_for_prompt(_msgs)
+        if _ctext:
+            _conv = f"Recent conversation (resolve 'it'/'that' + terse follow-ups against this):\n{_ctext}\n\n"
+    except Exception:
+        _conv = ""
     prompt_body = _CAPABILITY_ROUTER_PROMPT.format(
         tool_names=tool_names,
         user_text=(user_text or "").replace('"', '\\"')[:800],
+        recent_conversation=_conv,
     )
     if not _DSE:
         prompt_body = prompt_body.replace(
@@ -630,7 +642,7 @@ async def _run_capability_router(
         )
     if not _PORTAL_FETCH_ENABLED:
         prompt_body = prompt_body.replace(
-            "- portal: logging into an external website/portal in a browser to UPLOAD or DOWNLOAD a file (RPA / web automation), or running a saved portal workflow — this is ONE browser task even when the user spells out the steps (open the site, sign in, upload/download, verify)\n",
+            "- portal: a BROWSER / web-automation task on an external website or portal — logging in to UPLOAD or DOWNLOAD a file (RPA), running a SAVED portal workflow, SAVING a portal login for reuse, or SCHEDULING a recurring portal login-and-upload/download. ONE task even when the user spells out the steps (open the site, sign in, upload/download, verify).\n",
             "",
         )
 
