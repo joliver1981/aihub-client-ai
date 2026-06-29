@@ -1,7 +1,7 @@
 [Setup]
 AppId={{999ECAE8-60BF-4566-B61D-51F5BFAC7B66}
 AppName=AIHub
-AppVersion=1.7.2
+AppVersion=1.7.4
 AppPublisher=EveriAI, LLC.
 AppPublisherURL=https://www.everiai.ai/
 AppSupportURL=https://www.everiai.ai/
@@ -12,7 +12,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 DefaultGroupName=AIHub
 DisableProgramGroupPage=yes
 LicenseFile=C:\src\aihub-client-ai-dev\static\license.txt
-OutputBaseFilename=AIHub.Setup.v1.7.2
+OutputBaseFilename=AIHub.Setup.v1.7.4
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
