@@ -213,6 +213,13 @@ const CC = {
                 session_id: this.sessionId,
                 user_context: this.userContext || (this.userId ? { user_id: parseInt(this.userId) } : null),
             };
+            // Browser IANA timezone (e.g. "America/New_York"). The server stamps it onto
+            // user_context so scheduled cron times default to the user's local zone when they
+            // don't name one explicitly. Best-effort: omit if the API is unavailable.
+            try {
+                const _tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                if (_tz) body.timezone = _tz;
+            } catch (_e) { /* leave timezone unset */ }
             if (attachments.length > 0) {
                 body.attachments = attachments;
             }

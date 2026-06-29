@@ -118,6 +118,11 @@ async def chat(request: Request):
     user_message = body.get("message", "").strip()
     session_id = body.get("session_id")
     attachments = body.get("attachments")  # Optional list of file_ids
+    # Browser IANA timezone (Intl.DateTimeFormat().resolvedOptions().timeZone), sent as a
+    # top-level body field. Injected into user_context AFTER the JWT-derived identity is rebuilt
+    # below (the rebuild keeps only fixed claim keys, so a nested tz would be dropped). It is the
+    # default timezone for scheduled cron times when the user names no explicit zone.
+    browser_tz = body.get("timezone")
 
     # ---- Identity: trust the signed CC session JWT, NOT the request body. ----
     # The token is sent as `Authorization: Bearer <jwt>` (fallback: body.token).
@@ -185,6 +190,12 @@ async def chat(request: Request):
                         break
         except Exception as e:
             logger.warning(f"[chat] Could not resolve user role: {e}")
+
+    # Stamp the browser timezone onto the (now finalized) user_context so the scheduling tools can
+    # default cron times to the user's zone. Done here, after the JWT rebuild + role backfill, so
+    # the key survives. Harmless to every other consumer (they read specific keys).
+    if user_context is not None and isinstance(browser_tz, str) and browser_tz:
+        user_context["browser_timezone"] = browser_tz
 
     if not user_message:
         return {"error": "Message is required"}

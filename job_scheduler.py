@@ -6,7 +6,7 @@ import logging
 import argparse
 import pyodbc
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import importlib
 import threading
 import uuid
@@ -27,6 +27,15 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from CommonUtils import get_db_connection_string, get_base_url, safe_log_string, rotate_logs_on_startup, get_log_path
 from config import JOB_SCHEDULER_TIMEZONE
+
+# Per-schedule timezone support: turn a canonical zone string (carried as the job's "timezone"
+# parameter) into a tzinfo for the cron trigger so it fires at the user's local wall-clock,
+# DST-aware. Soft import - if unavailable, schedules simply fire in JOB_SCHEDULER_TIMEZONE (UTC),
+# the prior behavior.
+try:
+    from schedule_tz import to_tzinfo as _tz_to_tzinfo
+except Exception:  # pragma: no cover
+    _tz_to_tzinfo = lambda _name: None
 
 rotate_logs_on_startup(log_file=os.getenv('JOB_SCHEDULER_SERVICE_LOG', get_log_path('job_scheduler_service_log.txt')))
 
@@ -294,19 +303,22 @@ class JobSchedulerService:
                     logger.warning(f"Unsupported job type: {job_type}")
                     continue
                 
+                # Get job parameters first - they carry the optional per-schedule "timezone"
+                # (canonical IANA name or 'UTC+HH:MM' offset) the cron trigger should fire in.
+                params = self._get_job_parameters(job_id)
+                tz_name = (params.get("timezone") or "").strip() if isinstance(params, dict) else ""
+
                 # Create or update the job in the scheduler
                 trigger = self._create_trigger(
-                    schedule_type, 
+                    schedule_type,
                     interval_seconds, interval_minutes, interval_hours, interval_days, interval_weeks,
-                    cron_expression, start_date, end_date
+                    cron_expression, start_date, end_date,
+                    tz_name=tz_name
                 )
-                
+
                 if trigger:
                     job_func = self.job_types[job_type]
-                    
-                    # Get job parameters
-                    params = self._get_job_parameters(job_id)
-                    
+
                     # Job data to pass to the executor
                     job_data = {
                         'scheduled_job_id': job_id,
@@ -422,18 +434,23 @@ class JobSchedulerService:
         interval_weeks: Optional[int] = None,
         cron_expression: Optional[str] = None,
         start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None
+        end_date: Optional[datetime] = None,
+        tz_name: Optional[str] = None
     ):
         """
         Create an APScheduler trigger based on schedule parameters.
-        
+
         Args:
             schedule_type: Type of schedule ('interval', 'cron', 'date')
             interval_*: Interval parameters for 'interval' schedules
             cron_expression: Cron expression for 'cron' schedules
             start_date: Start date for all schedules
             end_date: End date for all schedules
-            
+            tz_name: Optional canonical timezone (IANA name or 'UTC+HH:MM') for CRON schedules,
+                so a 'daily at 9am' fires at 9am in the user's zone (DST-aware). Falls back to
+                JOB_SCHEDULER_TIMEZONE (UTC). Ignored for interval/date triggers, whose StartDate
+                is stored in UTC.
+
         Returns:
             APScheduler trigger object
         """
@@ -476,9 +493,16 @@ class JobSchedulerService:
                     logger.warning(f"No cron expression specified for cron schedule")
                     return None
                 
+                # Fire the cron in the schedule's own timezone when one was supplied (DST-aware),
+                # else the global default (UTC). to_tzinfo() returns None for empty/invalid names,
+                # so a bad value can never break scheduling - it just falls back to UTC.
+                _tz_obj = _tz_to_tzinfo(tz_name)
+                _cron_tz = _tz_obj or JOB_SCHEDULER_TIMEZONE
+                if tz_name and _tz_obj is not None:
+                    logger.info(f"Cron schedule using timezone: {tz_name}")
                 trigger = CronTrigger.from_crontab(
                     cron_expression,
-                    timezone=JOB_SCHEDULER_TIMEZONE
+                    timezone=_cron_tz
                 )
                 if start_date:
                     trigger.start_date = start_date
@@ -598,18 +622,26 @@ class JobSchedulerService:
         """
         try:
             cursor = self.db_conn.cursor()
-            
+
             # Set tenant context if needed
             if self.tenant_id:
                 cursor.execute("EXEC tenant.sp_setTenantContext ?", self.tenant_id)
-            
+
+            # APScheduler returns next_run_time as a TIMEZONE-AWARE datetime in the trigger's zone
+            # (e.g. 09:00-04:00 for an America/New_York cron). The NextRunTime column is naive and
+            # the panel formats it as UTC, so normalize to naive-UTC here. This keeps the displayed
+            # "next run" correct for ANY trigger zone (UTC schedules are unchanged: 09:00+00:00 ->
+            # 09:00). Without this, a zoned schedule would store local wall-clock and display wrong.
+            if next_run_time is not None and getattr(next_run_time, "tzinfo", None) is not None:
+                next_run_time = next_run_time.astimezone(timezone.utc).replace(tzinfo=None)
+
             # Update next run time
             query = """
             UPDATE ScheduleDefinitions
             SET NextRunTime = ?
             WHERE ScheduleId = ?
             """
-            
+
             cursor.execute(query, next_run_time, schedule_id)
             self.db_conn.commit()
             

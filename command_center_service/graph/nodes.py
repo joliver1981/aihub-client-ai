@@ -89,6 +89,32 @@ def _schedule_allowed(state) -> bool:
     return _SCHEDULE_ALLOW_ALL or _has_dev_role(state)
 
 
+def _resolve_schedule_tz(is_cron, spoken, iana_hint, user_context):
+    """Resolve the timezone a scheduled CRON time should fire in. Returns (canonical, note):
+      canonical - a valid IANA name or 'UTC+HH:MM' offset to store on the schedule, or None to
+                  leave it at the engine default (UTC).
+      note      - a human string to surface to the user (ambiguity to confirm / fallback used), or ''.
+
+    Only CRON schedules have a wall-clock time, so interval cadences return (None, ''). Priority:
+    an explicitly named zone (`spoken`/`iana_hint`) wins; otherwise the user's browser timezone
+    (user_context['browser_timezone']) is the default. Never raises - if the resolver module is
+    unavailable, returns (None, '') so scheduling still works (firing in UTC, the prior behavior)."""
+    if not is_cron:
+        return None, ""
+    try:
+        from schedule_tz import resolve_timezone
+    except Exception:
+        return None, ""
+    browser_tz = (user_context or {}).get("browser_timezone") or ""
+    if not (spoken or iana_hint or browser_tz):
+        return None, ""
+    try:
+        canonical, _disp, note = resolve_timezone(spoken, iana_hint, browser_tz)
+        return canonical, note
+    except Exception:
+        return None, ""
+
+
 # SFTP / FTP file transfer (sftp_list_files / sftp_download / sftp_upload) availability.
 # Default Developer+ only — these connect to external servers with user-supplied
 # credentials and move files in/out — flip SFTP_ALLOW_ALL_USERS=true to open to all users.
@@ -1389,7 +1415,7 @@ async def converse(state: CommandCenterState) -> dict:
         except Exception:
             pass
         _schedule_prompt = (
-            '## SCHEDULED TASKS (schedule_task / list_scheduled_tasks / cancel_scheduled_task)\nYou can schedule yourself to re-run a task automatically on a recurring cadence, even when the user is offline.\n- When the user asks for something recurring ("every morning", "each weekday at 8am", "every 6 hours"), call schedule_task with a clear task_name, the prompt to run each time, and EITHER a cron expression OR every_hours/every_days/every_minutes.\n- Each run\'s output is saved to the user\'s Scheduled Tasks panel with a notification; the user need not be online to receive it.\n- Use list_scheduled_tasks to show what\'s scheduled and cancel_scheduled_task to stop one.\n- EXCEPTION: for a recurring PORTAL download (logging into a website and downloading a file), do NOT use schedule_task - use schedule_portal_workflow instead.' + _existing
+            '## SCHEDULED TASKS (schedule_task / list_scheduled_tasks / cancel_scheduled_task)\nYou can schedule yourself to re-run a task automatically on a recurring cadence, even when the user is offline.\n- When the user asks for something recurring ("every morning", "each weekday at 8am", "every 6 hours"), call schedule_task with a clear task_name, the prompt to run each time, and EITHER a cron expression OR every_hours/every_days/every_minutes.\n- Each run\'s output is saved to the user\'s Scheduled Tasks panel with a notification; the user need not be online to receive it.\n- TIMEZONE: a cron time runs in the user\'s timezone. Default (the user named no zone): leave timezone empty and their browser timezone is used automatically. If the user names a zone ("8am EST", "9am IST", "9am Pacific"), pass timezone=<the exact word they said> AND timezone_iana=<your best-guess IANA name, e.g. Asia/Kolkata>; for ambiguous abbreviations (IST = India/Israel/Ireland) confirm the region. Never compute UTC offsets yourself. For a specific time of day, use a cron ("0 9 * * *"), not every_days.\n- Use list_scheduled_tasks to show what\'s scheduled and cancel_scheduled_task to stop one.\n- EXCEPTION: for a recurring PORTAL download (logging into a website and downloading a file), do NOT use schedule_task - use schedule_portal_workflow instead.' + _existing
         )
 
     _sftp_prompt = ""
@@ -3101,7 +3127,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
     @lc_tool
     async def schedule_portal_workflow(every_minutes: int = 0, every_hours: int = 0,
                                        every_days: int = 0, cron: str = "", name: str = "",
-                                       email_after_run: bool = False) -> str:
+                                       email_after_run: bool = False,
+                                       timezone: str = "", timezone_iana: str = "") -> str:
         """Schedule a PORTAL login-and-download to run automatically on a recurring cadence,
         headless/unattended on the server. Use THIS — never delegate_to_builder_agent or
         schedule_task — whenever the user wants a portal download to REPEAT (e.g. right after a
@@ -3111,6 +3138,15 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         (saving it first if needed). If there's no recorded run yet, it says so and does NOT invent
         a schedule. Provide ONE cadence: every_minutes OR every_hours OR every_days OR a cron.
 
+        For a specific time of day use a CRON (e.g. 9am daily -> cron="0 9 * * *"), not every_days.
+        Cron times are interpreted in the user's timezone:
+          - Default (user named no zone): leave timezone/timezone_iana empty -> the user's browser
+            timezone is used automatically.
+          - User named a zone (e.g. "9am EST", "9am IST", "9am Pacific"): pass the exact word they
+            used as `timezone` AND your best-guess IANA name as `timezone_iana` (e.g. timezone="IST",
+            timezone_iana="Asia/Kolkata"). For ambiguous abbreviations (IST = India/Israel/Ireland)
+            confirm the region with the user. Never do timezone offset math yourself.
+
         Args:
             every_minutes: run every N minutes (e.g. 20).
             every_hours: run every N hours.
@@ -3118,6 +3154,10 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             cron: 5-field cron expression (alternative to the interval args).
             name: the saved portal-workflow name to schedule; omit to use this session's last run.
             email_after_run: if true, email the downloaded file to the owner after each run.
+            timezone: the timezone word the user said for a cron time (e.g. "EST", "IST", "Pacific"
+                or "UTC+5:30"); empty to use the user's browser timezone.
+            timezone_iana: your best-guess IANA name for `timezone` (e.g. "Asia/Kolkata"); used as a
+                validated fallback for zones not in the built-in table.
         """
         if not _portal_fetch_allowed(state):
             return ("Scheduling portal downloads requires a Developer role on this instance. "
@@ -3130,9 +3170,10 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         if not _uid:
             return "I can't schedule a task without a signed-in user."
 
+        _tz_name, _tz_note = _resolve_schedule_tz(bool(cron), timezone, timezone_iana, _uc)
         if cron:
             schedule = {"type": "cron", "cron_expression": cron.strip()}
-            desc = f"cron '{cron.strip()}'"
+            desc = f"cron '{cron.strip()}'" + (f" ({_tz_name})" if _tz_name else "")
         elif every_minutes or every_hours or every_days:
             schedule = {"type": "interval"}
             if every_days:
@@ -3186,7 +3227,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         try:
             sched = await asyncio.to_thread(
                 _sl.create_portal_workflow_schedule, _uc, slug, f"Portal: {wf_name}",
-                schedule, desc, bool(email_after_run))
+                schedule, desc, bool(email_after_run), _tz_name)
         except Exception as e:
             logger.error(f"[converse/tool] schedule_portal_workflow failed: {e}", exc_info=True)
             return f"Couldn't schedule the portal workflow: {e}"
@@ -3199,7 +3240,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     f"session={_sid}")
         _email_line = (" I'll email the downloaded file to you after each run (if a run produces "
                        "multiple files, the first is attached).") if email_after_run else ""
-        return (f"Scheduled the '{wf_name}' portal workflow to run {desc} (job #"
+        _tz_prefix = (_tz_note + " ") if _tz_note else ""
+        return (_tz_prefix + f"Scheduled the '{wf_name}' portal workflow to run {desc} (job #"
                 f"{sched['job_id']}). It runs headless on the server, so it works while you're "
                 "offline." + _email_line + " It's in your Scheduled Tasks. If a run hits a 2FA "
                 "step and the portal has no saved TOTP secret, it pauses and EMAILS you a link to "
@@ -3209,13 +3251,20 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
 
     @lc_tool
     async def schedule_task(task_name: str, prompt: str, cron: str = "",
-                           every_hours: int = 0, every_days: int = 0, every_minutes: int = 0) -> str:
+                           every_hours: int = 0, every_days: int = 0, every_minutes: int = 0,
+                           timezone: str = "", timezone_iana: str = "") -> str:
         """Schedule a recurring task that re-runs this Command Center agent automatically at a
         set cadence, EVEN WHEN THE USER IS OFFLINE. Each run's output is saved to the user's
         Scheduled Tasks panel with a notification.
 
         Provide EITHER a 5-field cron expression OR one of every_minutes/every_hours/every_days.
         Examples: weekdays at 8am -> cron="0 8 * * 1-5"; every 6 hours -> every_hours=6.
+
+        Cron times are interpreted in the user's timezone. Default (no zone named): leave
+        timezone/timezone_iana empty -> the user's browser timezone is used. If the user named a
+        zone (e.g. "8am EST", "8am IST"): pass the word they used as `timezone` AND your best-guess
+        IANA name as `timezone_iana` (e.g. timezone="IST", timezone_iana="Asia/Kolkata"). Confirm
+        ambiguous abbreviations (IST = India/Israel/Ireland). Never do timezone offset math yourself.
 
         Args:
             task_name: a short label for the task (e.g. 'Daily Acme orders').
@@ -3224,15 +3273,19 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             every_hours: run every N hours (interval alternative to cron).
             every_days: run every N days.
             every_minutes: run every N minutes.
+            timezone: the timezone word the user said for a cron time ("EST", "IST", "Pacific",
+                "UTC+5:30"); empty to use the user's browser timezone.
+            timezone_iana: your best-guess IANA name for `timezone` (e.g. "Asia/Kolkata").
         """
         if not _schedule_allowed(state):
             return "Scheduling recurring tasks requires a Developer role on this instance."
         _uc = state.get("user_context") or {}
         if not _uc.get("user_id"):
             return "I can't schedule a task without a signed-in user."
+        _tz_name, _tz_note = _resolve_schedule_tz(bool(cron), timezone, timezone_iana, _uc)
         if cron:
             schedule = {"type": "cron", "cron_expression": cron.strip()}
-            desc = f"cron '{cron.strip()}'"
+            desc = f"cron '{cron.strip()}'" + (f" ({_tz_name})" if _tz_name else "")
         elif every_minutes or every_hours or every_days:
             schedule = {"type": "interval"}
             if every_days:
@@ -3251,14 +3304,15 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         try:
             res = await asyncio.to_thread(_sl.create_cc_schedule, _uc,
                                           state.get("active_delegation") or {},
-                                          task_name, prompt, schedule, desc)
+                                          task_name, prompt, schedule, desc, _tz_name)
         except Exception as e:
             logger.error(f"[converse/tool] schedule_task failed: {e}", exc_info=True)
             return f"Couldn't schedule the task: {e}"
         if res.get("status") != "ok":
             return f"Couldn't schedule the task: {res.get('error')}"
-        return (f"Scheduled '{task_name}' to run {desc}. Results will appear in your Scheduled "
-                "Tasks panel with a notification — you don't need to be online. Ask me to "
+        _tz_prefix = (_tz_note + " ") if _tz_note else ""
+        return (_tz_prefix + f"Scheduled '{task_name}' to run {desc}. Results will appear in your "
+                "Scheduled Tasks panel with a notification — you don't need to be online. Ask me to "
                 "'list my scheduled tasks' anytime.")
 
     @lc_tool

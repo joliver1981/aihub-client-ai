@@ -40,9 +40,14 @@ def _param(value: Any, ptype: str = "string") -> Dict[str, Any]:
 def create_cc_schedule(user_context: Optional[Dict[str, Any]],
                        active_delegation: Optional[Dict[str, Any]],
                        task_name: str, prompt: str,
-                       schedule: Dict[str, Any], schedule_desc: str) -> Dict[str, Any]:
+                       schedule: Dict[str, Any], schedule_desc: str,
+                       tz_name: Optional[str] = None) -> Dict[str, Any]:
     """Create a 'command_center' scheduled job in the shared scheduler and record it in the
-    user's local store. Returns {status:'ok', job_id} or {status:'error', error}."""
+    user's local store. Returns {status:'ok', job_id} or {status:'error', error}.
+
+    `tz_name` is the canonical IANA zone (or 'UTC+HH:MM' offset) the schedule's cron should fire
+    in; carried as a job parameter so the engine builds a DST-aware trigger. None -> the engine's
+    default (UTC)."""
     uc = user_context or {}
     ad = active_delegation or {}
     uid = uc.get("user_id")
@@ -86,6 +91,10 @@ def create_cc_schedule(user_context: Optional[Dict[str, Any]],
         },
         "schedule": schedule,
     }
+    # Carry the user's timezone as a job parameter so the engine fires the cron in that zone
+    # (DST-aware). Stored alongside the other params; harmless to executors that ignore it.
+    if tz_name:
+        payload["parameters"]["timezone"] = _param(tz_name)
     try:
         r = requests.post(f"{_scheduler_base()}/api/scheduler/jobs",
                           json=payload, headers={"X-API-Key": _api_key()}, timeout=30)
@@ -107,7 +116,8 @@ def create_cc_schedule(user_context: Optional[Dict[str, Any]],
 def create_portal_workflow_schedule(user_context: Optional[Dict[str, Any]],
                                     slug: str, task_name: str,
                                     schedule: Dict[str, Any], schedule_desc: str,
-                                    email_after: bool = False) -> Dict[str, Any]:
+                                    email_after: bool = False,
+                                    tz_name: Optional[str] = None) -> Dict[str, Any]:
     """Create a REAL recurring 'portal_workflow' scheduled job in the shared scheduler. TargetId =
     the saved portal-workflow slug; the owner user_id is a job parameter (the executor
     _execute_portal_workflow_job needs it to resolve the per-user workflow + creds). Mirrors
@@ -144,6 +154,10 @@ def create_portal_workflow_schedule(user_context: Optional[Dict[str, Any]],
         },
         "schedule": schedule,
     }
+    # Carry the user's timezone as a job parameter so the engine fires the cron in that zone
+    # (DST-aware). The portal executor ignores it; the scheduler engine consumes it.
+    if tz_name:
+        payload["parameters"]["timezone"] = _param(tz_name)
     try:
         r = requests.post(f"{_scheduler_base()}/api/scheduler/jobs",
                           json=payload, headers={"X-API-Key": _api_key()}, timeout=30)
