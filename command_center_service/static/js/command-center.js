@@ -8,6 +8,8 @@ const CC = {
     userId: null,
     userContext: null,
     isStreaming: false,
+    _streamAbort: null,   // AbortController for the in-flight /api/chat SSE stream
+    _streamSeq: 0,        // monotonic id so a superseded stream's finally can't reset live UI state
     lastTraceId: null,
     /** @type {Array<{file_id: string, filename: string, size: number, content_type: string}>} */
     _stagedFiles: [],
@@ -20,11 +22,19 @@ const CC = {
     async init() {
         // Try to get user context from URL params or localStorage
         const params = new URLSearchParams(window.location.search);
+        // Capture who last used this browser so we can detect a user switch.
+        const _priorUserId = localStorage.getItem('cc_user_id');
         this.sessionId = params.get('session_id') || localStorage.getItem('cc_session_id') || null;
 
         // Try to get user context from token (main app auth flow)
-        const token = params.get('token');
+        const token = params.get('token') || localStorage.getItem('cc_token');
         if (token) {
+            // Populate the token IMMEDIATELY so /api/chat always carries it as
+            // `Authorization: Bearer <jwt>`, even if validate-token below is
+            // slow or fails (e.g. after switching to /classic). The token was
+            // already verified by the server when it was minted.
+            this.token = token;
+            localStorage.setItem('cc_token', token);
             try {
                 const resp = await fetch('/api/auth/validate-token', {
                     method: 'POST',
@@ -35,8 +45,21 @@ const CC = {
                 if (data.valid && data.user_context) {
                     this.userId = data.user_context.user_id || null;
                     this.userContext = data.user_context;
+                    // Different user in the same browser? localStorage (incl.
+                    // cc_session_id) is shared per-origin, so a prior user's
+                    // session id would leak in and post to a chat owned by
+                    // someone else → server 404 (SESSION-OWNER-MISMATCH). Drop
+                    // any inherited session when the user identity changes.
+                    if (_priorUserId && String(_priorUserId) !== String(this.userId)) {
+                        this.sessionId = null;
+                        localStorage.removeItem('cc_session_id');
+                    }
+                    // Keep the signed token — it is the trust anchor sent on
+                    // every /api/chat as `Authorization: Bearer <jwt>`.
+                    this.token = token;
                     // Default 4-hour expiry; server may return a different value
-                    this._tokenExpiresAt = Date.now() + (data.expires_in || 14400) * 1000;
+                    this._tokenExpiresAt = Date.now() + (data.expires_in || 172800) * 1000;
+                    localStorage.setItem('cc_token', token);
                     if (this.userId) {
                         localStorage.setItem('cc_user_id', String(this.userId));
                         localStorage.setItem('cc_user_context', JSON.stringify(data.user_context));
@@ -99,7 +122,9 @@ const CC = {
             });
             const data = await resp.json();
             if (data.valid && data.token) {
-                this._tokenExpiresAt = Date.now() + (data.expires_in || 14400) * 1000;
+                this.token = data.token;
+                localStorage.setItem('cc_token', data.token);
+                this._tokenExpiresAt = Date.now() + (data.expires_in || 172800) * 1000;
                 localStorage.setItem('cc_token_expires', String(this._tokenExpiresAt));
                 if (data.user_context) {
                     this.userContext = data.user_context;
@@ -167,6 +192,8 @@ const CC = {
         this._stagedFiles = [];
         this._renderStagedFiles();
         this.isStreaming = true;
+        const _seq = ++this._streamSeq;          // identifies THIS stream
+        this._streamAbort = new AbortController();
         this._setStatus('thinking', 'Analyzing your request...');
         document.querySelector('.cc-btn-send').disabled = true;
 
@@ -190,10 +217,14 @@ const CC = {
                 body.attachments = attachments;
             }
 
+            const _chatHeaders = { 'Content-Type': 'application/json' };
+            const _tok = this.token || localStorage.getItem('cc_token');
+            if (_tok) _chatHeaders['Authorization'] = `Bearer ${_tok}`;
             const resp = await fetch('/api/chat', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: _chatHeaders,
                 body: JSON.stringify(body),
+                signal: this._streamAbort ? this._streamAbort.signal : undefined,
             });
 
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -243,16 +274,38 @@ const CC = {
             }
 
         } catch (e) {
+            // The user switching/creating a chat aborts the stream on purpose — not an error.
+            if (e.name === 'AbortError') return;
             console.error('Chat error:', e);
             this._addMessage('assistant', `Error: ${e.message}`);
         } finally {
-            this.isStreaming = false;
-            this._setStatus('ready', '');
-            document.querySelector('.cc-btn-send').disabled = false;
-            document.getElementById('user-input').focus();
-            // Refresh sidebar to pick up auto-generated title
-            this.loadSessions();
+            // Only reset shared UI state if THIS is still the active stream. If the user started a
+            // new chat (which aborts + bumps _streamSeq), the new turn owns the UI — don't clobber it.
+            if (this._streamSeq === _seq) {
+                this.isStreaming = false;
+                this._streamAbort = null;
+                this._setStatus('ready', '');
+                document.querySelector('.cc-btn-send').disabled = false;
+                document.getElementById('user-input').focus();
+                // Refresh sidebar to pick up auto-generated title
+                this.loadSessions();
+            }
         }
+    },
+
+    // Abort any in-flight chat stream and free the UI. Called when the user starts or switches to a
+    // different chat so a long-running turn (e.g. a portal run waiting on you) can never lock the
+    // composer or leave a stale "Working in the portal…" status on the new chat.
+    _cancelStream() {
+        this._streamSeq++;   // invalidate the in-flight stream's finally
+        if (this._streamAbort) {
+            try { this._streamAbort.abort(); } catch (e) { /* ignore */ }
+            this._streamAbort = null;
+        }
+        this.isStreaming = false;
+        this._setStatus('ready', '');
+        const btn = document.querySelector('.cc-btn-send');
+        if (btn) btn.disabled = false;
     },
 
     _handleEvent(data) {
@@ -455,7 +508,7 @@ const CC = {
     // server falls back to "anonymous" filtering which hides everything
     // (for legacy sessions that have no owner, only admins see them).
     _ownerQS() {
-        const u = this._userCtx || {};
+        const u = this.userContext || {};
         const qp = new URLSearchParams();
         if (u.user_id !== undefined && u.user_id !== null) qp.set('user_id', String(u.user_id));
         if (u.tenant_id !== undefined && u.tenant_id !== null) qp.set('tenant_id', String(u.tenant_id));
@@ -467,6 +520,7 @@ const CC = {
 
     async createSession() {
         try {
+            this._cancelStream();   // never let a prior turn lock the new chat
             const qs = this._ownerQS();
             const resp = await fetch(`/api/sessions${qs ? '?' + qs : ''}`, { method: 'POST' });
             const session = await resp.json();
@@ -517,8 +571,27 @@ const CC = {
 
     async loadSession(sessionId) {
         try {
+            this._cancelStream();   // switching chats must release a busy stream
             const qs = this._ownerQS();
             const resp = await fetch(`/api/sessions/${sessionId}${qs ? '?' + qs : ''}`);
+
+            // Session not found OR not owned by the current user (404). Never
+            // adopt or persist it — clear any inherited pointer so the next
+            // message starts a fresh session for THIS user. This is the
+            // catch-all for a stale cc_session_id in shared browser storage.
+            if (!resp.ok) {
+                console.warn(`Session ${sessionId} unavailable (HTTP ${resp.status}); starting fresh.`);
+                if (this.sessionId === sessionId) this.sessionId = null;
+                if (localStorage.getItem('cc_session_id') === sessionId) {
+                    localStorage.removeItem('cc_session_id');
+                }
+                const _t = document.getElementById('chat-title');
+                if (_t) _t.textContent = 'New Chat';
+                const _m = document.getElementById('messages');
+                if (_m) _m.innerHTML = '';
+                return;
+            }
+
             const data = await resp.json();
 
             this.sessionId = sessionId;
@@ -716,7 +789,7 @@ const CC = {
                 formData.append('session_id', this.sessionId);
             }
             // Stamp uploader so cross-user file access can be blocked.
-            const uctx = this._userCtx || {};
+            const uctx = this.userContext || {};
             if (uctx.user_id !== undefined && uctx.user_id !== null) {
                 formData.append('user_id', String(uctx.user_id));
             }
