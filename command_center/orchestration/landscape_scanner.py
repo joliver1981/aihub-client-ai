@@ -18,11 +18,15 @@ _cache_time: float = 0
 _CACHE_TTL = 60  # seconds
 
 
-async def scan_platform() -> Dict[str, Any]:
+async def scan_platform(user_context=None) -> Dict[str, Any]:
     """
     Query the main app's REAL API endpoints to discover all available
     agents (with objectives/descriptions), connections, MCP servers, etc.
     Results are cached for 60 seconds.
+
+    `user_context` is accepted because the 06-26 graph callers pass it for the
+    per-user landscape filter; the agent-list endpoints already apply that filter
+    server-side (app._agent_visibility_filter), so it is advisory here.
     """
     global _cache, _cache_time
 

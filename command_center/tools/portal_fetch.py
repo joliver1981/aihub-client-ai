@@ -86,11 +86,12 @@ _LAST_AUTO_RUN: Dict[str, str] = {}
 
 
 def _portal_payload(portal_name, start_url, task, session_id,
-                    user_context, secret_key_overrides, inline_creds) -> Dict[str, Any]:
+                    user_context, secret_key_overrides, inline_creds, upload_files=None) -> Dict[str, Any]:
     payload = {
         "task": task, "start_url": start_url, "portal_name": portal_name,
         "session_id": session_id or None,
         "user_id": str((user_context or {}).get("user_id", "")) or None,
+        "upload_files": upload_files or None,
     }
     if inline_creds and inline_creds.get("username") and inline_creds.get("password"):
         payload["username"] = inline_creds["username"]
@@ -126,16 +127,20 @@ def cobrowse_link(run_id: str) -> str:
 def start_portal_fetch(portal_name: str, start_url: str, task: str,
                        session_id: str = "", user_context: Optional[Dict[str, Any]] = None,
                        secret_key_overrides: Optional[Dict[str, str]] = None,
-                       inline_creds: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+                       inline_creds: Optional[Dict[str, str]] = None,
+                       upload_files: Optional[list] = None) -> Dict[str, Any]:
     """Start an async auto-mode run (returns {run_id}); the run keeps going in the background so
-    the chat can poll and surface a 'take over' prompt if it pauses for 2FA."""
+    the chat can poll and surface a 'take over' prompt if it pauses for 2FA.
+
+    `upload_files` (server-side paths) are forwarded to the run as available file paths so an
+    upload task can attach them via the browser's file input."""
     try:
         from CommonUtils import get_browser_use_api_base_url
         base = get_browser_use_api_base_url()
     except Exception as e:
         return {"error": f"service URL unavailable: {e}"}
     payload = _portal_payload(portal_name, start_url, task, session_id, user_context,
-                              secret_key_overrides, inline_creds)
+                              secret_key_overrides, inline_creds, upload_files)
     try:
         resp = requests.post(f"{base}/portal/start", json=payload, headers=_internal_headers(), timeout=60)
     except Exception as e:
