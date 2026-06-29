@@ -100,7 +100,8 @@ class JobSchedulerService:
             'document': self._execute_document_job,
             'agent': self._execute_agent_job,
             'workflow': self._execute_workflow_job,
-            'command_center': self._execute_command_center_job
+            'command_center': self._execute_command_center_job,
+            'portal_workflow': self._execute_portal_workflow_job,
         }
 
         print('API Base URL:', self.api_base_url)
@@ -1106,10 +1107,68 @@ class JobSchedulerService:
                 error_details=error_details
             )
 
+    def _execute_portal_workflow_job(self, job_data: Dict[str, Any]):
+        """Execute a scheduled PORTAL workflow: deterministically replay the saved login-and-
+        download/upload sequence headlessly via the main app's internal portal-workflows runner.
+        Mirrors the "Run now" dispatch in scheduler_routes.run_job_now (portal_workflow branch) so
+        manual and scheduled runs hit the same endpoint. The browser run can take minutes, so the
+        HTTP timeout is generous. Without this executor the engine would skip portal_workflow jobs
+        as an unsupported type and they would never fire."""
+        scheduled_job_id = job_data['scheduled_job_id']
+        schedule_id = job_data['schedule_id']
+        job_name = job_data['job_name']
+        target_id = job_data.get('target_id')
+        parameters = job_data.get('parameters', {})
+
+        def _pv(name, default=''):
+            v = parameters.get(name, default)
+            return v.get('value', default) if isinstance(v, dict) else v
+
+        slug = _pv('workflow_slug') or target_id
+        owner = _pv('user_id') or _pv('owner_id')
+        email_after = str(_pv('email_after') or '0')
+
+        logger.info(f"Executing portal_workflow job: {job_name} (ID: {scheduled_job_id}, slug={slug})")
+        execution_id = self._create_execution_record(scheduled_job_id, schedule_id)
+        try:
+            self._update_execution_record(execution_id, 'running')
+
+            api_url = f"{self.api_base_url}/api/portal-workflows/internal/run"
+            payload = {
+                'slug': slug,
+                'user_id': owner,
+                'initiator': 'scheduled',
+                'email_after': email_after,
+            }
+            headers = {'X-API-Key': os.getenv('API_KEY', '')}
+            response = requests.post(api_url, json=payload, headers=headers, timeout=1500)
+            ok = response.status_code == 200
+
+            self._update_execution_record(
+                execution_id,
+                'completed' if ok else 'failed',
+                result_message=f"Portal workflow '{slug}' run {'succeeded' if ok else 'failed'} "
+                               f"({response.status_code}). {response.text[:400]}"
+            )
+            self._increment_run_count(schedule_id)
+            self._update_last_run_time(schedule_id, datetime.now())
+            logger.info(f"portal_workflow job execution {'completed' if ok else 'failed'}: {job_name}")
+
+        except Exception as e:
+            error_details = traceback.format_exc()
+            logger.error(f"Error executing portal_workflow job {job_name}: {str(e)}")
+            logger.error(error_details)
+            self._update_execution_record(
+                execution_id,
+                'failed',
+                result_message=f"Error executing portal_workflow job: {str(e)}",
+                error_details=error_details
+            )
+
     def _execute_workflow_job(self, job_data: Dict[str, Any]):
         """
         Execute a workflow job.
-        
+
         Args:
             job_data: Dictionary with job details
         """

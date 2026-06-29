@@ -1398,7 +1398,7 @@ async def converse(state: CommandCenterState) -> dict:
         except Exception:
             pass
         _portal_prompt = (
-            '## PORTAL AUTOMATION (fetch_from_portal / save_portal / lookup_portal / list_portal_workflows / describe_portal_workflow / run_portal_workflow)\nYou can log into external web portals to DOWNLOAD files for the user AND UPLOAD files to them (RPA).\n- DO IT NOW: if the user gives a portal URL and a login, call fetch_from_portal with portal_name, start_url, task, username, password and log in immediately. Don\'t refuse or stall.\n- UPLOAD A FILE: you CAN upload files to portals. Do NOT refuse on the assumption that a file isn\'t reachable, and do NOT try to \'verify the file exists\' yourself first - you CANNOT know in advance whether a given path is readable by the server, so let the TOOL try. Pass the file straight through: for an ad-hoc upload to any portal, call fetch_from_portal with file=<the path, or the name of a file attached to this chat> and a task describing the upload; for a saved portal workflow that already has an upload step, call run_portal_workflow(name, file=...). The tool actually attempts to read the file and reports the truth - NEVER claim you \'can\'t access\' or \'can\'t verify\' a file without having tried it through the tool. ONLY if the tool itself returns a \'couldn\'t find\' message do you ask the user to fix the path or attach the file - and when they correct it, call fetch_from_portal AGAIN with the new file (do not just re-check a previous run). An upload SUCCEEDS when the tool returns an \'Upload completed\' confirmation - there is NO download chip for an upload, so do NOT report a download/file as \'failed\' or \'not captured\' for an upload; just relay the upload confirmation (and any file name/size it includes).\n- CHOOSING a saved workflow vs ad-hoc: when a task might match a SAVED portal workflow, check first with list_portal_workflows (it shows each one\'s target + whether it uploads or downloads); use describe_portal_workflow to inspect its steps. If one clearly matches the site AND the task, prefer running it (deterministic and repeatable). If none fits, or it\'s a one-off/new portal, do it ad-hoc with fetch_from_portal. If your confidence is LOW that a saved workflow matches (only a loose name/target/goal match, or several could fit), ASK the user to confirm which to run (or whether to do it ad-hoc) BEFORE acting - don\'t guess.\n- OFFER TO SAVE: after a successful ad-hoc run where the user supplied a login, offer to save it ("Want me to save this so you don\'t have to share your login next time?"). If they agree, call save_portal(name, url, username, password). Credentials are stored encrypted; only a reference is kept.\n- REUSE SAVED: for a saved portal, call fetch_from_portal with just portal_name and task - the URL and credentials resolve automatically; never ask the user to resend a saved login. Use lookup_portal to list/confirm saved portals.\n- 2FA / TAKE OVER: if fetch_from_portal returns a \'🔐 ... Take over here: <link>\' message, the portal hit a 2-step verification (or similar) it can\'t do alone and has PAUSED for the user. Relay that message and the link VERBATIM - do not paraphrase or drop the link. After the user says they\'ve taken over / handed back (or asks if it\'s ready), call check_portal_download to fetch the file.\n- SAVED PORTAL WORKFLOWS: a *portal* workflow is a recorded login-and-download sequence for THIS portal feature - it is NOT the platform\'s regular Workflows (Workflow Designer / Workflow Agent), which are a different system you do NOT run with these tools. ONLY when the user clearly means a saved PORTAL/download workflow, call run_portal_workflow(name) (use list_portal_workflows to find the exact name). It runs headless/unattended. IMPORTANT: the bare word "workflow" usually means a regular Workflow, NOT a portal one. If the user says "run workflow X" without portal/download context, do NOT assume it\'s a portal workflow - ask which they mean.\n- SCHEDULING A RECURRING PORTAL DOWNLOAD: if the user wants a portal login-and-download to REPEAT on a cadence ("run this every 20 minutes", "every morning", "each weekday at 8am"), call schedule_portal_workflow - do NOT use delegate_to_builder_agent or schedule_task for this. It schedules the portal workflow recorded from the fetch you did THIS chat (saving it first if needed) as a real recurring headless job and returns the real job id. Pass email_after_run=true if the user wants the file emailed after each run. schedule_portal_workflow reuses the run already recorded this chat - when scheduling, do NOT also call fetch_from_portal or run_portal_workflow (that would needlessly repeat the login/2FA and download a duplicate). CRITICAL: relay the tool\'s result verbatim - if it returns an error or says nothing was scheduled, tell the user that honestly; NEVER claim a schedule was created unless the tool returned a job number. Only if the user has NOT run this portal at all yet this chat, run the portal fetch ONCE first, then schedule.\n- DELIVERY & HONESTY: a downloaded file reaches the user ONLY as the inline download chip that fetch_from_portal returns. If the tool result does not include a downloaded file, then NO file was captured - say the download did not complete; do NOT claim you delivered a file, do NOT invent a download link or a Downloads-folder/\'artifact area\', and do NOT promise to save to the user\'s local disk (e.g. C:\\tmp) - you cannot. Files are delivered only as the chip.' + _saved_line
+            '## PORTAL AUTOMATION (fetch_from_portal / save_portal / lookup_portal / list_portal_workflows / describe_portal_workflow / run_portal_workflow)\nYou can log into external web portals to DOWNLOAD files for the user AND UPLOAD files to them (RPA).\n- DO IT NOW: if the user gives a portal URL and a login, call fetch_from_portal with portal_name, start_url, task, username, password and log in immediately. Don\'t refuse or stall.\n- UPLOAD A FILE: you CAN upload files to portals. Do NOT refuse on the assumption that a file isn\'t reachable, and do NOT try to \'verify the file exists\' yourself first - you CANNOT know in advance whether a given path is readable by the server, so let the TOOL try. Pass the file straight through: for an ad-hoc upload to any portal, call fetch_from_portal with file=<the path, or the name of a file attached to this chat> and a task describing the upload; for a saved portal workflow that already has an upload step, call run_portal_workflow(name, file=...). The tool actually attempts to read the file and reports the truth - NEVER claim you \'can\'t access\' or \'can\'t verify\' a file without having tried it through the tool. ONLY if the tool itself returns a \'couldn\'t find\' message do you ask the user to fix the path or attach the file - and when they correct it, call fetch_from_portal AGAIN with the new file (do not just re-check a previous run). An upload SUCCEEDS when the tool returns an \'Upload completed\' confirmation - there is NO download chip for an upload, so do NOT report a download/file as \'failed\' or \'not captured\' for an upload; just relay the upload confirmation (and any file name/size it includes).\n- CHOOSING a saved workflow vs ad-hoc: when a task might match a SAVED portal workflow, check first with list_portal_workflows (it shows each one\'s target + whether it uploads or downloads); use describe_portal_workflow to inspect its steps. If one clearly matches the site AND the task, prefer running it (deterministic and repeatable). If none fits, or it\'s a one-off/new portal, do it ad-hoc with fetch_from_portal. If your confidence is LOW that a saved workflow matches (only a loose name/target/goal match, or several could fit), ASK the user to confirm which to run (or whether to do it ad-hoc) BEFORE acting - don\'t guess.\n- OFFER TO SAVE: after a successful ad-hoc run where the user supplied a login, offer to save it ("Want me to save this so you don\'t have to share your login next time?"). If they agree, call save_portal(name, url, username, password). Credentials are stored encrypted; only a reference is kept.\n- REUSE SAVED: for a saved portal, call fetch_from_portal with just portal_name and task - the URL and credentials resolve automatically; never ask the user to resend a saved login. Use lookup_portal to list/confirm saved portals.\n- 2FA / TAKE OVER: if fetch_from_portal returns a \'🔐 ... Take over here: <link>\' message, the portal hit a 2-step verification (or similar) it can\'t do alone and has PAUSED for the user. Relay that message and the link VERBATIM - do not paraphrase or drop the link. After the user says they\'ve taken over / handed back (or asks if it\'s ready), call check_portal_download to fetch the file.\n- SAVED PORTAL WORKFLOWS: a *portal* workflow is a recorded login-and-download sequence for THIS portal feature - it is NOT the platform\'s regular Workflows (Workflow Designer / Workflow Agent), which are a different system you do NOT run with these tools. ONLY when the user clearly means a saved PORTAL/download workflow, call run_portal_workflow(name) (use list_portal_workflows to find the exact name). It runs headless/unattended. IMPORTANT: the bare word "workflow" usually means a regular Workflow, NOT a portal one. If the user says "run workflow X" without portal/download context, do NOT assume it\'s a portal workflow - ask which they mean.\n- SCHEDULING A RECURRING PORTAL DOWNLOAD: if the user wants a portal login-and-download to REPEAT on a cadence ("run this every 20 minutes", "every morning", "each weekday at 8am"), call schedule_portal_workflow - do NOT use delegate_to_builder_agent or schedule_task for this. It schedules the portal workflow recorded from the fetch you did THIS chat (saving it first if needed) as a real recurring headless job and returns the real job id. Pass email_after_run=true if the user wants the file emailed after each run. schedule_portal_workflow reuses the run already recorded this chat - when scheduling, do NOT also call fetch_from_portal or run_portal_workflow (that would needlessly repeat the login/2FA and download a duplicate). CRITICAL: to schedule OR reschedule you MUST call schedule_portal_workflow and relay its result verbatim - if it returns an error or no job number, tell the user honestly; NEVER claim a schedule was created/updated just because the workflow exists or is already scheduled. Checking a workflow with describe_portal_workflow is NOT scheduling it. If the workflow is already scheduled (describe_portal_workflow shows this), re-scheduling REPLACES that schedule (no duplicate) - still call the tool. Only if the user has NOT run this portal at all yet this chat, run the portal fetch ONCE first, then schedule.\n- DELIVERY & HONESTY: a downloaded file reaches the user ONLY as the inline download chip that fetch_from_portal returns. If the tool result does not include a downloaded file, then NO file was captured - say the download did not complete; do NOT claim you delivered a file, do NOT invent a download link or a Downloads-folder/\'artifact area\', and do NOT promise to save to the user\'s local disk (e.g. C:\\tmp) - you cannot. Files are delivered only as the chip.' + _saved_line
         )
 
     # Self-scheduling context (only when enabled + the user may use it). Lists the user's
@@ -1415,7 +1415,7 @@ async def converse(state: CommandCenterState) -> dict:
         except Exception:
             pass
         _schedule_prompt = (
-            '## SCHEDULED TASKS (schedule_task / list_scheduled_tasks / cancel_scheduled_task)\nYou can schedule yourself to re-run a task automatically on a recurring cadence, even when the user is offline.\n- When the user asks for something recurring ("every morning", "each weekday at 8am", "every 6 hours"), call schedule_task with a clear task_name, the prompt to run each time, and EITHER a cron expression OR every_hours/every_days/every_minutes.\n- Each run\'s output is saved to the user\'s Scheduled Tasks panel with a notification; the user need not be online to receive it.\n- TIMEZONE: a cron time runs in the user\'s timezone. Default (the user named no zone): leave timezone empty and their browser timezone is used automatically. If the user names a zone ("8am EST", "9am IST", "9am Pacific"), pass timezone=<the exact word they said> AND timezone_iana=<your best-guess IANA name, e.g. Asia/Kolkata>; for ambiguous abbreviations (IST = India/Israel/Ireland) confirm the region. Never compute UTC offsets yourself. For a specific time of day, use a cron ("0 9 * * *"), not every_days.\n- Use list_scheduled_tasks to show what\'s scheduled and cancel_scheduled_task to stop one.\n- EXCEPTION: for a recurring PORTAL download (logging into a website and downloading a file), do NOT use schedule_task - use schedule_portal_workflow instead.' + _existing
+            '## SCHEDULED TASKS (schedule_task / list_scheduled_tasks / cancel_scheduled_task)\nYou can schedule yourself to re-run a task automatically on a recurring cadence, even when the user is offline.\n- When the user asks for something recurring ("every morning", "each weekday at 8am", "every 6 hours"), call schedule_task with a clear task_name, the prompt to run each time, and EITHER a cron expression OR every_hours/every_days/every_minutes.\n- GROUNDING: you MUST actually call the tool to schedule/reschedule, and report ONLY the real "job #N" it returns. NEVER tell the user something was scheduled or updated unless the tool returned a job number; if it errored, say so plainly.\n- Each run\'s output is saved to the user\'s Scheduled Tasks panel with a notification; the user need not be online to receive it.\n- TIMEZONE: a cron time runs in the user\'s timezone. Default (the user named no zone): leave timezone empty and their browser timezone is used automatically. If the user names a zone ("8am EST", "9am IST", "9am Pacific"), pass timezone=<the exact word they said> AND timezone_iana=<your best-guess IANA name, e.g. Asia/Kolkata>; for ambiguous abbreviations (IST = India/Israel/Ireland) confirm the region. Never compute UTC offsets yourself. For a specific time of day, use a cron ("0 9 * * *"), not every_days.\n- Use list_scheduled_tasks to show what\'s scheduled and cancel_scheduled_task to stop one.\n- EXCEPTION: for a recurring PORTAL download (logging into a website and downloading a file), do NOT use schedule_task - use schedule_portal_workflow instead.' + _existing
         )
 
     _sftp_prompt = ""
@@ -3055,9 +3055,21 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         cap = "uploads a file" if "upload" in types else "downloads file(s)"
         summary = "; ".join(f"{i + 1}. {_label(s)}" for i, s in enumerate(steps)) or "(no steps)"
         target = wf.get("portal_slug") or wf.get("start_url") or "—"
+        # Tell the agent whether this workflow is ALREADY scheduled (and the schedule's job id), so
+        # a "schedule it" request UPDATES the existing schedule instead of creating a duplicate.
+        sched_line = ""
+        try:
+            from scheduling import schedule_logic as _sl
+            for _t in await asyncio.to_thread(_sl.list_cc_schedules, _uc):
+                if _t.get("kind") == "portal" and _t.get("slug") == wf.get("slug") and _t.get("job_id"):
+                    sched_line = (f"\n- ALREADY SCHEDULED: {_t.get('schedule_desc')} (job #"
+                                  f"{_t.get('job_id')}). Re-scheduling REPLACES this — it won't duplicate.")
+                    break
+        except Exception:
+            pass
         return (f"Portal workflow '{wf.get('name', name)}':\n- This workflow {cap}.\n- Target: "
                 f"{target}\n- Goal: {wf.get('goal') or '(none)'}\n- Last run: "
-                f"{wf.get('last_run_status') or 'never run'}\n- Steps: {summary}")
+                f"{wf.get('last_run_status') or 'never run'}{sched_line}\n- Steps: {summary}")
 
     @lc_tool
     async def run_portal_workflow(name: str, file: str = "") -> str:
@@ -3133,6 +3145,12 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         headless/unattended on the server. Use THIS — never delegate_to_builder_agent or
         schedule_task — whenever the user wants a portal download to REPEAT (e.g. right after a
         portal fetch they say "run this every 20 minutes" or "every morning").
+
+        ALWAYS CALL THIS TOOL to schedule or reschedule — never just describe a workflow and claim
+        it's scheduled. Report ONLY what this tool returns: a real "job #N". If it returns an error
+        or no job number, the schedule was NOT created — say so; never fabricate a schedule. If the
+        workflow is ALREADY scheduled, calling this REPLACES the existing schedule (no duplicate) —
+        so to change the time, just call it again with the new cadence.
 
         It schedules the portal workflow recorded from the portal fetch the user did in THIS chat
         (saving it first if needed). If there's no recorded run yet, it says so and does NOT invent
@@ -3241,13 +3259,17 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         _email_line = (" I'll email the downloaded file to you after each run (if a run produces "
                        "multiple files, the first is attached).") if email_after_run else ""
         _tz_prefix = (_tz_note + " ") if _tz_note else ""
+        _replaced = sched.get("replaced") or []
+        _replaced_line = (f" (replaced the previous schedule for this workflow)" if _replaced else "")
+        _next = sched.get("next_run")
+        _next_line = (f" Next run: {_next} UTC." if _next
+                      else " Its next run will show in your Scheduled Tasks panel within a minute.")
         return (_tz_prefix + f"Scheduled the '{wf_name}' portal workflow to run {desc} (job #"
-                f"{sched['job_id']}). It runs headless on the server, so it works while you're "
-                "offline." + _email_line + " It's in your Scheduled Tasks. If a run hits a 2FA "
-                "step and the portal has no saved TOTP secret, it pauses and EMAILS you a link to "
-                "take over and enter the code (about a 15-minute window) — so it still works, "
-                "just not fully hands-off. Save a TOTP secret on the portal for fully unattended "
-                "runs.")
+                f"{sched['job_id']}){_replaced_line}.{_next_line} It runs headless on the server, so "
+                "it works while you're offline." + _email_line + " If a run hits a 2FA step and the "
+                "portal has no saved TOTP secret, it pauses and EMAILS you a link to take over and "
+                "enter the code (about a 15-minute window) — so it still works, just not fully "
+                "hands-off. Save a TOTP secret on the portal for fully unattended runs.")
 
     @lc_tool
     async def schedule_task(task_name: str, prompt: str, cron: str = "",
@@ -3256,6 +3278,10 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         """Schedule a recurring task that re-runs this Command Center agent automatically at a
         set cadence, EVEN WHEN THE USER IS OFFLINE. Each run's output is saved to the user's
         Scheduled Tasks panel with a notification.
+
+        ALWAYS CALL THIS TOOL to schedule — never claim a task is scheduled without calling it.
+        Report ONLY the real "job #N" it returns; if it returns an error or no job number, nothing
+        was scheduled — say so, never fabricate.
 
         Provide EITHER a 5-field cron expression OR one of every_minutes/every_hours/every_days.
         Examples: weekdays at 8am -> cron="0 8 * * 1-5"; every 6 hours -> every_hours=6.
@@ -3308,12 +3334,17 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         except Exception as e:
             logger.error(f"[converse/tool] schedule_task failed: {e}", exc_info=True)
             return f"Couldn't schedule the task: {e}"
-        if res.get("status") != "ok":
-            return f"Couldn't schedule the task: {res.get('error')}"
+        if res.get("status") != "ok" or not res.get("job_id"):
+            return (f"I could NOT schedule the task: {res.get('error') or 'no job id returned'}. "
+                    "Nothing was scheduled — do NOT tell the user it was scheduled.")
         _tz_prefix = (_tz_note + " ") if _tz_note else ""
-        return (_tz_prefix + f"Scheduled '{task_name}' to run {desc}. Results will appear in your "
-                "Scheduled Tasks panel with a notification — you don't need to be online. Ask me to "
-                "'list my scheduled tasks' anytime.")
+        _next = res.get("next_run")
+        _next_line = (f" Next run: {_next} UTC." if _next
+                      else " Its next run will show in your Scheduled Tasks panel within a minute.")
+        return (_tz_prefix + f"Scheduled '{task_name}' to run {desc} (job #{res['job_id']})."
+                + _next_line + " Each run's output appears in your Scheduled Tasks panel with a "
+                "notification — you don't need to be online. Ask me to 'list my scheduled tasks' "
+                "anytime.")
 
     @lc_tool
     async def list_scheduled_tasks() -> str:
@@ -3324,11 +3355,13 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         tasks = await asyncio.to_thread(_sl.list_cc_schedules_with_next_run, state.get("user_context") or {})
         if not tasks:
             return "You have no scheduled tasks yet."
-        lines = [f"- {t['task_name']} ({t.get('schedule_desc','?')}) — "
+        lines = [f"- {t['task_name']} ({t.get('schedule_desc','?')}) [job #{t.get('job_id')}] — "
                  f"next run: {t.get('next_run') or '—'}, "
                  f"last run: {t.get('last_run') or 'never'} [{t.get('last_status') or '—'}]"
                  for t in tasks]
-        return "Your scheduled tasks:\n" + "\n".join(lines)
+        return ("Your scheduled tasks (next run is in UTC):\n" + "\n".join(lines)
+                + "\nTo change one, just say the new time — I'll replace it (no duplicate). "
+                "To stop one, give its name or job #.")
 
     @lc_tool
     async def cancel_scheduled_task(task: str) -> str:

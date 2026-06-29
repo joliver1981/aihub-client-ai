@@ -37,6 +37,33 @@ def _param(value: Any, ptype: str = "string") -> Dict[str, Any]:
     return {"value": "" if value is None else str(value), "type": ptype}
 
 
+def _confirm_created(job_id: Any) -> Dict[str, Any]:
+    """Verify a just-created job actually persisted with an ACTIVE schedule, and grab its next
+    fire time if the engine has computed it yet. The engine polls the DB every ~60s, so next_run
+    is usually still None immediately after create — that's expected and NOT a failure (it shows
+    up in the panel within a minute). `active` proves the job+schedule row exist and are live,
+    which is the real anti-hallucination signal beyond the bare returned id. Best-effort; never
+    raises. Returns {active: bool, next_run: str|None, schedule_id: Any|None}."""
+    out = {"active": False, "next_run": None, "schedule_id": None}
+    if not job_id:
+        return out
+    try:
+        r = requests.get(f"{_scheduler_base()}/api/scheduler/jobs/{job_id}",
+                         headers={"X-API-Key": _api_key()}, timeout=8)
+        if r.status_code != 200:
+            return out
+        scheds = (r.json() or {}).get("schedules") or []
+        active = [s for s in scheds if s.get("is_active")]
+        if active:
+            out["active"] = True
+            out["schedule_id"] = active[0].get("schedule_id") or active[0].get("id")
+            nrts = [s.get("next_run_time") for s in active if s.get("next_run_time")]
+            out["next_run"] = min(nrts) if nrts else None
+    except Exception:
+        pass
+    return out
+
+
 def create_cc_schedule(user_context: Optional[Dict[str, Any]],
                        active_delegation: Optional[Dict[str, Any]],
                        task_name: str, prompt: str,
@@ -109,8 +136,10 @@ def create_cc_schedule(user_context: Optional[Dict[str, Any]],
     if not job_id:
         return {"status": "error", "error": "scheduler did not return a job id"}
     store.add_task(uid, job_id, task_name, prompt, schedule_desc,
-                   agent_id=ad.get("agent_id"), agent_name=ad.get("agent_name"))
-    return {"status": "ok", "job_id": job_id}
+                   agent_id=ad.get("agent_id"), agent_name=ad.get("agent_name"), kind="task")
+    info = _confirm_created(job_id)
+    return {"status": "ok", "job_id": job_id,
+            "confirmed": info["active"], "next_run": info["next_run"]}
 
 
 def create_portal_workflow_schedule(user_context: Optional[Dict[str, Any]],
@@ -130,6 +159,19 @@ def create_portal_workflow_schedule(user_context: Optional[Dict[str, Any]],
         return {"status": "error", "error": "no signed-in user"}
     if not slug:
         return {"status": "error", "error": "no portal-workflow slug to schedule"}
+
+    # UPDATE-NOT-DUPLICATE: if THIS workflow already has a schedule, cancel it first so we REPLACE
+    # rather than stack a second job for the same workflow. Matched by the slug recorded on the
+    # task (kind='portal'). Best-effort; a cancel failure must not block creating the new one.
+    replaced = []
+    try:
+        for t in store.list_tasks(uid):
+            if t.get("kind") == "portal" and t.get("slug") == slug and t.get("job_id"):
+                old = cancel_cc_schedule(user_context, t["job_id"])
+                if old.get("status") == "ok":
+                    replaced.append({"job_id": t["job_id"], "schedule_desc": t.get("schedule_desc")})
+    except Exception as e:
+        logger.warning(f"[schedule] replace-existing scan failed for slug '{slug}': {e}")
 
     # Anchor interval triggers (same rationale as create_cc_schedule).
     if isinstance(schedule, dict) and schedule.get("type") == "interval" and not schedule.get("start_date"):
@@ -174,10 +216,13 @@ def create_portal_workflow_schedule(user_context: Optional[Dict[str, Any]],
     # Mirror into the user's local store so it shows in the Scheduled Tasks panel + list/cancel
     # tools. Best-effort: the job is already created, so a store failure must not be fatal.
     try:
-        store.add_task(uid, job_id, task_name, f"Portal workflow: {slug}", schedule_desc)
+        store.add_task(uid, job_id, task_name, f"Portal workflow: {slug}", schedule_desc,
+                       slug=slug, kind="portal")
     except Exception as e:
         logger.warning(f"[schedule] portal task store mirror failed (job {job_id} created): {e}")
-    return {"status": "ok", "job_id": job_id}
+    info = _confirm_created(job_id)
+    return {"status": "ok", "job_id": job_id, "confirmed": info["active"],
+            "next_run": info["next_run"], "replaced": replaced}
 
 
 def list_cc_schedules(user_context: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:

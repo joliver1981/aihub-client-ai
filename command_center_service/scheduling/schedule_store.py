@@ -62,12 +62,17 @@ def _save(user_id: Any, data: Dict[str, Any]) -> None:
 # --- tasks -----------------------------------------------------------------
 
 def add_task(user_id: Any, job_id: Any, task_name: str, prompt: str, schedule_desc: str,
-             agent_id: Optional[str] = None, agent_name: Optional[str] = None) -> Dict[str, Any]:
+             agent_id: Optional[str] = None, agent_name: Optional[str] = None,
+             slug: Optional[str] = None, kind: Optional[str] = None) -> Dict[str, Any]:
     with _LOCK:
         data = _load(user_id)
         entry = {
             "job_id": str(job_id), "task_name": task_name, "prompt": prompt,
             "schedule_desc": schedule_desc, "agent_id": agent_id, "agent_name": agent_name,
+            # kind = 'portal' (a saved portal-workflow schedule) or 'task' (a CC agent task);
+            # slug links a portal schedule back to its saved workflow so a re-schedule can find
+            # and REPLACE it instead of stacking a duplicate.
+            "slug": slug, "kind": kind,
             "created_at": _now(), "last_run": None, "last_status": None,
         }
         data.setdefault("tasks", {})[str(job_id)] = entry
