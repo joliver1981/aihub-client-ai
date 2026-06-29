@@ -1224,6 +1224,18 @@ Reply with ONLY one word: CONTINUE, CC_CAPABLE, or REROUTE."""
             logger.info("Detected web search / real-time request — routing to converse")
             return _intent_result({"intent": "chat"})
 
+        # Heuristic: portal / browser-automation (log in to a website, upload/download via a
+        # portal or Upload Bay, run a saved portal workflow) → converse, which has the
+        # fetch_from_portal / run_portal_workflow tools. The multi-step plan-execute path has NO
+        # browser tool, so a portal task phrased as ordered steps would otherwise decompose into
+        # search_web and never touch the site (then the model invents a result). A browser portal
+        # interaction IS a single tool call (it logs in, uploads/downloads, verifies) — never split it.
+        if _PORTAL_FETCH_ENABLED and ("portal" in ut or "upload bay" in ut) and any(
+            sig in ut for sig in ["log in", "sign in", "log on", "logon", "upload", "download",
+                                  "http://", "https://", "log into"]):
+            logger.info("Detected portal / browser-automation request — routing to converse")
+            return _intent_result({"intent": "chat"})
+
         # Heuristic: document search → converse (has search_documents tool)
         if DOCUMENT_SEARCH_ENABLED:
             doc_search_signals = [
