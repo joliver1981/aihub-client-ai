@@ -1,0 +1,66 @@
+{
+  "users": {
+    "13": {
+      "workflows": {
+        "recorded_workflow": {
+          "name": "Recorded workflow",
+          "portal_slug": null,
+          "start_url": "http://localhost:3000",
+          "goal": "Sign in with username agent and password test. Then go to the Uploads menu and open Upload Bay, or navigate directly to http://localhost:3000/uploads. Upload the file C:\\temp\\doc_output_test.txt using the file chooser or drag/drop, then click 'Upload files'. Verify success by confirming a green banner saying 'Uploaded 1 file successfully.' appears, and report the exact uploaded file name and size shown in the Uploaded files list on the right.",
+          "agent_oversight": true,
+          "takeover_timeout": null,
+          "steps": [
+            {
+              "type": "goto",
+              "url": "http://localhost:3000"
+            },
+            {
+              "type": "login",
+              "username_anchor": {
+                "text": "Username or email",
+                "css": "#username",
+                "xpath": "html/body/main/div/form/div[1]/input"
+              },
+              "password_anchor": {
+                "text": "Password",
+                "css": "#password",
+                "xpath": "html/body/main/div/form/div[2]/input"
+              },
+              "submit_anchor": {
+                "role": "button",
+                "text": "Sign in",
+                "css": "#signin",
+                "xpath": "html/body/main/div/form/button"
+              }
+            },
+            {
+              "type": "goto",
+              "url": "http://localhost:3000/uploads"
+            },
+            {
+              "type": "upload",
+              "anchor": {
+                "css": "[name=\"documents\"]",
+                "xpath": "html/body/main/div[3]/form/div[1]/div/input"
+              },
+              "path": "C:\\temp\\doc_output_<secret>portal_password</secret>.txt"
+            },
+            {
+              "type": "click",
+              "anchor": {
+                "role": "button",
+                "text": "\u2b06 Upload files",
+                "css": "#upload-submit",
+                "xpath": "html/body/main/div[3]/form/button"
+              }
+            }
+          ],
+          "created_at": "2026-06-29T17:04:05+00:00",
+          "updated_at": "2026-06-29T17:04:05+00:00",
+          "success_count": 0,
+          "last_run_status": null
+        }
+      }
+    }
+  }
+}

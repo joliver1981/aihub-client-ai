@@ -1,0 +1,16 @@
+{
+  "users": {
+    "13": {
+      "portals": {
+        "localhost_uploads_portal": {
+          "name": "localhost uploads portal",
+          "url": "http://localhost:3000",
+          "allowed_domains": [],
+          "username_secret": "PORTAL_U13_LOCALHOST_UPLOADS_PORTAL_USERNAME",
+          "password_secret": "PORTAL_U13_LOCALHOST_UPLOADS_PORTAL_PASSWORD",
+          "totp_secret": null
+        }
+      }
+    }
+  }
+}
