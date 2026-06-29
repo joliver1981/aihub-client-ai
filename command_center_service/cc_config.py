@@ -502,7 +502,7 @@ Return ONLY one of these classifications (no other text):
 - "query" - fetch specific DATA from a DATABASE via a data agent (e.g. "show me sales by region", "how many orders last month", "revenue report"). ONLY for actual database/SQL queries against structured data tables. If the user is looking for a document or file (not database rows), this is "chat".
 - "analyze" - analyze specific database data, find patterns, compare, or explain trends in actual data
 - "delegate" - request best handled by a specific existing agent (e.g. "ask the HR agent about PTO", "use the sales agent")
-- "build" - create, configure, or modify an agent, workflow, connection, or other platform resource
+- "build" - create, configure, or modify an agent, workflow, connection, or other platform resource. (A *portal* login-and-download/upload — a "portal workflow", including saving or scheduling one — is "chat", NOT "build"; the chat handler's portal tools own it.)
 - "multi_step" - complex request needing multiple agents or tools in sequence (e.g. "compare sales from EDW with HR headcount data", "find lease documents and export a summary to Excel")
 - "create_tool" - user explicitly wants a new custom capability or tool
 
