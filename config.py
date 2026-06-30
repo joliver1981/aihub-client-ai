@@ -255,6 +255,11 @@ SHOW_WORKFLOW_FEATURES = True                           # Set to False to hide w
 AGENT_ENVIRONMENTS_ENABLED = True                       # Set to False to hide environment features
 SHOW_DATA_AGENT_TEST_FEATURES = False                   # Set to False to hide data agent stress test features
 DOC_ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'txt', 'csv', 'xls', 'xlsx', 'jpg', 'jpeg', 'png', 'bmp', 'gif', 'tiff', 'tif'}
+# Frontend gate for Excel uploads in the /chat UI. Default false = blocked
+# (matches shipped behavior when the env var is absent). The backend already
+# accepts xls/xlsx via DOC_ALLOWED_EXTENSIONS, so this is purely the client-side
+# UX toggle that chat.html honors. Set ALLOW_EXCEL_UPLOADS=true in .env to allow.
+ALLOW_EXCEL_UPLOADS = os.getenv('ALLOW_EXCEL_UPLOADS', 'false').lower() in ('true', '1', 't', 'y', 'yes')
 LOG_MAX_BYTES = 1024 * 1024 * 10                        # Add * 10 = 10MB
 LOG_BACKUP_COUNT = 5
 LOG_LEVEL = os.getenv('LOG_LEVEL')                      # You can set LOG_LEVEL as 'DEBUG', 'INFO', 'WARNING', 'ERROR', or 'CRITICAL'

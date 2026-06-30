@@ -12501,6 +12501,7 @@ def inject_config():
             'WORKFLOW_TRAINING_CAPTURE_ENABLED': getattr(cfg, 'WORKFLOW_TRAINING_CAPTURE_ENABLED', False),
             'DOC_PROCESSING_TIMEOUT_MINUTES': getattr(cfg, 'DOC_PROCESSING_TIMEOUT_MINUTES', 60),
             'DOC_MAX_UPLOAD_SIZE_MB': getattr(cfg, 'DOC_MAX_UPLOAD_SIZE_MB', 50),
+            'ALLOW_EXCEL_UPLOADS': getattr(cfg, 'ALLOW_EXCEL_UPLOADS', False),
             'USE_MODERN_NAV': getattr(cfg, 'USE_MODERN_NAV', True),
             'SHOW_LEGACY_DATA_CHAT': getattr(cfg, 'SHOW_LEGACY_DATA_CHAT', False),
             'APP_VERSION': app_config.APP_VERSION,
@@ -12510,6 +12511,7 @@ def inject_config():
         logger.error(f"Error in inject_config: {e}")
         # Return safe defaults on error
         return {
+            'ALLOW_EXCEL_UPLOADS': False,
             'SHOW_DOCUMENT_FEATURES': False,
             'SHOW_WORKFLOW_FEATURES': False,
             'AGENT_ENVIRONMENTS_ENABLED': False,

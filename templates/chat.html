@@ -97,7 +97,7 @@ tailwind.config = {
                 <div class="sidebar-section">
                     <!-- Hidden file input still here so the paperclip button (#attach-btn) keeps working -->
                     <input type="file" id="contextFileInput" multiple
-                        accept=".pdf,.docx,.doc,.txt,.csv,.jpg,.jpeg,.png"
+                        accept=".pdf,.docx,.doc,.txt,.csv,.jpg,.jpeg,.png{% if ALLOW_EXCEL_UPLOADS %},.xlsx,.xls{% endif %}"
                         style="display:none;">
 
                     <!-- Upload Queue (visible only while uploading) -->
@@ -1303,6 +1303,11 @@ function setupDocumentUploadZone() {
     });
 }
 
+// Server-driven gate (config.ALLOW_EXCEL_UPLOADS, surfaced via inject_config).
+// When false (the default) Excel files are rejected client-side as before;
+// when true they're accepted like any other supported knowledge file.
+var ALLOW_EXCEL_UPLOADS = {{ 'true' if ALLOW_EXCEL_UPLOADS else 'false' }};
+
 function addFilesToQueue(files) {
     var agentId = currentAgentId;
     if (!agentId) {
@@ -1314,9 +1319,9 @@ function addFilesToQueue(files) {
     var excelBlocked = false;
     for (var i = 0; i < files.length; i++) {
         var file = files[i];
-        // Excel files are not supported as agent knowledge — show the
-        // targeted message rather than the generic "Unsupported file type".
-        if (isExcelFile(file)) {
+        // Excel files: blocked unless ALLOW_EXCEL_UPLOADS is enabled server-side.
+        // Show the targeted message rather than the generic "Unsupported file type".
+        if (!ALLOW_EXCEL_UPLOADS && isExcelFile(file)) {
             if (!excelBlocked) {
                 showToast("Excel files aren't supported as agent knowledge.", 'warning');
                 excelBlocked = true;
@@ -1354,6 +1359,9 @@ function addFilesToQueue(files) {
 
 function isFileSupported(file) {
     var supportedExtensions = ['.pdf', '.docx', '.doc', '.txt', '.csv', '.jpg', '.jpeg', '.png'];
+    if (ALLOW_EXCEL_UPLOADS) {
+        supportedExtensions = supportedExtensions.concat(['.xlsx', '.xls', '.xlsm', '.xlsb']);
+    }
     var fileName = file.name.toLowerCase();
     return supportedExtensions.some(function (ext) { return fileName.endsWith(ext); });
 }
