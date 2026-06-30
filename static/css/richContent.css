@@ -55,6 +55,90 @@
     color: #1e40af;
 }
 
+/* ───────────────────────────────────────────────────────────────
+   Markdown rendered inside text blocks (marked output).
+   Without these, headings/paragraphs/lists fall back to inconsistent
+   browser defaults and replies read as a cramped wall of text. These
+   give the agent's Markdown comfortable, scannable spacing like the
+   Command Center agent's output. Theme-agnostic (uses CSS vars).
+   ─────────────────────────────────────────────────────────────── */
+.content-text > *:first-child { margin-top: 0; }
+.content-text > *:last-child { margin-bottom: 0; }
+
+.content-text p { margin: 0 0 0.7em; }
+
+.content-text h1,
+.content-text h2,
+.content-text h3,
+.content-text h4,
+.content-text h5,
+.content-text h6 {
+    margin: 1.15em 0 0.5em;
+    line-height: 1.3;
+    font-weight: 700;
+}
+.content-text h1 { font-size: 1.35em; }
+.content-text h2 { font-size: 1.2em; }
+.content-text h3 { font-size: 1.08em; }
+.content-text h4,
+.content-text h5,
+.content-text h6 { font-size: 1em; }
+
+.content-text ul,
+.content-text ol {
+    margin: 0.4em 0 0.8em;
+    padding-left: 1.5em;
+}
+.content-text ul { list-style: disc; }
+.content-text ul ul { list-style: circle; }
+.content-text ol { list-style: decimal; }
+.content-text li { margin: 0.25em 0; }
+.content-text li > ul,
+.content-text li > ol { margin: 0.25em 0 0.3em; }
+
+.content-text blockquote {
+    margin: 0.6em 0;
+    padding: 0.2em 0 0.2em 0.9em;
+    border-left: 3px solid var(--border-color, #3a3f4b);
+    opacity: 0.9;
+}
+
+.content-text hr {
+    border: none;
+    border-top: 1px solid var(--border-color, #3a3f4b);
+    margin: 1em 0;
+}
+
+.content-text :not(pre) > code {
+    background: rgba(127, 127, 127, 0.18);
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+.content-text pre {
+    margin: 0.6em 0;
+    padding: 0.8em 1em;
+    background: rgba(127, 127, 127, 0.14);
+    border-radius: 8px;
+    overflow-x: auto;
+}
+.content-text pre code { background: none; padding: 0; }
+
+.content-text table {
+    border-collapse: collapse;
+    margin: 0.6em 0;
+}
+.content-text th,
+.content-text td {
+    border: 1px solid var(--border-color, #3a3f4b);
+    padding: 0.4em 0.7em;
+    text-align: left;
+}
+.content-text th {
+    background: rgba(127, 127, 127, 0.12);
+    font-weight: 600;
+}
+
 /* Table styles */
 .content-table-wrapper {
     background: white;

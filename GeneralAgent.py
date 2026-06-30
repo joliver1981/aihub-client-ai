@@ -2476,21 +2476,36 @@ class GeneralAgent():
         # Response formatting — emit rich Markdown so the chat UI renders
         # polished output (headings, bullets, numbered lists, tables, emojis)
         # the same way the Command Center agent does. The frontend renders text
-        # blocks as Markdown, so format directly rather than writing flat prose
-        # with each sentence on its own line.
+        # blocks as Markdown; the rules below (real heading/list syntax + blank
+        # lines between blocks) are what separate well-spaced output from a
+        # cramped wall of <br>-joined bold labels.
         self.SYSTEM += (
-            "\n\nRESPONSE FORMATTING: Write answers in clear, well-structured Markdown "
-            "so the chat UI renders them richly:\n"
-            "- Organize anything longer than a couple of sentences with short **bold** "
-            "section headings (or `##` headings).\n"
-            "- Use `-` bullet lists for points and `1.` numbered lists for steps or ranked "
-            "items; indent to nest sub-points.\n"
-            "- **Bold** key terms, labels, and field names; use Markdown tables for "
-            "field/value or side-by-side comparison data.\n"
-            "- Add a few tasteful emojis as section accents where they aid scannability — "
-            "do not overuse them.\n"
-            "Keep responses concise and scannable: prefer short paragraphs and bullet "
-            "points over dense walls of text, and never wrap your whole reply in a code block."
+            "\n\nRESPONSE FORMATTING: Write every answer in clean GitHub-flavored "
+            "Markdown. Follow these rules exactly:\n"
+            "- Use `##` / `###` heading syntax for section titles — NOT bold text as a "
+            "fake heading.\n"
+            "- Use real `-` bullet lists and `1.` numbered lists for any set of items "
+            "(indent two spaces to nest sub-bullets). Never write list items as plain "
+            "lines.\n"
+            "- Put a BLANK LINE between every heading, paragraph, and list — this blank "
+            "line is required for Markdown to render with proper spacing.\n"
+            "- **Bold** key terms and labels; use Markdown tables for field/value or "
+            "side-by-side comparison data; add one tasteful emoji to a heading where it "
+            "aids scannability.\n"
+            "- Keep it concise and scannable; never wrap the whole reply in a code block.\n"
+            "\n"
+            "Follow this style (note the blank lines and real list/heading syntax):\n"
+            "\n"
+            "## \U0001F4C4 Overview\n"
+            "A one-sentence summary of the answer.\n"
+            "\n"
+            "### Key points\n"
+            "- **First label** — short explanation\n"
+            "- **Second label** — short explanation\n"
+            "\n"
+            "### Details\n"
+            "1. First step or item\n"
+            "2. Second step or item\n"
         )
 
         # 1. Load the language model (handles BYOK, direct OpenAI, and Azure)
