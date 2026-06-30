@@ -3891,6 +3891,24 @@ class GeneralAgent():
                         _agent_id_ctx = getattr(self, 'agent_id', None)
                     if _agent_id_ctx is not None and _user_id_ctx is not None:
                         _files = _cfm.list_agent_files(_agent_id_ctx, _user_id_ctx)
+                        # Gate the on-disk tees by the DB: only surface a file if
+                        # it still has an ACTIVE (is_active=1) AgentKnowledge row.
+                        # The disk copy is just a re-download cache; older delete
+                        # paths left it behind, so an un-gated list re-injected
+                        # documents the user had already deleted — the model would
+                        # advertise files whose text it no longer has. The stored
+                        # tee id is the document_id with '_'->'-' applied
+                        # (chat_file_manager.save_agent_input), so normalize both
+                        # sides before comparing.
+                        _active_ids = {
+                            str(_k.get('document_id')).replace('_', '-')
+                            for _k in get_agent_knowledge_for_user(_agent_id_ctx, _user_id_ctx)
+                            if _k.get('document_id')
+                        }
+                        _files = [
+                            _f for _f in _files
+                            if str(_f.get('file_id')).replace('_', '-') in _active_ids
+                        ]
                         if _files:
                             _lines = ["[Available files for this agent]"]
                             for _f in _files:
