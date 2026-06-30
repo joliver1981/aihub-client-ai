@@ -139,8 +139,46 @@ class RichContentRenderer {
     renderText(block) {
         const content = block.content || '';
         const style = block.metadata?.style || '';
-        
-        return `<div class="content-text ${style}">${this.escapeHtml(content).replace(/\n/g, '<br>')}</div>`;
+
+        // Render markdown (bullets, numbered lists, bold, headings, links,
+        // inline code) instead of dumping raw text with <br>s — that naive
+        // path made replies look choppy and showed markdown syntax verbatim.
+        //
+        // SECURITY: marked() emits raw HTML and this output is inserted via
+        // innerHTML, so it MUST be sanitized — the renderer's contract is that
+        // the front end neutralizes payloads (see tests_v2/security/
+        // test_renderer_xss.py). We sanitize the markdown HTML with DOMPurify.
+        // If marked OR DOMPurify is unavailable we fall back to the original
+        // escape-only path so we NEVER emit unsanitized HTML.
+        let body;
+        const self = this;
+        if (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
+            try {
+                const renderer = new marked.Renderer();
+                // Open links in a new tab and route file:// / UNC document
+                // paths through /document/serve (marked across versions passes
+                // either a token object or positional args).
+                renderer.link = function (hrefArg, titleArg, textArg) {
+                    let href, title, text;
+                    if (hrefArg && typeof hrefArg === 'object') {
+                        href = hrefArg.href; title = hrefArg.title; text = hrefArg.text;
+                    } else {
+                        href = hrefArg; title = titleArg; text = textArg;
+                    }
+                    const safeHref = self.processUrl(href || '');
+                    const titleAttr = title ? ` title="${self.escapeHtml(title)}"` : '';
+                    return `<a href="${self.escapeHtml(safeHref)}"${titleAttr} target="_blank" rel="noopener noreferrer">${text != null ? text : ''}</a>`;
+                };
+                body = DOMPurify.sanitize(marked.parse(content, { renderer, breaks: true, gfm: true }));
+            } catch (e) {
+                console.warn('Markdown render failed, using plain text:', e);
+                body = this.escapeHtml(content).replace(/\n/g, '<br>');
+            }
+        } else {
+            body = this.escapeHtml(content).replace(/\n/g, '<br>');
+        }
+
+        return `<div class="content-text ${style}">${body}</div>`;
     }
 
     /**
@@ -414,13 +452,20 @@ class RichContentRenderer {
      */
     processUrl(url) {
         if (!url) return '';
-        
+
         // Handle UNC paths (\\server\share\path)
         if (url.startsWith('\\\\')) {
             // Convert UNC path to document serve URL
             return '/document/serve?path=' + encodeURIComponent(url);
         }
-        
+
+        // Handle file:// URLs — browsers block file:// navigation from an
+        // http(s) page, so route them through the document serve endpoint
+        // (mirrors the backend _process_list_content conversion).
+        if (url.startsWith('file://')) {
+            return '/document/serve?path=' + encodeURIComponent(url.slice('file://'.length));
+        }
+
         // Already a proper URL or document serve path
         return url;
     }

@@ -13,6 +13,7 @@ import pandas as pd
 from typing import Dict, List, Any, Optional, Union
 from AppUtils import azureMiniQuickPrompt  # Use mini model for speed
 from system_prompts import SYS_PROMPT_SMART_CONTENT_RENDER_SYSTEM
+from content_render_safety import fence, result_echoed_prompt
 import config as cfg
 
 logger = logging.getLogger("SmartContentRender")
@@ -323,9 +324,15 @@ class SmartContentRendererHybrid:
                 response = response.split('```')[1]
                 if response.startswith('json'):
                     response = response[4:]
-            
-            return json.loads(response)
-            
+
+            parsed = json.loads(response)
+            # Guard against the model echoing our prompt scaffolding into the
+            # insights — drop insights entirely rather than surface scaffolding.
+            if result_echoed_prompt(parsed):
+                logger.warning("Hybrid dataframe insights echoed prompt scaffolding; dropping insights")
+                return None
+            return parsed
+
         except Exception as e:
             logger.warning(f"AI insights failed, continuing without: {e}")
             return None
@@ -497,28 +504,43 @@ Provide brief insights about this data. Do NOT recreate the table."""
             # Truncate very long content
             max_content_len = 4000
             truncated_content = content[:max_content_len] if len(content) > max_content_len else content
-            
-            prompt = f"""User's question: {query}
 
-Analyze and structure this content (do NOT recreate any tables, just reference them):
-{truncated_content}"""
+            # Fence the content with explicit delimiters and keep all
+            # instructions out of the content region, so the mini-model cannot
+            # confuse the two and echo this scaffolding back to the user.
+            prompt = (
+                f"User's question: {query}\n\n"
+                "Analyze and structure the content between the delimiters below "
+                "(do NOT recreate any tables, just reference them). Respond with "
+                "valid JSON only and never repeat these instructions or the "
+                "delimiter lines.\n\n"
+                f"{fence(truncated_content)}"
+            )
 
             response = azureMiniQuickPrompt(
                 prompt=prompt,
                 system=SYS_PROMPT_MIXED_CONTENT_ANALYSIS,
                 temp=0.1
             )
-            
+
             # Parse response
             response = response.strip()
             if response.startswith('```'):
                 response = response.split('```')[1]
                 if response.startswith('json'):
                     response = response[4:]
-            
+
             result = json.loads(response)
+            # Guard: if the model echoed our structuring prompt back, discard it
+            # and fall back to rendering the raw text.
+            if result_echoed_prompt(result):
+                logger.warning(
+                    "Hybrid AI structuring echoed prompt scaffolding; "
+                    "falling back to raw text rendering"
+                )
+                return self._create_text_block(content)
             return self._process_ai_analysis(result, content)
-            
+
         except Exception as e:
             logger.warning(f"Fast string analysis failed: {e}")
             return self._create_text_block(content)

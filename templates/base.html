@@ -14,6 +14,8 @@
     <script src="{{ url_for('static', filename='vendor/codemirror/mode/python/python.min.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- DOMPurify: sanitizes marked() HTML before it is inserted via innerHTML -->
+    <script src="{{ url_for('static', filename='vendor/dompurify/purify.min.js') }}"></script>
 
     <!-- Datepicker -->
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/tempusdominus/css/tempusdominus-bootstrap-4.min.css') }}" />

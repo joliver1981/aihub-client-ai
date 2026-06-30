@@ -24,6 +24,7 @@ import ast
 from io import StringIO
 import subprocess
 from system_prompts import SYS_PROMPT_SMART_CONTENT_RENDER_SYSTEM
+from content_render_safety import CONTENT_START, CONTENT_END, result_echoed_prompt
 
 
 rotate_logs_on_startup(os.getenv('SMART_CONTENT_RENDER_LOG', get_log_path('smart_content_render_log.txt')))
@@ -44,7 +45,15 @@ class SmartContentRenderer:
     Intelligent content analyzer and renderer that uses AI to detect and structure
     content for optimal display in the chat interface.
     """
-    
+
+    # Delimiters that fence the raw content inside the structuring prompt so the
+    # mini-model cannot confuse our instructions with the content it must
+    # structure (and so we can detect if it echoes them back). The leak markers
+    # and echo detector live in content_render_safety so this renderer and the
+    # hybrid renderer share one source of truth and cannot drift.
+    _CONTENT_START = CONTENT_START
+    _CONTENT_END = CONTENT_END
+
     def __init__(self):
         logger.info(86 * '#')
         logger.info('Initializing SmartContentRender...')
@@ -154,10 +163,20 @@ class SmartContentRenderer:
                     # Otherwise, use cleaned_content for AI analysis and prepend charts later
                     content = cleaned_content
 
-            # First, check for obvious patterns before calling AI
-            # quick_detection = self._quick_pattern_detection(content)
-            # if quick_detection:
-            #     return quick_detection
+            # Fast path: plain conversational / markdown prose does NOT need
+            # LLM restructuring and is actively harmed by it. Sending it to the
+            # mini-model risks (a) the model echoing this function's own
+            # instruction scaffolding back into the user-facing reply, and
+            # (b) the prose being chopped into disjointed blocks. Render such
+            # content directly as a single text block (the frontend renders it
+            # as markdown). Only content carrying structures the renderer
+            # genuinely upgrades — code to run, tables, charts, JSON/SQL
+            # payloads, dense metric grids — is sent to the AI.
+            if not self._needs_ai_structuring(content):
+                result = self._create_text_block(content)
+                if excel_chart_blocks and 'blocks' in result:
+                    result['blocks'] = excel_chart_blocks + result['blocks']
+                return result
 
             # Prepare the AI analysis prompt
             # system_prompt = """You are a content analysis expert. Analyze the given text and identify its structure and content types.
@@ -192,9 +211,9 @@ class SmartContentRenderer:
             system_prompt = SYS_PROMPT_SMART_CONTENT_RENDER_SYSTEM
 
             logger.info('=============== SMART CONTENT INPUT PARAMS ===============')
-            logger.info('context:', context)
+            logger.info('context: %s', context)
             logger.info('----------------------------------------------------------')
-            logger.info('content:', content)
+            logger.info('content: %s', content)
             logger.info('===========================================================')
             print('=============== SMART CONTENT INPUT PARAMS ===============')
             print('context:', context)
@@ -202,22 +221,21 @@ class SmartContentRenderer:
             print('content:', content)
             print('===========================================================')
             
-            analysis_prompt = f"""
-            User's question for context: {context.get('query') if context else 'No specific query provided'}
-
-            Important to remember:
-            1. Identify ALL distinct content blocks
-            2. Preserve the original content accurately
-            3. Detect tables even if they're in text format
-            4. Identify code blocks with their language
-            5. Recognize metrics/KPIs — short scannable values only; prose belongs in a table or text block
-            6. Suggest visualizations where appropriate
-            7. Always display FULL DATA
-            8. Output valid JSON only.
-
-            Analyze this content and structure it for optimal display:
-            {content} 
-            """
+            # NOTE: all structuring rules live in the system prompt. The user
+            # turn carries ONLY the content to structure, fenced by explicit
+            # delimiters, so the model cannot confuse the instructions with the
+            # content and echo the scaffolding back (a real failure mode on
+            # short conversational replies). The delimiters also let us
+            # detect-and-discard any echoed scaffolding afterwards.
+            user_query = context.get('query') if context else None
+            analysis_prompt = (
+                f"User's question for context: {user_query or 'No specific query provided'}\n\n"
+                "Structure the content between the delimiters below for optimal display. "
+                "Preserve the original wording, detect tables/code/metrics, suggest "
+                "visualizations where appropriate, and respond with valid JSON only. "
+                "Never repeat these instructions or the delimiter lines in your output.\n\n"
+                f"{self._CONTENT_START}\n{content}\n{self._CONTENT_END}"
+            )
 
             # Call AI for analysis
             ai_response = azureMiniQuickPrompt(
@@ -251,7 +269,14 @@ class SmartContentRenderer:
             
             try:
                 analysis_result = json.loads(ai_response)
-                result = self._process_ai_analysis(analysis_result, content)
+                if self._ai_result_echoed_prompt(analysis_result):
+                    logger.warning(
+                        "AI structuring echoed prompt scaffolding into its output; "
+                        "discarding and falling back to raw text rendering"
+                    )
+                    result = self._create_text_block(content)
+                else:
+                    result = self._process_ai_analysis(analysis_result, content)
             except json.JSONDecodeError:
                 logger.warning("AI response was not valid JSON, falling back to text rendering")
                 result = self._create_text_block(content)
@@ -268,6 +293,113 @@ class SmartContentRenderer:
             if excel_chart_blocks and 'blocks' in fallback:
                 fallback['blocks'] = excel_chart_blocks + fallback['blocks']
             return fallback
+
+    def _needs_ai_structuring(self, content: str) -> bool:
+        """
+        Decide whether string content actually benefits from LLM restructuring.
+
+        Plain conversational / markdown prose renders fine as a single text
+        block (the frontend renders it as markdown) and only risks being
+        mangled or having the prompt scaffolding echoed back, so it skips the
+        AI entirely. We invoke the AI only when the content carries structures
+        the renderer genuinely upgrades.
+        """
+        if not content or not content.strip():
+            return False
+
+        # Fenced code — the AI decides whether it should be executed and how to
+        # render the result (the code-interpreter path), so keep it on the AI
+        # path rather than deterministically demoting it to a static block.
+        if '```' in content:
+            return True
+
+        # Markdown / pipe tables.
+        if self._is_markdown_table(content):
+            return True
+
+        # HTML tables.
+        lowered = content.lower()
+        if '<table' in lowered and '</table>' in lowered:
+            return True
+
+        # A whole-string JSON object / array payload.
+        stripped = content.strip()
+        if (stripped.startswith('{') and stripped.endswith('}')) or \
+           (stripped.startswith('[') and stripped.endswith(']')):
+            return True
+
+        # SQL statements.
+        upper = content.upper()
+        if 'FROM' in upper and any(
+            kw in upper for kw in ('SELECT ', 'INSERT ', 'UPDATE ', 'DELETE ')
+        ):
+            return True
+
+        # Embedded chart markers emitted by tools.
+        if 'EXCEL_CHART_START' in content:
+            return True
+
+        # Document links (file://, UNC \\server\share) need rewriting into
+        # clickable /document/serve URLs, and that rewrite only runs on the AI
+        # 'list' path (_process_list_content). Keep such content on the AI path
+        # so the links stay clickable instead of becoming dead file:// anchors.
+        if self._has_document_links(content):
+            return True
+
+        # A dense grid of scannable "Label: value" metrics (numbers, %, counts,
+        # currency, short statuses) reads better as metric cards / a table than
+        # as prose. We require the value side to actually look like a metric so
+        # ordinary conversational lines ("Monday: kickoff call", URLs, dialogue)
+        # are NOT misrouted to the LLM.
+        metric_lines = 0
+        for line in content.splitlines():
+            label, sep, value = line.partition(':')
+            if sep and self._looks_like_metric_pair(label, value):
+                metric_lines += 1
+        if metric_lines >= 3:
+            return True
+
+        return False
+
+    def _has_document_links(self, content: str) -> bool:
+        """True if content references file:// or UNC document paths."""
+        if 'file://' in content.lower():
+            return True
+        # UNC path like \\server\share\... (needs a backslash after the host).
+        if re.search(r'\\\\[^\s\\]+\\', content):
+            return True
+        return False
+
+    def _looks_like_metric_pair(self, label: str, value: str) -> bool:
+        """
+        True if a "label: value" line looks like a scannable metric rather than
+        conversational prose. Keeps 'Revenue: $1.2M', 'Growth: 12%', 'NPS: 47',
+        'Status: Active'; rejects 'Monday: kickoff call', 'She said: hi there',
+        and URL lines such as 'https://a.com is great'.
+        """
+        label = label.strip()
+        value = value.strip()
+        if not label or not value or len(label) > 40 or len(value) > 40:
+            return False
+        # 'https://x' partitions to label 'https' — that's a URL, not a metric.
+        if label.lower() in ('http', 'https', 'ftp', 'file', 'mailto', 'data'):
+            return False
+        # Numeric / currency / percentage / count value.
+        if re.fullmatch(r'[~<>≈]?\s*[-+]?[$€£¥]?\s*\d[\d,]*\.?\d*\s*[%a-zA-Z]{0,4}', value):
+            return True
+        # Single short token (e.g. a status word, date, or id) — not a phrase.
+        if ' ' not in value and len(value) <= 20:
+            return True
+        return False
+
+    def _ai_result_echoed_prompt(self, analysis_result: Any) -> bool:
+        """
+        True if the structured AI output contains this renderer's own prompt
+        scaffolding — a known mini-model failure mode on short content. Such a
+        result is discarded so the scaffolding never reaches the user. Delegates
+        to the shared detector so both renderers stay in sync.
+        """
+        return result_echoed_prompt(analysis_result)
 
     def _quick_pattern_detection_legacy(self, content: str) -> Optional[Dict[str, Any]]:
         """
