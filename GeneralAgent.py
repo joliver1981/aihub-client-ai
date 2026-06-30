@@ -2473,6 +2473,26 @@ class GeneralAgent():
             "shows download cards automatically."
         )
 
+        # Response formatting — emit rich Markdown so the chat UI renders
+        # polished output (headings, bullets, numbered lists, tables, emojis)
+        # the same way the Command Center agent does. The frontend renders text
+        # blocks as Markdown, so format directly rather than writing flat prose
+        # with each sentence on its own line.
+        self.SYSTEM += (
+            "\n\nRESPONSE FORMATTING: Write answers in clear, well-structured Markdown "
+            "so the chat UI renders them richly:\n"
+            "- Organize anything longer than a couple of sentences with short **bold** "
+            "section headings (or `##` headings).\n"
+            "- Use `-` bullet lists for points and `1.` numbered lists for steps or ranked "
+            "items; indent to nest sub-points.\n"
+            "- **Bold** key terms, labels, and field names; use Markdown tables for "
+            "field/value or side-by-side comparison data.\n"
+            "- Add a few tasteful emojis as section accents where they aid scannability — "
+            "do not overuse them.\n"
+            "Keep responses concise and scannable: prefer short paragraphs and bullet "
+            "points over dense walls of text, and never wrap your whole reply in a code block."
+        )
+
         # 1. Load the language model (handles BYOK, direct OpenAI, and Azure)
         self.llm = self._create_llm(temperature=self.TEMPERATURE)
 
