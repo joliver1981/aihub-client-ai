@@ -188,6 +188,18 @@ knowledge_files/
 agent_sessions/
 builder_service/data/secrets/
 
+# Per-environment runtime / user data (should not be versioned).
+# NOTE: files already committed under these paths stay tracked until they are
+# untracked with `git rm --cached`; these entries only stop NEW files appearing.
+data/agent_files/
+data/chat_files/
+data/collection_sessions/
+data/compliance_uploads/
+data/solutions_drafts/
+data/solutions_staging/
+data/portal_workflows.json
+data/portal_registry.json
+
 # Temporary developer files
 tmp_*.py
 
