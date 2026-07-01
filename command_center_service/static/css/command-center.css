@@ -1079,6 +1079,41 @@ code, pre, .cc-code {
     margin-bottom: 4px;
 }
 
+/* ── Data / general agent side conversations (unified Agent Activity panel) ── */
+/* One collapsible thread per agent, appended under the Builder log. Turn roles
+   are "user" (CC's clean question to the agent) and "assistant" (agent reply). */
+.cc-agent-thread {
+    border-top: 1px solid var(--cc-border);
+    margin-top: 6px;
+    padding-top: 2px;
+}
+.cc-log-entry.user {
+    background: rgba(6, 182, 212, 0.1);
+    border-left: 3px solid var(--cc-cyan);
+    color: var(--cc-text-secondary);
+}
+.cc-log-entry.user::before {
+    content: '→ CC asked:';
+    display: block;
+    font-size: 10px;
+    color: var(--cc-cyan);
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+.cc-log-entry.assistant {
+    background: rgba(167, 139, 252, 0.1);
+    border-left: 3px solid var(--cc-violet);
+    color: var(--cc-text-secondary);
+}
+.cc-log-entry.assistant::before {
+    content: '← Agent replied:';
+    display: block;
+    font-size: 10px;
+    color: var(--cc-violet);
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
 
 /* Inspector action button (per assistant message) */
 .cc-message-actions {

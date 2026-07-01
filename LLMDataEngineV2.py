@@ -1048,12 +1048,41 @@ class LLMDataEngine:
         self.environment.current_full_schema = self.query_engine.full_schema
         self.environment.is_response = False
 
-        # TEMPORARY TEST - Remove after verifying
-        print("=" * 60)
-        print("environment.current_full_schema SET:")
-        print(f"Length: {len(self.environment.current_full_schema)} characters")
-        print("First 200 chars:", self.environment.current_full_schema[:200])
-        print("=" * 60)
+        # ── Empty-schema guard ────────────────────────────────────────────
+        # If the agent's data source has NO documented schema (no llm_Tables /
+        # llm_Columns rows for its connection), full_schema is empty
+        # ("tables:\n- {}"). The NLQ engine then has nothing to build SQL from
+        # and would run the whole pipeline only to emit a confusing
+        # "route this elsewhere" reply. Fail fast with a clear, honest message
+        # instead — this fires on BOTH the normal Data Explorer UI path and the
+        # Command Center internal delegation path (both call get_answer).
+        _schema_probe = "".join((self.environment.current_full_schema or "").split())
+        if _schema_probe in ("", "tables:-{}", "tables:[]", "tables:{}", "tables:-[]"):
+            logger.warning(
+                f"[get_answer] Empty schema for agent {agent_id} "
+                f"(connection {self.query_engine.agent_connection_id}). "
+                f"Aborting NLQ — data source not documented."
+            )
+            _no_schema_msg = (
+                "This agent's data source hasn't been set up for queries yet — no tables "
+                "or columns have been documented for its database connection. Ask an "
+                "administrator to run schema discovery (AI Discovery) on this connection, "
+                "then try again."
+            )
+            try:
+                self._emit_stage_summary(time.time() - start_time)
+            except Exception:
+                pass
+            return (
+                _no_schema_msg,                                   # answer
+                "Agent data source has no documented schema.",    # explain
+                "",                                               # clarify
+                "string",                                         # answer_type
+                "",                                               # special_message
+                input_question,                                   # original input
+                "",                                               # revised_question
+                "",                                               # return_query
+            )
 
         # Default return values
         answer = None 

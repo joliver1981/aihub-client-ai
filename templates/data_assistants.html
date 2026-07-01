@@ -304,6 +304,10 @@
                                         <label for="objective" class="small"><strong>Agent Objective:</strong></label>
                                         <textarea readonly id="objective" name="objective" class="form-control form-control-sm bg-light" rows="3" placeholder="Agent objective will appear here"></textarea>
                                     </div>
+                                    <div id="schema-warning" class="alert alert-warning mt-2 p-2 small mb-0" style="display:none;">
+                                        <i class="fas fa-exclamation-triangle mr-1"></i>
+                                        <strong>No documented schema.</strong> This agent's data source has no tables or columns documented yet, so it can't answer data questions. Ask an administrator to run AI Discovery on its connection.
+                                    </div>
                                 </div>
 
                             </div>
@@ -479,7 +483,9 @@
         data.forEach(agent => {
             const option = document.createElement('option');
             option.value = agent.agent_id;
-            option.textContent = agent.agent_description;
+            // Flag agents whose data source has no documented schema right in the list.
+            const undocumented = Number(agent.documented_table_count || 0) === 0;
+            option.textContent = agent.agent_description + (undocumented ? '  ⚠ no schema' : '');
             agentSelect.appendChild(option);
         });
 
@@ -492,6 +498,12 @@
     function updateFormFields(agent) {
         document.getElementById('objective').value = agent.agent_objective;
         document.getElementById('agent_id').value = agent.agent_id;
+        // Warn when the selected agent's data source has no documented schema.
+        const warn = document.getElementById('schema-warning');
+        if (warn) {
+            const count = Number(agent.documented_table_count || 0);
+            warn.style.display = count > 0 ? 'none' : 'block';
+        }
     }
 
     function escapeHtml(unsafe) {

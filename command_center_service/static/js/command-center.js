@@ -348,6 +348,10 @@ const CC = {
             this._showBuilderLog(data.log);
         }
 
+        if (data.threads && data._eventType === 'delegation_logs') {
+            this._showAgentConversations(data.threads);
+        }
+
         if (data.message && !data.blocks && !data.phase) {
             // Error or plain message
             this._addMessage('assistant', data.message);
@@ -373,6 +377,51 @@ const CC = {
             container.appendChild(div);
         }
         container.scrollTop = container.scrollHeight;
+    },
+
+    /**
+     * Render CC's side conversations with data/general agents in the unified
+     * "Agent Activity" panel — one collapsible thread per agent. These sit
+     * alongside the Builder conversation so the user can see every side
+     * conversation CC held on their behalf.
+     */
+    _showAgentConversations(threads) {
+        const panel = document.getElementById('right-panel');
+        const container = document.getElementById('agent-conversations');
+        if (!panel || !container) return;
+        if (!Array.isArray(threads) || threads.length === 0) return;
+
+        panel.style.display = '';
+        container.innerHTML = '';
+
+        for (const thread of threads) {
+            const section = document.createElement('div');
+            section.className = 'cc-agent-thread';
+
+            const header = document.createElement('h4');
+            header.className = 'cc-log-header';
+            const typeIcon = thread.agent_type === 'general' ? '💬' : '📊';
+            const name = thread.agent_name || ('Agent #' + (thread.agent_id || '?'));
+            header.appendChild(document.createTextNode(`${typeIcon} ${name} `));
+            const icon = document.createElement('span');
+            icon.className = 'cc-collapse-icon';
+            icon.textContent = '▼';
+            header.appendChild(icon);
+            header.onclick = function () { this.nextElementSibling.classList.toggle('collapsed'); };
+            section.appendChild(header);
+
+            const log = document.createElement('div');
+            log.className = 'cc-builder-log';
+            for (const turn of (thread.turns || [])) {
+                const div = document.createElement('div');
+                div.className = `cc-log-entry ${turn.role || ''}`;
+                const text = turn.content || '';
+                div.textContent = text.length > 800 ? text.substring(0, 800) + '...' : text;
+                log.appendChild(div);
+            }
+            section.appendChild(log);
+            container.appendChild(section);
+        }
     },
 
     _addMessage(role, content) {

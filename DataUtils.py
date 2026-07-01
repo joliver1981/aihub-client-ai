@@ -795,8 +795,9 @@ def select_user_agents_and_connections(user_id, user_role=None):
                     a.enabled as agent_enabled,
                     a.create_date as agent_create_date,
                     c.id connection_id,
-                    c.[connection_name] connection_name
-                FROM 
+                    c.[connection_name] connection_name,
+                    (SELECT COUNT(*) FROM [dbo].[llm_Tables] lt WHERE lt.connection_id = c.id) as documented_table_count
+                FROM
                     [dbo].[Agents] a
                 LEFT JOIN 
                     [dbo].[AgentConnections] t ON a.id = t.agent_id
@@ -812,8 +813,9 @@ def select_user_agents_and_connections(user_id, user_role=None):
                     a.enabled as agent_enabled,
                     a.create_date as agent_create_date,
                     c.id connection_id,
-                    c.[connection_name] connection_name
-                FROM 
+                    c.[connection_name] connection_name,
+                    (SELECT COUNT(*) FROM [dbo].[llm_Tables] lt WHERE lt.connection_id = c.id) as documented_table_count
+                FROM
                     [dbo].[Agents] a
                 LEFT JOIN 
                     [dbo].[AgentConnections] t ON a.id = t.agent_id

@@ -735,6 +735,37 @@ async def chat(request: Request):
                     "builder_session_id": active_deleg.get("builder_session_id"),
                 })
 
+            # Send data/general agent side-conversation threads for the unified
+            # "Agent Activity" panel. These are CC's side conversations with each
+            # delegated data/general agent (Builder has its own log above).
+            try:
+                from graph.delegation_log import get_threads as _get_deleg_threads
+                _threads = _get_deleg_threads(session_id)
+                if _threads:
+                    import re as _rdl
+                    _QCd = r"""(?:\\"|\\'|\\`|["'`])?"""
+                    _dl_pats = [
+                        (_rdl.compile(r"(\*{0,3}password\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QCd + r")([A-Za-z0-9_@.!#$%+\-]{3,})" + _QCd, _rdl.IGNORECASE), r"\1***"),
+                        (_rdl.compile(r"(\"password\"\s*:\s*\")([^\"]+)(\")", _rdl.IGNORECASE), r"\1***\3"),
+                        (_rdl.compile(r"(\bpwd\s*=\s*)([^;\"']+)", _rdl.IGNORECASE), r"\1***"),
+                        (_rdl.compile(r"(\*{0,3}api[_-]?key\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QCd + r")([A-Za-z0-9_@.!#$%+\-]{3,})" + _QCd, _rdl.IGNORECASE), r"\1***"),
+                        (_rdl.compile(r"(\*{0,3}secret\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QCd + r")([A-Za-z0-9_@.!#$%+\-]{3,})" + _QCd, _rdl.IGNORECASE), r"\1***"),
+                        (_rdl.compile(r"(\*{0,3}token\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QCd + r")([A-Za-z0-9_@.!#$%+\-]{3,})" + _QCd, _rdl.IGNORECASE), r"\1***"),
+                    ]
+                    def _dl_mask(v):
+                        if not isinstance(v, str):
+                            return v
+                        for pat, repl in _dl_pats:
+                            v = pat.sub(repl, v)
+                        return v
+                    for _th in _threads:
+                        for _t in _th.get("turns", []):
+                            if isinstance(_t, dict) and isinstance(_t.get("content"), str):
+                                _t["content"] = _dl_mask(_t["content"])
+                    yield _sse_event("delegation_logs", {"threads": _threads})
+            except Exception as _dl_err:
+                logger.warning(f"[chat] delegation_logs emit failed: {_dl_err}")
+
             yield _sse_event("done", {"session_id": session_id})
 
             # Broadcast a "done" line to ops subscribers so the ticker shows

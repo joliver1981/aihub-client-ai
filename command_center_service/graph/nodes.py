@@ -3693,6 +3693,19 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                         "started_at": datetime.now().isoformat(),
                         "history": [],
                     }
+                    # Record this exchange as a side-conversation thread for the UI panel.
+                    try:
+                        from graph.delegation_log import record_turn
+                        record_turn(
+                            state.get("session_id", ""),
+                            tool_args.get("agent_id"),
+                            f"Agent #{tool_args.get('agent_id')}",
+                            "data" if tool_name == "query_data_agent" else "general",
+                            tool_args.get("question") or tool_args.get("query") or "",
+                            str(result),
+                        )
+                    except Exception:
+                        pass
                 elif tool_name == "switch_active_agent":
                     active_deleg = {
                         "agent_id": str(tool_args.get("agent_id")),
@@ -4312,11 +4325,24 @@ async def gather_data(state: CommandCenterState) -> dict:
         messages, state.get("session_resources")
     )
 
+    # id -> display name map (for labelling side-conversation threads in the UI panel)
+    _landscape_gd = state.get("landscape") or {}
+    _all_agents_gd = _landscape_gd.get("all_agents") or _landscape_gd.get("agents") or []
+    _agent_name_by_id = {}
+    for _a_gd in _all_agents_gd:
+        _aid_gd = _a_gd.get("agent_id") or _a_gd.get("id")
+        if _aid_gd is not None:
+            _agent_name_by_id[str(_aid_gd)] = (
+                _a_gd.get("agent_name") or _a_gd.get("name") or f"Agent #{_aid_gd}"
+            )
+
     # Tracing helpers
     from graph.tracing import trace_log
     import time as _time
 
     async def _delegate_to_agent(*, agent_id: str, question: str, is_data_agent: bool, session_id: str, conversation_history=None):
+        # Capture the clean question BEFORE any context prepend, for the UI thread.
+        _clean_q = question
         # Prepend conversation context to the question for coherence
         nonlocal _delegation_context
         if _delegation_context and not conversation_history:
@@ -4352,6 +4378,19 @@ async def gather_data(state: CommandCenterState) -> dict:
                 "text_preview": str(res.get("text") or "")[:800],
             },
         )
+        # Record this exchange as a side-conversation thread for the UI panel.
+        try:
+            from graph.delegation_log import record_turn
+            record_turn(
+                state.get("session_id", ""),
+                agent_id,
+                _agent_name_by_id.get(str(agent_id), f"Agent #{agent_id}"),
+                "data" if is_data_agent else "general",
+                _clean_q,
+                res.get("text") if isinstance(res, dict) else str(res),
+            )
+        except Exception:
+            pass
         return res
 
     # ── Check active delegation first ──────────────────────────────────
@@ -5002,10 +5041,12 @@ Command Center tools (set target_tool to the tool name, leave target_agent null)
 User request: {user_text}
 
 Return a JSON array of tasks IN EXECUTION ORDER:
-[{{"description": "what to do", "target_agent": "agent_id or null", "target_agent_name": "name or null", "is_data_agent": true_or_false, "target_tool": "tool_name or null"}}]
+[{{"description": "what to do", "agent_input": "clean standalone question to send to the agent", "target_agent": "agent_id or null", "target_agent_name": "name or null", "is_data_agent": true_or_false, "target_tool": "tool_name or null"}}]
 
 RULES:
 - Each task must have EITHER target_agent OR target_tool — not both, not neither.
+- "description" is a short human-readable summary of the step (shown in the UI).
+- "agent_input" is the EXACT question to send to the target agent, phrased as if the end user asked that agent directly. It MUST NOT mention agent names/IDs, "route to", "using ... agent", or "return the results to the user" — those are orchestration details the agent must never see. Example: description "Query sales by state for last year using retail data agent ID 391" → agent_input "What were sales by state for last year?". For target_tool tasks, set agent_input equal to description.
 - Set is_data_agent to match the agent's type from the list above. General agents are NOT data agents.
 - Order matters: if Task 2 needs Task 1's results (e.g., search then export), Task 1 must come first. Results from earlier tasks are automatically passed to later tasks.
 - Use CC tools for document search, web search, file export, maps, images, and email — these are NOT agent capabilities.
@@ -5040,6 +5081,9 @@ Only return the JSON array, nothing else."""
             sub_tasks.append({
                 "id": str(uuid.uuid4())[:8],
                 "description": t.get("description", ""),
+                # Clean question to send to the agent (no orchestration meta-text).
+                # Falls back to description for older payloads / tool tasks.
+                "agent_input": t.get("agent_input") or t.get("description", ""),
                 "target_agent": t.get("target_agent"),
                 "target_agent_name": t.get("target_agent_name"),
                 "is_data_agent": bool(t.get("is_data_agent", True)),
@@ -5406,14 +5450,19 @@ async def execute_next_task(state: CommandCenterState) -> dict:
     prior_context = _build_prior_task_context(sub_tasks[:current_idx], delegation_results)
 
     # ── Build conversation history for agent coherence ────────────────
-    # Extract recent human/AI exchanges so delegated agents have
-    # conversational context (not just a cold question).
-    messages = state.get("messages", [])
+    # Forward ONLY the curated side-conversation this CC session has had with
+    # THIS specific agent — never CC's own orchestration conversation with the
+    # user (which would leak routing meta-text like "use agent 391" into the
+    # agent's NLQ classifiers). The per-agent thread is seeded from clean
+    # agent_input questions + the agent's answers. Empty for a fresh agent.
+    _cur_agent_id = task.get("target_agent")
     conversation_history = []
-    for msg in messages[-10:]:
-        if hasattr(msg, "type") and hasattr(msg, "content"):
-            role = "user" if msg.type == "human" else "assistant"
-            conversation_history.append({"role": role, "content": msg.content[:500]})
+    if _cur_agent_id:
+        try:
+            from graph.delegation_log import get_thread_history
+            conversation_history = get_thread_history(state.get("session_id", ""), _cur_agent_id)
+        except Exception:
+            conversation_history = []
 
     try:
         if task.get("target_agent"):
@@ -5423,7 +5472,10 @@ async def execute_next_task(state: CommandCenterState) -> dict:
             import time as _time
 
             agent_id = str(task["target_agent"])
-            question = str(task.get("description") or "")
+            # Send the CLEAN question (agent_input), never the human-readable
+            # description which may embed orchestration/routing meta-text.
+            question = str(task.get("agent_input") or task.get("description") or "")
+            _clean_question = question  # preserved for the side-conversation log
             is_data = task.get("is_data_agent", True)
 
             # Prepend prior task results so the agent has context
@@ -5466,6 +5518,20 @@ async def execute_next_task(state: CommandCenterState) -> dict:
                     "text_preview": str((result or {}).get("text") or result or "")[:800],
                 },
             )
+
+            # Record this exchange as a side-conversation thread for the UI panel.
+            try:
+                from graph.delegation_log import record_turn
+                record_turn(
+                    state.get("session_id", ""),
+                    agent_id,
+                    task.get("target_agent_name") or f"Agent #{agent_id}",
+                    "data" if is_data else "general",
+                    _clean_question,
+                    (result or {}).get("text") if isinstance(result, dict) else str(result),
+                )
+            except Exception:
+                pass
 
         elif task.get("target_tool"):
             # ── Mode 2: CC-native tool execution ──────────────────────

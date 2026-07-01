@@ -68,13 +68,10 @@ class LLMQueryEngine:
             else:
                 # No tables found, use basic schema
                 self.full_schema = get_all_column_descriptions_as_yaml(self.agent_connection_id)
-                print("No tables found in llm_Tables, using basic schema")
-
-            # TEMPORARY TEST - Remove after verifying
-            print("=" * 60)
-            print("SCHEMA LOADED:")
-            print(self.full_schema[:500])  # First 500 chars
-            print("=" * 60)
+                logging.info(
+                    f"[_set_target_database] No documented tables in llm_Tables for "
+                    f"connection {self.agent_connection_id}; using basic schema."
+                )
         except Exception as e:
             # If enhanced schema fails, fall back to basic
             print(f"Enhanced schema not available ({str(e)}), using basic schema")

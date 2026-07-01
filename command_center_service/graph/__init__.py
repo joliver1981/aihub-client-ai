@@ -13,7 +13,8 @@ from langgraph.graph.message import add_messages
 class SubTask(TypedDict, total=False):
     """A single sub-task delegated to an agent or tool."""
     id: str
-    description: str
+    description: str                   # human-readable step summary (shown in UI)
+    agent_input: str                  # clean question to send to the agent (no meta-text)
     target_agent: Optional[str]      # agent_id or "self"
     target_agent_name: Optional[str]  # human-readable name
     target_tool: Optional[str]       # tool name
