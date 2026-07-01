@@ -1135,6 +1135,13 @@
                         <i class="fas fa-flask experimental-icon" title="Experimental"></i>
                     </a>
                 </div>
+                <div class="new-nav-item">
+                    <a href="{{ url_for('portal_workflows_bp.portal_workflows_page') }}" class="new-nav-link">
+                        <i class="fas fa-globe nav-icon"></i>
+                        <span class="nav-text">Portal Workflows</span>
+                        <i class="fas fa-flask experimental-icon" title="Experimental"></i>
+                    </a>
+                </div>
                 {% endif %}
 
                 {% if FLAG_SOLUTIONS and current_user.is_authenticated and current_user.role and current_user.role >= 2 %}
