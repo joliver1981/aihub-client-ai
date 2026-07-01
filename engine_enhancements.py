@@ -44,7 +44,29 @@ class EnhancedLLMQueryEngine:
         self.original_engine._is_data_query_required = self._enhanced_is_data_query_required
         self.original_engine._initialize_data = self._enhanced_initialize_data
         self.original_engine._get_query_from_question = self._enhanced_get_query_from_question
-    
+
+    def __getattr__(self, name):
+        # Transparent proxy: this wrapper is assigned as engine.query_engine when
+        # ENABLE_CAUTION_SYSTEM is on, so any attribute/method it does NOT define
+        # (_set_target_database, full_schema, agent_connection_id, ...) must
+        # delegate to the wrapped engine — otherwise callers hit AttributeError.
+        # __getattr__ only fires for attributes missing on the wrapper, so the
+        # enhanced overrides above still take precedence. The guard prevents
+        # infinite recursion if original_engine isn't set yet.
+        if name == 'original_engine':
+            raise AttributeError(name)
+        return getattr(self.original_engine, name)
+
+    def __setattr__(self, name, value):
+        # Mirror of __getattr__: attributes callers set on the wrapper (which is
+        # engine.query_engine when caution is on) must reach the wrapped engine,
+        # since the enhanced/original methods run with self == original_engine.
+        # Wrapper-owned attributes (set during __init__/_wrap_methods) stay local.
+        if name.startswith('_') or name in ('original_engine', 'error_handler', 'caution_manager', 'logger'):
+            object.__setattr__(self, name, value)
+        else:
+            setattr(self.original_engine, name, value)
+
     def _enhanced_is_more_info_required(self):
         """
         Enhanced version of _is_more_info_required that incorporates caution level.
@@ -202,7 +224,31 @@ class EnhancedLLMAnalyticalEngine:
         # Replace with enhanced versions
         self.original_engine.get_answer = self._enhanced_get_answer
         self.original_engine._is_analytical_query_required_v2 = self._enhanced_is_analytical_query_required_v2
-    
+
+    def __getattr__(self, name):
+        # Transparent proxy: this wrapper is assigned as engine.analytical_engine
+        # when ENABLE_CAUTION_SYSTEM is on, so any attribute/method it does NOT
+        # define (set_data, clear_chat_hist, add_message_to_hist, environment, ...)
+        # must delegate to the wrapped engine — otherwise callers such as
+        # LLMDataEngineV2.get_answer hit AttributeError on set_data. __getattr__
+        # only fires for attributes missing on the wrapper, so the enhanced
+        # overrides above still take precedence. The guard prevents infinite
+        # recursion if original_engine isn't set yet.
+        if name == 'original_engine':
+            raise AttributeError(name)
+        return getattr(self.original_engine, name)
+
+    def __setattr__(self, name, value):
+        # Mirror of __getattr__: attributes callers set on the wrapper (which is
+        # engine.analytical_engine when caution is on) — e.g. formatting_requirements
+        # set by LLMDataEngineV2 — must reach the wrapped engine, since the
+        # enhanced/original methods run with self == original_engine. Wrapper-owned
+        # attributes (set during __init__/_wrap_methods) stay local.
+        if name.startswith('_') or name in ('original_engine', 'error_handler', 'caution_manager', 'logger'):
+            object.__setattr__(self, name, value)
+        else:
+            setattr(self.original_engine, name, value)
+
     def _enhanced_get_answer(self, input_question, is_follow_up=False):
         """
         Enhanced version of get_answer with result validation and confidence scoring.
