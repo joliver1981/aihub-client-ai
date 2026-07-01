@@ -12299,6 +12299,14 @@ app.register_blueprint(workflow_builder_bp)
 from agent_email_routes import agent_email_bp
 app.register_blueprint(agent_email_bp)
 
+# Portal Workflows blueprint (the /portal-workflows visual builder + /api/portal-workflows/*
+# incl. internal/run used by the scheduler's portal executor and the Run-now dispatch). The
+# routes file survived the recovery but its registration line — an uncommitted edit — did not,
+# so the whole feature (page, nav link, and APIs) was silently unreachable. Import-safe at
+# startup: the module only imports stdlib+flask at top level (tool modules load at call-time).
+from routes.portal_workflows_routes import portal_workflows_bp
+app.register_blueprint(portal_workflows_bp)
+
 # Import email processing routes
 from email_processing_routes import email_processing_bp
 app.register_blueprint(email_processing_bp)
