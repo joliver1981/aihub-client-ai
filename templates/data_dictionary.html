@@ -2103,7 +2103,16 @@ function discoverTables() {
         showFeedback('Please select a connection first', false);
         return;
     }
-    
+
+    // Clear any progress/results left over from a PREVIOUS connection's run so the user isn't
+    // shown stale output after switching connections and re-discovering.
+    $('#analysisProgress').hide();
+    $('#analysisStatus').empty();
+    $('#analysisResults').hide();
+    $('#analysisResultsSummary').empty();
+    $('#analysisResultsDetails').empty();
+    $('#discoveredTablesList').empty();
+
     $('#discoverTablesBtn').prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Discovering...');
     
     $.ajax({
