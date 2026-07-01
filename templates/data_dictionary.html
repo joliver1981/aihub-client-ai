@@ -267,6 +267,18 @@
     .table-checkbox-label .form-check-label {
         margin-bottom: 0;
     }
+
+    /* Analysis progress bar: the theme renders .progress only 6px tall, so the "% complete"
+       label inside is invisible. Give THIS bar (only) enough height + readable text to show it. */
+    #analysisProgress .progress {
+        height: 22px;
+        font-size: 0.8rem;
+    }
+
+    #analysisProgress .progress-bar {
+        font-weight: 600;
+        color: #fff;
+    }
     
     /* Scrollable areas */
     .scrollable-list {
