@@ -1973,11 +1973,53 @@ Rules:
             logger.error(f"Error building formatting requirements dict: {str(e)}")
             return {'columns': [], 'formats': {}, 'details': ''}
 
+    @staticmethod
+    def _compute_dfs_signature(dfs):
+        """Content signature of the dataframe set the analytical agent will use.
+
+        Combines the dataframe count with a shape + column + value hash of the
+        LATEST dataframe (dfs[-1] — the current query result), so we can tell
+        when the underlying data ACTUALLY changed between turns.
+
+        Why not a count comparison: callers pass ``environment.dfs`` BY REFERENCE
+        and ``set_data`` aliases that same list back onto ``self.environment.dfs``.
+        Comparing ``len(dfs)`` to ``len(self.environment.dfs)`` therefore compared
+        a list to itself and was always False on follow-ups — so the "reinitialise
+        the PandasAI agent on new data" guard never fired and PandasAI kept
+        answering against a STALE DuckDB snapshot from the previous query.
+        Returns ``None`` on any failure so the caller treats the data as changed
+        (fail-safe: reinitialise rather than risk reusing stale data).
+        """
+        try:
+            import pandas as pd
+            if not dfs:
+                return (0, None, None, None)
+            last = dfs[-1]
+            if last is None:
+                return (len(dfs), None, None, None)
+            cols = tuple(str(c) for c in last.columns)
+            try:
+                content_hash = int(pd.util.hash_pandas_object(last, index=True).sum())
+            except Exception:
+                # Some dtypes aren't hashable — fall back to shape + columns only.
+                content_hash = None
+            return (len(dfs), tuple(last.shape), cols, content_hash)
+        except Exception:
+            return None
+
     def set_data(self, dfs, dfs_desc, input_question):
-        # Track whether the underlying data changed so the PandasAI Agent
-        # can be reinitialised even on follow-up turns (stale DuckDB fix).
-        prev_count = len(self.environment.dfs) if hasattr(self.environment, 'dfs') and self.environment.dfs else 0
-        self._data_changed = (len(dfs) != prev_count)
+        # Track whether the underlying data changed so the PandasAI Agent can be
+        # reinitialised on follow-up turns that ran a NEW query (stale DuckDB fix).
+        # Detect change by CONTENT signature of the latest dataframe — NOT by list
+        # length. The caller passes environment.dfs by reference, so a count
+        # comparison always read False and the reinit guard never fired, leaving
+        # PandasAI bound to the previous query's data on follow-ups.
+        new_sig = self._compute_dfs_signature(dfs)
+        prev_sig = getattr(self, '_last_dfs_signature', None)
+        # No prior signature (first turn) or an un-computable signature counts as
+        # "changed" — reinitialise rather than risk reusing a stale snapshot.
+        self._data_changed = (prev_sig is None) or (new_sig is None) or (new_sig != prev_sig)
+        self._last_dfs_signature = new_sig
         self.environment.dfs = dfs
         self.environment.dfs_desc = dfs_desc
         self.environment.current_input_question = input_question
