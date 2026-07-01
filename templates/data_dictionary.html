@@ -243,10 +243,29 @@
     /* Discovery Tab Styles */
     .table-checkbox-label {
         cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
     }
-    
+
     .table-checkbox-label:hover {
         background-color: var(--bg-elevated, #f8f9fa);
+    }
+
+    /* The per-table checkbox rendered as a thin sliver: Bootstrap's .form-check-input is
+       absolutely positioned with margin-left:-1.25rem, but the row's .p-2 utility overrode
+       .form-check's padding-left AND the scrollable list clips horizontally — so the box was
+       pushed off the container's left edge. Pin it into normal flow at a visible size. */
+    .table-checkbox-label .form-check-input {
+        position: static;
+        margin: 0;
+        flex: 0 0 auto;
+        width: 16px;
+        height: 16px;
+    }
+
+    .table-checkbox-label .form-check-label {
+        margin-bottom: 0;
     }
     
     /* Scrollable areas */
