@@ -6,7 +6,7 @@
           "name": "Recorded workflow",
           "portal_slug": null,
           "start_url": "http://localhost:3000",
-          "goal": "Sign in with username agent and password test. Then go to the Uploads menu and open Upload Bay, or navigate directly to http://localhost:3000/uploads. Upload the file C:\\temp\\doc_output_test.txt using the file chooser or drag/drop, then click 'Upload files'. Verify success by confirming a green banner saying 'Uploaded 1 file successfully.' appears, and report the exact uploaded file name and size shown in the Uploaded files list on the right.",
+          "goal": "Sign in with username agent and password test, go to the Upload Bay page, upload the file, click 'Upload files', verify the green confirmation banner says 'Uploaded 1 file successfully.', then report the exact file name and size shown in the Uploaded files list on the right.",
           "agent_oversight": true,
           "takeover_timeout": null,
           "steps": [
@@ -34,8 +34,12 @@
               }
             },
             {
-              "type": "goto",
-              "url": "http://localhost:3000/uploads"
+              "type": "click",
+              "anchor": {
+                "role": "link",
+                "text": "Upload Bay Single, multi & drag-and-drop; manage files Uploads",
+                "xpath": "html/body/main/div[4]/div[2]/div/a[7]"
+              }
             },
             {
               "type": "upload",
@@ -56,9 +60,9 @@
             }
           ],
           "created_at": "2026-06-29T17:04:05+00:00",
-          "updated_at": "2026-06-29T17:04:05+00:00",
+          "updated_at": "2026-07-02T14:00:58+00:00",
           "success_count": 0,
-          "last_run_status": null
+          "last_run_status": "error"
         }
       }
     }
