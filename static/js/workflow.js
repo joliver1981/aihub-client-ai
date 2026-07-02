@@ -927,6 +927,12 @@ const nodeConfigTemplates = {
                 </button>
             </div>
             <small class="form-text text-muted">Destination path for copy/move operations. You can use $\{varName\} for variables.</small>
+            <div class="form-check mt-2">
+                <input class="form-check-input" type="checkbox" name="allowOverwrite" id="file-allow-overwrite" checked>
+                <label class="form-check-label" for="file-allow-overwrite">
+                    Allow overwrite if the destination file already exists
+                </label>
+            </div>
         </div>
 
         <!-- Content Source Section for write/append -->
@@ -1014,6 +1020,7 @@ const nodeConfigTemplates = {
         operation: 'read',
         filePath: '',
         destinationPath: '',
+        allowOverwrite: true,
         contentSource: 'direct',
         content: '',
         contentVariable: '',

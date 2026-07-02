@@ -8461,44 +8461,57 @@ Guidelines:
             execution_id: Workflow execution ID
             node_id: Node ID
             file_path: Path to the source file
-            config: Node configuration (should contain 'destinationPath')
+            config: Node configuration (should contain 'destinationPath';
+                    optional 'allowOverwrite', default True)
             variables: Workflow variables
-            
+
         Returns:
             Result dict with operation status
         """
         import os
         import shutil
-        
+
         try:
             if not os.path.exists(file_path):
                 raise FileNotFoundError(f"Source file not found: {file_path}")
-            
+
             # Get destination path with variable replacement
             destination_path = self._replace_variable_references(
                 config.get('destinationPath', ''), variables)
-            
+
             if not destination_path:
                 raise ValueError("Destination path is required for copy operation")
-            
+
             # Create destination directory if it doesn't exist
             dest_directory = os.path.dirname(destination_path)
             if dest_directory and not os.path.exists(dest_directory):
                 os.makedirs(dest_directory)
-            
+
+            # Resolve the final file path (destination may be a directory)
+            final_destination = destination_path
+            if os.path.isdir(destination_path):
+                final_destination = os.path.join(
+                    destination_path, os.path.basename(file_path))
+
+            allow_overwrite = config.get('allowOverwrite', True)
+            if not allow_overwrite and os.path.exists(final_destination):
+                raise FileExistsError(
+                    f"Destination file already exists and overwrite is "
+                    f"disabled: {final_destination}")
+
             # Copy the file
-            shutil.copy2(file_path, destination_path)
-            
+            shutil.copy2(file_path, final_destination)
+
             self.log_execution(
                 execution_id, node_id, "info",
-                f"Successfully copied file from {file_path} to {destination_path}")
-            
+                f"Successfully copied file from {file_path} to {final_destination}")
+
             return {
                 'success': True,
                 'data': {
                     'operation': 'copy',
                     'sourcePath': file_path,
-                    'destinationPath': destination_path,
+                    'destinationPath': final_destination,
                     'copied': True
                 }
             }
@@ -8515,44 +8528,63 @@ Guidelines:
             execution_id: Workflow execution ID
             node_id: Node ID
             file_path: Path to the source file
-            config: Node configuration (should contain 'destinationPath')
+            config: Node configuration (should contain 'destinationPath';
+                    optional 'allowOverwrite', default True)
             variables: Workflow variables
-            
+
         Returns:
             Result dict with operation status
         """
         import os
         import shutil
-        
+
         try:
             if not os.path.exists(file_path):
                 raise FileNotFoundError(f"Source file not found: {file_path}")
-            
+
             # Get destination path with variable replacement
             destination_path = self._replace_variable_references(
                 config.get('destinationPath', ''), variables)
-            
+
             if not destination_path:
                 raise ValueError("Destination path is required for move operation")
-            
+
             # Create destination directory if it doesn't exist
             dest_directory = os.path.dirname(destination_path)
             if dest_directory and not os.path.exists(dest_directory):
                 os.makedirs(dest_directory)
-            
+
+            # Resolve the final file path (destination may be a directory)
+            final_destination = destination_path
+            if os.path.isdir(destination_path):
+                final_destination = os.path.join(
+                    destination_path, os.path.basename(file_path))
+
+            allow_overwrite = config.get('allowOverwrite', True)
+            if os.path.exists(final_destination):
+                if not allow_overwrite:
+                    raise FileExistsError(
+                        f"Destination file already exists and overwrite is "
+                        f"disabled: {final_destination}")
+                # Remove the existing file first: shutil.move refuses to
+                # overwrite when the destination is a directory containing a
+                # same-named file. Never remove it if it IS the source file.
+                if not os.path.samefile(file_path, final_destination):
+                    os.remove(final_destination)
+
             # Move the file
-            shutil.move(file_path, destination_path)
-            
+            shutil.move(file_path, final_destination)
+
             self.log_execution(
                 execution_id, node_id, "info",
-                f"Successfully moved file from {file_path} to {destination_path}")
-            
+                f"Successfully moved file from {file_path} to {final_destination}")
+
             return {
                 'success': True,
                 'data': {
                     'operation': 'move',
                     'sourcePath': file_path,
-                    'destinationPath': destination_path,
+                    'destinationPath': final_destination,
                     'moved': True
                 }
             }
