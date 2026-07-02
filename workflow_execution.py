@@ -8207,7 +8207,37 @@ Guidelines:
             self.log_execution(
                 execution_id, node_id, "error",
                 f"File operation error: {error_message}")
-            
+
+            # Check if we should continue on error
+            if node_config.get('continueOnError', False):
+                self.log_execution(
+                    execution_id, node_id, "warning",
+                    "Continuing workflow despite file operation error")
+
+                # Mirror the frontend simulator: flag the failure in the
+                # output variable so downstream nodes can branch on it.
+                has_output_var = bool(node_config.get('outputVariable', ''))
+                save_to_var = node_config.get('saveToVariable', True if has_output_var else False)
+                if save_to_var and has_output_var:
+                    output_var = self._extract_variable_name(
+                        node_config.get('outputVariable', ''))
+                    self._update_workflow_variable(
+                        execution_id, output_var, 'boolean', False)
+                    variables[output_var] = False
+                    self.log_execution(
+                        execution_id, node_id, "info",
+                        f"Set variable {output_var} to False (operation failed)")
+
+                return {
+                    'success': True,  # Return success so workflow continues
+                    'data': {
+                        'operation': operation,
+                        'filePath': node_config.get('filePath', ''),
+                        'error': error_message,
+                        'success': False
+                    }
+                }
+
             return {
                 'success': False,
                 'error': error_message,

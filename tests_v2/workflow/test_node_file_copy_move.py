@@ -104,6 +104,58 @@ def test_copy_overwrites_existing_file_by_default(sandbox, save_workflow,
         assert f.read() == "NEW"
 
 
+def test_move_failure_with_continue_on_error_follows_pass_path(sandbox,
+                                                               save_workflow,
+                                                               run_workflow,
+                                                               make_node,
+                                                               make_conn):
+    """continueOnError converts the failure to success: the workflow carries
+    on down the PASS path and the output variable is flagged False."""
+    src = _make_file(os.path.join(sandbox, "src.txt"), "NEW")
+    dest = _make_file(os.path.join(sandbox, "dest.txt"), "OLD")
+    n0 = make_node(
+        "node-0", "File",
+        config={
+            "operation": "move",
+            "filePath": src,
+            "destinationPath": dest,
+            "allowOverwrite": False,
+            "continueOnError": True,
+            "outputVariable": "moveResult",
+        },
+        label="move_file", is_start=True,
+    )
+    n1 = make_node(
+        "node-1", "Set Variable",
+        config={"variableName": "downstream", "valueSource": "direct",
+                "valueExpression": "ran"},
+        label="downstream", left=500,
+    )
+    wid = save_workflow(
+        "move_continue_on_error",
+        nodes=[n0, n1],
+        connections=[make_conn("node-0", "node-1", "pass")],
+    )
+    result = run_workflow(wid, timeout=30)
+    statuses = {
+        (s.get("node_name") or "?"): s.get("status")
+        for s in result.get("steps") or []
+    }
+    assert result["status"] == "completed", (
+        f"status={result['status']} steps={statuses}"
+    )
+    assert statuses.get("downstream") == "Completed", (
+        f"pass path not followed with continueOnError: {statuses}"
+    )
+    move_result = result["variables"].get("moveResult")
+    if move_result is not None:
+        assert str(move_result).lower() in {"false", "0"}, (
+            f"moveResult should be flagged False, got {move_result!r}"
+        )
+    with open(dest) as f:
+        assert f.read() == "OLD", "destination must be untouched"
+
+
 def test_copy_overwrite_disabled_fails_and_preserves_destination(sandbox,
                                                                  save_workflow,
                                                                  run_workflow,
