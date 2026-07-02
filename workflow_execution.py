@@ -644,13 +644,20 @@ class WorkflowExecutionEngine:
                 # No more nodes to execute
                 return None
             
-            # For now, just follow the first "pass" connection
+            # Follow the first "pass" connection; if there is none, fall back
+            # to the first "complete" connection ("complete" is followed
+            # regardless of node outcome, matching the frontend simulator's
+            # shouldFollowPath semantics).
             for conn in next_connections:
                 conn_type = conn.get('type', 'pass')
                 if conn_type == 'pass':
                     return conn['target']
-            
-            # If no pass connection, return None to end the workflow
+
+            for conn in next_connections:
+                if conn.get('type') == 'complete':
+                    return conn['target']
+
+            # If no pass or complete connection, return None to end the workflow
             return None
                 
         except Exception as e:
@@ -669,14 +676,27 @@ class WorkflowExecutionEngine:
             connections = workflow_data.get('connections', [])
             
             fail_connections = [
-                conn for conn in connections 
+                conn for conn in connections
                 if conn['source'] == node_id and conn.get('type') == 'fail'
             ]
-            
+
             if fail_connections:
                 return fail_connections[0]['target']
-            
-            # If no fail connection, re-raise the exception
+
+            # No fail connection - fall back to a "complete" connection,
+            # which is followed regardless of node outcome.
+            complete_connections = [
+                conn for conn in connections
+                if conn['source'] == node_id and conn.get('type') == 'complete'
+            ]
+
+            if complete_connections:
+                self.log_execution(
+                    execution_id, node_id, "info",
+                    "Following complete connection after node failure")
+                return complete_connections[0]['target']
+
+            # If no fail or complete connection, re-raise the exception
             raise
 
     def _has_repeated_group_fields(self, fields: List[Dict]) -> bool:
