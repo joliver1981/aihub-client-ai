@@ -33,6 +33,7 @@ const CCRenderers = {
             case 'kpi':      return this._renderKPI(block);
             case 'map':      return this._renderMap(block);
             case 'artifact': return this._renderArtifact(block);
+            case 'action':   return this._renderAction(block);
             case 'image':    return this._renderImage(block);
             case 'meta': {
                 // Subtle metadata for conversation coherence — visible but unobtrusive
@@ -314,13 +315,32 @@ const CCRenderers = {
         return `rgb(${r}, ${g}, ${b})`;
     },
 
+    // Parse a region value into a number: '$5.2M', '1,200,000', '900K', 5e6 →
+    // number. Mirrors the server-side coercion so an LLM-emitted block (which
+    // skips generate_map) still scales/colors correctly. Returns 0 on failure.
+    _coerceMapValue(v) {
+        if (typeof v === 'number') return isFinite(v) ? v : 0;
+        if (v == null) return 0;
+        let s = String(v).trim().toLowerCase().replace(/,/g, '').replace(/\$/g, '');
+        let mult = 1;
+        if (s.endsWith('m')) { mult = 1e6; s = s.slice(0, -1); }
+        else if (s.endsWith('k')) { mult = 1e3; s = s.slice(0, -1); }
+        else if (s.endsWith('b')) { mult = 1e9; s = s.slice(0, -1); }
+        const m = s.match(/-?\d+(?:\.\d+)?/);
+        return m ? parseFloat(m[0]) * mult : 0;
+    },
+
     _renderMap(block) {
         const wrapper = document.createElement('div');
         wrapper.className = 'cc-block cc-block-map';
 
         if (block.title) {
             const title = document.createElement('h4');
-            title.textContent = block.title;
+            // Clamp here too: the agent sometimes emits a map block directly in
+            // its answer (bypassing generate_map's server-side clamp), so a long
+            // instruction-like title could otherwise render and overflow.
+            const t = String(block.title);
+            title.textContent = t.length > 80 ? t.slice(0, 79).trimEnd() + '…' : t;
             title.style.padding = '8px';
             title.style.fontSize = '14px';
             wrapper.appendChild(title);
@@ -373,26 +393,45 @@ const CCRenderers = {
                             regionMap[name.toLowerCase()] = r;
                         });
 
-                        // Calculate min/max for color scale
-                        const values = block.regions.map(r => r.value || 0).filter(v => v > 0);
-                        const minVal = Math.min(...values);
-                        const maxVal = Math.max(...values);
+                        // Only regions that exist in the GeoJSON drive the color
+                        // scale, so an unmatched outlier (a country or a Canadian
+                        // province) can't skew the gradient for the states we DO
+                        // shade. Names are read live from the GeoJSON — nothing
+                        // hardcoded.
+                        const geoNames = new Set(
+                            geoData.features.map(f => (f.properties.name || '').toLowerCase())
+                        );
+                        const matchedRegions = block.regions.filter(
+                            r => geoNames.has((r.name || '').trim().toLowerCase())
+                        );
+                        const values = matchedRegions
+                            .map(r => this._coerceMapValue(r.value))
+                            .filter(v => v > 0);
+                        const hasValues = values.length > 0;
+                        const minVal = hasValues ? Math.min(...values) : 0;
+                        const maxVal = hasValues ? Math.max(...values) : 0;
+                        const unmatchedNames = (block.unmapped && block.unmapped.length)
+                            ? block.unmapped
+                            : block.regions
+                                .filter(r => !geoNames.has((r.name || '').trim().toLowerCase()))
+                                .map(r => r.name);
 
                         // Add GeoJSON layer with styling
                         const geoLayer = L.geoJSON(geoData, {
                             style: (feature) => {
                                 const stateName = feature.properties.name || '';
                                 const region = regionMap[stateName.toLowerCase()];
-                                if (region) {
+                                const v = region ? this._coerceMapValue(region.value) : 0;
+                                if (region && hasValues && v > 0) {
                                     return {
-                                        fillColor: this._getChoroplethColor(region.value || 0, minVal, maxVal),
+                                        fillColor: this._getChoroplethColor(v, minVal, maxVal),
                                         fillOpacity: 0.75,
                                         weight: 1.5,
                                         color: '#1a1a2e',
                                         opacity: 1,
                                     };
                                 }
-                                // States without data — subtle gray
+                                // States without data (or no numeric value) — subtle gray
                                 return {
                                     fillColor: '#2a2a3e',
                                     fillOpacity: 0.3,
@@ -447,6 +486,28 @@ const CCRenderers = {
                             legendDiv.innerHTML = legendHTML;
                         }
 
+                        // Tell the user about regions we could NOT place on the
+                        // US map, instead of dropping them silently.
+                        if (unmatchedNames && unmatchedNames.length) {
+                            const note = document.createElement('div');
+                            note.className = 'cc-map-note';
+                            note.style.cssText = 'font-size:12px;color:#f59e0b;padding:6px 8px;line-height:1.4;';
+                            note.textContent = '⚠ ' + unmatchedNames.length +
+                                ' region(s) not shown (this map shades US states only): ' +
+                                unmatchedNames.join(', ');
+                            wrapper.appendChild(note);
+                        }
+
+                        // Matched states but no usable numbers → say so instead of
+                        // shading everything one flat color (looks like real data).
+                        if (matchedRegions.length && !hasValues) {
+                            const note = document.createElement('div');
+                            note.className = 'cc-map-note';
+                            note.style.cssText = 'font-size:12px;color:#f59e0b;padding:6px 8px;line-height:1.4;';
+                            note.textContent = '⚠ No numeric values were provided for these regions, so the map could not be shaded.';
+                            wrapper.appendChild(note);
+                        }
+
                         setTimeout(() => map.invalidateSize(), 100);
                     });
                 }
@@ -486,6 +547,26 @@ const CCRenderers = {
             <button class="download-btn" onclick="window.open('${dlUrl}')">Download</button>
         `;
 
+        return wrapper;
+    },
+
+    // A call-to-action button block (e.g. "Save as workflow") that opens a URL in a new tab.
+    // Used after a portal run to deep-link the recorded draft into the main-app builder.
+    _renderAction(block) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'cc-block cc-block-artifact cc-block-action';
+        const icons = { route: '🧭', edit: '✎', workflow: '🧭' };
+        const url = block.url || '#';
+        wrapper.innerHTML = `
+            <div class="icon">${icons[block.icon] || '✎'}</div>
+            <div class="info">
+                <div class="name">${block.label || 'Open'}</div>
+                <div class="size">${block.hint || ''}</div>
+            </div>
+            <button class="download-btn">${block.cta || 'Open'}</button>
+        `;
+        const btn = wrapper.querySelector('button');
+        if (btn && url !== '#') btn.addEventListener('click', () => window.open(url, '_blank'));
         return wrapper;
     },
 

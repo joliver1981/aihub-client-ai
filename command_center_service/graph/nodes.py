@@ -3734,8 +3734,11 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     }
 
             # Check if any tool returned renderable blocks (map, artifact)
-            # that should pass through directly instead of going back to LLM
-            direct_block_types = ("map", "artifact", "table", "image", "kpi")
+            # that should pass through directly instead of going back to LLM.
+            # "action" rides along with artifact chips (e.g. the portal fetch
+            # returns download chips + a Save-as-workflow button) — without it
+            # the all() below fails and the chips get paraphrased away.
+            direct_block_types = ("map", "artifact", "table", "image", "kpi", "action")
             direct_blocks = []
             for tr in tool_results:
                 try:
@@ -3878,7 +3881,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     try:
                         parsed = json.loads(tr.content)
                         if isinstance(parsed, list) and parsed and all(
-                            isinstance(b, dict) and b.get("type") in ("map", "artifact", "table", "image", "kpi")
+                            isinstance(b, dict) and b.get("type") in ("map", "artifact", "table", "image", "kpi", "action")
                             for b in parsed
                         ):
                             direct_blocks.extend(parsed)
