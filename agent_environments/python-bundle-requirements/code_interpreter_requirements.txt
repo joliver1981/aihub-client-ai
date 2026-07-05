@@ -1,0 +1,17 @@
+# Code Interpreter — startup-provisioned extras
+# ==============================================
+# These are NOT shipped in the installer. The Command Center service installs
+# them INTO the python-bundle at startup (background thread) so the installer
+# stays lean while the richer data-science stack is ready before the first chat
+# that needs it. The CORE stack (numpy/pandas/matplotlib/openpyxl) is baked into
+# the bundle at build time — see prepare_python_bundle.py:CODE_INTERPRETER_STACK.
+#
+# Pins target the bundle's Python 3.11 + numpy 1.26.2 / pandas 1.5.3 baseline.
+# Importable module names must stay aligned with code_interpreter_env.PROBE_MODULES.
+scipy>=1.11,<1.14
+scikit-learn>=1.3,<1.6
+seaborn>=0.12,<0.14
+statsmodels>=0.14,<0.15
+requests>=2.31
+beautifulsoup4>=4.12
+lxml>=4.9

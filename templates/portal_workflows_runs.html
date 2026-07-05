@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block page_title %}Portal Runs{% endblock %}
+
+{% block content %}
+<style>
+  .pr-wrap { max-width: 880px; padding: 12px 0 24px 28px; }
+  .pr-row { display: flex; align-items: center; gap: 14px; border: 1px solid #e3e6ea;
+            border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; background: #fff; }
+  .pr-row.needs { border-color: #f0c36b; background: #fffaf0; }
+  .pr-pill { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 10px; }
+  .pr-running { background:#e6f1fb; color:#185fa5; } .pr-wait { background:#faeeda; color:#854f0b; }
+  .pr-taken { background:#eee9fb; color:#3c3489; } .pr-done { background:#eef0f2; color:#495057; }
+  .pr-muted { color:#868e96; font-size:12px; }
+</style>
+
+<div class="pr-wrap">
+  <div class="d-flex align-items-center mb-3">
+    <h6 class="pr-muted mb-0 mr-auto">In-flight portal runs — a <strong>Take over</strong> button appears when one needs you</h6>
+    <a href="{{ url_for('portal_workflows_bp.portal_workflows_page') }}" class="btn btn-outline-secondary btn-sm">Workflow builder</a>
+  </div>
+  <div id="pr-list"><div class="pr-muted">Loading…</div></div>
+</div>
+
+<script>
+(function(){
+  var PILL = {running:'pr-running', awaiting_human:'pr-wait', taken_over:'pr-taken', done:'pr-done', error:'pr-done'};
+  var LABEL = {running:'Running', awaiting_human:'Needs you', taken_over:'Taken over', done:'Done', error:'Error'};
+  function esc(s){ return $('<div>').text(s==null?'':s).html(); }
+
+  function render(runs){
+    if(!runs || !runs.length){ $('#pr-list').html('<div class="pr-muted">No portal runs in progress right now.</div>'); return; }
+    $('#pr-list').html(runs.map(function(r){
+      var needs = r.status === 'awaiting_human';
+      var btn = (needs || r.status === 'taken_over' || r.status === 'running')
+        ? '<a class="btn btn-sm '+(needs?'btn-warning':'btn-outline-primary')+'" target="_blank" href="/portal-workflows/cobrowse/'+encodeURIComponent(r.run_id)+'">Take over</a>'
+        : '';
+      return '<div class="pr-row '+(needs?'needs':'')+'">'
+        + '<div style="flex:1;min-width:0;">'
+        + '<div style="font-weight:500;color:#212529;">'+esc(r.portal || 'Portal run')+'</div>'
+        + '<div class="pr-muted">'+esc((r.reason||''))+'</div>'
+        + '</div>'
+        + '<span class="pr-pill '+(PILL[r.status]||'pr-done')+'">'+(LABEL[r.status]||esc(r.status))+'</span>'
+        + '<span class="pr-muted">'+Math.round(r.elapsed_seconds||0)+'s · '+(r.viewers||0)+' watching</span>'
+        + btn + '</div>';
+    }).join(''));
+  }
+  function poll(){
+    $.getJSON('/api/portal-workflows/runs', function(d){ render(d.runs); })
+      .fail(function(){ $('#pr-list').html('<div class="pr-muted">Could not reach the Browser Use service.</div>'); });
+  }
+  poll(); setInterval(poll, 3000);
+})();
+</script>
+{% endblock %}

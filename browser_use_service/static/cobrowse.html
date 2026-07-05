@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Take over — AI Hub</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #14161a; color: #e8eaed;
+               font-family: system-ui, -apple-system, Segoe UI, Arial, sans-serif; }
+  #bar { display: flex; align-items: center; gap: 14px; padding: 10px 16px;
+         background: #1d2026; border-bottom: 1px solid #2a2e36; }
+  #bar .title { font-weight: 600; }
+  #bar .sub { color: #9aa0a6; font-size: 13px; }
+  .pill { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 12px; }
+  .pill-wait { background: #4a3b12; color: #f5c66b; }
+  .pill-live { background: #3a1f1f; color: #f08a8a; }
+  .pill-done { background: #21331f; color: #8fd07a; }
+  #spacer { flex: 1; }
+  button { font-size: 13px; padding: 8px 16px; border-radius: 6px; border: 1px solid #3a3f49;
+           background: #262a31; color: #e8eaed; cursor: pointer; }
+  button:hover { background: #2f343c; }
+  button.primary { background: #1b63c4; border-color: #1b63c4; }
+  #reason { padding: 8px 16px; background: #2a230f; color: #f5c66b; font-size: 13px;
+            border-bottom: 1px solid #3a3010; display: none; }
+  #stage { position: absolute; inset: 0; top: 0; display: flex; align-items: center;
+           justify-content: center; background: #14161a; }
+  .cb-card { background: #1d2026; border: 1px solid #2a2e36; border-radius: 12px;
+             padding: 30px 36px; box-shadow: 0 12px 38px rgba(0,0,0,.55); max-width: 460px;
+             text-align: center; line-height: 1.55; }
+  .cb-card .check { margin-bottom: 16px; }
+  .cb-check { display: inline-flex; align-items: center; justify-content: center;
+              width: 54px; height: 54px; border-radius: 50%; background: #21331f;
+              color: #8fd07a; font-size: 30px; line-height: 1; }
+  .cb-card .title { font-size: 17px; font-weight: 600; color: #e8eaed; margin-bottom: 8px; }
+  .cb-card .body  { font-size: 13px; color: #9aa0a6; margin-bottom: 20px; }
+  .cb-card button { width: 100%; padding: 10px 16px; }
+  #wrap { display: flex; flex-direction: column; height: 100%; }
+  #canvasbox { flex: 1; position: relative; overflow: hidden; background: #0c0d10; }
+  canvas { position: absolute; inset: 0; margin: auto; max-width: 100%; max-height: 100%; }
+  #note { position: absolute; left: 16px; bottom: 12px; right: 16px; color: #aeb3ba;
+          font-size: 12px; background: rgba(20,22,26,.7); padding: 6px 10px; border-radius: 6px;
+          display: none; }
+  #status-overlay { color: #9aa0a6; font-size: 14px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="bar">
+    <div>
+      <div class="title" id="portal">Portal run</div>
+      <div class="sub" id="runid"></div>
+    </div>
+    <span class="pill pill-live" id="statuspill">connecting…</span>
+    <span id="control-hint" class="sub" style="display:none;color:#8fd07a;">You're in control — type &amp; click in the page</span>
+    <div id="spacer"></div>
+    <button id="takecontrol" style="display:none;">Take control</button>
+    <button id="savewf">Save as workflow</button>
+    <button class="primary" id="resume">Hand back / Resume</button>
+  </div>
+  <div id="reason"></div>
+  <div id="canvasbox">
+    <canvas id="screen" width="1280" height="800"></canvas>
+    <div id="stage"><div id="status-overlay">Waiting for the live view…</div></div>
+    <div id="note"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var qs = new URLSearchParams(location.search);
+  var run = qs.get('run'); var token = qs.get('token'); var builder = qs.get('builder') || '';
+  var canvas = document.getElementById('screen');
+  var ctx = canvas.getContext('2d');
+  var overlay = document.getElementById('stage');
+  var pill = document.getElementById('statuspill');
+  var reason = document.getElementById('reason');
+  var note = document.getElementById('note');
+  document.getElementById('runid').textContent = 'run ' + (run || '').slice(0, 8);
+
+  function setPill(text, cls) { pill.textContent = text; pill.className = 'pill ' + cls; }
+
+  // Prominent end-of-session overlay so the user knows the take-over is done and what to do next
+  // (close this window) instead of staring at a dead view. The task is GENERAL — it may download,
+  // upload, read a status, or just return text — so the copy never assumes a download.
+  function showDone(title, body) {
+    _ended = true;
+    overlay.style.display = 'flex';
+    document.getElementById('status-overlay').innerHTML =
+      '<div class="cb-card">' +
+        '<div class="check"><span class="cb-check">✓</span></div>' +
+        '<div class="title">' + title + '</div>' +
+        '<div class="body">' +
+          (body || 'You can close this window — the automation will carry on and finish on its own. '
+                 + 'Any result will appear where you started it.') +
+        '</div>' +
+        '<button class="primary" id="closewin">Close this window</button>' +
+      '</div>';
+    var cb = document.getElementById('closewin');
+    if (cb) cb.addEventListener('click', function () { try { window.close(); } catch (e) {} });
+  }
+
+  var _ended = false;   // once the session is over, a late frame must not hide the "all done" overlay
+  function draw(dataB64, meta) {
+    if (_ended) return;
+    overlay.style.display = 'none';
+    var img = new Image();
+    img.onload = function () {
+      if (meta && meta.deviceWidth) { canvas.width = meta.deviceWidth; canvas.height = meta.deviceHeight; }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    };
+    img.src = 'data:image/jpeg;base64,' + dataB64;
+  }
+
+  var _status = 'running';
+  function controlling() { return _status === 'awaiting_human' || _status === 'taken_over'; }
+  var takeBtn = document.getElementById('takecontrol');
+  var hint = document.getElementById('control-hint');
+
+  function applyStatus(s) {
+    if (s.portal) document.getElementById('portal').textContent = s.portal;
+    if (s.status) _status = s.status;
+    if (s.status === 'awaiting_human') {
+      setPill('Needs you', 'pill-wait');
+      reason.style.display = 'block';
+      reason.textContent = s.reason || 'A person needs to complete a step (e.g. a 2FA code).';
+    } else if (s.status === 'taken_over') {
+      setPill('You have control', 'pill-wait'); reason.style.display = 'none';
+    } else if (s.status === 'done' || s.status === 'error') {
+      setPill('Run finished', 'pill-done');
+    } else {
+      setPill('Live', 'pill-live'); reason.style.display = 'none';
+    }
+    if (s.agent_note) { note.style.display = 'block'; note.textContent = '🤖 ' + s.agent_note; }
+    takeBtn.style.display = (s.status === 'running') ? '' : 'none';
+    hint.style.display = controlling() ? '' : 'none';
+  }
+
+  var proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  var ws = new WebSocket(proto + '://' + location.host + '/runs/' + encodeURIComponent(run) +
+                         '/stream?token=' + encodeURIComponent(token));
+  function send(obj) { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+  ws.onmessage = function (ev) {
+    var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (m.t === 'frame') draw(m.data, m.metadata);
+    else if (m.t === 'status') {
+      applyStatus(m);
+      if (m.status === 'done' || m.status === 'error') { try { ws.close(); } catch (e) {} }
+    }
+  };
+  ws.onclose = function () { setPill('Run finished', 'pill-done');
+    showDone('This run has finished — thanks for completing the step.',
+             'You can close this window. Any result will appear where you started it.'); };
+  ws.onerror = function () { setPill('Error', 'pill-live'); };
+
+  // --- input capture: map display coords -> page CSS px, forward over the WS ---
+  function toPage(e) {
+    var r = canvas.getBoundingClientRect();
+    return { x: Math.round((e.clientX - r.left) * (canvas.width / r.width)),
+             y: Math.round((e.clientY - r.top) * (canvas.height / r.height)) };
+  }
+  function mods(e) { return (e.altKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.metaKey ? 4 : 0) | (e.shiftKey ? 8 : 0); }
+  canvas.addEventListener('mousedown', function (e) {
+    if (!controlling()) return; var p = toPage(e);
+    send({ t: 'mouse', kind: 'down', x: p.x, y: p.y, button: 'left', clickCount: 1, modifiers: mods(e) });
+    e.preventDefault();
+  });
+  canvas.addEventListener('mouseup', function (e) {
+    if (!controlling()) return; var p = toPage(e);
+    send({ t: 'mouse', kind: 'up', x: p.x, y: p.y, button: 'left', clickCount: 1, modifiers: mods(e) });
+    e.preventDefault();
+  });
+  var lastMove = 0;
+  canvas.addEventListener('mousemove', function (e) {
+    if (!controlling()) return; var now = Date.now(); if (now - lastMove < 40) return; lastMove = now;
+    var p = toPage(e); send({ t: 'mouse', kind: 'move', x: p.x, y: p.y, modifiers: mods(e) });
+  });
+  canvas.addEventListener('wheel', function (e) {
+    if (!controlling()) return; var p = toPage(e);
+    send({ t: 'mouse', kind: 'wheel', x: p.x, y: p.y, dx: e.deltaX, dy: e.deltaY });
+    e.preventDefault();
+  }, { passive: false });
+  window.addEventListener('keydown', function (e) {
+    if (!controlling()) return;
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+      send({ t: 'text', text: e.key });
+    } else {
+      send({ t: 'key', kind: 'down', key: e.key, modifiers: mods(e) });
+      send({ t: 'key', kind: 'up', key: e.key, modifiers: mods(e) });
+    }
+    e.preventDefault();
+  });
+
+  takeBtn.addEventListener('click', function () {
+    fetch('/runs/' + encodeURIComponent(run) + '/takeover?token=' + encodeURIComponent(token),
+          { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function () { _status = 'pausing';
+        setPill('Pausing — finishing current step…', 'pill-wait'); takeBtn.style.display = 'none'; })
+      .catch(function () {});
+  });
+  document.getElementById('savewf').addEventListener('click', function () {
+    var name = prompt('Save these recorded steps as a workflow named:', '');
+    if (name === null) return;
+    fetch('/runs/' + encodeURIComponent(run) + '/save_workflow?token=' + encodeURIComponent(token) +
+          '&name=' + encodeURIComponent(name || ''), { method: 'POST' })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (!res.ok) { alert('Save failed: ' + (res.j.detail || 'unknown')); return; }
+        var slug = res.j.saved && res.j.saved.slug;
+        if (builder && slug) window.open(builder + '?load=' + encodeURIComponent(slug), '_blank');
+        else alert('Saved' + (slug ? ' as ' + slug : '') + '.');
+      })
+      .catch(function () { alert('Save failed.'); });
+  });
+  document.getElementById('resume').addEventListener('click', function () {
+    fetch('/runs/' + encodeURIComponent(run) + '/resume?token=' + encodeURIComponent(token),
+          { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function () {
+        _status = 'running'; setPill('Handed back', 'pill-done'); hint.style.display = 'none';
+        showDone('Thanks — you\'ve handed control back to the assistant.');
+      })
+      .catch(function () {});
+  });
+})();
+</script>
+</body>
+</html>
