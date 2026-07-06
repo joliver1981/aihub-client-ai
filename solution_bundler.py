@@ -456,7 +456,7 @@ class SolutionBundler:
             credentials[field] = "${" + ph + "}"
             prompts.append(CredentialPrompt(
                 placeholder=ph,
-                label=f"{integration_name} — {_humanize_placeholder(field.upper())}",
+                label=f"{integration_name} — {_humanize_field(field)}",
                 required=False,
                 description=(
                     "Leave blank to finish setup on the Integrations page after install."
@@ -764,3 +764,14 @@ def _humanize_placeholder(ph: str) -> str:
     """PUBLIC_API_KEY → Public API Key."""
     parts = ph.split("_")
     return " ".join(p.capitalize() if not p.isupper() or len(p) <= 3 else p for p in parts)
+
+
+_FIELD_ACRONYMS = {"id", "api", "url", "uri"}
+
+
+def _humanize_field(field: str) -> str:
+    """client_id → Client ID, api_key → API Key, bearer_token → Bearer Token."""
+    return " ".join(
+        p.upper() if p.lower() in _FIELD_ACRONYMS else p.capitalize()
+        for p in str(field).replace("-", "_").split("_") if p
+    )
