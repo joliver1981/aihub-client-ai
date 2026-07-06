@@ -27,9 +27,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from solution_manifest import (
+    ASSET_KIND_SINGULAR,
     MANIFEST_FILENAME,
+    PLACEHOLDER_RE,
     PREVIEW_DIR,
     SolutionManifest,
+    find_missing_bundle_assets,
     resolve_placeholders,
 )
 from solution_seed_loader import SeedResult, load_seed_data
@@ -100,6 +103,11 @@ def analyze_bundle(bundle_path: Path, flask_app=None, auth_headers: Optional[Dic
         "valid": True,
         "manifest": manifest.to_dict(),
         "validation_errors": errors,
+        # Manifest entries with no backing file in the bundle — these would
+        # silently not install, so the wizard must warn about them up front.
+        "missing_assets": find_missing_bundle_assets(
+            manifest, _bundle_file_names(bundle_path)
+        ),
         "placeholders": [c.placeholder for c in manifest.credentials],
         "conflicts": {},
     }
@@ -253,6 +261,13 @@ class SolutionInstaller:
             self._install_environments(manifest, staging_root, auth_headers, options, result)
             self._install_knowledge(manifest, staging_root, auth_headers, options, result)
             self._install_seed_data(manifest, staging_root, options, result)
+
+            # ── Manifest inventory check ──
+            # The dispatchers above iterate the bundle's folders, so a
+            # manifest entry with no backing file would otherwise vanish
+            # without a trace — exactly the failure mode that makes a user
+            # discover a missing integration only when their workflow breaks.
+            self._verify_manifest_inventory(manifest, staging_root, result)
 
             # ── Build post-install actions list ──
             for action in manifest.post_install:
@@ -451,6 +466,17 @@ class SolutionInstaller:
                 raw = entry.read_text(encoding="utf-8")
                 resolved = resolve_placeholders(raw, options.credentials or {})
                 config = json.loads(resolved)
+
+                # New-format bundles export the tenant's *configured*
+                # integration instance — recreate it through the real
+                # integrations API so it shows up as a working integration,
+                # not a template file.
+                if isinstance(config, dict) and config.get("kind") == "integration_instance":
+                    self._install_integration_instance(
+                        config, entry.stem, auth, options, result
+                    )
+                    continue
+
                 resp = self._app.test_client().post(
                     "/api/solutions/integrations/install",
                     json={"name": final_name, "config": config, "conflict_mode": options.conflict_mode},
@@ -472,6 +498,113 @@ class SolutionInstaller:
                 result.assets.append(
                     AssetResult(kind="integration", name=final_name, status="failed", detail=str(e))
                 )
+
+    def _install_integration_instance(self, config, entry_stem, auth, options, result):
+        """Create a configured integration instance via POST /api/integrations.
+
+        Credential values that are still unresolved ${PLACEHOLDER}s (the user
+        left them blank at install time) are dropped — the integration is
+        created disconnected and the user finishes setup on the Integrations
+        page, which beats blocking the whole install."""
+        base_name = str(config.get("integration_name") or entry_stem).strip() or entry_stem
+        final_name = base_name + options.name_suffix
+        template_key = str(config.get("template_key") or "").strip()
+        if not template_key:
+            result.assets.append(AssetResult(
+                kind="integration", name=final_name, status="failed",
+                detail="bundle entry has no template_key",
+            ))
+            return
+
+        credentials: Dict[str, str] = {}
+        dropped: List[str] = []
+        for k, v in (config.get("credentials") or {}).items():
+            if isinstance(v, str) and PLACEHOLDER_RE.search(v):
+                dropped.append(str(k))
+                continue
+            if v:
+                credentials[str(k)] = str(v)
+
+        try:
+            existing = self._existing_integration_ids_by_name(auth)
+            update_id = None
+            if final_name.lower() in existing:
+                if options.conflict_mode == "skip":
+                    result.assets.append(AssetResult(
+                        kind="integration", name=final_name, status="skipped",
+                        detail="an integration with this name already exists",
+                    ))
+                    return
+                if options.conflict_mode == "overwrite":
+                    update_id = existing[final_name.lower()]
+                else:  # rename
+                    i = 2
+                    while f"{final_name}_{i}".lower() in existing:
+                        i += 1
+                    final_name = f"{final_name}_{i}"
+
+            payload = {
+                "integration_name": final_name,
+                "description": str(config.get("description") or ""),
+                "instance_config": config.get("instance_config") or {},
+                "credentials": credentials,
+            }
+            if update_id is not None:
+                resp = self._app.test_client().put(
+                    f"/api/integrations/{update_id}", json=payload, headers=auth,
+                )
+            else:
+                payload["template_key"] = template_key
+                resp = self._app.test_client().post(
+                    "/api/integrations", json=payload, headers=auth,
+                )
+            body = resp.get_json(silent=True) or {}
+            if resp.status_code in (200, 201) and body.get("status") == "success":
+                detail_bits = []
+                if dropped:
+                    detail_bits.append(
+                        "created without credentials (" + ", ".join(sorted(dropped))
+                        + ") — finish setup on the Integrations page"
+                    )
+                note = str(config.get("post_install_note") or "").strip()
+                if note:
+                    detail_bits.append(note)
+                result.assets.append(AssetResult(
+                    kind="integration", name=final_name,
+                    status="updated" if update_id is not None else "installed",
+                    detail="; ".join(detail_bits),
+                    resource_id=body.get("integration_id") or update_id,
+                ))
+            else:
+                result.assets.append(AssetResult(
+                    kind="integration", name=final_name, status="failed",
+                    detail=str(body.get("message") or f"HTTP {resp.status_code}"),
+                ))
+        except Exception as e:
+            logger.exception("integration instance install failed for %s", final_name)
+            result.assets.append(AssetResult(
+                kind="integration", name=final_name, status="failed", detail=str(e),
+            ))
+
+    def _existing_integration_ids_by_name(self, auth) -> Dict[str, Any]:
+        """Map of lowercased integration_name → integration_id in the target
+        tenant, for conflict handling."""
+        out: Dict[str, Any] = {}
+        try:
+            resp = self._app.test_client().get("/api/integrations", headers=auth)
+            if resp.status_code != 200:
+                return out
+            data = resp.get_json(silent=True) or {}
+            items = data.get("integrations") if isinstance(data, dict) else data
+            for r in (items or []):
+                if not isinstance(r, dict):
+                    continue
+                name = str(r.get("integration_name") or "").strip().lower()
+                if name:
+                    out[name] = r.get("integration_id") or r.get("id")
+        except Exception as e:
+            logger.warning("existing-integration lookup failed: %s", e)
+        return out
 
     def _install_connections(self, manifest, root, auth, options, result):
         conn_dir = root / "connections"
@@ -592,6 +725,29 @@ class SolutionInstaller:
                     AssetResult(kind="knowledge", name=name, status="failed", detail=str(e))
                 )
 
+    def _verify_manifest_inventory(self, manifest, root, result):
+        """Emit a failed AssetResult for every manifest entry with no backing
+        file in the bundle, so partial bundles surface loudly (success=False
+        → HTTP 207) instead of installing 'successfully' minus assets."""
+        try:
+            names = [
+                str(p.relative_to(root)).replace("\\", "/")
+                for p in Path(root).rglob("*") if p.is_file()
+            ]
+        except OSError as e:
+            logger.warning("manifest inventory scan failed: %s", e)
+            return
+        for m in find_missing_bundle_assets(manifest, names):
+            result.assets.append(AssetResult(
+                kind=ASSET_KIND_SINGULAR.get(m["kind"], m["kind"]),
+                name=m["name"],
+                status="failed",
+                detail=(
+                    "listed in solution.json but not present in the bundle — "
+                    "nothing was installed for it; re-export the solution"
+                ),
+            ))
+
     def _install_seed_data(self, manifest, root, options, result):
         data_dir = root / "data"
         if not data_dir.exists():
@@ -668,6 +824,24 @@ class SolutionInstaller:
 # ────────────────────────────────────────────────────────────────
 # Helpers
 # ────────────────────────────────────────────────────────────────
+
+def _bundle_file_names(bundle_path: Path) -> List[str]:
+    """List a bundle's file entries ('/'-separated, relative) whether it's a
+    zip or an already-unpacked directory."""
+    if bundle_path.is_dir():
+        try:
+            return [
+                str(p.relative_to(bundle_path)).replace("\\", "/")
+                for p in bundle_path.rglob("*") if p.is_file()
+            ]
+        except OSError:
+            return []
+    try:
+        with zipfile.ZipFile(bundle_path) as zf:
+            return [i.filename for i in zf.infolist() if not i.is_dir()]
+    except (zipfile.BadZipFile, OSError):
+        return []
+
 
 def _load_manifest(bundle_path: Path) -> Optional[SolutionManifest]:
     if bundle_path.is_dir():

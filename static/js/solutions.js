@@ -155,6 +155,7 @@
                 self.state.manifest = detail.manifest || {};
                 self.state.conflicts = (analysis && analysis.conflicts) || {};
                 self.renderPreview(detail.entry || {}, self.state.manifest, (readme && readme.readme) || '');
+                self.renderMissingAssets((analysis && analysis.missing_assets) || []);
                 self.renderConflicts(self.state.conflicts);
             });
 
@@ -214,6 +215,23 @@
             } else {
                 readmeEl.textContent = readmeMd || '';
             }
+        },
+
+        renderMissingAssets: function (missing) {
+            if (!missing || !missing.length) return;
+            var assetsDiv = document.getElementById('previewAssets');
+            if (!assetsDiv) return;
+            var lines = missing.map(function (m) {
+                return '<li><strong>' + escapeHtml(m.kind) + ':</strong> ' + escapeHtml(m.name) + '</li>';
+            });
+            assetsDiv.innerHTML +=
+                '<div class="alert alert-danger mt-3 mb-0">' +
+                    '<strong><i class="fas fa-exclamation-circle"></i> This bundle is incomplete.</strong>' +
+                    ' Its solution.json declares ' + missing.length + ' asset(s) that are not actually in the zip — ' +
+                    'they will <u>not</u> be installed:' +
+                    '<ul class="mb-0 mt-2" style="font-size:12px;">' + lines.join('') + '</ul>' +
+                    '<div class="mt-2" style="font-size:12px;">Ask the solution author to re-export it.</div>' +
+                '</div>';
         },
 
         renderConflicts: function (conflicts) {
@@ -310,12 +328,16 @@
             var html = '<h3>' + (result.success
                 ? '<i class="fas fa-check-circle text-success"></i> Installed'
                 : '<i class="fas fa-exclamation-triangle text-warning"></i> Completed with issues') + '</h3>';
-            html += '<p>' + assets.length + ' asset' + (assets.length === 1 ? '' : 's') + ' installed.</p>';
+            var installed = assets.filter(function (a) { return a.status === 'installed' || a.status === 'updated'; });
+            html += '<p>' + installed.length + ' of ' + assets.length + ' asset' + (assets.length === 1 ? '' : 's') + ' installed.</p>';
             if (assets.length) {
                 html += '<ul>';
                 assets.forEach(function (a) {
-                    html += '<li>' + escapeHtml(a.type) + ': ' + escapeHtml(a.name || '(unnamed)') +
-                        (a.status ? ' — <em>' + escapeHtml(a.status) + '</em>' : '') + '</li>';
+                    var bad = (a.status === 'failed');
+                    html += '<li' + (bad ? ' class="text-danger"' : '') + '>' +
+                        escapeHtml(a.kind || a.type) + ': ' + escapeHtml(a.name || '(unnamed)') +
+                        (a.status ? ' — <em>' + escapeHtml(a.status) + '</em>' : '') +
+                        (a.detail ? ' <small>(' + escapeHtml(a.detail) + ')</small>' : '') + '</li>';
                 });
                 html += '</ul>';
             }

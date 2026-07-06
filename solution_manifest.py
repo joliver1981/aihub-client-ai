@@ -39,6 +39,28 @@ ASSET_FOLDERS = (
     "data",
 )
 
+# How each list-typed asset kind appears inside the zip: a subfolder per
+# entry (agents/<name>/...) or a single file per entry (workflows/<name>.json).
+ASSET_KIND_SHAPES = {
+    "agents": "dir",
+    "tools": "dir",
+    "workflows": "file",
+    "integrations": "file",
+    "connections": "file",
+    "environments": "file",
+    "knowledge": "file",
+}
+
+ASSET_KIND_SINGULAR = {
+    "agents": "agent",
+    "tools": "tool",
+    "workflows": "workflow",
+    "integrations": "integration",
+    "connections": "connection",
+    "environments": "environment",
+    "knowledge": "knowledge",
+}
+
 # Placeholder pattern used in integrations / connections. Example: ${STRIPE_API_KEY}
 PLACEHOLDER_RE = re.compile(r"\$\{([A-Z0-9_]{2,})\}")
 
@@ -311,6 +333,68 @@ class BrandingOverrides:
     @classmethod
     def from_json_file(cls, path: Path) -> "BrandingOverrides":
         return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
+
+
+_UNSAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._\- ]+")
+
+
+def safe_filename(name: str) -> str:
+    """Sanitise a display name for use as a zip entry / file name. Keeps
+    letters, digits, dots, underscores, hyphens and spaces; every other run
+    of characters collapses to a single underscore. No path separators."""
+    s = str(name or "").strip()
+    s = _UNSAFE_FILENAME_RE.sub("_", s)
+    s = s.replace("/", "_").replace("\\", "_")
+    return s or "unnamed"
+
+
+def find_missing_bundle_assets(
+    manifest: "SolutionManifest", bundle_file_names: List[str]
+) -> List[Dict[str, str]]:
+    """Cross-check manifest.assets.* against the bundle's actual file list.
+
+    Returns one {"kind", "name"} row per manifest entry that has no backing
+    file in the bundle. An entry counts as present under either its literal
+    spelling or its safe_filename() spelling (the bundler sanitises names on
+    write, so older manifests may carry the unsanitised form) — only entries
+    with no file under ANY spelling are reported.
+    """
+    names = [str(n).replace("\\", "/") for n in (bundle_file_names or [])]
+    lowered = [n.lower() for n in names]
+    missing: List[Dict[str, str]] = []
+    for kind, shape in ASSET_KIND_SHAPES.items():
+        for entry in getattr(manifest.assets, kind, None) or []:
+            entry = str(entry)
+            if not entry.strip():
+                continue
+            if not _entry_present(kind, shape, entry, lowered):
+                missing.append({"kind": kind, "name": entry})
+    return missing
+
+
+def _entry_present(kind: str, shape: str, entry: str, lowered_names: List[str]) -> bool:
+    variants = {entry.lower(), safe_filename(entry).lower()}
+    if shape == "dir":
+        prefixes = tuple(f"{kind}/{v}/" for v in variants)
+        return any(n.startswith(prefixes) for n in lowered_names)
+    # File-shaped entries: match the filename exactly, or ignoring the
+    # extension on either side (manifests sometimes omit/add ".json").
+    stems = set()
+    for v in variants:
+        stems.add(v)
+        if "." in v:
+            stems.add(v.rsplit(".", 1)[0])
+    prefix = f"{kind}/"
+    for n in lowered_names:
+        if not n.startswith(prefix):
+            continue
+        base = n[len(prefix):]
+        if "/" in base:
+            continue  # nested paths aren't entry files for file-shaped kinds
+        base_noext = base.rsplit(".", 1)[0] if "." in base else base
+        if base in stems or base_noext in stems:
+            return True
+    return False
 
 
 def extract_placeholders(text: str) -> List[str]:

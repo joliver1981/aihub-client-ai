@@ -656,10 +656,11 @@ def validate_manifest():
     })
 
 
-def _build_zip_from_request_body() -> bytes:
+def _build_zip_from_request_body():
     """Common path for /build and /build/publish and /test_install. Reads
     the JSON body, converts to a SolutionManifest + selections, runs the
-    bundler, returns the zip bytes."""
+    bundler. Returns (zip_bytes, build_report) where build_report contains
+    `packed` / `skipped` / `validation_warnings` from the bundler."""
     body = request.get_json(silent=True) or {}
     manifest_raw = body.get("manifest") or {}
     selections = body.get("selections") or {}
@@ -711,7 +712,7 @@ def _build_zip_from_request_body() -> bytes:
     integration_names = _resolve_integration_names(integration_ids)
 
     bundler = SolutionBundler(current_app)
-    return bundler.build(
+    zip_bytes = bundler.build(
         manifest,
         auth_headers=_auth_headers_from_request(),
         agent_ids=all_agent_ids,
@@ -728,10 +729,31 @@ def _build_zip_from_request_body() -> bytes:
         readme_md=readme,
         preview_files=preview_files,
     )
+    return zip_bytes, (getattr(bundler, "last_report", None) or {})
+
+
+def _skipped_assets_response(report: Dict[str, Any]):
+    """Shared 422 payload for builds where selected assets could not be
+    packaged. Shipping the zip anyway would repeat the silent-loss bug this
+    exists to prevent — the author must either fix the selection or opt in
+    with allow_partial."""
+    skipped = report.get("skipped") or []
+    lines = [f"{s.get('kind')}: {s.get('name')} — {s.get('reason')}" for s in skipped]
+    return jsonify({
+        "error": (
+            "Some selected assets could not be packaged into the bundle: "
+            + "; ".join(lines)
+        ),
+        "skipped": skipped,
+        "hint": "Fix the selection, or pass allow_partial=true to build without these assets.",
+    }), 422
 
 
 def _resolve_integration_names(ids: List[Any]) -> List[str]:
-    """Look up configured integration instance names by id."""
+    """Look up configured integration instance names by id. The list route
+    returns `integration_name` — check that first; keep the legacy aliases
+    for resilience. Unresolvable ids are kept as sentinel names so the
+    bundler reports them as skipped instead of silently dropping them."""
     if not ids:
         return []
     data = _get_via_test_client("/api/integrations")
@@ -741,26 +763,34 @@ def _resolve_integration_names(ids: List[Any]) -> List[str]:
         if not isinstance(r, dict):
             continue
         iid = r.get("integration_id") or r.get("id") or r.get("instance_id")
-        name = r.get("instance_name") or r.get("name") or r.get("display_name")
+        name = (
+            r.get("integration_name") or r.get("instance_name")
+            or r.get("name") or r.get("display_name")
+        )
         if iid is not None and name:
             by_id[str(iid)] = str(name)
-    return [by_id[str(i)] for i in ids if str(i) in by_id]
+    return [by_id.get(str(i), f"integration_{i}") for i in ids]
 
 
 @solution_builder_bp.route("/api/solutions/build", methods=["POST"])
 @login_required
 @developer_required(api=True)
 def build_bundle():
-    """Build a bundle and return it as a downloadable .zip."""
+    """Build a bundle and return it as a downloadable .zip.
+
+    If any selected asset could not be packaged the build fails with 422 and
+    a list of what's missing — a bundle that silently lacks selected assets
+    is worse than no bundle. Pass allow_partial=true to override."""
     _require_flag()
+    body = request.get_json(silent=True) or {}
     try:
-        zip_bytes = _build_zip_from_request_body()
+        zip_bytes, report = _build_zip_from_request_body()
     except Exception as e:
         logger.exception("build failed")
         return jsonify({"error": str(e)}), 500
 
-    # Use the manifest id in the filename.
-    body = request.get_json(silent=True) or {}
+    if (report.get("skipped") or []) and not body.get("allow_partial"):
+        return _skipped_assets_response(report)
     m_id = str((body.get("manifest") or {}).get("id") or "solution").strip() or "solution"
     m_version = str((body.get("manifest") or {}).get("version") or "1.0.0").strip()
     safe = re.sub(r"[^A-Za-z0-9._\-]+", "_", f"{m_id}_v{m_version}.zip")
@@ -780,13 +810,16 @@ def build_and_publish():
     """Build and also write the zip to SOLUTIONS_BUILTIN_DIR so it shows up
     in the local gallery immediately (useful while iterating)."""
     _require_flag()
+    body = request.get_json(silent=True) or {}
     try:
-        zip_bytes = _build_zip_from_request_body()
+        zip_bytes, report = _build_zip_from_request_body()
     except Exception as e:
         logger.exception("publish build failed")
         return jsonify({"error": str(e)}), 500
 
-    body = request.get_json(silent=True) or {}
+    if (report.get("skipped") or []) and not body.get("allow_partial"):
+        return _skipped_assets_response(report)
+
     m_id = str((body.get("manifest") or {}).get("id") or "").strip()
     m_version = str((body.get("manifest") or {}).get("version") or "1.0.0").strip()
     if not m_id:
@@ -802,6 +835,8 @@ def build_and_publish():
         "status": "published",
         "path": str(out_path),
         "bytes": len(zip_bytes),
+        "skipped": report.get("skipped") or [],
+        "validation_warnings": report.get("validation_warnings") or [],
     })
 
 
@@ -817,16 +852,19 @@ def test_install():
     connection. The install wizard (which does not have this context) is the
     right place to prompt for credentials on a fresh tenant."""
     _require_flag()
+    body = request.get_json(silent=True) or {}
 
     try:
-        zip_bytes = _build_zip_from_request_body()
+        zip_bytes, report = _build_zip_from_request_body()
     except Exception as e:
         logger.exception("test_install build failed")
         return jsonify({"error": f"build failed: {e}"}), 500
 
+    if (report.get("skipped") or []) and not body.get("allow_partial"):
+        return _skipped_assets_response(report)
+
     # Write the zip to a temp file and feed it to the installer.
     import tempfile
-    body = request.get_json(silent=True) or {}
     suffix = str(body.get("name_suffix") or "_test")
     conflict = str(body.get("conflict_mode") or "rename")
     credentials = dict(body.get("credentials") or {})
@@ -857,7 +895,9 @@ def test_install():
             options=options,
             auth_headers=_auth_headers_from_request(),
         )
-        return jsonify(result.to_dict()), (200 if result.success else 207)
+        payload = result.to_dict()
+        payload["build_warnings"] = report.get("skipped") or []
+        return jsonify(payload), (200 if result.success else 207)
     finally:
         try:
             tmp_path.unlink()

@@ -22,6 +22,22 @@
         });
     }
 
+    // Mirrors safe_filename() in solution_manifest.py so the wizard's
+    // manifest preview / validation sees the same entry names the bundler
+    // will actually write into the zip.
+    function safeFilename(name) {
+        var s = String(name == null ? '' : name).trim();
+        s = s.replace(/[^A-Za-z0-9._\- ]+/g, '_');
+        return s || 'unnamed';
+    }
+
+    function renderSkippedList(skipped) {
+        return '<ul>' + (skipped || []).map(function (s) {
+            return '<li><strong>' + escapeHtml(s.kind) + ':</strong> ' +
+                escapeHtml(s.name) + ' — ' + escapeHtml(s.reason || 'could not be packaged') + '</li>';
+        }).join('') + '</ul>';
+    }
+
     function readFileAsBase64(file) {
         return new Promise(function (resolve, reject) {
             var r = new FileReader();
@@ -643,16 +659,16 @@
             }
             // Agents: bundler stores the description string. Combine custom + data agents.
             var agents = displaysFor('agent_ids').concat(displaysFor('data_agent_ids'));
-            // Workflows: bundler stores "<stem>.json". The wizard's display is already the stem.
-            var workflows = displaysFor('workflow_names').map(function (n) { return stem(n) + '.json'; });
+            // Workflows: bundler stores "<safe stem>.json". The wizard's display is already the stem.
+            var workflows = displaysFor('workflow_names').map(function (n) { return safeFilename(stem(n)) + '.json'; });
             // Tools: stored as folder names.
             var tools = displaysFor('tool_names');
-            // Integrations: bundler stores "<name>.json".
-            var integrations = displaysFor('integration_ids').map(function (n) { return n + '.json'; });
-            // Connections: stored as "<name>.json".
-            var connections = displaysFor('connection_ids').map(function (n) { return n + '.json'; });
-            // Environments: stored as "<name>.zip".
-            var environments = displaysFor('environment_ids').map(function (n) { return n + '.zip'; });
+            // Integrations: bundler stores "<safe name>.json".
+            var integrations = displaysFor('integration_ids').map(function (n) { return safeFilename(n) + '.json'; });
+            // Connections: stored as "<safe name>.json".
+            var connections = displaysFor('connection_ids').map(function (n) { return safeFilename(n) + '.json'; });
+            // Environments: stored as "<safe name>.zip".
+            var environments = displaysFor('environment_ids').map(function (n) { return safeFilename(n) + '.zip'; });
             // Knowledge: per-doc entries; filenames.
             var knowledge = displaysFor('knowledge_document_ids');
             return {
@@ -792,9 +808,23 @@
             });
         },
 
-        buildAndDownload: function () {
+        // Shared handler for a 422 "selected assets could not be packaged"
+        // response: show exactly what's missing and offer an explicit
+        // build-anyway escape hatch.
+        showSkippedAssets: function (r, retryCall) {
+            var html = '<strong>Build stopped — some selected assets could not be packaged:</strong>' +
+                renderSkippedList(r.skipped) +
+                '<p class="mb-1">The bundle was NOT created, so nothing is silently missing. ' +
+                'Fix the selection and rebuild, or:</p>' +
+                '<button type="button" class="btn btn-sm btn-outline-danger" ' +
+                'onclick="SolutionsAuthorWizard.' + retryCall + '(true)">Build anyway without these assets</button>';
+            this.setResult(html, 'danger');
+        },
+
+        buildAndDownload: function (allowPartial) {
             var self = this;
             this.assembleRequestBody().then(function (body) {
+                if (allowPartial) body.allow_partial = true;
                 self.setResult('Building...', 'info');
                 fetch('/api/solutions/build', {
                     method: 'POST', credentials: 'same-origin',
@@ -802,7 +832,13 @@
                     body: JSON.stringify(body),
                 }).then(function (resp) {
                     if (!resp.ok) {
-                        return resp.json().then(function (j) { throw new Error(j.error || ('HTTP ' + resp.status)); });
+                        return resp.json().then(function (j) {
+                            if (resp.status === 422 && j.skipped && j.skipped.length) {
+                                self.showSkippedAssets(j, 'buildAndDownload');
+                                return;
+                            }
+                            throw new Error(j.error || ('HTTP ' + resp.status));
+                        });
                     }
                     return resp.blob().then(function (blob) {
                         var disposition = resp.headers.get('Content-Disposition') || '';
@@ -812,46 +848,74 @@
                         var a = document.createElement('a');
                         a.href = url; a.download = filename; document.body.appendChild(a); a.click();
                         setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 1000);
-                        self.setResult('Downloaded ' + filename + '.', 'success');
+                        self.setResult('Downloaded ' + filename + '.' +
+                            (allowPartial ? ' <strong>Note:</strong> built without the assets listed earlier.' : ''),
+                            allowPartial ? 'warning' : 'success');
                     });
                 }).catch(function (err) {
-                    self.setResult('Build failed: ' + err.message, 'danger');
+                    self.setResult('Build failed: ' + escapeHtml(err.message), 'danger');
                 });
             });
         },
 
-        buildAndPublish: function () {
+        buildAndPublish: function (allowPartial) {
             var self = this;
             this.assembleRequestBody().then(function (body) {
+                if (allowPartial) body.allow_partial = true;
                 self.setResult('Publishing...', 'info');
                 fetchJson('/api/solutions/build/publish', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body),
                 }).then(function (r) {
-                    if (r.__status && r.__status !== 200) {
-                        self.setResult('Publish failed: ' + (r.error || r.__status), 'danger');
+                    if (r.__status === 422 && r.skipped && r.skipped.length) {
+                        self.showSkippedAssets(r, 'buildAndPublish');
+                    } else if (r.__status && r.__status !== 200) {
+                        self.setResult('Publish failed: ' + escapeHtml(r.error || r.__status), 'danger');
                     } else {
-                        self.setResult('Published to ' + escapeHtml(r.path) + ' (' + r.bytes + ' bytes).', 'success');
+                        var msg = 'Published to ' + escapeHtml(r.path) + ' (' + r.bytes + ' bytes).';
+                        if (r.skipped && r.skipped.length) {
+                            msg += '<br><strong>Warning — published without:</strong>' + renderSkippedList(r.skipped);
+                        }
+                        self.setResult(msg, (r.skipped && r.skipped.length) ? 'warning' : 'success');
                     }
                 });
             });
         },
 
-        testInstall: function () {
+        testInstall: function (allowPartial) {
             var self = this;
             this.assembleRequestBody().then(function (body) {
                 body.name_suffix = '_test';
                 body.conflict_mode = 'rename';
+                if (allowPartial) body.allow_partial = true;
                 self.setResult('Running test install...', 'info');
                 fetchJson('/api/solutions/test_install', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body),
                 }).then(function (r) {
+                    if (r.__status === 422 && r.skipped && r.skipped.length) {
+                        self.showSkippedAssets(r, 'testInstall');
+                        return;
+                    }
+                    var assets = r.assets || [];
+                    var problems = assets.filter(function (a) { return a.status === 'failed' || a.status === 'skipped'; });
+                    var installed = assets.filter(function (a) { return a.status === 'installed' || a.status === 'updated'; });
                     var cls = r.success ? 'success' : 'warning';
                     var msg = 'Test install ' + (r.success ? 'ok' : 'had issues') +
-                        ' — ' + ((r.assets || []).length) + ' assets installed.';
+                        ' — ' + installed.length + ' of ' + assets.length + ' assets installed.';
+                    if (problems.length) {
+                        msg += '<ul>' + problems.map(function (a) {
+                            return '<li><strong>' + escapeHtml(a.kind) + ':</strong> ' + escapeHtml(a.name) +
+                                ' — <em>' + escapeHtml(a.status) + '</em>' +
+                                (a.detail ? ' (' + escapeHtml(a.detail) + ')' : '') + '</li>';
+                        }).join('') + '</ul>';
+                    }
+                    if (r.build_warnings && r.build_warnings.length) {
+                        msg += '<strong>Not included in the bundle:</strong>' + renderSkippedList(r.build_warnings);
+                        cls = 'warning';
+                    }
                     if (r.errors && r.errors.length) msg += '<ul><li>' + r.errors.map(escapeHtml).join('</li><li>') + '</li></ul>';
                     self.setResult(msg, cls);
                 });

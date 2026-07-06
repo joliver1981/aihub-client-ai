@@ -52,16 +52,25 @@ from solution_manifest import (
     SolutionAssets,
     SolutionManifest,
     extract_placeholders,
+    safe_filename,
 )
 
 logger = logging.getLogger(__name__)
 
 
 class SolutionBundler:
-    """Builds a solution bundle `.zip` from selected tenant assets."""
+    """Builds a solution bundle `.zip` from selected tenant assets.
+
+    After `build()` returns, `last_report` describes what actually happened:
+      {"packed": {kind: [entry, ...]}, "skipped": [{"kind", "name", "reason"}],
+       "validation_warnings": [...]}
+    Callers should surface `skipped` to the author — a skipped asset means
+    the bundle does NOT contain something they selected.
+    """
 
     def __init__(self, flask_app):
         self._app = flask_app
+        self.last_report: Dict[str, Any] = {}
 
     # ────────────────────────────────────────────────────────────────
     # Public API
@@ -93,31 +102,53 @@ class SolutionBundler:
         sample_input_files = sample_input_files or {}
         preview_files = preview_files or {}
 
+        # What actually made it into the zip vs. what had to be skipped.
+        # `packed` becomes the manifest's asset inventory verbatim — the
+        # manifest must never claim files the zip doesn't contain.
+        packed: Dict[str, List[str]] = {
+            k: [] for k in (
+                "agents", "tools", "workflows", "integrations",
+                "connections", "environments", "knowledge",
+            )
+        }
+        skipped: List[Dict[str, str]] = []
+
+        def _skip(kind: str, name: Any, reason: str) -> None:
+            logger.warning("Solution build: %s %r skipped — %s", kind, name, reason)
+            skipped.append({"kind": kind, "name": str(name), "reason": reason})
+
+        def _packed(kind: str, entry: str) -> None:
+            if entry not in packed[kind]:
+                packed[kind].append(entry)
+
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
             # ── Agents ────────────────────────────────────────────
             for agent_id in (agent_ids or []):
+                name = self._get_agent_name(agent_id) or f"agent_{agent_id}"
                 agent_entries = self._pack_agent(auth_headers, agent_id)
+                if not agent_entries:
+                    _skip("agents", name, "agent export failed or agent not found")
+                    continue
                 for inner_rel_path, data in agent_entries:
                     zf.writestr(f"agents/{inner_rel_path}", data)
-                # Add agent name to manifest assets
-                name = self._get_agent_name(agent_id) or f"agent_{agent_id}"
-                if name not in manifest.assets.agents:
-                    manifest.assets.agents.append(name)
+                _packed("agents", name)
 
             # ── Custom tools ──────────────────────────────────────
             for tool_name in (tool_names or []):
                 tool_entries = self._pack_tool(auth_headers, tool_name)
+                if not tool_entries:
+                    _skip("tools", tool_name, "tool export failed or tool not found")
+                    continue
                 for inner_rel_path, data in tool_entries:
                     zf.writestr(f"tools/{inner_rel_path}", data)
-                if tool_name not in manifest.assets.tools:
-                    manifest.assets.tools.append(tool_name)
+                _packed("tools", tool_name)
 
             # ── Workflows ─────────────────────────────────────────
             for wf_name in (workflow_names or []):
                 wf_bytes = self._pack_workflow(wf_name)
                 if wf_bytes is None:
-                    logger.warning("Workflow %s not found, skipping", wf_name)
+                    _skip("workflows", wf_name, "workflow file not found in workflows/")
                     continue
                 # Normalise: strip any existing .json so we don't end up with
                 # "name.json.json" on disk or in the manifest. The validator
@@ -126,55 +157,52 @@ class SolutionBundler:
                 stem = wf_name[:-5] if wf_name.lower().endswith(".json") else wf_name
                 safe_stem = _safe_filename(stem)
                 zf.writestr(f"workflows/{safe_stem}.json", wf_bytes)
-                entry = f"{safe_stem}.json"
-                if entry not in manifest.assets.workflows:
-                    manifest.assets.workflows.append(entry)
+                _packed("workflows", f"{safe_stem}.json")
 
-            # ── Integration templates ─────────────────────────────
+            # ── Integrations (configured instance or builtin template) ─
             for itg_name in (integration_names or []):
-                itg_bytes, placeholders = self._pack_integration(itg_name)
+                itg_bytes, cred_prompts = self._pack_integration(auth_headers, itg_name)
                 if itg_bytes is None:
-                    logger.warning("Integration %s not found, skipping", itg_name)
+                    _skip(
+                        "integrations", itg_name,
+                        "no configured integration or builtin template with this name",
+                    )
                     continue
                 zf.writestr(f"integrations/{_safe_filename(itg_name)}.json", itg_bytes)
-                if itg_name not in manifest.assets.integrations:
-                    manifest.assets.integrations.append(f"{_safe_filename(itg_name)}.json")
+                _packed("integrations", f"{_safe_filename(itg_name)}.json")
                 # Auto-declare credentials for discovered placeholders
-                self._ensure_credentials_for_placeholders(manifest, placeholders)
+                self._ensure_credentials_for_placeholders(manifest, cred_prompts)
 
             # ── Connections (scaffolds, credentials stripped) ─────
             for conn_id in (connection_ids or []):
                 conn_bytes, placeholders = self._pack_connection(conn_id)
                 if conn_bytes is None:
-                    logger.warning("Connection %s not found, skipping", conn_id)
+                    _skip("connections", f"connection_{conn_id}", "connection not found")
                     continue
                 display = self._get_connection_name(conn_id) or f"connection_{conn_id}"
                 zf.writestr(f"connections/{_safe_filename(display)}.json", conn_bytes)
-                if display not in manifest.assets.connections:
-                    manifest.assets.connections.append(f"{_safe_filename(display)}.json")
+                _packed("connections", f"{_safe_filename(display)}.json")
                 self._ensure_credentials_for_placeholders(manifest, placeholders)
 
             # ── Environments ──────────────────────────────────────
             for env_id in (environment_ids or []):
                 env_zip = self._pack_environment(auth_headers, env_id)
                 if env_zip is None:
-                    logger.warning("Environment %s not found, skipping", env_id)
+                    _skip("environments", f"environment_{env_id}", "environment export failed")
                     continue
                 display = self._get_environment_name(env_id) or f"environment_{env_id}"
                 zf.writestr(f"environments/{_safe_filename(display)}.zip", env_zip)
-                if display not in manifest.assets.environments:
-                    manifest.assets.environments.append(f"{_safe_filename(display)}.zip")
+                _packed("environments", f"{_safe_filename(display)}.zip")
 
             # ── Knowledge documents ───────────────────────────────
             for doc_id in (knowledge_document_ids or []):
                 entries = self._pack_knowledge(doc_id)
                 if not entries:
-                    logger.warning("Knowledge doc %s not found, skipping", doc_id)
+                    _skip("knowledge", f"document_{doc_id}", "knowledge document not found")
                     continue
                 for inner_rel_path, data in entries:
                     zf.writestr(f"knowledge/{inner_rel_path}", data)
-                    if inner_rel_path not in manifest.assets.knowledge:
-                        manifest.assets.knowledge.append(inner_rel_path)
+                    _packed("knowledge", inner_rel_path)
 
             # ── Seed data (schema + CSVs + sample inputs) ─────────
             if seed_schema_sql:
@@ -216,7 +244,15 @@ class SolutionBundler:
                 except Exception as e:
                     logger.warning("Could not write branding.json: %s", e)
 
-            # ── Manifest (last, now that assets list is populated) ─
+            # ── Manifest (last) — reconcile assets with the zip ───
+            # The wizard pre-populates manifest.assets with optimistic
+            # display names; replace them wholesale with what was actually
+            # written so the manifest can never claim an asset the bundle
+            # doesn't contain (and never lists the same asset twice under
+            # sanitised + unsanitised spellings).
+            for kind, entries in packed.items():
+                setattr(manifest.assets, kind, list(entries))
+
             errors = manifest.validate()
             if errors:
                 # Validation errors are written alongside for visibility but
@@ -224,6 +260,11 @@ class SolutionBundler:
                 logger.warning("Solution %s has validation warnings: %s", manifest.id, errors)
             zf.writestr(MANIFEST_FILENAME, manifest.to_json().encode("utf-8"))
 
+        self.last_report = {
+            "packed": packed,
+            "skipped": skipped,
+            "validation_warnings": errors,
+        }
         buf.seek(0)
         return buf.getvalue()
 
@@ -314,11 +355,23 @@ class SolutionBundler:
         return None
 
     def _pack_integration(
-        self, integration_name: str
-    ) -> Tuple[Optional[bytes], List[str]]:
-        """Integrations live as JSON files in integrations/builtin/. Return
-        the bytes AND any ${PLACEHOLDER}s found so the bundler can auto-
-        declare credentials."""
+        self, auth_headers: Dict[str, str], integration_name: str
+    ) -> Tuple[Optional[bytes], List[Any]]:
+        """Pack an integration for the bundle.
+
+        Preferred path: the tenant's *configured* integration instance (the
+        DB-backed rows served by /api/integrations — what the wizard's picker
+        actually lists). Exported WITHOUT secrets: each credential field
+        becomes a ${ITG_<NAME>_<FIELD>} placeholder declared in
+        manifest.credentials so the install wizard can prompt for it.
+
+        Fallback: a raw template file in integrations/builtin/ (legacy
+        template-only bundles). Returns (bytes|None, credential prompts —
+        CredentialPrompt objects or bare placeholder strings)."""
+        doc, prompts = self._pack_integration_instance(auth_headers, integration_name)
+        if doc is not None:
+            return doc, prompts
+
         root = self._integrations_root()
         candidates = [
             root / f"{integration_name}.json",
@@ -333,6 +386,128 @@ class SolutionBundler:
                 except OSError:
                     return None, []
         return None, []
+
+    def _pack_integration_instance(
+        self, auth_headers: Dict[str, str], integration_name: str
+    ) -> Tuple[Optional[bytes], List[CredentialPrompt]]:
+        """Serialise a configured integration instance to a portable JSON doc
+        the installer can recreate via POST /api/integrations."""
+        inst = self._find_integration_instance(auth_headers, integration_name)
+        if not inst:
+            return None, []
+
+        template_key = str(inst.get("template_key") or "").strip()
+        instance_config = inst.get("instance_config")
+        if isinstance(instance_config, str):
+            try:
+                instance_config = json.loads(instance_config or "{}")
+            except json.JSONDecodeError:
+                instance_config = {}
+        if not isinstance(instance_config, dict):
+            instance_config = {}
+
+        cred_fields, needs_user_oauth = self._credential_fields_for_template(
+            template_key, inst.get("auth_type")
+        )
+
+        safe = re.sub(r"[^A-Z0-9]+", "_", str(integration_name).upper()).strip("_") or "INTEGRATION"
+        credentials: Dict[str, str] = {}
+        prompts: List[CredentialPrompt] = []
+        for field in cred_fields:
+            ph = f"ITG_{safe}_{field.upper()}"
+            credentials[field] = "${" + ph + "}"
+            prompts.append(CredentialPrompt(
+                placeholder=ph,
+                label=f"{integration_name} — {_humanize_placeholder(field.upper())}",
+                required=False,
+                description=(
+                    "Leave blank to finish setup on the Integrations page after install."
+                ),
+            ))
+
+        doc: Dict[str, Any] = {
+            "kind": "integration_instance",
+            "format_version": 1,
+            "template_key": template_key,
+            "integration_name": str(integration_name),
+            "description": inst.get("description") or "",
+            "auth_type": inst.get("auth_type") or "",
+            "instance_config": instance_config,
+            "credentials": credentials,
+        }
+        if needs_user_oauth:
+            doc["post_install_note"] = (
+                "This integration uses a user OAuth sign-in — re-authorize it "
+                "on the Integrations page after install."
+            )
+        return json.dumps(doc, indent=2).encode("utf-8"), prompts
+
+    def _find_integration_instance(
+        self, auth_headers: Dict[str, str], integration_name: str
+    ) -> Optional[Dict[str, Any]]:
+        """Look up a configured integration instance by display name via the
+        existing /api/integrations list route (forwards the caller's auth)."""
+        try:
+            with self._app.test_client() as client:
+                resp = client.get("/api/integrations", headers=auth_headers)
+                if resp.status_code != 200:
+                    logger.warning(
+                        "integration instance lookup returned %s for %r",
+                        resp.status_code, integration_name,
+                    )
+                    return None
+                data = resp.get_json(silent=True) or {}
+        except Exception as e:
+            logger.warning("integration instance lookup failed for %r: %s", integration_name, e)
+            return None
+        items = data.get("integrations") if isinstance(data, dict) else data
+        wanted = str(integration_name).strip().lower()
+        for r in (items or []):
+            if isinstance(r, dict) and str(r.get("integration_name") or "").strip().lower() == wanted:
+                return r
+        return None
+
+    def _credential_fields_for_template(
+        self, template_key: str, auth_type: Any
+    ) -> Tuple[List[str], bool]:
+        """Which credential fields an integration of this template needs at
+        install time, and whether it additionally requires an interactive
+        user OAuth sign-in (tokens are never exportable)."""
+        template: Optional[Dict[str, Any]] = None
+        if template_key:
+            try:
+                from integration_manager import get_integration_manager  # type: ignore
+                template = get_integration_manager().get_template(template_key)
+            except Exception:
+                template = None
+            if template is None:
+                p = self._integrations_root() / f"{template_key}.json"
+                if p.is_file():
+                    try:
+                        template = json.loads(p.read_text(encoding="utf-8"))
+                    except (OSError, json.JSONDecodeError):
+                        template = None
+
+        auth_config = (template or {}).get("auth_config") or {}
+        at = str((template or {}).get("auth_type") or auth_type or "").strip().lower()
+
+        cred_defs = auth_config.get("credential_fields") or []
+        if cred_defs:
+            fields = [str(fd.get("field") or "").strip() for fd in cred_defs if isinstance(fd, dict)]
+            return [f for f in fields if f], False
+
+        if at == "oauth2":
+            grant = str(auth_config.get("grant_type") or "").strip().lower()
+            # authorization-code flows need a user sign-in on the new tenant;
+            # client_credentials (app-only) works headless once creds are set.
+            return ["client_id", "client_secret"], grant != "client_credentials"
+        if at in ("api_key", "apikey"):
+            return ["api_key"], False
+        if at == "basic":
+            return ["username", "password"], False
+        if at in ("bearer", "bearer_token", "token"):
+            return ["bearer_token"], False
+        return [], False
 
     def _pack_connection(
         self, connection_id: int
@@ -458,13 +633,19 @@ class SolutionBundler:
         return SolutionManifest.from_dict(m.to_dict())
 
     def _ensure_credentials_for_placeholders(
-        self, manifest: SolutionManifest, placeholders: Iterable[str]
+        self, manifest: SolutionManifest, placeholders: Iterable[Any]
     ) -> None:
         """Add a CredentialPrompt entry for any placeholder not already
-        declared. The user can refine labels/descriptions in the author UI."""
+        declared. Accepts bare placeholder strings or ready-made
+        CredentialPrompt objects. The user can refine labels/descriptions in
+        the author UI."""
         declared = {c.placeholder for c in manifest.credentials}
         for ph in placeholders:
-            if ph and ph not in declared:
+            if isinstance(ph, CredentialPrompt):
+                if ph.placeholder and ph.placeholder not in declared:
+                    manifest.credentials.append(ph)
+                    declared.add(ph.placeholder)
+            elif ph and ph not in declared:
                 manifest.credentials.append(
                     CredentialPrompt(
                         placeholder=ph,
@@ -536,16 +717,9 @@ class SolutionBundler:
 # Module-level helpers
 # ────────────────────────────────────────────────────────────────
 
-_UNSAFE_RE = re.compile(r"[^A-Za-z0-9._\- ]+")
-
-
-def _safe_filename(name: str) -> str:
-    """Sanitise filenames for zip entries. Keeps letters, digits, dots,
-    underscores, hyphens and single spaces. No path separators."""
-    s = str(name or "").strip()
-    s = _UNSAFE_RE.sub("_", s)
-    s = s.replace("/", "_").replace("\\", "_")
-    return s or "unnamed"
+# Shared with solution_manifest / solution_installer so all three agree on
+# how display names map to zip entry names.
+_safe_filename = safe_filename
 
 
 def _humanize_placeholder(ph: str) -> str:
