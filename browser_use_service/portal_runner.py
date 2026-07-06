@@ -40,7 +40,8 @@ _MINI_MODEL = os.getenv("BROWSER_USE_MINI_MODEL", "claude-haiku-4-5-20251001")
 
 
 # Newer Claude models reject the `temperature` sampling param outright (HTTP 400). Gate it.
-_ANTHROPIC_NO_SAMPLING_MARKERS = ("opus-4-7", "opus-4-8", "fable-5", "mythos-5", "mythos-preview")
+# Local copy of config.anthropic_sampling_kwargs — this service runs in its own env.
+_ANTHROPIC_NO_SAMPLING_MARKERS = ("opus-4-7", "opus-4-8", "sonnet-5", "fable-5", "mythos-5", "mythos-preview")
 
 
 def _anthropic_sampling_kwargs(model, temperature=None):

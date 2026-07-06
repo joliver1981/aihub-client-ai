@@ -288,12 +288,12 @@ def _value_came_from_previous_override(key: str, current_value: str) -> bool:
     # reloading, so approximate by checking against hardcoded literals in
     # config.py (read via getattr with known fallback values).
     HARDCODED_DEFAULTS = {
-        'openai_primary':    'gpt-5.2',
+        'openai_primary':    'gpt-5.4',
         'openai_mini':       'gpt-5.4-mini',
         'openai_vision':     'gpt-4o',
         'openai_embedding':  'text-embedding-3-small',
-        'openai_image':      'dall-e-3',
-        'anthropic_primary': 'claude-opus-4-6',
-        'anthropic_mini':    'claude-sonnet-4-6',
+        'openai_image':      'gpt-image-2',
+        'anthropic_primary': 'claude-opus-4-8',
+        'anthropic_mini':    'claude-sonnet-5',
     }
     return current_value != HARDCODED_DEFAULTS.get(key, '')

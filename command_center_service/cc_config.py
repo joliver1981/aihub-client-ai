@@ -284,9 +284,10 @@ CC_UI_NEXT_GEN = CC_UI == "next_gen"
 IMAGE_GENERATION_ENABLED = os.getenv("CC_IMAGE_GENERATION_ENABLED", "true").lower() == "true"
 """Enable/disable DALL-E image generation. Set to False to disable for clients who don't need it."""
 
-CC_IMAGE_MODEL = os.getenv("CC_IMAGE_MODEL", "dall-e-3")
+CC_IMAGE_MODEL = os.getenv("CC_IMAGE_MODEL", "gpt-image-2")
 """OpenAI image-generation model used by the Command Center generate_image tool.
-Default 'dall-e-3'. Overridable via the admin Model Overrides UI (key 'openai_image')
+Default 'gpt-image-2' (dall-e-2/3 were shut down by OpenAI on 2026-05-12).
+Overridable via the admin Model Overrides UI (key 'openai_image')
 or directly via the CC_IMAGE_MODEL environment variable."""
 
 DOCUMENT_SEARCH_ENABLED = os.getenv("CC_DOCUMENT_SEARCH_ENABLED", "true").lower() == "true"

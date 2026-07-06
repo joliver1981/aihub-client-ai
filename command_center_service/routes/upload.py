@@ -154,7 +154,7 @@ def _analyze_image(file_bytes: bytes, filename: str, user_message: str = "") -> 
         from api_keys_config import create_anthropic_client
         client, anthropic_config = create_anthropic_client()
         if anthropic_config['use_direct_api'] and client:
-            anthropic_model = anthropic_config.get('model') or getattr(cfg, 'ANTHROPIC_MODEL', 'claude-sonnet-4-20250514')
+            anthropic_model = anthropic_config.get('model') or getattr(cfg, 'ANTHROPIC_MODEL', 'claude-opus-4-8')
             anthropic_max_tokens = min(int(getattr(cfg, 'ANTHROPIC_MAX_TOKENS', 2000)), 4000)
             response = client.messages.create(
                 model=anthropic_model,

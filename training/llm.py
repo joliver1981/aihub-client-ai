@@ -162,6 +162,19 @@ def _complete_azure(
     return resp.choices[0].message.content or ""
 
 
+# Newer Claude models (Opus 4.7+, Sonnet 5+, Fable 5) reject `temperature`
+# with a 400. Local copy of config.anthropic_sampling_kwargs — this module is
+# deliberately stand-alone (no repo config imports).
+_ANTHROPIC_NO_SAMPLING = ("opus-4-7", "opus-4-8", "sonnet-5", "fable-5", "mythos-5", "mythos-preview")
+
+
+def _anthropic_sampling_kwargs(model: str, temperature: float) -> Dict:
+    m = (model or "").lower()
+    if any(marker in m for marker in _ANTHROPIC_NO_SAMPLING):
+        return {}
+    return {"temperature": temperature}
+
+
 def _complete_anthropic(
     system: str,
     user: str,
@@ -172,12 +185,12 @@ def _complete_anthropic(
     import anthropic  # type: ignore
 
     client = anthropic.Anthropic()
-    chosen = model or os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+    chosen = model or os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5")
     t0 = time.monotonic()
     resp = client.messages.create(
         model=chosen,
         max_tokens=max_tokens,
-        temperature=temperature,
+        **_anthropic_sampling_kwargs(chosen, temperature),
         system=system,
         messages=[{"role": "user", "content": user}],
     )

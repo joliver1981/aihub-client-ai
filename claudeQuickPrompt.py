@@ -47,19 +47,19 @@ def _ensure_initialized():
         return
 
     # 1. Load config values
-    # Fallback aligned with config.py ANTHROPIC_MINI default ('claude-sonnet-4-6').
+    # Fallback aligned with config.py ANTHROPIC_MINI default ('claude-sonnet-5').
     # In normal operation config.ANTHROPIC_MODEL is set via .env and the
-    # 'claude-sonnet-4-6' literal below is never reached.
+    # 'claude-sonnet-5' literal below is never reached.
     try:
         import config as cfg
         _ANTHROPIC_MODEL = (
             getattr(cfg, 'ANTHROPIC_MODEL', None)
-            or getattr(cfg, 'ANTHROPIC_MINI', 'claude-sonnet-4-6')
+            or getattr(cfg, 'ANTHROPIC_MINI', 'claude-sonnet-5')
         )
         _ANTHROPIC_MAX_TOKENS = int(getattr(cfg, 'ANTHROPIC_MAX_TOKENS', 4096))
     except ImportError:
         logger.warning("config.py not found, using defaults")
-        _ANTHROPIC_MODEL = os.getenv('ANTHROPIC_MODEL', 'claude-sonnet-4-6')
+        _ANTHROPIC_MODEL = os.getenv('ANTHROPIC_MODEL', 'claude-sonnet-5')
         _ANTHROPIC_MAX_TOKENS = int(os.getenv('ANTHROPIC_MAX_TOKENS', '4096'))
 
     # 2. Get Anthropic API configuration (handles BYOK + proxy logic)
@@ -99,6 +99,22 @@ def _ensure_initialized():
     _INITIALIZED = True
 
 
+def _sampling_kwargs(model, temp):
+    """{'temperature': t} when the Claude model accepts it, else {} — newer
+    models (Opus 4.7+, Sonnet 5+, Fable 5) reject the param with a 400.
+    Delegates to config.anthropic_sampling_kwargs; keeps a local fallback so
+    this module still works without config.py (matching the module's design)."""
+    try:
+        from config import anthropic_sampling_kwargs
+        return anthropic_sampling_kwargs(model, temp)
+    except ImportError:
+        m = (model or '').lower()
+        no_sampling = ('opus-4-7', 'opus-4-8', 'sonnet-5', 'fable-5', 'mythos-5', 'mythos-preview')
+        if temp is None or any(marker in m for marker in no_sampling):
+            return {}
+        return {'temperature': temp}
+
+
 def claudeQuickPrompt(prompt, system="You are an assistant.", temp=0.0, model=None):
     """
     Drop-in replacement for azureMiniQuickPrompt / azureQuickPrompt.
@@ -136,12 +152,13 @@ def claudeQuickPrompt(prompt, system="You are an assistant.", temp=0.0, model=No
                 max_tokens=_ANTHROPIC_MAX_TOKENS,
                 system=system,
                 messages=messages,
-                temperature=temp
+                **_sampling_kwargs(selected_model, temp)
             )
             response_text = response.content[0].text
 
         elif _PROXY_CLIENT:
             # ── Proxy mode ──────────────────────────────────────────
+            # (proxy client gates temperature internally on the model)
             response = _PROXY_CLIENT.messages_create(
                 model=selected_model,
                 max_tokens=_ANTHROPIC_MAX_TOKENS,

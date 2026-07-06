@@ -806,13 +806,16 @@ class AnthropicProxyClient:
             Claude API response
         """
         try:
+            # Sampling params are gated on the model — Opus 4.7+/Sonnet 5+
+            # reject `temperature` with a 400, and the proxy forwards the
+            # payload to Anthropic as-is.
             payload = {
                 "model": model,
                 "max_tokens": max_tokens,
-                "temperature": temperature,
+                **cfg.anthropic_sampling_kwargs(model, temperature),
                 "messages": messages or []
             }
-            
+
             if system:
                 payload["system"] = system
                 
@@ -880,17 +883,19 @@ class AnthropicProxyClient:
             Claude API response
         """
         try:
-            # Setup form data
+            # Setup form data. Temperature is gated on the model —
+            # Opus 4.7+/Sonnet 5+ reject it with a 400 at the Anthropic end.
             form_data = {
                 "model": model,
                 "max_tokens": str(max_tokens),
-                "temperature": str(temperature),
                 "text": user_text
             }
-            
+            if cfg.anthropic_supports_sampling(model):
+                form_data["temperature"] = str(temperature)
+
             if system:
                 form_data["system"] = system
-                
+
             # Setup file upload
             if file_path:
                 files = {
@@ -965,15 +970,17 @@ class AnthropicProxyClient:
             Dict with 'content', 'stop_reason', and 'usage' keys
         """
         try:
-            # Setup form data - same as non-streaming but with stream=true
+            # Setup form data - same as non-streaming but with stream=true.
+            # Temperature is gated on the model (Opus 4.7+/Sonnet 5+ reject it).
             form_data = {
                 "model": model,
                 "max_tokens": str(max_tokens),
-                "temperature": str(temperature),
                 "text": user_text,
                 "stream": "true"  # Request streaming
             }
-            
+            if cfg.anthropic_supports_sampling(model):
+                form_data["temperature"] = str(temperature)
+
             if system:
                 form_data["system"] = system
             
@@ -1100,17 +1107,19 @@ class AnthropicProxyClient:
             Claude API response
         """
         try:
-            # Setup form data
+            # Setup form data. Temperature is gated on the model —
+            # Opus 4.7+/Sonnet 5+ reject it with a 400 at the Anthropic end.
             form_data = {
                 "model": model,
                 "max_tokens": str(max_tokens),
-                "temperature": str(temperature),
                 "text": user_text
             }
-            
+            if cfg.anthropic_supports_sampling(model):
+                form_data["temperature"] = str(temperature)
+
             if system:
                 form_data["system"] = system
-                
+
             # Setup file upload
             files = {
                 'file': ('document', file_data, file_type)

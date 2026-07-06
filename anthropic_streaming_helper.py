@@ -13,6 +13,8 @@ from typing import Dict, List, Any, Optional, Union
 from dataclasses import dataclass
 import logging
 
+from config import anthropic_sampling_kwargs
+
 logger = logging.getLogger(__name__)
 
 
@@ -136,15 +138,16 @@ def create_message_with_streaming(
     response = StreamedResponse()
     
     try:
-        # Build the API call parameters
+        # Build the API call parameters. Sampling params are gated on the
+        # model — Opus 4.7+/Sonnet 5+ reject `temperature` with a 400.
         api_params = {
             "model": model,
             "max_tokens": int(max_tokens),
             "messages": messages,
-            "temperature": temperature,
+            **anthropic_sampling_kwargs(model, temperature),
             "stream": True
         }
-        
+
         # Add system prompt if provided
         if system:
             api_params["system"] = system
@@ -207,19 +210,20 @@ def create_message_with_streaming_simple(
     response = StreamedResponse()
     
     try:
-        # Build the API call parameters
+        # Build the API call parameters. Sampling params are gated on the
+        # model — Opus 4.7+/Sonnet 5+ reject `temperature` with a 400.
         api_params = {
             "model": model,
             "max_tokens": int(max_tokens),
             "messages": messages,
-            "temperature": temperature,
+            **anthropic_sampling_kwargs(model, temperature),
         }
-        
+
         if system:
             api_params["system"] = system
-        
+
         api_params.update(kwargs)
-        
+
         # Use the stream manager
         with client.messages.stream(**api_params) as stream:
             # Get the final message after streaming completes
@@ -293,10 +297,10 @@ def anthropic_messages_create(
             "model": model,
             "max_tokens": int(max_tokens),
             "messages": messages,
-            "temperature": temperature,
+            **anthropic_sampling_kwargs(model, temperature),
         }
         if system:
             api_params["system"] = system
         api_params.update(kwargs)
-        
+
         return client.messages.create(**api_params)

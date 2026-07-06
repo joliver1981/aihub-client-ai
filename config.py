@@ -143,7 +143,7 @@ USE_OPENAI_API = False   # Use Azure API for non-BYOK; BYOK users still get dire
 OPENAI_API_BASE_URL = "https://api.openai.com/v1"
 OPENAI_API_KEY_ENCRYPTED = _env_or_build('OPENAI_API_KEY_ENCRYPTED', '')
 OPENAI_API_KEY = decrypt_value(OPENAI_API_KEY_ENCRYPTED, encryption_key) if OPENAI_API_KEY_ENCRYPTED else os.getenv('OPENAI_API_KEY', '')
-OPENAI_DEPLOYMENT_NAME = os.getenv('OPENAI_MODEL', 'gpt-5.2')
+OPENAI_DEPLOYMENT_NAME = os.getenv('OPENAI_MODEL', 'gpt-5.4')
 OPENAI_DEPLOYMENT_NAME_MINI = os.getenv('OPENAI_MODEL_MINI', 'gpt-5.4-mini')
 # Vision model used by command_center_service upload fallback (only fires when
 # Claude Vision fails AND BYOK direct OpenAI is active). Preserves the previous
@@ -151,14 +151,35 @@ OPENAI_DEPLOYMENT_NAME_MINI = os.getenv('OPENAI_MODEL_MINI', 'gpt-5.4-mini')
 OPENAI_VISION_MODEL = os.getenv('OPENAI_VISION_MODEL', 'gpt-4o')
 
 # Anthropic
-ANTHROPIC_MODEL = os.getenv('ANTHROPIC_MODEL')
+ANTHROPIC_MODEL = os.getenv('ANTHROPIC_MODEL', 'claude-opus-4-8')
 ANTHROPIC_MAX_TOKENS = os.getenv('ANTHROPIC_MAX_TOKENS')
 ANTHROPIC_API_KEY_ENCRYPTED = _env_or_build('ANTHROPIC_API_KEY_ENCRYPTED', '')
 ANTHROPIC_API_KEY = decrypt_value(ANTHROPIC_API_KEY_ENCRYPTED, encryption_key) if ANTHROPIC_API_KEY_ENCRYPTED else os.getenv('ANTHROPIC_API_KEY', '')
 ANTHROPIC_API_THROTTLE_CALLS = os.getenv('ANTHROPIC_API_THROTTLE_CALLS', 'false').lower() in ['true', '1', 't', 'y', 'yes']
 ANTHROPIC_API_THROTTLE_DELAY = os.getenv('ANTHROPIC_API_THROTTLE_DELAY')
-ANTHROPIC_ADVANCED = os.getenv('ANTHROPIC_ADVANCED', 'claude-opus-4-6')
-ANTHROPIC_MINI = os.getenv('ANTHROPIC_MINI', 'claude-sonnet-4-6')
+ANTHROPIC_ADVANCED = os.getenv('ANTHROPIC_ADVANCED', 'claude-opus-4-8')
+ANTHROPIC_MINI = os.getenv('ANTHROPIC_MINI', 'claude-sonnet-5')
+
+# Newer Claude models (Opus 4.7+, Sonnet 5+, Fable/Mythos 5) reject the
+# temperature/top_p/top_k sampling params with HTTP 400 (Sonnet 5 rejects any
+# non-default value). Every Anthropic call site must therefore gate sampling
+# params on the EFFECTIVE model via anthropic_sampling_kwargs() below.
+# NOTE: browser_use_service/portal_runner.py and training/llm.py keep local
+# copies of this marker list — they run standalone without this module.
+ANTHROPIC_NO_SAMPLING_MARKERS = ('opus-4-7', 'opus-4-8', 'sonnet-5', 'fable-5', 'mythos-5', 'mythos-preview')
+
+
+def anthropic_supports_sampling(model) -> bool:
+    """True when the Claude model accepts the `temperature` sampling param."""
+    m = (model or '').lower()
+    return not any(marker in m for marker in ANTHROPIC_NO_SAMPLING_MARKERS)
+
+
+def anthropic_sampling_kwargs(model, temperature=None) -> dict:
+    """{'temperature': t} when the Claude model accepts it, else {}."""
+    if temperature is None:
+        return {}
+    return {'temperature': temperature} if anthropic_supports_sampling(model) else {}
 
 # NLQ (Natural Language Query) LLM Provider: "openai" or "anthropic"
 NLQ_PROVIDER = os.getenv('NLQ_PROVIDER', 'anthropic')
