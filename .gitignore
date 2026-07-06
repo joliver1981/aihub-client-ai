@@ -194,6 +194,7 @@ builder_service/data/secrets/
 data/agent_files/
 data/chat_files/
 data/collection_sessions/
+data/browser_use_downloads/
 data/compliance_uploads/
 data/solutions_drafts/
 data/solutions_staging/
