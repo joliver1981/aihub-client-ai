@@ -423,6 +423,10 @@
                 row.setAttribute('data-auto-key', c._autoKey || '');
                 row.classList.add('auto-generated');
             }
+            // Integration-instance prompts are optional by design (the
+            // integration installs disconnected and is finished on the
+            // Integrations page) — preserve that through the manifest.
+            if (c.required === false) row.setAttribute('data-required', 'false');
             row.innerHTML =
                 '<div class="col-md-3"><input type="text" class="form-control cred-placeholder" placeholder="UPPER_SNAKE" value="' + escapeHtml(c.placeholder) + '"></div>' +
                 '<div class="col-md-3"><input type="text" class="form-control cred-label" placeholder="Human label" value="' + escapeHtml(c.label) + '"></div>' +
@@ -448,7 +452,7 @@
                 out.push({
                     placeholder: ph,
                     label: row.querySelector('.cred-label').value.trim() || ph,
-                    required: true,
+                    required: row.getAttribute('data-required') !== 'false',
                     sample_value: row.querySelector('.cred-sample').value.trim(),
                     description: row.querySelector('.cred-desc').value.trim(),
                 });
@@ -457,23 +461,48 @@
         },
 
         rescanPlaceholders: function () {
+            // Server-side dry run of the credential-bearing packers: returns
+            // the exact prompts the bundler will auto-declare at build time
+            // for the currently-selected integrations and connections.
             var self = this;
             var sel = this.collectSelections();
-            var scanText = '';
-            (sel.integration_names || []).forEach(function (n) { scanText += '${' + n + '}'; });
-
-            fetchJson('/api/solutions/validate', {
+            fetchJson('/api/solutions/author/scan_credentials', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ manifest: self.buildManifestBody(sel), scan_text: scanText }),
+                body: JSON.stringify({ selections: sel }),
             }).then(function (res) {
+                if (res.__status !== 200) {
+                    self.setResult('Rescan failed: ' + escapeHtml(res.error || ('HTTP ' + res.__status)), 'danger');
+                    return;
+                }
                 var existing = {};
-                self.collectCredentials().forEach(function (c) { existing[c.placeholder] = true; });
-                (res.discovered_placeholders || []).forEach(function (ph) {
-                    if (!existing[ph]) {
-                        self.addCredentialRow({ placeholder: ph, label: ph, required: true, sample_value: '', description: '' });
-                    }
+                document.querySelectorAll('.cred-row .cred-placeholder').forEach(function (inp) {
+                    var v = inp.value.trim();
+                    if (v) existing[v] = true;
                 });
+                var added = 0;
+                (res.credentials || []).forEach(function (c) {
+                    if (!c.placeholder || existing[c.placeholder]) return;
+                    self.addCredentialRow({
+                        placeholder: c.placeholder,
+                        label: c.label || c.placeholder,
+                        required: c.required,
+                        sample_value: c.sample_value || '',
+                        description: c.description || '',
+                    });
+                    existing[c.placeholder] = true;
+                    added++;
+                });
+                var msg = added
+                    ? 'Added ' + added + ' credential prompt' + (added === 1 ? '' : 's') + ' from your selections.'
+                    : 'No new credential prompts — your selections need nothing beyond what\'s already listed.';
+                var cls = added ? 'success' : 'info';
+                if (res.unresolved && res.unresolved.length) {
+                    msg += '<br><strong>Could not inspect:</strong> ' + res.unresolved.map(escapeHtml).join(', ') +
+                        ' — these may be missing or inaccessible, and would fail the build.';
+                    cls = 'warning';
+                }
+                self.setResult(msg, cls);
             });
         },
 

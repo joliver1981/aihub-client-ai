@@ -634,6 +634,35 @@ def _list_knowledge() -> List[Dict[str, Any]]:
 # Validate / build / test-install
 # ════════════════════════════════════════════════════════════════
 
+@solution_builder_bp.route("/api/solutions/author/scan_credentials", methods=["POST"])
+@login_required
+@developer_required(api=True)
+def scan_credentials():
+    """Resolve the wizard's current selections to the credential prompts the
+    bundler will auto-declare at build time (integration credential fields,
+    connection scaffold fields, template ${...} tokens). Powers the
+    "Rescan selections" button on the Credentials step — a dry run of the
+    same code path build() uses, so the preview can't drift from reality."""
+    _require_flag()
+    body = request.get_json(silent=True) or {}
+    selections = body.get("selections") or {}
+
+    integration_ids = [x for x in (selections.get("integration_ids") or []) if x is not None]
+    integration_names = _resolve_integration_names(integration_ids)
+    connection_ids = [
+        int(x) for x in (selections.get("connection_ids") or [])
+        if str(x).lstrip("-").isdigit()
+    ]
+
+    bundler = SolutionBundler(current_app)
+    out = bundler.discover_credentials(
+        auth_headers=_auth_headers_from_request(),
+        integration_names=integration_names,
+        connection_ids=connection_ids,
+    )
+    return jsonify(out)
+
+
 @solution_builder_bp.route("/api/solutions/validate", methods=["POST"])
 @login_required
 @developer_required(api=True)

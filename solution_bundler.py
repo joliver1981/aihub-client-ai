@@ -268,6 +268,44 @@ class SolutionBundler:
         buf.seek(0)
         return buf.getvalue()
 
+    def discover_credentials(
+        self,
+        *,
+        auth_headers: Optional[Dict[str, str]] = None,
+        integration_names: Optional[List[str]] = None,
+        connection_ids: Optional[List[int]] = None,
+    ) -> Dict[str, Any]:
+        """Dry-run the credential-bearing packers to predict what
+        manifest.credentials a build of these selections would auto-declare.
+
+        Powers the author wizard's "Rescan selections" button, so the
+        Credentials step previews exactly the prompts the installed bundle
+        will ask for. Nothing is written; returns
+        {"credentials": [prompt dicts], "unresolved": [names we couldn't inspect]}.
+        """
+        auth_headers = auth_headers or {}
+        scratch = SolutionManifest.from_dict({"id": "scan", "name": "scan"})
+        unresolved: List[str] = []
+
+        for name in (integration_names or []):
+            data, prompts = self._pack_integration(auth_headers, name)
+            if data is None:
+                unresolved.append(str(name))
+                continue
+            self._ensure_credentials_for_placeholders(scratch, prompts)
+
+        for cid in (connection_ids or []):
+            data, placeholders = self._pack_connection(cid)
+            if data is None:
+                unresolved.append(f"connection_{cid}")
+                continue
+            self._ensure_credentials_for_placeholders(scratch, placeholders)
+
+        return {
+            "credentials": [asdict(c) for c in scratch.credentials],
+            "unresolved": unresolved,
+        }
+
     # ────────────────────────────────────────────────────────────────
     # Per-asset packing helpers
     # ────────────────────────────────────────────────────────────────

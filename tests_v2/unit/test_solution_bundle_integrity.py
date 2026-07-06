@@ -371,6 +371,71 @@ def test_installer_flags_manifest_entry_missing_from_bundle(platform_app, tmp_pa
 
 
 # ---------------------------------------------------------------------------
+# Credential rescan (dry-run discovery for the wizard's Credentials step)
+# ---------------------------------------------------------------------------
+
+def test_discover_credentials_for_integration_instance(platform_app, template_dir, monkeypatch):
+    bundler = SolutionBundler(platform_app)
+    monkeypatch.setattr(bundler, "_integrations_root", lambda: template_dir)
+
+    out = bundler.discover_credentials(
+        integration_names=["AI Hub SharePoint Test"],
+    )
+    assert out["unresolved"] == []
+    placeholders = {c["placeholder"] for c in out["credentials"]}
+    assert placeholders == {
+        "ITG_AI_HUB_SHAREPOINT_TEST_CLIENT_ID",
+        "ITG_AI_HUB_SHAREPOINT_TEST_CLIENT_SECRET",
+    }
+    # Instance credentials must stay optional so installs never hard-block.
+    assert all(c["required"] is False for c in out["credentials"])
+    # Prompts carry a human label + guidance for the install wizard.
+    assert all(c["label"] and c["description"] for c in out["credentials"])
+
+
+def test_discover_credentials_reports_unresolved(platform_app, tmp_path, monkeypatch):
+    bundler = SolutionBundler(platform_app)
+    monkeypatch.setattr(bundler, "_integrations_root", lambda: tmp_path / "nope")
+
+    out = bundler.discover_credentials(integration_names=["No Such Integration"])
+    assert out["credentials"] == []
+    assert out["unresolved"] == ["No Such Integration"]
+
+
+def test_scan_credentials_route(monkeypatch):
+    import solution_builder_routes as sbr
+
+    canned = {
+        "credentials": [{
+            "placeholder": "ITG_X_CLIENT_ID", "label": "X — Client ID",
+            "required": False, "sample_value": "", "description": "d",
+        }],
+        "unresolved": [],
+    }
+
+    class _FakeBundler:
+        def __init__(self, app):
+            pass
+
+        def discover_credentials(self, **kwargs):
+            _FakeBundler.called_with = kwargs
+            return canned
+
+    app = _make_builder_app(monkeypatch, {"packed": {}, "skipped": [], "validation_warnings": []})
+    monkeypatch.setattr(sbr, "SolutionBundler", _FakeBundler)
+    monkeypatch.setattr(sbr, "_resolve_integration_names", lambda ids: [f"itg_{i}" for i in ids])
+
+    client = app.test_client()
+    resp = client.post("/api/solutions/author/scan_credentials", json={
+        "selections": {"integration_ids": [7], "connection_ids": [3, "junk"]},
+    })
+    assert resp.status_code == 200
+    assert resp.get_json() == canned
+    assert _FakeBundler.called_with["integration_names"] == ["itg_7"]
+    assert _FakeBundler.called_with["connection_ids"] == [3]
+
+
+# ---------------------------------------------------------------------------
 # Build route: 422 on skipped assets unless allow_partial
 # ---------------------------------------------------------------------------
 
