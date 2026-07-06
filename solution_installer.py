@@ -138,7 +138,15 @@ def _detect_conflicts(
                 resp = client.get(path, headers=headers)
                 if resp.status_code != 200:
                     return None
-                return resp.get_json()
+                data = resp.get_json(silent=True)
+                # Some legacy routes jsonify() a pre-serialised string —
+                # decode so callers can treat the result as list/dict.
+                if isinstance(data, str):
+                    try:
+                        data = json.loads(data)
+                    except json.JSONDecodeError:
+                        return None
+                return data
         except Exception:
             return None
 

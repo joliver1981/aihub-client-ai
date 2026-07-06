@@ -370,6 +370,42 @@ def test_installer_flags_manifest_entry_missing_from_bundle(platform_app, tmp_pa
     assert result.success is False, "partial bundle must not report success"
 
 
+def test_conflict_detection_survives_double_encoded_json(tmp_path):
+    """Regression: /get/connections (and friends) on some builds jsonify a
+    pre-serialised string; _detect_conflicts crashed with
+    \"'str' object has no attribute 'get'\" and the conflict preview came
+    back silently empty."""
+    from solution_installer import _detect_conflicts
+
+    app = Flask(__name__)
+    app.config["TESTING"] = True
+
+    @app.route("/get/connections")
+    def conns():
+        # double-encoded: a JSON string containing JSON
+        return jsonify(json.dumps([{"connection_name": "ERPDB"}]))
+
+    @app.route("/api/integrations")
+    def itg():
+        return jsonify({"integrations": [{"integration_name": "AI Hub SharePoint Test"}]})
+
+    @app.route("/api/solutions/workflows/list")
+    def wfs():
+        return jsonify({"workflows": []})
+
+    @app.route("/get/agents")
+    def agents():
+        return jsonify({"data": []})
+
+    manifest = _manifest(assets={
+        "connections": ["ERPDB.json"],
+        "integrations": ["AI Hub SharePoint Test.json"],
+    })
+    conflicts = _detect_conflicts(manifest, app, {})
+    assert conflicts["connections"] == ["ERPDB"]
+    assert conflicts["integrations"] == ["AI Hub SharePoint Test"]
+
+
 # ---------------------------------------------------------------------------
 # Credential rescan (dry-run discovery for the wizard's Credentials step)
 # ---------------------------------------------------------------------------
