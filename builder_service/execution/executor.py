@@ -344,6 +344,7 @@ class ActionExecutor:
 
         # Build filtered payload with correct API field names
         filtered_params = {}
+        dropped_params = []
         for name, value in parameters.items():
             # Check direct field name match first
             if name in field_names:
@@ -355,6 +356,20 @@ class ActionExecutor:
                 api_name = api_field_map.get(canonical_name, canonical_name)
                 filtered_params[api_name] = value
                 logger.info(f"  [executor] Mapped alias '{name}' -> '{canonical_name}' (FILE field)")
+            else:
+                # The planner emitted a parameter this action's schema cannot express, so
+                # it is silently dropped from the request body — a "silent no-op" risk: the
+                # call may still return 200 while doing nothing the user asked for (e.g.
+                # email.configure's workflow-trigger fields, F5). Surface it loudly.
+                dropped_params.append(name)
+
+        if dropped_params:
+            logger.warning(
+                f"  [executor] ⚠ {capability_id}: dropped {len(dropped_params)} param(s) not "
+                f"declared in input_fields and NOT sent: {dropped_params}. If the user asked "
+                f"for something these represent, it will silently no-op. "
+                f"Declared fields: {sorted(field_names)}"
+            )
 
         # Apply defaults for missing required fields
         for f in route.input_fields:

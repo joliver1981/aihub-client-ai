@@ -193,9 +193,31 @@ async def delegate_to_builder(
         #   event: done\ndata: {"session_id":...}
         async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream("POST", url, json=payload, headers=headers) as resp:
+                # Fail-closed: a non-2xx response never raises during streaming and would
+                # otherwise be reported as a completed delegation. Detect it before
+                # consuming the body as SSE. (The sibling delegate_* helpers all gate on
+                # status_code == 200; this streaming path historically did not — F1.)
+                if resp.status_code != 200:
+                    try:
+                        await resp.aread()
+                        err_body = resp.text[:500]
+                    except Exception:
+                        err_body = ""
+                    logger.error(
+                        f"[delegate_to_builder] Builder /api/chat returned HTTP "
+                        f"{resp.status_code}: {err_body}"
+                    )
+                    return {
+                        "text": f"Builder returned HTTP {resp.status_code}: {err_body}",
+                        "status": "failed",
+                        "plan": None,
+                        "builder_session_id": effective_session_id,
+                    }
+
                 token_buffer = []
                 plan_data = None
                 current_event = None
+                saw_error_event = False
 
                 async for line in resp.aiter_lines():
                     line = line.strip()
@@ -221,6 +243,7 @@ async def delegate_to_builder(
                             error_msg = data.get("message", data.get("error", str(data)))
                             logger.error(f"Builder error event: {error_msg}")
                             token_buffer.append(f"\n\n⚠️ Builder encountered an error: {error_msg}")
+                            saw_error_event = True
                         elif current_event == "done":
                             logger.info(f"Builder done event: {data}")
                             # Prefer the session_id from the done event (safety net)
@@ -245,9 +268,24 @@ async def delegate_to_builder(
                 if not full_response:
                     full_response = "Builder Agent processed the request but returned no visible output."
 
+                # Fail-closed status derivation. Historically this returned a hard-coded
+                # 'completed' for any stream that didn't raise, so in-stream errors and
+                # failed plans were reported as success. Derive the real outcome from the
+                # signals we have: an error event, or the builder plan's own aggregated
+                # status (completed/delegated/partial/skipped/failed).
+                plan_status = (plan_data or {}).get("status")
+                if saw_error_event or plan_status == "failed":
+                    delegation_status = "failed"
+                elif plan_status == "partial":
+                    delegation_status = "partial"
+                else:
+                    # completed / delegated / draft / skipped / None → the delegation
+                    # itself succeeded (a draft plan awaiting confirmation is a success).
+                    delegation_status = "completed"
+
                 return {
                     "text": full_response,
-                    "status": "completed",
+                    "status": delegation_status,
                     "plan": plan_data,
                     "builder_session_id": effective_session_id,
                 }

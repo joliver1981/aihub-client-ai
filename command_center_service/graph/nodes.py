@@ -5859,7 +5859,11 @@ async def build(state: CommandCenterState) -> dict:
         # Track latest plan data to detect when execution is finished
         latest_plan = result.get("plan") if isinstance(result, dict) else None
 
-        if result.get("status") == "completed" and result.get("text"):
+        # Use the builder's text whenever present — including on failed/partial delegations,
+        # whose error text must survive to the distiller so the user gets an honest ❌.
+        # (Previously gated on status == "completed"; now that delegate_to_builder reports
+        # real non-completed statuses (F1), that gate would have discarded the failure text.)
+        if result.get("text"):
             response_text = result["text"]
         else:
             response_text = "Builder Agent processed the request but returned no visible output."

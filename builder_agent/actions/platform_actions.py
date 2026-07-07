@@ -908,6 +908,9 @@ def _tool_actions() -> list:
                 ],
                 response_mappings=[],
                 success_status_codes=[200],
+                # Handler returns HTTP 200 + {status:"error"} on a failed save (HTML on
+                # success). Without this indicator the failure was scored SUCCESS (F3).
+                success_indicator="status",
             ),
         ),
 
@@ -951,6 +954,8 @@ def _tool_actions() -> list:
                     ),
                 ],
                 response_mappings=[],
+                # Handler returns HTTP 200 + {status:"error"} when the package is missing.
+                success_indicator="status",
             ),
             discovery_capability="tools.list",
         ),
@@ -1475,6 +1480,9 @@ def _integration_actions() -> list:
                     ),
                 ],
                 response_mappings=[],
+                # Defense-in-depth: handler already returns 400/500 on failure, but keep
+                # the registry uniform and guard against a future 200-on-error regression.
+                success_indicator="status",
             ),
             discovery_capability="integrations.list",
         ),
@@ -1499,6 +1507,9 @@ def _integration_actions() -> list:
                     ResponseMapping("connected", "connected", field_type=FieldType.BOOLEAN),
                 ],
                 is_idempotent=True,
+                # Handler returns HTTP 200 + {status:"error"} on a failed connection test.
+                # Without this indicator a failed test was scored SUCCESS.
+                success_indicator="status",
             ),
             discovery_capability="integrations.list",
         ),
@@ -2336,6 +2347,9 @@ def _mcp_actions() -> list:
                     ),
                 ],
                 response_mappings=[],
+                # Defense-in-depth: handler already returns 404/500 on failure, but keep
+                # the registry uniform and guard against a future 200-on-error regression.
+                success_indicator="status",
             ),
             discovery_capability="mcp.list_servers",
         ),
@@ -2364,6 +2378,13 @@ def _mcp_actions() -> list:
                     ResponseMapping("tools", "tools", is_list=True),
                 ],
                 is_idempotent=True,
+                # Handler returns HTTP 200 + {status:"failed"} both when the required
+                # 'type':'remote' field is missing (F4) and on a genuine connection
+                # failure. Without this indicator every test was scored PASSED.
+                # NOTE: until the Phase 2 schema fix adds the 'type' field, the executor
+                # drops it and this endpoint's guard always returns {status:"failed"},
+                # so mcp.test_server will now correctly-but-always report FAILED.
+                success_indicator="status",
             ),
         ),
 
