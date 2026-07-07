@@ -119,12 +119,20 @@ Each phase is independently shippable and leaves the system strictly more honest
 
 *Deferred as optional hygiene (not needed for executor correctness):* the per-handler `(body, 4xx/5xx)` rewrites in **Appendix B** for the benefit of non-executor callers (UI/external), to be done per-endpoint after auditing UI callers. *Known borderline for Phase 2 read-back:* `integration_routes.py:1297` "saved but token not acquired" returns a failure-shaped body though the integration was saved — the normalizer would score it failed (fail-closed, safe); Phase 2 read-back reconciles it.
 
-### Phase 2 — Deterministic read-back verifier (Mechanism B — the core)
+### Phase 2 — Deterministic read-back verifier (Mechanism B — the core) — DONE (2026-07-07, commit `102135a`)
 *Goal: success depends on the world, not the response.*
-- Promote `_confirm_created` (`schedule_logic.py:40-64`) into a generic `verify_write(capability_id, params, result) -> StepOutcome`, driven by each action's `discovery_capability` + a small per-capability **expected-field map** (e.g. `email.configure → assert workflow_trigger_enabled == requested`).
-- Wire it into the **executor** right after `is_success` is decided (`executor.py:506-522`) — decided §8.1, so coverage is universal (Builder + every caller). Downgrade to `FAILED` when read-back disproves, `UNVERIFIED` when no read path exists or the read-back itself errors/times out. Read-back runs for every write, no cap (§8.4); independent read-backs may run concurrently.
-- **Fix the F5 schemas:** add `workflow_trigger_enabled`, `workflow_id`, `workflow_filter_rules` (and the other silently-undeliverable fields at `agent_email_routes.py:508-522`) to `email.configure`/`email.provision` `input_fields` — make the capability *reachable*, not just detected.
-- Add a **load-time registry lint** (`definitions.py:_validate_route`) that flags any action whose description advertises a capability keyword with no matching `input_field` — catches F5-class drift for `agents.create/update`, `mcp.create_server`, `connections.create`, etc. (**Appendix E**).
+- **`verification.py` (new)** — a per-capability spec table + pure, shape-tolerant `check(params, result_data, read_data)` functions returning CONFIRMED / DISPROVED / INCONCLUSIVE. Specs: `agents.create`, `tools.create`, `mcp.create_server`, `email.configure`, and `agents`/`tools`/`mcp` deletes (verify-absent). Shapes were pinned by probing the **live** read endpoints.
+- **`executor.py`** — `ExecutionResult` gains a tri-state `verified` (+`verification_detail`); `execute_step` runs `_verify_write` after every mutating action (universal coverage per §8.1). **Only a positive DISPROVED downgrades a success to FAILED**; no spec / no read path / unreadable / read-back error → left intact, `verified=None` (UNVERIFIED for Phase 4). Verification never raises. Read-back runs every write, no cap (§8.4).
+- **`email.configure` check catches the F5 clobbering** failure mode: trigger enabled but inbound disabled / no `workflow_id` → DISPROVED.
+- **F5 schema fix** — added `workflow_trigger_enabled`, `workflow_id`, `workflow_filter_rules`, `require_approval`, `auto_respond_instructions` to `email.configure` (**no defaults** — endpoint is full-replace).
+- **Registry lint** — `definitions.lint_capability_coverage` + a call in `registry_loader`; warns on description-vs-schema drift (warnings only). email.configure now clean; negative control fires.
+
+**Discoveries during implementation:**
+1. **`/api/tools/by-category` does NOT list custom tools** (verified live) and `/get_packages` is session-only — so tool read-back needs a new **API-key-accessible `/api/tools/packages`** endpoint (`app.py`) + a `tools.list_packages` capability.
+2. **Capability must be declared in the domain registry** (`platform_domains.py`) or `register_action` rejects it and the *entire registry fails to load* — caught by the in-process e2e before it could break builder_service on restart.
+3. **`email.configure` endpoint is a full-replace UPDATE** (resets unspecified columns to `data.get(field, DEFAULT)` each call). So enabling a trigger without also sending `inbound_enabled=true` disables inbound. F5 fields are added without defaults to minimize this, and the verifier's DISPROVED catches the resulting breakage — but a proper **PATCH/COALESCE endpoint or a read-merge-write planner flow is a follow-up** (see §9).
+
+**Verified:** 20 unit tests of the check functions; in-process executor e2e against the live main app — `mcp.create_server`/`delete_server` CONFIRMED, `tools.create` degrades safely to UNVERIFIED (new endpoint not deployed yet → read-back 404, *not* a false failure); registry loads (82 actions); lint clean. **Needs a main-app + builder_service restart** to deploy the `/api/tools/packages` endpoint and the verifier.
 
 ### Phase 3 — Artifact validation gating (Mechanism C — F2)
 - `workflow_compiler.py:900` — replace unconditional `result['success']=True` with `result['success']=is_valid` (or a `validation_failed`/`partial` status when saved-but-invalid). This one line flips `status:'success'` at the route and flows to all four message branches.
@@ -186,6 +194,14 @@ A capability "passes" only when all rows produce honest framing. The suite must 
 5. **`after_request` normalizer scope → EXECUTOR-MARKED REQUESTS ONLY (my call).** A *global* body→status coercion is unsafe: the classic UI's `fetch` handlers today rely on some endpoints returning `200` + an error body, and flipping those to 4xx/5xx could trip error paths that currently don't fire. So the normalizer keys off a marker the executor already can set (service-to-service header, e.g. `X-AIHub-Internal-Exec: 1`) and only coerces `{status in ('error','failed'), success is False}` → ≥400 for agent-originated calls. Browser/UI traffic is untouched. The explicit per-handler status-code fixes (Phase 1) remain the primary correctness mechanism; this normalizer is defense-in-depth against future drift on the agent surface only. Exclusions in **Appendix C** still apply.
 
 ---
+
+## 9. Follow-ups discovered during implementation
+
+- **`email.configure` full-replace clobbering** — the POST config endpoint resets every unspecified column to a default on each call, so partial updates are lossy (enabling a workflow trigger without re-sending `inbound_enabled=true` disables inbound). Fix: make the endpoint PATCH/COALESCE (only update provided keys) — safe for the UI, which posts the full form — or have the planner read-merge-write. The Phase 2 verifier already turns the resulting breakage into an honest DISPROVED rather than a silent success.
+- **`connections.delete` mis-routed** (from Phase 0) — targets `DELETE /api/connections/<id>` which has no handler (only `/delete/connection/<id>` GET/POST). Needs a real endpoint or a corrected route + a verify-absent spec.
+- **`email.provision` workflow fields** — provision still can't express the workflow trigger; only relevant if first-time setup should configure it (verify the provision endpoint accepts the fields first).
+- **Per-handler `(body, 4xx/5xx)` hygiene** (from Phase 1) — optional, for non-executor callers, after auditing UI callers (**Appendix B/D**).
+- **Extend verifier specs** — `connections.create`/`update`, `integrations.create`/`update`, `schedules.create`, `jobs.create`, `users.create`, `agents.update` (field-level), etc. Each needs its read-back shape pinned (connections.list shape was inconclusive on probe).
 
 ## Appendix A — Full finding evidence
 - **F1:** `delegator.py:195` opens the stream with no `status_code`/`raise_for_status` in the 195-253 block; `:214-215` is the only token writer; `:220-223` appends error text without changing status; `:248-253` unconditional `completed`; `:255-257` is the sole failure path. Siblings `delegate_to_agent:118-122`, `delegate_to_mcp_tool:285-286`, `execute_workflow:317-318` all gate on `status_code==200`.
