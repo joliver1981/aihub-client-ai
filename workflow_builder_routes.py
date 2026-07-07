@@ -212,6 +212,17 @@ def validate_workflow_state():
         }), 500
 
 
+def _compile_outcome_status(result: dict):
+    """Map a compile result to (status, http_code) — the Phase 3 three-way outcome
+    that gates the "ready to use" message (F2). Valid + saved -> ('success', 200);
+    saved but failed validation -> ('draft', 200, carries validation errors); hard
+    failure (compile/save error) -> ('error', 500)."""
+    if result.get("success"):
+        is_valid = result.get("is_valid", True)
+        return ("success" if is_valid else "draft"), 200
+    return "error", 500
+
+
 @workflow_builder_bp.route('/api/workflow/builder/compile', methods=['POST'])
 def compile_workflow_endpoint():
     """
@@ -266,14 +277,13 @@ def compile_workflow_endpoint():
             workflow_id=workflow_id
         )
 
-        if result["success"]:
-            # F2: distinguish a valid, ready workflow from one that was saved but failed
-            # validation (a DRAFT). Both persisted (HTTP 200), but only a valid one is
-            # "ready to use"; the draft carries its validation errors so the message can
-            # tell the user what to fix.
+        # F2 three-way outcome: valid->'success', saved-but-invalid->'draft' (both 200),
+        # hard failure->'error' (500). Only 'success'/'draft' carry a saved workflow.
+        outcome_status, http_code = _compile_outcome_status(result)
+        if outcome_status != 'error':
             is_valid = result.get('is_valid', True)
             response = {
-                'status': 'success' if is_valid else 'draft',
+                'status': outcome_status,
                 'is_valid': is_valid,
                 'saved_as_draft': result.get('saved_as_draft', False),
                 'workflow_id': result['workflow_id'],
@@ -286,7 +296,7 @@ def compile_workflow_endpoint():
                 'connection_count': len(result['workflow_data'].get('connections', []))
             }
             logger.info(
-                f"Compile {'success' if is_valid else 'DRAFT (invalid)'} [{mode}]: "
+                f"Compile {outcome_status} [{mode}]: "
                 f"{workflow_name} (ID: {result['workflow_id']})"
             )
             return jsonify(response)
@@ -301,7 +311,7 @@ def compile_workflow_endpoint():
                 'mode': result['mode']
             }
             logger.error(f"Compile failed [{mode}]: {workflow_name} - {result['error']}")
-            return jsonify(response), 500
+            return jsonify(response), http_code
 
     except Exception as e:
         logger.error(f"Error in compile endpoint: {str(e)}", exc_info=True)

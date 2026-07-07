@@ -14,6 +14,17 @@ import httpx
 logger = logging.getLogger(__name__)
 
 
+def _derive_delegation_status(saw_error_event: bool, plan_status: Optional[str]) -> str:
+    """Fail-closed status for a builder delegation (Phase 0). An in-stream error
+    event or a failed plan is a failure; a partial plan is partial; everything else
+    (completed / delegated / draft / skipped / None) is a successful delegation."""
+    if saw_error_event or plan_status == "failed":
+        return "failed"
+    if plan_status == "partial":
+        return "partial"
+    return "completed"
+
+
 async def delegate_to_agent(
     agent_id: str,
     question: str,
@@ -273,15 +284,10 @@ async def delegate_to_builder(
                 # failed plans were reported as success. Derive the real outcome from the
                 # signals we have: an error event, or the builder plan's own aggregated
                 # status (completed/delegated/partial/skipped/failed).
+                # completed / delegated / draft / skipped / None → the delegation
+                # itself succeeded (a draft plan awaiting confirmation is a success).
                 plan_status = (plan_data or {}).get("status")
-                if saw_error_event or plan_status == "failed":
-                    delegation_status = "failed"
-                elif plan_status == "partial":
-                    delegation_status = "partial"
-                else:
-                    # completed / delegated / draft / skipped / None → the delegation
-                    # itself succeeded (a draft plan awaiting confirmation is a success).
-                    delegation_status = "completed"
+                delegation_status = _derive_delegation_status(saw_error_event, plan_status)
 
                 return {
                     "text": full_response,
