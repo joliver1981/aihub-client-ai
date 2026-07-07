@@ -153,10 +153,14 @@ The culmination: even with an honest executor/builder (Phases 0–3), the CC dis
 
 **Deferred to a follow-up — the §8.3 mid-execution interactive pause.** "Ask before executing a step that depends on an `UNVERIFIED` upstream step" lives in the *builder execute loop* and needs interrupt/resume through the SSE→CC→user round-trip plus an `interactive`/headless run-context signal (scheduler & email-trigger set it false; missing → default to ask). Not built here because: (a) plan-level confirmation already gates execution upfront (`_should_auto_confirm`), and (b) best-effort-continue *with honest reporting* — now delivered by the messaging gate above — is the safe current behavior. Tracked in §9.
 
-### Phase 5 — Anti-silent-success regression harness
+### Phase 5 — Anti-silent-success regression harness — DONE (2026-07-07, commits `c57bc69`, `aa7c463`)
 *Goal: prove it's solved, don't believe it.*
-- For each mutating capability, inject each failure mode — handler 500, handler 200-with-error, dropped-param no-op, invalid artifact — and assert the **user-facing message** reports failure or unverified (never success).
-- Integrate into the existing `tests_v2` suite; this becomes the standing oracle against regression.
+- **`tests_v2/unit/test_silent_success_regression.py` (58 tests)** — a standing pytest oracle locking in every phase's decision logic + wiring. Portable (no service deps for the core): `verification.py` imported directly; functions embedded in heavy modules AST-extracted and mocked. Covers Phase 0 delegation status, Phase 1 normalizer (coerce marked failures / UI-safe / excluded), Phase 2 verifier verdicts (incl. F5 clobber, inconclusive-safety), Phase 3 three-way compile outcome, Phase 4 CC messaging + created-resource guard.
+- **Adversarial audit of the harness** (2-lens workflow: "would reverting each fix be caught?" + "does each test bind to real code?") found the decision tests genuinely bound but the **wiring untested** — the dangerous reverts (unwire `_verify_write`, drop the marker header, delete `@app.after_request`, drop the footer append, delete a `success_indicator`) all passed green. **Gaps closed** (`aa7c463`): behavioral `_verify_write` tests (DISPROVED→FAILED / CONFIRMED / INCONCLUSIVE + `to_dict` carries `verified`); registry-contract tests (F3/F4/F5 schema stays declared); source-contract guards for the fix lines whose deletion re-opens a silent success.
+- **Landmine fixed:** an untracked `tests_v2/unit/test_delegator.py` asserted the *pre-F1* behavior (`status=='completed'` on an error event) and was invisible to CI. Repaired (stream mock `status_code`, flipped assertion to `'failed'`, added a 500-stream test) and **force-tracked**.
+- **Verified:** 79 passed (58 regression + 21 delegator). Two behavior-preserving extract-to-helper refactors made buried decisions testable (`_derive_delegation_status`, `_compile_outcome_status`). Note: `test*.py` is gitignored — tests added with `git add -f`.
+
+**Coverage note:** the harness protects the deterministic decision logic + the wiring call sites; full user-facing message assembly and the mid-execution pause remain covered by the live e2e (Phases 1/2/3/4) rather than standing unit tests.
 
 ### Phase D (later) — Adversary/critic
 - Lightweight LLM at the message boundary over the assembled evidence, veto/downgrade only. Out of current scope; the tri-state contract leaves the seam.
