@@ -134,6 +134,13 @@ class ExecutionResult:
     http_status: Optional[int] = None
     service_url: Optional[str] = None  # Which microservice handled this
 
+    # Deterministic read-back verification (Phase 2). Tri-state:
+    #   True  -> read-back CONFIRMED the change landed
+    #   False -> read-back DISPROVED it (status is also downgraded to FAILED)
+    #   None  -> UNVERIFIED (no spec / no read path / read-back inconclusive or errored)
+    verified: Optional[bool] = None
+    verification_detail: Optional[str] = None
+
     @property
     def is_success(self) -> bool:
         return self.status == ExecutionStatus.SUCCESS
@@ -146,6 +153,8 @@ class ExecutionResult:
             "error": self.error,
             "http_status": self.http_status,
             "service_url": self.service_url,
+            "verified": self.verified,
+            "verification_detail": self.verification_detail,
         }
 
 
@@ -300,8 +309,66 @@ class ActionExecutor:
             )
 
         # Build and execute the HTTP request
-        return await self._execute_route(route, parameters, capability_id, service)
-    
+        result = await self._execute_route(route, parameters, capability_id, service)
+
+        # Phase 2: deterministic read-back verification for mutating actions.
+        return await self._verify_write(capability_id, parameters, result)
+
+    async def _verify_write(
+        self,
+        capability_id: str,
+        parameters: Dict[str, Any],
+        result: "ExecutionResult",
+    ) -> "ExecutionResult":
+        """Re-read platform state to confirm a mutating action actually landed.
+
+        Only a positive DISPROVED downgrades a successful result to FAILED; when we
+        cannot confirm (no spec, no read path, unreadable shape, or the read-back
+        itself errors) we leave the result untouched and flag verified=None so the
+        Phase 4 messaging can surface it as UNVERIFIED. Never regress a success we
+        cannot actually disprove; never let verification raise.
+        """
+        from .verification import VERIFICATION_SPECS, CONFIRMED, DISPROVED
+
+        spec = VERIFICATION_SPECS.get(capability_id)
+        if spec is None or not result.is_success:
+            return result
+
+        try:
+            read_cap = spec["read_capability"]
+            rdomain, raction = read_cap.split(".", 1)
+            build_params = spec.get("read_params")
+            read_params = build_params(parameters, result.data or {}) if build_params else {}
+            read_result = await self.execute_step(
+                rdomain, raction, read_params, description=f"read-back verify {capability_id}"
+            )
+            if not read_result.is_success:
+                result.verification_detail = (
+                    f"read-back {read_cap} did not succeed (http={read_result.http_status})"
+                )
+                logger.info(f"  [verify] {capability_id}: UNVERIFIED — {result.verification_detail}")
+                return result
+            status, detail = spec["check"](parameters, result.data or {}, read_result.data)
+        except Exception as e:
+            result.verification_detail = f"verification errored: {e}"
+            logger.warning(f"  [verify] {capability_id}: UNVERIFIED (errored) — {e}")
+            return result
+
+        if status == CONFIRMED:
+            result.verified = True
+            result.verification_detail = detail
+            logger.info(f"  [verify] ✓ {capability_id}: CONFIRMED — {detail}")
+        elif status == DISPROVED:
+            result.verified = False
+            result.verification_detail = detail
+            result.status = ExecutionStatus.FAILED
+            result.error = f"read-back verification failed: {detail}"
+            logger.warning(f"  [verify] ✗ {capability_id}: DISPROVED — downgraded to FAILED — {detail}")
+        else:  # INCONCLUSIVE
+            result.verification_detail = detail
+            logger.info(f"  [verify] {capability_id}: UNVERIFIED — {detail}")
+        return result
+
     async def _execute_route(
         self,
         route,  # RouteMapping

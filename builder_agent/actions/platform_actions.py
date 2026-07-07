@@ -915,6 +915,24 @@ def _tool_actions() -> list:
         ),
 
         ActionDefinition(
+            capability_id="tools.list_packages",
+            domain_id="tools",
+            description="List custom tool package names (read-back verification for tools.create/delete)",
+            primary_route=RouteMapping(
+                method="GET",
+                path="/api/tools/packages",
+                encoding=PayloadEncoding.NONE,
+                description="List custom tool package names",
+                input_fields=[],
+                response_mappings=[
+                    ResponseMapping("packages", "packages", is_list=True),
+                ],
+                success_indicator="status",
+                is_idempotent=True,
+            ),
+        ),
+
+        ActionDefinition(
             capability_id="tools.list",
             domain_id="tools",
             description="Get all available tools organized by category",
@@ -1830,6 +1848,35 @@ def _email_actions() -> list:
                         "inbox_tools_enabled", FieldType.BOOLEAN, required=False,
                         default=False,
                         description="Give agent tools to check inbox and reply to emails",
+                    ),
+                    # Inbound workflow trigger + advanced auto-response settings. These were
+                    # advertised in the description ("workflow triggers") but missing from the
+                    # schema, so the executor silently dropped them and the trigger was never
+                    # configured (F5). The /api/agent-email/config endpoint persists all of them.
+                    # NOTE: no defaults here on purpose — the endpoint does a full-replace
+                    # UPDATE, so only send what the caller explicitly set (see the read-merge-
+                    # write caveat in the remediation doc). The read-back verifier confirms the
+                    # trigger actually took.
+                    FieldSchema(
+                        "workflow_trigger_enabled", FieldType.BOOLEAN, required=False,
+                        description="Enable firing a workflow when an inbound email arrives (requires inbound_enabled=true and a workflow_id)",
+                    ),
+                    FieldSchema(
+                        "workflow_id", FieldType.REFERENCE, required=False,
+                        reference_domain="workflows",
+                        description="Workflow to run when an inbound email arrives (required if workflow_trigger_enabled)",
+                    ),
+                    FieldSchema(
+                        "workflow_filter_rules", FieldType.LIST, required=False,
+                        description="Optional list of rules that filter which inbound emails fire the workflow (e.g. by sender/subject); serialized to JSON by the endpoint",
+                    ),
+                    FieldSchema(
+                        "require_approval", FieldType.BOOLEAN, required=False,
+                        description="Require human approval before an auto-response is sent",
+                    ),
+                    FieldSchema(
+                        "auto_respond_instructions", FieldType.STRING, required=False,
+                        description="Custom instructions for how the agent should auto-respond to inbound emails",
                     ),
                 ],
                 response_mappings=[

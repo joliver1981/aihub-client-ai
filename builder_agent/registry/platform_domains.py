@@ -483,6 +483,13 @@ def _tools_domain() -> DomainDefinition:
                 tags=["tool", "list", "browse", "available"],
             ),
             CapabilityDefinition(
+                id="tools.list_packages",
+                name="List Tool Packages",
+                description="List custom tool package names (read-back verification for tools.create/delete)",
+                category="read",
+                tags=["tool", "list", "custom", "package", "verify"],
+            ),
+            CapabilityDefinition(
                 id="tools.manage_dependencies",
                 name="Manage Dependencies",
                 description="Configure tool dependencies and package requirements",

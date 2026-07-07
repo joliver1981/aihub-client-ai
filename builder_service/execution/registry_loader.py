@@ -70,6 +70,17 @@ def load_registries():
         logger.info("Loading action registry...")
         _action_registry = ActionRegistry(_domain_registry)
         actions = get_platform_actions()
+
+        # Phase 2 lint: warn about description-vs-schema capability drift (the F5
+        # class — advertised capability the schema can't express). Warnings only.
+        try:
+            from builder_agent.actions.definitions import lint_capability_coverage
+            for a in actions:
+                for w in lint_capability_coverage(a):
+                    logger.warning(f"[registry-lint] {w}")
+        except Exception as _lint_err:
+            logger.debug(f"[registry-lint] skipped: {_lint_err}")
+
         result = _action_registry.register_actions(actions)
         
         if not result.is_valid:

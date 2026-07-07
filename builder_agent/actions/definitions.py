@@ -500,3 +500,30 @@ class ActionDefinition:
                 )
 
         return errors
+
+
+# ─── Capability-coverage lint (Phase 2 — silent-success remediation) ─────────
+# Detects the F5 class: an action whose description advertises a capability the
+# planner will try to use, but whose input_fields cannot express it — so the
+# executor silently drops those params and the action no-ops while reporting
+# success. Emitted as warnings at registry load; never blocks loading.
+_COVERAGE_KEYWORD_HINTS = {
+    # description phrase -> substrings expected in at least one input_field name
+    "workflow trigger": ("workflow",),
+    "workflow triggers": ("workflow",),
+}
+
+
+def lint_capability_coverage(action: "ActionDefinition") -> List[str]:
+    """Return warnings for description-vs-schema capability drift. Pure/no side effects."""
+    warnings: List[str] = []
+    desc = (action.description or "").lower()
+    field_names = " ".join(f.name.lower() for f in action.all_input_fields)
+    for keyword, hints in _COVERAGE_KEYWORD_HINTS.items():
+        if keyword in desc and not any(h in field_names for h in hints):
+            warnings.append(
+                f"{action.capability_id}: description advertises '{keyword}' but no "
+                f"input_field expresses it — the planner will emit params the executor "
+                f"silently drops. Add the field(s) or drop the claim."
+            )
+    return warnings

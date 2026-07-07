@@ -2243,6 +2243,21 @@ def get_packages():
     return jsonify(packages=packages)
 
 
+@app.route('/api/tools/packages', methods=['GET'])
+@api_key_or_session_required(min_role=2)
+def api_list_tool_packages():
+    """List custom tool package names. API-key accessible (unlike /get_packages,
+    which is session-only) so the Builder/CC executor can read-back-verify that a
+    custom tool (tools.create) actually persisted or (tools.delete) is gone."""
+    try:
+        packages = [d for d in os.listdir(cfg.CUSTOM_TOOLS_FOLDER)
+                    if os.path.isdir(os.path.join(cfg.CUSTOM_TOOLS_FOLDER, d))]
+        return jsonify(status="success", packages=packages)
+    except Exception as e:
+        logger.error(f"Error listing tool packages: {e}")
+        return jsonify(status="error", message=str(e)), 500
+
+
 @app.route('/load_package/<package_name>', methods=['GET'])
 @login_required
 def load_package(package_name):
