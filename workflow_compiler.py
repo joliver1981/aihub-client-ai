@@ -897,8 +897,22 @@ def compile_workflow(
         logger.info("STEP 6: Skipped (save=False)")
     
     # ----- Final result -----
+    # F2 fix: the workflow was materialized and (if save=True) persisted above, so
+    # success=True means "the pipeline completed and the artifact was saved" — NOT that
+    # it is valid. An invalid workflow is a DRAFT, not "ready to use". Surface is_valid
+    # and saved_as_draft so the route/messaging refuse the "ready" copy and report the
+    # validation errors instead. (Save-as-draft, §8.2: keep the user's work; validation
+    # gates the message, not persistence.)
     result["success"] = True
-    
+    result["is_valid"] = is_valid
+    result["saved_as_draft"] = bool(save and not is_valid)
+    if result["saved_as_draft"]:
+        logger.warning(
+            f"Workflow '{workflow_name}' saved as DRAFT (ID {result.get('workflow_id')}) — "
+            f"INVALID after {fix_attempt} fix attempt(s): "
+            f"{(result.get('validation') or {}).get('errors')}"
+        )
+
     logger.info(f"=" * 80)
     logger.info(f"COMPILE COMPLETE [{mode.upper()}]: {workflow_name}")
     logger.info(f"  Nodes: {len(workflow_data['nodes'])}")

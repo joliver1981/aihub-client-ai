@@ -267,8 +267,15 @@ def compile_workflow_endpoint():
         )
 
         if result["success"]:
+            # F2: distinguish a valid, ready workflow from one that was saved but failed
+            # validation (a DRAFT). Both persisted (HTTP 200), but only a valid one is
+            # "ready to use"; the draft carries its validation errors so the message can
+            # tell the user what to fix.
+            is_valid = result.get('is_valid', True)
             response = {
-                'status': 'success',
+                'status': 'success' if is_valid else 'draft',
+                'is_valid': is_valid,
+                'saved_as_draft': result.get('saved_as_draft', False),
                 'workflow_id': result['workflow_id'],
                 'workflow_name': result['workflow_name'],
                 'workflow_data': result['workflow_data'],
@@ -278,7 +285,10 @@ def compile_workflow_endpoint():
                 'node_count': len(result['workflow_data'].get('nodes', [])),
                 'connection_count': len(result['workflow_data'].get('connections', []))
             }
-            logger.info(f"Compile success [{mode}]: {workflow_name} (ID: {result['workflow_id']})")
+            logger.info(
+                f"Compile {'success' if is_valid else 'DRAFT (invalid)'} [{mode}]: "
+                f"{workflow_name} (ID: {result['workflow_id']})"
+            )
             return jsonify(response)
         else:
             response = {

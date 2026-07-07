@@ -3552,12 +3552,16 @@ async def _execute_agent_delegation(
             if compile_result_data:
                 response_text = compile_result_data.get("response_text", response_text)
                 compile_result = compile_result_data.get("compile_result")
-                if compile_result and compile_result.get("status") == "success":
+                if compile_result and compile_result.get("status") in ("success", "draft"):
+                    # 'draft' = saved but invalid (F2): the compile turn is still a
+                    # definitive structured result (the response_text says it needs
+                    # fixes), so complete the turn rather than leaving it hanging.
                     has_structured_output = True
                     conversation_status = "completed"
                     updated_conversation = manager.get_conversation(conversation.id)
                     updated_conversation.mark_completed(response_text)
-                    logger.info(f"  [_execute_agent_delegation] Workflow compiled successfully in initial delegation")
+                    _compile_status = compile_result.get("status")
+                    logger.info(f"  [_execute_agent_delegation] Workflow compile finished in initial delegation (status={_compile_status})")
 
         # The agent needs user input if it's asking questions OR providing an update
         # (both mean the conversation is still ongoing and the user should respond)
@@ -3990,6 +3994,24 @@ The workflow has been updated and saved."""
 - **Connections:** {compile_result.get('connection_count', 0)}
 
 The workflow has been saved and is ready to use."""
+            elif compile_result.get("status") == "draft":
+                # F2: saved but failed validation — do NOT claim it is ready to use.
+                result_workflow_id = compile_result.get("workflow_id")
+                result_mode = compile_result.get("mode", mode)
+                verrors = (compile_result.get("validation") or {}).get("errors", []) or []
+                action_verb = "updated" if result_mode == "edit" else "created"
+                logger.warning(f"  [_handle_workflow_agent_metadata] Workflow saved as DRAFT (invalid): ID={result_workflow_id}, errors={verrors}")
+                _err_lines = "\n".join(f"- {e}" for e in verrors[:8]) or "- (validation reported errors; see workflow details)"
+                response_text = f"""{response_text}
+
+**Workflow saved as a draft — not yet ready to run.**
+- **Name:** {workflow_name}
+- **ID:** {result_workflow_id}
+
+I {action_verb} and saved the workflow, but it did not pass validation, so it is NOT ready to use yet. These issues need to be resolved first:
+{_err_lines}
+
+Tell me how you'd like to fix these and I'll update the workflow."""
             else:
                 error = compile_result.get("error", "Unknown error")
                 action_verb = "update" if edit_workflow_id else "create"
@@ -4115,8 +4137,10 @@ async def handle_agent_response(state: dict) -> dict:
         has_definitive_result = False
         if agent_result is not None:
             compile_result = agent_result.get("compile_result")
-            if compile_result and compile_result.get("status") == "success":
-                # Workflow was actually created/updated in the platform
+            if compile_result and compile_result.get("status") in ("success", "draft"):
+                # Workflow was actually created/updated in the platform. 'draft' (F2:
+                # saved but failed validation) is still a definitive compile outcome —
+                # the turn is done and the message tells the user what to fix.
                 has_definitive_result = True
             # Add other agent result checks here as needed
             # (e.g., for data_agent, report_agent, etc.)
@@ -4255,6 +4279,19 @@ Let the user know their workflow has been updated and offer to help with anythin
 The workflow has been saved to the platform and is ready to use. You can find it in the Workflows section.
 
 Let the user know their workflow is ready and offer to help with anything else."""
+            elif compile_result.get("status") == "draft":
+                # F2: saved but failed validation — a draft, not "ready to use".
+                workflow_id = compile_result.get("workflow_id")
+                workflow_name = compile_result.get("workflow_name", "New Workflow")
+                verrors = (compile_result.get("validation") or {}).get("errors", []) or []
+                _err_lines = "\n".join(f"- {e}" for e in verrors[:8]) or "- (validation reported errors; see workflow details)"
+                action_verb = "updated" if is_edit else "created"
+                format_prompt = f"""The {agent_name} designed a workflow and I {action_verb} and SAVED it (ID {workflow_id}), but it did NOT pass validation — so it is saved as a DRAFT and is NOT ready to run.
+
+Validation issues that must be fixed:
+{_err_lines}
+
+Let the user know the workflow was saved as a draft but needs these fixes before it can run, and offer to help fix them. Do NOT tell the user it is ready to use."""
             else:
                 error = compile_result.get("error", "Unknown error")
                 action_verb = "updating" if is_edit else "creating"
