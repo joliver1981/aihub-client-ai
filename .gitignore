@@ -227,3 +227,7 @@ data/model_overrides.json
 .claude/
 training/data/
 training/runs/
+
+# Trimmed (LLM-keys-only) build config shipped loose to clients for the
+# source-run browser-use service. Contains encrypted secrets — never commit.
+_build_config_client.py

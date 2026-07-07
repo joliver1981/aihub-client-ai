@@ -94,7 +94,7 @@ ALLOW_ALL_USERS = os.getenv("BROWSER_USE_ALLOW_ALL_USERS", "false").lower() == "
 # (requires BYOK or a provisioned Anthropic key — see ensure_llm_api_key).
 LLM_MODEL = (os.getenv("BROWSER_USE_LLM_MODEL")
              or os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
-             or "gpt-5.2")
+             or "gpt-5.4")
 # Headless (true) is the DEFAULT. Headless Chrome drops office/binary download-navigations,
 # but portal_runner re-pulls them via an in-page fetch (see _make_download_capturer), so
 # downloads work headless AND need no interactive desktop - the right mode for an NSSM service
@@ -250,7 +250,7 @@ def resolve_openai_driver(model=None):
         if key:
             return {"api_type": "open_ai", "api_key": key,
                     "base_url": _env_or_build("OPENAI_API_BASE_URL", "https://api.openai.com/v1"),
-                    "model": wanted or _env_or_build("OPENAI_DEPLOYMENT_NAME", "gpt-5.2")}
+                    "model": wanted or _env_or_build("OPENAI_DEPLOYMENT_NAME", "gpt-5.4")}
 
     # 2. Direct OpenAI when the install is configured for it
     if str(_env_or_build("USE_OPENAI_API", "")).lower() in ("true", "1", "yes"):
@@ -258,14 +258,14 @@ def resolve_openai_driver(model=None):
         if key:
             return {"api_type": "open_ai", "api_key": key,
                     "base_url": _env_or_build("OPENAI_API_BASE_URL", "https://api.openai.com/v1"),
-                    "model": wanted or _env_or_build("OPENAI_DEPLOYMENT_NAME", "gpt-5.2")}
+                    "model": wanted or _env_or_build("OPENAI_DEPLOYMENT_NAME", "gpt-5.4")}
 
     # 3. Azure OpenAI (platform default)
     endpoint = _env_or_build("AZURE_OPENAI_BASE_URL")
     if endpoint:
         key = os.getenv("AZURE_OPENAI_API_KEY") or _decrypt(_env_or_build("AZURE_OPENAI_API_KEY_ENCRYPTED"))
         if key:
-            deployment = wanted or _env_or_build("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5.2")
+            deployment = wanted or _env_or_build("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5.4")
             return {"api_type": "azure", "api_key": key,
                     "azure_endpoint": endpoint,
                     "api_version": _env_or_build("AZURE_OPENAI_API_VERSION", "2024-12-01-preview"),
