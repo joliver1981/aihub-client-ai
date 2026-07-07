@@ -5754,8 +5754,15 @@ def _extract_created_resources(plan_data: dict) -> list:
     for step in plan_data.get("steps", []):
         if not isinstance(step, dict):
             continue
+        # Fail-closed (Phase 4): never record a resource from a step that failed or
+        # whose read-back DISPROVED the creation. (verified=None/UNVERIFIED is still
+        # recorded — it may have been created — and the message flags the uncertainty.)
+        if str(step.get("status") or "").lower() in ("failed", "error"):
+            continue
         step_result = step.get("result")
         if not isinstance(step_result, dict):
+            continue
+        if step_result.get("verified") is False:
             continue
         data = step_result.get("data", {})
         if not isinstance(data, dict):
@@ -5780,6 +5787,67 @@ def _extract_created_resources(plan_data: dict) -> list:
                 "name": data.get("saved_workflow_name", f"Workflow #{wf_id}"),
             })
     return resources
+
+
+def _summarize_verification(plan_data: dict) -> dict:
+    """Classify builder plan steps by read-back verification outcome (Phase 4 —
+    fail-closed messaging). A step is 'unverified' only when a read-back was
+    ATTEMPTED but couldn't confirm (executor set verified=None AND a
+    verification_detail) — steps with no verification spec (detail is None, e.g.
+    reads) are not flagged. Returns {verified, unverified, failed} lists of
+    {label, detail}."""
+    verified, unverified, failed = [], [], []
+    steps = plan_data.get("steps", []) if isinstance(plan_data, dict) else []
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        status = str(step.get("status") or "").lower()
+        label = step.get("description") or step.get("capability_id") or step.get("action") or "step"
+        result = step.get("result") if isinstance(step.get("result"), dict) else {}
+        v = result.get("verified")
+        vd = result.get("verification_detail")
+        if status in ("failed", "error"):
+            failed.append({"label": label, "detail": result.get("error") or vd})
+        elif v is False:            # DISPROVED (defensive — Phase 2 also sets status=failed)
+            failed.append({"label": label, "detail": vd})
+        elif v is True:
+            verified.append({"label": label, "detail": vd})
+        elif v is None and vd:      # read-back attempted but inconclusive/errored
+            unverified.append({"label": label, "detail": vd})
+    return {"verified": verified, "unverified": unverified, "failed": failed}
+
+
+def _render_verification_for_prompt(summary: dict) -> str:
+    if not any(summary.get(k) for k in ("verified", "unverified", "failed")):
+        return "(no mutating steps were verified this turn)"
+    lines = []
+    for v in summary.get("verified", []):
+        lines.append(f"VERIFIED: {v['label']}")
+    for u in summary.get("unverified", []):
+        lines.append(f"UNVERIFIED (action returned success but read-back could NOT confirm): {u['label']}")
+    for f in summary.get("failed", []):
+        lines.append(f"FAILED: {f['label']}")
+    return "\n".join(lines)
+
+
+def _verification_footer(summary: dict) -> str:
+    """Deterministic honesty footer, appended whenever any step failed or could not
+    be verified. This is the fail-closed guarantee: the truth is present regardless
+    of what the distiller LLM chose to write."""
+    blocks = []
+    if summary.get("failed"):
+        lines = "\n".join(
+            f"- {f['label']}" + (f" — {f['detail']}" if f.get("detail") else "")
+            for f in summary["failed"][:6]
+        )
+        blocks.append(f"**❌ {len(summary['failed'])} step(s) did not succeed:**\n{lines}")
+    if summary.get("unverified"):
+        lines = "\n".join(f"- {u['label']}" for u in summary["unverified"][:6])
+        blocks.append(
+            f"**⚠️ {len(summary['unverified'])} step(s) reported success but could not be "
+            f"independently confirmed** — please double-check:\n{lines}"
+        )
+    return ("\n\n---\n" + "\n\n".join(blocks)) if blocks else ""
 
 
 # ─── Node: build ──────────────────────────────────────────────────────────
@@ -6007,6 +6075,10 @@ async def build(state: CommandCenterState) -> dict:
             if isinstance(result2, dict) and result2.get("plan"):
                 latest_plan = result2["plan"]
 
+        # Phase 4: classify the executed plan by read-back verification so both the
+        # distiller and a deterministic footer can be honest about what actually landed.
+        verification_summary = _summarize_verification(latest_plan or {})
+
         # Distill builder output into a user-facing message (never show raw JSON)
         raw_builder_text = response_text
         distilled_text = None
@@ -6030,11 +6102,13 @@ async def build(state: CommandCenterState) -> dict:
                 "- If the user already confirmed (their last message is affirmative) and the builder is still asking to confirm, assume CC already handled execution; summarize current status or final result.\n"
                 "- If the builder reports success, output a concise success message (e.g., ✅ Agent created: <name>).\n"
                 "- If the builder reports failure, output a concise failure message (❌ Failed: <reason>) plus what you need from the user if anything.\n"
+                "- VERIFICATION (authoritative): the 'Verification' section below is an independent read-back of platform state. ONLY claim something was created/done for steps marked VERIFIED. For any step marked UNVERIFIED, say it was attempted but could NOT be confirmed and ask the user to double-check — do NOT call it done. For FAILED steps, report the failure. Never present unverified or failed work as success.\n"
                 "- Use the recent user-facing conversation below to interpret short/ambiguous user messages (e.g. 'yes' may refer to an earlier confirmation prompt).\n"
                 "- Keep it short.\n\n"
                 f"{_bd_conv_block}"
                 f"Last user message: {user_text!r}\n"
                 f"Builder message (internal): {raw_builder_text[:6000]!r}\n"
+                f"Verification (authoritative read-back of platform state):\n{_render_verification_for_prompt(verification_summary)}\n"
                 f"Recent builder log tail (internal): {json.dumps(log_tail)[:4000]}\n"
             )
             distill_prompt += _preferences_block(state)
@@ -6064,6 +6138,13 @@ async def build(state: CommandCenterState) -> dict:
             response_text = distilled_text
         else:
             response_text = "I received an internal response from the Builder Agent but couldn't format it safely for display. Please check the Command Center logs/traces for details."
+
+        # Phase 4 fail-closed guarantee: append a deterministic honesty footer whenever
+        # anything failed or could not be verified, so the truth survives regardless of
+        # what the distiller LLM wrote.
+        _ver_footer = _verification_footer(verification_summary)
+        if _ver_footer:
+            response_text = response_text + _ver_footer
 
         # Persist builder delegation context for multi-turn
         builder_log = list(existing.get("builder_log", []))
@@ -6101,6 +6182,12 @@ async def build(state: CommandCenterState) -> dict:
             "builder_log": builder_log,
             "build_status": build_status,
         }
+        if any(verification_summary.get(k) for k in ("verified", "unverified", "failed")):
+            active_delegation["verification"] = {
+                "verified": len(verification_summary["verified"]),
+                "unverified": len(verification_summary["unverified"]),
+                "failed": len(verification_summary["failed"]),
+            }
         if created_resources:
             active_delegation["created_resources"] = created_resources
         if completed_at:
