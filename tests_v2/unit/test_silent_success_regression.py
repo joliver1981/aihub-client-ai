@@ -310,3 +310,158 @@ def test_phase4_created_resources_excludes_disproved_and_failed():
     types = {r["type"]: r["id"] for r in res}
     assert types.get("agent") == 5            # verified create recorded
     assert "connection" not in types          # DISPROVED create NOT recorded
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# WIRING — the audit's key lesson: the pure decisions above are inert unless the
+# executor/app/compiler actually INVOKE them. These bind the decisions to their
+# call sites (behavioral where cheap, source-contract where a heavy import isn't
+# worth it) so a "delete the fix line" revert fails loudly.
+# ═══════════════════════════════════════════════════════════════════════════
+import asyncio  # noqa: E402
+
+_EXECUTOR_PY = os.path.join(_REPO, "builder_service", "execution", "executor.py")
+_WF_COMPILER_PY = os.path.join(_REPO, "workflow_compiler.py")
+_BUILDER_NODES_PY = os.path.join(_REPO, "builder_service", "graph", "nodes.py")
+
+
+def _src(path: str) -> str:
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def _import_from(paths, dotted):
+    import sys
+    for p in paths:
+        if p not in sys.path:
+            sys.path.insert(0, p)
+    import importlib
+    return importlib.import_module(dotted)
+
+
+def _executor_mod():
+    return _import_from([_REPO, os.path.join(_REPO, "builder_service")],
+                        "builder_service.execution.executor")
+
+
+# ── Phase 2 wiring: _verify_write consumes the verdict (the load-bearing piece) ──
+def test_phase2_verify_write_disproved_downgrades_to_failed():
+    EX = _executor_mod()
+
+    async def run():
+        ex = EX.ActionExecutor(api_key="x")
+
+        async def read(domain, action, params, description=""):   # read-back does NOT contain the tool
+            return EX.ExecutionResult(status=EX.ExecutionStatus.SUCCESS, message="", data={"packages": ["other"]})
+        ex.execute_step = read
+        r = EX.ExecutionResult(status=EX.ExecutionStatus.SUCCESS, message="ok", data={})
+        return await ex._verify_write("tools.create", {"name": "my_tool"}, r)
+
+    out = asyncio.run(run())
+    assert out.status == EX.ExecutionStatus.FAILED and out.verified is False
+
+
+def test_phase2_verify_write_confirmed_stays_success():
+    EX = _executor_mod()
+
+    async def run():
+        ex = EX.ActionExecutor(api_key="x")
+
+        async def read(domain, action, params, description=""):
+            return EX.ExecutionResult(status=EX.ExecutionStatus.SUCCESS, message="", data={"packages": ["my_tool"]})
+        ex.execute_step = read
+        r = EX.ExecutionResult(status=EX.ExecutionStatus.SUCCESS, message="ok", data={})
+        return await ex._verify_write("tools.create", {"name": "my_tool"}, r)
+
+    out = asyncio.run(run())
+    assert out.status == EX.ExecutionStatus.SUCCESS and out.verified is True
+
+
+def test_phase2_verify_write_inconclusive_when_readback_fails():
+    EX = _executor_mod()
+
+    async def run():
+        ex = EX.ActionExecutor(api_key="x")
+
+        async def read(domain, action, params, description=""):   # read-back endpoint failed (e.g. 404)
+            return EX.ExecutionResult(status=EX.ExecutionStatus.FAILED, message="", data={}, http_status=404)
+        ex.execute_step = read
+        r = EX.ExecutionResult(status=EX.ExecutionStatus.SUCCESS, message="ok", data={})
+        return await ex._verify_write("tools.create", {"name": "my_tool"}, r)
+
+    out = asyncio.run(run())
+    # never regress a success we cannot disprove
+    assert out.status == EX.ExecutionStatus.SUCCESS and out.verified is None
+
+
+def test_phase2_execution_result_todict_carries_verified():
+    EX = _executor_mod()
+    d = EX.ExecutionResult(status=EX.ExecutionStatus.SUCCESS, message="", data={}).to_dict()
+    assert "verified" in d and "verification_detail" in d
+
+
+# ── Registry contracts: the F3/F4/F5 schema fixes must stay declared ──
+def _platform_actions_by_id():
+    pa = _import_from([_REPO], "builder_agent.actions.platform_actions")
+    return {a.capability_id: a for a in pa.get_platform_actions()}
+
+
+def test_mutating_actions_declare_success_indicator():
+    by_id = _platform_actions_by_id()
+    for cap in ("tools.create", "tools.delete", "integrations.test",
+                "mcp.test_server", "integrations.delete", "mcp.delete_server"):
+        a = by_id.get(cap)
+        assert a is not None, f"{cap} missing from registry"
+        assert a.primary_route.success_indicator == "status", \
+            f"{cap} lost success_indicator='status' (F3/F4 silent-success regression)"
+
+
+def test_mcp_test_server_has_type_remote_field():
+    by_id = _platform_actions_by_id()
+    fields = {f.name: getattr(f, "default", None)
+              for f in by_id["mcp.test_server"].primary_route.input_fields}
+    assert fields.get("type") == "remote", "mcp.test_server lost the type='remote' field (F4 regression)"
+
+
+def test_email_configure_exposes_workflow_trigger_fields():
+    by_id = _platform_actions_by_id()
+    names = {f.name for f in by_id["email.configure"].primary_route.input_fields}
+    for f in ("workflow_trigger_enabled", "workflow_id", "workflow_filter_rules"):
+        assert f in names, f"email.configure lost '{f}' (F5 regression — capability unreachable again)"
+
+
+# ── Source-contract guards: the fix lines whose deletion re-opens a silent success ──
+def test_wiring_normalizer_registered_as_after_request():
+    assert "@app.after_request\ndef _normalize_internal_failure_status" in _src(APP_PY), \
+        "normalizer lost its @app.after_request registration — Phase 1 silently disabled"
+
+
+def test_wiring_executor_sends_marker_header():
+    assert "X-AIHub-Internal-Exec" in _src(_EXECUTOR_PY), \
+        "executor no longer sends the internal-exec marker header — Phase 1 normalizer never fires"
+
+
+def test_wiring_execute_step_invokes_verify_write():
+    assert "_verify_write(" in _src(_EXECUTOR_PY), \
+        "execute_step no longer calls _verify_write — Phase 2 read-back unwired"
+
+
+def test_wiring_compiler_threads_real_is_valid():
+    assert 'result["is_valid"] = is_valid' in _src(_WF_COMPILER_PY), \
+        "compiler no longer threads the real is_valid — F2 draft path dead, invalid workflows 'ready to use'"
+
+
+def test_wiring_compile_route_uses_status_mapper():
+    assert "_compile_outcome_status(" in _src(ROUTES_PY), \
+        "compile route no longer uses the three-way status mapper — F2"
+
+
+def test_wiring_cc_build_node_appends_footer():
+    s = _src(CC_NODES_PY)
+    assert "_verification_footer(" in s and "response_text = response_text + _ver_footer" in s, \
+        "CC build node no longer appends the deterministic verification footer — Phase 4 honesty guarantee gone"
+
+
+def test_wiring_builder_messaging_has_draft_branch():
+    assert 'get("status") == "draft"' in _src(_BUILDER_NODES_PY), \
+        "builder messaging lost the draft branch — invalid workflows report 'ready to use' again (F2)"
