@@ -6,7 +6,7 @@
           "name": "Recorded workflow",
           "portal_slug": null,
           "start_url": "http://localhost:3000/login-2fa",
-          "goal": "Log in and download the master price list.",
+          "goal": "Log in and download the master price list file.",
           "agent_oversight": true,
           "takeover_timeout": null,
           "steps": [
@@ -76,7 +76,7 @@
             }
           ],
           "created_at": "2026-06-29T17:04:05+00:00",
-          "updated_at": "2026-07-06T14:16:15+00:00",
+          "updated_at": "2026-07-07T23:32:14+00:00",
           "success_count": 0,
           "last_run_status": "error"
         }
