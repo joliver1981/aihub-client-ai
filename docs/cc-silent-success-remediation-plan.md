@@ -102,17 +102,22 @@ The messaging layer may emit success framing **only** for `VERIFIED_SUCCESS`. Th
 
 Each phase is independently shippable and leaves the system strictly more honest than before. Exact targets are listed so implementation is mechanical when greenlit.
 
-### Phase 0 — Make failure visible (low-risk plumbing)
+### Phase 0 — Make failure visible (low-risk plumbing) — DONE (2026-07-07, commit `ca29fd8`)
 *Goal: let real failure signal reach the gates; kill the cheapest criticals immediately.*
-- **F1:** `delegate_to_builder` (`delegator.py:195-253`) — inspect `resp.status_code` (mirror the sibling delegators that already gate on `== 200`); derive the returned `status` from the embedded `plan['status']` **and** any `event: error` frame, instead of hard-coding `'completed'`.
-- **Gap 2c:** add the missing `else:` in `executor.py:347-357` that `logger.warning`s every dropped param (`capability_id` + key). Turns the entire schema-gap class into a visible log line.
-- **Gap 2a (partial F3/F4):** add `success_indicator="status"` to the 7 exposed mutating actions in `platform_actions.py`. Fixes F3 and half of F4 in minutes (F4 still needs the schema + handler fix below).
+- **F1:** `delegate_to_builder` (`delegator.py`) — now checks `resp.status_code` and derives the returned status from `event: error` frames + the builder plan's aggregated status instead of hard-coding `'completed'`. Companion: CC build node (`nodes.py:~5862`) preserves builder text on failure so the distiller can show an honest ❌.
+- **Gap 2c:** added the `else:` in `executor.py:347-357` that `logger.warning`s dropped params. Entire schema-gap class now visible in logs.
+- **Gap 2a (F3 / partial F4):** added `success_indicator="status"` to **6** mutating actions (`tools.create`, `tools.delete`, `integrations.test`, `integrations.delete`, `mcp.delete_server`, `mcp.test_server`). Verified per-handler: only `tools.create/tools.delete/integrations.test/mcp.test_server` were *live* silent-successes; `integrations.delete`/`mcp.delete_server` already returned 4xx/5xx (indicator = defense-in-depth). **`connections.delete` intentionally skipped** — it targets `DELETE /api/connections/<id>` which has no handler (already 404s → correctly FAILED); it needs a real endpoint (Phase 2 contract-drift). The `mcp.test_server` `type` field (below, F4 completion) was pulled into Phase 1.
 
-### Phase 1 — Honest HTTP contract (Mechanism A)
-*Goal: make the executor's default check correct everywhere.*
-- Fix the ~24 handlers (**Appendix B**) to return `(<body>, 4xx/5xx)` on failure, following the in-repo templates (**Appendix D**). Two mechanical shapes: bare-error-dict → add a status code; ternary-status → return `(payload, 200 if ok else 5xx)`.
-- Fix the unchecked proxy passthroughs (`app.py:10018/10039/10060` pause/resume/cancel; `:11678` knowledge; MCP `:17198/17263`) to map the upstream body's error to a status code.
-- Add the `after_request` failure-body→status-code normalizer as the safety net (exclude the by-design cases in **Appendix C**).
+### Phase 1 — Honest HTTP contract (Mechanism A) — DONE (2026-07-07, commit `38543f4`)
+*Goal: make the executor's default status-code check correct everywhere.*
+
+**Approach revised during implementation → normalizer-primary, executor-scoped.** Reading the handlers in Phase 0 confirmed most of the ~24 endpoints in **Appendix B** are *also called by the classic browser UI*, which relies on `200 + {status:error}` for its own error handling. Rewriting their status codes per-handler would risk regressing UI error paths on every shared endpoint. Instead:
+- **`app.py` `after_request` `_normalize_internal_failure_status`** — coerces `200 + {status:error/failed/failure}` or `{success:false}` JSON bodies to HTTP 500, **only** for requests carrying the executor marker header. One chokepoint on the main Flask app covers every route + blueprint the executor calls (current and future), so the executor's `status_code in success_codes` check is correct without per-action `success_indicator` maintenance. The browser UI is untouched (no marker → no coercion).
+- **`executor.py`** — sends `X-AIHub-Internal-Exec: 1` on all executor HTTP calls (`_get_client`).
+- **`app.py /save`** — initialized `result=False` to fix the latent `UnboundLocalError` on the exception path.
+- The `success:True` + `errors[]` payloads (**Appendix C**) are naturally excluded (detector only trips on `status`∈error-set or `success is False`). Verified with a 9-case Flask test.
+
+*Deferred as optional hygiene (not needed for executor correctness):* the per-handler `(body, 4xx/5xx)` rewrites in **Appendix B** for the benefit of non-executor callers (UI/external), to be done per-endpoint after auditing UI callers. *Known borderline for Phase 2 read-back:* `integration_routes.py:1297` "saved but token not acquired" returns a failure-shaped body though the integration was saved — the normalizer would score it failed (fail-closed, safe); Phase 2 read-back reconciles it.
 
 ### Phase 2 — Deterministic read-back verifier (Mechanism B — the core)
 *Goal: success depends on the world, not the response.*
