@@ -143,14 +143,15 @@ Implemented as a **three-way outcome** rather than a boolean flip (a save-as-dra
 
 **Verified:** 6-case simulation of the status derivation (valid→success, invalid→draft, save-fail/compile-error→500); AST-clean. **Needs main-app + builder_service restart** to deploy; the draft message path is logic-verified (an invalid compile is hard to force on demand live).
 
-### Phase 4 — Fail-closed messaging + `UNVERIFIED` handling (finish the contract; deterministic)
-- Introduce the tri-state `StepOutcome` end-to-end.
-- Gate the CC distiller at the single chokepoint `nodes.py:6058-6062`/`:6106`: forbid success framing unless the plan is `VERIFIED_SUCCESS` with non-empty verified `created_resources`.
-- Replace the four hardcoded "Successfully…" strings and the builder summary-LLM's "be brief and positive" branch (`nodes.py:3019-3024`) so copy is derived from verified outcome, not templated optimism.
-- **`UNVERIFIED` confirm-or-continue (§8.3).** Before executing a step that depends on an `UNVERIFIED` upstream step:
-  - **Interactive channel present** → pause and ask ("Step X couldn't be confirmed — continue with the remaining steps?"). Reuse the existing confirmation/interrupt plumbing (`_should_auto_confirm` path, `nodes.py:5972-6004`) rather than inventing a new prompt path.
-  - **No interactive channel** (scheduled / email-triggered / headless) → proceed best-effort through the downstream steps and carry every `UNVERIFIED` into the final report; never silently upgrade it to success.
-  - Requires an explicit `interactive`/`channel` signal on the run context (scheduler and email-trigger entrypoints must set it false). If the signal is missing, default to the interactive/ask branch (fail-safe: prefer asking over blindly continuing).
+### Phase 4 — Fail-closed messaging (the user-facing boundary) — DONE (2026-07-07, commit `ba02ab3`)
+The culmination: even with an honest executor/builder (Phases 0–3), the CC distiller (an LLM) could re-frame unverified/failed work as "✅ done". Made the user message honest **deterministically**, in `command_center_service/graph/nodes.py`:
+- **`_summarize_verification(plan)`** — classifies executed steps from the per-step `result.verified` (Phase 2 propagates it through the builder plan → SSE → CC): `verified` (True), `unverified` (None **with** a `verification_detail`, i.e. read-back attempted but couldn't confirm), `failed` (status failed or `verified=False`). No-spec reads are not flagged.
+- **Distiller prompt** now carries the authoritative verification facts + a strict rule (claim done only for VERIFIED; report UNVERIFIED as attempted-but-unconfirmed; report FAILED).
+- **Deterministic honesty footer** appended whenever anything failed or is unverified — the guarantee that the truth survives regardless of the LLM's copy. No footer on clean success or draft/pending plans (no noise).
+- **`created_resources`** no longer records a resource from a failed or DISPROVED step; UNVERIFIED creations are still recorded but flagged. `active_delegation` carries a `{verified, unverified, failed}` count.
+- **Verified:** 9-case unit test of the real helpers (extracted via AST); AST-clean. **Needs a command_center_service restart** to deploy.
+
+**Deferred to a follow-up — the §8.3 mid-execution interactive pause.** "Ask before executing a step that depends on an `UNVERIFIED` upstream step" lives in the *builder execute loop* and needs interrupt/resume through the SSE→CC→user round-trip plus an `interactive`/headless run-context signal (scheduler & email-trigger set it false; missing → default to ask). Not built here because: (a) plan-level confirmation already gates execution upfront (`_should_auto_confirm`), and (b) best-effort-continue *with honest reporting* — now delivered by the messaging gate above — is the safe current behavior. Tracked in §9.
 
 ### Phase 5 — Anti-silent-success regression harness
 *Goal: prove it's solved, don't believe it.*
@@ -206,6 +207,7 @@ A capability "passes" only when all rows produce honest framing. The suite must 
 - **`email.provision` workflow fields** — provision still can't express the workflow trigger; only relevant if first-time setup should configure it (verify the provision endpoint accepts the fields first).
 - **Per-handler `(body, 4xx/5xx)` hygiene** (from Phase 1) — optional, for non-executor callers, after auditing UI callers (**Appendix B/D**).
 - **Extend verifier specs** — `connections.create`/`update`, `integrations.create`/`update`, `schedules.create`, `jobs.create`, `users.create`, `agents.update` (field-level), etc. Each needs its read-back shape pinned (connections.list shape was inconclusive on probe).
+- **§8.3 mid-execution interactive pause** (deferred from Phase 4) — pause before a step that depends on an `UNVERIFIED` upstream step when an interactive channel exists; needs builder-loop interrupt/resume + an interactive/headless run-context signal.
 
 ## Appendix A — Full finding evidence
 - **F1:** `delegator.py:195` opens the stream with no `status_code`/`raise_for_status` in the 195-253 block; `:214-215` is the only token writer; `:220-223` appends error text without changing status; `:248-253` unconditional `completed`; `:255-257` is the sole failure path. Siblings `delegate_to_agent:118-122`, `delegate_to_mcp_tool:285-286`, `execute_workflow:317-318` all gate on `status_code==200`.
