@@ -85,11 +85,16 @@ ENABLED = os.getenv("BROWSER_USE_ENABLED", "true").lower() == "true"
 ALLOW_ALL_USERS = os.getenv("BROWSER_USE_ALLOW_ALL_USERS", "false").lower() == "true"
 
 # --- browser-use runtime ---
-# The LLM that DRIVES the agent loop. Default is Claude (matches the Command Center agent and
-# keeps portal content inside the platform's existing Anthropic trust boundary rather than
-# sending it to a second vendor). browser-use's ChatAnthropic/ChatOpenAI read their RAW api
-# key from os.environ — ensure_llm_api_key() populates it from the encrypted .env value.
-LLM_MODEL = os.getenv("BROWSER_USE_LLM_MODEL", "claude-opus-4-8")
+# The LLM that DRIVES the agent loop. Platform convention: AGENTIC work runs on the OpenAI
+# stack (the same get_openai_config()-shaped Azure/OpenAI transport the Command Center agent
+# uses — which is also the only transport a CLIENT install can use with BYOK off, because the
+# Azure endpoint + encrypted key are baked in via _build_config); Anthropic is reserved for
+# document processing and one-off calls. Default therefore follows the platform's Azure
+# deployment. Set BROWSER_USE_LLM_MODEL=claude-* to explicitly drive with Claude instead
+# (requires BYOK or a provisioned Anthropic key — see ensure_llm_api_key).
+LLM_MODEL = (os.getenv("BROWSER_USE_LLM_MODEL")
+             or os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+             or "gpt-5.2")
 # Headless (true) is the DEFAULT. Headless Chrome drops office/binary download-navigations,
 # but portal_runner re-pulls them via an in-page fetch (see _make_download_capturer), so
 # downloads work headless AND need no interactive desktop - the right mode for an NSSM service
@@ -184,6 +189,88 @@ def _provider_for_model(model):
     if m.startswith("claude") or m.startswith("anthropic"):
         return "anthropic", "ANTHROPIC_API_KEY"
     return "openai", "OPENAI_API_KEY"
+
+
+def _env_or_build(name, default=""):
+    """env var if non-empty, else the build-baked _build_config attribute, else default.
+    Mirrors encrypt._env_or_build — _build_config ships inside the frozen exes and (from
+    v1.7.5) as a loose {app} module, so a CLIENT resolves the platform Azure endpoint/key
+    with an empty .env, exactly like the frozen Command Center does."""
+    v = os.getenv(name)
+    if v:
+        return v
+    try:
+        import _build_config as _bc
+        v = getattr(_bc, name, None)
+        if v:
+            return v
+    except Exception:
+        pass
+    return default
+
+
+def _decrypt(enc):
+    """Decrypt a Fernet-encrypted config value with the platform key; None on any failure."""
+    if not enc:
+        return None
+    try:
+        from encrypt import decrypt_value, ENCRYPTION_KEY
+        return decrypt_value(enc, ENCRYPTION_KEY)
+    except Exception:
+        return None
+
+
+def resolve_openai_driver(model=None):
+    """Resolve the OpenAI-stack transport for the driver LLM, mirroring the platform's
+    api_keys_config.get_openai_config() priorities WITHOUT importing it (it pulls Flask,
+    absent from this isolated env):
+      1. BYOK user key (USER_OPENAI_API_KEY, byok_config.json gate) → direct OpenAI
+      2. USE_OPENAI_API → direct OpenAI with the system key
+      3. default → Azure OpenAI (endpoint + encrypted key via env-or-_build_config — the
+         client-native path; how CC runs on a stock client with BYOK off)
+    Returns a dict {'api_type': 'open_ai'|'azure', 'api_key', 'model'/'azure_*'...} or None
+    when nothing is configured."""
+    wanted = (model or "").strip() or None
+
+    # 1. BYOK (same gate as ensure_llm_api_key's anthropic path)
+    try:
+        import json as _json
+        _byok_path = os.path.join(
+            os.getenv("AIHUB_DATA_DIR") or os.path.join(APP_ROOT, "data"), "byok_config.json")
+        with open(_byok_path, "r") as _fh:
+            _byok_on = bool(_json.load(_fh).get("byok_enabled", False))
+    except Exception:
+        _byok_on = False
+    if _byok_on:
+        try:
+            from local_secrets import get_local_secret
+            key = get_local_secret("USER_OPENAI_API_KEY")
+        except Exception:
+            key = None
+        if key:
+            return {"api_type": "open_ai", "api_key": key,
+                    "base_url": _env_or_build("OPENAI_API_BASE_URL", "https://api.openai.com/v1"),
+                    "model": wanted or _env_or_build("OPENAI_DEPLOYMENT_NAME", "gpt-5.2")}
+
+    # 2. Direct OpenAI when the install is configured for it
+    if str(_env_or_build("USE_OPENAI_API", "")).lower() in ("true", "1", "yes"):
+        key = os.getenv("OPENAI_API_KEY") or _decrypt(_env_or_build("OPENAI_API_KEY_ENCRYPTED"))
+        if key:
+            return {"api_type": "open_ai", "api_key": key,
+                    "base_url": _env_or_build("OPENAI_API_BASE_URL", "https://api.openai.com/v1"),
+                    "model": wanted or _env_or_build("OPENAI_DEPLOYMENT_NAME", "gpt-5.2")}
+
+    # 3. Azure OpenAI (platform default)
+    endpoint = _env_or_build("AZURE_OPENAI_BASE_URL")
+    if endpoint:
+        key = os.getenv("AZURE_OPENAI_API_KEY") or _decrypt(_env_or_build("AZURE_OPENAI_API_KEY_ENCRYPTED"))
+        if key:
+            deployment = wanted or _env_or_build("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5.2")
+            return {"api_type": "azure", "api_key": key,
+                    "azure_endpoint": endpoint,
+                    "api_version": _env_or_build("AZURE_OPENAI_API_VERSION", "2024-12-01-preview"),
+                    "azure_deployment": deployment, "model": deployment}
+    return None
 
 
 def ensure_llm_api_key(model=None):

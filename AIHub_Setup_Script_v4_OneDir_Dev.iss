@@ -81,6 +81,14 @@ Source: "C:\src\aihub-client-ai-dev\integrations\*"; DestDir: "{app}\integration
 ; Secure configuration loader and credential seeding script
 Source: "C:\src\aihub-client-ai-dev\secure_config.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "C:\src\aihub-client-ai-dev\seed_credentials.py"; DestDir: "{app}"; Flags: ignoreversion
+; Shared key-resolution modules for SOURCE-run services (Browser Use / Strategy B): the frozen
+; services carry these inside their PYZ, but browser_use_service imports them from {app} via
+; sys.path. Without them a client resolves NO keys (encrypt/_ENCRYPTED decrypt, BYOK via
+; local_secrets, and the _build_config-baked Azure OpenAI endpoint+key all dead-end).
+; _build_config holds the same baked values already present in every frozen exe on this disk.
+Source: "C:\src\aihub-client-ai-dev\encrypt.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "C:\src\aihub-client-ai-dev\local_secrets.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "C:\src\aihub-client-ai-dev\_build_config.py"; DestDir: "{app}"; Flags: ignoreversion
 
 [Registry]
 ; Store API key securely in the registry (ACL restricted to Administrators + SYSTEM)

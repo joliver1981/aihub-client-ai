@@ -170,18 +170,55 @@ def _snapshot(d):
 
 
 def _build_llm(model):
-    """Build the browser-use provider wrapper for `model`. browser-use ships ChatAnthropic and
-    ChatOpenAI (0.12.x); both read their RAW api key from os.environ, so populate it first
-    (AI Hub stores LLM keys encrypted — see browser_use_config.ensure_llm_api_key)."""
-    try:
-        import browser_use_config as _cfg
-        _cfg.ensure_llm_api_key(model)
-    except Exception:
-        pass  # fail-soft: let the provider SDK surface a missing-key error
+    """Build the browser-use provider wrapper for `model`.
+
+    Platform convention: agentic work rides the OpenAI stack. For non-claude models we
+    resolve the SAME Azure/OpenAI transport the Command Center agent uses
+    (browser_use_config.resolve_openai_driver — Azure endpoint + key come from
+    env-or-_build_config, so a CLIENT works with BYOK off and an empty .env). Claude stays
+    available via an explicit BROWSER_USE_LLM_MODEL=claude-* override and resolves its key
+    through ensure_llm_api_key (BYOK / local store / encrypted .env)."""
+    import browser_use_config as _cfg
     m = (model or "").lower()
     if m.startswith("claude") or m.startswith("anthropic"):
+        try:
+            _cfg.ensure_llm_api_key(model)
+        except Exception:
+            pass  # fail-soft: let the provider SDK surface a missing-key error
         from browser_use import ChatAnthropic
         return ChatAnthropic(model=model)
+
+    drv = None
+    try:
+        drv = _cfg.resolve_openai_driver(model)
+    except Exception:
+        drv = None
+    # browser-use defaults reasoning_effort='low' for reasoning models (gpt-5*/o*), but the
+    # platform Azure deployments only accept 'medium' (400 unsupported_value otherwise).
+    _effort = os.getenv("BROWSER_USE_REASONING_EFFORT", "medium")
+    if drv and drv.get("api_type") == "azure":
+        from browser_use import ChatAzureOpenAI
+        return ChatAzureOpenAI(
+            model=drv["model"],
+            api_key=drv["api_key"],
+            azure_endpoint=drv["azure_endpoint"],
+            azure_deployment=drv["azure_deployment"],
+            api_version=drv["api_version"],
+            reasoning_effort=_effort,
+        )
+    if drv and drv.get("api_type") == "open_ai":
+        from browser_use import ChatOpenAI
+        kwargs = {"model": drv["model"], "api_key": drv["api_key"], "reasoning_effort": _effort}
+        base = (drv.get("base_url") or "").rstrip("/")
+        if base and "api.openai.com" not in base:
+            kwargs["base_url"] = base
+        return ChatOpenAI(**kwargs)
+
+    # Last resort: env-key ChatOpenAI (dev boxes with a raw OPENAI_API_KEY in .env)
+    try:
+        _cfg.ensure_llm_api_key(model)
+    except Exception:
+        pass
     from browser_use import ChatOpenAI
     return ChatOpenAI(model=model)
 

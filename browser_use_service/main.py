@@ -68,23 +68,45 @@ if AUTH_ENFORCE and not INTERNAL_TOKEN:
         "secrets store) — auth enforcement is ON, so EVERY internal call (Command Center portal "
         "runs) will be rejected with 401 'invalid or missing internal token'.")
 
-# Resolve the driver model's provider key up front (decrypts the encrypted .env value) so a
-# misconfiguration is obvious at startup rather than on the first portal run. Never logs it.
-_llm_env = config.ensure_llm_api_key()
-if _llm_env:
-    log.info("LLM driver model=%s provider_key=resolved", config.LLM_MODEL)
-else:
-    _, _want = config._provider_for_model(config.LLM_MODEL)
-    if os.getenv(f"{_want}_ENCRYPTED"):
-        _why = (f"{_want}_ENCRYPTED is present but did NOT decrypt — check that this install's "
-                "ENCRYPTION_SECRET/_build_config matches the one that encrypted it")
+# Resolve the driver transport up front so a misconfiguration is obvious at startup rather
+# than on the first portal run. Never logs key material.
+_provider, _want = config._provider_for_model(config.LLM_MODEL)
+if _provider == "anthropic":
+    # Explicit Claude override — needs a raw/BYOK/encrypted Anthropic key.
+    _llm_env = config.ensure_llm_api_key()
+    if _llm_env:
+        log.info("LLM driver model=%s via direct Anthropic, key=resolved", config.LLM_MODEL)
     else:
-        _why = (f"no BYOK key (Settings → API Keys, stored as USER_{_want} with BYOK enabled), "
-                f"no {_want} in the local secrets store or environment/.env, and no "
-                f"{_want}_ENCRYPTED line in .env — the BYOK settings page is the no-.env-edit "
-                "way to provision it")
-    log.error("LLM driver model=%s provider_key=MISSING (%s) — portal runs will fail at the "
-              "first LLM step.", config.LLM_MODEL, _why)
+        if os.getenv(f"{_want}_ENCRYPTED"):
+            _why = (f"{_want}_ENCRYPTED is present but did NOT decrypt — check that this "
+                    "install's ENCRYPTION_SECRET/_build_config matches the one that encrypted it")
+        else:
+            _why = (f"no BYOK key (Settings → API Keys, stored as USER_{_want} with BYOK "
+                    f"enabled), no {_want} in the local secrets store or environment/.env, and "
+                    f"no {_want}_ENCRYPTED line in .env")
+        log.error("LLM driver model=%s provider_key=MISSING (%s) — portal runs will fail at "
+                  "the first LLM step.", config.LLM_MODEL, _why)
+else:
+    _drv = None
+    try:
+        _drv = config.resolve_openai_driver(config.LLM_MODEL)
+    except Exception as _drv_err:
+        log.warning("resolve_openai_driver failed: %s", _drv_err)
+    if _drv and _drv.get("api_type") == "azure":
+        log.info("LLM driver model=%s via Azure OpenAI (deployment=%s, endpoint=%s), "
+                 "key=resolved", config.LLM_MODEL, _drv.get("azure_deployment"),
+                 _drv.get("azure_endpoint"))
+    elif _drv:
+        log.info("LLM driver model=%s via direct OpenAI, key=resolved (%s)",
+                 config.LLM_MODEL, _drv.get("base_url") or "api.openai.com")
+    elif config.ensure_llm_api_key():
+        log.info("LLM driver model=%s via direct OpenAI, key=resolved (raw env key)",
+                 config.LLM_MODEL)
+    else:
+        log.error("LLM driver model=%s transport=MISSING — no Azure OpenAI config "
+                  "(AZURE_OPENAI_BASE_URL + AZURE_OPENAI_API_KEY[_ENCRYPTED] via env or "
+                  "_build_config), no BYOK/USE_OPENAI_API key, and no raw OPENAI_API_KEY. "
+                  "Portal runs will fail at the first LLM step.", config.LLM_MODEL)
 
 # Surface the bundled-Chromium resolution decision at startup so a missing browser is obvious
 # in the log rather than as a cryptic launch failure on the first portal run.
