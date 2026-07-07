@@ -1347,6 +1347,47 @@ def before_request():
         RequestTracking.set_user_id(current_user.id)
 
 
+@app.after_request
+def _normalize_internal_failure_status(response):
+    """Fail-closed HTTP contract for internal executor calls (silent-success fix).
+
+    Many handlers signal failure only in the JSON body (status:'error'/'failed'/'failure'
+    or success:false) while still returning HTTP 200. The Builder / Command Center
+    executor scores an operation by HTTP status, so those 200-on-error responses are
+    read as SUCCESS ("silent success"). This hook coerces such responses to HTTP 500 —
+    but ONLY for requests that carry the internal-executor marker header, so the classic
+    browser UI (which relies on 200 + error-body for its own error handling) is completely
+    unaffected. The response body is left intact so the executor still gets the error text.
+    """
+    try:
+        if not request.headers.get("X-AIHub-Internal-Exec"):
+            return response
+        if not (200 <= response.status_code < 300):
+            return response
+        if not (response.content_type or "").startswith("application/json"):
+            return response
+        body = response.get_json(silent=True)
+        if not isinstance(body, dict):
+            return response
+        status_val = body.get("status")
+        success_val = body.get("success")
+        is_failure = (
+            (isinstance(status_val, str) and status_val.lower() in ("error", "failed", "failure"))
+            or success_val is False
+        )
+        if is_failure:
+            logger.warning(
+                f"[internal-exec] Coercing HTTP {response.status_code} -> 500 for "
+                f"{request.method} {request.path}: body signals failure "
+                f"(status={status_val!r}, success={success_val!r})"
+            )
+            response.status_code = 500
+    except Exception as _norm_err:
+        # Never let the normalizer break a response.
+        logger.debug(f"[internal-exec] status normalizer skipped: {_norm_err}")
+    return response
+
+
 def set_user_id_for_tracking(module_name, request_id=None, user_id=None):
     try:
         if current_user.is_authenticated:
@@ -2840,6 +2881,8 @@ def agent_delete():
 @cross_origin()
 @api_key_or_session_required(min_role=2)
 def save():
+    result = False  # guard: if save_custom_tool raises below, the except only logs and
+                    # `result` would otherwise be unbound at the `if result:` check (500).
     try:
         logger.debug('Save custom tool called...')
         modules = request.json.get('modules', [])

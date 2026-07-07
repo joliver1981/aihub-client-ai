@@ -2372,6 +2372,14 @@ def _mcp_actions() -> list:
                         "transport_type", FieldType.ENUM, required=True,
                         choices=["sse", "streamable_http"],
                     ),
+                    # The /api/mcp/test handler short-circuits with {status:"failed"}
+                    # unless type == "remote". This field was missing, so the executor
+                    # dropped it and the guard rejected every request (F4). Default it so
+                    # the test actually runs; the endpoint only supports remote servers.
+                    FieldSchema(
+                        "type", FieldType.STRING, required=False, default="remote",
+                        description="Server type — must be 'remote' (this endpoint only tests remote MCP servers).",
+                    ),
                 ],
                 response_mappings=[
                     ResponseMapping("connected", "success", field_type=FieldType.BOOLEAN),

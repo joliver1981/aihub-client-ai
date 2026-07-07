@@ -204,6 +204,12 @@ class ActionExecutor:
         if service not in self._clients:
             base_url = self._get_service_base_url(service)
             headers = {}
+            # Marker so the target service can fail-closed the HTTP contract for
+            # executor-originated calls (coerce 200 + {status:"error"} bodies to a real
+            # error status) WITHOUT affecting the classic browser UI, which relies on
+            # 200 + error-body for its own error handling. See the main app's
+            # _normalize_internal_failure_status after_request hook.
+            headers["X-AIHub-Internal-Exec"] = "1"
             if self.api_key:
                 # Use both headers for compatibility:
                 # - X-Internal-API-Key: Checked first by internal_api_key_required()
