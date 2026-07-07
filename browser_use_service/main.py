@@ -62,12 +62,28 @@ app = FastAPI(title="AI Hub Browser Use Service", version="0.1.0")
 
 INTERNAL_TOKEN = config.get_secret("API_KEY")
 AUTH_ENFORCE = os.getenv("BROWSER_USE_AUTH_ENFORCE", "true").lower() == "true"
+if AUTH_ENFORCE and not INTERNAL_TOKEN:
+    log.error(
+        "Internal auth token NOT resolved (no API_KEY via registry/secure_config, .env, or the "
+        "secrets store) — auth enforcement is ON, so EVERY internal call (Command Center portal "
+        "runs) will be rejected with 401 'invalid or missing internal token'.")
 
 # Resolve the driver model's provider key up front (decrypts the encrypted .env value) so a
 # misconfiguration is obvious at startup rather than on the first portal run. Never logs it.
 _llm_env = config.ensure_llm_api_key()
-log.info("LLM driver model=%s provider_key=%s", config.LLM_MODEL,
-         "resolved" if _llm_env else "MISSING")
+if _llm_env:
+    log.info("LLM driver model=%s provider_key=resolved", config.LLM_MODEL)
+else:
+    _, _want = config._provider_for_model(config.LLM_MODEL)
+    if os.getenv(f"{_want}_ENCRYPTED"):
+        _why = (f"{_want}_ENCRYPTED is present but did NOT decrypt — check that this install's "
+                "ENCRYPTION_SECRET/_build_config matches the one that encrypted it")
+    else:
+        _why = (f"neither {_want} nor {_want}_ENCRYPTED found in the environment/.env, and no "
+                f"{_want} entry in the local secrets store — add the {_want}_ENCRYPTED line to "
+                "{APP_ROOT}\\.env or provision it via Local Secrets")
+    log.error("LLM driver model=%s provider_key=MISSING (%s) — portal runs will fail at the "
+              "first LLM step.", config.LLM_MODEL, _why)
 
 # Surface the bundled-Chromium resolution decision at startup so a missing browser is obvious
 # in the log rather than as a cryptic launch failure on the first portal run.

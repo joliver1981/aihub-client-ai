@@ -55,6 +55,19 @@ try:
 except Exception:
     pass
 
+# Load the platform secure config (registry API_KEY + encrypted secrets store) the same way
+# every other service does at startup. On a CLIENT install the license API_KEY lives in the
+# WINDOWS REGISTRY, not .env — without this call get_secret("API_KEY") is None, so main.py's
+# require_internal has no token and EVERY internal call from Command Center is rejected with
+# 401 "invalid or missing internal token" (portal runs die before reaching the portal). The
+# dev box masks it because the repo .env carries API_KEY. Fail-soft: if secure_config can't
+# import (exotic env), .env/env resolution still applies.
+try:
+    import secure_config as _sc
+    _sc.load_secure_config()
+except Exception:
+    pass
+
 # --- Networking ---
 HOST = os.getenv("BROWSER_USE_HOST", "127.0.0.1")  # loopback; the main app calls it over HTTP
 
