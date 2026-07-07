@@ -169,34 +169,20 @@ def _snapshot(d):
     return snap
 
 
-def _build_llm(model):
-    """Build the browser-use provider wrapper for `model`.
-
-    Platform convention: agentic work rides the OpenAI stack. For non-claude models we
-    resolve the SAME Azure/OpenAI transport the Command Center agent uses
-    (browser_use_config.resolve_openai_driver — Azure endpoint + key come from
-    env-or-_build_config, so a CLIENT works with BYOK off and an empty .env). Claude stays
-    available via an explicit BROWSER_USE_LLM_MODEL=claude-* override and resolves its key
-    through ensure_llm_api_key (BYOK / local store / encrypted .env)."""
-    import browser_use_config as _cfg
-    m = (model or "").lower()
-    if m.startswith("claude") or m.startswith("anthropic"):
-        try:
-            _cfg.ensure_llm_api_key(model)
-        except Exception:
-            pass  # fail-soft: let the provider SDK surface a missing-key error
-        from browser_use import ChatAnthropic
-        return ChatAnthropic(model=model)
-
-    drv = None
+def _openai_stack_llm(_cfg, driver_model):
+    """Build the platform OpenAI-stack wrapper (Azure or direct OpenAI) for `driver_model`,
+    or None if nothing resolves. Azure endpoint + key come from env-or-_build_config, so a
+    CLIENT works with BYOK off and an empty .env."""
     try:
-        drv = _cfg.resolve_openai_driver(model)
+        drv = _cfg.resolve_openai_driver(driver_model)
     except Exception:
         drv = None
+    if not drv:
+        return None
     # browser-use defaults reasoning_effort='low' for reasoning models (gpt-5*/o*), but the
     # platform Azure deployments only accept 'medium' (400 unsupported_value otherwise).
     _effort = os.getenv("BROWSER_USE_REASONING_EFFORT", "medium")
-    if drv and drv.get("api_type") == "azure":
+    if drv.get("api_type") == "azure":
         from browser_use import ChatAzureOpenAI
         return ChatAzureOpenAI(
             model=drv["model"],
@@ -206,13 +192,62 @@ def _build_llm(model):
             api_version=drv["api_version"],
             reasoning_effort=_effort,
         )
-    if drv and drv.get("api_type") == "open_ai":
+    if drv.get("api_type") == "open_ai":
         from browser_use import ChatOpenAI
         kwargs = {"model": drv["model"], "api_key": drv["api_key"], "reasoning_effort": _effort}
         base = (drv.get("base_url") or "").rstrip("/")
         if base and "api.openai.com" not in base:
             kwargs["base_url"] = base
         return ChatOpenAI(**kwargs)
+    return None
+
+
+def _build_llm(model):
+    """Build the browser-use provider wrapper for `model`.
+
+    Platform convention: agentic work rides the OpenAI stack. For non-claude models we
+    resolve the SAME Azure/OpenAI transport the Command Center agent uses
+    (browser_use_config.resolve_openai_driver — Azure endpoint + key come from
+    env-or-_build_config, so a CLIENT works with BYOK off and an empty .env). Claude is an
+    explicit opt-in (BROWSER_USE_LLM_MODEL=claude-*) that is honored ONLY when an Anthropic
+    key actually resolves; otherwise we fall back to the OpenAI stack rather than building a
+    keyless ChatAnthropic (which dies 'Could not resolve authentication method' on EVERY
+    step). That fallback is what makes an upgraded client work whose preserved .env still
+    pins BROWSER_USE_LLM_MODEL=claude-opus-4-8 while it has no Anthropic key."""
+    import browser_use_config as _cfg
+    m = (model or "").lower()
+
+    if m.startswith("claude") or m.startswith("anthropic"):
+        key_env = None
+        try:
+            key_env = _cfg.ensure_llm_api_key(model)
+        except Exception:
+            key_env = None
+        if key_env:
+            from browser_use import ChatAnthropic
+            return ChatAnthropic(model=model)
+        # Claude requested but NO Anthropic key resolved. Fall back to the platform OpenAI
+        # stack (resolve with the DEFAULT deployment, not the claude id). log at WARNING so
+        # the substitution is visible without being fatal.
+        fallback = _openai_stack_llm(_cfg, None)
+        if fallback is not None:
+            log.warning(
+                "BROWSER_USE_LLM_MODEL=%s was requested but no Anthropic key resolved "
+                "(BYOK/local store/encrypted .env all empty) - falling back to the platform "
+                "OpenAI/Azure driver (%s). Remove/change the BROWSER_USE_LLM_MODEL line in "
+                ".env to silence this.", model, type(fallback).__name__)
+            return fallback
+        # Nothing resolved at all — surface the clearest error via the provider SDK.
+        log.error("Claude driver requested but NEITHER an Anthropic key NOR an OpenAI/Azure "
+                  "config resolved — the agent cannot authenticate. Provide an Azure OpenAI "
+                  "config (_build_config/env) or an Anthropic key.")
+        from browser_use import ChatAnthropic
+        return ChatAnthropic(model=model)
+
+    # Non-claude: the platform OpenAI stack for the requested model.
+    wrapper = _openai_stack_llm(_cfg, model)
+    if wrapper is not None:
+        return wrapper
 
     # Last resort: env-key ChatOpenAI (dev boxes with a raw OPENAI_API_KEY in .env)
     try:
