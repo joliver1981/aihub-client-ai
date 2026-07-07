@@ -287,10 +287,19 @@ class SessionManager:
             every session, including legacy/unstamped rows.
           - Within the caller's own tenant, regular users see only their
             own sessions (matched by user_id).
-          - Callers that omit user_id or tenant_id see nothing. "No
-            identity" means "not the owner", never "skip the check".
+          - Callers that omit user_id see nothing. "No identity" means
+            "not the owner", never "skip the check".
+          - Tenant is OPTIONAL identity: a single-tenant install carries it
+            as None (the JWT mints tenant_id=null), 0 (the chat route
+            stamps int(None or 0)), or omits the query param entirely. All
+            three mean "the default tenant" — normalize BOTH sides to 0 so
+            a null-tenant caller isn't locked out of a 0-tenant session
+            (otherwise every message after the first 404s with
+            SESSION-OWNER-MISMATCH and the session list comes back empty).
+            Real tenants (1, 2, ...) still hard-isolate from each other and
+            from the default tenant.
         """
-        if user_id is None or tenant_id is None:
+        if user_id is None:
             return False
 
         ctx = session.user_context
@@ -305,9 +314,9 @@ class SessionManager:
 
         try:
             owner_uid = int(ctx.user_id)
-            owner_tid = int(ctx.tenant_id)
+            owner_tid = int(ctx.tenant_id or 0)
             req_uid = int(user_id)
-            req_tid = int(tenant_id)
+            req_tid = int(tenant_id or 0)
         except (TypeError, ValueError):
             return False
 

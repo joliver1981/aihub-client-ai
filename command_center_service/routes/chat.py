@@ -216,7 +216,11 @@ async def chat(request: Request):
     if session_id and user_context and isinstance(user_context, dict):
         try:
             _req_uid = int(user_context.get("user_id") or 0) or None
-            _req_tid = int(user_context.get("tenant_id") or 0) or None
+            # 0-default, NOT `or None`: the owner stamp below writes
+            # tenant_id=int(... or 0), so the requester side must use the
+            # same encoding or a single-tenant install (JWT tenant_id=null)
+            # mismatches its own session on every message after the first.
+            _req_tid = int(user_context.get("tenant_id") or 0)
             _req_role = int(user_context.get("role") or 0)
             _ownership_verdict = _session_mgr.check_session_ownership(
                 session_id, _req_uid, _req_tid, _req_role

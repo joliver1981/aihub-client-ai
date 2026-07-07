@@ -1001,7 +1001,11 @@ begin
     Exec(ExpandConstant('{app}\nssm.exe'), 'set AIHubBrowserUse ObjectName ' + LocalDomain + '\' + LocalUser + ' ' + LocalPwd, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 
   // Pass env so prod can override the port without a rebuild, and so APP_ROOT is the shared {app} root.
-  Exec(ExpandConstant('{app}\nssm.exe'), 'set AIHubBrowserUse AppEnvironmentExtra HOST_PORT=5001 APP_ROOT=' + ExpandConstant('{app}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  // Each KEY=VALUE must be its own QUOTED argument: NSSM stores one MULTI_SZ entry per argv
+  // element, so an unquoted APP_ROOT=C:\Program Files\AIHub splits at the space and the
+  // service sees APP_ROOT=C:\Program (poisoning .env/chromium/secrets resolution). Same
+  // spaced-path family as the AppParameters main.py bug — invisible on a space-free dev path.
+  Exec(ExpandConstant('{app}\nssm.exe'), 'set AIHubBrowserUse AppEnvironmentExtra HOST_PORT=5001 "APP_ROOT=' + ExpandConstant('{app}') + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{app}\nssm.exe'), 'set AIHubBrowserUse Description "AI Hub Browser Use (portal RPA) service"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   ConfigureServiceRecovery('AIHubBrowserUse');
   Exec(ExpandConstant('{app}\nssm.exe'), 'start AIHubBrowserUse', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);

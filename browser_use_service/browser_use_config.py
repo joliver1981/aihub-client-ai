@@ -22,10 +22,18 @@ except Exception:
 
 def _find_app_root():
     """Resolve the AIHub install/repo root (where logs/, data/, local_secrets.py live).
-    1) APP_ROOT env if set. 2) frozen: grandparent of the exe. 3) dev: parent of this
-    service folder (browser_use_service/ sits directly under the repo root)."""
+    1) APP_ROOT env if set AND a real directory. 2) frozen: grandparent of the exe.
+    3) dev/Strategy-B: parent of this service folder (browser_use_service/ sits directly
+    under the repo/install root).
+
+    The isdir guard is load-bearing: NSSM's AppEnvironmentExtra splits on spaces, so an
+    unquoted `APP_ROOT=C:\\Program Files\\AIHub` reaches us truncated as `C:\\Program`
+    (invisible on a dev box whose path has no space). Trusting that poisons EVERY derived
+    path — .env never loads (LLM provider_key=MISSING), the chromium glob roots in the
+    wrong place, and local_secrets can't import. Fall through to the parent-of-this-file
+    rule instead, which is always correct for a Strategy-B deployment."""
     explicit = os.getenv("APP_ROOT")
-    if explicit:
+    if explicit and os.path.isdir(explicit):
         return os.path.abspath(explicit)
     if getattr(sys, "frozen", False):
         return os.path.dirname(os.path.dirname(os.path.abspath(sys.executable)))
@@ -98,6 +106,44 @@ DOWNLOAD_DIR = os.getenv(
     "BROWSER_USE_DOWNLOAD_DIR", os.path.join(APP_ROOT, "data", "browser_use_downloads")
 )
 
+
+# --- Bundled Chromium resolution (client installs) ---
+def resolve_chrome_executable():
+    """Locate the bundled Chromium binary, or None to let browser-use discover a browser
+    itself (dev-box mode: system Chrome / the Playwright cache).
+
+    Why we resolve it OURSELVES: browser-use 0.12.9's local-browser discovery globs the
+    LITERAL Windows segment `chromium-*\\chrome-win\\chrome.exe`, but modern Playwright
+    builds ship `chrome-win64` — so on a clean client the glob never matches, discovery
+    returns None, and the fallback (`uvx playwright install chromium`) is impossible
+    offline → every portal run dies at browser launch. Invisible on a dev box because an
+    installed system Chrome masks it. portal_runner/workflow_runner pass this value as
+    `executable_path`, which takes the watchdog's executable-path-first branch and
+    bypasses the broken glob entirely.
+
+    Roots searched: PLAYWRIGHT_BROWSERS_PATH if set, else {APP_ROOT}\\browser_use_chromium
+    (where the installer stages the bundle). Newest chromium revision wins."""
+    import glob as _glob
+    import re as _re
+    root = os.getenv("PLAYWRIGHT_BROWSERS_PATH") or os.path.join(APP_ROOT, "browser_use_chromium")
+    try:
+        hits = _glob.glob(os.path.join(root, "chromium-*", "chrome-win64", "chrome.exe"))
+    except Exception:
+        hits = []
+    if not hits:
+        return None
+
+    def _revision(path):
+        m = _re.search(r"chromium-(\d+)", path)
+        return int(m.group(1)) if m else -1
+
+    return max(hits, key=_revision)
+
+
+# None on a dev box with no bundle — consumers (main.py startup log, portal_runner,
+# workflow_runner) all treat None as "use browser-use's own discovery".
+CHROME_EXECUTABLE = resolve_chrome_executable()
+
 # --- Logging ---
 LOG_DIR = os.path.join(APP_ROOT, "logs")
 LOG_FILE = os.getenv("BROWSER_USE_LOG", os.path.join(LOG_DIR, "browser_use_service.log"))
@@ -144,6 +190,16 @@ def ensure_llm_api_key(model=None):
     _, env_name = _provider_for_model(model or LLM_MODEL)
     if os.getenv(env_name):
         return env_name  # already plaintext (explicit override or a prior call)
+    # Encrypted LocalSecretsManager next (the client's Option D store) — lets an admin
+    # provision the LLM key without editing .env at all.
+    try:
+        from local_secrets import get_local_secret
+        val = get_local_secret(env_name)
+        if val:
+            os.environ[env_name] = val
+            return env_name
+    except Exception:
+        pass
     enc = os.getenv(f"{env_name}_ENCRYPTED")
     if not enc:
         return None
