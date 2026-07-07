@@ -58,6 +58,16 @@ for _noisy in ("cdp_use", "uvicorn.access", "httpx", "httpcore", "openai", "anth
     logging.getLogger(_noisy).setLevel(logging.WARNING)
 log = logging.getLogger("browser_use_service")
 
+# Runtime hardening for the pinned browser-use 0.12.9 — installs a tolerant structured-output
+# JSON parser so reasoning models (gpt-5.x) that append trailing characters after a valid JSON
+# object don't fail every other agent step. Safe superset (only rescues otherwise-failing
+# parses). Must run before any portal/workflow run builds an agent.
+try:
+    import bu_patches
+    bu_patches.install_all()
+except Exception as _bu_patch_err:  # fail-soft: never block startup on a hardening patch
+    log.warning("bu_patches failed to install (continuing without it): %s", _bu_patch_err)
+
 app = FastAPI(title="AI Hub Browser Use Service", version="0.1.0")
 
 INTERNAL_TOKEN = config.get_secret("API_KEY")

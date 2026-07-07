@@ -2809,12 +2809,22 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
 
         if res.get("needs_human"):
             link = _pf.cobrowse_link(run_id)
-            return (f"The portal is still waiting for you to finish the verification step. If "
-                    f"you haven't yet, take over here: {link} — I'll deliver the file "
-                    "automatically once you hand back. Relay this link to the user verbatim.")
-        return ("The portal run is taking longer than usual but is still working in the "
-                "background. I'll keep going — the file will be delivered here the moment it's "
-                "ready.")
+            return (f"The portal is waiting for you to finish the verification step. Take over "
+                    f"here: {link} — then, once you've handed back, ask me to \"check the "
+                    "download\" and I'll call check_portal_download to fetch the result. I do "
+                    "NOT deliver it automatically. Relay this link to the user verbatim; do NOT "
+                    "claim the file has downloaded or will arrive on its own.")
+        # The wait loop has EXITED — the run may still be going in the browser service, but
+        # nothing here will deliver its result later. Instruct the agent to be honest and to
+        # route the user to check_portal_download; forbid any auto-delivery / success claim
+        # (anti-silent-success: a not-yet-finished run is NOT a delivered file).
+        return ("The portal run has not finished yet and NO file has been captured so far. It "
+                "will NOT be delivered automatically — there is no background delivery channel. "
+                "Tell the user it's still running and to ask you to \"check the download\" in a "
+                "moment (you will then call check_portal_download, which returns the file if it "
+                "completed or an honest failure if it did not). Do NOT say the file is "
+                "downloading, will arrive on its own, or that the task succeeded — none of that "
+                "is known yet.")
 
     @lc_tool
     async def check_portal_download() -> str:
