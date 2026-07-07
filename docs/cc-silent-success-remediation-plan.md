@@ -134,10 +134,14 @@ Each phase is independently shippable and leaves the system strictly more honest
 
 **Verified:** 20 unit tests of the check functions; in-process executor e2e against the live main app — `mcp.create_server`/`delete_server` CONFIRMED, `tools.create` degrades safely to UNVERIFIED (new endpoint not deployed yet → read-back 404, *not* a false failure); registry loads (82 actions); lint clean. **Needs a main-app + builder_service restart** to deploy the `/api/tools/packages` endpoint and the verifier.
 
-### Phase 3 — Artifact validation gating (Mechanism C — F2)
-- `workflow_compiler.py:900` — replace unconditional `result['success']=True` with `result['success']=is_valid` (or a `validation_failed`/`partial` status when saved-but-invalid). This one line flips `status:'success'` at the route and flows to all four message branches.
-- **Persistence = save-as-draft (§8.2).** Keep the save at `:880` even when invalid, but tag the persisted row `draft`/`invalid` (not runnable). Don't lose the user's work; do refuse to call it "ready."
-- Require `compile_result['validation']['is_valid']` before the "ready to use" copy at `nodes.py:3986/4249` (both duplicated blocks); otherwise emit a draft-saved message that names `validation['errors']`.
+### Phase 3 — Artifact validation gating (Mechanism C — F2) — DONE (2026-07-07, commit `ad4cf86`)
+Implemented as a **three-way outcome** rather than a boolean flip (a save-as-draft-invalid is *not* a hard error, so it must not hit the route's 500 branch):
+- **`workflow_compiler.py`** — keep `result['success']=True` (means "pipeline completed / artifact saved"), and add `result['is_valid']` + `result['saved_as_draft']`; warn when saved-as-draft. Save still happens regardless of validity (§8.2 — keep the user's work).
+- **`workflow_builder_routes.py` `/compile`** — `status:'success'` (valid, 200) / `status:'draft'` (saved-but-invalid, 200, carries `validation.errors`) / `status:'error'` (hard failure, 500). Adds `is_valid`/`saved_as_draft`.
+- **`builder_service/graph/nodes.py`** — both success-messaging blocks (`_handle_workflow_agent_metadata` ~3997, `handle_agent_response` ~4280) gain a `draft` branch that lists the validation errors and explicitly does NOT say "ready to use"; `draft` counts as a definitive/completed compile turn at the two flow-gate sites (`3555`, `4140`) so it doesn't hang or loop.
+- *Note:* the persisted row isn't yet DB-tagged `draft` (the save function has no such flag); the messaging + `saved_as_draft` flag deliver the "refuse to call it ready" behavior. A DB `is_draft`/`enabled=false` column is a follow-up if drafts should also be blocked from running.
+
+**Verified:** 6-case simulation of the status derivation (valid→success, invalid→draft, save-fail/compile-error→500); AST-clean. **Needs main-app + builder_service restart** to deploy; the draft message path is logic-verified (an invalid compile is hard to force on demand live).
 
 ### Phase 4 — Fail-closed messaging + `UNVERIFIED` handling (finish the contract; deterministic)
 - Introduce the tri-state `StepOutcome` end-to-end.
