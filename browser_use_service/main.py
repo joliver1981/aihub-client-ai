@@ -79,9 +79,10 @@ else:
         _why = (f"{_want}_ENCRYPTED is present but did NOT decrypt — check that this install's "
                 "ENCRYPTION_SECRET/_build_config matches the one that encrypted it")
     else:
-        _why = (f"neither {_want} nor {_want}_ENCRYPTED found in the environment/.env, and no "
-                f"{_want} entry in the local secrets store — add the {_want}_ENCRYPTED line to "
-                "{APP_ROOT}\\.env or provision it via Local Secrets")
+        _why = (f"no BYOK key (Settings → API Keys, stored as USER_{_want} with BYOK enabled), "
+                f"no {_want} in the local secrets store or environment/.env, and no "
+                f"{_want}_ENCRYPTED line in .env — the BYOK settings page is the no-.env-edit "
+                "way to provision it")
     log.error("LLM driver model=%s provider_key=MISSING (%s) — portal runs will fail at the "
               "first LLM step.", config.LLM_MODEL, _why)
 

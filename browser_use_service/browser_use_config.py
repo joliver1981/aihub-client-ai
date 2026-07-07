@@ -203,8 +203,35 @@ def ensure_llm_api_key(model=None):
     _, env_name = _provider_for_model(model or LLM_MODEL)
     if os.getenv(env_name):
         return env_name  # already plaintext (explicit override or a prior call)
-    # Encrypted LocalSecretsManager next (the client's Option D store) — lets an admin
-    # provision the LLM key without editing .env at all.
+
+    # BYOK next — the key the admin entered ONCE in Settings → API Keys lives in the
+    # encrypted local store as USER_<PROVIDER>_API_KEY, gated by data/byok_config.json.
+    # This is how a client install drives the LLM with NO vendor key in .env, and it
+    # survives upgrades (the store is on the client machine). Mirrors
+    # api_keys_config.get_active_anthropic_key(); that module imports Flask (absent from
+    # this isolated env), so replicate its two reads here. Its './data' fallback is also
+    # cwd-sensitive — anchor on APP_ROOT instead (our cwd is browser_use_service\).
+    try:
+        import json as _json
+        _byok_path = os.path.join(
+            os.getenv("AIHUB_DATA_DIR") or os.path.join(APP_ROOT, "data"),
+            "byok_config.json")
+        with open(_byok_path, "r") as _fh:
+            _byok_on = bool(_json.load(_fh).get("byok_enabled", False))
+    except Exception:
+        _byok_on = False
+    if _byok_on:
+        try:
+            from local_secrets import get_local_secret
+            val = get_local_secret(f"USER_{env_name}")
+            if val:
+                os.environ[env_name] = val
+                return env_name
+        except Exception:
+            pass
+
+    # Encrypted LocalSecretsManager under the plain provider name — lets an admin
+    # provision the key without editing .env and without flipping BYOK on.
     try:
         from local_secrets import get_local_secret
         val = get_local_secret(env_name)
