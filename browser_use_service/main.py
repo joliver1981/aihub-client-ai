@@ -189,7 +189,15 @@ def _portal_call_kwargs(req: "PortalFetchRequest", run_id=None):
         creds=creds,
         download_dir=os.path.join(config.DOWNLOAD_DIR, req.session_id or "adhoc"),
         llm_model=config.LLM_MODEL,
-        headless=config.HEADLESS,
+        # FORCE headless for chat-driven/unattended runs, ignoring config.HEADLESS. Headed is
+        # wrong here for three reasons: (1) under an NSSM service (session 0) headed Chrome has
+        # no desktop to draw on; (2) the robust download capturer (_make_download_capturer's
+        # in-page fetch, which re-pulls even INLINE-served files the browser opens in a tab
+        # instead of downloading) only runs headless — headed relies on "native download" that
+        # silently misses inline PDFs, the exact files=0 failure observed on a client whose env
+        # had BROWSER_USE_HEADLESS=false; (3) human takeover streams via CDP cobrowse, which
+        # works headless. A stray BROWSER_USE_HEADLESS=false must not be able to break downloads.
+        headless=True,
         max_steps=req.max_steps or config.MAX_STEPS,
         timeout=req.timeout or config.TIMEOUT_SECONDS,
         allowed_domains=config.resolve_allowed_domains(req.start_url),
@@ -324,7 +332,9 @@ async def workflow_run(req: WorkflowRunRequest, _: None = Depends(require_intern
             creds=creds,
             download_dir=os.path.join(config.DOWNLOAD_DIR, req.session_id or "adhoc"),
             llm_model=config.LLM_MODEL,
-            headless=config.HEADLESS,
+            # Force headless (see _portal_call_kwargs) — the in-page-fetch download capturer is
+            # headless-only, and headed is meaningless/broken for an unattended service run.
+            headless=True,
             allowed_domains=allowed_domains,
             timeout=req.timeout or config.TIMEOUT_SECONDS,
             max_steps=req.max_steps or config.MAX_STEPS,
