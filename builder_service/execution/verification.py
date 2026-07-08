@@ -119,15 +119,27 @@ def _check_mcp_create(params, result_data, read_data) -> CheckResult:
         return INCONCLUSIVE, "mcp.list_servers returned no readable server list"
     want_name = _norm(params.get("server_name"))
     want_url = _norm(params.get("server_url"))
+    # #18: the create endpoint defaults server_type to 'local' when omitted, silently
+    # writing a URL server as the wrong type. The schema now defaults server_type='remote'
+    # (the action can only express remote servers), so verify the created row is that type
+    # — a name/url-only match would otherwise CONFIRM a wrong-type no-op row.
+    expected_type = _norm(params.get("server_type") or "remote")
+    matched = None
     for s in servers:
         if not isinstance(s, dict):
             continue
-        if want_name and _norm(s.get("server_name")) == want_name:
-            return CONFIRMED, f"MCP server {params.get('server_name')!r} present"
-        if want_url and _norm(s.get("server_url")) == want_url:
-            return CONFIRMED, f"MCP server url {params.get('server_url')!r} present"
-    return DISPROVED, (f"created MCP server (name={params.get('server_name')!r}, "
-                       f"url={params.get('server_url')!r}) not found in mcp.list_servers")
+        if (want_name and _norm(s.get("server_name")) == want_name) or \
+           (want_url and _norm(s.get("server_url")) == want_url):
+            matched = s
+            break
+    if matched is None:
+        return DISPROVED, (f"created MCP server (name={params.get('server_name')!r}, "
+                           f"url={params.get('server_url')!r}) not found in mcp.list_servers")
+    got_type = _norm(matched.get("server_type"))
+    if expected_type and got_type and got_type != expected_type:
+        return DISPROVED, (f"MCP server {params.get('server_name')!r} was created as "
+                           f"'{got_type}' but '{expected_type}' was requested")
+    return CONFIRMED, f"MCP server {params.get('server_name')!r} present (type={got_type or 'n/a'})"
 
 
 def _check_email_configure(params, result_data, read_data) -> CheckResult:

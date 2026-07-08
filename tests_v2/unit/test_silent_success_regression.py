@@ -579,3 +579,37 @@ def test_phase6_w3b_stay_active(agent_id, phase, has_def, compile_status, expect
 def test_wiring_w3b_classifier_branch_uses_stay_active_guard():
     assert "_workflow_turn_should_stay_active(" in _src(_BUILDER_NODES_PY), \
         "classifier-completion branch no longer guards on compile status — a failed compile can close the thread (#14)"
+
+
+# ── W4 (#18): mcp.create_server verifier asserts the created row's TYPE, not just name ──
+def test_phase6_w4_mcp_create_type_mismatch_disproved():
+    servers = [{"server_name": "S1", "server_url": "http://a", "server_type": "local"}]
+    assert V._check_mcp_create(
+        {"server_name": "S1", "server_url": "http://a", "server_type": "remote"}, {}, servers)[0] == V.DISPROVED
+
+
+def test_phase6_w4_mcp_create_type_match_confirmed():
+    servers = [{"server_name": "S1", "server_url": "http://a", "server_type": "remote"}]
+    assert V._check_mcp_create(
+        {"server_name": "S1", "server_url": "http://a", "server_type": "remote"}, {}, servers)[0] == V.CONFIRMED
+
+
+def test_phase6_w4_mcp_create_default_remote_vs_local_disproved():
+    # planner omits server_type -> expected defaults to 'remote'; row written 'local' -> DISPROVED
+    servers = [{"server_name": "S1", "server_url": "http://a", "server_type": "local"}]
+    assert V._check_mcp_create({"server_name": "S1", "server_url": "http://a"}, {}, servers)[0] == V.DISPROVED
+
+
+def test_phase6_w4_mcp_create_missing_type_field_still_confirms():
+    # row has no server_type key -> don't false-DISPROVE on missing read-back data
+    servers = [{"server_name": "S1", "server_url": "http://a"}]
+    assert V._check_mcp_create(
+        {"server_name": "S1", "server_url": "http://a", "server_type": "remote"}, {}, servers)[0] == V.CONFIRMED
+
+
+def test_phase6_w4_mcp_create_server_defaults_remote_in_schema():
+    by_id = _platform_actions_by_id()
+    fields = {f.name: getattr(f, "default", None)
+              for f in by_id["mcp.create_server"].primary_route.input_fields}
+    assert fields.get("server_type") == "remote", \
+        "mcp.create_server server_type no longer defaults to 'remote' — omitting it writes a broken local row (#18)"

@@ -2351,6 +2351,7 @@ def _mcp_actions() -> list:
                     FieldSchema(
                         "server_type", FieldType.ENUM, required=False,
                         choices=["local", "remote"],
+                        default="remote",
                         description="Server type — use 'remote' for HTTP-based servers (default: remote)",
                     ),
                     FieldSchema(
