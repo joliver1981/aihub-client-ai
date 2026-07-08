@@ -3233,6 +3233,24 @@ async def _detect_agent_response_type(
 
 # ─── Agent Delegation Helper ─────────────────────────────────────────────
 
+def _conversation_failure_result(manager, conversation_id, agent_id):
+    """W1 (#8): manager.send_message sets conversation.status = TIMEOUT/FAILED WITHOUT
+    raising (unlike the generic-exception path). A timed-out/failed agent delegation would
+    otherwise be read as a (usually empty) success that pauses the plan on an empty
+    question. Re-read the manager's conversation status — the source of truth — and, when
+    it is a terminal failure, return a failed delegation result so the step is marked
+    FAILED. Returns None when the conversation is not in a terminal-failure state."""
+    conv = manager.get_conversation(conversation_id)
+    status = conv.status.value if (conv and conv.status) else None
+    if status in ("timeout", "failed"):
+        return {
+            "success": False,
+            "agent_id": agent_id,
+            "error": (getattr(conv, "error", None) or f"Agent {agent_id} ended: {status}"),
+        }
+    return None
+
+
 async def _execute_agent_delegation(
     agent_id: str,
     task_description: str,
@@ -3323,6 +3341,14 @@ async def _execute_agent_delegation(
 
         full_response = "".join(response_chunks)
         logger.info(f"  [_execute_agent_delegation] Agent responded: {len(full_response)} chars")
+
+        # W1 (#8): surface a swallowed agent timeout/failure as a FAILED step, instead of
+        # classifying an empty response into a false "success + needs input" that hangs the
+        # plan on an empty question.
+        _fail = _conversation_failure_result(manager, conversation.id, agent_id)
+        if _fail:
+            logger.warning(f"  [_execute_agent_delegation] {_fail['error']}")
+            return _fail
 
         # Detect known agent fallback/error responses (content filter, LLM errors)
         _AGENT_FALLBACK_MARKERS = [
@@ -3586,6 +3612,15 @@ async def _execute_agent_delegation(
         }
 
         logger.info(f"  [_execute_agent_delegation] Conv state: status={conversation_status}, messages={len(messages_for_state)}")
+
+        # W1 (#8): also catch a terminal failure from any follow-up send (the build /
+        # auto-reply loops above each set status=ACTIVE then TIMEOUT/FAILED without raising).
+        # Re-read the source-of-truth status so a follow-up timeout can't fall through to
+        # the hard-coded success=True below.
+        _fail = _conversation_failure_result(manager, conversation.id, agent_id)
+        if _fail:
+            logger.warning(f"  [_execute_agent_delegation] {_fail['error']} (post-followup)")
+            return _fail
 
         result = {
             "success": True,

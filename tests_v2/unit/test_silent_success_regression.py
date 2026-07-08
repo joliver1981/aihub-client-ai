@@ -465,3 +465,57 @@ def test_wiring_cc_build_node_appends_footer():
 def test_wiring_builder_messaging_has_draft_branch():
     assert 'get("status") == "draft"' in _src(_BUILDER_NODES_PY), \
         "builder messaging lost the draft branch — invalid workflows report 'ready to use' again (F2)"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 6 — Bucket A (residual silent-success in the layers Phase 0-4 didn't reach)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── W1 (#8): a swallowed agent timeout/failure becomes a FAILED delegation ──
+_conv_fail = _load_functions(_BUILDER_NODES_PY, ["_conversation_failure_result"])["_conversation_failure_result"]
+
+
+class _FakeStatus:
+    def __init__(self, v):
+        self.value = v
+
+
+class _FakeConv:
+    def __init__(self, status_value, error=None):
+        self.status = _FakeStatus(status_value) if status_value else None
+        self.error = error
+
+
+class _FakeMgr:
+    def __init__(self, conv):
+        self._c = conv
+
+    def get_conversation(self, cid):
+        return self._c
+
+
+@pytest.mark.parametrize("status,expect_fail", [
+    ("timeout", True),
+    ("failed", True),
+    ("active", False),
+    ("completed", False),
+    ("waiting_for_user", False),
+])
+def test_phase6_w1_conversation_failure(status, expect_fail):
+    r = _conv_fail(_FakeMgr(_FakeConv(status, error="boom")), "c1", "agent-x")
+    if expect_fail:
+        assert r is not None and r["success"] is False and r["agent_id"] == "agent-x"
+        assert "boom" in r["error"]
+    else:
+        assert r is None
+
+
+def test_phase6_w1_none_conversation_is_not_a_failure():
+    assert _conv_fail(_FakeMgr(None), "c1", "a") is None
+
+
+def test_phase6_w1_delegation_checks_conversation_failure():
+    # wired at both the post-primary-send and pre-final-return call sites
+    assert _src(_BUILDER_NODES_PY).count(
+        "_conversation_failure_result(manager, conversation.id, agent_id)") >= 2, \
+        "agent delegation no longer checks for terminal conversation failure (#8 regression)"
