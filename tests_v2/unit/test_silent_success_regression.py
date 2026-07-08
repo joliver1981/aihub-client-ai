@@ -519,3 +519,39 @@ def test_phase6_w1_delegation_checks_conversation_failure():
     assert _src(_BUILDER_NODES_PY).count(
         "_conversation_failure_result(manager, conversation.id, agent_id)") >= 2, \
         "agent delegation no longer checks for terminal conversation failure (#8 regression)"
+
+
+# ── W5 (#17): deterministic success message when the distiller LLM crashes ──
+_w5 = _load_functions(CC_NODES_PY, ["_deterministic_builder_summary", "_extract_created_resources"])
+_det_summary = _w5["_deterministic_builder_summary"]
+
+
+def test_phase6_w5_pure_success_names_created_resource():
+    plan = {"steps": [{"status": "completed", "description": "create agent Bot",
+                       "result": {"verified": True, "verification_detail": "present",
+                                  "data": {"agent_id": 5, "agent_description": "Bot"}}}]}
+    summary = {"verified": [{"label": "create agent Bot"}], "failed": [], "unverified": []}
+    msg = _det_summary(summary, plan)
+    assert msg is not None and "✅" in msg and "Bot" in msg
+
+
+def test_phase6_w5_pure_success_without_resources():
+    summary = {"verified": [{"label": "assign tools"}], "failed": [], "unverified": []}
+    msg = _det_summary(summary, {"steps": []})
+    assert msg is not None and "✅" in msg and "assign tools" in msg
+
+
+def test_phase6_w5_mixed_outcome_is_neutral_leadin():
+    summary = {"verified": [{"label": "a"}], "failed": [{"label": "b"}], "unverified": []}
+    msg = _det_summary(summary, {"steps": []})
+    assert msg is not None and "✅" not in msg   # neutral; the footer carries the ❌
+
+
+def test_phase6_w5_nothing_verifiable_returns_none():
+    # draft/read-only turn -> None -> caller keeps its generic fallback
+    assert _det_summary({"verified": [], "failed": [], "unverified": []}, {"steps": []}) is None
+
+
+def test_wiring_w5_distiller_fallback_uses_deterministic_summary():
+    assert "_deterministic_builder_summary(verification_summary, latest_plan)" in _src(CC_NODES_PY), \
+        "distiller fallback no longer tries the deterministic success summary (#17 regression)"

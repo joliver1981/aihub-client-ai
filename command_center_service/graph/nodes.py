@@ -10,7 +10,7 @@ import json
 import logging
 import os
 import time as _trace_time
-from typing import Any
+from typing import Any, Optional
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 from graph import CommandCenterState
@@ -5860,6 +5860,33 @@ def _verification_footer(summary: dict) -> str:
     return ("\n\n---\n" + "\n\n".join(blocks)) if blocks else ""
 
 
+def _deterministic_builder_summary(summary: dict, plan_data: dict) -> Optional[str]:
+    """W5 (#17): fail-closed the SUCCESS direction. When the distiller LLM is unavailable
+    (crash/timeout), synthesize an honest user-facing message from the verified plan
+    instead of the generic "couldn't format it safely" apology — otherwise a fully-verified
+    success shows a scary apology (the Phase-4 footer only fires for failed/unverified).
+    Returns None when there is nothing verifiable to report, so the caller keeps its own
+    fallback. On a pure verified success this names created resources; on a mixed/failure
+    outcome it returns a short neutral lead-in and lets the deterministic footer (appended
+    by the caller) carry the ❌/⚠️ specifics."""
+    verified = summary.get("verified") or []
+    failed = summary.get("failed") or []
+    unverified = summary.get("unverified") or []
+    if not (verified or failed or unverified):
+        return None  # nothing executed/verifiable (e.g. a draft/read-only turn)
+
+    if verified and not failed and not unverified:
+        created = _extract_created_resources(plan_data or {})
+        if created:
+            names = ", ".join(f'{c.get("type", "item")} "{c.get("name")}"' for c in created[:6])
+            return f"✅ Done. Created: {names}."
+        labels = "; ".join(v.get("label", "step") for v in verified[:6])
+        return f"✅ Done — completed and verified: {labels}."
+
+    # Mixed / failure: neutral lead-in; the caller's _verification_footer adds the detail.
+    return "Here's the outcome of your request:"
+
+
 # ─── Node: build ──────────────────────────────────────────────────────────
 
 async def build(state: CommandCenterState) -> dict:
@@ -6143,11 +6170,17 @@ async def build(state: CommandCenterState) -> dict:
                 level="warning",
             )
 
-        # Use distilled if available; otherwise provide a safe fallback that doesn't leak JSON.
+        # Use distilled if available; otherwise fall back. W5 (#17): before the generic
+        # apology, try a DETERMINISTIC summary from the verified plan so a distiller crash
+        # on a real success doesn't show a scary "couldn't format it" message. Only use the
+        # apology when there is genuinely nothing verifiable to report.
         if distilled_text:
             response_text = distilled_text
         else:
-            response_text = "I received an internal response from the Builder Agent but couldn't format it safely for display. Please check the Command Center logs/traces for details."
+            response_text = _deterministic_builder_summary(verification_summary, latest_plan) or (
+                "I received an internal response from the Builder Agent but couldn't format "
+                "it safely for display. Please check the Command Center logs/traces for details."
+            )
 
         # Phase 4 fail-closed guarantee: append a deterministic honesty footer whenever
         # anything failed or could not be verified, so the truth survives regardless of
