@@ -125,7 +125,10 @@ def _require_user_context(
     use for ownership filtering.
     """
     enforce = os.environ.get("CC_OPS_AUTH_ENFORCE", "1") != "0"
-    if user_id is None or tenant_id is None:
+    # Only a missing user_id is "unauthenticated". tenant_id None is a single-tenant
+    # install's DEFAULT tenant (normalized to 0 below), NOT an auth failure — otherwise
+    # every authenticated single-tenant user got a 401 from the Ops Room.
+    if user_id is None:
         if enforce:
             # 401 — never leak whether ops data exists for anonymous
             # callers. The reverse-proxy layer (if present) sees this
@@ -142,7 +145,7 @@ def _require_user_context(
     try:
         return _OpsCaller(
             user_id=int(user_id),
-            tenant_id=int(tenant_id),
+            tenant_id=int(tenant_id or 0),
             role=int(role or 0),
         )
     except (TypeError, ValueError):

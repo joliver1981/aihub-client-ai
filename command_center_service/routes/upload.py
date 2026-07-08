@@ -464,7 +464,10 @@ def _file_is_accessible_to(meta: dict, user_id: Optional[int], tenant_id: Option
     """
     if not isinstance(meta, dict):
         return False
-    if user_id is None or tenant_id is None:
+    # tenant None (single-tenant install) is the DEFAULT tenant, not a denial — it is
+    # normalized to 0 below to match the owner stamp. Only a missing user_id denies.
+    # (Same tenant None/0 bug class as session ownership + artifact access.)
+    if user_id is None:
         return False
     owner_uid = meta.get("user_id")
     owner_tid = meta.get("tenant_id")
@@ -472,7 +475,7 @@ def _file_is_accessible_to(meta: dict, user_id: Optional[int], tenant_id: Option
         return role >= 2
     try:
         req_uid = int(user_id)
-        req_tid = int(tenant_id)
+        req_tid = int(tenant_id or 0)
         owner_tid_i = int(owner_tid) if owner_tid is not None else None
         owner_uid_i = int(owner_uid) if owner_uid is not None else None
     except (TypeError, ValueError):

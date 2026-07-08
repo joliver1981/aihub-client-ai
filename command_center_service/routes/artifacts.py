@@ -50,7 +50,14 @@ def _artifact_accessible_to(meta, user_id: Optional[int], tenant_id: Optional[in
     If the artifact has no session_id (orphan), it's admin-only and only
     when the caller has claimed a tenant (no unauthenticated fallthroughs).
     """
-    if user_id is None or tenant_id is None:
+    # tenant is OPTIONAL identity: a single-tenant install carries tenant_id=None
+    # (the JWT mints null and the frontend OMITS the query param when null —
+    # cc-renderers.js only appends tenant_id when uc.tenant_id != null). Fail closed
+    # only on a missing user_id; tenant None is normalized to the default tenant (0)
+    # by get_session_for/_matches_owner below. Failing closed on tenant None HERE
+    # denied every single-tenant artifact download with "Artifact not found" — the
+    # same tenant None/0 bug class as the session-ownership fix.
+    if user_id is None:
         return False
     session_id = getattr(meta, "session_id", None) if meta else None
     if not session_id:
