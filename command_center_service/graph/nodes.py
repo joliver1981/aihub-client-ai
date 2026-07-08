@@ -5789,14 +5789,37 @@ def _extract_created_resources(plan_data: dict) -> list:
                 "id": data["connection_id"],
                 "name": data.get("connection_name", f"Connection #{data['connection_id']}"),
             })
-        wf_id = data.get("workflow_id") or data.get("saved_workflow_id")
+        # WorkflowAgent builds put saved_workflow_id/name at the delegation-result TOP
+        # LEVEL (builder nodes.py:1860), not under .data — so check both, or workflow
+        # builds are never recorded (W5b #17 + a general workflow-tracking gap).
+        wf_id = (data.get("workflow_id") or data.get("saved_workflow_id")
+                 or step_result.get("saved_workflow_id") or step_result.get("workflow_id"))
         if wf_id:
             resources.append({
                 "type": "workflow",
                 "id": wf_id,
-                "name": data.get("saved_workflow_name", f"Workflow #{wf_id}"),
+                "name": (data.get("saved_workflow_name")
+                         or step_result.get("saved_workflow_name")
+                         or f"Workflow #{wf_id}"),
             })
     return resources
+
+
+def _plan_has_unready_artifact(plan_data: dict) -> bool:
+    """W5b (#17) draft-safety: True if any step indicates a saved-but-not-ready artifact
+    (a workflow saved as a DRAFT / compile error). Used to keep the deterministic success
+    fallback from announcing "✅ Created" for a draft/invalid build (a draft still has a
+    saved_workflow_id and a non-failed step status, so existence alone is not success)."""
+    for step in (plan_data or {}).get("steps", []) if isinstance(plan_data, dict) else []:
+        if not isinstance(step, dict):
+            continue
+        res = step.get("result") if isinstance(step.get("result"), dict) else {}
+        if res.get("saved_as_draft"):
+            return True
+        cr = res.get("compile_result") if isinstance(res.get("compile_result"), dict) else {}
+        if str(cr.get("status") or "").lower() in ("draft", "error"):
+            return True
+    return False
 
 
 def _summarize_verification(plan_data: dict) -> dict:
@@ -5873,7 +5896,17 @@ def _deterministic_builder_summary(summary: dict, plan_data: dict) -> Optional[s
     failed = summary.get("failed") or []
     unverified = summary.get("unverified") or []
     if not (verified or failed or unverified):
-        return None  # nothing executed/verifiable (e.g. a draft/read-only turn)
+        # No read-back verification signal — e.g. a workflow build (workflows.create is not
+        # in VERIFICATION_SPECS). W5b (#17): fall through to the plan's created resources so
+        # a genuine workflow build isn't shown the generic apology on a distiller crash —
+        # but stay fail-closed: announce ONLY a clean success, never a draft/errored/partial
+        # build (a saved draft also has an id + a non-failed step status).
+        plan_status = str((plan_data or {}).get("status") or "").lower()
+        created = _extract_created_resources(plan_data or {})
+        if created and plan_status not in ("failed", "partial") and not _plan_has_unready_artifact(plan_data):
+            names = ", ".join(f'{c.get("type", "item")} "{c.get("name")}"' for c in created[:6])
+            return f"✅ Done. Created: {names}."
+        return None  # ambiguous / draft / failed → keep the caller's fallback (never false-claim)
 
     if verified and not failed and not unverified:
         created = _extract_created_resources(plan_data or {})

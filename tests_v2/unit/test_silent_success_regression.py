@@ -522,8 +522,11 @@ def test_phase6_w1_delegation_checks_conversation_failure():
 
 
 # ── W5 (#17): deterministic success message when the distiller LLM crashes ──
-_w5 = _load_functions(CC_NODES_PY, ["_deterministic_builder_summary", "_extract_created_resources"])
+_w5 = _load_functions(CC_NODES_PY, ["_deterministic_builder_summary", "_extract_created_resources",
+                                    "_plan_has_unready_artifact"])
 _det_summary = _w5["_deterministic_builder_summary"]
+_extract_cr = _w5["_extract_created_resources"]
+_unready = _w5["_plan_has_unready_artifact"]
 
 
 def test_phase6_w5_pure_success_names_created_resource():
@@ -581,6 +584,17 @@ def test_wiring_w3b_classifier_branch_uses_stay_active_guard():
         "classifier-completion branch no longer guards on compile status — a failed compile can close the thread (#14)"
 
 
+def test_wiring_w3b2_keep_active_precedes_completion_branch():
+    # #14 second path: the manager phrase-matcher can set status='completed' on prose; the
+    # keep-active guard must be evaluated BEFORE the status=='completed'/has_definitive
+    # completion branch so a failed workflow compile isn't closed regardless of that status.
+    s = _src(_BUILDER_NODES_PY)
+    i_keep = s.find("if _keep_active:")
+    i_done = s.find('updated_conversation.status.value == "completed" or has_definitive_result')
+    assert i_keep != -1 and i_done != -1 and i_keep < i_done, \
+        "keep-active guard no longer precedes the completion branch — a phrase-matched 'completed' can close a failed compile (#14 second path)"
+
+
 # ── W4 (#18): mcp.create_server verifier asserts the created row's TYPE, not just name ──
 def test_phase6_w4_mcp_create_type_mismatch_disproved():
     servers = [{"server_name": "S1", "server_url": "http://a", "server_type": "local"}]
@@ -613,3 +627,43 @@ def test_phase6_w4_mcp_create_server_defaults_remote_in_schema():
               for f in by_id["mcp.create_server"].primary_route.input_fields}
     assert fields.get("server_type") == "remote", \
         "mcp.create_server server_type no longer defaults to 'remote' — omitting it writes a broken local row (#18)"
+
+
+# ── W5b (#17 closer): distiller-crash success message covers workflow builds too ──
+# WorkflowAgent builds carry saved_workflow_id at the delegation-result TOP LEVEL and are
+# NOT in VERIFICATION_SPECS, so the original W5 (verification-only) missed them.
+_WF_CLEAN = {"status": "completed", "steps": [
+    {"status": "completed", "description": "build workflow",
+     "result": {"saved_workflow_id": 42, "saved_workflow_name": "Invoice WF",
+                "compile_result": {"status": "success"}}}]}
+_WF_DRAFT = {"status": "completed", "steps": [
+    {"status": "completed", "description": "build workflow",
+     "result": {"saved_workflow_id": 42, "saved_workflow_name": "Invoice WF",
+                "saved_as_draft": True, "compile_result": {"status": "draft"}}}]}
+_EMPTY_SUMMARY = {"verified": [], "failed": [], "unverified": []}
+
+
+def test_phase6_w5b_extract_finds_toplevel_workflow_id():
+    res = _extract_cr(_WF_CLEAN)
+    assert any(r["type"] == "workflow" and str(r["id"]) == "42" for r in res), \
+        "workflow builds (top-level saved_workflow_id) are not recorded as created resources"
+
+
+def test_phase6_w5b_clean_workflow_build_announced_without_verification():
+    msg = _det_summary(_EMPTY_SUMMARY, _WF_CLEAN)     # empty summary (workflows not spec'd)
+    assert msg is not None and "✅" in msg and "Invoice WF" in msg
+
+
+def test_phase6_w5b_draft_workflow_not_announced_as_success():
+    # fail-closed: a saved DRAFT has an id + non-failed status, but must NOT be "✅ Created"
+    assert _det_summary(_EMPTY_SUMMARY, _WF_DRAFT) is None
+
+
+def test_phase6_w5b_failed_plan_not_announced():
+    plan = {"status": "failed", "steps": [{"status": "failed", "description": "x", "result": {}}]}
+    assert _det_summary(_EMPTY_SUMMARY, plan) is None
+
+
+def test_phase6_w5b_unready_artifact_detector():
+    assert _unready(_WF_DRAFT) is True
+    assert _unready(_WF_CLEAN) is False

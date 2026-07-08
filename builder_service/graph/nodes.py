@@ -4227,7 +4227,20 @@ async def handle_agent_response(state: dict) -> dict:
         # Check if conversation is complete
         current_conv = current_conv_id  # Default: keep conversation active
 
-        if updated_conversation.status.value == "completed" or has_definitive_result:
+        # W3b/#14: a workflow_agent turn whose compile did NOT succeed must never be closed
+        # as 'completed' — not via has_definitive_result, not via the LLM response classifier,
+        # and NOT via manager.py's prose phrase-matcher (which sets status=COMPLETED on
+        # "I've created…" regardless of the real compile outcome — the #14 second path).
+        # Compute the guard once and let it win over every completion trigger below.
+        _compile_status = (agent_result.get("compile_result") or {}).get("status") if agent_result else None
+        _keep_active = _workflow_turn_should_stay_active(agent_id, workflow_phase, has_definitive_result, _compile_status)
+
+        if _keep_active:
+            conversation_status = "active"
+            logger.info(f"  [handle_agent_response] Keeping workflow conversation active "
+                        f"(phase={workflow_phase}, compile_status={_compile_status}) despite "
+                        f"status={updated_conversation.status.value}/definitive — compile not a terminal success")
+        elif updated_conversation.status.value == "completed" or has_definitive_result:
             # Conversation is done (status set or we got a definitive result)
             current_conv = None
             pending_question = None
@@ -4237,22 +4250,12 @@ async def handle_agent_response(state: dict) -> dict:
             else:
                 logger.info(f"  [handle_agent_response] Conversation completed (status=completed)")
         elif is_definitive and not is_asking_questions:
-            # LLM detected this as a definitive result — but for WorkflowAgent it must NOT
-            # close the turn when it's plan-only (phase="planning", no compile yet) OR when
-            # a compile was attempted but did NOT succeed (W3b #14: a failed compile closed
-            # as 'completed' on the classifier's word drops the thread and blocks in-turn
-            # retry). _workflow_turn_should_stay_active captures both cases.
-            _compile_status = (agent_result.get("compile_result") or {}).get("status") if agent_result else None
-            if _workflow_turn_should_stay_active(agent_id, workflow_phase, has_definitive_result, _compile_status):
-                conversation_status = "active"
-                logger.info(f"  [handle_agent_response] WorkflowAgent turn not conclusively done "
-                            f"(phase={workflow_phase}, compile_status={_compile_status}) — keeping conversation active")
-            else:
-                # Genuinely definitive - consider the conversation complete
-                current_conv = None
-                pending_question = None
-                conversation_status = "completed"
-                logger.info(f"  [handle_agent_response] Marking conversation as complete (LLM detected definitive result)")
+            # LLM classifier said definitive and it is not a workflow turn that must stay
+            # open (handled above) — treat as complete.
+            current_conv = None
+            pending_question = None
+            conversation_status = "completed"
+            logger.info(f"  [handle_agent_response] Marking conversation as complete (LLM detected definitive result)")
 
         # Convert messages to simple dicts for JSON serialization
         messages_for_state = [
