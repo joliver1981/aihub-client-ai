@@ -435,7 +435,9 @@ async def upload_files(
             "path": str(file_path),
             "session_id": session_id,
             "user_id": int(user_id) if user_id is not None else None,
-            "tenant_id": int(tenant_id) if tenant_id is not None else None,
+            # tenant None -> 0 (default tenant), so owner and a normalized requester
+            # compare equal for single-tenant installs (matches _file_is_accessible_to).
+            "tenant_id": int(tenant_id or 0) if user_id is not None else None,
             "uploaded_at": datetime.utcnow().isoformat(),
         }
 

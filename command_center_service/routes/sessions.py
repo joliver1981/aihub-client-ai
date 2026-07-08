@@ -45,12 +45,16 @@ async def create_session(
     """Create a new chat session. Owner is stamped from the query params
     so the session becomes visible only to that user."""
     ctx = None
-    if user_id is not None and tenant_id is not None:
+    # Stamp the owner whenever we know the user. tenant_id None is a single-tenant
+    # install's default tenant (normalized to 0), NOT a reason to skip stamping —
+    # requiring tenant_id here left every single-tenant session OWNERLESS, which
+    # _matches_owner then hides from everyone (the session simply never appears).
+    if user_id is not None:
         from services import UserContext
         ctx = UserContext(
             user_id=int(user_id),
             role=int(role or 0),
-            tenant_id=int(tenant_id),
+            tenant_id=int(tenant_id or 0),
             username=str(username or ""),
             name=str(name or ""),
         )
