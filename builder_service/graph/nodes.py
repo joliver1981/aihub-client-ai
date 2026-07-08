@@ -3251,6 +3251,21 @@ def _conversation_failure_result(manager, conversation_id, agent_id):
     return None
 
 
+def _workflow_turn_should_stay_active(agent_id, workflow_phase, has_definitive_result, compile_status):
+    """W3b (#14): decide whether a workflow_agent turn the LLM classifier called a
+    'definitive_result' must nonetheless keep its conversation ACTIVE (not be closed as
+    'completed'). True when: (a) plan-only — phase='planning' with no compiled result yet
+    (still needs to generate commands + compile), or (b) a compile was ATTEMPTED but did
+    not succeed (status present and not in success/draft) — a failed compile must not be
+    closed on the classifier's word; the thread stays open so the user can retry/fix
+    in-conversation. Non-workflow agents are unaffected (returns False)."""
+    if agent_id != "workflow_agent":
+        return False
+    planning_only = (workflow_phase == "planning" and not has_definitive_result)
+    compile_failed = (compile_status is not None and compile_status not in ("success", "draft"))
+    return planning_only or compile_failed
+
+
 async def _execute_agent_delegation(
     agent_id: str,
     task_description: str,
@@ -4222,21 +4237,18 @@ async def handle_agent_response(state: dict) -> dict:
             else:
                 logger.info(f"  [handle_agent_response] Conversation completed (status=completed)")
         elif is_definitive and not is_asking_questions:
-            # LLM detected this as a definitive result — but for WorkflowAgent,
-            # a plan-only response (phase="planning" with no compile_result) is NOT
-            # definitive. The conversation must continue to generate_workflow_commands.
-            is_workflow_planning_only = (
-                agent_id == "workflow_agent"
-                and workflow_phase == "planning"
-                and not has_definitive_result  # no compile_result
-            )
-            if is_workflow_planning_only:
-                # Keep conversation active — the workflow agent still needs to
-                # generate commands and compile the workflow
+            # LLM detected this as a definitive result — but for WorkflowAgent it must NOT
+            # close the turn when it's plan-only (phase="planning", no compile yet) OR when
+            # a compile was attempted but did NOT succeed (W3b #14: a failed compile closed
+            # as 'completed' on the classifier's word drops the thread and blocks in-turn
+            # retry). _workflow_turn_should_stay_active captures both cases.
+            _compile_status = (agent_result.get("compile_result") or {}).get("status") if agent_result else None
+            if _workflow_turn_should_stay_active(agent_id, workflow_phase, has_definitive_result, _compile_status):
                 conversation_status = "active"
-                logger.info(f"  [handle_agent_response] WorkflowAgent in planning phase — keeping conversation active (not marking as complete)")
+                logger.info(f"  [handle_agent_response] WorkflowAgent turn not conclusively done "
+                            f"(phase={workflow_phase}, compile_status={_compile_status}) — keeping conversation active")
             else:
-                # LLM detected this as a definitive result - consider the conversation complete
+                # Genuinely definitive - consider the conversation complete
                 current_conv = None
                 pending_question = None
                 conversation_status = "completed"

@@ -555,3 +555,27 @@ def test_phase6_w5_nothing_verifiable_returns_none():
 def test_wiring_w5_distiller_fallback_uses_deterministic_summary():
     assert "_deterministic_builder_summary(verification_summary, latest_plan)" in _src(CC_NODES_PY), \
         "distiller fallback no longer tries the deterministic success summary (#17 regression)"
+
+
+# ── W3b (#14): the classifier must not close a failed compile as 'completed' ──
+_stay_active = _load_functions(
+    _BUILDER_NODES_PY, ["_workflow_turn_should_stay_active"])["_workflow_turn_should_stay_active"]
+
+
+@pytest.mark.parametrize("agent_id,phase,has_def,compile_status,expected", [
+    ("workflow_agent", "planning", False, None, True),      # plan-only — keep active
+    ("workflow_agent", "building", False, "error", True),   # #14: failed compile — keep active
+    ("workflow_agent", "complete", False, "error", True),   # #14: phase-agnostic
+    ("workflow_agent", "building", False, "failed", True),  # #14: other failure status
+    ("workflow_agent", "building", False, "success", False),  # genuinely done — close
+    ("workflow_agent", "building", True, "draft", False),   # draft is a terminal compile turn (Phase 3)
+    ("workflow_agent", "planning", True, "success", False),   # definitive success — close
+    ("some_other_agent", "building", False, "error", False),  # non-workflow unaffected
+])
+def test_phase6_w3b_stay_active(agent_id, phase, has_def, compile_status, expected):
+    assert _stay_active(agent_id, phase, has_def, compile_status) is expected
+
+
+def test_wiring_w3b_classifier_branch_uses_stay_active_guard():
+    assert "_workflow_turn_should_stay_active(" in _src(_BUILDER_NODES_PY), \
+        "classifier-completion branch no longer guards on compile status — a failed compile can close the thread (#14)"
