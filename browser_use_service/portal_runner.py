@@ -569,14 +569,55 @@ async def run_portal_fetch(task, start_url, creds, download_dir, llm_model,
         except Exception:
             pass
 
-    full_task = (
-        f"Go to {start_url}.{login_hint} Then: {task}. IMPORTANT: downloaded files are saved AUTOMATICALLY by the system to the correct folder. Do NOT choose a save location, do NOT type a file path, and IGNORE any instruction to save to a specific local folder (e.g. C:\\tmp) - just trigger the download from the page itself. The MOMENT you have clicked the download control (the link/button) for the target file ONE time, immediately call done and STOP - that single click IS task completion. The system captures the downloaded bytes automatically in the background; you CANNOT observe the download from inside the browser, so do NOT try to verify it and do NOT keep taking steps to confirm it: do NOT open chrome://downloads (it is blocked), do NOT open, inspect, or switch to new/blank tabs looking for the file, do NOT 'wait' for a download confirmation, and do NOT click the download a second time. Click the download once, then call done - the system decides whether the file actually arrived, not you. VERIFICATION / 2FA / ONE-TIME CODES: for ANY verification, 2FA, MFA, one-time, OTP or security code, you MUST call submit_verification_code. If the code is visible on the page (e.g. shown for testing, or in a banner), pass those exact digits as `code`. If you have an authenticator/TOTP set up, call submit_verification_code with an empty `code` and the system supplies it. Do NOT type the code into the field yourself, do NOT click into the boxes, and do NOT wrap the code in <secret> tags - submit_verification_code does the typing and submits the form. If NO code is available to you (it would come from a phone/email/authenticator you cannot access) and there is no TOTP, call request_human_takeover and wait. For a CAPTCHA or any other login challenge you don't have the answer for, also call request_human_takeover. Never keep retrying or guessing codes."
+    # Completion guidance is MODE-SPECIFIC and MUTUALLY EXCLUSIVE. A run with staged files is an
+    # UPLOAD; otherwise it is a DOWNLOAD. The download-centric "clicking the download once IS
+    # completion / do not verify" language actively misleads an upload run (there is no download
+    # to click), and the reverse is true too — mixing them is the download-vs-upload prompt bleed
+    # that caused trouble when upload was first added. So we pick ONE block. The 2FA/verification
+    # block is common to both.
+    _verify_block = (
+        " VERIFICATION / 2FA / ONE-TIME CODES: for ANY verification, 2FA, MFA, one-time, OTP or "
+        "security code, you MUST call submit_verification_code. If the code is visible on the page "
+        "(e.g. shown for testing, or in a banner), pass those exact digits as `code`. If you have "
+        "an authenticator/TOTP set up, call submit_verification_code with an empty `code` and the "
+        "system supplies it. Do NOT type the code into the field yourself, do NOT click into the "
+        "boxes, and do NOT wrap the code in <secret> tags - submit_verification_code does the "
+        "typing and submits the form. If NO code is available to you (it would come from a "
+        "phone/email/authenticator you cannot access) and there is no TOTP, call "
+        "request_human_takeover and wait. For a CAPTCHA or any other login challenge you don't "
+        "have the answer for, also call request_human_takeover. Never keep retrying or guessing codes."
     )
 
-    # If the caller staged upload files, expose them to the agent and tell it they're available.
     if available_file_paths:
+        # UPLOAD run — no download-completion language at all.
         _names = ", ".join(os.path.basename(str(p)) for p in available_file_paths)
-        full_task += f" FILE UPLOAD: the file(s) [{_names}] are available to you. When the task needs a file uploaded, open the page's file-input / upload control and use your upload action with the provided file - do NOT type a path into a text box, and do NOT refuse for lack of the file."
+        _mode_block = (
+            f" FILE UPLOAD: the file(s) [{_names}] are available to you. Open the page's file-input "
+            "/ upload control and use your upload action with the provided file - do NOT type a "
+            "path into a text box, and do NOT refuse for lack of the file. Once the page confirms "
+            "the upload completed (the file name appears in a list, a progress bar finishes, or a "
+            "success/'uploaded' message shows), call done and stop. This is an UPLOAD, not a "
+            "download: do NOT trigger any file download, do NOT click a download control, and do "
+            "NOT choose a save location."
+        )
+    else:
+        # DOWNLOAD run — click the download once = done; do not verify (the system captures + judges).
+        _mode_block = (
+            " IMPORTANT: downloaded files are saved AUTOMATICALLY by the system to the correct "
+            "folder. Do NOT choose a save location, do NOT type a file path, and IGNORE any "
+            "instruction to save to a specific local folder (e.g. C:\\tmp) - just trigger the "
+            "download from the page itself. The MOMENT you have clicked the download control (the "
+            "link/button) for the target file ONE time, immediately call done and STOP - that "
+            "single click IS task completion. The system captures the downloaded bytes "
+            "automatically in the background; you CANNOT observe the download from inside the "
+            "browser, so do NOT try to verify it and do NOT keep taking steps to confirm it: do "
+            "NOT open chrome://downloads (it is blocked), do NOT open, inspect, or switch to "
+            "new/blank tabs looking for the file, do NOT 'wait' for a download confirmation, and "
+            "do NOT click the download a second time. Click the download once, then call done - "
+            "the system decides whether the file actually arrived, not you."
+        )
+
+    full_task = f"Go to {start_url}.{login_hint} Then: {task}.{_mode_block}{_verify_block}"
 
     llm = _build_llm(llm_model)
     session = _build_session(download_dir, headless, allowed_domains)
