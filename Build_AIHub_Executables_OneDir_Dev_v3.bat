@@ -42,7 +42,17 @@ if not exist "%PROJECT_PATH%\_build_config.py" (
     pause
     exit /b 1
 )
-echo [PRE] Complete - _build_config.py ready for bundling
+:: The same generator also emits the trimmed LLM-keys-only _build_config_client.py,
+:: which the v4 .iss ships loose to {app}\_build_config.py for the source-run Browser
+:: Use service. Guard it too: without this file the .iss compile fails on a missing source.
+if not exist "%PROJECT_PATH%\_build_config_client.py" (
+    echo ERROR: _build_config_client.py was not created. Aborting build.
+    echo        The v4 installer ships it loose as {app}\_build_config.py; check
+    echo        scripts\generate_build_config.py emits the LLM_ONLY_KEYS file.
+    pause
+    exit /b 1
+)
+echo [PRE] Complete - _build_config.py (full, bundled) + _build_config_client.py (trimmed, loose) ready
 
 echo.
 echo [1/13] Building app_onedir.spec with aihub2.1 environment...
