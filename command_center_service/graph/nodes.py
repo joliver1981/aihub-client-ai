@@ -5820,14 +5820,23 @@ def _extract_created_resources(plan_data: dict) -> list:
         # WorkflowAgent builds put saved_workflow_id/name at the delegation-result TOP
         # LEVEL (builder nodes.py:1860), not under .data — so check both, or workflow
         # builds are never recorded (W5b #17 + a general workflow-tracking gap).
+        # The plan-only compile path stores the id ONLY under result["compile_result"]
+        # ["workflow_id"] (builder nodes.py:3654), so read that too — but ONLY on a clean
+        # compile: a draft/errored compile must never be surfaced as a created resource
+        # (stays fail-closed; _plan_has_unready_artifact independently suppresses the
+        # success announcement, and the step guards above already drop failed steps).
+        cr = step_result.get("compile_result") if isinstance(step_result.get("compile_result"), dict) else {}
+        cr_ok = str(cr.get("status") or "").lower() not in ("draft", "error")
         wf_id = (data.get("workflow_id") or data.get("saved_workflow_id")
-                 or step_result.get("saved_workflow_id") or step_result.get("workflow_id"))
+                 or step_result.get("saved_workflow_id") or step_result.get("workflow_id")
+                 or (cr.get("workflow_id") if cr_ok else None))
         if wf_id:
             resources.append({
                 "type": "workflow",
                 "id": wf_id,
                 "name": (data.get("saved_workflow_name")
                          or step_result.get("saved_workflow_name")
+                         or (cr.get("workflow_name") if cr_ok else None)
                          or f"Workflow #{wf_id}"),
             })
     return resources

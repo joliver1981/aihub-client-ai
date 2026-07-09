@@ -2343,11 +2343,12 @@ def _mcp_actions() -> list:
                         "server_url", FieldType.STRING, required=True,
                         description="MCP server URL",
                     ),
-                    FieldSchema(
-                        "transport_type", FieldType.ENUM, required=True,
-                        choices=["sse", "streamable_http"],
-                        description="Transport protocol",
-                    ),
+                    # NOTE (#18): 'transport_type' (sse/streamable_http) was removed. The
+                    # POST /api/mcp/servers handler never reads it (it is not persisted or
+                    # verified), so collecting it silently dropped the user's choice while
+                    # reporting success. The gateway auto-negotiates transport
+                    # (StreamableHTTP-first, SSE-fallback), so we do not offer a knob we
+                    # cannot honor. Re-add only alongside real persistence + verification.
                     FieldSchema(
                         "server_type", FieldType.ENUM, required=False,
                         choices=["local", "remote"],
@@ -2416,10 +2417,9 @@ def _mcp_actions() -> list:
                         "url", FieldType.STRING, required=True,
                         description="MCP server URL to test",
                     ),
-                    FieldSchema(
-                        "transport_type", FieldType.ENUM, required=True,
-                        choices=["sse", "streamable_http"],
-                    ),
+                    # NOTE (#18): 'transport_type' was removed here too — the /api/mcp/test
+                    # handler never reads it, so it was silently dropped. Transport is
+                    # auto-negotiated; do not collect a knob the endpoint ignores.
                     # The /api/mcp/test handler short-circuits with {status:"failed"}
                     # unless type == "remote". This field was missing, so the executor
                     # dropped it and the guard rejected every request (F4). Default it so

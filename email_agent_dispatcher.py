@@ -419,25 +419,39 @@ class EmailAgentDispatcher:
                         )
                         logger.info(f"Sent 'new email' notification to {notification_email} for agent {agent_id}")
                     
-                    # Notify on auto-reply sent
+                    # Notify on auto-reply outcome — honest across all three cases
+                    # (#11): pending-approval / actually-sent / could-NOT-send. The old
+                    # code's else branch claimed "was sent" even when status was 'failed',
+                    # which (with the approval stub, and any real send error) reported a
+                    # reply that never went out. Key the wording on the real result.
                     if config.get('notify_on_auto_reply') and processing_type in ('auto_response', 'pending_approval'):
                         from notification_client import send_email_notification
                         if processing_type == 'pending_approval':
+                            notify_verb = 'pending approval'
                             notify_body = (
                                 f"An auto-reply was drafted by {agent_name} and is pending approval.\n\n"
                                 f"To: {sender_email}\n"
                                 f"Original Subject: {email_subject}\n"
                             )
-                        else:
+                        elif result.get('success'):
+                            notify_verb = 'sent'
                             notify_body = (
                                 f"An auto-reply was sent by {agent_name}.\n\n"
                                 f"To: {sender_email}\n"
                                 f"Original Subject: {email_subject}\n"
                                 f"Status: {status}\n"
                             )
+                        else:
+                            notify_verb = 'not sent'
+                            notify_body = (
+                                f"An auto-reply was NOT sent by {agent_name}.\n\n"
+                                f"To: {sender_email}\n"
+                                f"Original Subject: {email_subject}\n"
+                                f"Reason: {result.get('error') or 'unknown error'}\n"
+                            )
                         send_email_notification(
                             to=[notification_email],
-                            subject=f"[AI Hub] Auto-reply {'pending approval' if processing_type == 'pending_approval' else 'sent'} by {agent_name}",
+                            subject=f"[AI Hub] Auto-reply {notify_verb} by {agent_name}",
                             body=notify_body,
                             agent_id=agent_id
                         )
@@ -618,12 +632,26 @@ Respond with ONLY the email body text, no subject line or headers."""
             return {'success': False, 'error': str(e)}
     
     def _queue_for_approval(self, config: Dict, email: Dict, content: Dict) -> Dict:
-        """Queue an auto-response for human approval before sending."""
-        # For now, just record that approval is needed
-        # Full approval workflow would require additional UI
+        """Queue an auto-response for human approval before sending.
+
+        Honesty fix (#11): a real draft + approval workflow is NOT implemented yet (it
+        needs a drafts table + retrieval/approve/send endpoints + UI). The previous stub
+        returned {success: True, pending_approval: True} without generating a reply,
+        persisting a draft, or queuing anything — a silent success that then told the user
+        "an auto-reply was drafted and is pending approval", which was false. Fail closed:
+        report an honest not-implemented failure so nothing downstream claims a reply
+        exists. Users who want auto-replies to actually go out can set require_approval
+        to false (that path generates and sends immediately).
+        """
         return {
-            'success': True,
-            'pending_approval': True
+            'success': False,
+            'pending_approval': False,
+            'not_implemented': True,
+            'error': (
+                'Auto-reply approval is not yet implemented — no reply was drafted, '
+                'queued, or sent. Turn off "require approval" to send auto-replies '
+                'immediately, or wait for the approval-workflow feature.'
+            ),
         }
     
     # =========================================================================

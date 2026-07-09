@@ -785,3 +785,137 @@ def test_wiring_w2_step4_runtime_fails_unimplemented_node():
     # the old passing no-op for unimplemented types must be gone
     assert "Node type '{node_type}' not implemented yet" not in s, \
         "runtime still has the old 'not implemented yet' -> success:True no-op path (#6/#10)"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Round-2 residual closers — #8 timeout-clobber, #17 plan-only compile id,
+# #18 dropped transport_type, #11 email auto-reply approval stub
+# ═══════════════════════════════════════════════════════════════════════════
+from datetime import datetime as _datetime  # noqa: E402
+
+_MODELS_PY = os.path.join(_REPO, "builder_service", "agent_communication", "models.py")
+_EMAIL_DISPATCHER_PY = os.path.join(_REPO, "email_agent_dispatcher.py")
+
+
+def _load_method(path: str, method_name: str, extra_globals=None):
+    """AST-extract a single METHOD by name (from any class) and exec it as a bare
+    function — same no-heavy-import philosophy as _load_functions, but reaches inside a
+    ClassDef. The returned callable still takes `self` as its first positional arg."""
+    with open(path, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    ns = {k: getattr(typing, k) for k in ("Optional", "Dict", "Any", "List", "Tuple", "Callable")}
+    if extra_globals:
+        ns.update(extra_globals)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == method_name:
+            node.decorator_list = []
+            exec(compile(ast.Module(body=[node], type_ignores=[]), path, "exec"), ns)
+            return ns[method_name]
+    raise AssertionError(f"method {method_name} not found in {path}")
+
+
+# ── #8: mark_waiting_for_user must not downgrade a terminal TIMEOUT/FAILED ──
+class _FakeConvStatus:                         # str-valued members mirror the real (str, Enum)
+    ACTIVE = "active"
+    WAITING_FOR_USER = "waiting_for_user"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    TIMEOUT = "timeout"
+
+
+_mark_waiting = _load_method(
+    _MODELS_PY, "mark_waiting_for_user",
+    {"ConversationStatus": _FakeConvStatus, "datetime": _datetime})
+
+
+class _Conv:
+    def __init__(self, status):
+        self.status = status
+        self.pending_question = None
+        self.updated_at = None
+
+
+@pytest.mark.parametrize("status,sticks", [
+    (_FakeConvStatus.TIMEOUT, True),
+    (_FakeConvStatus.FAILED, True),
+    (_FakeConvStatus.ACTIVE, False),
+    (_FakeConvStatus.WAITING_FOR_USER, False),
+])
+def test_residual8_mark_waiting_preserves_terminal_status(status, sticks):
+    conv = _Conv(status)
+    _mark_waiting(conv, "please advise")
+    if sticks:
+        assert conv.status == status, (
+            "mark_waiting_for_user clobbered a terminal failure state (#8) — the auto-reply "
+            "timeout gets masked and the delegation falsely reports success with no build")
+    else:
+        assert conv.status == _FakeConvStatus.WAITING_FOR_USER
+
+
+def test_residual8_guard_present_in_source():
+    s = _src(_MODELS_PY)
+    assert "ConversationStatus.TIMEOUT, ConversationStatus.FAILED" in s and \
+        "def mark_waiting_for_user" in s, \
+        "the terminal-status guard in mark_waiting_for_user was removed (#8)"
+
+
+# ── #17: plan-only compile path stores the workflow id under compile_result ──
+_WF_COMPILE_OK = {"status": "completed", "steps": [
+    {"status": "completed", "description": "build workflow",
+     "result": {"compile_result": {"status": "success", "workflow_id": 77,
+                                    "workflow_name": "ERP Export WF"}}}]}
+_WF_COMPILE_DRAFT = {"status": "completed", "steps": [
+    {"status": "completed", "description": "build workflow",
+     "result": {"compile_result": {"status": "draft", "workflow_id": 77,
+                                    "workflow_name": "ERP Export WF"}}}]}
+
+
+def test_residual17_extract_finds_compile_result_workflow_id():
+    res = _extract_cr(_WF_COMPILE_OK)
+    assert any(r["type"] == "workflow" and str(r["id"]) == "77" and r["name"] == "ERP Export WF"
+               for r in res), \
+        "plan-only build (id under compile_result.workflow_id) is not recorded as created (#17)"
+
+
+def test_residual17_clean_compile_only_announced_on_distiller_crash():
+    msg = _det_summary(_EMPTY_SUMMARY, _WF_COMPILE_OK)     # empty summary => no-verification branch
+    assert msg is not None and "✅" in msg and "ERP Export WF" in msg, \
+        "a clean plan-only workflow build still shows the generic apology on a distiller crash (#17)"
+
+
+def test_residual17_draft_compile_result_not_recorded_or_announced():
+    assert not any(r["type"] == "workflow" for r in _extract_cr(_WF_COMPILE_DRAFT)), \
+        "a DRAFT compile must not be surfaced as a created workflow (#17 fail-closed)"
+    assert _det_summary(_EMPTY_SUMMARY, _WF_COMPILE_DRAFT) is None
+
+
+# ── #18: the silently-dropped transport_type must be gone from both MCP actions ──
+def test_residual18_transport_type_removed_from_mcp_create():
+    by_id = _platform_actions_by_id()
+    names = {f.name for f in by_id["mcp.create_server"].primary_route.input_fields}
+    assert "transport_type" not in names, \
+        "mcp.create_server still collects transport_type, silently dropped by the handler (#18)"
+
+
+def test_residual18_transport_type_removed_from_mcp_test():
+    by_id = _platform_actions_by_id()
+    names = {f.name for f in by_id["mcp.test_server"].primary_route.input_fields}
+    assert "transport_type" not in names, \
+        "mcp.test_server still collects transport_type, silently dropped by the handler (#18)"
+
+
+# ── #11: email auto-reply approval stub reports honestly, not a phantom pending ──
+_queue_for_approval = _load_method(_EMAIL_DISPATCHER_PY, "_queue_for_approval")
+
+
+def test_residual11_queue_for_approval_is_honest():
+    r = _queue_for_approval(None, {}, {}, {})
+    assert r.get("success") is False and not r.get("pending_approval"), \
+        "email _queue_for_approval still returns a phantom success/pending_approval (#11)"
+    assert r.get("error"), "the honest failure must carry an error explaining approval isn't implemented"
+
+
+def test_residual11_auto_reply_notification_is_outcome_honest():
+    s = _src(_EMAIL_DISPATCHER_PY)
+    assert "An auto-reply was NOT sent by" in s and "elif result.get('success'):" in s, \
+        "auto-reply notification no longer distinguishes sent vs could-not-send — would claim 'sent' on failure (#11)"

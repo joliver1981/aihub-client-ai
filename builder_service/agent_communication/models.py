@@ -96,6 +96,14 @@ class AgentConversation(BaseModel):
 
     def mark_waiting_for_user(self, question: str):
         """Mark the conversation as waiting for user input."""
+        # Fail-closed (#8): never downgrade a terminal failure state. A timed-out or
+        # failed send sets TIMEOUT/FAILED and does not re-raise; if a later no-metadata
+        # branch then called this, it silently overwrote TIMEOUT -> WAITING_FOR_USER
+        # BEFORE the delegation-failure guard read the status, so the guard missed the
+        # timeout and the delegation falsely reported success with the build never done.
+        # A terminal failure is sticky and can only be cleared by an explicit resume.
+        if self.status in (ConversationStatus.TIMEOUT, ConversationStatus.FAILED):
+            return
         self.status = ConversationStatus.WAITING_FOR_USER
         self.pending_question = question
         self.updated_at = datetime.utcnow().isoformat()
