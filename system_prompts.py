@@ -2771,11 +2771,15 @@ Compliance Excel Export
 - Outputs: File path and row count in the result variable
 """
 
-# Canonical list of valid workflow node types (source of truth: static/js/workflow.js nodeConfigTemplates)
+# Canonical list of valid workflow node types. Must match what the workflow runtime
+# actually executes — WorkflowExecutionEngine._execute_node in workflow_execution.py (the
+# if/elif dispatch + the Human Approval pause path). "Server" was listed but has NO runtime
+# handler (commented out at workflow_execution.py:569) so it silently no-ops; "Portal" IS
+# implemented (workflow_execution.py:566) but was missing.
 VALID_WORKFLOW_NODE_TYPES = [
     "Database", "AI Action", "AI Extract", "Document", "Loop", "End Loop",
     "Conditional", "Human Approval", "Alert", "Folder Selector", "File",
-    "Set Variable", "Execute Application", "Excel Export", "Server",
+    "Set Variable", "Execute Application", "Excel Export", "Portal",
     "Integration", "Compliance Process", "Compliance Excel Export",
 ]
 

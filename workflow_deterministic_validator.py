@@ -593,6 +593,50 @@ def detect_alert_template_expressions(state: Dict) -> List[Issue]:
 
 
 # Master detector list - order matters only for log readability
+_KNOWN_NODE_TYPES_CACHE: Optional[Set[str]] = None
+
+
+def _known_node_types() -> Set[str]:
+    """Canonical node types the workflow runtime actually executes — the single corrected
+    list in system_prompts (VALID_WORKFLOW_NODE_TYPES). Loaded lazily + defensively: if it
+    can't be imported, the unknown-node detector disables itself rather than block or
+    mis-flag validation."""
+    global _KNOWN_NODE_TYPES_CACHE
+    if _KNOWN_NODE_TYPES_CACHE is None:
+        try:
+            from system_prompts import VALID_WORKFLOW_NODE_TYPES
+            _KNOWN_NODE_TYPES_CACHE = {str(t) for t in VALID_WORKFLOW_NODE_TYPES}
+        except Exception:  # pragma: no cover - defensive
+            logger.warning("UNKNOWN_NODE_TYPE: could not load VALID_WORKFLOW_NODE_TYPES; detector disabled")
+            _KNOWN_NODE_TYPES_CACHE = set()
+    return _KNOWN_NODE_TYPES_CACHE
+
+
+def detect_unknown_node_type(state: Dict) -> List[Issue]:
+    """#6/#10: flag any node whose type the workflow runtime does not implement. Such a
+    node silently executes as a no-op ({'success': True}) at runtime, so validation must
+    not pass. Emitted as an ERROR with NO fixer -> bubbles to unfixable -> is_valid=False
+    -> the workflow is saved as a DRAFT with these errors surfaced (Phase 3), never
+    announced 'ready to use'. (Validator-only; the runtime hard-fail is a separate step.)"""
+    known = _known_node_types()
+    if not known:
+        return []  # canonical list unavailable — do not flag (avoid mass false positives)
+    issues: List[Issue] = []
+    for node in state.get("nodes", []) or []:
+        nt = _node_type(node)
+        if nt and nt not in known:
+            issues.append(Issue(
+                severity=ERROR,
+                code="UNKNOWN_NODE_TYPE",
+                message=(f"Node '{_node_label(node)}' has type '{nt}', which the workflow "
+                         f"runtime does not implement — it would silently do nothing at "
+                         f"execution. Use a supported node type."),
+                node_id=node.get("id"),
+                extra={"node_type": nt},
+            ))
+    return issues
+
+
 DETECTORS = [
     # Graph
     detect_duplicate_connections,
@@ -612,6 +656,8 @@ DETECTORS = [
     detect_file_node_config_errors,
     detect_integration_config_errors,
     detect_alert_template_expressions,
+    # Node-type membership (#6/#10): unknown/unimplemented type -> ERROR (no fixer)
+    detect_unknown_node_type,
 ]
 
 

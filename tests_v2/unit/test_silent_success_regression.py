@@ -718,3 +718,58 @@ def test_wiring_w3a_consumers_derive_build_state():
 def test_wiring_w3a_tool_surfaces_plan():
     assert '_builder_capture["result"] = result' in _src(CC_NODES_PY), \
         "delegate_to_builder_agent tool no longer surfaces the plan to its consumer (#15)"
+
+
+# ── W2 step-2 (#6/#10): validator flags unknown/unimplemented node types -> is_valid False ──
+_wfval = _load_module(os.path.join(_REPO, "workflow_deterministic_validator.py"), "ss_wf_validator")
+# Seed the canonical-set cache so the detector logic is exercised independently of importing
+# the (large) system_prompts module. Deliberately excludes 'Server', includes 'Portal'.
+_wfval._KNOWN_NODE_TYPES_CACHE = {"Database", "AI Action", "Portal", "Human Approval", "Integration"}
+
+
+def test_phase6_w2_unknown_node_type_flagged():
+    issues = _wfval.detect_unknown_node_type({"nodes": [{"type": "Server", "id": "n1"}]})
+    assert len(issues) == 1 and issues[0].code == "UNKNOWN_NODE_TYPE" and issues[0].severity == "error"
+
+
+def test_phase6_w2_hallucinated_type_flagged():
+    assert len(_wfval.detect_unknown_node_type({"nodes": [{"type": "MagicNode", "id": "n2"}]})) == 1
+
+
+def test_phase6_w2_known_types_not_flagged():
+    for t in ("Database", "Portal", "Human Approval", "Integration"):
+        assert _wfval.detect_unknown_node_type({"nodes": [{"type": t, "id": "n"}]}) == [], f"{t} wrongly flagged"
+
+
+def test_phase6_w2_missing_type_skipped():
+    assert _wfval.detect_unknown_node_type({"nodes": [{"id": "n"}]}) == []
+
+
+def test_phase6_w2_disabled_when_canonical_unavailable():
+    saved = _wfval._KNOWN_NODE_TYPES_CACHE
+    _wfval._KNOWN_NODE_TYPES_CACHE = set()   # simulate import failure -> detector self-disables
+    try:
+        assert _wfval.detect_unknown_node_type({"nodes": [{"type": "Server", "id": "n1"}]}) == []
+    finally:
+        _wfval._KNOWN_NODE_TYPES_CACHE = saved
+
+
+def test_phase6_w2_unknown_node_is_unfixable_error():
+    # end-to-end through run(): an unknown node -> unfixable_errors (=> caller sets is_valid False)
+    res = _wfval.run({"nodes": [{"type": "Server", "id": "n1", "isStart": True}], "connections": []})
+    assert any(i.code == "UNKNOWN_NODE_TYPE" for i in res.unfixable_errors)
+
+
+def test_phase6_w2_registered_and_has_no_fixer():
+    assert _wfval.detect_unknown_node_type in _wfval.DETECTORS
+    assert "UNKNOWN_NODE_TYPE" not in _wfval.FIXERS   # no fixer -> stays unfixable -> is_valid False
+
+
+def test_phase6_w2_canonical_list_has_portal_not_server():
+    import importlib
+    import sys as _sys
+    if _REPO not in _sys.path:
+        _sys.path.insert(0, _REPO)
+    sp = importlib.import_module("system_prompts")
+    assert "Portal" in sp.VALID_WORKFLOW_NODE_TYPES, "Portal (implemented) missing from canonical list"
+    assert "Server" not in sp.VALID_WORKFLOW_NODE_TYPES, "Server (no runtime handler) still in canonical list"
