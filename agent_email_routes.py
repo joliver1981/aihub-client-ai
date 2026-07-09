@@ -644,6 +644,36 @@ def _may_act_on_agent(agent_id, accessible_ids):
     return accessible_ids is None or agent_id in accessible_ids
 
 
+def _attach_agent_names(approvals):
+    """Enrich each approval dict with 'agent_name' (Agents.description) so the UI can
+    show the agent name instead of a bare id. One query for the whole batch; on any
+    error the rows just carry agent_name=None and the UI falls back to '#<id>'."""
+    ids = {a.get('agent_id') for a in approvals if a.get('agent_id') is not None}
+    names = {}
+    if ids:
+        conn = None
+        try:
+            conn, cursor = get_tenant_context()
+            placeholders = ",".join("?" * len(ids))
+            cursor.execute(
+                f"SELECT id, description FROM Agents WHERE id IN ({placeholders})",
+                tuple(ids),
+            )
+            names = {row[0]: row[1] for row in cursor.fetchall()}
+            cursor.close()
+        except Exception as e:
+            logger.warning(f"agent-name lookup for approvals failed: {e}")
+        finally:
+            try:
+                if conn:
+                    conn.close()
+            except Exception:
+                pass
+    for a in approvals:
+        a['agent_name'] = names.get(a.get('agent_id'))
+    return approvals
+
+
 @agent_email_bp.route('/api/agent-email/approvals', methods=['GET'])
 @api_key_or_session_required(min_role=2)
 def list_agent_email_approvals():
@@ -653,6 +683,7 @@ def list_agent_email_approvals():
         status = request.args.get('status', 'pending')
         accessible_ids, _ = _approval_agent_scope()
         approvals = agent_email_send.list_approvals(status=status, agent_ids=accessible_ids)
+        _attach_agent_names(approvals)
         # lightweight stats over the full (visible) queue, mirroring the workflow page
         counts = agent_email_send.list_approvals(status='all', agent_ids=accessible_ids)
         stats = {'pending': 0, 'sent': 0, 'rejected': 0, 'failed': 0}
@@ -679,6 +710,7 @@ def get_agent_email_approval(approval_id):
         accessible_ids, _ = _approval_agent_scope()
         if not _may_act_on_agent(approval.get('agent_id'), accessible_ids):
             return jsonify({'status': 'error', 'message': 'Not authorized for this agent'}), 403
+        _attach_agent_names([approval])
         return jsonify({'status': 'success', 'approval': approval})
     except Exception as e:
         logger.error(f"Error getting agent email approval {approval_id}: {e}")

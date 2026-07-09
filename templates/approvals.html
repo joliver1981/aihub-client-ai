@@ -980,9 +980,10 @@
             const created = TimezoneUtils.getRelativeTime(a.created_at);
             const statusBadge = `<span class="status-badge ${emailStatusClass(a.status)}">${escapeHtml(a.status)}</span>`;
             const actions = `<button class="btn-action btn-view" onclick="viewEmailApproval(${a.approval_id})"><i class="fas fa-eye"></i> View</button>`;
+            const agentLabel = a.agent_name ? escapeHtml(a.agent_name) : ('#' + escapeHtml(a.agent_id));
             const tr = $('<tr></tr>');
             tr.html(
-                `<td>#${escapeHtml(a.agent_id)}</td>` +
+                `<td>${agentLabel}</td>` +
                 `<td>${escapeHtml(a.source || '')}</td>` +
                 `<td>${escapeHtml(to)}</td>` +
                 `<td>${escapeHtml(a.subject || '(no subject)')}</td>` +
@@ -1002,7 +1003,7 @@
                 success: function(response) {
                     const a = response.approval;
                     currentEmailApprovalId = a.approval_id;
-                    $('#emailModalAgent').text('#' + a.agent_id + ' (' + (a.source || '') + ')');
+                    $('#emailModalAgent').text((a.agent_name || ('#' + a.agent_id)) + ' (' + (a.source || '') + ')');
                     $('#emailModalTo').text((a.to_addresses || []).join(', '));
                     $('#emailModalSubject').text(a.subject || '(no subject)');
                     $('#emailModalBody').val(a.final_body || a.draft_body || '');
