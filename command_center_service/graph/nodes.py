@@ -1363,6 +1363,12 @@ async def converse(state: CommandCenterState) -> dict:
     from command_center.orchestration.landscape_scanner import format_landscape_summary
 
     messages = state.get("messages", [])
+
+    # W3a (#15): turn-scoped capture of the FULL delegate_to_builder result. The
+    # delegate_to_builder_agent tool must return a string (LangChain contract), so it
+    # stashes the {text,status,plan,builder_session_id} dict here and the tool-result
+    # handler below reads it to derive an honest build_status (was hardcoded 'in_progress').
+    _builder_capture: dict = {}
     
     # Always scan platform for real data (cached 60s, fast after first call)
     from command_center.orchestration.landscape_scanner import scan_platform
@@ -1710,9 +1716,13 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 timeout=120.0,
                 builder_session_id=builder_sid,
             )
-            if result.get("status") == "completed" and result.get("text"):
+            # W3a (#15): surface the full result (plan/status/builder_session_id) to the
+            # tool-result handler, which derives build_status from it.
+            _builder_capture["result"] = result
+            status = result.get("status")
+            if status in ("completed", "partial") and result.get("text"):
                 return result["text"]
-            elif result.get("status") == "failed":
+            elif status == "failed":
                 return f"Builder Agent error: {result.get('text', 'Unknown error')}. The Builder service may not be running (port 8100)."
             else:
                 return "Builder Agent processed the request but returned no visible output."
@@ -3727,7 +3737,12 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 elif tool_name == "delegate_to_builder_agent":
                     cc_sid = state.get("session_id", "cc-default")
                     existing = state.get("active_delegation") or {}
-                    builder_sid = existing.get("builder_session_id") or f"cc-builder-{cc_sid}"
+                    # W3a (#15): derive the HONEST build state from the captured delegator
+                    # result instead of hardcoding 'in_progress' (which pinned the session to
+                    # the builder forever and never surfaced created resources).
+                    _bstate = _derive_build_state(_builder_capture.get("result") or {})
+                    builder_sid = (_bstate["builder_session_id"] or existing.get("builder_session_id")
+                                   or f"cc-builder-{cc_sid}")
                     # Append to builder conversation log
                     builder_log = list(existing.get("builder_log", []))
                     builder_log.append({"role": "user_to_builder", "content": tool_args.get("request", ""), "ts": datetime.now().isoformat()})
@@ -3739,9 +3754,13 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                         "started_at": existing.get("started_at", datetime.now().isoformat()),
                         "builder_session_id": builder_sid,
                         "builder_log": builder_log,
-                        "build_status": "in_progress",
+                        "build_status": _bstate["build_status"],
                         "history": [],
                     }
+                    if _bstate["created_resources"]:
+                        active_deleg["created_resources"] = _bstate["created_resources"]
+                    if _bstate["completed_at"]:
+                        active_deleg["completed_at"] = _bstate["completed_at"]
 
             # Check if any tool returned renderable blocks (map, artifact)
             # that should pass through directly instead of going back to LLM.
@@ -4431,8 +4450,17 @@ async def gather_data(state: CommandCenterState) -> dict:
                 timeout=120.0,
             )
             response_text = result.get("text", "No response from builder.")
+            # W3a (#15): this continuation had the full result but only updated the session
+            # id — derive the honest build_status/created_resources too, so a completed
+            # chat-path build is actually marked complete (not stuck 'in_progress').
+            _bstate = _derive_build_state(result)
             updated = dict(active)
-            updated["builder_session_id"] = builder_sid
+            updated["builder_session_id"] = _bstate["builder_session_id"] or builder_sid
+            updated["build_status"] = _bstate["build_status"]
+            if _bstate["created_resources"]:
+                updated["created_resources"] = _bstate["created_resources"]
+            if _bstate["completed_at"]:
+                updated["completed_at"] = _bstate["completed_at"]
             return {"messages": [AIMessage(content=response_text)], "active_delegation": updated}
 
         # ── Check for export request before delegating to agent ──────────
@@ -5820,6 +5848,29 @@ def _plan_has_unready_artifact(plan_data: dict) -> bool:
         if str(cr.get("status") or "").lower() in ("draft", "error"):
             return True
     return False
+
+
+def _derive_build_state(result: dict) -> dict:
+    """W3a (#15): derive the builder-delegation state (build_status, created_resources,
+    completed_at, builder_session_id) from a delegate_to_builder result — the same way the
+    build node does — so the converse and gather_data build consumers report the HONEST
+    plan outcome instead of a hardcoded 'in_progress' (which left the session pinned to the
+    builder forever and never surfaced created resources). Safe on a plan-less result
+    (returns 'in_progress', matching the build node)."""
+    from datetime import datetime as _dt
+    out = {"build_status": "in_progress", "created_resources": [],
+           "completed_at": None, "builder_session_id": None}
+    if not isinstance(result, dict):
+        return out
+    out["builder_session_id"] = result.get("builder_session_id")
+    latest_plan = result.get("plan")
+    if isinstance(latest_plan, dict):
+        plan_status = str(latest_plan.get("status") or "").lower()
+        if plan_status in ("completed", "partial", "failed"):
+            out["build_status"] = plan_status
+            out["completed_at"] = _dt.now().isoformat()
+            out["created_resources"] = _extract_created_resources(latest_plan)
+    return out
 
 
 def _summarize_verification(plan_data: dict) -> dict:

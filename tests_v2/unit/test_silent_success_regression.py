@@ -667,3 +667,54 @@ def test_phase6_w5b_failed_plan_not_announced():
 def test_phase6_w5b_unready_artifact_detector():
     assert _unready(_WF_DRAFT) is True
     assert _unready(_WF_CLEAN) is False
+
+
+# ── W3a (#15): converse/gather_data build consumers derive honest build_status ──
+_derive_bs = _load_functions(
+    CC_NODES_PY, ["_derive_build_state", "_extract_created_resources"])["_derive_build_state"]
+
+
+def _bresult(plan_status, steps=None, sid="b-1"):
+    r = {"text": "ok", "status": "completed", "builder_session_id": sid}
+    if plan_status is not None:
+        r["plan"] = {"status": plan_status, "steps": steps or []}
+    return r
+
+
+@pytest.mark.parametrize("plan_status,expected", [
+    ("completed", "completed"),
+    ("partial", "partial"),
+    ("failed", "failed"),
+    ("draft", "in_progress"),        # not a terminal build_status -> stays in_progress
+    ("delegated", "in_progress"),
+    (None, "in_progress"),           # no plan
+])
+def test_phase6_w3a_build_status_from_plan(plan_status, expected):
+    assert _derive_bs(_bresult(plan_status))["build_status"] == expected
+
+
+def test_phase6_w3a_none_result_is_in_progress():
+    assert _derive_bs(None)["build_status"] == "in_progress"
+
+
+def test_phase6_w3a_captures_builder_session_id():
+    assert _derive_bs(_bresult("completed", sid="xyz"))["builder_session_id"] == "xyz"
+
+
+def test_phase6_w3a_completed_extracts_resources_and_timestamp():
+    steps = [{"status": "completed", "description": "create agent",
+              "result": {"verified": True, "data": {"agent_id": 7, "agent_description": "Bot"}}}]
+    st = _derive_bs(_bresult("completed", steps=steps))
+    assert st["completed_at"] is not None
+    assert any(r["type"] == "agent" and r["id"] == 7 for r in st["created_resources"])
+
+
+def test_wiring_w3a_consumers_derive_build_state():
+    # both the converse tool-result handler and the gather_data continuation must derive
+    assert _src(CC_NODES_PY).count("_derive_build_state(") >= 2, \
+        "converse/gather_data build consumers no longer derive build_status from the plan (#15 regression)"
+
+
+def test_wiring_w3a_tool_surfaces_plan():
+    assert '_builder_capture["result"] = result' in _src(CC_NODES_PY), \
+        "delegate_to_builder_agent tool no longer surfaces the plan to its consumer (#15)"
