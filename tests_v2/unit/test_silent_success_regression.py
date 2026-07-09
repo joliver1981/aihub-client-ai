@@ -773,3 +773,15 @@ def test_phase6_w2_canonical_list_has_portal_not_server():
     sp = importlib.import_module("system_prompts")
     assert "Portal" in sp.VALID_WORKFLOW_NODE_TYPES, "Portal (implemented) missing from canonical list"
     assert "Server" not in sp.VALID_WORKFLOW_NODE_TYPES, "Server (no runtime handler) still in canonical list"
+
+
+# ── W2 step-4 (#6/#10): runtime fails an unimplemented node instead of no-op success ──
+def test_wiring_w2_step4_runtime_fails_unimplemented_node():
+    s = _src(os.path.join(_REPO, "workflow_execution.py"))
+    # the unimplemented-node else branch must now yield a FAILURE the (~584) check raises on
+    assert "is not implemented by the workflow engine" in s and \
+        "result = {'success': False, 'error': msg}" in s, \
+        "runtime no longer fails unimplemented node types (#6/#10 step 4 — silent no-op returns)"
+    # the old passing no-op for unimplemented types must be gone
+    assert "Node type '{node_type}' not implemented yet" not in s, \
+        "runtime still has the old 'not implemented yet' -> success:True no-op path (#6/#10)"

@@ -570,12 +570,16 @@ class WorkflowExecutionEngine:
             #     result = self._execute_server_node(execution_id, node, variables)
             # And so on...
             else:
-                # Default handling for unimplemented node types
-                print(f"Node type '{node_type}' not implemented yet")
-                self.log_execution(
-                    execution_id, node_id, "warning",
-                    f"Node type '{node_type}' not implemented yet")
-                result = {'success': True, 'data': {}}
+                # Unimplemented node type -> fail honestly instead of silently no-op'ing.
+                # This historically returned {'success': True}, so a workflow containing an
+                # unknown/'Server' node "passed" while doing nothing — silent success at the
+                # execution layer (#6/#10). Returning success:False makes the check below
+                # (~line 584) raise, so the step is marked FAILED and the run follows its
+                # fail-path / reports honestly, exactly like any other node failure.
+                msg = f"Node type '{node_type}' is not implemented by the workflow engine"
+                print(msg)
+                self.log_execution(execution_id, node_id, "error", msg)
+                result = {'success': False, 'error': msg}
             
             # Store the output for potential use by subsequent nodes
             variables['_previousStepOutput'] = result.get('data', {})
