@@ -1130,3 +1130,43 @@ def test_bug11_needs_input_derived_from_waiting_status():
     s = _src(_BUILDER_NODES_PY)
     assert 'conversation_status == "waiting_for_user"' in s and "conversation_needs_input = (" in s, \
         "needs_user_input no longer derived from the final conversation_status (#11) — plan won't pause"
+
+
+# ── Bucket-B #12 — plan goal = real user request, not the internal re-plan prompt ──
+from types import SimpleNamespace as _NS  # noqa: E402
+
+_goal_from = _load_functions(_BUILDER_NODES_PY, ["_goal_from_messages"])["_goal_from_messages"]
+
+
+def _h(c):
+    return _NS(type="human", content=c)
+
+
+def test_bug12_normal_flow_uses_human_request():
+    assert _goal_from([_h("build a workflow that emails the finance team")]) \
+        == "build a workflow that emails the finance team"
+
+
+def test_bug12_confirm_yes_reflow_skips_system_prompt_and_bare_yes():
+    msgs = [_h("build a workflow that pulls invoices and emails them"),
+            _NS(type="ai", content="Here's a plan..."),
+            _h("yes"),
+            _NS(type="system", content="IMPORTANT: Your previous response was not parsed into an executable plan. ...")]
+    goal = _goal_from(msgs)
+    assert "IMPORTANT" not in goal and goal != "yes"
+    assert goal == "build a workflow that pulls invoices and emails them"
+
+
+def test_bug12_dict_form_user_message():
+    assert _goal_from([{"role": "user", "content": "do the thing"}]) == "do the thing"
+
+
+def test_bug12_empty_and_all_confirmations():
+    assert _goal_from([]) == ""
+    assert _goal_from([_h("yes")]) == "yes"                 # only a confirmation → best available
+    assert _goal_from([_h("Yes."), _h("ok")]) == "ok"       # all confirmations → most recent human
+
+
+def test_bug12_compound_confirmation_is_substantive():
+    # "yes, also add logging" is a real instruction, not a bare confirmation
+    assert _goal_from([_h("build X"), _h("yes, also add logging")]) == "yes, also add logging"

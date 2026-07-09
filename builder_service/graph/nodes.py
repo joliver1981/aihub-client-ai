@@ -143,6 +143,40 @@ def _collect_created_resources(prior_resources: dict, steps: list) -> dict:
     return new_resources
 
 
+def _goal_from_messages(messages) -> str:
+    """#12: derive the plan goal = the user's REAL request.
+
+    The old loop took the last message with str .content — which, after analyze_and_plan
+    appends its internal "IMPORTANT: Your previous response was not parsed..." SystemMessage
+    on the confirm_yes re-plan path, is that internal prompt (shipped to the WorkflowAgent
+    as "Full user requirements"). It also has no human filter, and in the confirm_yes flow
+    the last HUMAN message is a bare "yes". Return the most recent SUBSTANTIVE human message
+    (skipping bare confirmations), falling back to the most recent human message, then "".
+    (Confirmation set is function-local so the helper stays self-contained/testable.)
+    """
+    confirmations = {
+        "yes", "y", "yep", "yeah", "yup", "ok", "okay", "k", "sure", "go", "go ahead",
+        "confirm", "confirmed", "do it", "proceed", "please do", "yes please", "sounds good",
+        "looks good", "correct", "right", "affirmative", "please", "continue", "yes go",
+    }
+    human_texts = []
+    for msg in (messages or []):
+        content = None
+        if getattr(msg, "type", None) == "human" and isinstance(getattr(msg, "content", None), str):
+            content = msg.content
+        elif isinstance(msg, dict) and msg.get("role") == "user" and isinstance(msg.get("content"), str):
+            content = msg["content"]
+        if content is not None:
+            human_texts.append(content)
+    if not human_texts:
+        return ""
+    for content in reversed(human_texts):
+        normalized = content.strip().lower().rstrip(".!")
+        if normalized and normalized not in confirmations:
+            return content
+    return human_texts[-1]  # all human messages were bare confirmations → best available
+
+
 # ─── Response Format Guard ─────────────────────────────────────────────────
 
 def _sanitize_llm_response(response) -> None:
@@ -1180,11 +1214,7 @@ async def analyze_and_plan(state: dict) -> dict:
         has_destructive = False
 
     # Build the plan object
-    goal = ""
-    for msg in reversed(messages):
-        if hasattr(msg, "content") and isinstance(msg.content, str):
-            goal = msg.content
-            break
+    goal = _goal_from_messages(messages)  # #12: real user request, not the internal re-plan prompt / bare "yes"
 
     plan = {
         "plan_id": f"plan_{state.get('session_id', 'unknown')}",
