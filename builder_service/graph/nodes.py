@@ -3269,6 +3269,36 @@ def _conversation_failure_result(manager, conversation_id, agent_id):
     return None
 
 
+def _terminalize_agent_conversation(state: dict, conversation_id, status: str) -> dict:
+    """#5: build the state updates that RELEASE a dead agent conversation so a single
+    timeout/error can't brick the session. Clears the routing id (route_by_intent gates
+    on a truthy conv id), writes a terminal status into the state-dict copy, clears any
+    pending question, and FAILS the plan step bound to this conversation — so execute()'s
+    resumption guard can't restore the dead conversation on the next turn. Returns a dict
+    to merge into a node's return value. Pure/deterministic; never raises."""
+    terminal = status if status in ("timeout", "failed") else "failed"
+    updates = {"current_agent_conversation_id": None, "pending_agent_question": None}
+    conv_map = dict(state.get("agent_conversations") or {})
+    entry = dict(conv_map.get(conversation_id) or {})
+    entry["status"] = terminal
+    entry["pending_question"] = None
+    conv_map[conversation_id] = entry
+    updates["agent_conversations"] = conv_map
+    plan = state.get("current_plan")
+    if isinstance(plan, dict) and plan.get("steps"):
+        new_steps = []
+        for step in plan["steps"]:
+            sr = step.get("result") if isinstance(step, dict) else None
+            sc = sr.get("conversation_id") if isinstance(sr, dict) else None
+            step_status = step.get("status") if isinstance(step, dict) else None
+            if sc == conversation_id and step_status in ("awaiting_input", "delegated"):
+                new_steps.append({**step, "status": "failed"})
+            else:
+                new_steps.append(step)
+        updates["current_plan"] = {**plan, "steps": new_steps}
+    return updates
+
+
 def _workflow_turn_should_stay_active(agent_id, workflow_phase, has_definitive_result, compile_status):
     """W3b (#14): decide whether a workflow_agent turn the LLM classifier called a
     'definitive_result' must nonetheless keep its conversation ACTIVE (not be closed as
@@ -3623,8 +3653,15 @@ async def _execute_agent_delegation(
                     logger.info(f"  [_execute_agent_delegation] Workflow compile finished in initial delegation (status={_compile_status})")
 
         # The agent needs user input if it's asking questions OR providing an update
-        # (both mean the conversation is still ongoing and the user should respond)
-        conversation_needs_input = is_asking_questions or is_update
+        # (both mean the conversation is still ongoing and the user should respond).
+        # #11: is_asking_questions/is_update are computed once from the FIRST response
+        # and are both False in the workflow-agent "still gathering" auto-reply branches,
+        # which set conversation_status="waiting_for_user" but never reassign the booleans.
+        # Derive from the AUTHORITATIVE final conversation_status too, or execute() won't
+        # pause and dependent steps (e.g. "schedule it") run against an unbuilt workflow.
+        conversation_needs_input = (
+            is_asking_questions or is_update or conversation_status == "waiting_for_user"
+        )
 
         # Convert messages to simple dicts for JSON serialization
         messages_for_state = [
@@ -4195,6 +4232,25 @@ async def handle_agent_response(state: dict) -> dict:
         pending_question = updated_conversation.pending_question
         conversation_status = updated_conversation.status.value
 
+        # #5 (Variant B): provide_user_input can swallow a TimeoutError (sets status
+        # TIMEOUT without raising). If "timeout"/"failed" flows on, it's written back into
+        # the state-dict and the NEXT message loops into a raising send forever. Release
+        # the conversation now and report an honest failure instead.
+        if conversation_status in ("timeout", "failed"):
+            logger.warning(f"  [handle_agent_response] conversation {current_conv_id} is terminal "
+                           f"({conversation_status}); releasing it to avoid a bricked session")
+            _llm = get_llm(mini=False)
+            _fail_msg = await safe_llm_invoke(_llm, [
+                SystemMessage(content=BUILDER_SYSTEM_PROMPT),
+                HumanMessage(content=(f"The specialist agent did not respond ({conversation_status}). "
+                                      f"Tell the user the request couldn't be completed and to try again.")),
+            ])
+            return {
+                "messages": [_fail_msg],
+                "pending_agent_question": None,
+                **_terminalize_agent_conversation(state, current_conv_id, conversation_status),
+            }
+
         # Check if the agent produced a definitive result (meaning conversation is complete)
         # This is agent-agnostic - we check if there's structured output from the agent.
         #
@@ -4514,10 +4570,26 @@ Present this response to the user in a helpful way."""
 
     except Exception as e:
         logger.error(f"  [handle_agent_response] Error: {e}", exc_info=True)
+        # #5: an error mid-conversation must not brick the session. If the underlying
+        # conversation is terminal (timeout/failed) or unreachable, RELEASE it — clear the
+        # routing id + fail its plan step — so the next message re-plans normally instead
+        # of looping back into this raising handler forever. Defensive: the manager may be
+        # unbound if the error fired before it was resolved, so re-import + guard here.
+        terminal_updates = {}
+        try:
+            from agent_communication.manager import get_communication_manager
+            _mgr = get_communication_manager()
+            _conv = _mgr.get_conversation(current_conv_id) if current_conv_id else None
+            _live = _conv.status.value if (_conv and _conv.status) else None
+            if current_conv_id and (_conv is None or _live in ("timeout", "failed")):
+                terminal_updates = _terminalize_agent_conversation(
+                    state, current_conv_id, _live or "failed")
+        except Exception as _cleanup_err:
+            logger.warning(f"  [handle_agent_response] release-on-error skipped: {_cleanup_err}")
         # Use LLM to generate error response so it streams
         llm = get_llm(mini=False)
         error_response = await safe_llm_invoke(llm, [
             SystemMessage(content=BUILDER_SYSTEM_PROMPT),
             HumanMessage(content=f"I encountered an error while communicating with the specialist agent: {str(e)}. Please try again or let me know how else I can help."),
         ])
-        return {"messages": [error_response], "pending_agent_question": None}
+        return {"messages": [error_response], "pending_agent_question": None, **terminal_updates}

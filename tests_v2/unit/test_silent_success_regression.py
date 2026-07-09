@@ -1050,3 +1050,83 @@ def test_bugb9_execute_uses_helper_not_attribute_access():
     # helper is DEFINED once + called from execute + called from handle_agent_response
     assert s.count("_collect_created_resources(") >= 3, \
         "registry helper not wired into both execute and the delegation-completion path (#9)"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Bucket-B #5 — one agent timeout/error must NOT brick the builder session
+# ═══════════════════════════════════════════════════════════════════════════
+_EDGES_PY = os.path.join(_REPO, "builder_service", "graph", "edges.py")
+_terminalize = _load_functions(
+    _BUILDER_NODES_PY, ["_terminalize_agent_conversation"])["_terminalize_agent_conversation"]
+_route_by_intent = _load_functions(
+    _EDGES_PY, ["route_by_intent"], {"logger": logging.getLogger("t")})["route_by_intent"]
+
+
+def test_bug5_terminalize_clears_id_and_fails_bound_step():
+    state = {
+        "current_agent_conversation_id": "c1",
+        "agent_conversations": {"c1": {"status": "waiting_for_user", "pending_question": "?"}},
+        "current_plan": {"steps": [
+            {"order": 1, "status": "delegated", "result": {"conversation_id": "c1"}},
+            {"order": 2, "status": "pending", "result": {}},
+        ]},
+    }
+    upd = _terminalize(state, "c1", "timeout")
+    assert upd["current_agent_conversation_id"] is None
+    assert upd["agent_conversations"]["c1"]["status"] == "timeout"
+    assert upd["agent_conversations"]["c1"]["pending_question"] is None
+    steps = upd["current_plan"]["steps"]
+    assert steps[0]["status"] == "failed", "the conversation's plan step must be failed"
+    assert steps[1]["status"] == "pending", "an unrelated step must be untouched"
+    # prior state must NOT be mutated (execute's resumption guard reads the old plan)
+    assert state["agent_conversations"]["c1"]["status"] == "waiting_for_user"
+    assert state["current_plan"]["steps"][0]["status"] == "delegated"
+
+
+def test_bug5_terminalize_coerces_unknown_status_to_failed():
+    upd = _terminalize({"agent_conversations": {}}, "c9", "weird")
+    assert upd["agent_conversations"]["c9"]["status"] == "failed"
+
+
+def test_bug5_terminalize_handles_missing_plan():
+    upd = _terminalize({}, "c1", "failed")
+    assert upd["current_agent_conversation_id"] is None
+    assert "current_plan" not in upd
+
+
+@pytest.mark.parametrize("status", ["failed", "timeout"])
+def test_bug5_router_escapes_terminal_conversation(status):
+    # a terminal conversation must NOT loop back into handle_agent_response forever
+    state = {"intent": "build", "current_plan": None,
+             "current_agent_conversation_id": "c1", "pending_agent_question": None,
+             "agent_conversations": {"c1": {"status": status}}}
+    assert _route_by_intent(state) != "handle_agent_response"
+
+
+def test_bug5_router_still_forwards_active_pause():
+    # a genuine mid-conversation pause is still forwarded (don't over-correct)
+    state = {"intent": "build", "current_plan": None,
+             "current_agent_conversation_id": "c1", "pending_agent_question": None,
+             "agent_conversations": {"c1": {"status": "waiting_for_user"}}}
+    assert _route_by_intent(state) == "handle_agent_response"
+
+
+def test_bug5_router_no_loop_when_id_cleared():
+    state = {"intent": "build", "current_plan": None,
+             "current_agent_conversation_id": None, "pending_agent_question": None,
+             "agent_conversations": {}}
+    assert _route_by_intent(state) == "analyze_and_plan"
+
+
+def test_bug5_handler_releases_on_failure_and_timeout():
+    s = _src(_BUILDER_NODES_PY)
+    # def + happy-path (Variant B) + except handler (Variant A)
+    assert s.count("_terminalize_agent_conversation(") >= 3, \
+        "handle_agent_response doesn't release a dead conversation on error/timeout (#5)"
+
+
+# ── Bucket-B #11 — still-gathering auto-reply must set needs_user_input ──
+def test_bug11_needs_input_derived_from_waiting_status():
+    s = _src(_BUILDER_NODES_PY)
+    assert 'conversation_status == "waiting_for_user"' in s and "conversation_needs_input = (" in s, \
+        "needs_user_input no longer derived from the final conversation_status (#11) — plan won't pause"

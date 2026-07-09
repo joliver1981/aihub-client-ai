@@ -43,7 +43,10 @@ def route_by_intent(state: dict) -> str:
         conv_state = agent_conversations.get(current_agent_conv, {})
         conv_status = conv_state.get("status", "")
 
-        if conv_status not in ("completed", ""):
+        # #5: treat terminal-failure states as escapes too. The handler now clears the
+        # conv id on failure (so we normally don't get here with one set), but this keeps
+        # any already-poisoned checkpoint carrying "timeout"/"failed" from looping.
+        if conv_status not in ("completed", "failed", "timeout", ""):
             # Conversation is active/waiting — forward user's message to the agent
             logger.info(f"Routing → handle_agent_response: active agent conversation (status={conv_status})")
             return "handle_agent_response"
