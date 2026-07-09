@@ -242,12 +242,13 @@ function toggleDocTheme(){var p=document.getElementById('docPage'),i=document.ge
                                 <textarea class="form-control" id="autoRespondInstructions" rows="2"
                                           placeholder="Optional: Add specific instructions for auto-responses..."></textarea>
                             </div>
-                            <!-- Inactive in this version -->
-                            <div class="custom-control custom-checkbox" style="display: none;">
+                            <div class="custom-control custom-checkbox mt-2">
                                 <input type="checkbox" class="custom-control-input" id="requireApproval">
                                 <label class="custom-control-label" for="requireApproval">
                                     Require human approval before sending
                                 </label>
+                                <small class="d-block text-muted">Auto-replies are queued as drafts in
+                                    <a href="/approvals">My Approvals</a> for a person to review, edit and send.</small>
                             </div>
                         </div>
                     </div>
@@ -439,7 +440,9 @@ async function loadConfig() {
             updateStatusBadge(data.config.is_active);
         } else {
             document.getElementById('emailEnabled').checked = true;
-            document.getElementById('requireApproval').checked = false;  // Deprecated feature for now, defaulting to false
+            // Default a new agent to approval-gated auto-replies (safer: drafts go to
+            // My Approvals for a person to review/edit/send, not sent unattended).
+            document.getElementById('requireApproval').checked = true;
             updateStatusBadge(false);
         }
         
@@ -593,7 +596,18 @@ async function saveConfig() {
         showAlert('danger', 'Please enter an email prefix');
         return;
     }
-    
+
+    // Notifications need a recipient, or the switch is a silent no-op (the
+    // dispatcher only sends when notification_email is set).
+    const notifyOn = document.getElementById('notifyOnReceive').checked
+                  || document.getElementById('notifyOnAutoReply').checked;
+    const notifyEmail = document.getElementById('notificationEmail').value.trim();
+    if (notifyOn && !notifyEmail) {
+        showAlert('danger', 'Enter a "Notification recipient email" to receive notifications, or turn off both notification switches.');
+        document.getElementById('notificationEmail').focus();
+        return;
+    }
+
     const config = {
         email_prefix: prefix,
         from_name: document.getElementById('fromName').value.trim(),

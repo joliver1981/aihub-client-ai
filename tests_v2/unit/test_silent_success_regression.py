@@ -904,18 +904,96 @@ def test_residual18_transport_type_removed_from_mcp_test():
         "mcp.test_server still collects transport_type, silently dropped by the handler (#18)"
 
 
-# ── #11: email auto-reply approval stub reports honestly, not a phantom pending ──
-_queue_for_approval = _load_method(_EMAIL_DISPATCHER_PY, "_queue_for_approval")
-
-
-def test_residual11_queue_for_approval_is_honest():
-    r = _queue_for_approval(None, {}, {}, {})
-    assert r.get("success") is False and not r.get("pending_approval"), \
-        "email _queue_for_approval still returns a phantom success/pending_approval (#11)"
-    assert r.get("error"), "the honest failure must carry an error explaining approval isn't implemented"
-
-
+# ── #11: email auto-reply notification is honest across sent / not-sent / pending ──
+# (The former _queue_for_approval honesty-stub was REMOVED once the Agent Email
+# Approvals feature was rebuilt — queuing now happens inside
+# agent_email_send.send_agent_email, covered by
+# tests/unit/test_email_agent_dispatcher.py::TestAutoResponseGate.)
 def test_residual11_auto_reply_notification_is_outcome_honest():
     s = _src(_EMAIL_DISPATCHER_PY)
     assert "An auto-reply was NOT sent by" in s and "elif result.get('success'):" in s, \
         "auto-reply notification no longer distinguishes sent vs could-not-send — would claim 'sent' on failure (#11)"
+
+
+def test_residual11_dispatcher_routes_through_chokepoint():
+    # the rebuilt dispatcher must queue/send via the agent_email_send chokepoint,
+    # not the old direct-send/stub path (the "undo #11" wiring).
+    s = _src(_EMAIL_DISPATCHER_PY)
+    assert "from agent_email_send import send_agent_email" in s and "send_agent_email(" in s, \
+        "dispatcher no longer routes auto-replies through send_agent_email (#11 rebuild)"
+    assert "def _queue_for_approval" not in s, \
+        "the dead _queue_for_approval stub should have been removed when the feature was rebuilt"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Agent Email Approvals rebuild — accessible_agent_ids authz (fail-closed)
+# ═══════════════════════════════════════════════════════════════════════════
+_DATAUTILS_PY = os.path.join(_REPO, "DataUtils.py")
+
+
+def _load_accessible(pyodbc_stub):
+    return _load_functions(
+        _DATAUTILS_PY, ["accessible_agent_ids"],
+        {"pyodbc": pyodbc_stub, "os": os,
+         "database_server": "s", "database_name": "d", "username": "u", "password": "p"},
+    )["accessible_agent_ids"]
+
+
+class _FakeCursor:
+    def __init__(self, rows):
+        self._rows = rows
+    def execute(self, *a, **k):
+        return None
+    def fetchall(self):
+        return self._rows
+    def close(self):
+        return None
+
+
+class _FakeConn:
+    def __init__(self, rows):
+        self._rows = rows
+    def cursor(self):
+        return _FakeCursor(self._rows)
+    def close(self):
+        return None
+
+
+class _FakePyodbc:
+    def __init__(self, rows=None, raise_on_connect=False):
+        self._rows = rows or []
+        self._raise = raise_on_connect
+    def connect(self, *a, **k):
+        if self._raise:
+            raise RuntimeError("db down")
+        return _FakeConn(self._rows)
+
+
+@pytest.mark.parametrize("role", [3, "3", 4, 9])
+def test_accessible_agent_ids_admin_returns_none(role):
+    # admin (role >= 3) -> None (no filter), and MUST NOT touch the DB
+    fn = _load_accessible(_FakePyodbc(raise_on_connect=True))
+    assert fn(42, role) is None
+
+
+def test_accessible_agent_ids_scoped_user_returns_group_ids():
+    fn = _load_accessible(_FakePyodbc(rows=[(7,), (9,), (12,)]))
+    assert fn(42, 1) == [7, 9, 12]
+
+
+def test_accessible_agent_ids_no_groups_is_deny_all():
+    fn = _load_accessible(_FakePyodbc(rows=[]))
+    assert fn(42, 1) == []            # empty list = deny-all (fail-closed), NOT None
+
+
+@pytest.mark.parametrize("role", [None, "", "bad"])
+def test_accessible_agent_ids_unknown_role_is_scoped_not_admin(role):
+    # a missing/garbage role must be treated as NON-admin (fail-closed), so it hits
+    # the group query rather than returning None (all-access).
+    fn = _load_accessible(_FakePyodbc(rows=[(5,)]))
+    assert fn(42, role) == [5]
+
+
+def test_accessible_agent_ids_db_error_fails_closed():
+    fn = _load_accessible(_FakePyodbc(raise_on_connect=True))
+    assert fn(42, 1) == []            # error -> [] (deny-all), never None (all-access)

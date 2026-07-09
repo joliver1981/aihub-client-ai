@@ -491,13 +491,10 @@ class EmailAgentDispatcher:
             # Check rate limits
             if not self._check_rate_limit(agent_id, config):
                 return {'success': False, 'error': 'Rate limit exceeded'}
-            
-            # Check if approval is required
-            if config.get('require_approval', True):
-                # Queue for approval instead of sending immediately
-                return self._queue_for_approval(config, email, content)
-            
-            # Build the prompt for the agent
+
+            # Build the prompt for the agent. The draft is ALWAYS generated first;
+            # the require_approval gate lives in send_agent_email (queue vs send),
+            # so a queued approval row always carries a real draft_body.
             sender_email = email.get('sender_email', 'Unknown')
             sender_name = email.get('sender_name', '')
             subject = email.get('subject', '(No subject)')
@@ -534,30 +531,44 @@ Respond with ONLY the email body text, no subject line or headers."""
                 return {'success': False, 'error': response.get('error', 'Agent execution failed')}
             
             agent_response = response.get('response', '')
-            
-            # Send the reply
-            from notification_client import send_email_notification
-            
+
             # Case-insensitive check for RE: prefix
             reply_subject = f"RE: {subject}" if not subject.upper().startswith('RE:') else subject
-            
-            send_result = send_email_notification(
+
+            # Route through the single agent-email chokepoint. It reads the agent's
+            # require_approval flag and EITHER queues a pending AgentEmailApprovals
+            # draft (a human approves/edits/sends it from the Agent Email Approvals
+            # UI) OR sends immediately.
+            from agent_email_send import send_agent_email
+
+            send_result = send_agent_email(
+                agent_id,
                 to=[sender_email],
                 subject=reply_subject,
                 body=agent_response,
-                agent_id=agent_id
+                source='auto_reply',
+                event_id=email.get('event_id'),
+                message_key=email.get('message_key'),
+                recipient_name=sender_name,
+                created_by='email_dispatcher',
             )
-            
-            if send_result.get('success'):
-                # Increment daily counter
+
+            status = send_result.get('status')
+            if status == 'queued':
+                return {
+                    'success': True,
+                    'pending_approval': True,
+                    'approval_id': send_result.get('approval_id'),
+                }
+            if status == 'sent' and send_result.get('success'):
+                # Increment the daily counter only on an actual send
                 self._increment_daily_counter(agent_id)
                 return {
                     'success': True,
                     'message_id': send_result.get('message_id')
                 }
-            else:
-                return {'success': False, 'error': send_result.get('error', 'Failed to send reply')}
-                
+            return {'success': False, 'error': send_result.get('error', 'Failed to send reply')}
+
         except Exception as e:
             logger.error(f"Auto-response error: {e}")
             return {'success': False, 'error': str(e)}
@@ -631,29 +642,12 @@ Respond with ONLY the email body text, no subject line or headers."""
             logger.error(f"Workflow trigger error: {e}")
             return {'success': False, 'error': str(e)}
     
-    def _queue_for_approval(self, config: Dict, email: Dict, content: Dict) -> Dict:
-        """Queue an auto-response for human approval before sending.
+    # NOTE: the former _queue_for_approval() stub was removed once the Agent Email
+    # Approvals feature was rebuilt. Queuing now happens inside
+    # agent_email_send.send_agent_email() (the require_approval gate), which
+    # _trigger_auto_response routes through — so a require_approval agent gets a real
+    # pending AgentEmailApprovals draft (visible/approvable in the My Approvals UI).
 
-        Honesty fix (#11): a real draft + approval workflow is NOT implemented yet (it
-        needs a drafts table + retrieval/approve/send endpoints + UI). The previous stub
-        returned {success: True, pending_approval: True} without generating a reply,
-        persisting a draft, or queuing anything — a silent success that then told the user
-        "an auto-reply was drafted and is pending approval", which was false. Fail closed:
-        report an honest not-implemented failure so nothing downstream claims a reply
-        exists. Users who want auto-replies to actually go out can set require_approval
-        to false (that path generates and sends immediately).
-        """
-        return {
-            'success': False,
-            'pending_approval': False,
-            'not_implemented': True,
-            'error': (
-                'Auto-reply approval is not yet implemented — no reply was drafted, '
-                'queued, or sent. Turn off "require approval" to send auto-replies '
-                'immediately, or wait for the approval-workflow feature.'
-            ),
-        }
-    
     # =========================================================================
     # Database Operations
     # =========================================================================

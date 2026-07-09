@@ -1673,6 +1673,56 @@ def fetch_user_agents(user_id, user_role=None):
     return agent_list
 
 
+def accessible_agent_ids(user_id, user_role=None):
+    """Resolve which agent ids a user may access — for authorization filtering.
+
+    Contract (consumed by app._agent_visibility_filter and
+    agent_email_send.list_approvals / the Agent Email Approvals routes):
+      * return None   -> admin / all-access (caller applies NO agent filter)
+      * return [ids]  -> the exact agent ids this user may see/act on
+      * return []     -> deny-all (fail-closed; the user can access no agents)
+
+    Access is group-based, matching fetch_user_agents(): an agent is accessible
+    when the user shares a group with it (Agents -> AgentGroups -> UserGroups).
+    Admins (role >= 3) get None (unfiltered). Any error fails CLOSED ([]).
+    """
+    try:
+        role = int(user_role) if user_role is not None else 0
+    except (TypeError, ValueError):
+        role = 0
+    if role >= 3:
+        return None  # admin — no filtering
+    conn = None
+    try:
+        conn = pyodbc.connect(
+            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+        )
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+        cursor.execute(
+            """
+            SELECT DISTINCT a.id
+            FROM Agents a
+            JOIN AgentGroups ag ON a.id = ag.agent_id
+            JOIN UserGroups ug ON ag.group_id = ug.group_id
+            WHERE ug.user_id = ?
+            """,
+            user_id,
+        )
+        ids = [row[0] for row in cursor.fetchall()]
+        cursor.close()
+        return ids
+    except Exception as e:
+        print(f"accessible_agent_ids({user_id}) error: {e}")
+        return []  # fail closed — never fall through to all-access on error
+    finally:
+        try:
+            if conn:
+                conn.close()
+        except Exception:
+            pass
+
+
 def fetch_user_agents_by_email(user_email):
     try:
         conn = pyodbc.connect(

@@ -154,9 +154,22 @@
                 <i class="fas fa-clock"></i> <span id="userTimezone"></span>
             </div>
             <h1><i class="fas fa-check-circle"></i> My Approvals</h1>
-            <p>Review and respond to workflow approval requests assigned to you or your groups</p>
+            <p>Review and respond to approval requests assigned to you or your groups</p>
         </div>
-        
+
+        <!-- View toggle: Workflow Approvals vs Agent Email Approvals -->
+        <div class="approval-view-tabs" style="display:flex; gap:8px; margin:16px 0;">
+            <button id="tabWorkflow" class="btn btn-primary" onclick="switchApprovalView('workflow')">
+                <i class="fas fa-project-diagram"></i> Workflow Approvals
+            </button>
+            <button id="tabEmail" class="btn btn-outline-primary" onclick="switchApprovalView('email')">
+                <i class="fas fa-envelope"></i> Agent Email Approvals
+                <span id="emailPendingBadge" class="badge badge-light" style="display:none;">0</span>
+            </button>
+        </div>
+
+        <!-- ===================== Workflow Approvals view ===================== -->
+        <div id="workflowView">
         <!-- Statistics Cards -->
         <div class="stats-cards">
             <div class="stat-card">
@@ -265,8 +278,97 @@
                 <p>There are no approval requests matching your filters.</p>
             </div>
         </div>
+        </div><!-- /#workflowView -->
+
+        <!-- ===================== Agent Email Approvals view ===================== -->
+        <div id="emailView" style="display:none;">
+            <div class="stats-cards">
+                <div class="stat-card"><div class="stat-icon pending"><i class="fas fa-clock"></i></div>
+                    <div class="stat-content"><h3 id="emailPendingCount">0</h3><p>Pending</p></div></div>
+                <div class="stat-card"><div class="stat-icon approved"><i class="fas fa-paper-plane"></i></div>
+                    <div class="stat-content"><h3 id="emailSentCount">0</h3><p>Sent</p></div></div>
+                <div class="stat-card"><div class="stat-icon rejected"><i class="fas fa-times"></i></div>
+                    <div class="stat-content"><h3 id="emailRejectedCount">0</h3><p>Rejected</p></div></div>
+                <div class="stat-card"><div class="stat-icon overdue"><i class="fas fa-exclamation-triangle"></i></div>
+                    <div class="stat-content"><h3 id="emailFailedCount">0</h3><p>Failed</p></div></div>
+            </div>
+
+            <div class="filters-section">
+                <div class="filter-group">
+                    <label for="emailStatusFilter">Status:</label>
+                    <select id="emailStatusFilter" class="form-control" style="width:150px;">
+                        <option value="pending">Pending</option>
+                        <option value="all">All</option>
+                        <option value="sent">Sent</option>
+                        <option value="rejected">Rejected</option>
+                        <option value="failed">Failed</option>
+                    </select>
+                    <button class="btn btn-primary ml-auto" onclick="refreshEmailApprovals()">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                </div>
+            </div>
+
+            <div class="approvals-table-container">
+                <div class="table-header">
+                    <h2 class="table-title">Agent Email Approvals</h2>
+                    <span class="local-time-note">All times shown in your local timezone</span>
+                </div>
+                <table class="approval-table">
+                    <thead>
+                        <tr>
+                            <th>Agent</th><th>Source</th><th>To</th><th>Subject</th>
+                            <th>Draft</th><th>Created</th><th>Status</th><th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="emailApprovalsTableBody"></tbody>
+                </table>
+                <div id="emailEmptyState" class="empty-state" style="display:none;">
+                    <i class="fas fa-inbox"></i>
+                    <h3>No email approvals found</h3>
+                    <p>There are no agent email approvals matching your filter.</p>
+                </div>
+            </div>
+        </div><!-- /#emailView -->
     </div>
-    
+
+    <!-- Agent Email Approval Modal -->
+    <div id="emailApprovalModal" class="approval-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="modal-close" onclick="closeEmailModal()">&times;</span>
+                <h2>Agent Email Approval</h2>
+            </div>
+            <div class="modal-body">
+                <div class="modal-section">
+                    <p><strong>Agent:</strong> <span id="emailModalAgent"></span></p>
+                    <p><strong>To:</strong> <span id="emailModalTo"></span></p>
+                    <p><strong>Subject:</strong> <span id="emailModalSubject"></span></p>
+                    <p class="text-muted small" id="emailModalMeta"></p>
+                    <p class="text-danger small" id="emailModalError" style="display:none;"></p>
+                </div>
+                <div class="modal-section">
+                    <h4>Email body (edit before sending)</h4>
+                    <textarea id="emailModalBody" class="modal-input" rows="10"></textarea>
+                </div>
+                <div class="modal-section">
+                    <h4>Your Comments</h4>
+                    <textarea id="emailModalComments" class="modal-input" rows="2"
+                            placeholder="Optional note recorded with your decision"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeEmailModal()">Cancel</button>
+                <button id="emailRejectBtn" class="btn btn-danger" onclick="processEmailApproval('reject')">
+                    <i class="fas fa-times"></i> Reject
+                </button>
+                <button id="emailApproveBtn" class="btn btn-success" onclick="processEmailApproval('approve')">
+                    <i class="fas fa-paper-plane"></i> Approve &amp; Send
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Approval Modal -->
     <div id="approvalModal" class="approval-modal">
         <div class="modal-content">
@@ -798,6 +900,160 @@
                 closeModal();
             }
         }
+
+        // ===================== Agent Email Approvals =====================
+        function switchApprovalView(view) {
+            const wf = document.getElementById('workflowView');
+            const em = document.getElementById('emailView');
+            const tabWf = document.getElementById('tabWorkflow');
+            const tabEm = document.getElementById('tabEmail');
+            if (view === 'email') {
+                wf.style.display = 'none'; em.style.display = 'block';
+                tabWf.className = 'btn btn-outline-primary'; tabEm.className = 'btn btn-primary';
+                refreshEmailApprovals();
+            } else {
+                em.style.display = 'none'; wf.style.display = 'block';
+                tabEm.className = 'btn btn-outline-primary'; tabWf.className = 'btn btn-primary';
+            }
+        }
+
+        function refreshEmailApprovals() {
+            $('#refreshIndicator').addClass('show');
+            $.ajax({
+                url: '/api/agent-email/approvals', method: 'GET',
+                data: { status: $('#emailStatusFilter').val() },
+                success: function(response) {
+                    updateEmailStatistics(response.statistics || {});
+                    populateEmailTable(response.approvals || []);
+                    $('#refreshIndicator').removeClass('show');
+                },
+                error: function() {
+                    $('#refreshIndicator').removeClass('show');
+                    showNotification('Failed to load email approvals', 'error');
+                }
+            });
+        }
+
+        function updateEmailStatistics(stats) {
+            $('#emailPendingCount').text(stats.pending || 0);
+            $('#emailSentCount').text(stats.sent || 0);
+            $('#emailRejectedCount').text(stats.rejected || 0);
+            $('#emailFailedCount').text(stats.failed || 0);
+            const badge = $('#emailPendingBadge');
+            if (stats.pending) { badge.text(stats.pending).show(); } else { badge.hide(); }
+        }
+
+        function loadEmailBadge() {
+            $.ajax({
+                url: '/api/agent-email/approvals', method: 'GET', data: { status: 'all' },
+                success: function(response) { updateEmailStatistics(response.statistics || {}); },
+                error: function() {}
+            });
+        }
+
+        function escapeHtml(s) {
+            return (s == null ? '' : String(s)).replace(/[&<>"']/g, function(c) {
+                return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+            });
+        }
+
+        function emailStatusClass(status) {
+            const s = (status || '').toLowerCase();
+            if (s === 'sent') return 'status-approved';
+            if (s === 'rejected') return 'status-rejected';
+            if (s === 'failed') return 'status-cancelled';
+            return 'status-pending';
+        }
+
+        function populateEmailTable(approvals) {
+            const tbody = $('#emailApprovalsTableBody');
+            tbody.empty();
+            if (!approvals.length) { $('#emailEmptyState').show(); return; }
+            $('#emailEmptyState').hide();
+            approvals.forEach(function(a) { tbody.append(createEmailRow(a)); });
+        }
+
+        function createEmailRow(a) {
+            const to = (a.to_addresses || []).join(', ');
+            const draft = a.draft_body || '';
+            const draftPreview = escapeHtml(draft.substring(0, 60)) + (draft.length > 60 ? '&hellip;' : '');
+            const created = TimezoneUtils.getRelativeTime(a.created_at);
+            const statusBadge = `<span class="status-badge ${emailStatusClass(a.status)}">${escapeHtml(a.status)}</span>`;
+            const actions = `<button class="btn-action btn-view" onclick="viewEmailApproval(${a.approval_id})"><i class="fas fa-eye"></i> View</button>`;
+            const tr = $('<tr></tr>');
+            tr.html(
+                `<td>#${escapeHtml(a.agent_id)}</td>` +
+                `<td>${escapeHtml(a.source || '')}</td>` +
+                `<td>${escapeHtml(to)}</td>` +
+                `<td>${escapeHtml(a.subject || '(no subject)')}</td>` +
+                `<td title="${escapeHtml(draft)}">${draftPreview}</td>` +
+                `<td>${created}</td>` +
+                `<td>${statusBadge}</td>` +
+                `<td>${actions}</td>`
+            );
+            return tr;
+        }
+
+        let currentEmailApprovalId = null;
+
+        function viewEmailApproval(approvalId) {
+            $.ajax({
+                url: `/api/agent-email/approvals/${approvalId}`, method: 'GET',
+                success: function(response) {
+                    const a = response.approval;
+                    currentEmailApprovalId = a.approval_id;
+                    $('#emailModalAgent').text('#' + a.agent_id + ' (' + (a.source || '') + ')');
+                    $('#emailModalTo').text((a.to_addresses || []).join(', '));
+                    $('#emailModalSubject').text(a.subject || '(no subject)');
+                    $('#emailModalBody').val(a.final_body || a.draft_body || '');
+                    $('#emailModalComments').val('');
+                    $('#emailModalMeta').text('Created ' + TimezoneUtils.formatDate(a.created_at) + ' · status: ' + a.status);
+                    const pending = (a.status || '').toLowerCase() === 'pending';
+                    $('#emailModalBody').prop('readonly', !pending);
+                    $('#emailApproveBtn, #emailRejectBtn').prop('disabled', !pending).toggle(pending);
+                    if ((a.status || '').toLowerCase() === 'failed' && a.error_message) {
+                        $('#emailModalError').text('Last error: ' + a.error_message).show();
+                    } else { $('#emailModalError').hide(); }
+                    document.getElementById('emailApprovalModal').style.display = 'block';
+                },
+                error: function() { showNotification('Failed to load approval', 'error'); }
+            });
+        }
+
+        function closeEmailModal() {
+            document.getElementById('emailApprovalModal').style.display = 'none';
+            currentEmailApprovalId = null;
+        }
+
+        function processEmailApproval(action) {
+            if (!currentEmailApprovalId) return;
+            $.ajax({
+                url: `/api/agent-email/approvals/${currentEmailApprovalId}`, method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    action: action,
+                    final_body: $('#emailModalBody').val(),
+                    comments: $('#emailModalComments').val()
+                }),
+                success: function() {
+                    showNotification(action === 'approve' ? 'Email approved and sent' : 'Email rejected', 'success');
+                    closeEmailModal();
+                    refreshEmailApprovals();
+                },
+                error: function(xhr) {
+                    let msg = 'Action failed';
+                    try { msg = (xhr.responseJSON && (xhr.responseJSON.message || xhr.responseJSON.error)) || msg; } catch (e) {}
+                    showNotification(msg, 'error');
+                }
+            });
+        }
+
+        $(document).ready(function() {
+            $('#emailStatusFilter').change(refreshEmailApprovals);
+            loadEmailBadge();
+            const em = document.getElementById('emailApprovalModal');
+            if (em) { em.addEventListener('click', function(e) { if (e.target === em) closeEmailModal(); }); }
+        });
     </script>
 <script src="/static/js/approvals_context.js"></script>
 

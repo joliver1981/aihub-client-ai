@@ -30,6 +30,18 @@ def _get_current_user_id():
         return current_user.id
     # API key auth - use admin as the system user
     return 1
+
+
+def _get_current_user_role():
+    """Current user's role value, with a fallback for API-key auth.
+
+    API-key auth (AnonymousUserMixin) is a trusted internal caller, so it gets
+    admin-level (3) agent access — mirroring _get_current_user_id()'s admin id.
+    """
+    role = getattr(current_user, 'role', None)
+    if role is not None:
+        return role
+    return 3
 import logging
 from logging.handlers import WatchedFileHandler
 import json
@@ -609,6 +621,115 @@ def delete_agent_email_config(agent_id):
     except Exception as e:
         logger.error(f"Error deleting agent email config: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# API Routes - Agent Email Approvals (queue viewing + approve/reject/send)
+# ============================================================================
+# Thin HTTP wrappers over the surviving agent_email_send.py data+send layer.
+# Per-user scoping via DataUtils.accessible_agent_ids (None=admin all-access,
+# []=deny-all fail-closed). Approve ACTIVELY sends (send_approved_email) since —
+# unlike workflow approvals — there is no executor thread polling for the result.
+
+def _approval_agent_scope():
+    """(accessible_ids, is_admin) for the current user. accessible_ids is None
+    for admins (no filter) or a list of agent ids (possibly empty = deny-all)."""
+    from DataUtils import accessible_agent_ids
+    ids = accessible_agent_ids(_get_current_user_id(), _get_current_user_role())
+    return ids, (ids is None)
+
+
+def _may_act_on_agent(agent_id, accessible_ids):
+    """True if the current user may view/act on this agent's approvals."""
+    return accessible_ids is None or agent_id in accessible_ids
+
+
+@agent_email_bp.route('/api/agent-email/approvals', methods=['GET'])
+@api_key_or_session_required(min_role=2)
+def list_agent_email_approvals():
+    """List Agent Email Approvals visible to the current user (default: pending)."""
+    try:
+        import agent_email_send
+        status = request.args.get('status', 'pending')
+        accessible_ids, _ = _approval_agent_scope()
+        approvals = agent_email_send.list_approvals(status=status, agent_ids=accessible_ids)
+        # lightweight stats over the full (visible) queue, mirroring the workflow page
+        counts = agent_email_send.list_approvals(status='all', agent_ids=accessible_ids)
+        stats = {'pending': 0, 'sent': 0, 'rejected': 0, 'failed': 0}
+        for a in counts:
+            st = (a.get('status') or '').lower()
+            if st in stats:
+                stats[st] += 1
+        return jsonify({'status': 'success', 'count': len(approvals),
+                        'approvals': approvals, 'statistics': stats})
+    except Exception as e:
+        logger.error(f"Error listing agent email approvals: {e}")
+        return jsonify({'status': 'error', 'message': str(e), 'approvals': []}), 500
+
+
+@agent_email_bp.route('/api/agent-email/approvals/<int:approval_id>', methods=['GET'])
+@api_key_or_session_required(min_role=2)
+def get_agent_email_approval(approval_id):
+    """Get a single Agent Email Approval (agent-access enforced)."""
+    try:
+        import agent_email_send
+        approval = agent_email_send.get_approval(approval_id)
+        if not approval:
+            return jsonify({'status': 'error', 'message': 'Approval not found'}), 404
+        accessible_ids, _ = _approval_agent_scope()
+        if not _may_act_on_agent(approval.get('agent_id'), accessible_ids):
+            return jsonify({'status': 'error', 'message': 'Not authorized for this agent'}), 403
+        return jsonify({'status': 'success', 'approval': approval})
+    except Exception as e:
+        logger.error(f"Error getting agent email approval {approval_id}: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@agent_email_bp.route('/api/agent-email/approvals/<int:approval_id>', methods=['POST'])
+@api_key_or_session_required(min_role=2)
+def act_on_agent_email_approval(approval_id):
+    """Approve (edit + send) or reject a pending Agent Email Approval.
+
+    Body: {action: 'approve'|'reject', final_body?: str, comments?: str}
+    """
+    try:
+        import agent_email_send
+        data = request.get_json() or {}
+        action = (data.get('action') or '').lower()
+        if action not in ('approve', 'reject'):
+            return jsonify({'status': 'error',
+                            'message': "action must be 'approve' or 'reject'"}), 400
+
+        approval = agent_email_send.get_approval(approval_id)
+        if not approval:
+            return jsonify({'status': 'error', 'message': 'Approval not found'}), 404
+        accessible_ids, _ = _approval_agent_scope()
+        if not _may_act_on_agent(approval.get('agent_id'), accessible_ids):
+            return jsonify({'status': 'error', 'message': 'Not authorized for this agent'}), 403
+        if (approval.get('status') or '').lower() != 'pending':
+            return jsonify({'status': 'error',
+                            'message': f"Approval already {approval.get('status')}"}), 409
+
+        approver = _get_current_user_id()
+        comments = data.get('comments')
+        if action == 'reject':
+            result = agent_email_send.reject_approval(approval_id, approver, comments)
+        else:
+            # approve: send the (possibly edited) final_body; fall back to the draft
+            final_body = data.get('final_body')
+            if final_body is None or final_body == '':
+                final_body = approval.get('draft_body') or ''
+            result = agent_email_send.send_approved_email(
+                approval_id, final_body, approver_user_id=approver, comments=comments)
+
+        if result.get('success'):
+            return jsonify({'status': 'success', **result})
+        # honest failure (send failed / not pending) — surface it, don't fake success
+        return jsonify({'status': 'error', 'message': result.get('error', 'action failed'),
+                        **result}), 400
+    except Exception as e:
+        logger.error(f"Error acting on agent email approval {approval_id}: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
 # ============================================================================
