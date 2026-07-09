@@ -86,6 +86,63 @@ def _format_resource_registry(state: dict) -> str:
         return ""
 
 
+def _collect_created_resources(prior_resources: dict, steps: list) -> dict:
+    """Merge created-resource IDs found in executed plan steps into the registry.
+
+    Pure/deterministic and best-effort: reads each step's result.data (and the
+    delegation-result top level for saved_workflow_id/name) for known id/name keys,
+    appending {id|name...} entries by category and de-duplicating. Returns a NEW dict
+    with copied per-category lists (never mutates prior_resources). A malformed step
+    is skipped, never raised. (Maps are function-local so the helper stays self-
+    contained and unit-testable via AST extraction.)
+    """
+    # Resource-ID keys found in a step's result.data, mapped to registry category.
+    resource_keys = {
+        "connection_id": "connections",
+        "agent_id": "agents",
+        "tool_id": "tools",
+        "tool_name": "tools",
+        "knowledge_id": "knowledge",
+        "workflow_id": "workflows",
+        "saved_workflow_id": "workflows",
+        "saved_workflow_name": "workflows",
+        "schedule_id": "schedules",
+        "email_address": "email",
+    }
+    # Keys written at the delegation-result TOP LEVEL (not under .data) — WorkflowAgent
+    # builds attach saved_workflow_id/name there (see execute, ~:1860). Scanned ONLY
+    # for these so a delegation result's top-level agent_id (the DELEGATE agent, e.g.
+    # "workflow_agent") is never mistaken for a created agent.
+    toplevel_keys = {"saved_workflow_id": "workflows", "saved_workflow_name": "workflows"}
+
+    new_resources = {cat: list(items) for cat, items in (prior_resources or {}).items()}
+
+    def _add(source, keys):
+        if not isinstance(source, dict):
+            return
+        for key, category in keys.items():
+            if source.get(key):
+                value = source[key]
+                entry = {"id": value} if key.endswith("_id") else {"name": value}
+                if key == "connection_id" and source.get("connection_name"):
+                    entry["name"] = source["connection_name"]
+                elif key == "agent_id" and source.get("agent_description"):
+                    entry["name"] = source["agent_description"]
+                elif key == "schedule_id" and source.get("schedule_cron"):
+                    entry["cron"] = source["schedule_cron"]
+                bucket = new_resources.setdefault(category, [])
+                if entry not in bucket:
+                    bucket.append(entry)
+
+    for step in (steps or []):
+        step_result = step.get("result") if isinstance(step, dict) else getattr(step, "result", None)
+        if not isinstance(step_result, dict):
+            continue
+        _add(step_result.get("data"), resource_keys)
+        _add(step_result, toplevel_keys)
+    return new_resources
+
+
 # ─── Response Format Guard ─────────────────────────────────────────────────
 
 def _sanitize_llm_response(response) -> None:
@@ -3086,57 +3143,18 @@ Keep it short and actionable — no detailed failure analysis."""
         result["correction_history"] = correction_history
 
     # ─── Resource Registry: track created resource IDs across turns ──────
-    # Extract IDs from execution results and merge with prior resources
+    # Extract IDs from execution results and merge with prior resources.
+    # (#9: this block previously iterated the plan via attribute access (`.steps`) on
+    # a plain dict — so it AttributeError'd on the for-statement and the registry was
+    # dead on every run, swallowed by the warning below. Now uses the shared helper.)
     try:
-        prior_resources = state.get("created_resources") or {}
-        new_resources = dict(prior_resources)  # shallow copy
-
-        # Resource ID keys we look for in step result data, mapped to registry category
-        _RESOURCE_KEYS = {
-            "connection_id": "connections",
-            "agent_id": "agents",
-            "tool_id": "tools",
-            "tool_name": "tools",
-            "knowledge_id": "knowledge",
-            "workflow_id": "workflows",
-            "saved_workflow_id": "workflows",
-            "saved_workflow_name": "workflows",
-            "schedule_id": "schedules",
-            "email_address": "email",
-        }
-
-        for step in updated_plan.steps:
-            step_result = step.get("result") if isinstance(step, dict) else getattr(step, "result", None)
-            if not step_result:
-                continue
-            data = step_result.get("data", {}) if isinstance(step_result, dict) else {}
-            if not isinstance(data, dict):
-                continue
-
-            for key, category in _RESOURCE_KEYS.items():
-                if key in data and data[key]:
-                    if category not in new_resources:
-                        new_resources[category] = []
-                    # Avoid duplicates
-                    value = data[key]
-                    entry = {"id": value} if key.endswith("_id") else {"name": value}
-                    # Merge name info if available
-                    if key == "connection_id" and "connection_name" in data:
-                        entry["name"] = data["connection_name"]
-                    elif key == "agent_id" and "agent_description" in data:
-                        entry["name"] = data["agent_description"]
-                    elif key == "schedule_id" and "schedule_cron" in data:
-                        entry["cron"] = data["schedule_cron"]
-
-                    # Don't add if this exact entry already exists
-                    if entry not in new_resources[category]:
-                        new_resources[category].append(entry)
-
+        new_resources = _collect_created_resources(
+            state.get("created_resources") or {}, updated_plan.get("steps") or [])
         if new_resources:
             result["created_resources"] = new_resources
             logger.info(f"  [execute] Resource registry updated: {new_resources}")
     except Exception as e:
-        logger.warning(f"  [execute] Failed to update resource registry: {e}")
+        logger.warning(f"  [execute] Failed to update resource registry: {e}", exc_info=True)
 
     return result
 
@@ -4474,6 +4492,21 @@ Present this response to the user in a helpful way."""
 
                 logger.info(f"  [handle_agent_response] Updated plan status: {plan_status}")
                 result["current_plan"] = updated_plan
+
+                # #9 (delegation-completion registry gap): a step that only NOW
+                # completed may carry newly-materialized ids (e.g. a top-level
+                # saved_workflow_id from a WorkflowAgent build) that execute() never
+                # saw — merge them into the cross-turn resource registry so later
+                # turns ("now schedule that workflow") can reference the resource.
+                try:
+                    merged = _collect_created_resources(
+                        state.get("created_resources") or {}, updated_steps)
+                    if merged:
+                        result["created_resources"] = merged
+                except Exception as e:
+                    logger.warning(
+                        f"  [handle_agent_response] resource registry merge failed: {e}",
+                        exc_info=True)
         else:
             logger.info(f"  [handle_agent_response] Skipping plan update (conversation_status={conversation_status} != completed)")
 

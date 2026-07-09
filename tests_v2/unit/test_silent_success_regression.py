@@ -55,7 +55,7 @@ def _load_functions(path: str, names, extra_globals=None) -> dict:
         ns.update(extra_globals)
     found = {}
     for node in tree.body:
-        if isinstance(node, ast.FunctionDef) and node.name in names:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in names:
             node.decorator_list = []  # strip decorators we can't resolve (e.g. @app.after_request)
             exec(compile(ast.Module(body=[node], type_ignores=[]), path, "exec"), ns)
             found[node.name] = ns[node.name]
@@ -807,7 +807,7 @@ def _load_method(path: str, method_name: str, extra_globals=None):
     if extra_globals:
         ns.update(extra_globals)
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == method_name:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == method_name:
             node.decorator_list = []
             exec(compile(ast.Module(body=[node], type_ignores=[]), path, "exec"), ns)
             return ns[method_name]
@@ -997,3 +997,56 @@ def test_accessible_agent_ids_unknown_role_is_scoped_not_admin(role):
 def test_accessible_agent_ids_db_error_fails_closed():
     fn = _load_accessible(_FakePyodbc(raise_on_connect=True))
     assert fn(42, 1) == []            # error -> [] (deny-all), never None (all-access)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Bucket-B #9 — created_resources registry (was dead: `updated_plan.steps` on a dict)
+# ═══════════════════════════════════════════════════════════════════════════
+_collect_cr = _load_functions(_BUILDER_NODES_PY, ["_collect_created_resources"])["_collect_created_resources"]
+
+
+def test_bugb9_registers_agent_from_data():
+    reg = _collect_cr({}, [{"result": {"data": {"agent_id": 7, "agent_description": "Sales Bot"}}}])
+    assert reg.get("agents") == [{"id": 7, "name": "Sales Bot"}]
+
+
+def test_bugb9_registers_workflow_from_toplevel_saved_id():
+    # WorkflowAgent builds put saved_workflow_id at the delegation-result TOP LEVEL,
+    # not under .data — the pre-fix .data-only scan (even with .steps fixed) missed it.
+    steps = [{"result": {"success": True, "agent_id": "workflow_agent",
+                         "saved_workflow_id": 42, "saved_workflow_name": "Invoice WF"}}]
+    reg = _collect_cr({}, steps)
+    ids = {r.get("id") for r in reg.get("workflows", [])}
+    names = {r.get("name") for r in reg.get("workflows", [])}
+    assert 42 in ids and "Invoice WF" in names
+
+
+def test_bugb9_delegate_agent_not_registered_as_created():
+    # a delegation result's TOP-LEVEL agent_id is the DELEGATE agent, not a created one
+    steps = [{"result": {"success": True, "agent_id": "workflow_agent", "saved_workflow_id": 42}}]
+    reg = _collect_cr({}, steps)
+    assert not reg.get("agents"), "delegate agent wrongly registered as a created agent"
+
+
+def test_bugb9_merges_with_prior_and_dedups():
+    prior = {"agents": [{"id": 7, "name": "Sales Bot"}]}
+    steps = [{"result": {"data": {"agent_id": 7, "agent_description": "Sales Bot"}}},
+             {"result": {"data": {"connection_id": 5, "connection_name": "AIRDB"}}}]
+    reg = _collect_cr(prior, steps)
+    assert reg["agents"] == [{"id": 7, "name": "Sales Bot"}]          # de-duped, not doubled
+    assert reg["connections"] == [{"id": 5, "name": "AIRDB"}]
+    assert prior["agents"] == [{"id": 7, "name": "Sales Bot"}]        # prior NOT mutated
+
+
+def test_bugb9_malformed_steps_are_safe():
+    assert _collect_cr({}, []) == {}
+    assert _collect_cr({}, [{"result": None}, {"result": "oops"}, "not-a-step", {}]) == {}
+
+
+def test_bugb9_execute_uses_helper_not_attribute_access():
+    s = _src(_BUILDER_NODES_PY)
+    assert "updated_plan.steps" not in s, \
+        "execute still does attribute access on a dict plan (#9 AttributeError) — registry stays dead"
+    # helper is DEFINED once + called from execute + called from handle_agent_response
+    assert s.count("_collect_created_resources(") >= 3, \
+        "registry helper not wired into both execute and the delegation-completion path (#9)"
