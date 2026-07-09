@@ -502,7 +502,21 @@ class EmailAgentDispatcher:
             
             instructions = config.get('auto_respond_instructions', '')
             style = config.get('auto_respond_style', 'professional')
-            
+
+            # Attachment-aware: if the email carries attachments, extract their text so
+            # the agent can reference attachment content in its reply (same surviving
+            # reader as the workflow path; gated so no-attachment emails skip the read).
+            attachment_text = ''
+            if email.get('attachment_count', 0) or email.get('has_attachments'):
+                try:
+                    import agent_email_attachments
+                    _texts = agent_email_attachments.get_attachment_texts_for_event(email.get('event_id'))
+                    if _texts:
+                        attachment_text = agent_email_attachments.build_combined_attachment_text(_texts)
+                except Exception as att_err:
+                    logger.warning(
+                        f"Auto-reply attachment read failed (event={email.get('event_id')}): {att_err}")
+
             prompt = f"""You received an email that requires a response.
 
 From: {sender_name} <{sender_email}>
@@ -510,7 +524,10 @@ Subject: {subject}
 
 Email Body:
 {body}
-
+{f'''
+Attachments (extracted text):
+{attachment_text}
+''' if attachment_text else ''}
 ---
 Please compose a {style} response to this email.
 {f'Additional instructions: {instructions}' if instructions else ''}
@@ -613,7 +630,25 @@ Respond with ONLY the email body text, no subject line or headers."""
             # Add attachment info if present
             if content and content.get('attachments'):
                 variables['email_attachments'] = json.dumps(content['attachments'])
-            
+
+            # Attachment TEXT injection: when the email actually has attachments, read
+            # their bytes (via the surviving agent_email_attachments reader → cloud DB)
+            # and extract text so a workflow can consume ${email_attachment_text} (all
+            # files combined) or ${email_attachment_N_text} (per file). Gated on the
+            # presence of attachments so no-attachment emails never touch the cloud DB.
+            if email.get('attachment_count', 0) or email.get('has_attachments'):
+                try:
+                    import agent_email_attachments
+                    texts = agent_email_attachments.get_attachment_texts_for_event(email.get('event_id'))
+                    if texts:
+                        variables['email_attachment_text'] = \
+                            agent_email_attachments.build_combined_attachment_text(texts)
+                        for i, att in enumerate(texts, start=1):
+                            variables[f'email_attachment_{i}_text'] = att.get('text', '') or ''
+                except Exception as att_err:
+                    logger.warning(
+                        f"Attachment text injection failed (event={email.get('event_id')}): {att_err}")
+
             # Call workflow executor API directly (not through main app)
             api_url = f"{get_executor_api_base_url()}/api/workflow/run"
             
@@ -806,11 +841,52 @@ Respond with ONLY the email body text, no subject line or headers."""
             logger.error(f"Error recording processing: {e}")
     
     def _check_rate_limit(self, agent_id: int, config: Dict) -> bool:
-        """Check if agent is within rate limits for auto-responses."""
+        """Check if the agent is within rate limits for auto-responses.
+
+        Two gates: (1) the daily cap (checked first), then (2) a per-agent cooldown —
+        the minimum minutes between auto-responses (0 disables it). The cooldown lookup
+        is skipped when the daily cap already blocks or cooldown is 0/off.
+        """
         max_per_day = config.get('max_auto_responses_per_day', 50)
         current_count = config.get('auto_responses_today', 0)
-        return current_count < max_per_day
-    
+        if current_count >= max_per_day:
+            return False
+
+        cooldown = config.get('cooldown_minutes', 0) or 0
+        if cooldown <= 0:
+            return True  # cooldown disabled — don't even query
+        mins = self._minutes_since_last_auto_response(agent_id)
+        if mins is not None and mins < cooldown:
+            logger.info(f"Auto-response for agent {agent_id} blocked by cooldown "
+                        f"({mins}m since last auto-response < {cooldown}m window)")
+            return False
+        return True
+
+    def _minutes_since_last_auto_response(self, agent_id: int) -> Optional[int]:
+        """Minutes since this agent's most recent auto-response / queued draft, or None
+        when there is no such history. Uses SQL DATEDIFF (avoids client/server timezone
+        drift) and fails OPEN (returns None) on any DB error so a transient DB issue
+        never silently blocks replies."""
+        try:
+            conn, cursor = self._get_db_connection()
+            cursor.execute(
+                """
+                SELECT DATEDIFF(MINUTE, MAX(processed_at), GETDATE())
+                FROM AgentProcessedEmails
+                WHERE agent_id = ? AND processing_type IN ('auto_response', 'pending_approval')
+                """,
+                (agent_id,),
+            )
+            row = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            if row and row[0] is not None:
+                return row[0]
+            return None
+        except Exception as e:
+            logger.error(f"_minutes_since_last_auto_response({agent_id}) failed: {e}")
+            return None
+
     def _increment_daily_counter(self, agent_id: int):
         """Increment the daily auto-response counter for an agent."""
         try:
