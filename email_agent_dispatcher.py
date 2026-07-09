@@ -398,7 +398,8 @@ class EmailAgentDispatcher:
             notification_email = config.get('notification_email')
             if notification_email:
                 try:
-                    sender_email = email.get('from', email.get('sender', 'unknown'))
+                    sender_email = (email.get('sender_email') or email.get('from')
+                                    or email.get('sender') or 'unknown')
                     email_subject = email.get('subject', '(no subject)')
                     agent_name = config.get('agent_name', f"Agent #{agent_id}")
                     
@@ -567,7 +568,8 @@ Respond with ONLY the email body text, no subject line or headers."""
                 event_id=email.get('event_id'),
                 message_key=email.get('message_key'),
                 recipient_name=sender_name,
-                created_by='email_dispatcher',
+                created_by=None,  # AgentEmailApprovals.created_by is INT NULL; the
+                                  # dispatcher is a system process (no user) -> NULL.
             )
 
             status = send_result.get('status')
