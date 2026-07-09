@@ -177,6 +177,22 @@ def _goal_from_messages(messages) -> str:
     return human_texts[-1]  # all human messages were bare confirmations → best available
 
 
+def _mentions_resource_id(resource_id, message) -> bool:
+    """#13: True only when resource_id appears as a STANDALONE token in message.
+
+    The old `str(id) in message` substring test false-matched wildly — id 1 inside
+    "workflow 12" / "2026" / "10am" (and, for integrations, then fed a live external
+    call). Uses a word boundary PLUS decimal guards: `\\b` alone would still match id 1
+    in "1.5", and excluding [\\w.] outright would wrongly reject a trailing sentence
+    period ("workflow 42."). So: \\b-bounded, but not the integer/fraction part of a
+    decimal. Coerces message to str so a content-block list can't raise."""
+    import re
+    if resource_id in (None, "") or not message:
+        return False
+    pattern = r"(?<!\d\.)\b" + re.escape(str(resource_id)) + r"\b(?!\.\d)"
+    return re.search(pattern, str(message)) is not None
+
+
 # ─── Response Format Guard ─────────────────────────────────────────────────
 
 def _sanitize_llm_response(response) -> None:
@@ -365,7 +381,7 @@ async def query_and_respond(state: dict) -> dict:
                     agent_name = agent.get("description", "").lower()
                     agent_id = agent.get("id")
                     # Check if the user message mentions this agent by name or ID
-                    id_match = agent_id and str(agent_id) in last_user_msg
+                    id_match = _mentions_resource_id(agent_id, last_user_msg)
                     name_match = agent_name and agent_name in last_user_msg.lower()
                     if agent_id and (name_match or id_match):
                         logger.info(f"  [query_and_respond] Detected query for specific agent '{agent_name}' (ID {agent_id})")
@@ -395,7 +411,7 @@ async def query_and_respond(state: dict) -> dict:
                     conn_name = conn.get("name", "").lower()
                     conn_id = conn.get("id")
                     # Check if the user message mentions this connection by name or ID
-                    id_match = conn_id and str(conn_id) in last_user_msg
+                    id_match = _mentions_resource_id(conn_id, last_user_msg)
                     name_match = conn_name and conn_name in last_user_msg.lower()
                     if conn_id and (name_match or id_match):
                         logger.info(f"  [query_and_respond] Detected query for specific connection '{conn_name}' (ID {conn_id})")
@@ -412,7 +428,7 @@ async def query_and_respond(state: dict) -> dict:
                     wf_name = wf.get("name", "").lower()
                     wf_id = wf.get("id")
                     # Check if the user message mentions this workflow by name or ID
-                    id_match = wf_id and str(wf_id) in last_user_msg
+                    id_match = _mentions_resource_id(wf_id, last_user_msg)
                     name_match = wf_name and wf_name in last_user_msg.lower()
                     if wf_id and (name_match or id_match):
                         logger.info(f"  [query_and_respond] Detected query for specific workflow '{wf_name}' (ID {wf_id})")
@@ -464,7 +480,7 @@ async def query_and_respond(state: dict) -> dict:
                     template_key = integ.get("template_key", "").lower()
 
                     # Check if the user message mentions this integration by name, template_key, or ID
-                    id_match = integ_id and str(integ_id) in last_user_msg
+                    id_match = _mentions_resource_id(integ_id, last_user_msg)
                     name_match = integ_name and integ_name in last_user_msg.lower()
                     template_match = template_key and template_key in last_user_msg.lower()
 
@@ -483,54 +499,15 @@ async def query_and_respond(state: dict) -> dict:
                             )
                             logger.info(f"  [query_and_respond] Fetched operations for integration {integ_id}")
 
-                        # Check if user wants to execute a specific operation
-                        # Common operation keywords and their mappings
-                        operation_keywords = {
-                            "customers": "get_customers",
-                            "customer": "get_customers",
-                            "balance": "get_balance",
-                            "charges": "get_charges",
-                            "charge": "get_charges",
-                            "payments": "get_payments",
-                            "payment": "get_payments",
-                            "invoices": "get_invoices",
-                            "invoice": "get_invoices",
-                            "subscriptions": "get_subscriptions",
-                            "subscription": "get_subscriptions",
-                        }
-
-                        # Action verbs that indicate operation execution
-                        action_verbs = ["pull", "fetch", "get", "show", "list", "retrieve", "load", "see", "view", "want", "give", "display"]
-                        wants_operation = any(verb in last_user_msg.lower() for verb in action_verbs)
-
-                        if wants_operation and operations_data:
-                            # Try to detect which operation the user wants
-                            detected_operation = None
-                            for keyword, op_key in operation_keywords.items():
-                                if keyword in last_user_msg.lower():
-                                    # Verify this operation exists for this integration
-                                    ops_list = operations_data.get("operations", [])
-                                    if any(op.get("key") == op_key for op in ops_list):
-                                        detected_operation = op_key
-                                        logger.info(f"  [query_and_respond] Detected operation request: {op_key}")
-                                        break
-
-                            # Execute the operation if detected
-                            if detected_operation:
-                                logger.info(f"  [query_and_respond] Executing {detected_operation} on integration {integ_id}")
-                                operation_result = await gatherer.execute_integration_operation(
-                                    integration_id=integ_id,
-                                    operation_key=detected_operation
-                                )
-                                if operation_result:
-                                    import json
-                                    detail_sections.append(
-                                        f"\n\n{'=' * 60}\n"
-                                        f"OPERATION RESULT: {detected_operation.upper()} on '{integ.get('integration_name')}'\n"
-                                        f"{'=' * 60}\n"
-                                        f"{json.dumps(operation_result, indent=2)}"
-                                    )
-                                    logger.info(f"  [query_and_respond] Executed {detected_operation} on integration {integ_id}")
+                        # NOTE (#13): the keyword-inferred auto-EXECUTION of integration
+                        # operations was REMOVED. This node is only reached when the intent
+                        # router already classified the turn as "query" (answer a question),
+                        # so it must not fire a live external call — service-credentialed,
+                        # unconfirmed, and trivially armed by substring verb/keyword matching
+                        # ("get" in "forget", "customer" anywhere). The operations list above
+                        # is enough context for the LLM to answer; actually running an
+                        # operation goes through the normal build → confirm → execute flow
+                        # (capability integrations.execute_operation).
 
                         break  # Only fetch details for first match
 

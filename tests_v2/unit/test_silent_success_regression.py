@@ -1170,3 +1170,41 @@ def test_bug12_empty_and_all_confirmations():
 def test_bug12_compound_confirmation_is_substantive():
     # "yes, also add logging" is a real instruction, not a bare confirmation
     assert _goal_from([_h("build X"), _h("yes, also add logging")]) == "yes, also add logging"
+
+
+# ── Bucket-B #13 — token-bounded id matching + removed integration auto-exec ──
+_mentions_id = _load_functions(_BUILDER_NODES_PY, ["_mentions_resource_id"])["_mentions_resource_id"]
+
+
+@pytest.mark.parametrize("msg,rid", [
+    ("show me workflow 12", 12), ("agent 7 email config", 7), ("integration 3?", 3),
+    ("details for workflow 42.", 42), ("run #15 now", 15), ("42", 42),
+])
+def test_bug13_id_token_match_true(msg, rid):
+    assert _mentions_id(rid, msg) is True
+
+
+@pytest.mark.parametrize("msg,rid", [
+    ("show me workflow 12", 1),    # the headline false-positive: 1 inside "12"
+    ("meet at 10am", 1), ("in 2026 we plan", 2), ("v12 release notes", 12),
+    ("1.5x retries", 1), ("using ratio 1.5", 5), ("budget review", 3),
+])
+def test_bug13_id_token_match_false(msg, rid):
+    assert _mentions_id(rid, msg) is False
+
+
+def test_bug13_id_match_safe_on_edges():
+    assert _mentions_id(None, "x") is False
+    assert _mentions_id(7, "") is False
+    assert _mentions_id(1, ["content-block-list"]) is False   # non-str message must not raise
+
+
+def test_bug13_query_node_no_live_execution_and_token_matching():
+    s = _src(_BUILDER_NODES_PY)
+    assert "execute_integration_operation" not in s, \
+        "query_and_respond still fires a live integration call from a read turn (#13)"
+    for pat in ("str(agent_id) in last_user_msg", "str(conn_id) in last_user_msg",
+                "str(wf_id) in last_user_msg", "str(integ_id) in last_user_msg"):
+        assert pat not in s, f"substring id match still present: {pat} (#13)"
+    # helper DEFINED once + used at all 4 sites
+    assert s.count("_mentions_resource_id(") >= 5, "token-bounded id matching not wired at all 4 sites (#13)"
