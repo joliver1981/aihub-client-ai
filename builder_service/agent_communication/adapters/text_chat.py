@@ -102,20 +102,34 @@ class TextChatAdapter(AgentProtocolAdapter):
                 content_type = response.headers.get("content-type", "")
 
                 if "text/event-stream" in content_type:
-                    # Handle SSE stream
+                    # Handle SSE stream. #19: an "event: error" frame's payload is the
+                    # NEXT line — read it from the SAME iterator via a flag. The old code
+                    # opened a SECOND aiter_lines() iterator, which httpx rejects with
+                    # StreamConsumed, so the intended raise never ran and the agent's real
+                    # error was replaced by an internal streaming error downstream.
+                    error_pending = False
                     async for line in response.aiter_lines():
+                        if error_pending:
+                            # The line following "event: error" carries the payload.
+                            if line.startswith("data: "):
+                                error_msg = line[6:]
+                                logger.error(f"Agent error: {error_msg}")
+                                raise Exception(f"Agent error: {error_msg}")
+                            if not line.strip():
+                                # Frame ended (blank separator) with no data payload.
+                                raise Exception("Agent error: (no detail provided)")
+                            # Other SSE fields (id:/retry:) — keep waiting for the data line.
+                            continue
                         if line.startswith("data: "):
                             data = line[6:]  # Remove "data: " prefix
                             if data.strip() == "[DONE]":
                                 break
                             yield data
-                        elif line.startswith("event: error"):
-                            # Handle error events
-                            next_line = await response.aiter_lines().__anext__()
-                            if next_line.startswith("data: "):
-                                error_msg = next_line[6:]
-                                logger.error(f"Agent error: {error_msg}")
-                                raise Exception(f"Agent error: {error_msg}")
+                        elif line.strip() == "event: error":
+                            error_pending = True
+                    if error_pending:
+                        # "event: error" was the final frame (EOF before any data line).
+                        raise Exception("Agent error: stream ended after error event")
 
                 elif "application/json" in content_type:
                     # Handle JSON response (non-streaming)

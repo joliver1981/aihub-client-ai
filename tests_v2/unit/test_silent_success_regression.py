@@ -1208,3 +1208,59 @@ def test_bug13_query_node_no_live_execution_and_token_matching():
         assert pat not in s, f"substring id match still present: {pat} (#13)"
     # helper DEFINED once + used at all 4 sites
     assert s.count("_mentions_resource_id(") >= 5, "token-bounded id matching not wired at all 4 sites (#13)"
+
+
+# ── Bucket-B #19 — SSE error frame must surface the agent error, not StreamConsumed ──
+_TEXT_CHAT_PY = os.path.join(_REPO, "builder_service", "agent_communication", "adapters", "text_chat.py")
+
+
+def test_bug19_no_second_iterator_in_source():
+    s = _src(_TEXT_CHAT_PY)
+    assert "aiter_lines().__anext__()" not in s, \
+        "SSE error handler still opens a SECOND aiter_lines() iterator → StreamConsumed (#19)"
+    assert "error_pending" in s, "same-iterator error capture not present (#19)"
+
+
+def test_bug19_error_frame_surfaces_agent_message():
+    httpx = pytest.importorskip("httpx")
+    send_message = _load_method(
+        _TEXT_CHAT_PY, "send_message",
+        {"httpx": httpx, "logger": logging.getLogger("t"), "asyncio": asyncio,
+         "AsyncGenerator": typing.AsyncGenerator})
+
+    class _ByteStream(httpx.AsyncByteStream):
+        def __init__(self, chunks):
+            self._chunks = chunks
+        async def __aiter__(self):
+            for c in self._chunks:
+                yield c
+        async def aclose(self):
+            return None
+
+    def _client(chunks):
+        def handler(request):
+            return httpx.Response(200, headers={"content-type": "text/event-stream"},
+                                  stream=_ByteStream(chunks))
+        return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    class _FakeAdapter:
+        def __init__(self, c):
+            self._c = c
+        async def _get_client(self):
+            return self._c
+
+    async def _drain(chunks):
+        out = []
+        async for chunk in send_message(_FakeAdapter(_client(chunks)), "http://agent/api", "hi", []):
+            out.append(chunk)
+        return out
+
+    # mid-stream error frame → raises with the AGENT's message, not an httpx internal error
+    with pytest.raises(Exception) as ei:
+        asyncio.run(_drain([b"data: partial\n\n",
+                            b'event: error\ndata: {"message": "boom-XYZ"}\n\n']))
+    assert "boom-XYZ" in str(ei.value)
+    assert "already been streamed" not in str(ei.value)
+    assert "StreamConsumed" not in type(ei.value).__name__
+    # happy path still streams normally
+    assert asyncio.run(_drain([b"data: hello\n\n", b"data: [DONE]\n\n"])) == ["hello"]
