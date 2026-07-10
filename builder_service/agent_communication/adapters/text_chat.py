@@ -26,12 +26,25 @@ SSE stream with "data: {text}" lines, or a JSON response with "response" field.
 
 import asyncio
 import logging
+import os
 from typing import AsyncGenerator, List, Dict, Optional
 import httpx
 
 from .base import AgentProtocolAdapter, AdapterRegistry
 
 logger = logging.getLogger(__name__)
+
+
+def _get_base_url() -> str:
+    """Base URL for resolving RELATIVE agent endpoints. Mirrors the WorkflowBuilder
+    adapter so built-in text_chat agents (whose registry endpoints are relative, e.g.
+    "/api/agents/data/chat" or "/api/chat") can actually connect — an unresolved relative
+    URL makes httpx raise UnsupportedProtocol before any request is sent."""
+    try:
+        from builder_config import AI_HUB_BASE_URL
+        return AI_HUB_BASE_URL
+    except Exception:
+        return os.environ.get("AI_HUB_BASE_URL", "http://localhost:5000")
 
 
 class TextChatAdapter(AgentProtocolAdapter):
@@ -55,6 +68,14 @@ class TextChatAdapter(AgentProtocolAdapter):
             self._client = httpx.AsyncClient(timeout=httpx.Timeout(120.0))
         return self._client
 
+    def _resolve_endpoint(self, endpoint: str) -> str:
+        """Resolve a possibly-relative endpoint to a full URL. A '/'-prefixed endpoint is
+        treated as relative to AI_HUB_BASE_URL (built-in agents register relative paths);
+        an absolute URL is used as-is."""
+        if endpoint and endpoint.startswith("/"):
+            return f"{_get_base_url().rstrip('/')}{endpoint}"
+        return endpoint
+
     async def send_message(
         self,
         endpoint: str,
@@ -72,6 +93,7 @@ class TextChatAdapter(AgentProtocolAdapter):
         - SSE stream (preferred for real-time updates)
         - JSON response with "response" field
         """
+        endpoint = self._resolve_endpoint(endpoint)  # relative built-in paths → absolute URL
         client = await self._get_client()
 
         # Build request payload
@@ -183,6 +205,7 @@ class TextChatAdapter(AgentProtocolAdapter):
 
         Tries to reach a health endpoint or the main endpoint with a simple ping.
         """
+        endpoint = self._resolve_endpoint(endpoint)  # relative built-in paths → absolute URL
         client = await self._get_client()
 
         # Try common health check patterns

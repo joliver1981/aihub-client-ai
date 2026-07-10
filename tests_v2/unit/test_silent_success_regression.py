@@ -1248,6 +1248,8 @@ def test_bug19_error_frame_surfaces_agent_message():
             self._c = c
         async def _get_client(self):
             return self._c
+        def _resolve_endpoint(self, endpoint):
+            return endpoint
 
     async def _drain(chunks):
         out = []
@@ -1264,3 +1266,22 @@ def test_bug19_error_frame_surfaces_agent_message():
     assert "StreamConsumed" not in type(ei.value).__name__
     # happy path still streams normally
     assert asyncio.run(_drain([b"data: hello\n\n", b"data: [DONE]\n\n"])) == ["hello"]
+
+
+# ── Adjacent: text_chat resolves RELATIVE built-in endpoints (else UnsupportedProtocol) ──
+def test_textchat_resolves_relative_endpoint():
+    resolve = _load_method(_TEXT_CHAT_PY, "_resolve_endpoint",
+                           {"_get_base_url": lambda: "http://host:5001/"})
+
+    class _S:
+        pass
+    s = _S()
+    assert resolve(s, "/api/agents/data/chat") == "http://host:5001/api/agents/data/chat"
+    assert resolve(s, "http://other/api/chat") == "http://other/api/chat"   # absolute unchanged
+    assert resolve(s, "") == ""
+
+
+def test_textchat_send_and_health_resolve_endpoint():
+    s = _src(_TEXT_CHAT_PY)
+    assert s.count("self._resolve_endpoint(endpoint)") >= 2, \
+        "send_message/check_health no longer resolve relative endpoints (built-in text_chat can't connect)"
