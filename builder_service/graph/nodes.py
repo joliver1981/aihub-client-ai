@@ -193,6 +193,133 @@ def _mentions_resource_id(resource_id, message) -> bool:
     return re.search(pattern, str(message)) is not None
 
 
+def _name_mentioned(name, message) -> bool:
+    """#13b: True when a resource NAME appears as a standalone word/phrase in message.
+
+    The old raw-substring test matched a connection named 'prod' inside 'production'
+    (an agent named 'test' inside 'latest', ...), pulling the wrong resource's details
+    into the answer context. Word-ish boundaries via lookarounds (not \\b — names may
+    start/end with non-word chars like 'prod-db'). Case-insensitive."""
+    import re
+    if not name or not message:
+        return False
+    pattern = r"(?<!\w)" + re.escape(str(name).strip().lower()) + r"(?!\w)"
+    return re.search(pattern, str(message).lower()) is not None
+
+
+def _fallback_resolve_references(message, candidates) -> dict:
+    """#13b: deterministic reference resolution — the fail-safe when the mini-LLM
+    resolver errors. Token-bounded id match + word-boundary name/alias match. Takes
+    {domain: [{id, name, aliases?}, ...]} and returns {domain: [ids...]} (domains with
+    no referenced resource are omitted)."""
+    resolved = {}
+    for domain, items in (candidates or {}).items():
+        ids = []
+        for item in (items or []):
+            if not isinstance(item, dict):
+                continue
+            rid = item.get("id")
+            if rid in (None, ""):
+                continue
+            names = [item.get("name")] + list(item.get("aliases") or [])
+            if _mentions_resource_id(rid, message) or any(
+                    _name_mentioned(n, message) for n in names if n):
+                ids.append(rid)
+        if ids:
+            resolved[domain] = ids
+    return resolved
+
+
+def _parse_reference_resolution(content, candidates):
+    """#13b: parse the mini-LLM resolver's JSON reply, CONSTRAINED to the real candidate
+    ids (a hallucinated id is dropped; a name is leniently mapped back to its id).
+    Returns {domain: [ids...]} — possibly {} meaning "no specific resource referenced" —
+    or None when the reply is unusable (caller falls back to deterministic matching)."""
+    import json
+    import re
+    if not content or not isinstance(content, str):
+        return None
+    m = re.search(r"\{.*\}", content, re.DOTALL)  # tolerate ```json fences / prose
+    if not m:
+        return None
+    try:
+        data = json.loads(m.group(0))
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    resolved = {}
+    for domain, items in (candidates or {}).items():
+        valid_ids = {i.get("id") for i in (items or []) if isinstance(i, dict)}
+        name_to_id = {str(i.get("name", "")).strip().lower(): i.get("id")
+                      for i in (items or []) if isinstance(i, dict) and i.get("name")}
+        picked = data.get(domain)
+        if not isinstance(picked, list):
+            continue
+        ids = []
+        for v in picked:
+            cand = None
+            if v in valid_ids:
+                cand = v
+            else:
+                try:
+                    if int(v) in valid_ids:      # "12" (str) → 12
+                        cand = int(v)
+                except (TypeError, ValueError):
+                    if isinstance(v, str):        # a returned NAME → its id
+                        cand = name_to_id.get(v.strip().lower())
+            if cand is not None and cand not in ids:
+                ids.append(cand)
+        if ids:
+            resolved[domain] = ids
+    return resolved
+
+
+async def _resolve_referenced_resources(message, candidates) -> dict:
+    """#13b: resolve which SPECIFIC platform resources the user's message refers to,
+    with ONE mini-LLM call across all domains (the house pattern — classify_intent and
+    _detect_agent_response_type already use get_llm(mini=True)). Replaces per-resource
+    substring matching, which false-matched wildly ('prod' in 'production', id 1 in
+    "workflow 12"). Output ids are CONSTRAINED to the provided candidates, so the LLM
+    cannot inject an id that doesn't exist. Any failure → deterministic word-boundary
+    fallback (never raises, never blocks the answer)."""
+    if not candidates:
+        return {}
+    try:
+        import json
+        llm = get_llm(mini=True, streaming=False)  # internal resolution, don't stream
+        system = (
+            "You resolve which specific platform resources a user's message refers to.\n"
+            "Given the user message and candidate resources per domain (each with id and "
+            "name), return ONLY a JSON object mapping each domain to the list of ids the "
+            "message actually refers to.\n"
+            "Rules:\n"
+            "- Include a resource ONLY if the message clearly refers to it by name, id, or "
+            "an unambiguous description.\n"
+            "- A number is an id reference only when it denotes that resource "
+            "(\"workflow 12\" -> 12), NOT when it is part of a time, date, version or "
+            "unrelated number.\n"
+            "- A name counts only when the message means THAT resource — not when the word "
+            "is incidental (a connection named 'prod' is NOT referenced by 'move this to "
+            "production').\n"
+            "- If nothing is clearly referenced, return {}.\n"
+            "Respond with ONLY the JSON object, no prose."
+        )
+        response = await safe_llm_invoke(llm, [
+            SystemMessage(content=system),
+            HumanMessage(content=(
+                f"User message: {message}\n\nCandidates: {json.dumps(candidates)}")),
+        ])
+        parsed = _parse_reference_resolution(getattr(response, "content", None), candidates)
+        if parsed is not None:
+            logger.info(f"  [query_and_respond] LLM reference resolution: {parsed}")
+            return parsed
+        logger.warning("  [query_and_respond] resolver reply unusable — deterministic fallback")
+    except Exception as e:
+        logger.warning(f"  [query_and_respond] reference resolution failed ({e}) — deterministic fallback")
+    return _fallback_resolve_references(message, candidates)
+
+
 # ─── Response Format Guard ─────────────────────────────────────────────────
 
 def _sanitize_llm_response(response) -> None:
@@ -375,15 +502,36 @@ async def query_and_respond(state: dict) -> dict:
             # If so, fetch detailed information for that resource
             detail_sections = []
 
+            # #13b: resolve WHICH resources the message refers to with ONE mini-LLM call
+            # across all candidate domains (deterministic word-boundary fallback inside).
+            # Replaces the per-resource substring matching that false-matched wildly.
+            _ref_candidates = {}
+            if "agents" in domains_needed and system_context.agents:
+                _ref_candidates["agents"] = [
+                    {"id": a.get("id"), "name": a.get("description", "")}
+                    for a in system_context.agents if a.get("id")]
+            if "connections" in domains_needed and system_context.connections:
+                _ref_candidates["connections"] = [
+                    {"id": c.get("id"), "name": c.get("name", "")}
+                    for c in system_context.connections if c.get("id")]
+            if "workflows" in domains_needed and system_context.workflows:
+                _ref_candidates["workflows"] = [
+                    {"id": w.get("id"), "name": w.get("name", "")}
+                    for w in system_context.workflows if w.get("id")]
+            if "integrations" in domains_needed and system_context.integrations:
+                _ref_candidates["integrations"] = [
+                    {"id": i.get("integration_id"), "name": i.get("integration_name", ""),
+                     "aliases": [k for k in [i.get("template_key", "")] if k]}
+                    for i in system_context.integrations if i.get("integration_id")]
+            resolved_refs = (await _resolve_referenced_resources(last_user_msg, _ref_candidates)
+                             if _ref_candidates else {})
+
             # Check for specific agent mentions
             if "agents" in domains_needed and system_context.agents:
                 for agent in system_context.agents:
-                    agent_name = agent.get("description", "").lower()
+                    agent_name = agent.get("description", "")
                     agent_id = agent.get("id")
-                    # Check if the user message mentions this agent by name or ID
-                    id_match = _mentions_resource_id(agent_id, last_user_msg)
-                    name_match = agent_name and agent_name in last_user_msg.lower()
-                    if agent_id and (name_match or id_match):
+                    if agent_id and agent_id in resolved_refs.get("agents", []):
                         logger.info(f"  [query_and_respond] Detected query for specific agent '{agent_name}' (ID {agent_id})")
                         agent_detail = await gatherer.fetch_agent_detail(agent_id)
                         if agent_detail:
@@ -408,12 +556,9 @@ async def query_and_respond(state: dict) -> dict:
             # Check for specific connection mentions
             if "connections" in domains_needed and system_context.connections:
                 for conn in system_context.connections:
-                    conn_name = conn.get("name", "").lower()
+                    conn_name = conn.get("name", "")
                     conn_id = conn.get("id")
-                    # Check if the user message mentions this connection by name or ID
-                    id_match = _mentions_resource_id(conn_id, last_user_msg)
-                    name_match = conn_name and conn_name in last_user_msg.lower()
-                    if conn_id and (name_match or id_match):
+                    if conn_id and conn_id in resolved_refs.get("connections", []):
                         logger.info(f"  [query_and_respond] Detected query for specific connection '{conn_name}' (ID {conn_id})")
                         conn_detail = await gatherer.fetch_connection_detail(conn_id)
                         if conn_detail:
@@ -425,12 +570,9 @@ async def query_and_respond(state: dict) -> dict:
             # Check for specific workflow mentions
             if "workflows" in domains_needed and system_context.workflows:
                 for wf in system_context.workflows:
-                    wf_name = wf.get("name", "").lower()
+                    wf_name = wf.get("name", "")
                     wf_id = wf.get("id")
-                    # Check if the user message mentions this workflow by name or ID
-                    id_match = _mentions_resource_id(wf_id, last_user_msg)
-                    name_match = wf_name and wf_name in last_user_msg.lower()
-                    if wf_id and (name_match or id_match):
+                    if wf_id and wf_id in resolved_refs.get("workflows", []):
                         logger.info(f"  [query_and_respond] Detected query for specific workflow '{wf_name}' (ID {wf_id})")
                         wf_detail = await gatherer.fetch_workflow_detail(wf_id)
                         if wf_detail:
@@ -475,16 +617,9 @@ async def query_and_respond(state: dict) -> dict:
             # Check for specific integration mentions
             if "integrations" in domains_needed and system_context.integrations:
                 for integ in system_context.integrations:
-                    integ_name = integ.get("integration_name", "").lower()
+                    integ_name = integ.get("integration_name", "")
                     integ_id = integ.get("integration_id")
-                    template_key = integ.get("template_key", "").lower()
-
-                    # Check if the user message mentions this integration by name, template_key, or ID
-                    id_match = _mentions_resource_id(integ_id, last_user_msg)
-                    name_match = integ_name and integ_name in last_user_msg.lower()
-                    template_match = template_key and template_key in last_user_msg.lower()
-
-                    if integ_id and (name_match or template_match or id_match):
+                    if integ_id and integ_id in resolved_refs.get("integrations", []):
                         logger.info(f"  [query_and_respond] Detected query for specific integration '{integ_name}' (ID {integ_id})")
 
                         # Fetch operations list for this integration

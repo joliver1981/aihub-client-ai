@@ -1199,15 +1199,101 @@ def test_bug13_id_match_safe_on_edges():
     assert _mentions_id(1, ["content-block-list"]) is False   # non-str message must not raise
 
 
-def test_bug13_query_node_no_live_execution_and_token_matching():
+def test_bug13_query_node_no_live_execution_and_no_substring_matching():
     s = _src(_BUILDER_NODES_PY)
     assert "execute_integration_operation" not in s, \
         "query_and_respond still fires a live integration call from a read turn (#13)"
     for pat in ("str(agent_id) in last_user_msg", "str(conn_id) in last_user_msg",
-                "str(wf_id) in last_user_msg", "str(integ_id) in last_user_msg"):
-        assert pat not in s, f"substring id match still present: {pat} (#13)"
-    # helper DEFINED once + used at all 4 sites
-    assert s.count("_mentions_resource_id(") >= 5, "token-bounded id matching not wired at all 4 sites (#13)"
+                "str(wf_id) in last_user_msg", "str(integ_id) in last_user_msg",
+                "name_match = ", "template_match = "):
+        assert pat not in s, f"substring matching still present: {pat} (#13/#13b)"
+    # #13b: the mini-LLM resolver is wired once, and all 4 loops consult its output
+    assert "await _resolve_referenced_resources(" in s, \
+        "query_and_respond no longer resolves references via the mini-LLM resolver (#13b)"
+    assert s.count("resolved_refs.get(") >= 4, \
+        "not all 4 resource loops consult the resolver output (#13b)"
+
+
+# ── #13b — mini-LLM reference resolver (+ deterministic fallback) ──
+_res13 = _load_functions(
+    _BUILDER_NODES_PY,
+    ["_name_mentioned", "_fallback_resolve_references", "_parse_reference_resolution",
+     "_mentions_resource_id"])
+_name_ment = _res13["_name_mentioned"]
+_fallback_res = _res13["_fallback_resolve_references"]
+_parse_res = _res13["_parse_reference_resolution"]
+
+
+@pytest.mark.parametrize("name,msg,expected", [
+    ("prod", "connect to prod db", True),
+    ("prod", "move this workflow to production", False),   # the headline false-positive
+    ("Sales Report", "run the sales report workflow", True),
+    ("report", "the user reported an issue", False),
+    ("prod-db", "check prod-db now", True),
+    ("test", "please run the latest deploy", False),
+    ("", "anything", False), (None, "x", False), ("x", "", False),
+])
+def test_bug13b_name_word_boundary(name, msg, expected):
+    assert _name_ment(name, msg) is expected
+
+
+def test_bug13b_fallback_resolves_by_id_name_and_alias():
+    cands = {"agents": [{"id": 1, "name": "Sales Bot"}, {"id": 12, "name": "Ops Bot"}],
+             "integrations": [{"id": 3, "name": "Stripe Billing", "aliases": ["stripe"]}]}
+    assert _fallback_res("show me agent 12", cands) == {"agents": [12]}       # not id 1
+    assert _fallback_res("what can the sales bot do?", cands) == {"agents": [1]}
+    assert _fallback_res("does stripe have customer ops?", cands) == {"integrations": [3]}
+    assert _fallback_res("nothing relevant here", cands) == {}
+
+
+@pytest.mark.parametrize("content,expected", [
+    ('{"agents": [12]}', {"agents": [12]}),
+    ('```json\n{"agents": ["12"]}\n```', {"agents": [12]}),          # fenced + str id
+    ('{"agents": [999]}', {}),                                        # hallucinated id dropped
+    ('{"agents": ["Ops Bot"]}', {"agents": [12]}),                    # name leniently mapped
+    ('{"agents": []}', {}),                                           # explicit none
+    ('sure! the answer is 12', None),                                 # unusable → fallback
+    ('[1,2]', None), (None, None), ("", None),
+])
+def test_bug13b_parse_constrained_to_candidates(content, expected):
+    cands = {"agents": [{"id": 1, "name": "Sales Bot"}, {"id": 12, "name": "Ops Bot"}]}
+    assert _parse_res(content, cands) == expected
+
+
+def test_bug13b_resolver_uses_llm_and_falls_back():
+    cands = {"agents": [{"id": 1, "name": "Sales Bot"}, {"id": 12, "name": "Ops Bot"}]}
+
+    class _Msg:
+        def __init__(self, c):
+            self.content = c
+
+    def _mk_resolver(reply=None, raise_err=False):
+        async def fake_invoke(llm, msgs):
+            if raise_err:
+                raise RuntimeError("llm down")
+            return _Msg(reply)
+        return _load_functions(
+            _BUILDER_NODES_PY, ["_resolve_referenced_resources"],
+            {"get_llm": lambda **k: object(), "safe_llm_invoke": fake_invoke,
+             "SystemMessage": _Msg, "HumanMessage": _Msg,
+             "logger": logging.getLogger("t"),
+             "_parse_reference_resolution": _parse_res,
+             "_fallback_resolve_references": _fallback_res,
+             "_mentions_resource_id": _res13["_mentions_resource_id"],
+             "_name_mentioned": _name_ment},
+        )["_resolve_referenced_resources"]
+
+    # (a) good LLM reply is used (and constrained): "prod"-style disambiguation is the LLM's
+    good = _mk_resolver(reply='{"agents": [12]}')
+    assert asyncio.run(good("show me agent 12", cands)) == {"agents": [12]}
+    # (b) LLM error → deterministic fallback still resolves
+    err = _mk_resolver(raise_err=True)
+    assert asyncio.run(err("show me agent 12", cands)) == {"agents": [12]}
+    # (c) garbage reply → fallback
+    garbage = _mk_resolver(reply="I think you mean the Ops one!")
+    assert asyncio.run(garbage("show me agent 12", cands)) == {"agents": [12]}
+    # (d) no candidates → no LLM call, empty
+    assert asyncio.run(good("anything", {})) == {}
 
 
 # ── Bucket-B #19 — SSE error frame must surface the agent error, not StreamConsumed ──
