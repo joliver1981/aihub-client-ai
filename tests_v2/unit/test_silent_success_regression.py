@@ -1125,6 +1125,37 @@ def test_bug5_handler_releases_on_failure_and_timeout():
         "handle_agent_response doesn't release a dead conversation on error/timeout (#5)"
 
 
+# ── #5 THIRD path — state 'active' + manager COMPLETED (the #14 interaction) ──
+_reopen = _load_method(_MODELS_PY, "reopen_for_followup",
+                       {"ConversationStatus": _FakeConvStatus, "datetime": _datetime})
+
+
+@pytest.mark.parametrize("status,expected", [
+    (_FakeConvStatus.COMPLETED, _FakeConvStatus.ACTIVE),   # phrase-matched completed → reopened
+    (_FakeConvStatus.TIMEOUT, _FakeConvStatus.TIMEOUT),    # terminal failures stay sticky (#8)
+    (_FakeConvStatus.FAILED, _FakeConvStatus.FAILED),
+    (_FakeConvStatus.ACTIVE, _FakeConvStatus.ACTIVE),      # no-op when already open
+    (_FakeConvStatus.WAITING_FOR_USER, _FakeConvStatus.WAITING_FOR_USER),
+])
+def test_bug5c_reopen_only_from_completed(status, expected):
+    conv = _Conv(status)
+    conv.updated_at = None
+    _reopen(conv)
+    assert conv.status == expected
+
+
+def test_bug5c_keep_active_sites_reconcile_manager():
+    s = _src(_BUILDER_NODES_PY)
+    assert s.count("reopen_for_followup()") >= 2, \
+        "keep-active sites no longer reconcile a phrase-matched COMPLETED manager (#5 third path re-bricks)"
+
+
+def test_bug5c_except_belt_releases_on_completed_mismatch():
+    s = _src(_BUILDER_NODES_PY)
+    assert '_live in ("timeout", "failed", "completed")' in s, \
+        "except-handler belt no longer releases on the state-active/manager-COMPLETED mismatch (#5 third path)"
+
+
 # ── Bucket-B #11 — still-gathering auto-reply must set needs_user_input ──
 def test_bug11_needs_input_derived_from_waiting_status():
     s = _src(_BUILDER_NODES_PY)
@@ -1170,6 +1201,69 @@ def test_bug12_empty_and_all_confirmations():
 def test_bug12_compound_confirmation_is_substantive():
     # "yes, also add logging" is a real instruction, not a bare confirmation
     assert _goal_from([_h("build X"), _h("yes, also add logging")]) == "yes, also add logging"
+
+
+# ── #12b — mini-LLM goal extraction (skip-list becomes the fallback only) ──
+def _mk_goal_resolver(reply=None, raise_err=False, calls=None):
+    class _Msg:
+        def __init__(self, content):
+            self.content = content
+
+    async def fake_invoke(llm, msgs):
+        if calls is not None:
+            calls.append(msgs)
+        if raise_err:
+            raise RuntimeError("llm down")
+        return _Msg(reply)
+
+    return _load_functions(
+        _BUILDER_NODES_PY, ["_resolve_goal_from_messages"],
+        {"get_llm": lambda **k: object(), "safe_llm_invoke": fake_invoke,
+         "SystemMessage": _Msg, "HumanMessage": _Msg,
+         "logger": logging.getLogger("t"), "_goal_from_messages": _goal_from},
+    )["_resolve_goal_from_messages"]
+
+
+def test_bug12b_llm_consolidation_used_even_for_unlisted_confirmation():
+    # the tester's residual: "go for it" isn't in the skip-list — the LLM handles it
+    msgs = [_h("build a workflow that pulls invoices and emails finance"),
+            _NS(type="ai", content="plan..."), _h("go for it")]
+    fn = _mk_goal_resolver(reply="build a workflow that pulls invoices and emails finance")
+    assert asyncio.run(fn(msgs)) == "build a workflow that pulls invoices and emails finance"
+
+
+def test_bug12b_llm_failure_falls_back_deterministically():
+    msgs = [_h("build a workflow that pulls invoices"), _h("yes")]
+    fn = _mk_goal_resolver(raise_err=True)
+    assert asyncio.run(fn(msgs)) == "build a workflow that pulls invoices"   # fallback skip-list
+    fn_empty = _mk_goal_resolver(reply="   ")
+    assert asyncio.run(fn_empty(msgs)) == "build a workflow that pulls invoices"
+
+
+def test_bug12b_single_human_message_skips_llm():
+    calls = []
+    fn = _mk_goal_resolver(reply="SHOULD NOT BE USED", calls=calls)
+    assert asyncio.run(fn([_h("just build X")])) == "just build X"
+    assert calls == [], "single human message must not spend an LLM call"
+
+
+def test_bug12b_llm_sees_only_human_messages():
+    calls = []
+    msgs = [_h("build the invoice workflow"),
+            _NS(type="ai", content="AI-PLAN-TEXT"),
+            _h("yes"),
+            _NS(type="system", content="IMPORTANT: Your previous response was not parsed...")]
+    fn = _mk_goal_resolver(reply="build the invoice workflow", calls=calls)
+    asyncio.run(fn(msgs))
+    sent = " ".join(m.content for m in calls[0])
+    assert "IMPORTANT" not in sent and "AI-PLAN-TEXT" not in sent, \
+        "non-human content leaked into the goal-extraction prompt (#12b)"
+    assert "build the invoice workflow" in sent
+
+
+def test_bug12b_wired_into_analyze_and_plan():
+    assert "await _resolve_goal_from_messages(messages)" in _src(_BUILDER_NODES_PY), \
+        "analyze_and_plan no longer derives the goal via the mini-LLM extractor (#12b)"
 
 
 # ── Bucket-B #13 — token-bounded id matching + removed integration auto-exec ──
@@ -1264,8 +1358,8 @@ def test_bug13b_resolver_uses_llm_and_falls_back():
     cands = {"agents": [{"id": 1, "name": "Sales Bot"}, {"id": 12, "name": "Ops Bot"}]}
 
     class _Msg:
-        def __init__(self, c):
-            self.content = c
+        def __init__(self, content):
+            self.content = content
 
     def _mk_resolver(reply=None, raise_err=False):
         async def fake_invoke(llm, msgs):
@@ -1283,9 +1377,11 @@ def test_bug13b_resolver_uses_llm_and_falls_back():
              "_name_mentioned": _name_ment},
         )["_resolve_referenced_resources"]
 
-    # (a) good LLM reply is used (and constrained): "prod"-style disambiguation is the LLM's
+    # (a) good LLM reply is used (and constrained). Message chosen so the deterministic
+    # fallback resolves NOTHING ("the second one" has no id/name token) — proving the
+    # result really came from the LLM path, not a silently-invoked fallback.
     good = _mk_resolver(reply='{"agents": [12]}')
-    assert asyncio.run(good("show me agent 12", cands)) == {"agents": [12]}
+    assert asyncio.run(good("show me the second one", cands)) == {"agents": [12]}
     # (b) LLM error → deterministic fallback still resolves
     err = _mk_resolver(raise_err=True)
     assert asyncio.run(err("show me agent 12", cands)) == {"agents": [12]}

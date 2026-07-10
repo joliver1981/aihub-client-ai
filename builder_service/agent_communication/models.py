@@ -115,6 +115,17 @@ class AgentConversation(BaseModel):
         self.pending_question = None
         self.updated_at = datetime.utcnow().isoformat()
 
+    def reopen_for_followup(self):
+        """Reopen a conversation the prose phrase-matcher marked COMPLETED when the
+        deterministic outcome says the turn is NOT done (#5 third path — the #14
+        interaction): the graph keeps its state 'active' for a failed/plan-only
+        compile, but a manager stuck at COMPLETED makes the next send_message raise
+        ("cannot send messages") and permanently bricks the session. Reopens ONLY from
+        COMPLETED — terminal failures (TIMEOUT/FAILED) stay sticky (#8)."""
+        if self.status == ConversationStatus.COMPLETED:
+            self.status = ConversationStatus.ACTIVE
+            self.updated_at = datetime.utcnow().isoformat()
+
     def mark_failed(self, error: str):
         """Mark the conversation as failed."""
         self.status = ConversationStatus.FAILED

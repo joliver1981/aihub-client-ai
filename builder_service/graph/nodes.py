@@ -177,6 +177,57 @@ def _goal_from_messages(messages) -> str:
     return human_texts[-1]  # all human messages were bare confirmations → best available
 
 
+async def _resolve_goal_from_messages(messages) -> str:
+    """#12b: extract the user's ACTUAL request/requirements with ONE mini-LLM call (the
+    house pattern), replacing the brittle confirmation skip-list ("let's do it" / "go for
+    it" / "perfect" weren't listed and became the goal). Only HUMAN messages are shown to
+    the model — the internal re-plan SystemMessage and AI text are structurally excluded —
+    and multi-turn requirements (initial ask + later clarifications/corrections) are
+    consolidated, which no single-message pick can do. Single human message → returned
+    verbatim (nothing to disambiguate, no LLM call). Any failure → deterministic
+    _goal_from_messages fallback. Never raises."""
+    human_texts = []
+    for msg in (messages or []):
+        content = None
+        if getattr(msg, "type", None) == "human" and isinstance(getattr(msg, "content", None), str):
+            content = msg.content
+        elif isinstance(msg, dict) and msg.get("role") == "user" and isinstance(msg.get("content"), str):
+            content = msg["content"]
+        if content:
+            human_texts.append(content)
+    if not human_texts:
+        return ""
+    if len(human_texts) == 1:
+        return human_texts[0]
+    try:
+        llm = get_llm(mini=True, streaming=False)  # internal extraction, don't stream
+        numbered = "\n".join(f"[{i + 1}] {t[:1500]}" for i, t in enumerate(human_texts[-10:]))
+        system = (
+            "You extract the user's actual request from their messages in a build "
+            "conversation.\n"
+            "Given ONLY the user's own messages (no assistant text), return the user's "
+            "complete, consolidated request/requirements in their own words:\n"
+            "- Combine the original request with any later details or corrections the user "
+            "added.\n"
+            "- IGNORE bare confirmations and acknowledgements (\"yes\", \"go for it\", "
+            "\"perfect\", \"sounds good\", ...).\n"
+            "- Use only what the user actually said — do not invent requirements.\n"
+            "Respond with ONLY the consolidated request text, no preamble."
+        )
+        response = await safe_llm_invoke(llm, [
+            SystemMessage(content=system),
+            HumanMessage(content=f"User messages (oldest first):\n{numbered}"),
+        ])
+        goal = (getattr(response, "content", None) or "").strip()
+        if goal:
+            logger.info(f"  [analyze_and_plan] LLM goal extraction: {goal[:120]}")
+            return goal
+        logger.warning("  [analyze_and_plan] goal extraction empty — deterministic fallback")
+    except Exception as e:
+        logger.warning(f"  [analyze_and_plan] goal extraction failed ({e}) — deterministic fallback")
+    return _goal_from_messages(messages)
+
+
 def _mentions_resource_id(resource_id, message) -> bool:
     """#13: True only when resource_id appears as a STANDALONE token in message.
 
@@ -1325,8 +1376,9 @@ async def analyze_and_plan(state: dict) -> dict:
     except Exception:
         has_destructive = False
 
-    # Build the plan object
-    goal = _goal_from_messages(messages)  # #12: real user request, not the internal re-plan prompt / bare "yes"
+    # Build the plan object — #12b: mini-LLM consolidation of the user's real request
+    # (multi-turn requirements; ignores confirmations; deterministic fallback inside)
+    goal = await _resolve_goal_from_messages(messages)
 
     plan = {
         "plan_id": f"plan_{state.get('session_id', 'unknown')}",
@@ -3665,6 +3717,10 @@ async def _execute_agent_delegation(
             # knows to forward the next user message to the agent.
             conversation_status = "active"
             logger.info(f"  [_execute_agent_delegation] Agent providing update, conversation remains active")
+            # #5 third path (same mismatch as handle_agent_response): the phrase-matcher
+            # may have marked the manager conversation COMPLETED on prose during the send;
+            # state 'active' + manager COMPLETED bricks the next send. Reconcile.
+            conversation.reopen_for_followup()
         elif response_type == "definitive_result" or has_structured_output:
             # Guard: for workflow_agent in planning phase with no plan/commands,
             # the agent is still gathering requirements — not providing a result.
@@ -4456,6 +4512,13 @@ async def handle_agent_response(state: dict) -> dict:
             logger.info(f"  [handle_agent_response] Keeping workflow conversation active "
                         f"(phase={workflow_phase}, compile_status={_compile_status}) despite "
                         f"status={updated_conversation.status.value}/definitive — compile not a terminal success")
+            # #5 third path: the manager's phrase-matcher may have marked this conversation
+            # COMPLETED on the agent's PROSE ("I've created…") even though the compile did
+            # not succeed. Keeping graph state 'active' while the manager stays COMPLETED
+            # makes the next provide_user_input raise ("cannot send messages") — the exact
+            # session brick #5 closed, resurrected by the state/manager mismatch. Reconcile
+            # toward the authoritative compile signal: reopen the manager conversation.
+            updated_conversation.reopen_for_followup()
         elif updated_conversation.status.value == "completed" or has_definitive_result:
             # Conversation is done (status set or we got a definitive result)
             current_conv = None
@@ -4723,7 +4786,12 @@ Present this response to the user in a helpful way."""
             _mgr = get_communication_manager()
             _conv = _mgr.get_conversation(current_conv_id) if current_conv_id else None
             _live = _conv.status.value if (_conv and _conv.status) else None
-            if current_conv_id and (_conv is None or _live in ("timeout", "failed")):
+            # Release on terminal failure, a missing conversation, OR a live "completed"
+            # (#5 third path belt: reaching THIS handler with a COMPLETED manager means a
+            # send was attempted against it — a state/manager mismatch from any source —
+            # so release rather than loop; the reopen at the keep-active sites is the
+            # primary fix, this catches divergences created anywhere else).
+            if current_conv_id and (_conv is None or _live in ("timeout", "failed", "completed")):
                 terminal_updates = _terminalize_agent_conversation(
                     state, current_conv_id, _live or "failed")
         except Exception as _cleanup_err:
