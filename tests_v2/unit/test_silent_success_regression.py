@@ -1266,6 +1266,74 @@ def test_bug12b_wired_into_analyze_and_plan():
         "analyze_and_plan no longer derives the goal via the mini-LLM extractor (#12b)"
 
 
+# ── #12 round-2 closers — completed skip-list + error-blob guard on the fallback path ──
+@pytest.mark.parametrize("phrase", [
+    "let's do it", "Let's do it!", "let’s do it",   # incl. curly apostrophe
+    "go for it", "perfect", "Perfect.", "sounds great", "ship it", "lgtm", "works for me",
+])
+def test_bug12c_fallback_skiplist_covers_retest_phrases(phrase):
+    msgs = [_h("build a workflow that pulls invoices"), _h(phrase)]
+    assert _goal_from(msgs) == "build a workflow that pulls invoices", \
+        f"fallback skip-list misses confirmation phrase: {phrase!r}"
+
+
+def test_bug12c_error_blob_never_becomes_goal():
+    # safe_llm_invoke's content-filter exhaustion returns a JSON blob with a canned
+    # apology — that must fall through to the deterministic fallback, not become the goal
+    blob = ('[{"type": "text", "content": "I had trouble processing that request. '
+            'Could you try rephrasing or providing more context?"}]')
+    msgs = [_h("build a workflow that pulls invoices"), _h("yes")]
+    fn = _mk_goal_resolver(reply=blob)
+    assert asyncio.run(fn(msgs)) == "build a workflow that pulls invoices"
+
+
+def test_bug12c_attempt4_wrapped_genuine_reply_is_unwrapped():
+    # safe_llm_invoke's attempt-4 retry wraps even SUCCESSFUL replies in the same JSON
+    # shape — a genuine wrapped extraction must be unwrapped, not discarded
+    wrapped = '[{"type": "text", "content": "build a workflow that pulls invoices"}]'
+    msgs = [_h("build a workflow that pulls invoices"), _h("go for it"), _h("perfect")]
+    fn = _mk_goal_resolver(reply=wrapped)
+    assert asyncio.run(fn(msgs)) == "build a workflow that pulls invoices"
+
+
+# ── #17 (multi-turn resume) — completed step carries the fresh compile outcome ──
+_complete_step = _load_functions(_BUILDER_NODES_PY, ["_complete_step_result"])["_complete_step_result"]
+
+
+def test_bug17_success_compile_merged_into_step_result():
+    step = {"order": 1, "status": "awaiting_input", "result": {"conversation_id": "c1"}}
+    agent_result = {"compile_result": {"status": "success", "workflow_id": 42,
+                                       "workflow_name": "Invoice WF"}}
+    out = _complete_step(step, agent_result)
+    assert out["status"] == "completed"
+    assert out["result"]["conversation_id"] == "c1"                # prior result preserved
+    assert out["result"]["saved_workflow_id"] == 42                # registries scan this
+    assert out["result"]["saved_workflow_name"] == "Invoice WF"
+    assert out["result"]["compile_result"]["status"] == "success"
+    # and the CC-side extractor actually finds it in a plan built from this step
+    plan = {"status": "completed", "steps": [out]}
+    assert any(r["type"] == "workflow" and str(r["id"]) == "42" for r in _extract_cr(plan))
+
+
+def test_bug17_draft_compile_attached_but_not_counted_as_created():
+    step = {"order": 1, "status": "delegated", "result": {"conversation_id": "c1"}}
+    agent_result = {"compile_result": {"status": "draft", "workflow_id": 42}}
+    out = _complete_step(step, agent_result)
+    assert "saved_workflow_id" not in out["result"], "a DRAFT must not register as created (#17 fail-closed)"
+    assert out["result"]["compile_result"]["status"] == "draft"    # draft-safety checks need it
+    assert _unready({"steps": [out]}) is True                      # suppresses the ✅ announcement
+
+
+def test_bug17_no_compile_result_is_safe():
+    out = _complete_step({"order": 1, "status": "delegated", "result": {"conversation_id": "c1"}}, None)
+    assert out["status"] == "completed" and out["result"] == {"conversation_id": "c1"}
+
+
+def test_bug17_wired_into_plan_update():
+    assert "_complete_step_result(step, agent_result)" in _src(_BUILDER_NODES_PY), \
+        "handle_agent_response no longer merges the compile outcome into the completed step (#17)"
+
+
 # ── Bucket-B #13 — token-bounded id matching + removed integration auto-exec ──
 _mentions_id = _load_functions(_BUILDER_NODES_PY, ["_mentions_resource_id"])["_mentions_resource_id"]
 

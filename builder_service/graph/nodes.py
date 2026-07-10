@@ -158,6 +158,11 @@ def _goal_from_messages(messages) -> str:
         "yes", "y", "yep", "yeah", "yup", "ok", "okay", "k", "sure", "go", "go ahead",
         "confirm", "confirmed", "do it", "proceed", "please do", "yes please", "sounds good",
         "looks good", "correct", "right", "affirmative", "please", "continue", "yes go",
+        # round-2 retest: these weren't listed and became the goal on the LLM-fallback path
+        "let's do it", "lets do it", "go for it", "perfect", "great", "sounds great",
+        "awesome", "absolutely", "definitely", "sure thing", "make it so", "do that",
+        "ship it", "run it", "lgtm", "works for me", "that works", "fine", "yes do it",
+        "ok go ahead", "please proceed", "sounds perfect",
     }
     human_texts = []
     for msg in (messages or []):
@@ -171,7 +176,8 @@ def _goal_from_messages(messages) -> str:
     if not human_texts:
         return ""
     for content in reversed(human_texts):
-        normalized = content.strip().lower().rstrip(".!")
+        # normalize curly apostrophes ("let’s do it") so the skip-list matches
+        normalized = content.strip().lower().replace("’", "'").rstrip(".!")
         if normalized and normalized not in confirmations:
             return content
     return human_texts[-1]  # all human messages were bare confirmations → best available
@@ -219,13 +225,49 @@ async def _resolve_goal_from_messages(messages) -> str:
             HumanMessage(content=f"User messages (oldest first):\n{numbered}"),
         ])
         goal = (getattr(response, "content", None) or "").strip()
-        if goal:
+        # safe_llm_invoke can return a JSON-wrapped blob: its attempt-4 retry wraps even
+        # SUCCESSFUL replies as [{"type":"text","content":...}], and its content-filter
+        # exhaustion fallback returns the same shape with a canned apology. Unwrap the
+        # shape (keeping a genuine wrapped reply); treat the canned error as a failure —
+        # otherwise the literal blob/apology becomes plan["goal"].
+        if goal.startswith("["):
+            try:
+                import json as _json
+                blocks = _json.loads(goal)
+                goal = " ".join(
+                    b.get("content", "") for b in blocks
+                    if isinstance(b, dict) and b.get("type") == "text"
+                ).strip()
+            except Exception:
+                goal = ""
+        if goal and "I had trouble processing that request" not in goal:
             logger.info(f"  [analyze_and_plan] LLM goal extraction: {goal[:120]}")
             return goal
-        logger.warning("  [analyze_and_plan] goal extraction empty — deterministic fallback")
+        logger.warning("  [analyze_and_plan] goal extraction empty/errored — deterministic fallback")
     except Exception as e:
         logger.warning(f"  [analyze_and_plan] goal extraction failed ({e}) — deterministic fallback")
     return _goal_from_messages(messages)
+
+
+def _complete_step_result(step, agent_result):
+    """#17 (multi-turn resume path): when a delegated step completes in
+    handle_agent_response, merge the FRESH compile outcome into the step's result.
+    Previously the step was flipped to completed with just {**step, "status": ...} —
+    the compiled workflow_id lived only at the node's top-level return, never in the
+    plan step — so CC's _extract_created_resources and the builder registry found
+    nothing, and a distiller crash on this path still showed the generic apology for
+    a workflow that WAS built. Fail-closed: the top-level saved_workflow_id/name
+    convention (what the registries scan) is set only on a clean SUCCESS compile;
+    compile_result itself is always attached so draft-safety checks can see it."""
+    new_result = dict(step.get("result") or {})
+    cr = (agent_result or {}).get("compile_result")
+    if isinstance(cr, dict) and cr:
+        new_result["compile_result"] = cr
+        if cr.get("status") == "success" and cr.get("workflow_id"):
+            new_result.setdefault("saved_workflow_id", cr.get("workflow_id"))
+            if cr.get("workflow_name"):
+                new_result.setdefault("saved_workflow_name", cr.get("workflow_name"))
+    return {**step, "status": "completed", "result": new_result}
 
 
 def _mentions_resource_id(resource_id, message) -> bool:
@@ -4712,13 +4754,11 @@ Present this response to the user in a helpful way."""
                     logger.info(f"  [handle_agent_response] Step {step.get('order')}: status={step_status}, conv_id={step_conv_id}, target_conv_id={current_conv_id}, match={step_conv_id == current_conv_id}")
 
                     if (step_status in ("awaiting_input", "delegated") and step_conv_id == current_conv_id):
-                        # Update this step to completed
+                        # Update this step to completed — #17: merge the fresh compile
+                        # outcome (workflow_id/name) into the step's result so the CC
+                        # summary + resource registries can see what was actually built.
                         logger.info(f"  [handle_agent_response] ✓ Updating step {step.get('order')} to completed")
-                        updated_step = {
-                            **step,
-                            "status": "completed",
-                        }
-                        updated_steps.append(updated_step)
+                        updated_steps.append(_complete_step_result(step, agent_result))
                     else:
                         updated_steps.append(step)
 
