@@ -486,6 +486,22 @@ def _workflow_actions() -> list:
                         "database_version", "database_version",
                         description="Version number in database",
                     ),
+                    ResponseMapping(
+                        "workflow_id", "workflow_id",
+                        description="Persisted workflow id",
+                    ),
+                    ResponseMapping(
+                        "is_valid", "is_valid",
+                        description="Deterministic validation verdict of the saved workflow",
+                    ),
+                    ResponseMapping(
+                        "saved_as_draft", "saved_as_draft",
+                        description="True when the workflow saved but is not runnable",
+                    ),
+                    ResponseMapping(
+                        "validation_errors", "validation_errors",
+                        description="Validation error messages when saved as draft",
+                    ),
                 ],
                 success_indicator="status",
             ),
@@ -518,6 +534,10 @@ def _workflow_actions() -> list:
                 response_mappings=[
                     ResponseMapping("file_path", "file_path"),
                     ResponseMapping("database_version", "database_version"),
+                    ResponseMapping("workflow_id", "workflow_id"),
+                    ResponseMapping("is_valid", "is_valid"),
+                    ResponseMapping("saved_as_draft", "saved_as_draft"),
+                    ResponseMapping("validation_errors", "validation_errors"),
                 ],
                 success_indicator="status",
             ),
@@ -1037,8 +1057,11 @@ def _connection_actions() -> list:
                     ),
                 ],
                 response_mappings=[
+                    # The real /api/connections create body is
+                    # {"status": "success", "response": "<new id>"} — there is
+                    # no nested connection object (app.py add_update_connection).
                     ResponseMapping(
-                        "connection_id", "connection.id",
+                        "connection_id", "response",
                         field_type=FieldType.INTEGER,
                     ),
                 ],

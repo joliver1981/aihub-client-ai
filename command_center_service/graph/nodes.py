@@ -5991,6 +5991,12 @@ def _plan_has_unready_artifact(plan_data: dict) -> bool:
         cr = res.get("compile_result") if isinstance(res.get("compile_result"), dict) else {}
         if str(cr.get("status") or "").lower() in ("draft", "error"):
             return True
+        # AIHUB-0016 F1: executor steps now carry the read-back verifier's
+        # workflow_validation state in result.data.
+        data = res.get("data") if isinstance(res.get("data"), dict) else {}
+        wfv = data.get("workflow_validation")
+        if isinstance(wfv, dict) and wfv.get("is_valid") is False:
+            return True
     return False
 
 
@@ -6024,7 +6030,7 @@ def _summarize_verification(plan_data: dict) -> dict:
     verification_detail) — steps with no verification spec (detail is None, e.g.
     reads) are not flagged. Returns {verified, unverified, failed} lists of
     {label, detail}."""
-    verified, unverified, failed = [], [], []
+    verified, unverified, failed, drafts = [], [], [], []
     steps = plan_data.get("steps", []) if isinstance(plan_data, dict) else []
     for step in steps:
         if not isinstance(step, dict):
@@ -6042,11 +6048,22 @@ def _summarize_verification(plan_data: dict) -> dict:
             verified.append({"label": label, "detail": vd})
         elif v is None and vd:      # read-back attempted but inconclusive/errored
             unverified.append({"label": label, "detail": vd})
-    return {"verified": verified, "unverified": unverified, "failed": failed}
+
+        # AIHUB-0016 F1: a workflow can save (and read-back-verify) yet be a
+        # non-runnable DRAFT. Collect draft state so messaging distinguishes
+        # "ready" from "saved as draft — needs fixes".
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        wfv = data.get("workflow_validation") if isinstance(data.get("workflow_validation"), dict) else None
+        is_draft = bool(result.get("saved_as_draft")) or (wfv is not None and wfv.get("is_valid") is False)
+        if is_draft and status not in ("failed", "error"):
+            problems = (wfv or {}).get("problems") or result.get("workflow_validation_errors") or []
+            drafts.append({"label": label, "problems": [str(p) for p in problems][:5]})
+
+    return {"verified": verified, "unverified": unverified, "failed": failed, "drafts": drafts}
 
 
 def _render_verification_for_prompt(summary: dict) -> str:
-    if not any(summary.get(k) for k in ("verified", "unverified", "failed")):
+    if not any(summary.get(k) for k in ("verified", "unverified", "failed", "drafts")):
         return "(no mutating steps were verified this turn)"
     lines = []
     for v in summary.get("verified", []):
@@ -6055,6 +6072,12 @@ def _render_verification_for_prompt(summary: dict) -> str:
         lines.append(f"UNVERIFIED (action returned success but read-back could NOT confirm): {u['label']}")
     for f in summary.get("failed", []):
         lines.append(f"FAILED: {f['label']}")
+    for d in summary.get("drafts", []):
+        probs = "; ".join(d.get("problems") or []) or "validation failed"
+        lines.append(
+            f"SAVED AS DRAFT (persisted but NOT runnable — never call it ready or "
+            f"complete): {d['label']} — needs fixes: {probs}"
+        )
     return "\n".join(lines)
 
 
@@ -6069,6 +6092,16 @@ def _verification_footer(summary: dict) -> str:
             for f in summary["failed"][:6]
         )
         blocks.append(f"**❌ {len(summary['failed'])} step(s) did not succeed:**\n{lines}")
+    if summary.get("drafts"):
+        lines = "\n".join(
+            f"- {d['label']}"
+            + (f" — needs fixes: {'; '.join(d['problems'])}" if d.get("problems") else "")
+            for d in summary["drafts"][:6]
+        )
+        blocks.append(
+            f"**📝 {len(summary['drafts'])} workflow(s) saved as DRAFT — not runnable "
+            f"until fixed:**\n{lines}"
+        )
     if summary.get("unverified"):
         lines = "\n".join(f"- {u['label']}" for u in summary["unverified"][:6])
         blocks.append(
@@ -6091,8 +6124,9 @@ def _deterministic_builder_summary(summary: dict, plan_data: dict) -> Optional[s
     failed = summary.get("failed") or []
     unverified = summary.get("unverified") or []
     if not (verified or failed or unverified):
-        # No read-back verification signal — e.g. a workflow build (workflows.create is not
-        # in VERIFICATION_SPECS). W5b (#17): fall through to the plan's created resources so
+        # No read-back verification signal — e.g. a delegation-path workflow build
+        # (executor steps now verify workflows.create, but delegation auto-saves
+        # carry no verified field). W5b (#17): fall through to the plan's created resources so
         # a genuine workflow build isn't shown the generic apology on a distiller crash —
         # but stay fail-closed: announce ONLY a clean success, never a draft/errored/partial
         # build (a saved draft also has an id + a non-failed step status).
@@ -6103,7 +6137,7 @@ def _deterministic_builder_summary(summary: dict, plan_data: dict) -> Optional[s
             return f"✅ Done. Created: {names}."
         return None  # ambiguous / draft / failed → keep the caller's fallback (never false-claim)
 
-    if verified and not failed and not unverified:
+    if verified and not failed and not unverified and not summary.get("drafts"):
         created = _extract_created_resources(plan_data or {})
         if created:
             names = ", ".join(f'{c.get("type", "item")} "{c.get("name")}"' for c in created[:6])

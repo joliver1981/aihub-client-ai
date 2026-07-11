@@ -6058,16 +6058,58 @@ def save_workflow():
         workflow_id = None
         _owner_id = current_user.id if current_user.is_authenticated else None
         workflow_id = save_workflow_to_database(workflow_name, workflow_data, owner_id=_owner_id)
-        
+
+        # ── Deterministic validation (AIHUB-0016 F1) ────────────────────
+        # The saved JSON is persisted AS-IS (draft doctrine: validity gates
+        # messaging, never persistence), but the response must say whether
+        # the workflow is runnable so callers — the Builder path above all —
+        # can render "ready" vs "saved as draft, needs fixes". The validator
+        # expects from/to connection keys; the save format uses source/target,
+        # and skipping that translation makes every graph detector pass
+        # vacuously. Validator crash fails OPEN — never block a save on it.
+        validation_errors = []
+        try:
+            import workflow_deterministic_validator as _det_val
+            _validation_state = {
+                "nodes": workflow_data.get("nodes", []),
+                "connections": [
+                    {
+                        "from": c.get("source", c.get("from", "")),
+                        "to": c.get("target", c.get("to", "")),
+                        "type": c.get("type", "pass"),
+                    }
+                    for c in workflow_data.get("connections", [])
+                    if isinstance(c, dict)
+                ],
+            }
+            _det = _det_val.run(_validation_state)
+            # No fixers run on this path, so ALL error-severity issues count
+            # (stricter than the compile route's post-fix is_valid — correct,
+            # because /save/workflow persists the payload unfixed).
+            validation_errors = [i.message for i in _det.errors]
+        except Exception as _val_err:
+            logger.warning(f"Workflow validation skipped (validator error): {_val_err}")
+        is_valid = not validation_errors
+        saved_as_draft = not is_valid
+
         response = {
             "status": "success",
             "message": "Workflow saved successfully",
             "workflow_id": workflow_id,
             "file_path": file_path,
-            "database_version": workflow_id  # Return actual workflow ID for cross-step reference
+            "database_version": workflow_id,  # Return actual workflow ID for cross-step reference
+            "is_valid": is_valid,
+            "saved_as_draft": saved_as_draft,
+            "validation_errors": validation_errors,
         }
-        
-        logger.info("Workflow saved successfully")
+
+        if saved_as_draft:
+            logger.warning(
+                f"Workflow '{workflow_name}' saved as DRAFT (ID {workflow_id}): "
+                f"{validation_errors}"
+            )
+        else:
+            logger.info(f"Workflow '{workflow_name}' saved successfully (ID {workflow_id})")
 
         try:
             track_feature_usage('workflow', 'created' if is_new else 'updated')

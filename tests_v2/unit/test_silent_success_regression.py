@@ -1627,3 +1627,207 @@ def test_aggregate_has_deterministic_honesty_footer():
     # Footer is computed from real task statuses, appended after synthesis.
     assert 'if t.get("status") == "failed"]' in s
     assert 'any(t.get("builder_required") for t in sub_tasks)' in s
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# AIHUB-0016 F1 / AIHUB-0021 F2 — workflows/connections verification specs +
+# honest draft/ready on the real save path
+# ═══════════════════════════════════════════════════════════════════════════
+# The real save (/save/workflow) had no validation and workflows.*/
+# connections.* had no read-back spec, so valid and broken workflows both got
+# the same generic "could not be independently verified" message.
+
+def test_phase2_spec_table_covers_workflows_and_connections():
+    for cap in ("workflows.create", "workflows.update", "workflows.delete",
+                "connections.create", "connections.delete"):
+        assert cap in V.VERIFICATION_SPECS, f"{cap} lost its verification spec"
+
+
+def test_as_list_decodes_double_encoded_payloads():
+    # /api/connections and /get/workflows return jsonify(dataframe_to_json(df))
+    # — a JSON string of a JSON array. _as_list must decode it.
+    raw = '[{"id": 7, "connection_name": "AIRDB"}]'
+    assert V._as_list(raw, "connections") == [{"id": 7, "connection_name": "AIRDB"}]
+    assert V._as_list({"connections": raw}, "connections") == [{"id": 7, "connection_name": "AIRDB"}]
+    assert V._as_list("not json", "connections") is None
+
+
+_VALID_WF = {
+    "nodes": [
+        {"id": "n1", "type": "Database", "isStart": True},
+        {"id": "n2", "type": "Excel Export"},
+    ],
+    "connections": [{"source": "n1", "target": "n2", "type": "pass"}],
+}
+_BROKEN_WF = {
+    "nodes": [
+        {"id": "n1", "type": "Server", "isStart": True},   # unimplemented type
+        {"id": "n2", "type": "Excel Export"},               # orphan
+    ],
+    "connections": [{"source": "n1", "target": "missing", "type": "pass"}],
+}
+
+
+def test_workflow_problems_structural_certainties():
+    assert V._workflow_problems(_VALID_WF) == []
+    problems = V._workflow_problems(_BROKEN_WF)
+    joined = " | ".join(problems).lower()
+    assert "server" in joined            # unknown node type
+    assert "missing" in joined           # dangling connection endpoint
+    assert V._workflow_problems({"nodes": [], "connections": []}) == ["workflow has no nodes"]
+    assert V._workflow_problems("nope") == ["workflow payload is not an object"]
+
+
+def test_workflows_create_check_confirms_and_carries_draft_state():
+    read = {"workflows": [{"id": 1225, "workflow_name": "test-broken"}]}
+    # Broken workflow: present -> CONFIRMED (never DISPROVED for validity),
+    # but the extra dict must carry is_valid=False + problems.
+    status, detail, extra = V._check_workflows_create(
+        {"filename": "test-broken.json", "workflow": _BROKEN_WF},
+        {"workflow_id": 1225}, read,
+    )
+    assert status == V.CONFIRMED
+    assert "DRAFT" in detail
+    assert extra["workflow_validation"]["is_valid"] is False
+    assert extra["workflow_validation"]["problems"]
+
+    # Valid workflow: CONFIRMED + is_valid True.
+    read_ok = {"workflows": [{"id": 9, "workflow_name": "good"}]}
+    status, detail, extra = V._check_workflows_create(
+        {"filename": "good.json", "workflow": _VALID_WF},
+        {"workflow_id": 9}, read_ok,
+    )
+    assert status == V.CONFIRMED
+    assert extra["workflow_validation"]["is_valid"] is True
+
+    # Route-supplied verdict (once /save/workflow returns is_valid) wins over
+    # the local structural fallback.
+    status, detail, extra = V._check_workflows_create(
+        {"filename": "good.json", "workflow": _VALID_WF},
+        {"workflow_id": 9, "is_valid": False, "saved_as_draft": True,
+         "validation_errors": ["ORPHANED_NODE: n2"]}, read_ok,
+    )
+    assert status == V.CONFIRMED
+    assert extra["workflow_validation"] == {"is_valid": False, "problems": ["ORPHANED_NODE: n2"]}
+
+    # Not present at all -> DISPROVED.
+    status, detail, _ = V._check_workflows_create(
+        {"filename": "ghost.json", "workflow": _VALID_WF}, {}, read_ok,
+    )
+    assert status == V.DISPROVED
+
+    # Unreadable list -> INCONCLUSIVE (never DISPROVED).
+    status, detail, _ = V._check_workflows_create(
+        {"filename": "x.json", "workflow": _VALID_WF}, {}, {"nope": 1},
+    )
+    assert status == V.INCONCLUSIVE
+
+
+def test_connections_create_check_handles_real_body_shapes():
+    # Real create body: {"status": "success", "response": "<id>"}; real list
+    # body: double-encoded dataframe records.
+    read = '[{"id": 196, "connection_name": "test-conn"}]'
+    status, detail = V._check_connections_create(
+        {"name": "test-conn"}, {"status": "success", "response": "196"}, read,
+    )
+    assert status == V.CONFIRMED
+    status, detail = V._check_connections_create(
+        {"name": "ghost"}, {"status": "success", "response": "9999"}, read,
+    )
+    assert status == V.DISPROVED
+    status, detail = V._check_connections_create(
+        {"name": "x"}, {}, None,
+    )
+    assert status == V.INCONCLUSIVE
+
+
+def test_verify_write_merges_check_extra_into_result_data():
+    # Executor must accept 3-tuple check results and merge the extra dict into
+    # result.data (2-tuple checks unchanged).
+    import asyncio
+    EX = _executor_mod()
+
+    async def _drive():
+        ex = EX.ActionExecutor(api_key="x")
+
+        async def read(domain, action, params, description=""):
+            return EX.ExecutionResult(
+                status=EX.ExecutionStatus.SUCCESS, message="",
+                data={"workflows": [{"id": 5, "workflow_name": "wf"}]},
+            )
+        ex.execute_step = read
+        result = EX.ExecutionResult(
+            status=EX.ExecutionStatus.SUCCESS, message="",
+            data={"workflow_id": 5, "is_valid": False, "saved_as_draft": True,
+                  "validation_errors": ["UNKNOWN_NODE_TYPE: Server"]},
+        )
+        return await ex._verify_write(
+            "workflows.create", {"filename": "wf.json", "workflow": _BROKEN_WF}, result,
+        )
+
+    out = asyncio.run(_drive())
+    assert out.verified is True                      # save landed (draft ≠ disproved)
+    assert out.status == EX.ExecutionStatus.SUCCESS
+    wfv = (out.data or {}).get("workflow_validation")
+    assert wfv and wfv["is_valid"] is False and wfv["problems"]
+
+
+def test_save_workflow_route_validates_and_reports_draft():
+    s = _src(APP_PY)
+    # Real save path runs the deterministic validator with the mandatory
+    # source/target -> from/to translation, fails open, and returns the verdict.
+    assert "import workflow_deterministic_validator as _det_val" in s
+    assert '"from": c.get("source", c.get("from", ""))' in s
+    assert '"saved_as_draft": saved_as_draft' in s
+    assert "saved as DRAFT (ID {workflow_id})" in s
+
+
+def test_cc_messaging_distinguishes_draft_from_ready():
+    _fns = _load_functions(
+        CC_NODES_PY,
+        ["_summarize_verification", "_verification_footer", "_render_verification_for_prompt"],
+    )
+    summarize = _fns["_summarize_verification"]
+    footer = _fns["_verification_footer"]
+    render = _fns["_render_verification_for_prompt"]
+
+    draft_plan = {"status": "completed", "steps": [
+        {"status": "completed", "description": "save workflow test-broken",
+         "result": {"verified": True, "verification_detail": "present but DRAFT",
+                    "data": {"workflow_validation": {
+                        "is_valid": False,
+                        "problems": ["unknown node type 'Server' (node n1)"]}}}},
+    ]}
+    s = summarize(draft_plan)
+    assert len(s["drafts"]) == 1 and s["drafts"][0]["problems"]
+    f = footer(s)
+    assert "DRAFT" in f and "Server" in f
+    assert "never call it ready" in render(s)
+
+    ready_plan = {"status": "completed", "steps": [
+        {"status": "completed", "description": "save workflow good",
+         "result": {"verified": True, "verification_detail": "present (valid structure)",
+                    "data": {"workflow_validation": {"is_valid": True, "problems": []}}}},
+    ]}
+    s2 = summarize(ready_plan)
+    assert s2["drafts"] == [] and len(s2["verified"]) == 1
+    assert footer(s2) == ""   # clean success -> no warning footer
+
+
+def test_deterministic_summary_never_announces_draft_as_done():
+    _fns = _load_functions(
+        CC_NODES_PY,
+        ["_summarize_verification", "_deterministic_builder_summary",
+         "_extract_created_resources", "_plan_has_unready_artifact"],
+    )
+    plan = {"status": "completed", "steps": [
+        {"status": "completed", "description": "save workflow broken",
+         "capability_id": "workflows.create",
+         "result": {"verified": True,
+                    "data": {"workflow_validation": {"is_valid": False,
+                                                     "problems": ["orphan node"]}}}},
+    ]}
+    ns_summary = _fns["_summarize_verification"](plan)
+    out = _fns["_deterministic_builder_summary"](ns_summary, plan)
+    assert out is None or not out.startswith("✅"), \
+        f"draft build announced as success: {out!r}"

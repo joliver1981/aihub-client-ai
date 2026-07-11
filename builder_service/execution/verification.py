@@ -25,6 +25,7 @@ probed to pin their shapes, but the helpers degrade to INCONCLUSIVE rather than
 DISPROVED whenever a response can't be confidently interpreted).
 """
 
+import json
 import logging
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -34,7 +35,9 @@ CONFIRMED = "confirmed"
 DISPROVED = "disproved"
 INCONCLUSIVE = "inconclusive"
 
-CheckResult = Tuple[str, str]  # (status, human-readable detail)
+# (status, human-readable detail) — checks may optionally return a third
+# element: a dict merged into result.data (e.g. workflow_validation state).
+CheckResult = Tuple[str, str]
 
 
 # ─── helpers ────────────────────────────────────────────────────────────────
@@ -46,11 +49,25 @@ def _norm(value: Any) -> str:
 def _as_list(data: Any, key: str) -> Optional[list]:
     """Read a list from an execute_step `.data` payload that may be either
     {key: [...]} (response-mapping extracted) or a raw [...] (mapping missed a
-    non-wrapped list, so the executor returned the raw body). None if neither."""
+    non-wrapped list, so the executor returned the raw body). None if neither.
+
+    Several main-app list routes (/api/connections, /get/workflows) return
+    jsonify(dataframe_to_json(df)) — a JSON-encoded STRING of a JSON array —
+    so a str payload is decoded once before the shape checks."""
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except (ValueError, TypeError):
+            return None
     if isinstance(data, list):
         return data
     if isinstance(data, dict):
         v = data.get(key)
+        if isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except (ValueError, TypeError):
+                return None
         if isinstance(v, list):
             return v
     return None
@@ -183,6 +200,144 @@ def _check_email_configure(params, result_data, read_data) -> CheckResult:
     return INCONCLUSIVE, "email config saved but no independently-verifiable field was set"
 
 
+def _canonical_node_types() -> set:
+    """Node types the workflow RUNTIME implements. Prefer the repo-root canon
+    (system_prompts.VALID_WORKFLOW_NODE_TYPES — excludes the removed 'Server'
+    type); fall back to the compiler's canvas set minus 'Server'."""
+    try:
+        from system_prompts import VALID_WORKFLOW_NODE_TYPES
+        return set(VALID_WORKFLOW_NODE_TYPES)
+    except Exception:
+        from .workflow_compiler import VALID_NODE_TYPES
+        return set(VALID_NODE_TYPES) - {"Server"}
+
+
+def _workflow_problems(workflow: Any) -> List[str]:
+    """Structural certainties only — problems that make a saved workflow
+    unrunnable (AIHUB-0016 F1). Anything debatable is NOT flagged: a false
+    'draft' on a good workflow is almost as bad as a false 'ready'."""
+    if not isinstance(workflow, dict):
+        return ["workflow payload is not an object"]
+    nodes = workflow.get("nodes") or []
+    conns = workflow.get("connections") or []
+    if not isinstance(nodes, list) or not nodes:
+        return ["workflow has no nodes"]
+
+    problems: List[str] = []
+    known = _canonical_node_types()
+    node_ids = set()
+    for n in nodes:
+        if not isinstance(n, dict):
+            continue
+        node_ids.add(str(n.get("id")))
+        ntype = n.get("type")
+        if known and ntype and ntype not in known:
+            problems.append(
+                f"unknown node type '{ntype}' (node {n.get('id')}) — "
+                f"the workflow engine cannot execute it"
+            )
+
+    connected_ids = set()
+    for c in conns:
+        if not isinstance(c, dict):
+            continue
+        # Tolerate both the save format (source/target) and the validator
+        # format (from/to).
+        src = str(c.get("source", c.get("from", "")) or "")
+        dst = str(c.get("target", c.get("to", "")) or "")
+        connected_ids.update({src, dst})
+        for endpoint in (src, dst):
+            if endpoint and endpoint not in node_ids:
+                problems.append(
+                    f"connection references missing node '{endpoint}'"
+                )
+
+    if len(nodes) > 1:
+        for n in nodes:
+            if isinstance(n, dict) and str(n.get("id")) not in connected_ids:
+                problems.append(
+                    f"node '{n.get('label') or n.get('id')}' is not connected "
+                    f"to the workflow"
+                )
+
+    if not any(isinstance(n, dict) and n.get("isStart") for n in nodes):
+        problems.append("workflow has no start node")
+
+    return problems
+
+
+def _check_workflows_create(params, result_data, read_data):
+    """Read-back for workflows.create/update (POST /save/workflow). Presence in
+    workflows.list decides CONFIRMED/DISPROVED; validation state NEVER flips a
+    landed save to DISPROVED — an invalid-but-saved workflow is a DRAFT that
+    gates messaging only (F2 semantics, repo-root workflow_compiler.py:899-914).
+    Returns a 3-tuple whose extra dict carries workflow_validation."""
+    wfs = _as_list(read_data, "workflows")
+    if wfs is None:
+        return INCONCLUSIVE, "workflows.list returned no readable workflow list", None
+
+    new_id = _numeric_id(result_data.get("workflow_id") or result_data.get("database_version"))
+    fn = str(params.get("filename") or "")
+    stem = fn[:-5] if fn.lower().endswith(".json") else fn
+    want = _norm(stem)
+
+    matched = None
+    for w in wfs:
+        if not isinstance(w, dict):
+            continue
+        if new_id and str(w.get("id")) == new_id:
+            matched = w
+            break
+        if want and _norm(w.get("workflow_name")) == want:
+            matched = w
+            break
+    if matched is None:
+        return DISPROVED, (
+            f"saved workflow (id={new_id!r}, name={stem!r}) not found in workflows.list"
+        ), None
+
+    # Validation verdict: prefer the save route's authoritative deterministic
+    # validation (present once /save/workflow returns is_valid/saved_as_draft);
+    # fall back to the local structural check for older main-app builds.
+    if "is_valid" in result_data or "saved_as_draft" in result_data:
+        is_valid = bool(result_data.get("is_valid", not result_data.get("saved_as_draft")))
+        problems = [str(e) for e in (result_data.get("validation_errors") or [])]
+    else:
+        problems = _workflow_problems(params.get("workflow"))
+        is_valid = not problems
+
+    extra = {"workflow_validation": {"is_valid": is_valid, "problems": problems}}
+    label = matched.get("workflow_name") or stem or new_id
+    if is_valid:
+        return CONFIRMED, f"workflow {label!r} present in workflows.list (valid structure)", extra
+    return CONFIRMED, (
+        f"workflow {label!r} present but saved as DRAFT — needs fixes: "
+        + "; ".join(problems[:5])
+    ), extra
+
+
+def _check_connections_create(params, result_data, read_data):
+    """Read-back for connections.create. The real create body is
+    {status:'success', response:'<id>'} (no 'connection' object), and the list
+    body is a double-encoded dataframe array — both handled here/_as_list."""
+    conns = _as_list(read_data, "connections")
+    if conns is None:
+        return INCONCLUSIVE, "connections.list returned no readable connection list"
+    new_id = _numeric_id(result_data.get("connection_id") or result_data.get("response"))
+    want = _norm(params.get("name"))
+    for c in conns:
+        if not isinstance(c, dict):
+            continue
+        if new_id and str(c.get("id")) == new_id:
+            return CONFIRMED, f"connection id {new_id} present in connections.list"
+        if want and _norm(c.get("connection_name")) == want:
+            return CONFIRMED, f"connection named {params.get('name')!r} present in connections.list"
+    return DISPROVED, (
+        f"created connection (id={new_id!r}, name={params.get('name')!r}) "
+        f"not found in connections.list"
+    )
+
+
 def _check_absent(list_key: str, id_param: str, id_field: str, label: str):
     """Build a delete-verifier: DISPROVED if the entity is still present, else CONFIRMED."""
     def _check(params, result_data, read_data) -> CheckResult:
@@ -248,5 +403,30 @@ VERIFICATION_SPECS: Dict[str, Dict[str, Any]] = {
     "mcp.delete_server": {
         "read_capability": "mcp.list_servers",
         "check": _check_absent("servers", "server_id", "server_id", "MCP server"),
+    },
+    # AIHUB-0016 F1 / AIHUB-0015 F2: workflow and connection writes previously
+    # had NO spec — every save degraded to verified=None and CC could only emit
+    # the generic "could not be independently verified" for valid AND invalid
+    # workflows alike.
+    "workflows.create": {
+        "read_capability": "workflows.list",
+        "check": _check_workflows_create,
+    },
+    "workflows.update": {
+        "read_capability": "workflows.list",
+        "check": _check_workflows_create,
+    },
+    "workflows.delete": {
+        # NB list rows key their id as "id", not "workflow_id".
+        "read_capability": "workflows.list",
+        "check": _check_absent("workflows", "workflow_id", "id", "workflow"),
+    },
+    "connections.create": {
+        "read_capability": "connections.list",
+        "check": _check_connections_create,
+    },
+    "connections.delete": {
+        "read_capability": "connections.list",
+        "check": _check_absent("connections", "connection_id", "id", "connection"),
     },
 }

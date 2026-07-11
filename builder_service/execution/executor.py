@@ -348,7 +348,17 @@ class ActionExecutor:
                 )
                 logger.info(f"  [verify] {capability_id}: UNVERIFIED — {result.verification_detail}")
                 return result
-            status, detail = spec["check"](parameters, result.data or {}, read_result.data)
+            check_out = spec["check"](parameters, result.data or {}, read_result.data)
+            status, detail = check_out[0], check_out[1]
+            # Checks may return a third element: a dict merged into result.data
+            # (e.g. workflow_validation carrying draft/ready state to CC).
+            extra = (
+                check_out[2]
+                if len(check_out) > 2 and isinstance(check_out[2], dict)
+                else None
+            )
+            if extra:
+                result.data = {**(result.data or {}), **extra}
         except Exception as e:
             result.verification_detail = f"verification errored: {e}"
             logger.warning(f"  [verify] {capability_id}: UNVERIFIED (errored) — {e}")

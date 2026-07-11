@@ -2136,18 +2136,42 @@ async def execute(state: dict) -> dict:
                             if save_result.is_success:
                                 # Extract the workflow ID from the save response
                                 saved_id = None
-                                if save_result.data:
-                                    if isinstance(save_result.data, dict):
-                                        saved_id = save_result.data.get("workflow_id") or save_result.data.get("database_version")
-                                    elif isinstance(save_result.data, str):
-                                        import json as _json
-                                        try:
-                                            _parsed = _json.loads(save_result.data)
-                                            saved_id = _parsed.get("workflow_id") or _parsed.get("database_version")
-                                        except (ValueError, _json.JSONDecodeError):
-                                            pass
+                                _save_data = save_result.data
+                                if isinstance(_save_data, str):
+                                    import json as _json
+                                    try:
+                                        _save_data = _json.loads(_save_data)
+                                    except (ValueError, _json.JSONDecodeError):
+                                        _save_data = None
+                                if isinstance(_save_data, dict):
+                                    saved_id = _save_data.get("workflow_id") or _save_data.get("database_version")
 
-                                logger.info(f"  [execute]   ✓ Workflow saved successfully (id={saved_id})")
+                                # AIHUB-0016 F1: carry the save route's draft/ready
+                                # verdict (and the read-back verifier's
+                                # workflow_validation) into the delegation result so
+                                # CC renders "saved as draft — needs fixes" instead of
+                                # a generic unverified success.
+                                _wf_validation = None
+                                if isinstance(_save_data, dict):
+                                    if "is_valid" in _save_data or "saved_as_draft" in _save_data:
+                                        _wf_validation = {
+                                            "is_valid": bool(_save_data.get("is_valid", not _save_data.get("saved_as_draft"))),
+                                            "problems": [str(e) for e in (_save_data.get("validation_errors") or [])],
+                                        }
+                                    elif isinstance(_save_data.get("workflow_validation"), dict):
+                                        _wf_validation = _save_data["workflow_validation"]
+
+                                if _wf_validation and not _wf_validation.get("is_valid", True):
+                                    logger.warning(
+                                        f"  [execute]   ⚠ Workflow '{wf_name}' saved as DRAFT (id={saved_id}) — "
+                                        f"needs fixes: {_wf_validation.get('problems')}"
+                                    )
+                                    # "saved_as_draft" is the key CC's
+                                    # _plan_has_unready_artifact already reads.
+                                    delegation_result["saved_as_draft"] = True
+                                    delegation_result["workflow_validation_errors"] = _wf_validation.get("problems") or []
+                                else:
+                                    logger.info(f"  [execute]   ✓ Workflow saved successfully (id={saved_id})")
                                 # Store in result so subsequent steps can reference it
                                 delegation_result["saved_workflow_name"] = wf_name
                                 delegation_result["saved_workflow_id"] = saved_id
