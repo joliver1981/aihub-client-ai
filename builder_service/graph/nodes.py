@@ -1948,6 +1948,13 @@ async def execute(state: dict) -> dict:
     # Maps server_name → {"id": server_id, "url": server_url}
     newly_created_mcp_servers = {}
 
+    # Track schedules created during execution (AIHUB-0018 F1) so follow-up
+    # schedules.get/update/delete steps use the WORKFLOW id as job_id — the
+    # scheduler's by-type routes resolve job_id as TargetId, and passing the
+    # ScheduledJobId 404s a schedule that is live and firing.
+    # Maps str(schedule_id) → {"schedule_id", "scheduled_job_id", "job_id"}
+    newly_created_schedules = {}
+
     # Permission context for hard checks during execution
     from permissions import get_user_role, can_access_capability, get_role_name, DOMAIN_ROLE_REQUIREMENTS
     user_context = state.get("user_context")
@@ -2836,6 +2843,12 @@ async def execute(state: dict) -> dict:
                         logger.info(f"  [execute]   📋 Injected missing workflow_id → ID {_only_id} "
                                    f"(from newly created workflow '{_only_name}')")
                         parameters["workflow_id"] = _only_id
+                        # schedules.* routes take the workflow id as their
+                        # job_id path param; workflow_id is not one of their
+                        # input fields so the executor would drop it and
+                        # substitute an empty path segment (AIHUB-0018 F1).
+                        if capability_id.startswith("schedules.") and not parameters.get("job_id"):
+                            parameters["job_id"] = _only_id
 
                 # ── mcp.test_server URL binding (AIHUB-0017 F1) ──────────────
                 # The planner rarely repeats the URL on the test step, so it
@@ -2873,6 +2886,29 @@ async def execute(state: dict) -> dict:
                             },
                         })
                         continue
+
+                # ── Schedule id correction (AIHUB-0018 F1) ───────────────────
+                # For schedules created earlier in this run, force job_id to the
+                # WORKFLOW id the create used — the by-type scheduler routes
+                # resolve job_id as TargetId, and a ScheduledJobId 404s.
+                if (
+                    capability_id in ("schedules.get", "schedules.update", "schedules.delete")
+                    and newly_created_schedules
+                ):
+                    _sid = str(parameters.get("schedule_id") or "")
+                    _sched_rec = newly_created_schedules.get(_sid)
+                    if _sched_rec is None and len(newly_created_schedules) == 1:
+                        _sched_rec = list(newly_created_schedules.values())[0]
+                        if not parameters.get("schedule_id") and _sched_rec.get("schedule_id"):
+                            parameters["schedule_id"] = _sched_rec["schedule_id"]
+                    if _sched_rec and _sched_rec.get("job_id"):
+                        _jid = parameters.get("job_id")
+                        if _jid is None or str(_jid) == str(_sched_rec.get("scheduled_job_id")):
+                            parameters["job_id"] = _sched_rec["job_id"]
+                            logger.info(
+                                f"  [execute]   📋 Corrected schedule job_id → workflow id "
+                                f"{_sched_rec['job_id']} (was {_jid!r})"
+                            )
 
                 # Resolve reference parameters (e.g., workflow/agent/connection name → numeric ID)
                 # This MUST run BEFORE validation so names are resolved to IDs first.
@@ -3368,6 +3404,25 @@ async def execute(state: dict) -> dict:
                         except (ValueError, KeyError, AttributeError) as e:
                             logger.warning(f"  [execute]   Could not track new integration: {e}")
 
+                    # ── Track newly created schedules (AIHUB-0018 F1) ──
+                    if capability_id == "schedules.create":
+                        try:
+                            _srd = result.data if isinstance(result.data, dict) else {}
+                            _new_sched_id = _srd.get("schedule_id") or _srd.get("id")
+                            if _new_sched_id is not None:
+                                newly_created_schedules[str(_new_sched_id)] = {
+                                    "schedule_id": _new_sched_id,
+                                    "scheduled_job_id": _srd.get("scheduled_job_id"),
+                                    "job_id": parameters.get("job_id"),
+                                }
+                                logger.info(
+                                    f"  [execute]   📅 Tracked new schedule {_new_sched_id} "
+                                    f"(job_id/workflow={parameters.get('job_id')}, "
+                                    f"scheduled_job_id={_srd.get('scheduled_job_id')})"
+                                )
+                        except (ValueError, KeyError, AttributeError, TypeError) as e:
+                            logger.warning(f"  [execute]   Could not track new schedule: {e}")
+
                     # ── Track newly created MCP servers (AIHUB-0017 F1) ──
                     # The URL lives only in the create step's parameters (the
                     # 'server.id' response mapping misses, so result.data is the
@@ -3464,7 +3519,13 @@ async def execute(state: dict) -> dict:
             result_msg = " — waiting (will run after agent conversation completes)"
         elif step.get("result"):
             if step["result"].get("error"):
-                result_msg = f" — {step['result']['error']}"
+                # Report-boundary sanitizer (AIHUB-0018/0022 F1): cap length and
+                # collapse any markup so no future error producer can leak a raw
+                # HTML page into the user-facing summary.
+                _err_text = str(step["result"]["error"])
+                if "<html" in _err_text.lower() or _err_text.lstrip().lower().startswith("<!doctype"):
+                    _err_text = "the platform returned an HTML error page (details suppressed)"
+                result_msg = f" — {_err_text[:300]}"
             elif step["result"].get("workflow_commands"):
                 # WorkflowAgent returned build commands
                 cmd_count = len(step["result"]["workflow_commands"].get("commands", []))

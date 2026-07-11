@@ -158,6 +158,26 @@ class ExecutionResult:
         }
 
 
+def _collapse_non_json_body(response, method: str, path: str) -> dict:
+    """Collapse a non-JSON HTTP body to a short, chat-safe error dict
+    (AIHUB-0018 F1 / AIHUB-0022 F1). Flask renders HTML 404/error pages for
+    unmatched routes; wrapping them verbatim as {'raw': <page>} let the full
+    markup ride result.error/.data into the user-facing summary. Small
+    non-HTML text bodies are preserved as {'raw': ...} unchanged."""
+    text = response.text or ""
+    head = text.lstrip()[:200].lower()
+    looks_html = head.startswith("<!doctype") or "<html" in head
+    if looks_html or len(text) > 500:
+        content_type = response.headers.get("content-type", "?")
+        return {
+            "error": (
+                f"HTTP {response.status_code} from {method} {path} "
+                f"(non-JSON {content_type} body, {len(text)} chars omitted)"
+            )
+        }
+    return {"raw": text}
+
+
 class ActionExecutor:
     """
     Executes plan steps against the AI Hub microservices.
@@ -579,7 +599,7 @@ class ActionExecutor:
             try:
                 response_data = response.json()
             except:
-                response_data = {"raw": response.text}
+                response_data = _collapse_non_json_body(response, method, path)
 
             # Check success
             is_success = response.status_code in route.success_status_codes

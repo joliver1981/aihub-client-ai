@@ -366,11 +366,43 @@ def _check_tools_delete(params, result_data, read_data) -> CheckResult:
     return CONFIRMED, f"tool {params.get('package_name')!r} absent after delete"
 
 
+def _check_schedules_create(params, result_data, read_data) -> CheckResult:
+    """AIHUB-0018 F1: schedule verification previously depended on an
+    LLM-planned schedules.get that passed the WRONG id (ScheduledJobId where
+    the route wants the workflow TargetId), 404ing schedules that were live
+    and firing. This deterministic read-back uses the ids the create was
+    actually called with."""
+    if not isinstance(read_data, dict):
+        return INCONCLUSIVE, "schedules.get returned no readable schedule"
+    sched = read_data.get("schedule") if isinstance(read_data.get("schedule"), dict) else read_data
+    want_id = str((result_data or {}).get("schedule_id") or (result_data or {}).get("id") or "")
+    got_id = str(sched.get("id") or sched.get("schedule_id") or "")
+    if want_id and got_id and want_id != got_id:
+        return DISPROVED, f"read-back returned schedule {got_id}, expected {want_id}"
+    if "is_active" in sched and not sched.get("is_active"):
+        return DISPROVED, f"schedule {want_id or got_id} exists but is NOT active"
+    if got_id or "is_active" in sched:
+        detail = f"schedule {got_id or want_id} present and active"
+        if sched.get("next_run_time"):
+            detail += f", next run {sched['next_run_time']}"
+        return CONFIRMED, detail
+    return INCONCLUSIVE, "schedules.get response shape not recognized"
+
+
 # ─── spec table ─────────────────────────────────────────────────────────────
 # capability_id -> {read_capability, read_params(params, result_data)->dict, check}
 
 def _agent_id_params(params, result_data):
     return {"agent_id": params.get("agent_id")}
+
+
+def _schedule_read_params(params, result_data):
+    # job_id = the WORKFLOW id the create was called with (the by-type
+    # scheduler routes resolve job_id as TargetId — never ScheduledJobId).
+    return {
+        "job_id": params.get("job_id"),
+        "schedule_id": (result_data or {}).get("schedule_id") or (result_data or {}).get("id"),
+    }
 
 
 VERIFICATION_SPECS: Dict[str, Dict[str, Any]] = {
@@ -428,5 +460,13 @@ VERIFICATION_SPECS: Dict[str, Dict[str, Any]] = {
     "connections.delete": {
         "read_capability": "connections.list",
         "check": _check_absent("connections", "connection_id", "id", "connection"),
+    },
+    # AIHUB-0018 F1: deterministic schedule read-back with the CORRECT ids —
+    # replaces the LLM-planned verify step that passed the ScheduledJobId and
+    # falsely reported live schedules as unverified.
+    "schedules.create": {
+        "read_capability": "schedules.get",
+        "read_params": _schedule_read_params,
+        "check": _check_schedules_create,
     },
 }

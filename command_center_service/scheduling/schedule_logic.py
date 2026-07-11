@@ -37,6 +37,20 @@ def _param(value: Any, ptype: str = "string") -> Dict[str, Any]:
     return {"value": "" if value is None else str(value), "type": ptype}
 
 
+def _err_snippet(r) -> str:
+    """Chat-safe error line from a scheduler API response (AIHUB-0018 F1:
+    r.text[:200] leaked raw HTML 404 pages into user-facing messages). Prefer
+    the JSON error/message field; never surface page markup."""
+    try:
+        body = r.json() or {}
+        msg = body.get("error") or body.get("message")
+        if msg:
+            return f"scheduler returned {r.status_code}: {msg}"
+    except Exception:
+        pass
+    return f"HTTP {r.status_code} from the scheduler API"
+
+
 def _confirm_created(job_id: Any) -> Dict[str, Any]:
     """Verify a just-created job actually persisted with an ACTIVE schedule, and grab its next
     fire time if the engine has computed it yet. The engine polls the DB every ~60s, so next_run
@@ -128,7 +142,7 @@ def create_cc_schedule(user_context: Optional[Dict[str, Any]],
     except Exception as e:
         return {"status": "error", "error": f"could not reach scheduler: {e}"}
     if r.status_code not in (200, 201):
-        return {"status": "error", "error": f"scheduler returned {r.status_code}: {r.text[:200]}"}
+        return {"status": "error", "error": _err_snippet(r)}
     try:
         job_id = (r.json() or {}).get("id")
     except Exception:
@@ -206,7 +220,7 @@ def create_portal_workflow_schedule(user_context: Optional[Dict[str, Any]],
     except Exception as e:
         return {"status": "error", "error": f"could not reach scheduler: {e}"}
     if r.status_code not in (200, 201):
-        return {"status": "error", "error": f"scheduler returned {r.status_code}: {r.text[:200]}"}
+        return {"status": "error", "error": _err_snippet(r)}
     try:
         job_id = (r.json() or {}).get("id")
     except Exception:
@@ -290,5 +304,5 @@ def run_cc_schedule_now(user_context: Optional[Dict[str, Any]], name_or_id: str)
     except Exception as e:
         return {"status": "error", "error": f"could not reach scheduler: {e}"}
     if r.status_code not in (200, 202):
-        return {"status": "error", "error": f"scheduler returned {r.status_code}: {r.text[:200]}"}
+        return {"status": "error", "error": _err_snippet(r)}
     return {"status": "ok", "task_name": task.get("task_name"), "job_id": job_id}

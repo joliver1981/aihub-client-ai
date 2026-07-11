@@ -2580,8 +2580,11 @@ def _schedule_actions() -> list:
                 "Creates a ScheduledJob + ScheduleDefinition record pair. "
                 "The cron_expression uses standard 5-field format: Minute Hour Day Month DayOfWeek. "
                 "Times are interpreted as UTC unless timezone_offset is provided. "
-                "IMPORTANT: The response includes 'scheduled_job_id' (the ScheduledJob ID) which is "
-                "required for update/delete/run_now operations — this is different from the workflow_id."
+                "ID SEMANTICS (AIHUB-0018 F1): for schedules.get/update/delete, pass the "
+                "WORKFLOW id as job_id (the SAME job_id used to create) plus the returned "
+                "'schedule_id'. NEVER pass 'scheduled_job_id' as job_id — those routes "
+                "resolve job_id as the workflow TargetId and will 404. "
+                "'scheduled_job_id' is used ONLY by schedules.run_now."
             ),
             primary_route=RouteMapping(
                 method="POST",

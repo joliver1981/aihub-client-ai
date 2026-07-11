@@ -1231,11 +1231,13 @@ def validate_and_correct_parameters(
                                f"known agents: {list(context._agent_name_map.keys())[:5]}")
 
     # ── Auto-resolve job_id (workflow_id) for schedule operations ──
-    # The schedules.update and schedules.delete routes expect job_id to be
-    # the WORKFLOW ID (TargetId), not the ScheduledJobId. The LLM often
-    # omits job_id or confuses the IDs. If schedule_id is present, look up
-    # the correct workflow_id from the system context.
-    if capability_id in ("schedules.update", "schedules.delete"):
+    # The schedules.get/update/delete routes expect job_id to be the
+    # WORKFLOW ID (TargetId), not the ScheduledJobId. The LLM often omits
+    # job_id or confuses the IDs (AIHUB-0018 F1: the verify step passed the
+    # ScheduledJobId and 404'd a schedule that was live and firing). If
+    # schedule_id is present, look up the correct workflow_id from the
+    # system context.
+    if capability_id in ("schedules.update", "schedules.delete", "schedules.get"):
         schedule_id = corrected.get("schedule_id")
         job_id = corrected.get("job_id")
         if schedule_id and hasattr(context, "schedules") and context.schedules:

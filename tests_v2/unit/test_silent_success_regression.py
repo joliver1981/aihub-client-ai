@@ -1922,6 +1922,92 @@ def test_executor_fails_missing_path_param_pre_http():
     assert "path parameter" in (out.error or "")
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# AIHUB-0018 F1 — schedule verify uses the WORKFLOW id + no raw HTML in chat
+# ═══════════════════════════════════════════════════════════════════════════
+# The schedule was live and firing, but CC verified it with the ScheduledJobId
+# (the by-type routes want the workflow TargetId) -> 404 -> false "verification
+# failed" + a raw HTML 404 page dumped into the chat.
+
+def test_schedules_create_has_deterministic_verification_spec():
+    spec = V.VERIFICATION_SPECS.get("schedules.create")
+    assert spec, "schedules.create lost its verification spec"
+    rp = spec["read_params"]({"job_id": 1227}, {"schedule_id": 287, "scheduled_job_id": 187})
+    # job_id must be the WORKFLOW id from the create params — never the
+    # ScheduledJobId from the response.
+    assert rp == {"job_id": 1227, "schedule_id": 287}
+
+
+def test_check_schedules_create_verdicts():
+    check = V._check_schedules_create
+    ok = {"id": 287, "is_active": True, "next_run_time": "2026-07-14T09:00:00"}
+    status, detail = check({"job_id": 1227}, {"schedule_id": 287}, ok)
+    assert status == V.CONFIRMED and "287" in detail
+    status, detail = check({"job_id": 1227}, {"schedule_id": 287},
+                           {"id": 287, "is_active": False})
+    assert status == V.DISPROVED and "NOT active" in detail
+    status, detail = check({"job_id": 1227}, {"schedule_id": 287}, {"id": 999, "is_active": True})
+    assert status == V.DISPROVED
+    status, detail = check({"job_id": 1227}, {"schedule_id": 287}, None)
+    assert status == V.INCONCLUSIVE
+
+
+def test_collapse_non_json_body_suppresses_html():
+    EX = _executor_mod()
+
+    class _Resp:
+        def __init__(self, text, status_code=404, content_type="text/html"):
+            self.text = text
+            self.status_code = status_code
+            self.headers = {"content-type": content_type}
+
+    html = "<!DOCTYPE html><html><body>404 Page Not Found - AI Hub v1.7.4</body></html>"
+    out = EX._collapse_non_json_body(_Resp(html), "GET", "/api/scheduler/jobs//types")
+    assert "error" in out and "<" not in out["error"]
+    assert "404" in out["error"]
+    # Long non-HTML bodies are also collapsed…
+    out = EX._collapse_non_json_body(_Resp("x" * 900, 500, "text/plain"), "POST", "/x")
+    assert "error" in out and "900 chars omitted" in out["error"]
+    # …but small legit text bodies stay available as raw.
+    out = EX._collapse_non_json_body(_Resp("ok", 200, "text/plain"), "GET", "/x")
+    assert out == {"raw": "ok"}
+
+
+def test_schedule_error_snippets_never_carry_html():
+    SL = os.path.join(_REPO, "command_center_service", "scheduling", "schedule_logic.py")
+    snippet = _load_functions(SL, ["_err_snippet"])["_err_snippet"]
+
+    class _Resp:
+        def __init__(self, status_code, json_body=None, text=""):
+            self.status_code = status_code
+            self._json = json_body
+            self.text = text
+        def json(self):
+            if self._json is None:
+                raise ValueError("not json")
+            return self._json
+
+    out = snippet(_Resp(404, text="<!DOCTYPE html><html>404 Page Not Found</html>"))
+    assert "<" not in out and "404" in out
+    out = snippet(_Resp(400, json_body={"error": "cron_expression is invalid"}))
+    assert "cron_expression is invalid" in out
+    # All three call sites use it.
+    s = _src(SL)
+    assert s.count("_err_snippet(r)") >= 3
+    assert "{r.text[:200]}" not in s   # the old interpolation must never return
+
+
+def test_schedule_id_correction_wired():
+    s = _src(_BUILDER_NODES)
+    assert "newly_created_schedules" in s
+    assert 'capability_id.startswith("schedules.") and not parameters.get("job_id")' in s
+    # Report boundary collapses HTML error text.
+    assert "the platform returned an HTML error page" in s
+    # context_gatherer corrector now covers the verify step too.
+    CG = os.path.join(_REPO, "builder_service", "context_gatherer.py")
+    assert '"schedules.get"' in _src(CG)
+
+
 def test_deterministic_summary_never_announces_draft_as_done():
     _fns = _load_functions(
         CC_NODES_PY,
