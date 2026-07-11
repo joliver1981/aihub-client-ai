@@ -379,10 +379,14 @@ def _check_schedules_create(params, result_data, read_data) -> CheckResult:
     got_id = str(sched.get("id") or sched.get("schedule_id") or "")
     if want_id and got_id and want_id != got_id:
         return DISPROVED, f"read-back returned schedule {got_id}, expected {want_id}"
-    if "is_active" in sched and not sched.get("is_active"):
+    # Only an ACTIVE-requested schedule that reads back inactive is a
+    # disproof — a deliberately-paused create (is_active=False) is a success.
+    wanted_active = bool(params.get("is_active", True))
+    if "is_active" in sched and not sched.get("is_active") and wanted_active:
         return DISPROVED, f"schedule {want_id or got_id} exists but is NOT active"
     if got_id or "is_active" in sched:
-        detail = f"schedule {got_id or want_id} present and active"
+        state_word = "active" if sched.get("is_active") else "inactive (as requested)"
+        detail = f"schedule {got_id or want_id} present and {state_word}"
         if sched.get("next_run_time"):
             detail += f", next run {sched['next_run_time']}"
         return CONFIRMED, detail

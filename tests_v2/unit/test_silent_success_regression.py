@@ -1594,6 +1594,14 @@ def test_build_guard_matches_explicit_build_requests(text):
     "update me on the agents' progress",                  # 'update me' carve-out
     "top 5 products by sales from the sales data agent",  # query, no mutation verb
     "",                                                    # empty
+    # Review follow-up: verb/noun CO-OCCURRENCE must not hijack legit
+    # data-agent traffic — the noun must be the verb's object.
+    "Ask the AIRDB agent to delete the duplicate test rows",
+    "use my sales agent to remove the duplicate records",
+    "Update the agents table with the new commission rates",
+    "create a report of all agent activity",
+    "Create a summary of Q4 sales using the retail data agent",
+    "Set up the Q1 vs Q2 comparison using the finance data agent",
 ])
 def test_build_guard_ignores_non_build_requests(text):
     assert _is_build(text) is False
@@ -1601,12 +1609,18 @@ def test_build_guard_ignores_non_build_requests(text):
 
 def test_build_guard_wired_into_classify_intent_and_route_memory():
     s = _src(CC_NODES_PY)
-    # Pre-router guard fires in classify_intent…
-    assert "if _is_explicit_build_request(user_text):" in s, \
+    # The guard fires BEFORE every routing layer — including the
+    # active-delegation router whose nondeterministic CONTINUE would hand a
+    # mid-session build request to a chat agent to role-play (review
+    # follow-up on AIHUB-0015 F1).
+    assert "if _is_explicit_build_request(user_text) and" in s, \
         "classify_intent no longer consults the deterministic build guard (misroute hole re-opened)"
-    assert 'return _intent_result({"intent": "build", "pending_agent_selection": False})' in s
+    assert '!= "builder"' in s          # builder delegations keep their session
+    assert '_guard_out["active_delegation"] = None' in s
     # …and route memory cannot swallow a build request.
     assert "USE_ROUTE_MEMORY and not _is_explicit_build_request(user_text)" in s
+    # The guard must precede the active-delegation routing block.
+    assert s.index("_guard_out") < s.index("Active delegation routing")
 
 
 def test_decompose_neuters_mutation_delegations():
@@ -1863,6 +1877,32 @@ def test_no_failures_no_gating():
     assert _dep(step, []) is False
 
 
+def test_chain_gate_rescues_steps_on_healthy_connections():
+    # Multi-connection plans (review follow-up): a step explicitly bound to a
+    # HEALTHY connection created this run proceeds even though another
+    # connection's test failed…
+    failed = [{"domain": "connections", "action": "test",
+               "parameters_used": {"connection_id": 196, "connection_name": "conn-b"}}]
+    step_on_a = {"domain": "agents", "action": "create_data_agent",
+                 "parameters": {"connection_name": "conn-a"}}
+    assert _depends(step_on_a, failed, {"conn-a": 55}, {}, {}, {}) is False
+    # …but a step bound to the BROKEN connection is still gated…
+    step_on_b = {"domain": "agents", "action": "create_data_agent",
+                 "parameters": {"connection_name": "conn-b"}}
+    assert _depends(step_on_b, failed, {"conn-a": 55, "conn-b": 196}, {}, {}, {}) is True
+    # …and a step with no explicit binding stays gated (0022 shape).
+    step_no_ref = {"domain": "schedules", "action": "create", "parameters": {}}
+    assert _depends(step_no_ref, failed, {"conn-b": 196}, {}, {}, {}) is True
+
+
+def test_null_connection_keys_are_not_dependencies():
+    # Planner-emitted null keys must not count as connection references
+    # (review follow-up: key-presence gated pure general-agent creates).
+    step = {"domain": "agents", "action": "create",
+            "parameters": {"connection_id": None, "agent_description": "helper"}}
+    assert _dep(step, _FAILED_CONN_TEST) is False
+
+
 def test_skip_cascade_and_autotest_wired():
     s = _src(_BUILDER_NODES)
     # Skipped steps keep gating later dependents…
@@ -1946,6 +1986,11 @@ def test_check_schedules_create_verdicts():
     status, detail = check({"job_id": 1227}, {"schedule_id": 287},
                            {"id": 287, "is_active": False})
     assert status == V.DISPROVED and "NOT active" in detail
+    # A deliberately-paused create (is_active=False requested) is a SUCCESS,
+    # not a disproof (review follow-up).
+    status, detail = check({"job_id": 1227, "is_active": False}, {"schedule_id": 287},
+                           {"id": 287, "is_active": False})
+    assert status == V.CONFIRMED and "as requested" in detail
     status, detail = check({"job_id": 1227}, {"schedule_id": 287}, {"id": 999, "is_active": True})
     assert status == V.DISPROVED
     status, detail = check({"job_id": 1227}, {"schedule_id": 287}, None)
@@ -1965,12 +2010,17 @@ def test_collapse_non_json_body_suppresses_html():
     out = EX._collapse_non_json_body(_Resp(html), "GET", "/api/scheduler/jobs//types")
     assert "error" in out and "<" not in out["error"]
     assert "404" in out["error"]
-    # Long non-HTML bodies are also collapsed…
-    out = EX._collapse_non_json_body(_Resp("x" * 900, 500, "text/plain"), "POST", "/x")
-    assert "error" in out and "900 chars omitted" in out["error"]
-    # …but small legit text bodies stay available as raw.
+    # Long non-HTML FAILURE bodies keep a diagnostic prefix…
+    out = EX._collapse_non_json_body(_Resp("boom " * 200, 500, "text/plain"), "POST", "/x")
+    assert "error" in out and "boom" in out["error"] and "chars total" in out["error"]
+    # …small legit text bodies stay raw…
     out = EX._collapse_non_json_body(_Resp("ok", 200, "text/plain"), "GET", "/x")
     assert out == {"raw": "ok"}
+    # …and SUCCESS bodies NEVER gain an 'error' key — the /save custom-tool
+    # route returns an HTML success page (review follow-up: an error key
+    # there poisoned every successful tool save).
+    out = EX._collapse_non_json_body(_Resp("<html>saved custom_tool_success</html>" * 40, 200), "POST", "/save")
+    assert "error" not in out and len(out["raw"]) <= 500
 
 
 def test_schedule_error_snippets_never_carry_html():
@@ -2127,7 +2177,7 @@ def _drive_tool_save(payload):
     class _Cfg:
         CUSTOM_TOOLS_FOLDER = "tools"
 
-    fn = _load_functions(APP_PY, ["save"], {
+    fns = _load_functions(APP_PY, ["save", "validate_custom_tool_definition"], {
         "request": _Req,
         "jsonify": lambda **kw: kw,
         "logger": logging.getLogger("tool-save-test"),
@@ -2135,8 +2185,8 @@ def _drive_tool_save(payload):
         "cfg": _Cfg,
         "os": os,
         "render_template": lambda *a, **k: {"status": "success", **k},
-    })["save"]
-    return fn(), calls
+    })
+    return fns["save"](), calls
 
 
 _TOOL_PAYLOAD = {
@@ -2158,6 +2208,20 @@ def test_tool_save_rejects_invalid_names_and_params():
     assert out["status"] == "error" and "saved" not in calls
     out, calls = _drive_tool_save({**_TOOL_PAYLOAD, "params": ["not a name"]})
     assert out["status"] == "error" and "saved" not in calls
+    # Review follow-up: Python keywords pass isidentifier() but break the def.
+    out, calls = _drive_tool_save({**_TOOL_PAYLOAD, "name": "class"})
+    assert out["status"] == "error" and "saved" not in calls
+    # Empty code is rejected with a clear message, not an IndentationError.
+    out, calls = _drive_tool_save({**_TOOL_PAYLOAD, "code": "   "})
+    assert out["status"] == "error" and "empty" in out["message"].lower()
+
+
+def test_save_package_route_validates_too():
+    # The custom-tool UI actually posts to /save_package — it must reject
+    # broken definitions just like /save (review follow-up).
+    s = _src(APP_PY)
+    assert s.count("validate_custom_tool_definition(name, ") >= 2, \
+        "/save_package lost its save-time validation gate"
 
 
 def test_tool_save_accepts_valid_python():
@@ -2179,8 +2243,14 @@ def _tool_factory_with_stores(tmp_path):
     plat.mkdir(parents=True)
     (plat / "config.json").write_text(json.dumps({
         "function_name": "test_c2f", "description": "convert",
-        "parameters": ["celsius"], "parameter_types": ["float"],
-        "output_type": "float", "code": "code.py", "modules": ["import math"],
+        "parameters": ["celsius", "unit"], "parameter_types": ["float", "str"],
+        "parameter_optional": [False, True],
+        "parameter_defaults": ["", "F"],
+        "output_type": "float", "code": "code.py",
+        # The platform stores BARE module names — the adapter must turn them
+        # into real import statements (review follow-up: raw join made every
+        # imported-module tool die with NameError).
+        "modules": ["math", "from datetime import datetime"],
     }), encoding="utf-8")
     (plat / "code.py").write_text("return celsius * 9/5 + 32", encoding="utf-8")
     TF._get_platform_tools_dir = lambda: tmp_path / "platform_tools"
@@ -2191,12 +2261,51 @@ def test_tool_factory_falls_through_to_platform_store(tmp_path):
     TF = _tool_factory_with_stores(tmp_path)
     tool = TF.get_generated_tool("test_c2f")
     assert tool is not None, "platform-created tool still invisible to run_generated_tool"
-    assert tool["config"]["parameters"] == {"celsius": "celsius"}
-    assert tool["config"]["parameter_types"] == {"celsius": "float"}
-    assert tool["code"].startswith("import math\n")
+    assert tool["config"]["parameters"] == {"celsius": "celsius", "unit": "unit"}
+    assert tool["config"]["parameter_types"] == {"celsius": "float", "unit": "str"}
+    # Bare module names normalized to import statements; real imports kept.
+    assert tool["code"].startswith("import math\nfrom datetime import datetime\n")
+    # Declared defaults carried through (dummy 'test' would be wrong).
+    assert tool["config"]["parameter_defaults"] == {"unit": "F"}
+    assert tool["config"]["requires_platform_runtime"] is False
     names = [t["name"] for t in TF.list_generated_tools()]
     assert "test_c2f" in names
     assert TF.get_generated_tool("nope") is None
+
+
+def test_tool_factory_flags_platform_runtime_tools(tmp_path):
+    TF = _tool_factory_with_stores(tmp_path)
+    db_tool = tmp_path / "platform_tools" / "test_db_tool"
+    db_tool.mkdir(parents=True)
+    (db_tool / "config.json").write_text(json.dumps({
+        "function_name": "test_db_tool", "parameters": ["q"],
+        "parameter_types": ["str"], "modules": ["pyodbc"],
+    }), encoding="utf-8")
+    (db_tool / "code.py").write_text(
+        "conn_string = '{CONN:ERPDB}'\nreturn q", encoding="utf-8")
+    tool = TF.get_generated_tool("test_db_tool")
+    # {CONN:name} placeholders only resolve on the platform runtime — the
+    # CC path must know so run_generated_tool can refuse honestly.
+    assert tool["config"]["requires_platform_runtime"] is True
+    s = _src(CC_NODES_PY)
+    assert "requires_platform_runtime" in s and "{CONN:" in s
+
+
+def test_sandbox_runs_def_wrapped_legacy_tools():
+    # Legacy tools store a full `def name(...):` in code.py — double-wrapping
+    # them silently "succeeded" with output None (review follow-up).
+    import asyncio
+    TS = _load_module(os.path.join(_REPO, "command_center", "tools", "tool_sandbox.py"),
+                      "ss_tool_sandbox2")
+    out = asyncio.run(TS.test_tool_in_sandbox({
+        "tool_name": "test_def_wrapped",
+        "code": "def convert(celsius):\n    return celsius * 9/5 + 32",
+        "parameters": {"celsius": "celsius"},
+        "parameter_types": {"celsius": "float"},
+        "test_params": {"celsius": 100},
+    }))
+    assert out.get("success") is True
+    assert "212" in str(out.get("output")), f"def-wrapped tool returned {out!r}"
 
 
 def test_tool_factory_cc_store_wins_collisions(tmp_path):
@@ -2288,10 +2397,29 @@ def test_exact_match_agent_resolution_wired():
     # Deterministic exact-name pre-step before the LLM picker…
     assert "Exact agent-name match" in s
     assert "if _exact_pick is not None:" in s
+    # …only DISTINCTIVE names auto-pick, with word-bounded matching (review
+    # follow-up: an agent named 'Sales' must not swallow every sentence).
+    assert 'len(_aname) < 8 and " " not in _aname' in s
+    assert 're.search(r"(?<![\\w-])" + re.escape(_aname)' in s
     # …the picker may answer NONE instead of substituting a similar agent…
     assert "do NOT substitute a similar-sounding agent" in s
     # …and decompose nulls invented agent ids.
     assert "not in landscape — nulling target" in s
+
+
+def test_enrichment_merge_does_not_let_none_win():
+    # Review follow-up: enrichment ran because url was None, then the merge
+    # let the None override the extracted value anyway.
+    s = _src(_BUILDER_NODES)
+    assert "_current_nonempty" in s
+    assert "result = {**extracted, **_current_nonempty}" in s
+
+
+def test_autotest_is_per_connection():
+    # Review follow-up: ConnA's test step must not suppress ConnB's
+    # credential check in multi-connection plans.
+    s = _src(_BUILDER_NODES)
+    assert "_conn_creates" in s and "_this_conn_name" in s and "_autotest_needed" in s
 
 
 def test_builder_service_has_file_logging():

@@ -29,13 +29,23 @@ async def test_tool_in_sandbox(tool_spec: Dict[str, Any]) -> Dict[str, Any]:
 
     # Honor caller-supplied parameter values first (run_generated_tool sets
     # tool_spec['test_params'] — previously ignored, so every run used dummy
-    # values regardless of what the user asked for); fall back to dummy
-    # values by declared type for the design-time sandbox test.
+    # values regardless of what the user asked for), then declared defaults,
+    # then dummy values by declared type for the design-time sandbox test.
     provided = tool_spec.get("test_params") or {}
+    declared_defaults = tool_spec.get("parameter_defaults") or {}
+    unknown_params = [k for k in provided if k not in parameters]
+    if unknown_params:
+        logger.warning(
+            f"test_tool_in_sandbox: ignoring unknown parameter(s) {unknown_params} "
+            f"for tool '{tool_name}' (declared: {list(parameters.keys())})"
+        )
     test_params = {}
     for param_name, param_desc in parameters.items():
         if param_name in provided:
             test_params[param_name] = provided[param_name]
+            continue
+        if param_name in declared_defaults:
+            test_params[param_name] = declared_defaults[param_name]
             continue
         param_type = tool_spec.get("parameter_types", {}).get(param_name, "str")
         if param_type == "int":
@@ -51,7 +61,30 @@ async def test_tool_in_sandbox(tool_spec: Dict[str, Any]) -> Dict[str, Any]:
 
     param_args = ", ".join(f"{k}={repr(v)}" for k, v in test_params.items())
 
-    test_script = f"""
+    # Some stored tools are already a full `def name(...):` (legacy saves).
+    # Wrapping those in another def would define-but-never-call the inner
+    # function and "succeed" with output None — run them at module level and
+    # call the defined function instead.
+    import re as _re
+    _def_match = _re.search(r"^def\s+(\w+)\s*\(", code, _re.M)
+    if _def_match:
+        _call_name = _def_match.group(1)
+        test_script = f"""
+import sys
+import json
+
+# Tool code (already function-wrapped)
+{code}
+
+# Test execution
+try:
+    result = {_call_name}({param_args})
+    print(json.dumps({{"success": True, "output": str(result)}}))
+except Exception as e:
+    print(json.dumps({{"success": False, "error": str(e)}}))
+"""
+    else:
+        test_script = f"""
 import sys
 import json
 

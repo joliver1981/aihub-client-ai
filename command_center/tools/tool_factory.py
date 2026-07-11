@@ -48,17 +48,32 @@ def _adapt_platform_config(config: Dict[str, Any], code: str) -> Dict[str, Any]:
     legal inside a function body)."""
     params = config.get("parameters")
     ptypes = config.get("parameter_types")
+    defaults = config.get("parameter_defaults")
     if isinstance(params, list):
         type_list = ptypes if isinstance(ptypes, list) else []
+        default_list = defaults if isinstance(defaults, list) else []
         param_dict = {str(p): str(p) for p in params}
         type_dict = {
             str(p): (type_list[i] if i < len(type_list) else "str")
             for i, p in enumerate(params)
         }
+        default_dict = {
+            str(p): default_list[i]
+            for i, p in enumerate(params)
+            if i < len(default_list) and default_list[i] not in (None, "")
+        }
     else:
         param_dict = params or {}
         type_dict = ptypes if isinstance(ptypes, dict) else {}
-    modules = config.get("modules") or []
+        default_dict = defaults if isinstance(defaults, dict) else {}
+    # The platform 'modules' field holds bare module names ("pyodbc"), not
+    # import statements — joining them raw made every imported-module tool
+    # die with NameError. Normalize to real imports.
+    modules = [
+        m if str(m).strip().startswith(("import ", "from ")) else f"import {m}"
+        for m in (config.get("modules") or [])
+        if str(m).strip()
+    ]
     full_code = ("\n".join(modules) + "\n" + code) if modules else code
     return {
         "config": {
@@ -66,9 +81,14 @@ def _adapt_platform_config(config: Dict[str, Any], code: str) -> Dict[str, Any]:
             "description": config.get("description", ""),
             "parameters": param_dict,
             "parameter_types": type_dict,
+            "parameter_defaults": default_dict,
             "output_type": config.get("output_type", "str"),
             "generated": False,
             "source": "platform",
+            # Platform DB tools embed {CONN:name} placeholders the platform
+            # runtime substitutes with live connection strings; the CC sandbox
+            # cannot resolve them.
+            "requires_platform_runtime": "{CONN:" in (code or ""),
         },
         "code": full_code,
     }

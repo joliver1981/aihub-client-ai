@@ -879,16 +879,21 @@ async def _detect_export_intent(
 # reach the Builder, so this guard is deterministic and runs before any LLM
 # routing layer gets a vote.
 
-_BUILD_GUARD_VERB_RE = re.compile(
+# The mutation verb must take the platform resource as its OBJECT (verb,
+# then at most 3 non-preposition words, then the noun). Bare co-occurrence
+# ("ask the AIRDB agent to delete the duplicate rows") hijacked legitimate
+# data-agent traffic — the object-proximity requirement plus the noun-context
+# exclusions ("the agents table" is data, not a platform agent) keep the
+# guard on genuine build requests.
+_BUILD_GUARD_REQUEST_RE = re.compile(
     r"\b(?:creat(?:e|es|ing)|build(?:s|ing)?|register(?:s|ing)?|set\s+up|setup|"
     r"configur(?:e|es|ing)|provision(?:s|ing)?|deploy(?:s|ing)?|"
     r"delet(?:e|es|ing)|remov(?:e|es|ing)|renam(?:e|es|ing)|"
-    r"modif(?:y|ies|ying)|updat(?:e|es|ing)(?!\s+me\b)|enabl(?:e|es|ing)|disabl(?:e|es|ing))\b",
-    re.I,
-)
-_BUILD_GUARD_RESOURCE_RE = re.compile(
-    r"\b(?:connections?|data\s+agents?|agents?|workflows?|mcp\s+servers?|"
-    r"email\s+triggers?|inbound\s+email)\b",
+    r"modif(?:y|ies|ying)|updat(?:e|es|ing)(?!\s+me\b)|enabl(?:e|es|ing)|disabl(?:e|es|ing))\s+"
+    r"(?:(?!(?:of|for|with|from|about|in|on|by|to|at|and)\b)[\w'\"-]+\s+){0,3}?"
+    r"(?:connections?|data\s+agents?|"
+    r"agents?(?!\s+(?:table|tables|data|records|rows|list|activity|performance|report|numbers|sales))|"
+    r"workflows?|mcp\s+servers?|email\s+triggers?|inbound\s+email)\b",
     re.I,
 )
 # How-to / informational phrasings are questions about building, not requests
@@ -923,7 +928,7 @@ def _is_explicit_build_request(text: str) -> bool:
         return False
     if _BUILD_GUARD_MEDIA_RE.search(text):
         return False
-    if _BUILD_GUARD_VERB_RE.search(text) and _BUILD_GUARD_RESOURCE_RE.search(text):
+    if _BUILD_GUARD_REQUEST_RE.search(text):
         return True
     # Assigning a tool to an agent is a builder operation even without a
     # classic mutation verb ("assign the converter tool to my sales agent").
@@ -963,6 +968,24 @@ async def classify_intent(state: CommandCenterState) -> dict:
     # historical route for this type of query.  Only try when no active
     # delegation (otherwise the delegation routing logic should decide).
     active = state.get("active_delegation")
+
+    # ── Deterministic build guard (AIHUB-0015 F1 / 0021 F1) ─────────────
+    # Fires before EVERY routing layer — including the active-delegation
+    # mini-LLM router, whose nondeterministic CONTINUE could hand a
+    # MID-SESSION build request to a chat/data agent to role-play (the
+    # fabricated-success bug). Builder delegations are exempt: their
+    # CONTINUE path already returns intent='build' and must keep the
+    # builder session state.
+    if _is_explicit_build_request(user_text) and \
+            str((active or {}).get("agent_type") or "").lower() != "builder":
+        logger.info(
+            "[classify_intent] deterministic build guard matched — forcing intent=build"
+        )
+        _guard_out = {"intent": "build", "pending_agent_selection": False}
+        if active:
+            _guard_out["active_delegation"] = None
+        return _guard_out
+
     if not active or not active.get("agent_id"):
         from cc_config import USE_ROUTE_MEMORY
         # Never let a remembered agent route swallow a build request — a
@@ -1264,18 +1287,6 @@ Reply with ONLY one word: CONTINUE, CC_CAPABLE, or REROUTE."""
         except Exception as _rr_err:
             logger.warning(f"[classify_intent] REROUTE agent resolution failed: {_rr_err}")
         # If resolution failed, fall through to normal LLM classification
-
-    # ── Deterministic build guard ───────────────────────────────────────
-    # AIHUB-0015 F1 / AIHUB-0021 F1: explicit build/mutation requests were
-    # nondeterministically classified multi_step and delegated to generic
-    # chat agents, which role-played the build; CC then reported fabricated
-    # success for resources that were never created. Platform mutations must
-    # ALWAYS route to the Builder, so this fires before any LLM router.
-    if _is_explicit_build_request(user_text):
-        logger.info(
-            "[classify_intent] deterministic build guard matched — forcing intent=build"
-        )
-        return _intent_result({"intent": "build", "pending_agent_selection": False})
 
     # ── Capability router (mini-LLM shortcut) ──────────────────────────
     # Replaces the old keyword heuristic shortcuts with a semantic
@@ -2062,6 +2073,16 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         config = tool_data.get("config", {})
         code = tool_data.get("code", "")
 
+        # Platform DB tools embed {CONN:name} placeholders the platform
+        # runtime substitutes with live connection strings — the chat sandbox
+        # cannot resolve them, so refuse honestly instead of failing weirdly.
+        if config.get("requires_platform_runtime") or "{CONN:" in code:
+            return (
+                f"Tool '{tool_name}' uses a platform database connection and can "
+                f"only run on the platform runtime (agents/workflows) — it cannot "
+                f"be executed from chat yet."
+            )
+
         # Parse user-provided parameters
         try:
             params = json.loads(parameters) if parameters and parameters != "{}" else {}
@@ -2074,6 +2095,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             "code": code,
             "parameters": config.get("parameters", {}),
             "parameter_types": config.get("parameter_types", {}),
+            "parameter_defaults": config.get("parameter_defaults", {}),
         }
 
         # Override test params with user-provided params
@@ -4968,11 +4990,17 @@ Respond with ONLY a JSON object, no prose:
     # REROUTE matcher); token overlap would recreate the fuzzy bug.
     _exact_pick = None
     _ut_norm = " ".join(user_text.lower().split())
-    _name_hits = [
-        a for a in data_agents
-        if " ".join(str(a.get("agent_name") or "").lower().split()) in _ut_norm
-        and str(a.get("agent_name") or "").strip()
-    ]
+    _name_hits = []
+    for _cand in data_agents:
+        _aname = " ".join(str(_cand.get("agent_name") or "").lower().split())
+        # Only distinctive names (multi-word or >=8 chars) may auto-pick —
+        # a one-word agent called "Sales" must not swallow every sentence
+        # containing the word — and the match must be word-bounded, never a
+        # partial-word hit.
+        if not _aname or (len(_aname) < 8 and " " not in _aname):
+            continue
+        if re.search(r"(?<![\w-])" + re.escape(_aname) + r"(?![\w-])", _ut_norm):
+            _name_hits.append(_cand)
     if len(_name_hits) == 1:
         _exact_pick = str(_name_hits[0].get("agent_id"))
         logger.info(
@@ -5249,8 +5277,11 @@ Only return the JSON array, nothing else."""
             # to a chat agent — it would role-play the build and the aggregate
             # would report resources that were never created. Neuter the
             # target so execute_next_task fails the step honestly instead.
+            # Scan agent_input (the clean instruction the agent receives) —
+            # descriptions systematically embed "using ... data agent" text
+            # that would false-positive the resource-noun match.
             if sub_task["target_agent"] and _is_explicit_build_request(
-                f'{sub_task["description"]} {sub_task["agent_input"]}'
+                sub_task["agent_input"] or sub_task["description"]
             ):
                 logger.warning(
                     "[decompose_tasks] blocked platform-mutation delegation to "

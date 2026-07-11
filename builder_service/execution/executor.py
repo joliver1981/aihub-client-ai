@@ -159,20 +159,34 @@ class ExecutionResult:
 
 
 def _collapse_non_json_body(response, method: str, path: str) -> dict:
-    """Collapse a non-JSON HTTP body to a short, chat-safe error dict
+    """Collapse a non-JSON HTTP FAILURE body to a short, chat-safe error dict
     (AIHUB-0018 F1 / AIHUB-0022 F1). Flask renders HTML 404/error pages for
     unmatched routes; wrapping them verbatim as {'raw': <page>} let the full
-    markup ride result.error/.data into the user-facing summary. Small
-    non-HTML text bodies are preserved as {'raw': ...} unchanged."""
+    markup ride result.error/.data into the user-facing summary.
+
+    Status-aware: SUCCESS bodies keep the pre-fix {'raw': ...} shape (several
+    routes return HTML on success, e.g. the /save custom-tool page — an
+    'error' key there would poison a successful step), just length-capped.
+    Failure bodies collapse to a one-liner; non-HTML failure text keeps a
+    short prefix so the failure analyzer retains a diagnostic signal."""
     text = response.text or ""
+    if response.status_code < 400:
+        return {"raw": text if len(text) <= 500 else text[:500]}
     head = text.lstrip()[:200].lower()
     looks_html = head.startswith("<!doctype") or "<html" in head
-    if looks_html or len(text) > 500:
-        content_type = response.headers.get("content-type", "?")
+    content_type = response.headers.get("content-type", "?")
+    if looks_html:
         return {
             "error": (
                 f"HTTP {response.status_code} from {method} {path} "
                 f"(non-JSON {content_type} body, {len(text)} chars omitted)"
+            )
+        }
+    if len(text) > 500:
+        return {
+            "error": (
+                f"HTTP {response.status_code} from {method} {path}: "
+                f"{text[:300]}… ({len(text)} chars total)"
             )
         }
     return {"raw": text}

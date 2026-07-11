@@ -1120,10 +1120,12 @@ def _step_depends_on_failed(step, failed_steps, newly_created_connections, newly
     # Check if this step depends on CONNECTIONS
     # ═══════════════════════════════════════════════════════════════
     needs_connection = (
-        "connection_id" in parameters
+        parameters.get("connection_id") is not None
         or (domain == "connections" and action in ("test", "update", "delete"))
+        # Planner-emitted null keys are NOT real references — value-presence,
+        # not key-presence.
         or (domain == "agents" and action in ("create", "create_data_agent")
-            and any(k in parameters for k in
+            and any(parameters.get(k) not in (None, "") for k in
                     ("connection_type", "connection_id", "connection_name", "database")))
     )
 
@@ -1204,14 +1206,39 @@ def _step_depends_on_failed(step, failed_steps, newly_created_connections, newly
             (domain == "agents" and action == "create_data_agent")
             or (domain == "agents" and action == "create"
                 and (parameters.get("is_data_agent")
-                     or any(k in parameters for k in
+                     or any(parameters.get(k) not in (None, "") for k in
                             ("connection_type", "connection_id", "connection_name", "database"))))
             or (domain == "schedules" and action == "create")
             or (domain == "workflows" and action in ("create", "save", "update"))
             or domain == "agent"   # workflow/data-agent delegation steps
         )
         if chain_dependent:
-            return True
+            # Rescue for multi-connection plans: a step EXPLICITLY bound to a
+            # connection created this run whose chain did NOT fail may
+            # proceed. (A connection whose own test/discovery failed is named
+            # in a failed step's parameters and therefore never healthy.)
+            _failed_conn_refs = set()
+            for s in failed_steps:
+                if s.get("domain") == "connections":
+                    sp = s.get("parameters_used") or s.get("parameters") or {}
+                    for key in ("connection_id", "connection_name", "name"):
+                        if sp.get(key) not in (None, ""):
+                            _failed_conn_refs.add(str(sp.get(key)).strip().lower())
+            _healthy_refs = set()
+            for cname, cid in (newly_created_connections or {}).items():
+                if (str(cname).strip().lower() not in _failed_conn_refs
+                        and str(cid).strip().lower() not in _failed_conn_refs):
+                    _healthy_refs.add(str(cname).strip().lower())
+                    _healthy_refs.add(str(cid).strip().lower())
+            _step_ref = None
+            for key in ("connection_id", "connection_name"):
+                if parameters.get(key) not in (None, ""):
+                    _step_ref = str(parameters.get(key)).strip().lower()
+                    break
+            if _step_ref and _step_ref in _healthy_refs:
+                pass  # bound to a healthy new connection — proceed
+            else:
+                return True
 
     # No blocking dependency found — step can proceed
     return False
@@ -1610,8 +1637,13 @@ async def _enrich_parameters(action_def, current_params: dict, description: str)
 
                 extracted = corrected
 
-            # Merge with current params (current takes precedence)
-            result = {**extracted, **current_params}
+            # Merge with current params (current takes precedence) — but a
+            # planner-emitted None/empty must NOT override a value the
+            # mini-LLM just extracted (AIHUB-0017 F1: enrichment ran because
+            # url was None, then the None won the merge and reached the wire
+            # anyway).
+            _current_nonempty = {k: v for k, v in current_params.items() if v not in (None, "")}
+            result = {**extracted, **_current_nonempty}
             logger.info(f"  [execute] Enriched parameters: {result}")
             return result
 
@@ -2189,8 +2221,12 @@ async def execute(state: dict) -> dict:
                                 # One build request = one workflow row: a later
                                 # delegation step without an explicit name updates
                                 # the workflow saved earlier in this plan instead of
-                                # inserting a second row.
-                                if not wf_name and newly_created_workflows:
+                                # inserting a second row. Exception: descriptions
+                                # asking for ANOTHER workflow keep their own row.
+                                if (not wf_name and newly_created_workflows
+                                        and not _wf_re.search(
+                                            r"\b(?:another|second|separate|additional|new)\s+workflow\b",
+                                            description, _wf_re.I)):
                                     wf_name = next(iter(newly_created_workflows))
                                     logger.info(
                                         f"  [execute]   ♻ Reusing workflow '{wf_name}' "
@@ -3242,14 +3278,34 @@ async def execute(state: dict) -> dict:
                     # reads back as ✅ present. When the plan carries no explicit
                     # connections.test step, run one now and fail THIS step
                     # honestly if the credentials don't actually work.
-                    if (
-                        capability_id == "connections.create"
-                        and (parameters.get("server") or parameters.get("database"))
-                        and not any(
-                            s.get("domain") == "connections" and s.get("action") == "test"
-                            for s in plan["steps"]
-                        )
+                    _autotest_needed = False
+                    if capability_id == "connections.create" and (
+                        parameters.get("server") or parameters.get("database")
                     ):
+                        # A plan-level test step only covers THIS connection if
+                        # it references it (by name) or the plan creates just
+                        # one connection — otherwise ConnA's test step must not
+                        # suppress ConnB's credential check.
+                        _conn_creates = sum(
+                            1 for s in plan["steps"]
+                            if s.get("domain") == "connections" and s.get("action") == "create"
+                        )
+                        _this_conn_name = str(
+                            parameters.get("name") or parameters.get("connection_name") or ""
+                        ).strip().lower()
+                        _covered = False
+                        for s in plan["steps"]:
+                            if s.get("domain") == "connections" and s.get("action") == "test":
+                                if _conn_creates <= 1:
+                                    _covered = True
+                                    break
+                                _blob = (str(s.get("parameters") or {}) + " "
+                                         + str(s.get("description") or "")).lower()
+                                if _this_conn_name and _this_conn_name in _blob:
+                                    _covered = True
+                                    break
+                        _autotest_needed = not _covered
+                    if _autotest_needed:
                         try:
                             _test_conn_id = None
                             _rd = result.data if isinstance(result.data, dict) else {}

@@ -825,6 +825,33 @@ def split_params(input_list):
     return list1, list2
 
     
+def validate_custom_tool_definition(name, params, code):
+    """AIHUB-0020 F2: reject tool definitions that cannot execute BEFORE they
+    persist — a broken tool used to save as '✅ created' and only blow up at
+    run time. Validates the code wrapped exactly as it will execute (a
+    function body; a legacy full `def` still parses as a nested def). Used by
+    BOTH tool-save routes (/save and the UI's /save_package). Returns an
+    error message, or None when the definition is valid."""
+    import ast as _tool_ast
+    import keyword as _tool_kw
+    if not str(name).isidentifier() or _tool_kw.iskeyword(str(name)):
+        return (f"Tool name '{name}' is not a valid Python function name "
+                f"(use letters, digits and underscores; no spaces or Python keywords)")
+    param_names = [str(p) for p in params] if isinstance(params, list) else []
+    bad_params = [p for p in param_names
+                  if not p.isidentifier() or _tool_kw.iskeyword(p)]
+    if bad_params:
+        return f"Invalid parameter name(s): {', '.join(bad_params)}"
+    if not str(code).strip():
+        return "Tool code is empty — nothing to save"
+    body = "\n".join("    " + ln for ln in str(code).split("\n"))
+    try:
+        _tool_ast.parse(f"def _validate_tool({', '.join(param_names)}):\n{body}")
+    except SyntaxError as syn_err:
+        return f"Tool code is not valid Python and was NOT saved: {syn_err}"
+    return None
+
+
 def save_custom_tool(name, description, params, paramTypes, modules, code, output, paramOptional, paramDefault):
     try:
         # Create a directory with the specified name if it doesn't exist
@@ -2296,6 +2323,14 @@ def save_package():
 
     print(name, description, parameters, parameter_types, modules, code, output)
 
+    # ── Save-time validation (AIHUB-0020 F2) ──
+    # This is the route the custom-tool UI actually calls — it must reject
+    # broken definitions just like /save does.
+    _tool_err = validate_custom_tool_definition(name, parameters, code)
+    if _tool_err:
+        logger.warning(f"Rejected custom tool '{name}' (save_package): {_tool_err}")
+        return jsonify({"status": "error", "message": _tool_err})
+
     result = save_custom_tool(name, description, params, parameter_types, modules, code, output, parameter_optional, parameter_defaults)
     print('Done saving...')
     print(result)
@@ -2921,30 +2956,13 @@ def save():
 
         # ── Save-time validation (AIHUB-0020 F2) ────────────────────────
         # A syntactically-broken tool body used to persist and report
-        # '✅ created', only blowing up later at run time. Validate the code
-        # wrapped exactly as it will execute (a function body) and reject
-        # invalid Python as an honest error. {status:'error'} is turned into
-        # a failed create by the builder's success_indicator and the
-        # internal-exec honest-HTTP normalizer.
-        import ast as _tool_ast
-        if not str(name).isidentifier():
-            logger.warning(f"Rejected custom tool '{name}': not a valid Python function name")
-            return jsonify(status="error",
-                           message=f"Tool name '{name}' is not a valid Python function name "
-                                   f"(use letters, digits and underscores; no spaces)")
-        _param_names = params if isinstance(params, list) else []
-        _bad_params = [p for p in _param_names if not str(p).isidentifier()]
-        if _bad_params:
-            logger.warning(f"Rejected custom tool '{name}': invalid parameter name(s) {_bad_params}")
-            return jsonify(status="error",
-                           message=f"Invalid parameter name(s): {', '.join(map(str, _bad_params))}")
-        try:
-            _body = "\n".join("    " + ln for ln in str(code).split("\n")) or "    pass"
-            _tool_ast.parse(f"def _validate_tool({', '.join(_param_names)}):\n{_body}")
-        except SyntaxError as _syn_err:
-            logger.warning(f"Rejected custom tool '{name}': invalid Python — {_syn_err}")
-            return jsonify(status="error",
-                           message=f"Tool code is not valid Python and was NOT saved: {_syn_err}")
+        # '✅ created', only blowing up later at run time. {status:'error'}
+        # is turned into a failed create by the builder's success_indicator
+        # and the internal-exec honest-HTTP normalizer.
+        _tool_err = validate_custom_tool_definition(name, params, code)
+        if _tool_err:
+            logger.warning(f"Rejected custom tool '{name}': {_tool_err}")
+            return jsonify(status="error", message=_tool_err)
 
         result = save_custom_tool(name, description, params, paramTypes, modules, code, output, paramOptional, paramDefault)
     except Exception as e:
