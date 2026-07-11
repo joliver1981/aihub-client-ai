@@ -2522,9 +2522,12 @@ def test_builder_waits_for_data_dictionary_analysis():
     # …failed -> honest step failure…
     assert "data-dictionary analysis FAILED" in s
     # …timeout -> honest still-syncing note, never a silent 'ready'.
-    assert "analysis still running after 180s" in s
-    # Planner knows a dictionary-less data agent is non-functional.
+    assert "analysis still running after 10 minutes" in s
+    assert "range(120)" in s          # 120 × 5s = 10-minute poll budget
+    # Planner knows a dictionary-less data agent is non-functional and sets
+    # the several-minutes expectation with the user.
     assert "data agent without an analyzed dictionary is non-functional" in s
+    assert "mention this expected wait to the user" in s
 
 
 def test_analyze_tables_notes_reflect_executor_wait():

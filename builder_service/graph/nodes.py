@@ -920,6 +920,8 @@ The data agent cannot populate its own data dictionary (circular dependency).
 This is a platform operation that MUST be executed via direct connections API calls.
 The executor waits for the analysis to finish automatically — do NOT add separate
 "check progress" or "wait" steps to the plan.
+Analysis takes ~10-30 seconds PER TABLE, so schemas with many tables take several
+minutes — mention this expected wait to the user when presenting the plan.
 
 EDITING EXISTING WORKFLOWS:
 When the user wants to edit, modify, update, or change an existing workflow:
@@ -3552,9 +3554,9 @@ async def execute(state: dict) -> dict:
                             _pd = {}
                             logger.info(
                                 f"  [execute]   📖 Waiting for data-dictionary analysis "
-                                f"{_an_task_id} (up to 180s)"
+                                f"{_an_task_id} (up to 10 minutes)"
                             )
-                            for _poll in range(36):          # 36 × 5s = 180s budget
+                            for _poll in range(120):         # 120 × 5s = 10-minute budget
                                 await _an_asyncio.sleep(5)
                                 try:
                                     _prog = await executor.execute_step(
@@ -3597,7 +3599,7 @@ async def execute(state: dict) -> dict:
                                 logger.warning(f"  [execute]   ✗ {_res_dict['error']}")
                             else:
                                 result.verification_detail = (
-                                    f"data-dictionary analysis still running after 180s "
+                                    f"data-dictionary analysis still running after 10 minutes "
                                     f"({_pd.get('current')}/{_pd.get('total')} tables) — the data "
                                     f"agent may need a few more minutes before it can answer questions"
                                 )

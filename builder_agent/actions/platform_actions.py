@@ -1289,11 +1289,12 @@ def _connection_actions() -> list:
             ),
             notes=(
                 "Analysis runs in the background and returns a task_id; each table "
-                "takes 10-30 seconds. The EXECUTOR automatically waits (up to ~3 min) "
-                "for completion and reports the populated data dictionary — without "
-                "it the data agent cannot answer any questions. Do NOT add separate "
-                "progress-check steps to the plan; check_analysis_progress is only "
-                "for later user-asked status questions."
+                "takes 10-30 seconds, so many tables means several minutes — set "
+                "that expectation with the user. The EXECUTOR automatically waits "
+                "(up to 10 minutes) for completion and reports the populated data "
+                "dictionary — without it the data agent cannot answer any questions. "
+                "Do NOT add separate progress-check steps to the plan; "
+                "check_analysis_progress is only for later user-asked status questions."
             ),
         ),
 
