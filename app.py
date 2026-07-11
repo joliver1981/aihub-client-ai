@@ -17260,6 +17260,11 @@ def test_mcp_server():
             return jsonify({'status': 'failed', 'error': 'This endpoint is for remote servers only'})
 
         url = data.get('url')
+        # AIHUB-0017 F1: a missing url crashed MCPClient ('NoneType'.rstrip),
+        # making every test — including a reachable server's — report an
+        # internal error. Degrade honestly instead.
+        if not url or not str(url).strip():
+            return jsonify({'status': 'failed', 'error': 'url is required'}), 400
         auth_type = data.get('authType')
         auth_config = data.get('authConfig', {})
 

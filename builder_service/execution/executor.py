@@ -397,10 +397,23 @@ class ActionExecutor:
         # Substitute path parameters
         if route.path_params:
             for param in route.path_params:
+                raw_value = parameters.get(param)
+                # A missing/None path param would produce an empty URL segment
+                # → a Flask HTML 404 page leaking into the user-facing message
+                # (AIHUB-0018 F1 / AIHUB-0022 F1). Fail honestly pre-HTTP.
+                if raw_value is None or str(raw_value).strip() == "":
+                    return ExecutionResult(
+                        status=ExecutionStatus.FAILED,
+                        message=f"Missing required path parameter '{param}' for {capability_id}",
+                        error=(
+                            f"required path parameter '{param}' was not provided — "
+                            f"the request was not sent"
+                        ),
+                    )
                 placeholder = f"<{param}>"
                 int_placeholder = f"<int:{param}>"
                 str_placeholder = f"<string:{param}>"
-                value = str(parameters.get(param, ""))
+                value = str(raw_value)
                 path = path.replace(placeholder, value)
                 path = path.replace(int_placeholder, value)
                 path = path.replace(str_placeholder, value)

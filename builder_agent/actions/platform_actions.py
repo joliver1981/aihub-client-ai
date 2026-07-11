@@ -2440,6 +2440,16 @@ def _mcp_actions() -> list:
                         "url", FieldType.STRING, required=True,
                         description="MCP server URL to test",
                     ),
+                    # AIHUB-0017 F1: planners often carry the create step's
+                    # server_url into the test step; without this alias the
+                    # executor dropped it and POSTed url=None, crashing
+                    # /api/mcp/test ('NoneType'.rstrip) — so a REACHABLE server
+                    # was reported as a failed test.
+                    FieldSchema(
+                        "server_url", FieldType.STRING, required=False,
+                        api_field="url",
+                        description="Alias for url — pass the server_url used in mcp.create_server",
+                    ),
                     # NOTE (#18): 'transport_type' was removed here too — the /api/mcp/test
                     # handler never reads it, so it was silently dropped. Transport is
                     # auto-negotiated; do not collect a knob the endpoint ignores.

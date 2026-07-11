@@ -1873,6 +1873,55 @@ def test_skip_cascade_and_autotest_wired():
     assert "credential test FAILED" in s
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# AIHUB-0017 F1 — mcp.test_server url binding + honest missing-url failure
+# ═══════════════════════════════════════════════════════════════════════════
+# The builder sent url=None to /api/mcp/test on every run; the handler crashed
+# ('NoneType'.rstrip) so even a REACHABLE server was reported "test failed".
+
+def test_mcp_test_server_has_server_url_alias():
+    a = _platform_actions_by_id()["mcp.test_server"]
+    fields = {f.name: f for f in a.primary_route.input_fields}
+    assert "server_url" in fields, "server_url alias field removed — planner URLs get dropped again"
+    assert fields["server_url"].effective_api_field == "url"
+    assert fields["url"].required is True
+
+
+def test_mcp_url_binding_wired_in_builder():
+    s = _src(_BUILDER_NODES)
+    assert "newly_created_mcp_servers" in s
+    assert 'capability_id == "mcp.test_server" and not parameters.get("url")' in s
+    # No URL found anywhere -> honest pre-HTTP failure, never a crashed test.
+    assert "MCP connectivity test not run" in s
+    # Enrichment: a required param carried as None counts as MISSING.
+    assert "supplied_names = {k for k, v in current_params.items() if v not in (None, \"\")}" in s
+
+
+def test_mcp_test_route_rejects_missing_url():
+    s = _src(APP_PY)
+    assert "'url is required'" in s, \
+        "/api/mcp/test lost its missing-url guard ('NoneType'.rstrip crash returns)"
+
+
+def test_executor_fails_missing_path_param_pre_http():
+    # An absent path param used to produce an empty URL segment -> Flask HTML
+    # 404 blob leaked into the user-facing message (AIHUB-0018/0022 F1).
+    import asyncio
+    EX = _executor_mod()
+    route = _platform_actions_by_id()["mcp.get_tools"].primary_route
+
+    async def _drive():
+        ex = EX.ActionExecutor(api_key="x")
+        try:
+            return await ex._execute_route(route, {}, "mcp.get_tools")
+        finally:
+            await ex.close()
+
+    out = asyncio.run(_drive())
+    assert out.status == EX.ExecutionStatus.FAILED
+    assert "path parameter" in (out.error or "")
+
+
 def test_deterministic_summary_never_announces_draft_as_done():
     _fns = _load_functions(
         CC_NODES_PY,

@@ -1538,11 +1538,15 @@ async def _enrich_parameters(action_def, current_params: dict, description: str)
             else:
                 optional_fields.append(field_info)
 
-    # If we have all required fields already, skip AI extraction
+    # If we have all required fields already, skip AI extraction.
+    # AIHUB-0017 F1: a required param carried as None/empty (planner emitted
+    # url: null) must count as MISSING — key presence alone let url=None skip
+    # enrichment and reach the wire.
     if action_def.is_simple:
         required_names = {f.name for f in action_def.primary_route.input_fields
                         if f.required and f.default is None}
-        if required_names.issubset(current_params.keys()):
+        supplied_names = {k for k, v in current_params.items() if v not in (None, "")}
+        if required_names.issubset(supplied_names):
             return current_params
 
     # Use mini model to extract parameters (non-streaming to avoid token leakage)
@@ -1938,6 +1942,11 @@ async def execute(state: dict) -> dict:
     # Track integrations created during execution for cross-step resolution
     # Maps integration_name → integration_id for integrations created in this execution
     newly_created_integrations = {}
+
+    # Track MCP servers created during execution (AIHUB-0017 F1) so the
+    # mcp.test_server step can be given the URL the create step used.
+    # Maps server_name → {"id": server_id, "url": server_url}
+    newly_created_mcp_servers = {}
 
     # Permission context for hard checks during execution
     from permissions import get_user_role, can_access_capability, get_role_name, DOMAIN_ROLE_REQUIREMENTS
@@ -2828,6 +2837,43 @@ async def execute(state: dict) -> dict:
                                    f"(from newly created workflow '{_only_name}')")
                         parameters["workflow_id"] = _only_id
 
+                # ── mcp.test_server URL binding (AIHUB-0017 F1) ──────────────
+                # The planner rarely repeats the URL on the test step, so it
+                # arrived as url=None and /api/mcp/test crashed with
+                # 'NoneType'.rstrip — a REACHABLE server reported as failed.
+                # Bind from the server_url alias or the server created earlier
+                # in this plan; if no URL can be found, fail pre-HTTP with an
+                # actionable message instead of letting the endpoint crash.
+                if capability_id == "mcp.test_server" and not parameters.get("url"):
+                    _mcp_url = parameters.pop("server_url", None)
+                    if not _mcp_url and newly_created_mcp_servers:
+                        _want_name = str(parameters.get("server_name") or "").strip().lower()
+                        _by_name = {
+                            k.strip().lower(): v for k, v in newly_created_mcp_servers.items()
+                        }
+                        if _want_name and _want_name in _by_name:
+                            _mcp_url = _by_name[_want_name].get("url")
+                        elif len(newly_created_mcp_servers) == 1:
+                            _mcp_url = list(newly_created_mcp_servers.values())[0].get("url")
+                    if _mcp_url:
+                        parameters["url"] = _mcp_url
+                        logger.info(f"  [execute]   🔗 Injected MCP test url: {_mcp_url}")
+                    else:
+                        logger.warning("  [execute]   ✗ mcp.test_server has no url — failing honestly pre-HTTP")
+                        updated_steps.append({
+                            **step,
+                            "status": "failed",
+                            "result": {
+                                "status": "failed",
+                                "error": (
+                                    "MCP connectivity test not run — no server URL was "
+                                    "provided. Pass the server_url used when creating the "
+                                    "server (or the server's registered URL)."
+                                ),
+                            },
+                        })
+                        continue
+
                 # Resolve reference parameters (e.g., workflow/agent/connection name → numeric ID)
                 # This MUST run BEFORE validation so names are resolved to IDs first.
                 if action_def:
@@ -3321,6 +3367,29 @@ async def execute(state: dict) -> dict:
                                     logger.warning(f"  [execute]   ⚠️  Could not track integration ID {new_integration_id} - no 'integration_name' or 'name' in parameters")
                         except (ValueError, KeyError, AttributeError) as e:
                             logger.warning(f"  [execute]   Could not track new integration: {e}")
+
+                    # ── Track newly created MCP servers (AIHUB-0017 F1) ──
+                    # The URL lives only in the create step's parameters (the
+                    # 'server.id' response mapping misses, so result.data is the
+                    # raw body — read server_id defensively from either shape).
+                    if capability_id == "mcp.create_server":
+                        try:
+                            _mcp_name = parameters.get("server_name")
+                            _mcp_rd = result.data if isinstance(result.data, dict) else {}
+                            _mcp_id = _mcp_rd.get("server_id")
+                            if not _mcp_id and isinstance(_mcp_rd.get("server"), dict):
+                                _mcp_id = _mcp_rd["server"].get("id")
+                            if _mcp_name:
+                                newly_created_mcp_servers[_mcp_name] = {
+                                    "id": _mcp_id,
+                                    "url": parameters.get("server_url"),
+                                }
+                                logger.info(
+                                    f"  [execute]   🔌 Tracked new MCP server '{_mcp_name}' "
+                                    f"→ ID {_mcp_id}, url={parameters.get('server_url')}"
+                                )
+                        except (ValueError, KeyError, AttributeError, TypeError) as e:
+                            logger.warning(f"  [execute]   Could not track new MCP server: {e}")
                 else:
                     logger.warning(f"  [execute]   ✗ Failed: {result.error}")
 
