@@ -275,6 +275,14 @@ def _workflows_domain() -> DomainDefinition:
                 tags=["workflow", "run", "execute", "start"],
             ),
             CapabilityDefinition(
+                id="workflows.get_execution",
+                name="Get Execution Status",
+                description="Get the status/details of a specific workflow execution",
+                category="read",
+                required_context=["execution_id"],
+                tags=["workflow", "execution", "status", "verify"],
+            ),
+            CapabilityDefinition(
                 id="workflows.manage_execution",
                 name="Manage Execution",
                 description="Pause, resume, or cancel a running workflow",

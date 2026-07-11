@@ -2536,6 +2536,51 @@ def test_analyze_tables_notes_reflect_executor_wait():
     assert "Do NOT wait for completion" not in (a.notes or "")
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# AIHUB-0016 retest #2 — executions are read-back verified; bare confirms
+# with no pending plan get a deterministic answer
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_workflows_get_execution_action_registered():
+    a = _platform_actions_by_id().get("workflows.get_execution")
+    assert a is not None, "workflows.get_execution action removed — execution verify broken"
+    assert a.primary_route.path == "/api/workflow/executions/<execution_id>"
+    fields = {f.name: f for f in a.primary_route.input_fields}
+    # A UUID — must NOT be a numeric REFERENCE or the pre-HTTP guard rejects it.
+    assert fields["execution_id"].field_type.value == "string"
+
+
+def test_builder_waits_for_workflow_execution():
+    s = _src(_BUILDER_NODES)
+    assert "Waiting for workflow execution" in s
+    # Completed -> verified via read-back…
+    assert "verified via execution read-back" in s
+    # …Failed/Cancelled -> honest step failure…
+    assert '_ex_status in ("Failed", "Cancelled")' in s
+    # …Paused and still-running get honest notes, never a silent success.
+    assert "is PAUSED" in s
+    assert "still running after 5 minutes" in s
+
+
+def test_bare_confirmation_without_pending_plan_is_deterministic():
+    import re
+    s = _src(CC_NODES_PY)
+    assert "no plan awaiting confirmation" in s
+    assert 'state.get("active_delegation") or {}).get("builder_session_id")' in s
+    # The pattern is confirm-anchored — a bare 'execute'/'run it' (a real
+    # actionable request) must NOT match.
+    guard_re = re.compile(
+        r"(?:yes|ok(?:ay)?|confirm(?:ed)?|proceed|go ahead|"
+        r"confirm and (?:execute|run|proceed)(?: the plan)?|"
+        r"(?:execute|run|proceed with) the plan)[.! ]*",
+        re.I,
+    )
+    for txt in ("Confirm and execute the plan.", "yes", "OK", "proceed", "Execute the plan"):
+        assert guard_re.fullmatch(txt.strip()), txt
+    for txt in ("execute", "run it", "run the export workflow", "yes, but rename it first"):
+        assert not guard_re.fullmatch(txt.strip()), txt
+
+
 def test_deterministic_summary_never_announces_draft_as_done():
     _fns = _load_functions(
         CC_NODES_PY,

@@ -3606,6 +3606,70 @@ async def execute(state: dict) -> dict:
                                 updated_step["result"] = result.to_dict()
                                 logger.info(f"  [execute]   ⏳ {result.verification_detail}")
 
+                    # ── Wait for workflow execution (AIHUB-0016 retest F1) ──
+                    # /api/workflow/run is async: it returns an execution_id
+                    # while the run continues. Ending the plan immediately left
+                    # a genuinely-Completed run reported as 'could not be
+                    # independently verified'. Poll the execution (bounded) and
+                    # carry the real outcome into the step.
+                    if capability_id == "workflows.execute":
+                        _exd = result.data if isinstance(result.data, dict) else {}
+                        _exec_id = _exd.get("execution_id")
+                        if _exec_id:
+                            import asyncio as _ex_asyncio
+                            _ex_status = ""
+                            _ex_pd = {}
+                            logger.info(
+                                f"  [execute]   ▶ Waiting for workflow execution "
+                                f"{_exec_id} (up to 5 minutes)"
+                            )
+                            for _poll in range(60):          # 60 × 5s = 5-minute budget
+                                await _ex_asyncio.sleep(5)
+                                try:
+                                    _prog = await executor.execute_step(
+                                        domain="workflows",
+                                        action="get_execution",
+                                        parameters={"execution_id": _exec_id},
+                                        description=f"poll workflow execution {_exec_id}",
+                                    )
+                                except Exception as _poll_err:
+                                    logger.warning(f"  [execute]   execution poll errored: {_poll_err}")
+                                    continue
+                                _ex_pd = _prog.data if isinstance(_prog.data, dict) else {}
+                                _ex_status = str(_ex_pd.get("status") or "")
+                                if _ex_status in ("Completed", "Failed", "Cancelled", "Paused"):
+                                    break
+                            if _ex_status == "Completed":
+                                result.verified = True
+                                result.verification_detail = (
+                                    f"execution {_exec_id} completed — verified via execution read-back"
+                                )
+                                updated_step["result"] = result.to_dict()
+                                logger.info(f"  [execute]   ✓ {result.verification_detail}")
+                            elif _ex_status in ("Failed", "Cancelled"):
+                                updated_step["status"] = "failed"
+                                _res_dict = updated_step.get("result") or {}
+                                _res_dict["error"] = (
+                                    f"workflow execution {_exec_id} ended {_ex_status} — "
+                                    f"see the execution history for the failing step"
+                                )
+                                updated_step["result"] = _res_dict
+                                logger.warning(f"  [execute]   ✗ {_res_dict['error']}")
+                            elif _ex_status == "Paused":
+                                result.verification_detail = (
+                                    f"execution {_exec_id} is PAUSED (likely awaiting an "
+                                    f"approval/input step) — resume it from the executions page"
+                                )
+                                updated_step["result"] = result.to_dict()
+                                logger.info(f"  [execute]   ⏸ {result.verification_detail}")
+                            else:
+                                result.verification_detail = (
+                                    f"execution {_exec_id} still running after 5 minutes — "
+                                    f"check the execution history for the final status"
+                                )
+                                updated_step["result"] = result.to_dict()
+                                logger.info(f"  [execute]   ⏳ {result.verification_detail}")
+
                     # ── Track newly created schedules (AIHUB-0018 F1) ──
                     if capability_id == "schedules.create":
                         try:

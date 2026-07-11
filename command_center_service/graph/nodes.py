@@ -6297,6 +6297,33 @@ async def build(state: CommandCenterState) -> dict:
     last_msg = messages[-1] if messages else None
     user_text = last_msg.content if last_msg and hasattr(last_msg, 'content') else ""
 
+    # ── Bare confirmation, no pending plan (AIHUB-0016 retest F2) ────────
+    # Build completion clears the delegation, so a follow-up "confirm and
+    # execute the plan" used to spin up a FRESH builder session that knew
+    # nothing and asked for requirements from scratch ("builder lost the
+    # original task context"). Answer deterministically instead.
+    _existing_bsid = (state.get("active_delegation") or {}).get("builder_session_id")
+    if not _existing_bsid and re.fullmatch(
+        r"(?:yes|ok(?:ay)?|confirm(?:ed)?|proceed|go ahead|"
+        r"confirm and (?:execute|run|proceed)(?: the plan)?|"
+        r"(?:execute|run|proceed with) the plan)[.! ]*",
+        user_text.strip(), re.I,
+    ):
+        _recent = state.get("recently_created_resources") or state.get("session_resources") or []
+        _recent_names = ", ".join(
+            f'{r.get("type", "resource")} "{r.get("name")}"'
+            for r in _recent[:6] if r.get("name")
+        )
+        _note = (
+            "There's no plan awaiting confirmation — the previous build already "
+            "finished and its outcome was reported above."
+        )
+        if _recent_names:
+            _note += f" Created this session: {_recent_names}."
+        _note += " Send a new build request if you'd like to change or add something."
+        logger.info("[build] bare confirmation with no pending builder session — answered deterministically")
+        return {"messages": [AIMessage(content=_note)]}
+
     # IMPORTANT: builder maintains its own multi-turn context via builder_session_id.
     # Do NOT re-embed conversation history into the message (it can cause the builder
     # to repeatedly re-plan instead of advancing the state machine on a simple "yes").

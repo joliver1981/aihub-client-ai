@@ -644,6 +644,37 @@ def _workflow_actions() -> list:
         ),
 
         ActionDefinition(
+            capability_id="workflows.get_execution",
+            domain_id="workflows",
+            description="Get the status/details of a specific workflow execution",
+            required_role=2,
+            primary_route=RouteMapping(
+                method="GET",
+                path="/api/workflow/executions/<execution_id>",
+                encoding=PayloadEncoding.NONE,
+                path_params=["execution_id"],
+                is_idempotent=True,
+                input_fields=[
+                    # STRING (a UUID), deliberately NOT a numeric REFERENCE.
+                    FieldSchema(
+                        "execution_id", FieldType.STRING, required=True,
+                        description="Execution ID returned by workflows.execute",
+                    ),
+                ],
+                response_mappings=[
+                    ResponseMapping("status", "status", field_type=FieldType.STRING),
+                    ResponseMapping("workflow_name", "workflow_name", field_type=FieldType.STRING),
+                ],
+            ),
+            notes=(
+                "Statuses: Running, Paused, Completed, Failed, Cancelled. The "
+                "executor polls this automatically after workflows.execute to "
+                "verify the run — only call it directly for user-asked status "
+                "questions."
+            ),
+        ),
+
+        ActionDefinition(
             capability_id="workflows.monitor",
             domain_id="workflows",
             description="Get execution history and status for a specific workflow or all workflows",
