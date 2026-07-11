@@ -5183,7 +5183,9 @@ async def decompose_tasks(state: CommandCenterState) -> dict:
         if agent_lines:
             resource_hint = (
                 "\n\nRECENTLY CREATED IN THIS SESSION — STRONGLY PREFER these agents "
-                "when they match the request:\n" + "\n".join(agent_lines)
+                "when they match the request (they are VALID target_agent ids even "
+                "if they do not appear in the Available agents list above):\n"
+                + "\n".join(agent_lines)
             )
 
     _td_conv = _format_conversation_for_prompt(messages)
@@ -5244,6 +5246,22 @@ Only return the JSON array, nothing else."""
                 raw = raw[4:]
         tasks_data = json.loads(raw)
 
+        # Known agents = landscape PLUS resources created this session — the
+        # platform scan is cached/checkpointed, so an agent built moments ago
+        # is often missing from it. Treating that staleness as "invented id"
+        # broke the just-built data agent's first query (AIHUB-0015 retest:
+        # 'no agent or tool was assigned').
+        _known_ids = {str(a.get("agent_id")) for a in all_agents}
+        _known_by_name = {
+            " ".join(str(a.get("agent_name") or "").lower().split()): str(a.get("agent_id"))
+            for a in all_agents if a.get("agent_name")
+        }
+        for r in hint_items:
+            if r.get("type") == "agent" and r.get("id"):
+                _known_ids.add(str(r["id"]))
+                if r.get("name"):
+                    _known_by_name[" ".join(str(r["name"]).lower().split())] = str(r["id"])
+
         sub_tasks = []
         for i, t in enumerate(tasks_data):
             sub_task = {
@@ -5260,17 +5278,37 @@ Only return the JSON array, nothing else."""
                 "inputs": {},
                 "outputs": {},
             }
-            # AIHUB-0021 F3: never delegate to an agent id the LLM invented —
-            # if the target isn't in the real landscape, null it so the task
-            # fails honestly instead of running against a similar-sounding
-            # agent.
-            _known_ids = {str(a.get("agent_id")) for a in all_agents}
+            # AIHUB-0021 F3: never delegate to an agent id the LLM invented.
+            # Repair by exact name first (the LLM may know the agent from the
+            # conversation even when the scan is stale); only null when the
+            # name is unknown too.
+            _tname_norm = " ".join(str(sub_task.get("target_agent_name") or "").lower().split())
             if sub_task["target_agent"] and _known_ids and str(sub_task["target_agent"]) not in _known_ids:
-                logger.warning(
-                    f"[decompose_tasks] target_agent {sub_task['target_agent']} "
-                    f"({sub_task['target_agent_name']}) not in landscape — nulling target"
+                _repaired = _known_by_name.get(_tname_norm)
+                if _repaired:
+                    logger.info(
+                        f"[decompose_tasks] repaired target_agent "
+                        f"{sub_task['target_agent']} → {_repaired} by exact name "
+                        f"'{sub_task['target_agent_name']}'"
+                    )
+                    sub_task["target_agent"] = _repaired
+                else:
+                    logger.warning(
+                        f"[decompose_tasks] target_agent {sub_task['target_agent']} "
+                        f"({sub_task['target_agent_name']}) not in landscape or session "
+                        f"resources — nulling target"
+                    )
+                    sub_task["target_agent"] = None
+            elif (not sub_task["target_agent"] and not sub_task.get("target_tool")
+                    and _tname_norm and _known_by_name.get(_tname_norm)):
+                # The LLM followed the "unknown agent → null id, keep name"
+                # rule for an agent that DOES exist (created this session) —
+                # fill the real id instead of failing the task.
+                sub_task["target_agent"] = _known_by_name[_tname_norm]
+                logger.info(
+                    f"[decompose_tasks] resolved target_agent by name "
+                    f"'{sub_task['target_agent_name']}' → {sub_task['target_agent']}"
                 )
-                sub_task["target_agent"] = None
 
             # Deterministic backstop (AIHUB-0015 F1): even if the decomposer
             # LLM ignores the rule above, never delegate a platform mutation

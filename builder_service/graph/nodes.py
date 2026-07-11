@@ -910,12 +910,16 @@ CHOOSING THE BEST PATH:
 - Mix both approaches when appropriate
 
 **CRITICAL — DATA DICTIONARY POPULATION:**
-When creating a data agent with a data dictionary, you MUST use direct API actions:
+A data agent can ONLY answer questions from its connection's data dictionary — a
+data agent without an analyzed dictionary is non-functional. When creating a data
+agent, the plan MUST include the direct API actions:
 - connections.discover_tables (direct API action — returns table list)
 - connections.analyze_tables (direct API action — populates data dictionary)
 NEVER delegate table discovery or analysis to agent:data_agent or any other agent.
 The data agent cannot populate its own data dictionary (circular dependency).
 This is a platform operation that MUST be executed via direct connections API calls.
+The executor waits for the analysis to finish automatically — do NOT add separate
+"check progress" or "wait" steps to the plan.
 
 EDITING EXISTING WORKFLOWS:
 When the user wants to edit, modify, update, or change an existing workflow:
@@ -3530,6 +3534,75 @@ async def execute(state: dict) -> dict:
                                     logger.warning(f"  [execute]   ⚠️  Could not track integration ID {new_integration_id} - no 'integration_name' or 'name' in parameters")
                         except (ValueError, KeyError, AttributeError) as e:
                             logger.warning(f"  [execute]   Could not track new integration: {e}")
+
+                    # ── Wait for data-dictionary analysis (AIHUB-0015 retest) ──
+                    # analyze_tables is ASYNC: it returns a task_id and populates
+                    # the data dictionary in the background. Ending the plan
+                    # immediately declares a data agent "ready" that cannot yet
+                    # answer anything (the dictionary is what the agent queries
+                    # from). Poll the progress endpoint (bounded) so the chain
+                    # finishes with the dictionary actually populated — or an
+                    # honest note that it is still syncing.
+                    if capability_id == "connections.analyze_tables":
+                        _ard = result.data if isinstance(result.data, dict) else {}
+                        _an_task_id = _ard.get("task_id")
+                        if _an_task_id:
+                            import asyncio as _an_asyncio
+                            _an_status = "processing"
+                            _pd = {}
+                            logger.info(
+                                f"  [execute]   📖 Waiting for data-dictionary analysis "
+                                f"{_an_task_id} (up to 180s)"
+                            )
+                            for _poll in range(36):          # 36 × 5s = 180s budget
+                                await _an_asyncio.sleep(5)
+                                try:
+                                    _prog = await executor.execute_step(
+                                        domain="connections",
+                                        action="check_analysis_progress",
+                                        parameters={"task_id": _an_task_id},
+                                        description=f"poll data-dictionary analysis {_an_task_id}",
+                                    )
+                                except Exception as _poll_err:
+                                    logger.warning(f"  [execute]   analysis poll errored: {_poll_err}")
+                                    continue
+                                _pd = _prog.data if isinstance(_prog.data, dict) else {}
+                                _an_status = str(_pd.get("status") or "").lower()
+                                if _poll % 4 == 3:
+                                    logger.info(
+                                        f"  [execute]   📖 analysis {_an_task_id}: "
+                                        f"{_pd.get('current')}/{_pd.get('total')} ({_an_status})"
+                                    )
+                                if _an_status in ("completed", "failed"):
+                                    break
+                            if _an_status == "completed":
+                                result.verified = True
+                                result.verification_detail = (
+                                    f"data dictionary populated "
+                                    f"({_pd.get('total') or _pd.get('current') or '?'} table(s) analyzed) — "
+                                    f"the data agent can answer questions about these tables"
+                                )
+                                updated_step["result"] = result.to_dict()
+                                logger.info(f"  [execute]   ✓ {result.verification_detail}")
+                            elif _an_status == "failed":
+                                _an_errors = "; ".join(str(e) for e in (_pd.get("errors") or [])[:3])
+                                updated_step["status"] = "failed"
+                                _res_dict = updated_step.get("result") or {}
+                                _res_dict["error"] = (
+                                    f"data-dictionary analysis FAILED — the data agent cannot "
+                                    f"answer questions until the dictionary is populated"
+                                    + (f": {_an_errors}" if _an_errors else "")
+                                )
+                                updated_step["result"] = _res_dict
+                                logger.warning(f"  [execute]   ✗ {_res_dict['error']}")
+                            else:
+                                result.verification_detail = (
+                                    f"data-dictionary analysis still running after 180s "
+                                    f"({_pd.get('current')}/{_pd.get('total')} tables) — the data "
+                                    f"agent may need a few more minutes before it can answer questions"
+                                )
+                                updated_step["result"] = result.to_dict()
+                                logger.info(f"  [execute]   ⏳ {result.verification_detail}")
 
                     # ── Track newly created schedules (AIHUB-0018 F1) ──
                     if capability_id == "schedules.create":

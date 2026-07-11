@@ -1288,11 +1288,12 @@ def _connection_actions() -> list:
                 success_indicator="success",
             ),
             notes=(
-                "Analysis runs in the background. Returns a task_id immediately. "
-                "Each table takes 10-30 seconds to analyze with AI. The data "
-                "dictionary will be populated automatically when analysis completes. "
-                "Do NOT wait for completion — inform the user that analysis is "
-                "running in the background and the data agent will be ready shortly."
+                "Analysis runs in the background and returns a task_id; each table "
+                "takes 10-30 seconds. The EXECUTOR automatically waits (up to ~3 min) "
+                "for completion and reports the populated data dictionary — without "
+                "it the data agent cannot answer any questions. Do NOT add separate "
+                "progress-check steps to the plan; check_analysis_progress is only "
+                "for later user-asked status questions."
             ),
         ),
 

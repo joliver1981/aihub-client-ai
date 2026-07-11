@@ -2425,8 +2425,9 @@ def test_exact_match_agent_resolution_wired():
     assert 're.search(r"(?<![\\w-])" + re.escape(_aname)' in s
     # …the picker may answer NONE instead of substituting a similar agent…
     assert "do NOT substitute a similar-sounding agent" in s
-    # …and decompose nulls invented agent ids.
-    assert "not in landscape — nulling target" in s
+    # …and decompose nulls invented agent ids (after the session-resource
+    # repair introduced in the AIHUB-0015 retest fix).
+    assert "nulling target" in s and "not in landscape or session" in s
 
 
 def test_enrichment_merge_does_not_let_none_win():
@@ -2489,6 +2490,47 @@ def test_mechanism_b_propagates_save_verification():
     s = _src(_BUILDER_NODES)
     assert 'delegation_result["verified"] = save_result.verified' in s
     assert '_dr_data["workflow_validation"] = _wf_validation' in s
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# AIHUB-0015 retest #2 — fresh agents are delegable; the plan waits for the
+# data dictionary
+# ═══════════════════════════════════════════════════════════════════════════
+# The landscape scan is cached/checkpointed, so an agent created moments ago
+# was treated as an "invented id" and its first query failed with 'no agent or
+# tool was assigned'. And analyze_tables is async — the chain declared the
+# data agent ready while the dictionary it answers from was still empty.
+
+def test_decompose_accepts_and_repairs_session_created_agents():
+    s = _src(CC_NODES_PY)
+    # Session-created agents join the known set…
+    assert "_known_ids.add(str(r[\"id\"]))" in s
+    # …a stale-landscape id is repaired by exact name before nulling…
+    assert "repaired target_agent" in s
+    # …and a name-only task (LLM followed the unknown-agent rule for an agent
+    # that DOES exist) gets the real id filled in.
+    assert "resolved target_agent by name" in s
+    # The prompt tells the LLM session-created agents are valid targets.
+    assert "VALID target_agent ids even" in s
+
+
+def test_builder_waits_for_data_dictionary_analysis():
+    s = _src(_BUILDER_NODES)
+    assert "Waiting for data-dictionary analysis" in s
+    # Completed -> verified with a populated-dictionary detail…
+    assert "data dictionary populated" in s
+    # …failed -> honest step failure…
+    assert "data-dictionary analysis FAILED" in s
+    # …timeout -> honest still-syncing note, never a silent 'ready'.
+    assert "analysis still running after 180s" in s
+    # Planner knows a dictionary-less data agent is non-functional.
+    assert "data agent without an analyzed dictionary is non-functional" in s
+
+
+def test_analyze_tables_notes_reflect_executor_wait():
+    a = _platform_actions_by_id()["connections.analyze_tables"]
+    assert "EXECUTOR automatically waits" in (a.notes or "")
+    assert "Do NOT wait for completion" not in (a.notes or "")
 
 
 def test_deterministic_summary_never_announces_draft_as_done():
