@@ -2232,6 +2232,74 @@ def test_sandbox_honors_user_params_end_to_end():
     assert "212" in str(out.get("output"))
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Minor sweep — 0016 F2 naming, 0018 F2 interval, 0021 F3 resolution,
+# 0017 F2 wrong-type coverage, 0015 F4 builder file log
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_workflow_name_scan_rejects_filenames_and_reuses_plan_workflow():
+    s = _src(_BUILDER_NODES)
+    # Export filenames must never become workflow names…
+    assert r"\.(xlsx|xlsm|xls|csv|json|pdf|docx|txt)$" in s
+    # …workflow-anchored markers are tried first…
+    assert '"workflow named \'"' in s
+    # …and a second unnamed delegation updates the SAME workflow row.
+    assert "Reusing workflow" in s
+
+
+def test_schedules_create_supports_interval():
+    a = _platform_actions_by_id()["schedules.create"]
+    fields = {f.name: f for f in a.primary_route.input_fields}
+    assert fields["type"].choices == ["cron", "interval"]
+    assert fields["cron_expression"].required is False
+    for f in ("interval_minutes", "interval_hours", "interval_days"):
+        assert f in fields, f"{f} missing — 'every N minutes' can only become cron again"
+    # The misleading id note is gone; run_now is the only ScheduledJobId user.
+    assert "NEVER pass 'scheduled_job_id' as job_id" in (a.notes or "")
+
+
+def test_schedule_shape_guard_wired():
+    s = _src(_BUILDER_NODES)
+    assert "interval schedule needs interval_minutes" in s
+    assert "cron schedule needs a cron_expression" in s
+    # Interval schedules are anchored (unanchored IntervalTriggers never fire).
+    assert 'parameters["start_date"]' in s
+
+
+def test_check_mcp_create_disproves_wrong_type():
+    # AIHUB-0017 F2 coverage gap: the wrong-type DISPROVE can't be forced
+    # through the CC UI, so pin it here.
+    read = {"servers": [{"server_name": "learn", "server_url": "https://x/mcp",
+                         "server_type": "local"}]}
+    status, detail = V._check_mcp_create(
+        {"server_name": "learn", "server_url": "https://x/mcp", "server_type": "remote"},
+        {}, read,
+    )
+    assert status == V.DISPROVED and "local" in detail
+    read["servers"][0]["server_type"] = "remote"
+    status, detail = V._check_mcp_create(
+        {"server_name": "learn", "server_url": "https://x/mcp"}, {}, read,
+    )
+    assert status == V.CONFIRMED
+
+
+def test_exact_match_agent_resolution_wired():
+    s = _src(CC_NODES_PY)
+    # Deterministic exact-name pre-step before the LLM picker…
+    assert "Exact agent-name match" in s
+    assert "if _exact_pick is not None:" in s
+    # …the picker may answer NONE instead of substituting a similar agent…
+    assert "do NOT substitute a similar-sounding agent" in s
+    # …and decompose nulls invented agent ids.
+    assert "not in landscape — nulling target" in s
+
+
+def test_builder_service_has_file_logging():
+    s = _src(os.path.join(_REPO, "builder_service", "main.py"))
+    assert "builder_service_log.txt" in s
+    assert "RotatingFileHandler" in s
+
+
 def test_deterministic_summary_never_announces_draft_as_done():
     _fns = _load_functions(
         CC_NODES_PY,

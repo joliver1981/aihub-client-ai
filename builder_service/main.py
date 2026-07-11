@@ -37,6 +37,26 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(name)-24s | %(levelname)-7s | %(message)s",
 )
+
+# AIHUB-0015 F4: builder_service previously logged only to the console window,
+# so there was no on-disk evidence trail for testers/ops. Tee to a rotating
+# file under the repo-root logs/ dir (env-first root resolution — a bare
+# __file__ path breaks under PyInstaller onedir).
+try:
+    from logging.handlers import RotatingFileHandler
+    _log_root = os.getenv("APP_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _log_dir = os.path.join(_log_root, "logs")
+    os.makedirs(_log_dir, exist_ok=True)
+    _fh = RotatingFileHandler(
+        os.path.join(_log_dir, "builder_service_log.txt"),
+        maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8",
+    )
+    _fh.setFormatter(logging.Formatter(
+        "%(asctime)s | %(name)-24s | %(levelname)-7s | %(message)s"))
+    logging.getLogger().addHandler(_fh)
+except Exception as _fh_err:  # never block startup on log-file issues
+    logging.getLogger(__name__).warning(f"File logging disabled: {_fh_err}")
+
 logger = logging.getLogger("builder_service")
 
 # Quiet down noisy third-party loggers so our pipeline logs are readable

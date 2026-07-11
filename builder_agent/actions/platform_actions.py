@@ -2600,13 +2600,32 @@ def _schedule_actions() -> list:
                     ),
                     FieldSchema(
                         "type", FieldType.ENUM, required=True,
-                        choices=["cron"],
+                        choices=["cron", "interval"],
                         default="cron",
-                        description="Schedule type (use 'cron' for recurring schedules)",
+                        description=(
+                            "Schedule type. For 'every N minutes/hours' requests prefer "
+                            "'interval' with interval_minutes/interval_hours; use 'cron' "
+                            "for calendar times (daily at 8am, Mondays, monthly)."
+                        ),
                     ),
                     FieldSchema(
-                        "cron_expression", FieldType.STRING, required=True,
-                        description="Cron expression (e.g., '0 8 * * *' for daily at 8 AM)",
+                        "cron_expression", FieldType.STRING, required=False,
+                        description=(
+                            "Cron expression (e.g., '0 8 * * *' for daily at 8 AM). "
+                            "REQUIRED when type='cron'; omit for interval schedules."
+                        ),
+                    ),
+                    FieldSchema(
+                        "interval_minutes", FieldType.INTEGER, required=False,
+                        description="Fire every N minutes (type='interval' only)",
+                    ),
+                    FieldSchema(
+                        "interval_hours", FieldType.INTEGER, required=False,
+                        description="Fire every N hours (type='interval' only)",
+                    ),
+                    FieldSchema(
+                        "interval_days", FieldType.INTEGER, required=False,
+                        description="Fire every N days (type='interval' only)",
                     ),
                     FieldSchema(
                         "start_date", FieldType.STRING, required=False,
@@ -2639,7 +2658,8 @@ def _schedule_actions() -> list:
                     ),
                     ResponseMapping(
                         "scheduled_job_id", "scheduled_job_id",
-                        description="ScheduledJob ID (use this for update/delete/run_now operations)",
+                        description="ScheduledJob ID (used ONLY by schedules.run_now — "
+                                    "get/update/delete take the workflow id as job_id)",
                         field_type=FieldType.INTEGER,
                     ),
                 ],

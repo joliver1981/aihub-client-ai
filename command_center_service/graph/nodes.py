@@ -4960,6 +4960,26 @@ Respond with ONLY a JSON object, no prose:
                     pass
         # else: agent no longer exists in landscape — silently fall through
 
+    # ── Deterministic exact-name resolution (AIHUB-0021 F3) ─────────────
+    # When the user names an agent and exactly one real agent's FULL name
+    # appears in the message, pick it without the LLM — the fuzzy picker once
+    # mapped a nonexistent 'test-...-SalesAgent' onto the topically-similar
+    # 'BU2 Sales Agent'. Substring-on-full-name only (mirrors the proven
+    # REROUTE matcher); token overlap would recreate the fuzzy bug.
+    _exact_pick = None
+    _ut_norm = " ".join(user_text.lower().split())
+    _name_hits = [
+        a for a in data_agents
+        if " ".join(str(a.get("agent_name") or "").lower().split()) in _ut_norm
+        and str(a.get("agent_name") or "").strip()
+    ]
+    if len(_name_hits) == 1:
+        _exact_pick = str(_name_hits[0].get("agent_id"))
+        logger.info(
+            f"[gather_data] Exact agent-name match → "
+            f"{_name_hits[0].get('agent_name')} [{_exact_pick}] (skipping LLM picker)"
+        )
+
     # Multiple data agents — use LLM to pick the best one or ask user
     await _emit_progress("selecting", f"Selecting best agent from {len(data_agents)} available...")
     agents_info = "\n".join([
@@ -4991,25 +5011,29 @@ RULES:
 - If the user explicitly names an agent (e.g., "use AIRDB", "ask agent 281"), respond with that agent's id
 - If the user's request is a short follow-up ("try another one", "use a different agent"), infer the intended TOPIC from the recent conversation above and pick the agent that matches that topic.
 - Pick the most specifically relevant agent. When in doubt, pick the first data agent.
+- If the user explicitly names an agent and NO agent in the list has that name, do NOT substitute a similar-sounding agent — respond exactly: NONE: I don't have an agent named '<name>'.
 - Only respond "ASK: <question>" if there are multiple agents with IDENTICAL scope and you truly cannot determine which is right
 - NEVER ask the user to pick if only 1-2 agents exist or if the query clearly maps to one agent
 
-Respond with ONLY the agent_id number OR "ASK: <brief question listing 2-3 options>"."""
+Respond with ONLY the agent_id number OR "ASK: <brief question listing 2-3 options>" OR "NONE: <reason>"."""
     pick_prompt += _preferences_block(state)
 
     try:
-        from cc_config import get_step_llm
-        llm = get_step_llm("agent_picker")
-        _ap_msgs = [
-            SystemMessage(content="You are a routing assistant. Pick the best agent for the task."),
-            HumanMessage(content=pick_prompt),
-        ]
-        _ap_t0 = _trace_time.perf_counter()
-        response = await llm.ainvoke(_ap_msgs)
-        trace_llm_call(state, node="gather_data", step="agent_picker",
-                       messages=_ap_msgs, response=response,
-                       elapsed_ms=int((_trace_time.perf_counter() - _ap_t0) * 1000), model_hint="mini")
-        pick = response.content.strip()
+        if _exact_pick is not None:
+            pick = _exact_pick
+        else:
+            from cc_config import get_step_llm
+            llm = get_step_llm("agent_picker")
+            _ap_msgs = [
+                SystemMessage(content="You are a routing assistant. Pick the best agent for the task."),
+                HumanMessage(content=pick_prompt),
+            ]
+            _ap_t0 = _trace_time.perf_counter()
+            response = await llm.ainvoke(_ap_msgs)
+            trace_llm_call(state, node="gather_data", step="agent_picker",
+                           messages=_ap_msgs, response=response,
+                           elapsed_ms=int((_trace_time.perf_counter() - _ap_t0) * 1000), model_hint="mini")
+            pick = response.content.strip()
         logger.info(f"[gather_data] Agent picker response: {pick}")
 
         if pick.startswith("ASK:"):
@@ -5166,6 +5190,7 @@ RULES:
 - Order matters: if Task 2 needs Task 1's results (e.g., search then export), Task 1 must come first. Results from earlier tasks are automatically passed to later tasks.
 - Use CC tools for document search, web search, file export, maps, images, and email — these are NOT agent capabilities.
 - Use agents for database queries and domain-specific questions ONLY. Agents CANNOT create, modify, configure, or delete platform resources (agents, connections, workflows, tools, schedules, MCP servers) — never create a task that asks an agent to build or change a platform resource.
+- If the user names an agent that does NOT appear in the Available agents list, do NOT map the task to a similar-sounding agent — set target_agent to null and put the missing name in target_agent_name.
 - When the user request references prior turns ("now also do X", "same but for Y"), use the recent conversation above to fill in the implied subject.
 Only return the JSON array, nothing else."""
     decompose_prompt += _preferences_block(state)
@@ -5207,6 +5232,18 @@ Only return the JSON array, nothing else."""
                 "inputs": {},
                 "outputs": {},
             }
+            # AIHUB-0021 F3: never delegate to an agent id the LLM invented —
+            # if the target isn't in the real landscape, null it so the task
+            # fails honestly instead of running against a similar-sounding
+            # agent.
+            _known_ids = {str(a.get("agent_id")) for a in all_agents}
+            if sub_task["target_agent"] and _known_ids and str(sub_task["target_agent"]) not in _known_ids:
+                logger.warning(
+                    f"[decompose_tasks] target_agent {sub_task['target_agent']} "
+                    f"({sub_task['target_agent_name']}) not in landscape — nulling target"
+                )
+                sub_task["target_agent"] = None
+
             # Deterministic backstop (AIHUB-0015 F1): even if the decomposer
             # LLM ignores the rule above, never delegate a platform mutation
             # to a chat agent — it would role-play the build and the aggregate

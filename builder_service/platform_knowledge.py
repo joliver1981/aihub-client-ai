@@ -157,21 +157,22 @@ MCP (Model Context Protocol):
 - mcp.browse_directory — Browse the MCP server directory
 
 SCHEDULES (Workflow Scheduling):
-- schedules.create — Schedule a workflow to run on a recurring basis (uses cron expressions)
+- schedules.create — Schedule a workflow to run on a recurring basis (type="cron" for calendar times, type="interval" for "every N minutes/hours")
 - schedules.list — List all workflow schedules
 - schedules.get — Get details of a specific schedule
 - schedules.update — Modify a schedule's timing or settings
 - schedules.delete — Remove a workflow schedule
 - schedules.run_now — Trigger an immediate one-off execution of a workflow
 
-CRON EXPRESSION REFERENCE (for schedules.create):
+CRON EXPRESSION REFERENCE (for type="cron" schedules.create):
 Format: "Minute Hour Day Month DayOfWeek"
 - "0 8 * * *" → Daily at 8:00 AM
 - "0 8 * * 1-5" → Weekdays at 8:00 AM
 - "0 9 * * 1" → Every Monday at 9:00 AM
 - "0 0 1 * *" → First of every month at midnight
-- "*/15 * * * *" → Every 15 minutes
 Note: Times are in UTC unless timezone_offset is provided.
+For "every N minutes/hours" requests, prefer type="interval" with interval_minutes=N
+(or interval_hours=N) instead of a */N cron expression.
 
 IMPORTANT: Only use capability IDs from this list. Do not invent new ones.
 """

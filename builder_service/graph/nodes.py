@@ -960,8 +960,10 @@ SCHEDULING WORKFLOWS:
 - When a user requests scheduling (daily, weekly, monthly, cron, recurring, "every X"), ALWAYS create a SEPARATE schedules.create step.
 - Do NOT embed scheduling logic inside a workflow agent delegation step.
 - The schedules.create step must come AFTER the workflow creation step and reference the workflow from the previous step.
-- Include the cron expression (see CRON EXPRESSION REFERENCE in capabilities).
-- Example: "run daily at 8am" → schedules.create with cron_expression="0 8 * * *"
+- For "every N minutes/hours" use type="interval" with interval_minutes/interval_hours (NOT a cron expression).
+- For calendar times (daily at 8am, Mondays, monthly) use type="cron" with a cron expression (see CRON EXPRESSION REFERENCE in capabilities).
+- Example: "run daily at 8am" → schedules.create with type="cron", cron_expression="0 8 * * *"
+- Example: "run every 2 minutes" → schedules.create with type="interval", interval_minutes=2
 
 FORMAT YOUR RESPONSE:
 - If using Mode A (info gathering): describe the solution approach, then ask numbered questions. NO plan steps.
@@ -2154,19 +2156,46 @@ async def execute(state: dict) -> dict:
                         try:
                             from execution.workflow_compiler import compile_workflow_commands
 
-                            # Extract workflow name from step params or description
+                            # Extract workflow name from step params or description.
+                            # AIHUB-0016 F2: the old scan took ANY 'named "..."'
+                            # phrase — including an Excel EXPORT FILENAME — so one
+                            # build produced two workflow rows (MERGE-by-name),
+                            # the second named after the .xlsx file.
+                            import re as _wf_re
                             wf_name = step.get("parameters", {}).get("workflow_name", "")
                             if not wf_name:
-                                # Try to extract from description
+                                # Workflow-anchored markers first; generic ones after.
                                 desc_lower = description.lower()
-                                for marker in ["named '", 'named "', "called '", 'called "']:
+                                markers = [
+                                    "workflow named '", 'workflow named "',
+                                    "workflow called '", 'workflow called "',
+                                    "named '", 'named "', "called '", 'called "',
+                                ]
+                                for marker in markers:
                                     idx = desc_lower.find(marker)
                                     if idx >= 0:
                                         start = idx + len(marker)
                                         end = description.find(marker[-1], start)
                                         if end > start:
-                                            wf_name = description[start:end]
+                                            candidate = description[start:end]
+                                            # Never adopt a filename as a workflow name.
+                                            if _wf_re.search(
+                                                r"\.(xlsx|xlsm|xls|csv|json|pdf|docx|txt)$",
+                                                candidate, _wf_re.I,
+                                            ):
+                                                continue
+                                            wf_name = candidate
                                             break
+                                # One build request = one workflow row: a later
+                                # delegation step without an explicit name updates
+                                # the workflow saved earlier in this plan instead of
+                                # inserting a second row.
+                                if not wf_name and newly_created_workflows:
+                                    wf_name = next(iter(newly_created_workflows))
+                                    logger.info(
+                                        f"  [execute]   ♻ Reusing workflow '{wf_name}' "
+                                        f"saved earlier in this plan"
+                                    )
                                 if not wf_name:
                                     wf_name = "Builder Agent Workflow"
 
@@ -2909,6 +2938,34 @@ async def execute(state: dict) -> dict:
                                 f"  [execute]   📋 Corrected schedule job_id → workflow id "
                                 f"{_sched_rec['job_id']} (was {_jid!r})"
                             )
+
+                # ── Schedule shape guard (AIHUB-0018 F2) ────────────────────
+                # type='cron' needs a cron_expression; type='interval' needs an
+                # interval field AND a start_date anchor (without one the engine
+                # re-creates the IntervalTrigger every poll and it never fires).
+                if capability_id == "schedules.create":
+                    _stype = str(parameters.get("type") or "cron").lower()
+                    _sched_err = None
+                    if _stype == "interval":
+                        if not any(parameters.get(k) for k in
+                                   ("interval_minutes", "interval_hours", "interval_days")):
+                            _sched_err = ("interval schedule needs interval_minutes, "
+                                          "interval_hours or interval_days")
+                        elif not parameters.get("start_date"):
+                            from datetime import datetime as _sched_dt, timezone as _sched_tz
+                            parameters["start_date"] = _sched_dt.now(_sched_tz.utc).strftime(
+                                "%Y-%m-%d %H:%M:%S")
+                    elif _stype == "cron" and not parameters.get("cron_expression"):
+                        _sched_err = "cron schedule needs a cron_expression"
+                    if _sched_err:
+                        logger.warning(f"  [execute]   ✗ schedules.create invalid: {_sched_err}")
+                        updated_steps.append({
+                            **step,
+                            "status": "failed",
+                            "result": {"status": "failed",
+                                       "error": f"Schedule not created — {_sched_err}."},
+                        })
+                        continue
 
                 # Resolve reference parameters (e.g., workflow/agent/connection name → numeric ID)
                 # This MUST run BEFORE validation so names are resolved to IDs first.
