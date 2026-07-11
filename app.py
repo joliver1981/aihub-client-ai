@@ -2919,6 +2919,33 @@ def save():
         logger.debug(str(code))
         logger.debug(str(output))
 
+        # ── Save-time validation (AIHUB-0020 F2) ────────────────────────
+        # A syntactically-broken tool body used to persist and report
+        # '✅ created', only blowing up later at run time. Validate the code
+        # wrapped exactly as it will execute (a function body) and reject
+        # invalid Python as an honest error. {status:'error'} is turned into
+        # a failed create by the builder's success_indicator and the
+        # internal-exec honest-HTTP normalizer.
+        import ast as _tool_ast
+        if not str(name).isidentifier():
+            logger.warning(f"Rejected custom tool '{name}': not a valid Python function name")
+            return jsonify(status="error",
+                           message=f"Tool name '{name}' is not a valid Python function name "
+                                   f"(use letters, digits and underscores; no spaces)")
+        _param_names = params if isinstance(params, list) else []
+        _bad_params = [p for p in _param_names if not str(p).isidentifier()]
+        if _bad_params:
+            logger.warning(f"Rejected custom tool '{name}': invalid parameter name(s) {_bad_params}")
+            return jsonify(status="error",
+                           message=f"Invalid parameter name(s): {', '.join(map(str, _bad_params))}")
+        try:
+            _body = "\n".join("    " + ln for ln in str(code).split("\n")) or "    pass"
+            _tool_ast.parse(f"def _validate_tool({', '.join(_param_names)}):\n{_body}")
+        except SyntaxError as _syn_err:
+            logger.warning(f"Rejected custom tool '{name}': invalid Python — {_syn_err}")
+            return jsonify(status="error",
+                           message=f"Tool code is not valid Python and was NOT saved: {_syn_err}")
+
         result = save_custom_tool(name, description, params, paramTypes, modules, code, output, paramOptional, paramDefault)
     except Exception as e:
         print(str(e))

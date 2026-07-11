@@ -27,9 +27,16 @@ async def test_tool_in_sandbox(tool_spec: Dict[str, Any]) -> Dict[str, Any]:
     code = tool_spec.get("code", "")
     parameters = tool_spec.get("parameters", {})
 
-    # Build test parameters based on parameter types
+    # Honor caller-supplied parameter values first (run_generated_tool sets
+    # tool_spec['test_params'] — previously ignored, so every run used dummy
+    # values regardless of what the user asked for); fall back to dummy
+    # values by declared type for the design-time sandbox test.
+    provided = tool_spec.get("test_params") or {}
     test_params = {}
     for param_name, param_desc in parameters.items():
+        if param_name in provided:
+            test_params[param_name] = provided[param_name]
+            continue
         param_type = tool_spec.get("parameter_types", {}).get(param_name, "str")
         if param_type == "int":
             test_params[param_name] = 1

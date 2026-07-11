@@ -2107,6 +2107,131 @@ def test_email_configure_derived_prefix_conflict_is_409():
     assert not any(s.startswith("insert") for s, _ in cur.executed)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# AIHUB-0020 F1/F2 — tools: save-time validation + runnable-registry merge
+# ═══════════════════════════════════════════════════════════════════════════
+# F2: a syntactically-broken tool persisted as '✅ created'. F1: a tool
+# verified-present in /api/tools/packages was NOT runnable — run_generated_tool
+# reads a different (CC-private) store.
+
+def _drive_tool_save(payload):
+    calls = {}
+
+    def _save_custom_tool(*a, **k):
+        calls["saved"] = True
+        return True
+
+    class _Req:
+        json = payload
+
+    class _Cfg:
+        CUSTOM_TOOLS_FOLDER = "tools"
+
+    fn = _load_functions(APP_PY, ["save"], {
+        "request": _Req,
+        "jsonify": lambda **kw: kw,
+        "logger": logging.getLogger("tool-save-test"),
+        "save_custom_tool": _save_custom_tool,
+        "cfg": _Cfg,
+        "os": os,
+        "render_template": lambda *a, **k: {"status": "success", **k},
+    })["save"]
+    return fn(), calls
+
+
+_TOOL_PAYLOAD = {
+    "name": "test_c2f", "description": "convert", "params": ["celsius"],
+    "paramTypes": ["float"], "modules": [], "output": "float",
+    "code": "return celsius * 9/5 + 32",
+}
+
+
+def test_tool_save_rejects_invalid_python():
+    out, calls = _drive_tool_save({**_TOOL_PAYLOAD, "name": "test_broken",
+                                   "code": "return celsius * (9/5 +"})
+    assert out["status"] == "error" and "not valid Python" in out["message"]
+    assert "saved" not in calls, "broken tool must NOT persist"
+
+
+def test_tool_save_rejects_invalid_names_and_params():
+    out, calls = _drive_tool_save({**_TOOL_PAYLOAD, "name": "my tool!"})
+    assert out["status"] == "error" and "saved" not in calls
+    out, calls = _drive_tool_save({**_TOOL_PAYLOAD, "params": ["not a name"]})
+    assert out["status"] == "error" and "saved" not in calls
+
+
+def test_tool_save_accepts_valid_python():
+    out, calls = _drive_tool_save(_TOOL_PAYLOAD)
+    assert calls.get("saved") is True
+    assert out.get("status") == "success"
+
+
+import json  # noqa: E402  (tool-store fixtures below)
+
+
+def _tool_factory_with_stores(tmp_path):
+    TF = _load_module(os.path.join(_REPO, "command_center", "tools", "tool_factory.py"),
+                      "ss_tool_factory")
+    cc_dir = tmp_path / "cc_store"
+    cc_dir.mkdir()
+    TF._GENERATED_TOOLS_DIR = cc_dir
+    plat = tmp_path / "platform_tools" / "test_c2f"
+    plat.mkdir(parents=True)
+    (plat / "config.json").write_text(json.dumps({
+        "function_name": "test_c2f", "description": "convert",
+        "parameters": ["celsius"], "parameter_types": ["float"],
+        "output_type": "float", "code": "code.py", "modules": ["import math"],
+    }), encoding="utf-8")
+    (plat / "code.py").write_text("return celsius * 9/5 + 32", encoding="utf-8")
+    TF._get_platform_tools_dir = lambda: tmp_path / "platform_tools"
+    return TF
+
+
+def test_tool_factory_falls_through_to_platform_store(tmp_path):
+    TF = _tool_factory_with_stores(tmp_path)
+    tool = TF.get_generated_tool("test_c2f")
+    assert tool is not None, "platform-created tool still invisible to run_generated_tool"
+    assert tool["config"]["parameters"] == {"celsius": "celsius"}
+    assert tool["config"]["parameter_types"] == {"celsius": "float"}
+    assert tool["code"].startswith("import math\n")
+    names = [t["name"] for t in TF.list_generated_tools()]
+    assert "test_c2f" in names
+    assert TF.get_generated_tool("nope") is None
+
+
+def test_tool_factory_cc_store_wins_collisions(tmp_path):
+    TF = _tool_factory_with_stores(tmp_path)
+    cc_tool = TF._GENERATED_TOOLS_DIR / "test_c2f"
+    cc_tool.mkdir()
+    (cc_tool / "config.json").write_text(json.dumps({
+        "function_name": "test_c2f", "description": "cc version",
+        "parameters": {"celsius": "temp"}, "parameter_types": {"celsius": "float"},
+        "generated": True,
+    }), encoding="utf-8")
+    (cc_tool / "code.py").write_text("return 0", encoding="utf-8")
+    tools = [t for t in TF.list_generated_tools() if t["name"] == "test_c2f"]
+    assert len(tools) == 1 and tools[0]["source"] == "cc"
+    assert TF.get_generated_tool("test_c2f")["config"]["description"] == "cc version"
+
+
+def test_sandbox_honors_user_params_end_to_end():
+    # The full 0020 criterion: a platform-format tool, adapted, actually RUNS
+    # with the caller's parameters (previously test_params was ignored and
+    # every run used dummy values).
+    import asyncio
+    TS = _load_module(os.path.join(_REPO, "command_center", "tools", "tool_sandbox.py"),
+                      "ss_tool_sandbox")
+    out = asyncio.run(TS.test_tool_in_sandbox({
+        "tool_name": "test_c2f",
+        "code": "return celsius * 9/5 + 32",
+        "parameters": {"celsius": "celsius"},
+        "parameter_types": {"celsius": "float"},
+        "test_params": {"celsius": 100},
+    }))
+    assert out.get("success") is True
+    assert "212" in str(out.get("output"))
+
+
 def test_deterministic_summary_never_announces_draft_as_done():
     _fns = _load_functions(
         CC_NODES_PY,
