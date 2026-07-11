@@ -1103,8 +1103,11 @@ def _step_depends_on_failed(step, failed_steps, newly_created_connections, newly
         and s.get("action") in ("create", "test", "discover_tables", "analyze_tables")
         for s in failed_steps
     )
+    # create_data_agent counts too — a SKIPPED data-agent step must gate the
+    # agents.chat step behind it (AIHUB-0015 retest F2: chat with an agent
+    # that was never created logged as 'completed').
     has_failed_agents = any(
-        s.get("domain") == "agents" and s.get("action") == "create"
+        s.get("domain") == "agents" and s.get("action") in ("create", "create_data_agent")
         for s in failed_steps
     )
     has_failed_workflows = any(
@@ -1121,7 +1124,8 @@ def _step_depends_on_failed(step, failed_steps, newly_created_connections, newly
     # ═══════════════════════════════════════════════════════════════
     needs_connection = (
         parameters.get("connection_id") is not None
-        or (domain == "connections" and action in ("test", "update", "delete"))
+        or (domain == "connections" and action in
+            ("test", "update", "delete", "discover_tables", "analyze_tables"))
         # Planner-emitted null keys are NOT real references — value-presence,
         # not key-presence.
         or (domain == "agents" and action in ("create", "create_data_agent")
@@ -1208,6 +1212,11 @@ def _step_depends_on_failed(step, failed_steps, newly_created_connections, newly
                 and (parameters.get("is_data_agent")
                      or any(parameters.get(k) not in (None, "") for k in
                             ("connection_type", "connection_id", "connection_name", "database"))))
+            # Chatting with an agent in a broken data chain is as dishonest as
+            # creating one (AIHUB-0015 retest F2: agents.chat 'completed'
+            # after the data agent it targets was skipped).
+            or (domain == "agents" and action == "chat")
+            or (domain == "connections" and action in ("discover_tables", "analyze_tables"))
             or (domain == "schedules" and action == "create")
             or (domain == "workflows" and action in ("create", "save", "update"))
             or domain == "agent"   # workflow/data-agent delegation steps
@@ -2287,6 +2296,23 @@ async def execute(state: dict) -> dict:
                                     delegation_result["workflow_validation_errors"] = _wf_validation.get("problems") or []
                                 else:
                                     logger.info(f"  [execute]   ✓ Workflow saved successfully (id={saved_id})")
+
+                                # Propagate the executor's read-back verification so
+                                # CC's verified/drafts channels see this save
+                                # (AIHUB-0016 retest F1: verified=True was computed
+                                # by _verify_write then DISCARDED here, so CC
+                                # reported a valid persisted workflow as 'could not
+                                # be independently verified' and never 'ready').
+                                delegation_result["verified"] = save_result.verified
+                                if save_result.verification_detail:
+                                    delegation_result["verification_detail"] = save_result.verification_detail
+                                if _wf_validation is not None:
+                                    _dr_data = delegation_result.get("data")
+                                    if not isinstance(_dr_data, dict):
+                                        _dr_data = {}
+                                    _dr_data["workflow_validation"] = _wf_validation
+                                    delegation_result["data"] = _dr_data
+
                                 # Store in result so subsequent steps can reference it
                                 delegation_result["saved_workflow_name"] = wf_name
                                 delegation_result["saved_workflow_id"] = saved_id
@@ -3232,12 +3258,19 @@ async def execute(state: dict) -> dict:
                     # ── Track newly created connections for cross-step resolution ──
                     if capability_id == "connections.create":
                         try:
-                            # Extract connection ID from result
-                            # Response format: {"status": "success", "response": "85"}
+                            # Extract connection ID from result. The registry now
+                            # maps the raw body's 'response' to 'connection_id'
+                            # (AIHUB-0015 retest F1: reading only 'response' left
+                            # the tracker empty, so the test step's NAME never
+                            # resolved and hit the int-only route as a 404).
                             new_conn_id = None
-                            if result.data and "response" in result.data:
-                                new_conn_id = int(result.data["response"])
-                            elif result.message and result.message.isdigit():
+                            _cd = result.data if isinstance(result.data, dict) else {}
+                            for _ck in ("connection_id", "response"):
+                                _cv = str(_cd.get(_ck) or "").strip()
+                                if _cv.isdigit():
+                                    new_conn_id = int(_cv)
+                                    break
+                            if new_conn_id is None and result.message and result.message.isdigit():
                                 new_conn_id = int(result.message)
 
                             logger.info(f"  [execute]   🔍 Connection tracking: extracted new_conn_id={new_conn_id}, "
@@ -3278,34 +3311,14 @@ async def execute(state: dict) -> dict:
                     # reads back as ✅ present. When the plan carries no explicit
                     # connections.test step, run one now and fail THIS step
                     # honestly if the credentials don't actually work.
-                    _autotest_needed = False
+                    # The credential test runs UNCONDITIONALLY after every DB
+                    # connection save (AIHUB-0015 retest F1: relying on the
+                    # plan's own test step let a wrong-password create read as
+                    # '✅ created' when that step later failed or 404'd — the
+                    # CREATE step itself must carry the honest verdict).
                     if capability_id == "connections.create" and (
                         parameters.get("server") or parameters.get("database")
                     ):
-                        # A plan-level test step only covers THIS connection if
-                        # it references it (by name) or the plan creates just
-                        # one connection — otherwise ConnA's test step must not
-                        # suppress ConnB's credential check.
-                        _conn_creates = sum(
-                            1 for s in plan["steps"]
-                            if s.get("domain") == "connections" and s.get("action") == "create"
-                        )
-                        _this_conn_name = str(
-                            parameters.get("name") or parameters.get("connection_name") or ""
-                        ).strip().lower()
-                        _covered = False
-                        for s in plan["steps"]:
-                            if s.get("domain") == "connections" and s.get("action") == "test":
-                                if _conn_creates <= 1:
-                                    _covered = True
-                                    break
-                                _blob = (str(s.get("parameters") or {}) + " "
-                                         + str(s.get("description") or "")).lower()
-                                if _this_conn_name and _this_conn_name in _blob:
-                                    _covered = True
-                                    break
-                        _autotest_needed = not _covered
-                    if _autotest_needed:
                         try:
                             _test_conn_id = None
                             _rd = result.data if isinstance(result.data, dict) else {}
@@ -3338,11 +3351,12 @@ async def execute(state: dict) -> dict:
                                         f"credential test FAILED — it cannot be used: {_test_err}"
                                     )
                                     updated_step["result"] = _res_dict
-                                    # Untrack: downstream steps must not resolve to a
-                                    # connection that cannot authenticate.
-                                    _cn = parameters.get("name") or parameters.get("connection_name")
-                                    if _cn:
-                                        newly_created_connections.pop(_cn, None)
+                                    # Keep the connection TRACKED (so later steps
+                                    # that reference it by name still resolve to a
+                                    # numeric id and fail with a real ODBC error,
+                                    # not a name-based 404) — the failed create
+                                    # step's parameters already exclude it from
+                                    # the healthy-connection rescue.
                                 else:
                                     logger.info(
                                         f"  [execute]   ✓ Auto credential test passed for "

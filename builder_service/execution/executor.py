@@ -444,10 +444,27 @@ class ActionExecutor:
                             f"the request was not sent"
                         ),
                     )
+                value = str(raw_value)
+                # REFERENCE ids are numeric on every target route (all use
+                # int: converters) — an unresolved NAME here would fall
+                # through to the app's HTML 404 handler and be reported as a
+                # transport error instead of the truth: the referenced
+                # resource was never created/resolved (AIHUB-0015 retest F1).
+                _fdef = next((f for f in route.input_fields if f.name == param), None)
+                _ftype = getattr(getattr(_fdef, "field_type", None), "value", None)
+                if _ftype == "reference" and not value.strip().isdigit():
+                    return ExecutionResult(
+                        status=ExecutionStatus.FAILED,
+                        message=f"Unresolved reference '{value}' for path parameter '{param}'",
+                        error=(
+                            f"'{value}' is not a valid {param} — the referenced resource "
+                            f"was probably never created or could not be resolved; "
+                            f"the request was not sent"
+                        ),
+                    )
                 placeholder = f"<{param}>"
                 int_placeholder = f"<int:{param}>"
                 str_placeholder = f"<string:{param}>"
-                value = str(raw_value)
                 path = path.replace(placeholder, value)
                 path = path.replace(int_placeholder, value)
                 path = path.replace(str_placeholder, value)

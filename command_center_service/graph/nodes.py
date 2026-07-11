@@ -6098,7 +6098,7 @@ def _summarize_verification(plan_data: dict) -> dict:
     verification_detail) — steps with no verification spec (detail is None, e.g.
     reads) are not flagged. Returns {verified, unverified, failed} lists of
     {label, detail}."""
-    verified, unverified, failed, drafts = [], [], [], []
+    verified, unverified, failed, drafts, skipped = [], [], [], [], []
     steps = plan_data.get("steps", []) if isinstance(plan_data, dict) else []
     for step in steps:
         if not isinstance(step, dict):
@@ -6110,6 +6110,11 @@ def _summarize_verification(plan_data: dict) -> dict:
         vd = result.get("verification_detail")
         if status in ("failed", "error"):
             failed.append({"label": label, "detail": result.get("error") or vd})
+        elif status == "skipped":
+            # AIHUB-0015 retest F2: dependency-skipped steps were invisible in
+            # the summary, so the execution record read as more complete than
+            # it was.
+            skipped.append({"label": label, "detail": result.get("message")})
         elif v is False:            # DISPROVED (defensive — Phase 2 also sets status=failed)
             failed.append({"label": label, "detail": vd})
         elif v is True:
@@ -6127,19 +6132,29 @@ def _summarize_verification(plan_data: dict) -> dict:
             problems = (wfv or {}).get("problems") or result.get("workflow_validation_errors") or []
             drafts.append({"label": label, "problems": [str(p) for p in problems][:5]})
 
-    return {"verified": verified, "unverified": unverified, "failed": failed, "drafts": drafts}
+    return {"verified": verified, "unverified": unverified, "failed": failed,
+            "drafts": drafts, "skipped": skipped}
 
 
 def _render_verification_for_prompt(summary: dict) -> str:
-    if not any(summary.get(k) for k in ("verified", "unverified", "failed", "drafts")):
+    if not any(summary.get(k) for k in ("verified", "unverified", "failed", "drafts", "skipped")):
         return "(no mutating steps were verified this turn)"
     lines = []
+    draft_labels = {d.get("label") for d in summary.get("drafts", [])}
     for v in summary.get("verified", []):
-        lines.append(f"VERIFIED: {v['label']}")
+        if v.get("label") in draft_labels:
+            lines.append(f"VERIFIED: {v['label']}")
+        else:
+            # Read-back confirmed and no draft state — the resource is real
+            # and usable; say so plainly (AIHUB-0016 retest F1: valid builds
+            # were never called ready).
+            lines.append(f"VERIFIED (confirmed present by read-back — you may call it ready): {v['label']}")
     for u in summary.get("unverified", []):
         lines.append(f"UNVERIFIED (action returned success but read-back could NOT confirm): {u['label']}")
     for f in summary.get("failed", []):
         lines.append(f"FAILED: {f['label']}")
+    for s in summary.get("skipped", []):
+        lines.append(f"SKIPPED (a prerequisite failed — this step did NOT run): {s['label']}")
     for d in summary.get("drafts", []):
         probs = "; ".join(d.get("problems") or []) or "validation failed"
         lines.append(
@@ -6169,6 +6184,12 @@ def _verification_footer(summary: dict) -> str:
         blocks.append(
             f"**📝 {len(summary['drafts'])} workflow(s) saved as DRAFT — not runnable "
             f"until fixed:**\n{lines}"
+        )
+    if summary.get("skipped"):
+        lines = "\n".join(f"- {s['label']}" for s in summary["skipped"][:6])
+        blocks.append(
+            f"**⏭️ {len(summary['skipped'])} step(s) skipped because a prerequisite "
+            f"failed:**\n{lines}"
         )
     if summary.get("unverified"):
         lines = "\n".join(f"- {u['label']}" for u in summary["unverified"][:6])

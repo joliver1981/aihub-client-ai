@@ -1856,10 +1856,25 @@ _FAILED_DISCOVERY = [{"domain": "connections", "action": "discover_tables"}]
     {"domain": "schedules", "action": "create", "parameters": {"workflow_id": 5}},
     {"domain": "workflows", "action": "create", "parameters": {}},
     {"domain": "agent", "action": "delegate", "parameters": {}},   # workflow delegation
+    # AIHUB-0015 retest F2: these two logged as 'completed' after the
+    # connection test failed.
+    {"domain": "connections", "action": "analyze_tables", "parameters": {}},
+    {"domain": "agents", "action": "chat", "parameters": {}},
 ])
 def test_chain_dependents_gate_on_broken_connection(failed, step):
     assert _dep(step, failed) is True, \
         f"{step['domain']}.{step['action']} stacked on a broken connection foundation"
+
+
+def test_skipped_data_agent_gates_chat_step():
+    # AIHUB-0015 retest F2: create_data_agent was SKIPPED (not failed) and the
+    # chat step with that never-created agent then 'completed'. Skipped steps
+    # enter prior_failed (call-site cascade) and create_data_agent must count
+    # as a failed agent create.
+    failed = [{"domain": "agents", "action": "create_data_agent",
+               "parameters": {}, "status": "skipped"}]
+    chat = {"domain": "agents", "action": "chat", "parameters": {}}
+    assert _dep(chat, failed) is True
 
 
 @pytest.mark.parametrize("step", [
@@ -1950,16 +1965,23 @@ def test_executor_fails_missing_path_param_pre_http():
     EX = _executor_mod()
     route = _platform_actions_by_id()["mcp.get_tools"].primary_route
 
-    async def _drive():
+    async def _drive(params):
         ex = EX.ActionExecutor(api_key="x")
         try:
-            return await ex._execute_route(route, {}, "mcp.get_tools")
+            return await ex._execute_route(route, params, "mcp.get_tools")
         finally:
             await ex.close()
 
-    out = asyncio.run(_drive())
+    out = asyncio.run(_drive({}))
     assert out.status == EX.ExecutionStatus.FAILED
     assert "path parameter" in (out.error or "")
+
+    # AIHUB-0015 retest F1: an UNRESOLVED NAME in a REFERENCE path param hit
+    # the int-converter route as /api/connections/<name>/test -> HTML 404
+    # reported as a transport error. Fail pre-HTTP with the truth instead.
+    out = asyncio.run(_drive({"server_id": "test-AIHUB0015-retest-bad"}))
+    assert out.status == EX.ExecutionStatus.FAILED
+    assert "not a valid server_id" in (out.error or "")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2415,17 +2437,58 @@ def test_enrichment_merge_does_not_let_none_win():
     assert "result = {**extracted, **_current_nonempty}" in s
 
 
-def test_autotest_is_per_connection():
-    # Review follow-up: ConnA's test step must not suppress ConnB's
-    # credential check in multi-connection plans.
+def test_autotest_is_unconditional():
+    # AIHUB-0015 retest F1: relying on the plan's own test step let a
+    # wrong-password create read as created when that step later failed or
+    # 404'd — the credential test now runs after EVERY DB connection save.
     s = _src(_BUILDER_NODES)
-    assert "_conn_creates" in s and "_this_conn_name" in s and "_autotest_needed" in s
+    assert "runs UNCONDITIONALLY" in s
+    assert "auto credential test for connection" in s
+    # The dead-credential connection stays tracked so name references still
+    # resolve to a numeric id (never a name-based 404)…
+    assert "Keep the connection TRACKED" in s
+    # …and the tracker reads the mapped connection_id shape too.
+    assert 'for _ck in ("connection_id", "response"):' in s
 
 
 def test_builder_service_has_file_logging():
     s = _src(os.path.join(_REPO, "builder_service", "main.py"))
     assert "builder_service_log.txt" in s
     assert "RotatingFileHandler" in s
+
+
+def test_cc_summary_lists_skipped_steps_and_ready_wording():
+    # AIHUB-0015 retest F2 (skipped steps invisible) + AIHUB-0016 retest F1
+    # (valid verified builds never called ready).
+    _fns = _load_functions(
+        CC_NODES_PY,
+        ["_summarize_verification", "_verification_footer", "_render_verification_for_prompt"],
+    )
+    plan = {"status": "partial", "steps": [
+        {"status": "failed", "description": "test connection",
+         "result": {"error": "auth failed"}},
+        {"status": "skipped", "description": "create data agent",
+         "result": {"status": "skipped", "message": "Skipped because a prior step failed"}},
+        {"status": "completed", "description": "save workflow good",
+         "result": {"verified": True, "verification_detail": "present (valid structure)",
+                    "data": {"workflow_validation": {"is_valid": True, "problems": []}}}},
+    ]}
+    s = _fns["_summarize_verification"](plan)
+    assert len(s["skipped"]) == 1 and len(s["failed"]) == 1 and len(s["verified"]) == 1
+    f = _fns["_verification_footer"](s)
+    assert "skipped because a prerequisite" in f.lower()
+    r = _fns["_render_verification_for_prompt"](s)
+    assert "you may call it ready" in r
+    assert "SKIPPED" in r and "did NOT run" in r
+
+
+def test_mechanism_b_propagates_save_verification():
+    # AIHUB-0016 retest F1: the delegation auto-save computed verified=True
+    # via _verify_write then discarded it — CC reported a valid persisted
+    # workflow as 'could not be independently verified'.
+    s = _src(_BUILDER_NODES)
+    assert 'delegation_result["verified"] = save_result.verified' in s
+    assert '_dr_data["workflow_validation"] = _wf_validation' in s
 
 
 def test_deterministic_summary_never_announces_draft_as_done():
