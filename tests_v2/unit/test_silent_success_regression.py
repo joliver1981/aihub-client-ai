@@ -1814,6 +1814,65 @@ def test_cc_messaging_distinguishes_draft_from_ready():
     assert footer(s2) == ""   # clean success -> no warning footer
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# AIHUB-0015 F2 / AIHUB-0022 F2 — connection-chain dependency gating
+# ═══════════════════════════════════════════════════════════════════════════
+# A data agent, workflow and ACTIVE schedule were stacked on a connection
+# whose test (and table discovery) had failed. The chain dependents must be
+# skipped when the connection foundation is broken.
+
+_BUILDER_NODES = os.path.join(_REPO, "builder_service", "graph", "nodes.py")
+_depends = _load_functions(_BUILDER_NODES, ["_step_depends_on_failed"])["_step_depends_on_failed"]
+
+
+def _dep(step, failed):
+    return _depends(step, failed, {}, {}, {}, {})
+
+
+_FAILED_CONN_TEST = [{"domain": "connections", "action": "test"}]
+_FAILED_DISCOVERY = [{"domain": "connections", "action": "discover_tables"}]
+
+
+@pytest.mark.parametrize("failed", [_FAILED_CONN_TEST, _FAILED_DISCOVERY])
+@pytest.mark.parametrize("step", [
+    {"domain": "agents", "action": "create_data_agent", "parameters": {}},
+    {"domain": "agents", "action": "create",
+     "parameters": {"connection_type": "sqlserver"}},
+    {"domain": "agents", "action": "create", "parameters": {"is_data_agent": True}},
+    {"domain": "schedules", "action": "create", "parameters": {"workflow_id": 5}},
+    {"domain": "workflows", "action": "create", "parameters": {}},
+    {"domain": "agent", "action": "delegate", "parameters": {}},   # workflow delegation
+])
+def test_chain_dependents_gate_on_broken_connection(failed, step):
+    assert _dep(step, failed) is True, \
+        f"{step['domain']}.{step['action']} stacked on a broken connection foundation"
+
+
+@pytest.mark.parametrize("step", [
+    # Independent chains still proceed (the function's documented contract).
+    {"domain": "tools", "action": "create", "parameters": {"name": "t", "code": "x"}},
+    {"domain": "agents", "action": "create", "parameters": {"agent_description": "helper"}},
+    {"domain": "knowledge", "action": "list", "parameters": {}},
+])
+def test_independent_steps_proceed_despite_connection_failure(step):
+    assert _dep(step, _FAILED_CONN_TEST) is False
+
+
+def test_no_failures_no_gating():
+    step = {"domain": "agents", "action": "create_data_agent", "parameters": {}}
+    assert _dep(step, []) is False
+
+
+def test_skip_cascade_and_autotest_wired():
+    s = _src(_BUILDER_NODES)
+    # Skipped steps keep gating later dependents…
+    assert 's.get("status") in ("failed", "skipped")' in s
+    # …and a connections.create without an explicit test step runs an auto
+    # credential test that fails the step honestly on bad credentials.
+    assert "auto credential test for connection" in s
+    assert "credential test FAILED" in s
+
+
 def test_deterministic_summary_never_announces_draft_as_done():
     _fns = _load_functions(
         CC_NODES_PY,

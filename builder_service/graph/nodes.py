@@ -1092,8 +1092,13 @@ def _step_depends_on_failed(step, failed_steps, newly_created_connections, newly
     parameters = step.get("parameters", {})
 
     # Determine what resource types failed to be created
+    # AIHUB-0015 F2 / AIHUB-0022 F2: a connection whose TEST or table
+    # discovery failed is just as unusable a foundation as one whose create
+    # failed — downstream data agents, workflow builds and schedules must not
+    # be stacked on it.
     has_failed_connections = any(
-        s.get("domain") == "connections" and s.get("action") == "create"
+        s.get("domain") == "connections"
+        and s.get("action") in ("create", "test", "discover_tables", "analyze_tables")
         for s in failed_steps
     )
     has_failed_agents = any(
@@ -1115,7 +1120,9 @@ def _step_depends_on_failed(step, failed_steps, newly_created_connections, newly
     needs_connection = (
         "connection_id" in parameters
         or (domain == "connections" and action in ("test", "update", "delete"))
-        or (domain == "agents" and action == "create" and parameters.get("connection_type"))
+        or (domain == "agents" and action in ("create", "create_data_agent")
+            and any(k in parameters for k in
+                    ("connection_type", "connection_id", "connection_name", "database")))
     )
 
     if needs_connection and has_failed_connections:
@@ -1180,6 +1187,29 @@ def _step_depends_on_failed(step, failed_steps, newly_created_connections, newly
         if integration_id and isinstance(integration_id, str) and not integration_id.isdigit():
             if integration_id not in newly_created_integrations:
                 return True
+
+    # ═══════════════════════════════════════════════════════════════
+    # AIHUB-0015 F2 / AIHUB-0022 F2 — connection-chain dependents
+    # ═══════════════════════════════════════════════════════════════
+    # When the plan's connection foundation is broken (create, test or table
+    # discovery failed), never stand up the resources that exist to serve it:
+    # data agents, workflow builds (agent delegation steps) and schedules.
+    # A skipped step is reported honestly by the CC footer; an ENABLED data
+    # agent or an ACTIVE weekly schedule on a dead connection looks real in
+    # every UI and only fails later, silently, on someone else's screen.
+    if has_failed_connections:
+        chain_dependent = (
+            (domain == "agents" and action == "create_data_agent")
+            or (domain == "agents" and action == "create"
+                and (parameters.get("is_data_agent")
+                     or any(k in parameters for k in
+                            ("connection_type", "connection_id", "connection_name", "database"))))
+            or (domain == "schedules" and action == "create")
+            or (domain == "workflows" and action in ("create", "save", "update"))
+            or domain == "agent"   # workflow/data-agent delegation steps
+        )
+        if chain_dependent:
+            return True
 
     # No blocking dependency found — step can proceed
     return False
@@ -1945,9 +1975,13 @@ async def execute(state: dict) -> dict:
             # Steps in a plan are sequential. If an earlier step failed, later
             # steps that depend on its outputs (workflow_id, connection_id, etc.)
             # will also fail or produce invalid results.  Skip them cleanly.
+            # Skipped steps count too: a data-agent step skipped because its
+            # connection test failed must keep gating the workflow/schedule
+            # steps behind it (AIHUB-0022 F2 cascade).
             prior_failed = [
                 s for s in updated_steps
-                if s.get("status") == "failed" and s.get("order", 0) < step.get("order", 999)
+                if s.get("status") in ("failed", "skipped")
+                and s.get("order", 0) < step.get("order", 999)
             ]
             if prior_failed:
                 # Check if THIS step actually depends on any failed step
@@ -3062,6 +3096,67 @@ async def execute(state: dict) -> dict:
                                     logger.warning(f"  [execute]   ⚠️  Could not track connection ID {new_conn_id} - no 'name' or 'connection_name' in parameters")
                         except (ValueError, KeyError, AttributeError) as e:
                             logger.warning(f"  [execute]   Could not track new connection: {e}")
+
+                    # ── Credential-test follow-up (AIHUB-0015 F2) ─────────────
+                    # The connection save is a metadata MERGE — it never touches
+                    # the database server, so a wrong password still saves and
+                    # reads back as ✅ present. When the plan carries no explicit
+                    # connections.test step, run one now and fail THIS step
+                    # honestly if the credentials don't actually work.
+                    if (
+                        capability_id == "connections.create"
+                        and (parameters.get("server") or parameters.get("database"))
+                        and not any(
+                            s.get("domain") == "connections" and s.get("action") == "test"
+                            for s in plan["steps"]
+                        )
+                    ):
+                        try:
+                            _test_conn_id = None
+                            _rd = result.data if isinstance(result.data, dict) else {}
+                            for _k in ("response", "connection_id"):
+                                _v = str(_rd.get(_k) or "").strip()
+                                if _v.isdigit():
+                                    _test_conn_id = int(_v)
+                                    break
+                            if _test_conn_id:
+                                logger.info(
+                                    f"  [execute]   🔌 No test step in plan — credential-testing "
+                                    f"connection {_test_conn_id} before reporting success"
+                                )
+                                _test_res = await executor.execute_step(
+                                    domain="connections",
+                                    action="test",
+                                    parameters={"connection_id": _test_conn_id},
+                                    description=f"auto credential test for connection {_test_conn_id}",
+                                )
+                                if not _test_res.is_success:
+                                    _test_err = _test_res.error or _test_res.message or "connection test failed"
+                                    logger.warning(
+                                        f"  [execute]   ✗ Auto credential test FAILED for "
+                                        f"connection {_test_conn_id}: {_test_err}"
+                                    )
+                                    updated_step["status"] = "failed"
+                                    _res_dict = updated_step.get("result") or {}
+                                    _res_dict["error"] = (
+                                        f"connection was saved (id {_test_conn_id}) but its "
+                                        f"credential test FAILED — it cannot be used: {_test_err}"
+                                    )
+                                    updated_step["result"] = _res_dict
+                                    # Untrack: downstream steps must not resolve to a
+                                    # connection that cannot authenticate.
+                                    _cn = parameters.get("name") or parameters.get("connection_name")
+                                    if _cn:
+                                        newly_created_connections.pop(_cn, None)
+                                else:
+                                    logger.info(
+                                        f"  [execute]   ✓ Auto credential test passed for "
+                                        f"connection {_test_conn_id}"
+                                    )
+                        except Exception as _autotest_err:
+                            # Never let the auto-test itself break the step —
+                            # worst case we are back to pre-fix behavior.
+                            logger.warning(f"  [execute]   Auto credential test errored: {_autotest_err}")
 
                     # ── Track newly created agents for cross-step resolution ──
                     if capability_id == "agents.create" or capability_id == "agents.create_data_agent":
