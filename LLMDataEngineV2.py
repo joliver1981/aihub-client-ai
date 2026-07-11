@@ -1221,8 +1221,22 @@ class LLMDataEngine:
                 if load_success and is_data_query_required:  # Data query was required and loaded successfully
                     self.analytical_engine.set_data(self.environment.dfs, self.environment.dfs_desc, input_question)
 
+                    # AIHUB-0015 retest: a 1x1 SQL result IS the answer. The
+                    # formatting-aware check used to route scalars into the
+                    # PandasAI layer just for thousands-separator formatting,
+                    # where re-aggregation of the already-aggregated frame
+                    # turned a 1,114,758 row count into '1'. Scalars never
+                    # need analytical processing — skip the check entirely.
+                    _last_df = self.environment.dfs[-1] if self.environment.dfs else None
+                    _is_scalar_result = getattr(_last_df, "shape", None) == (1, 1)
+
                     # If data was loaded, check if it is ok to bypass analytical engine
-                    if cfg.USE_FORMATTING_AWARE_ANALYTICAL_CHECK:
+                    if _is_scalar_result:
+                        analytical_query_required = False
+                        analytical_query_required_confidence = 100
+                        logger.info('Scalar (1x1) SQL result — skipping analytical layer; the value is the answer.')
+                        print('Scalar (1x1) SQL result — skipping analytical layer; the value is the answer.')
+                    elif cfg.USE_FORMATTING_AWARE_ANALYTICAL_CHECK:
                         # Use the enhanced formatting-aware version
                         with self._time_stage('is_analytical_required'):
                             analytical_query_required, analytical_query_required_confidence, explanation, formatting_required, formatting_requirements = self.analytical_engine._is_analytical_query_required_v3_with_formatting()

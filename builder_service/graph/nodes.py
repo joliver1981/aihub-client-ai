@@ -2004,6 +2004,13 @@ async def execute(state: dict) -> dict:
     # Maps str(schedule_id) → {"schedule_id", "scheduled_job_id", "job_id"}
     newly_created_schedules = {}
 
+    # Track table discovery per connection (AIHUB-0015 retest #3) so the
+    # analyze_tables step can be validated against REAL tables — the
+    # param-enrichment LLM has hallucinated table names (e.g. dbo.Products),
+    # producing an analysis that 'completed' with zero dictionary rows.
+    # Maps str(connection_id) → {canonical "schema.table" (lower): "schema.table"}
+    discovered_tables_by_conn = {}
+
     # Permission context for hard checks during execution
     from permissions import get_user_role, can_access_capability, get_role_name, DOMAIN_ROLE_REQUIREMENTS
     user_context = state.get("user_context")
@@ -3035,6 +3042,61 @@ async def execute(state: dict) -> dict:
                         })
                         continue
 
+                # ── Ground analyze_tables in discovery output (AIHUB-0015 #3) ──
+                # The enrichment LLM has hallucinated table names; an analysis
+                # of nonexistent tables 'completes' with zero dictionary rows
+                # and the data agent can't answer anything. Only REAL
+                # discovered names may pass.
+                if capability_id == "connections.analyze_tables" and discovered_tables_by_conn:
+                    _at_conn = str(parameters.get("connection_id") or "")
+                    _at_known = discovered_tables_by_conn.get(_at_conn)
+                    if _at_known is None and len(discovered_tables_by_conn) == 1:
+                        _at_known = list(discovered_tables_by_conn.values())[0]
+                    if _at_known:
+                        _at_req = parameters.get("table_names") or []
+                        if isinstance(_at_req, str):
+                            _at_req = [x.strip() for x in _at_req.split(",") if x.strip()]
+                        _at_ok, _at_unknown = [], []
+                        for name in _at_req:
+                            _hit = _at_known.get(str(name).strip().lower())
+                            (_at_ok.append(_hit) if _hit else _at_unknown.append(str(name)))
+                        if _at_req and not _at_ok:
+                            _avail = ", ".join(sorted(set(_at_known.values()))[:15])
+                            logger.warning(
+                                f"  [execute]   ✗ analyze_tables: no requested table exists "
+                                f"({_at_unknown}) — failing pre-HTTP"
+                            )
+                            updated_steps.append({
+                                **step,
+                                "status": "failed",
+                                "result": {
+                                    "status": "failed",
+                                    "error": (
+                                        f"Table analysis not started — none of the requested "
+                                        f"table(s) exist on this connection: "
+                                        f"{', '.join(_at_unknown)}. Discovered tables: {_avail}"
+                                    ),
+                                },
+                            })
+                            continue
+                        if not _at_req:
+                            # No tables requested — analyze everything discovered
+                            # (bounded) rather than letting the LLM invent names.
+                            _all = sorted(set(_at_known.values()))
+                            if len(_all) <= 20:
+                                _at_ok = _all
+                                logger.info(
+                                    f"  [execute]   📋 analyze_tables: no tables specified — "
+                                    f"analyzing all {len(_all)} discovered table(s)"
+                                )
+                        if _at_unknown and _at_ok:
+                            logger.warning(
+                                f"  [execute]   ⚠ analyze_tables: dropping nonexistent "
+                                f"table(s) {_at_unknown}; keeping {_at_ok}"
+                            )
+                        if _at_ok:
+                            parameters["table_names"] = _at_ok
+
                 # Resolve reference parameters (e.g., workflow/agent/connection name → numeric ID)
                 # This MUST run BEFORE validation so names are resolved to IDs first.
                 if action_def:
@@ -3537,6 +3599,31 @@ async def execute(state: dict) -> dict:
                         except (ValueError, KeyError, AttributeError) as e:
                             logger.warning(f"  [execute]   Could not track new integration: {e}")
 
+                    # ── Track discovered tables (AIHUB-0015 retest #3) ──
+                    if capability_id == "connections.discover_tables":
+                        try:
+                            _dt_conn = str(parameters.get("connection_id") or "")
+                            _dt_rows = (result.data or {}).get("tables") if isinstance(result.data, dict) else None
+                            if _dt_conn and isinstance(_dt_rows, list):
+                                _dt_map = {}
+                                for t in _dt_rows:
+                                    if not isinstance(t, dict):
+                                        continue
+                                    _tn = t.get("TABLE_NAME") or t.get("table_name")
+                                    _ts = t.get("TABLE_SCHEMA") or t.get("table_schema") or "dbo"
+                                    if _tn:
+                                        _qual = f"{_ts}.{_tn}"
+                                        _dt_map[_qual.lower()] = _qual
+                                        _dt_map.setdefault(str(_tn).lower(), _qual)
+                                if _dt_map:
+                                    discovered_tables_by_conn[_dt_conn] = _dt_map
+                                    logger.info(
+                                        f"  [execute]   📋 Discovered {len(_dt_rows)} table(s) "
+                                        f"for connection {_dt_conn}"
+                                    )
+                        except Exception as _dt_err:
+                            logger.warning(f"  [execute]   Could not track discovered tables: {_dt_err}")
+
                     # ── Wait for data-dictionary analysis (AIHUB-0015 retest) ──
                     # analyze_tables is ASYNC: it returns a task_id and populates
                     # the data dictionary in the background. Ending the plan
@@ -3575,25 +3662,47 @@ async def execute(state: dict) -> dict:
                                         f"  [execute]   📖 analysis {_an_task_id}: "
                                         f"{_pd.get('current')}/{_pd.get('total')} ({_an_status})"
                                     )
-                                if _an_status in ("completed", "failed"):
+                                if _an_status in ("completed", "completed_with_errors", "failed", "error"):
                                     break
+                            _an_results = _pd.get("results") or []
+                            _an_err_list = _pd.get("errors") or []
+
+                            def _an_err_text(errs):
+                                out = []
+                                for e in errs[:3]:
+                                    if isinstance(e, dict):
+                                        out.append(f"{e.get('table_name')}: {e.get('error')}")
+                                    else:
+                                        out.append(str(e))
+                                return "; ".join(out)
+
                             if _an_status == "completed":
                                 result.verified = True
                                 result.verification_detail = (
                                     f"data dictionary populated "
-                                    f"({_pd.get('total') or _pd.get('current') or '?'} table(s) analyzed) — "
+                                    f"({len(_an_results) or _pd.get('total') or '?'} table(s) analyzed) — "
                                     f"the data agent can answer questions about these tables"
                                 )
                                 updated_step["result"] = result.to_dict()
                                 logger.info(f"  [execute]   ✓ {result.verification_detail}")
-                            elif _an_status == "failed":
-                                _an_errors = "; ".join(str(e) for e in (_pd.get("errors") or [])[:3])
+                            elif _an_status == "completed_with_errors":
+                                result.verified = True
+                                result.verification_detail = (
+                                    f"data dictionary PARTIALLY populated — "
+                                    f"{len(_an_results)} table(s) analyzed, "
+                                    f"{len(_an_err_list)} FAILED ({_an_err_text(_an_err_list)}); "
+                                    f"the data agent can only answer about the analyzed tables"
+                                )
+                                updated_step["result"] = result.to_dict()
+                                logger.warning(f"  [execute]   ⚠ {result.verification_detail}")
+                            elif _an_status in ("failed", "error"):
                                 updated_step["status"] = "failed"
                                 _res_dict = updated_step.get("result") or {}
                                 _res_dict["error"] = (
                                     f"data-dictionary analysis FAILED — the data agent cannot "
                                     f"answer questions until the dictionary is populated"
-                                    + (f": {_an_errors}" if _an_errors else "")
+                                    + (f": {_an_err_text(_an_err_list) or _pd.get('error_message') or ''}"
+                                       if (_an_err_list or _pd.get('error_message')) else "")
                                 )
                                 updated_step["result"] = _res_dict
                                 logger.warning(f"  [execute]   ✗ {_res_dict['error']}")

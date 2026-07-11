@@ -386,6 +386,11 @@ SELECT * FROM [dbo].[Connections] WHERE id = {connection_id}
 """
 
 SQL_DELETE_CONNECTION = """
+-- AIHUB-0015 retest: deleting a connection cascade-deletes its data
+-- dictionary (FK_llm_Tables_Connections) but used to leave AgentConnections
+-- rows dangling — agents silently bound to a connection that no longer
+-- exists. Clean the bindings in the same batch.
+DELETE FROM [dbo].[AgentConnections] WHERE connection_id = {connection_id}
 DELETE FROM [dbo].[Connections] WHERE id = {connection_id}
 """
 

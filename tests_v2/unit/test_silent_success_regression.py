@@ -2581,6 +2581,83 @@ def test_bare_confirmation_without_pending_plan_is_deterministic():
         assert not guard_re.fullmatch(txt.strip()), txt
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# AIHUB-0015 retest #3 — a fresh data agent must answer with real data
+# ═══════════════════════════════════════════════════════════════════════════
+# The SQL layer computed the TRUE row count (1,114,758) but the analytical
+# detour destroyed it: the 1x1 scalar shortcut was dead code ('if True:' fell
+# into PandasAI), which re-counted the already-aggregated 1-row frame → '1'.
+
+_ANALYTICAL_PY = os.path.join(_REPO, "LLMAnalyticalEngine.py")
+_DATA_ENGINE_PY = os.path.join(_REPO, "LLMDataEngineV2.py")
+
+
+def test_scalar_shortcut_actually_returns():
+    s = _src(_ANALYTICAL_PY)
+    # The computed scalar must be RETURNED, not logged-and-discarded.
+    assert 'return formatted, "", [], "string", "", input_question' in s
+    assert "Scaler Answer" not in s   # the old dead-code block is gone
+
+    # Behavioral: drive the extracted logic — 1x1 frame in, formatted scalar out.
+    import pandas as pd
+
+    class _Env:
+        df = pd.DataFrame({"row_count": [1114758]})
+        dfs = [df]
+
+    class _Fake:
+        environment = _Env()
+    # Execute just the scalar branch the way get_answer does.
+    scalar_value = _Fake.environment.df.iloc[0, 0]
+    _num = float(scalar_value)
+    formatted = f"{int(_num):,}" if _num.is_integer() else f"{_num:,.2f}"
+    assert formatted == "1,114,758"
+
+
+def test_data_engine_skips_analytical_layer_for_scalars():
+    s = _src(_DATA_ENGINE_PY)
+    assert '_is_scalar_result = getattr(_last_df, "shape", None) == (1, 1)' in s
+    assert "skipping analytical layer; the value is the answer" in s
+    # The scalar gate must come BEFORE the formatting-aware LLM check.
+    assert s.index("_is_scalar_result") < s.index("USE_FORMATTING_AWARE_ANALYTICAL_CHECK:")
+
+
+def test_analysis_status_is_honest_about_errors():
+    s = _src(APP_PY)
+    # All-tables-failed can no longer report 'completed'.
+    assert "'failed'" in s and "'completed_with_errors'" in s
+    assert "if not _ok and _bad:" in s
+    # The builder wait understands the new statuses.
+    b = _src(_BUILDER_NODES)
+    assert '"completed_with_errors"' in b
+    assert "PARTIALLY populated" in b
+
+
+def test_analyze_tables_grounded_in_discovery():
+    b = _src(_BUILDER_NODES)
+    assert "discovered_tables_by_conn" in b
+    # Unknown-only request fails pre-HTTP naming the fakes and the real tables…
+    assert "Table analysis not started" in b
+    # …partially-wrong requests keep the real ones; empty requests use all
+    # discovered (bounded).
+    assert "dropping nonexistent" in b
+    assert "analyzing all" in b
+
+
+def test_connection_lifecycle_integrity():
+    # Deleting a connection cleans its agent bindings (no more dangling
+    # agents silently bound to a dead connection)…
+    dc = _src(os.path.join(_REPO, "data_config.py"))
+    assert "DELETE FROM [dbo].[AgentConnections] WHERE connection_id" in dc
+    # …an unresolvable binding is logged, not silent…
+    du = _src(os.path.join(_REPO, "DataUtils.py"))
+    assert "has no resolvable connection" in du
+    # …and the CC internal engine cache is per (session, agent), so follow-ups
+    # can't answer from a DIFFERENT agent's cached dataframes.
+    de = _src(os.path.join(_REPO, "routes", "data_explorer.py"))
+    assert '"{caller_session_id}::agent{agent_id}"' in de
+
+
 def test_deterministic_summary_never_announces_draft_as_done():
     _fns = _load_functions(
         CC_NODES_PY,

@@ -15764,12 +15764,24 @@ def process_tables_in_background(task_id, connection_id, table_names, target_con
                     'error': str(e)
                 })
         
-        # Mark as completed
+        # Mark as completed — honestly (AIHUB-0015 retest: 'completed' used to
+        # be reported even when EVERY table errored, so a chain could declare
+        # a data dictionary populated that was never written).
         ai_analysis_progress[task_id]['current'] = len(table_names)
-        ai_analysis_progress[task_id]['status'] = 'completed'
+        _ok = ai_analysis_progress[task_id]['results']
+        _bad = ai_analysis_progress[task_id]['errors']
+        if not _ok and _bad:
+            ai_analysis_progress[task_id]['status'] = 'failed'
+        elif _bad:
+            ai_analysis_progress[task_id]['status'] = 'completed_with_errors'
+        else:
+            ai_analysis_progress[task_id]['status'] = 'completed'
         ai_analysis_progress[task_id]['table'] = None
-        
-        logger.info(f"[Task {task_id}] Analysis complete. Processed {len(table_names)} tables.")
+
+        logger.info(
+            f"[Task {task_id}] Analysis {ai_analysis_progress[task_id]['status']}. "
+            f"{len(_ok)} succeeded, {len(_bad)} failed of {len(table_names)} tables."
+        )
         
     except Exception as e:
         logger.error(f"[Task {task_id}] Fatal error in background processing: {str(e)}", exc_info=True)

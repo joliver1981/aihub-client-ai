@@ -580,8 +580,12 @@ def data_explorer_internal_query():
     except Exception:
         return jsonify({"error": f"agent_id must be an integer (got: {agent_id})"}), 400
 
-    # Get or create a persistent engine for this session
-    engine = _internal_engines.get(caller_session_id)
+    # Get or create a persistent engine for this session+agent. Keyed by
+    # (session, agent): a session-only key reused ONE engine across different
+    # agents, so a follow-up could answer from the PREVIOUS agent's cached
+    # dataframes (cross-agent data bleed, AIHUB-0015 retest recon).
+    _engine_key = f"{caller_session_id}::agent{agent_id}"
+    engine = _internal_engines.get(_engine_key)
     if engine is None:
         try:
             from LLMDataEngineV2 import LLMDataEngine
@@ -590,8 +594,8 @@ def data_explorer_internal_query():
             enhanced_qe, enhanced_ae = enhance_engines(engine, nlq_systems)
             engine.query_engine = enhanced_qe
             engine.analytical_engine = enhanced_ae
-            _internal_engines[caller_session_id] = engine
-            logger.info(f"[internal_query] Created new engine for session {caller_session_id}")
+            _internal_engines[_engine_key] = engine
+            logger.info(f"[internal_query] Created new engine for {_engine_key}")
         except Exception as e:
             logger.error(f"[internal_query] Engine init failed: {e}")
             return jsonify({"error": f"Engine initialization failed: {str(e)}"}), 500

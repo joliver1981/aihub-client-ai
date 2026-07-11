@@ -135,12 +135,23 @@ class LLMAnalyticalEngine:
             logger.debug(f'DataFrame dimensions: {num_rows} rows, {num_columns} columns')
             print(f'DataFrame dimensions: {num_rows} rows, {num_columns} columns')
 
-            if num_rows == 1 and num_columns == 1:  # TODO is this really necessary?
-                logger.info('NOTICE: Scalar value detected in dataset, skipping call to agent and returning value, proceeding normally...')
-                print('NOTICE: Scalar value detected in dataset, skipping call to agent and returning value, proceeding normally...')
-                temp_answer = str(self.environment.df.iloc[0, 0])
-                logger.info('Scaler Answer: ' + str(temp_answer))
-                print('Scaler Answer:', temp_answer)
+            if num_rows == 1 and num_columns == 1:
+                # AIHUB-0015 retest: this short-circuit used to COMPUTE the value
+                # and then fall into the PandasAI agent anyway (the 'if True:'
+                # below), which re-counted the already-aggregated 1-row frame —
+                # a 1,114,758 row count came back to the user as '1'. A 1x1
+                # result IS the answer: return it, with deterministic number
+                # formatting (the only thing the formatting-aware check ever
+                # wants for a scalar).
+                scalar_value = self.environment.df.iloc[0, 0]
+                try:
+                    _num = float(scalar_value)
+                    formatted = f"{int(_num):,}" if _num.is_integer() else f"{_num:,.2f}"
+                except (TypeError, ValueError):
+                    formatted = str(scalar_value)
+                logger.info(f'Scalar value detected — returning it directly: {formatted}')
+                print('Scalar Answer:', formatted)
+                return formatted, "", [], "string", "", input_question
 
             if True:
                 if self.pandas_agent is None or (self.environment.previous_agent_id is not None and self.environment.previous_agent_id != self.environment.agent_id):

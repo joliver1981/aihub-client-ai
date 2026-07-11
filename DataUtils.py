@@ -2198,6 +2198,13 @@ def get_connection_string(agent_id):
     cursor.close()
     main_conn.close()
 
+    if not connections:
+        # AIHUB-0015 retest: a data agent bound to a deleted/nonexistent
+        # connection used to degrade SILENTLY into a schema-blind pipeline.
+        logging.warning(
+            f"get_connection_string: agent {agent_id} has no resolvable connection "
+            f"(AgentConnections row missing or its Connections row was deleted)"
+        )
     return connections[0] if connections else None, connection_id, database_type
 
 
