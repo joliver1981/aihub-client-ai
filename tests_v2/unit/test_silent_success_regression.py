@@ -2008,6 +2008,105 @@ def test_schedule_id_correction_wired():
     assert '"schedules.get"' in _src(CG)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# AIHUB-0019 F1 — email.configure derives the inbound address (no NULL insert)
+# ═══════════════════════════════════════════════════════════════════════════
+# First-time configure without an explicit prefix INSERTed email_address=NULL
+# -> NOT NULL violation -> a working inbound-email workflow trigger could
+# never be set up through CC at all.
+
+def _drive_email_config_save(payload, tenant_info, existing_row=None, prefix_conflict=None):
+    AE = os.path.join(_REPO, "agent_email_routes.py")
+
+    class _Cur:
+        def __init__(self):
+            self.executed = []
+            self._next = None
+        def execute(self, sql, params=None):
+            s = " ".join(sql.split()).lower()
+            self.executed.append((s, params))
+            if s.startswith("select mapping_id"):
+                self._next = existing_row
+            elif s.startswith("select agent_id from agentemailaddresses where email_prefix"):
+                self._next = prefix_conflict
+            elif "scope_identity" in s:
+                self._next = [77]
+            else:
+                self._next = None
+        def fetchone(self):
+            return self._next
+        def close(self):
+            pass
+
+    class _Conn:
+        def commit(self):
+            pass
+        def close(self):
+            pass
+
+    cur = _Cur()
+
+    class _Req:
+        @staticmethod
+        def get_json():
+            return payload
+
+    import json as _json
+    fn = _load_functions(
+        os.path.join(_REPO, "agent_email_routes.py"),
+        ["save_agent_email_config"],
+        {
+            "request": _Req,
+            "get_tenant_context": lambda: (_Conn(), cur),
+            "get_tenant_email_info": lambda: tenant_info,
+            "jsonify": lambda obj: obj,
+            "json": _json,
+            "logger": logging.getLogger("ae-test"),
+            "_get_current_user_id": lambda: 1,
+        },
+    )["save_agent_email_config"]
+    return fn(814), cur
+
+
+_TENANT = {"tenant_id": 1, "domain": "mail.everiai.ai"}
+
+
+def test_email_configure_derives_address_first_time():
+    out, cur = _drive_email_config_save(
+        {"workflow_trigger_enabled": True, "workflow_id": 1223, "inbound_enabled": True},
+        _TENANT,
+    )
+    inserts = [(s, p) for s, p in cur.executed if s.startswith("insert into agentemailaddresses")]
+    assert inserts, "no INSERT executed"
+    # (agent_id, email_address, email_prefix, ...) — address derived, never NULL.
+    assert inserts[0][1][1] == "agent814.1@mail.everiai.ai"
+    assert inserts[0][1][2] == "agent814"
+    assert out.get("success") is True
+    assert out.get("email_address") == "agent814.1@mail.everiai.ai"
+
+
+def test_email_configure_explicit_prefix_still_wins():
+    out, cur = _drive_email_config_save({"email_prefix": "support"}, _TENANT)
+    inserts = [(s, p) for s, p in cur.executed if s.startswith("insert into agentemailaddresses")]
+    assert inserts and inserts[0][1][1] == "support.1@mail.everiai.ai"
+
+
+def test_email_configure_unconfigured_tenant_is_actionable_400():
+    out, cur = _drive_email_config_save({}, {"tenant_id": 0, "domain": ""})
+    body, code = out
+    assert code == 400
+    assert "tenant" in body["message"].lower()
+    assert not any(s.startswith("insert") for s, _ in cur.executed), \
+        "must not attempt the NULL insert"
+
+
+def test_email_configure_derived_prefix_conflict_is_409():
+    out, cur = _drive_email_config_save({}, _TENANT, prefix_conflict=[999])
+    body, code = out
+    assert code == 409
+    assert not any(s.startswith("insert") for s, _ in cur.executed)
+
+
 def test_deterministic_summary_never_announces_draft_as_done():
     _fns = _load_functions(
         CC_NODES_PY,

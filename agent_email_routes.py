@@ -484,7 +484,36 @@ def save_agent_email_config(agent_id):
         if existing and not email_address:
             email_address = existing[1]
             email_prefix = existing[2] or email_prefix
-        
+
+        # AIHUB-0019 F1: a first-time configure without an explicit prefix used
+        # to INSERT email_address=NULL and die on the NOT NULL constraint — so
+        # an inbound-email workflow trigger could never be set up through the
+        # Builder. Derive the default inbound identity (same scheme as
+        # /email/provision: agent<id>) when the tenant email domain is
+        # configured; otherwise reject with an actionable error, not a SQL 500.
+        if not existing and not email_address:
+            if tenant_id and domain:
+                email_prefix = f"agent{agent_id}"
+                cursor.execute(
+                    "SELECT agent_id FROM AgentEmailAddresses WHERE email_prefix = ? AND agent_id != ?",
+                    (email_prefix, agent_id),
+                )
+                if cursor.fetchone():
+                    return jsonify({
+                        'status': 'error',
+                        'message': f'Derived email prefix "{email_prefix}" is already in use — '
+                                   f'provide an explicit email_prefix.',
+                    }), 409
+                email_address = f"{email_prefix}.{tenant_id}@{domain}"
+                logger.info(f"Derived inbound email address for agent {agent_id}: {email_address}")
+            else:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'No inbound email address exists for this agent and the tenant '
+                               'email domain is not configured — provide email_prefix or set up '
+                               'tenant email first.',
+                }), 400
+
         # Preserve existing from_name if not explicitly provided or sent as empty
         from_name = data.get('from_name')
         if not from_name:  # None, empty string, or missing
