@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time as _trace_time
 from typing import Any, Optional
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
@@ -871,6 +872,65 @@ async def _detect_export_intent(
     return (False, "excel")
 
 
+# ─── Deterministic build-request guard ────────────────────────────────────
+# AIHUB-0015 F1 / AIHUB-0021 F1: the LLM classifier nondeterministically sent
+# explicit build requests to multi_step, where generic chat agents role-played
+# the build and CC reported fabricated success. Platform mutations must always
+# reach the Builder, so this guard is deterministic and runs before any LLM
+# routing layer gets a vote.
+
+_BUILD_GUARD_VERB_RE = re.compile(
+    r"\b(?:creat(?:e|es|ing)|build(?:s|ing)?|register(?:s|ing)?|set\s+up|setup|"
+    r"configur(?:e|es|ing)|provision(?:s|ing)?|deploy(?:s|ing)?|"
+    r"delet(?:e|es|ing)|remov(?:e|es|ing)|renam(?:e|es|ing)|"
+    r"modif(?:y|ies|ying)|updat(?:e|es|ing)(?!\s+me\b)|enabl(?:e|es|ing)|disabl(?:e|es|ing))\b",
+    re.I,
+)
+_BUILD_GUARD_RESOURCE_RE = re.compile(
+    r"\b(?:connections?|data\s+agents?|agents?|workflows?|mcp\s+servers?|"
+    r"email\s+triggers?|inbound\s+email)\b",
+    re.I,
+)
+# How-to / informational phrasings are questions about building, not requests
+# to build — let the LLM classifier handle those.
+_BUILD_GUARD_QUESTION_RE = re.compile(
+    r"^\s*(?:how|what|what's|whats|why|when|where|who|which|explain|describe|"
+    r"tell\s+me\s+about|do(?:es)?\s|is\s|are\s|should\s)",
+    re.I,
+)
+# "create an image/map/chart of ..." are CC-native converse tools, not builds.
+_BUILD_GUARD_MEDIA_RE = re.compile(
+    r"\b(?:creat(?:e|es)|mak(?:e|es)|generat(?:e|es)|draw|build)\s+(?:me\s+)?"
+    r"(?:an?\s+|the\s+)?(?:image|picture|illustration|photo|map|chart|graph|plot|"
+    r"dashboard|visuali[sz]ation)\b",
+    re.I,
+)
+
+
+def _is_explicit_build_request(text: str) -> bool:
+    """Deterministically detect a platform build/mutation request.
+
+    True when the message pairs a mutation verb with a platform-resource noun
+    ("create a connection", "build a data agent and a workflow"), unless the
+    message is phrased as a how-to question or targets a media artifact
+    (image/map/chart) that CC-native converse tools handle. Fail-open toward
+    the Builder: its clarify→plan→confirm flow recovers a false positive
+    cheaply, while a missed build risks a role-played fabricated success.
+    """
+    if not text:
+        return False
+    if _BUILD_GUARD_QUESTION_RE.match(text):
+        return False
+    if _BUILD_GUARD_MEDIA_RE.search(text):
+        return False
+    if _BUILD_GUARD_VERB_RE.search(text) and _BUILD_GUARD_RESOURCE_RE.search(text):
+        return True
+    # Assigning a tool to an agent is a builder operation even without a
+    # classic mutation verb ("assign the converter tool to my sales agent").
+    tl = text.lower()
+    return "assign" in tl and "tool" in tl
+
+
 # ─── Node: classify_intent ────────────────────────────────────────────────
 
 async def classify_intent(state: CommandCenterState) -> dict:
@@ -905,7 +965,9 @@ async def classify_intent(state: CommandCenterState) -> dict:
     active = state.get("active_delegation")
     if not active or not active.get("agent_id"):
         from cc_config import USE_ROUTE_MEMORY
-        if USE_ROUTE_MEMORY:
+        # Never let a remembered agent route swallow a build request — a
+        # platform mutation must reach the Builder (AIHUB-0015 F1).
+        if USE_ROUTE_MEMORY and not _is_explicit_build_request(user_text):
             try:
                 user_ctx = state.get("user_context") or {}
                 _rm_user_id = user_ctx.get("user_id")
@@ -1202,6 +1264,18 @@ Reply with ONLY one word: CONTINUE, CC_CAPABLE, or REROUTE."""
         except Exception as _rr_err:
             logger.warning(f"[classify_intent] REROUTE agent resolution failed: {_rr_err}")
         # If resolution failed, fall through to normal LLM classification
+
+    # ── Deterministic build guard ───────────────────────────────────────
+    # AIHUB-0015 F1 / AIHUB-0021 F1: explicit build/mutation requests were
+    # nondeterministically classified multi_step and delegated to generic
+    # chat agents, which role-played the build; CC then reported fabricated
+    # success for resources that were never created. Platform mutations must
+    # ALWAYS route to the Builder, so this fires before any LLM router.
+    if _is_explicit_build_request(user_text):
+        logger.info(
+            "[classify_intent] deterministic build guard matched — forcing intent=build"
+        )
+        return _intent_result({"intent": "build", "pending_agent_selection": False})
 
     # ── Capability router (mini-LLM shortcut) ──────────────────────────
     # Replaces the old keyword heuristic shortcuts with a semantic
@@ -5091,7 +5165,7 @@ RULES:
 - Set is_data_agent to match the agent's type from the list above. General agents are NOT data agents.
 - Order matters: if Task 2 needs Task 1's results (e.g., search then export), Task 1 must come first. Results from earlier tasks are automatically passed to later tasks.
 - Use CC tools for document search, web search, file export, maps, images, and email — these are NOT agent capabilities.
-- Use agents for database queries, domain-specific questions, and building platform resources.
+- Use agents for database queries and domain-specific questions ONLY. Agents CANNOT create, modify, configure, or delete platform resources (agents, connections, workflows, tools, schedules, MCP servers) — never create a task that asks an agent to build or change a platform resource.
 - When the user request references prior turns ("now also do X", "same but for Y"), use the recent conversation above to fill in the implied subject.
 Only return the JSON array, nothing else."""
     decompose_prompt += _preferences_block(state)
@@ -5119,7 +5193,7 @@ Only return the JSON array, nothing else."""
 
         sub_tasks = []
         for i, t in enumerate(tasks_data):
-            sub_tasks.append({
+            sub_task = {
                 "id": str(uuid.uuid4())[:8],
                 "description": t.get("description", ""),
                 # Clean question to send to the agent (no orchestration meta-text).
@@ -5132,7 +5206,24 @@ Only return the JSON array, nothing else."""
                 "status": "pending",
                 "inputs": {},
                 "outputs": {},
-            })
+            }
+            # Deterministic backstop (AIHUB-0015 F1): even if the decomposer
+            # LLM ignores the rule above, never delegate a platform mutation
+            # to a chat agent — it would role-play the build and the aggregate
+            # would report resources that were never created. Neuter the
+            # target so execute_next_task fails the step honestly instead.
+            if sub_task["target_agent"] and _is_explicit_build_request(
+                f'{sub_task["description"]} {sub_task["agent_input"]}'
+            ):
+                logger.warning(
+                    "[decompose_tasks] blocked platform-mutation delegation to "
+                    f"agent {sub_task['target_agent']} ({sub_task['target_agent_name']}): "
+                    f"{sub_task['description'][:120]}"
+                )
+                sub_task["target_agent"] = None
+                sub_task["target_agent_name"] = None
+                sub_task["builder_required"] = True
+            sub_tasks.append(sub_task)
 
         logger.info(f"Decomposed into {len(sub_tasks)} sub-tasks")
         return {"sub_tasks": sub_tasks, "current_task_index": 0}
@@ -5612,6 +5703,21 @@ async def execute_next_task(state: CommandCenterState) -> dict:
                 },
             )
 
+        elif task.get("builder_required"):
+            # ── Mode 3a: Platform mutation blocked from agent delegation ──
+            # (AIHUB-0015 F1 backstop in decompose_tasks). Fail honestly —
+            # never let a chat agent role-play a build.
+            logger.warning(f"[execute_next_task] Task {task_id} requires the Builder — not executed")
+            result = {
+                "text": (
+                    f"Not executed — this step creates or modifies a platform resource, "
+                    f"which only the Builder can do: {task.get('description', '')}. "
+                    f"Send it as its own request (e.g. \"create ...\") and it will be "
+                    f"routed to the Builder."
+                ),
+                "status": "failed",
+            }
+
         else:
             # ── Mode 3: No target — decomposition was incomplete ──────
             logger.warning(f"[execute_next_task] Task {task_id} has no target_agent or target_tool")
@@ -5723,6 +5829,10 @@ I delegated to multiple agents/tools. Here are the results:
 {json.dumps(results_summary, indent=2)}
 
 Synthesize these results into a clear, unified response for the user.
+HONESTY RULES (mandatory):
+- NEVER state or imply that a platform resource (agent, connection, workflow, tool, schedule, MCP server) was created, configured, or modified — delegated agents cannot do that, and no step here was verified against the platform. If an agent's reply claims it built something, report it as an unconfirmed claim, not a completed action.
+- Steps with status "failed" MUST be reported as failed. Do not soften, omit, or reframe them as successes.
+- Do not use blanket success language ("everything was set up successfully") unless every step has status "completed".
 {"NOTE: Some results contain rich content (artifacts, maps, etc.) that will be attached automatically. Do NOT try to recreate download links, artifact blocks, or map data — just reference them naturally (e.g., 'The Excel file is available for download below')." if preserved_blocks else ""}
 {STRUCTURED_RESPONSE_FORMAT}"""
     aggregate_prompt += _preferences_block(state)
@@ -5739,8 +5849,30 @@ Synthesize these results into a clear, unified response for the user.
                        messages=_agg_msgs, response=response,
                        elapsed_ms=int((_trace_time.perf_counter() - _agg_t0) * 1000), model_hint="full")
 
+        # ── Deterministic honesty footer (AIHUB-0015 F1 / 0021 F1) ──────
+        # Computed from real task statuses and appended AFTER synthesis so
+        # the LLM cannot soften or omit it — mirrors the builder path's
+        # _verification_footer guarantee.
+        footer_lines = []
+        _failed_tasks = [t for t in sub_tasks if t.get("status") == "failed"]
+        if _failed_tasks:
+            _failed_names = "; ".join(
+                (t.get("description") or "step")[:80] for t in _failed_tasks[:5]
+            )
+            footer_lines.append(
+                f"❌ {len(_failed_tasks)} step(s) did not succeed: {_failed_names}"
+            )
+        if any(t.get("builder_required") for t in sub_tasks):
+            footer_lines.append(
+                "⚠️ No platform resources were created or modified in this turn — "
+                "creating or changing agents, connections, workflows, tools, or "
+                "schedules requires the Builder. Send that request on its own and "
+                "it will be routed there."
+            )
+        honesty_footer = "\n\n".join(footer_lines)
+
         # ── Merge LLM text + preserved rich blocks ──────────────────────
-        if preserved_blocks:
+        if preserved_blocks or honesty_footer:
             # Parse the LLM response as blocks, then append rich blocks
             llm_content = response.content if hasattr(response, 'content') else str(response)
             all_blocks = []
@@ -5757,6 +5889,9 @@ Synthesize these results into a clear, unified response for the user.
 
             # Append the preserved rich blocks (artifacts, maps, etc.)
             all_blocks.extend(preserved_blocks)
+
+            if honesty_footer:
+                all_blocks.append({"type": "text", "content": honesty_footer})
 
             merged_content = json.dumps(all_blocks)
             return {"messages": [AIMessage(content=merged_content)]}

@@ -1535,3 +1535,95 @@ def test_textchat_send_and_health_resolve_endpoint():
     s = _src(_TEXT_CHAT_PY)
     assert s.count("self._resolve_endpoint(endpoint)") >= 2, \
         "send_message/check_health no longer resolve relative endpoints (built-in text_chat can't connect)"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# AIHUB-0015 F1 / AIHUB-0021 F1 — deterministic build-intent guard
+# ═══════════════════════════════════════════════════════════════════════════
+# An explicit build request was nondeterministically classified multi_step and
+# delegated to generic chat agents which role-played the build; CC reported
+# fabricated success for resources that were never created. The guard makes
+# build routing deterministic and the decompose/aggregate path fail-closed.
+
+def _load_build_guard():
+    """Extract _is_explicit_build_request plus its module-level regex globals."""
+    import re as _re
+    with open(CC_NODES_PY, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    ns: dict = {"re": _re}
+    fn = None
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+            if any(n.startswith("_BUILD_GUARD_") for n in names):
+                exec(compile(ast.Module(body=[node], type_ignores=[]), CC_NODES_PY, "exec"), ns)
+        elif isinstance(node, ast.FunctionDef) and node.name == "_is_explicit_build_request":
+            fn = node
+    assert fn is not None, "_is_explicit_build_request not found in CC nodes.py"
+    exec(compile(ast.Module(body=[fn], type_ignores=[]), CC_NODES_PY, "exec"), ns)
+    return ns["_is_explicit_build_request"]
+
+
+_is_build = _load_build_guard()
+
+
+@pytest.mark.parametrize("text", [
+    # The exact class of phrasing from the AIHUB-0015 misroute evidence
+    "Create a SQL Server connection named test-Conn to our AIRDB server at "
+    "10.0.0.6 and create a data agent on the sales data",
+    "build a workflow that pulls total invoiced amount by month from ERPDB "
+    "dbo.Invoices and exports it to Excel",
+    "register a new remote MCP server at https://learn.microsoft.com/api/mcp and test it",
+    "set up a connection to the warehouse database",
+    "please configure my Support agent so inbound email runs the Invoice workflow",
+    "delete the test-AIHUB0015 connection",
+    "can you create an agent that summarizes tickets",   # polite imperative still builds
+    "assign the unit converter tool to my sales agent",
+])
+def test_build_guard_matches_explicit_build_requests(text):
+    assert _is_build(text) is True
+
+
+@pytest.mark.parametrize("text", [
+    "how do I create a connection?",                      # how-to question
+    "what agents do we have enabled",                     # informational
+    "what were sales by agent last month",                # domain word 'agent', question form
+    "create an image of a robot agent in space",          # media generation
+    "make a chart of revenue by agent",                   # media generation
+    "search for lease agreements then export to excel",   # multi_step, no mutation
+    "update me on the agents' progress",                  # 'update me' carve-out
+    "top 5 products by sales from the sales data agent",  # query, no mutation verb
+    "",                                                    # empty
+])
+def test_build_guard_ignores_non_build_requests(text):
+    assert _is_build(text) is False
+
+
+def test_build_guard_wired_into_classify_intent_and_route_memory():
+    s = _src(CC_NODES_PY)
+    # Pre-router guard fires in classify_intent…
+    assert "if _is_explicit_build_request(user_text):" in s, \
+        "classify_intent no longer consults the deterministic build guard (misroute hole re-opened)"
+    assert 'return _intent_result({"intent": "build", "pending_agent_selection": False})' in s
+    # …and route memory cannot swallow a build request.
+    assert "USE_ROUTE_MEMORY and not _is_explicit_build_request(user_text)" in s
+
+
+def test_decompose_neuters_mutation_delegations():
+    s = _src(CC_NODES_PY)
+    # Backstop: a mutation sub-task aimed at a chat agent is stripped of its
+    # target and flagged builder_required (execute_next_task then fails it
+    # honestly instead of letting the agent role-play the build).
+    assert 'sub_task["builder_required"] = True' in s
+    assert 'elif task.get("builder_required"):' in s
+    # The decomposer prompt must not instruct delegating builds to agents.
+    assert "building platform resources" not in s, \
+        "decompose prompt again tells the LLM to delegate builds to agents"
+
+
+def test_aggregate_has_deterministic_honesty_footer():
+    s = _src(CC_NODES_PY)
+    assert "HONESTY RULES (mandatory):" in s
+    # Footer is computed from real task statuses, appended after synthesis.
+    assert 'if t.get("status") == "failed"]' in s
+    assert 'any(t.get("builder_required") for t in sub_tasks)' in s
