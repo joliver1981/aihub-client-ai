@@ -47,6 +47,20 @@ def _resolve_core(loop_result, state, input_question):
     kind = terminal.get("answer_kind", "text")
     text = (terminal.get("text") or "").strip()
 
+    # Clarification request (ask_user tool) — populate clarify so the UI can prompt.
+    if terminal.get("tool") == "ask_user":
+        answer = text or "Could you clarify your question?"
+        return answer, "string", explain, answer, special_message, return_query
+
+    if kind == "chart":
+        chart = getattr(state, "pending_chart", None)
+        if chart and chart.get("html"):
+            explain = text or explain
+            return "See chart...", "chart", explain, clarify, chart["html"], return_query
+        # Chart requested but none rendered — degrade to a table, else text.
+        logger.info("[contract] chart answer with no pending chart; degrading")
+        kind = "table" if state.datasets else "text"
+
     if kind == "table":
         ref = terminal.get("dataset_ref")
         ds = state.get_dataset(ref) if ref else None
@@ -58,14 +72,25 @@ def _resolve_core(loop_result, state, input_question):
         if ds is not None and ds.get("df") is not None:
             if text:
                 explain = text  # keep the model's caption without overwriting the grid
-            return ds["df"], "dataframe", explain, clarify, special_message, return_query
+            display_df = _format_for_display(ds["df"], state)
+            return display_df, "dataframe", explain, clarify, special_message, return_query
         # No dataset to show — degrade to whatever text we have.
         answer = text or fallback
         return answer, "string", explain, clarify, special_message, return_query
 
-    # text answer (also the clarification path in P3)
+    # text answer (scalar values, explanations)
     answer = text or fallback
     return answer, "string", explain, clarify, special_message, return_query
+
+
+def _format_for_display(df, state):
+    """Apply deterministic dictionary formatting to a display copy (best-effort)."""
+    try:
+        from .formatting import format_dataframe_for_display
+        return format_dataframe_for_display(df, state.connection_id)
+    except Exception as e:
+        logger.debug(f"[contract] display formatting skipped: {e}")
+        return df
 
 
 def build_result(loop_result, state, input_question, engine):

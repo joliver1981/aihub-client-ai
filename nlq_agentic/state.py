@@ -15,6 +15,8 @@ class AgentSessionState:
         # Datasets produced this session: ref -> {df, sql, description, columns, row_count}
         self.datasets = {}
         self._dataset_counter = 0
+        # Last chart rendered this turn (base64 PNG + html), consumed by respond(chart).
+        self.pending_chart = None
         # Compatibility / bookkeeping fields the legacy surface reads.
         self.question_count = 0
         self.current_query = None

@@ -55,17 +55,50 @@ def build_tool_schemas(strict=True):
             ["query"],
         ),
         fn(
-            "respond",
-            "Provide the final answer to the user and end the turn. Use answer_kind='table' to show "
-            "the rows of a dataset you queried (give its dataset_ref); use 'text' for a written answer, "
-            "a scalar value, or to ask the user for clarification.",
+            "get_dataset_preview",
+            "Re-read rows of a dataset you already queried earlier this session (from its dataset_ref), "
+            "without running SQL again. Useful for follow-up questions about a previous result.",
             {
-                "answer_kind": {"type": "string", "enum": ["text", "table"],
-                                "description": "'table' to display a dataset's rows, otherwise 'text'."},
+                "dataset_ref": {"type": "string", "description": "The dataset_ref, e.g. 'dataset_1'."},
+                "n_rows": {"type": "integer", "description": "How many rows to preview (1-100)."},
+            },
+            ["dataset_ref", "n_rows"],
+        ),
+        fn(
+            "create_chart",
+            "Render a chart from a dataset you queried. On success, follow up with respond "
+            "(answer_kind='chart') to show it. If it fails, read the message and either fix the "
+            "spec or answer with a table instead.",
+            {
+                "dataset_ref": {"type": "string", "description": "The dataset_ref to chart, e.g. 'dataset_1'."},
+                "chart_type": {"type": "string",
+                               "enum": ["bar", "line", "pie", "scatter", "histogram", "area", "stacked_bar"],
+                               "description": "Chart type."},
+                "x_column": {"type": ["string", "null"], "description": "Category/label column (x axis)."},
+                "y_column": {"type": ["string", "null"], "description": "Numeric value column (y axis)."},
+                "title": {"type": ["string", "null"], "description": "Chart title, or null."},
+            },
+            ["dataset_ref", "chart_type", "x_column", "y_column", "title"],
+        ),
+        fn(
+            "ask_user",
+            "Ask the user a clarifying question and end the turn. Use this only when the question is "
+            "genuinely ambiguous and you cannot proceed without their answer.",
+            {"question": {"type": "string", "description": "The single clarifying question to ask."}},
+            ["question"],
+        ),
+        fn(
+            "respond",
+            "Provide the final answer to the user and end the turn. answer_kind='table' shows the rows "
+            "of a dataset (give its dataset_ref); 'chart' shows the chart you just created; 'text' is a "
+            "written answer or a scalar value.",
+            {
+                "answer_kind": {"type": "string", "enum": ["text", "table", "chart"],
+                                "description": "'table' for a dataset's rows, 'chart' for the created chart, else 'text'."},
                 "text": {"type": "string",
-                         "description": "The written answer in plain business language. For a table answer, a short caption."},
+                         "description": "The written answer in plain business language. For table/chart, a short caption."},
                 "dataset_ref": {"type": ["string", "null"],
-                                "description": "For answer_kind='table', the dataset_ref (e.g. 'dataset_1') to display. Null for text."},
+                                "description": "For answer_kind='table', the dataset_ref to display. Null otherwise."},
             },
             ["answer_kind", "text", "dataset_ref"],
         ),
@@ -149,9 +182,54 @@ def _handle_run_sql(ctx, args):
             f"to show the rows, or 'text' to state a single value).")
 
 
+def _handle_get_dataset_preview(ctx, args):
+    ref = (args.get("dataset_ref") or "").strip()
+    ds = ctx.state.get_dataset(ref)
+    if ds is None or ds.get("df") is None:
+        avail = ", ".join(ctx.state.datasets.keys()) or "none"
+        return f"No dataset '{ref}'. Available: {avail}."
+    try:
+        n = int(args.get("n_rows") or 10)
+    except (TypeError, ValueError):
+        n = 10
+    n = max(1, min(n, 100))
+    df = ds["df"]
+    preview = df.head(n).to_string(index=False)
+    return (f"{ref}: {ds['row_count']} row(s), columns {list(df.columns)}.\n\n"
+            f"{preview}\n(Showing {min(n, len(df))} of {len(df)} rows.)")
+
+
+def _handle_create_chart(ctx, args):
+    from .charts import render_chart, img_html
+
+    ref = (args.get("dataset_ref") or "").strip()
+    ds = ctx.state.get_dataset(ref)
+    if ds is None or ds.get("df") is None:
+        avail = ", ".join(ctx.state.datasets.keys()) or "none"
+        return f"No dataset '{ref}' to chart. Available: {avail}. Run a query first."
+
+    b64, error = render_chart(
+        ds["df"],
+        chart_type=(args.get("chart_type") or "bar"),
+        x_column=args.get("x_column"),
+        y_column=args.get("y_column"),
+        title=(args.get("title") or ""),
+    )
+    if b64 is None:
+        ctx.state.pending_chart = None
+        return (f"Chart could not be rendered: {error}. Check the column names against the dataset, "
+                f"or answer with a table instead (respond answer_kind='table').")
+
+    ctx.state.pending_chart = {"b64": b64, "html": img_html(b64), "dataset_ref": ref}
+    return ("Chart rendered successfully. Call respond with answer_kind='chart' to show it "
+            "(add a short caption in text).")
+
+
 HANDLERS = {
     "get_table_details": _handle_get_table_details,
     "run_sql": _handle_run_sql,
+    "get_dataset_preview": _handle_get_dataset_preview,
+    "create_chart": _handle_create_chart,
 }
 
 

@@ -94,7 +94,7 @@ def run_loop(client, base_kwargs, system_prompt, user_message, tool_schemas, ctx
         if not tool_calls:
             text = (message.content or "").strip()
             return LoopResult(
-                terminal={"answer_kind": "text", "text": text, "dataset_ref": None},
+                terminal={"tool": "respond", "answer_kind": "text", "text": text, "dataset_ref": None},
                 iterations=i,
             )
 
@@ -115,7 +115,7 @@ def run_loop(client, base_kwargs, system_prompt, user_message, tool_schemas, ctx
                     continue
                 if trace is not None:
                     trace.record_tool(name, 0.0, ok=True, args_digest=json.dumps(args, default=str)[:200])
-                return LoopResult(terminal=_normalize_terminal(args), iterations=i)
+                return LoopResult(terminal=_normalize_terminal(name, args), iterations=i)
 
             # Non-terminal tool.
             if parse_err is not None:
@@ -130,11 +130,19 @@ def run_loop(client, base_kwargs, system_prompt, user_message, tool_schemas, ctx
     return LoopResult(terminal=None, iterations=max_iterations)
 
 
-def _normalize_terminal(args):
+def _normalize_terminal(tool_name, args):
+    if tool_name == "ask_user":
+        return {
+            "tool": "ask_user",
+            "answer_kind": "text",
+            "text": args.get("question", "") or "",
+            "dataset_ref": None,
+        }
     kind = str(args.get("answer_kind", "text")).lower()
-    if kind not in ("text", "table"):
+    if kind not in ("text", "table", "chart"):
         kind = "text"
     return {
+        "tool": "respond",
         "answer_kind": kind,
         "text": args.get("text", "") or "",
         "dataset_ref": args.get("dataset_ref"),

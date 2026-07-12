@@ -214,8 +214,13 @@ class AgenticNLQEngine:
             "- For an ambiguous time period (e.g. a holiday with no year), use the most recent "
             "occurrence present in the data and state that assumption in your answer.",
             "- If a query errors, read the message, fix the SQL, and retry.",
+            "- To visualize results, call create_chart on a dataset, then respond(answer_kind='chart').",
+            "- For a follow-up about a result you already have, reuse its dataset via "
+            "get_dataset_preview instead of re-querying.",
+            "- If the question is genuinely ambiguous and you cannot proceed, call ask_user with one "
+            "clarifying question.",
             "- Finish by calling respond exactly once: answer_kind='table' with a dataset_ref to show "
-            "rows, or 'text' for a single value, an explanation, or to ask for clarification.",
+            "rows, 'chart' after creating a chart, or 'text' for a single value or an explanation.",
             "\nAVAILABLE TABLES (catalog):",
             self._table_catalog or "(no catalog available)",
         ]
@@ -256,6 +261,7 @@ class AgenticNLQEngine:
         self._set_target_database(agent_id)
         self.state.agent_id = agent_id
         self.state.question_count += 1
+        self.state.pending_chart = None   # never carry a chart across turns
 
         # Empty-schema guard (adapted from V2 get_answer): no documented schema →
         # honest message instead of a schema-blind loop.
