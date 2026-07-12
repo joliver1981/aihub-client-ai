@@ -174,16 +174,16 @@ def prepare_workdir(session_id: str,
     except (TypeError, ValueError):
         role = 0
 
+    # Seed user uploads (best-effort; failure here must NOT skip artifact
+    # seeding below).
+    files = []
+    get_file_path = None
+    _file_is_accessible_to = None
     try:
         from routes.upload import get_files_for_session, get_file_path, _file_is_accessible_to
-    except Exception as e:
-        logger.warning("[code_interpreter] upload helpers unavailable: " + f"{e}")
-        return workdir, copied
-
-    try:
         files = get_files_for_session(session_id) or []
     except Exception as e:
-        logger.warning("[code_interpreter] could not list session files: " + f"{e}")
+        logger.warning("[code_interpreter] upload seeding unavailable: " + f"{e}")
         files = []
 
     for meta in files:
@@ -201,6 +201,33 @@ def prepare_workdir(session_id: str,
             copied.append(dest.name)
         except Exception as e:
             logger.warning("[code_interpreter] skip input copy: " + f"{e}")
+
+    # Also seed artifacts produced earlier in THIS session (a data agent's big
+    # CSV, a prior run_python output, a file another agent made) so code can
+    # compute over them by filename — not just user uploads. Session-scoped via
+    # the shared store; existing uploads of the same name win (not clobbered).
+    # docs/agent-artifact-sharing-plan.md Phase 4.
+    try:
+        from command_center.artifacts.artifact_manager import get_shared_artifact_manager
+        amgr = get_shared_artifact_manager()
+        existing = {c.lower() for c in copied}
+        for art in amgr.list_artifacts(session_id):
+            try:
+                aid = art.get("artifact_id")
+                asrc = amgr.get_file_path(aid) if aid else None
+                if not asrc or not Path(asrc).exists():
+                    continue
+                aname = _safe_name(art.get("name") or Path(asrc).name)
+                if aname.lower() in existing:
+                    continue
+                shutil.copyfile(asrc, Path(workdir) / aname)
+                copied.append(aname)
+                existing.add(aname.lower())
+            except Exception as e:
+                logger.warning("[code_interpreter] skip artifact copy: " + f"{e}")
+    except Exception as e:
+        logger.warning("[code_interpreter] artifact seeding unavailable: " + f"{e}")
+
     return workdir, copied
 
 

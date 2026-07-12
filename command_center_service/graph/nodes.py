@@ -2714,6 +2714,85 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             return f"```\n{stdout}\n```"
         return "Code ran successfully (no output)."
 
+    @lc_tool
+    async def read_artifact(artifact_id: str, max_rows: int = 200) -> str:
+        """Read the CONTENTS of a file/artifact into the conversation so you can
+        reason over it — e.g. a CSV a data agent or another agent produced, or a
+        file you made earlier with export_data / run_python.
+
+        Use this when you need to SEE what's inside a produced file (inspect
+        rows, summarize, answer questions about it). For heavy computation over
+        a large file, prefer run_python (the artifact is available there by its
+        filename). Binary files (xlsx, pdf, docx) can't be shown as text — use
+        run_python or attach them to email instead.
+
+        Args:
+            artifact_id: The artifact id (from a download link / prior tool result).
+            max_rows: For CSV/tabular text, cap the rows returned (default 200).
+        """
+        aid = (artifact_id or "").strip()
+        if not aid:
+            return "Error: artifact_id is required."
+        try:
+            from routes.artifacts import _get_artifact_manager, _artifact_accessible_to
+        except Exception as e:
+            return f"Error: artifact store unavailable ({e})."
+
+        mgr = _get_artifact_manager()
+        meta = mgr.get_metadata(aid)
+        if not meta:
+            return f"Error: artifact '{aid}' not found."
+
+        # Ownership — same gate the download route enforces.
+        uc = state.get("user_context") or {}
+        try:
+            _role = int(uc.get("role") or 0)
+        except (TypeError, ValueError):
+            _role = 0
+        if not _artifact_accessible_to(meta, uc.get("user_id"), uc.get("tenant_id"), _role):
+            return f"Error: you don't have access to artifact '{aid}'."
+
+        path = mgr.get_file_path(aid)
+        if not path or not path.exists():
+            return f"Error: artifact file for '{aid}' is missing on disk."
+
+        atype = getattr(meta.artifact_type, "value", str(meta.artifact_type))
+        _TEXTUAL = {"csv", "text", "json"}
+        if atype not in _TEXTUAL:
+            rc = f", {meta.row_count:,} rows" if getattr(meta, "row_count", None) else ""
+            return (f"'{meta.name}' is a {atype} file ({meta.size_display}{rc}) — binary, "
+                    f"so it can't be shown as text. Use run_python to process it "
+                    f"(it's available as '{meta.name}' in the working directory), "
+                    f"or attach it to an email with send_email(artifact_id='{aid}').")
+
+        _MAX_CHARS = 20000
+        try:
+            raw = path.read_bytes()
+            text = raw.decode("utf-8-sig", errors="replace")
+        except Exception as e:
+            return f"Error reading artifact '{aid}': {e}"
+
+        header = f"Contents of '{meta.name}' ({atype}, {meta.size_display}):\n"
+        if atype == "csv":
+            try:
+                cap = int(max_rows)
+            except (TypeError, ValueError):
+                cap = 200
+            cap = max(1, min(cap, 2000))
+            lines = text.splitlines()
+            body = "\n".join(lines[:cap + 1])  # +1 for the header row
+            total = len(lines) - 1 if lines else 0
+            note = ""
+            if total > cap:
+                note = (f"\n\n[Showing first {cap} of {total} data rows. "
+                        f"Use run_python on '{meta.name}' for the full file.]")
+            out = header + "```\n" + body[:_MAX_CHARS] + "\n```" + note
+            return out
+        # text / json
+        truncated = len(text) > _MAX_CHARS
+        return header + "```\n" + text[:_MAX_CHARS] + "\n```" + (
+            "\n\n[Truncated — file is larger; use run_python for the full content.]" if truncated else "")
+
     async def _deliver_portal_result(res, _uid, _sid, _uc):
         """A finished auto-run manifest -> download chips (+ a Save-as-workflow button), or an
         honest 'no file' message. Shared by fetch_from_portal and check_portal_download."""
@@ -3705,7 +3784,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         return (f"Uploaded '{res.get('name')}' to {protocol}://{where} "
                 f"at {res.get('remote_path')}.")
 
-    tools = [query_data_agent, query_general_agent, delegate_to_builder_agent, save_user_preference, recall_all_memories, forget_preference, switch_active_agent, export_data, run_generated_tool, manipulate_pdf, generate_map, search_web, send_email, get_my_contact_info]
+    tools = [query_data_agent, query_general_agent, delegate_to_builder_agent, save_user_preference, recall_all_memories, forget_preference, switch_active_agent, export_data, read_artifact, run_generated_tool, manipulate_pdf, generate_map, search_web, send_email, get_my_contact_info]
     if IMAGE_GENERATION_ENABLED:
         tools.append(generate_image)
     if DOCUMENT_SEARCH_ENABLED:
@@ -3762,6 +3841,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     "forget_preference": forget_preference,
                     "switch_active_agent": switch_active_agent,
                     "export_data": export_data,
+                    "read_artifact": read_artifact,
                     "run_generated_tool": run_generated_tool,
                     "manipulate_pdf": manipulate_pdf,
                     "generate_map": generate_map,
