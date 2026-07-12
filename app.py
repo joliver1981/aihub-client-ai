@@ -2517,6 +2517,44 @@ def list_agents_summary():
         return jsonify({'status': 'error', 'message': str(e), 'agents': []}), 500
 
 
+def _register_delegated_artifacts(produced, agent_id, cc_session_id, caller_user_id):
+    """Re-register files a delegated general agent produced into the SHARED
+    artifact store, scoped to the CC session so CC can serve them. Returns a
+    list of artifact content blocks (empty on nothing/failure — never raises)."""
+    if not produced or not cc_session_id:
+        return []
+    try:
+        from command_center.artifacts.artifact_manager import get_shared_artifact_manager
+        from command_center.artifacts.artifact_models import ArtifactType
+    except Exception as e:
+        logger.warning(f'[api_agent_chat] artifact store unavailable: {e}')
+        return []
+
+    mgr = get_shared_artifact_manager()
+    scope = f"{caller_user_id}/{cc_session_id}" if caller_user_id is not None else str(cc_session_id)
+    blocks = []
+    for p in produced:
+        try:
+            try:
+                atype = ArtifactType(p.get('type', 'text'))
+            except ValueError:
+                atype = ArtifactType.TEXT
+            meta = mgr.create(
+                p.get('name', 'file'),
+                atype,
+                p.get('bytes', b''),
+                scope,
+                producing_agent=f"agent:{agent_id}",
+                source=p.get('source'),
+            )
+            blocks.append(meta.to_content_block())
+        except Exception as e:
+            logger.warning(f'[api_agent_chat] could not register delegated artifact: {e}')
+    if blocks:
+        logger.info(f'[api_agent_chat] Registered {len(blocks)} delegated artifact(s) for agent {agent_id}')
+    return blocks
+
+
 @app.route('/api/agents/<int:agent_id>/chat', methods=['POST'])
 @cross_origin()
 @api_key_or_session_required()
@@ -2578,13 +2616,44 @@ def api_agent_chat(agent_id):
             hist_str = str(history) if history else '[]'
             agent_instance = active_agents[int(agent_id)]
             agent_instance.initialize_chat_history(eval(hist_str))
-            response_text = agent_instance.run(prompt, use_smart_render=False)
+
+            # Cross-agent delegation (CC): when a caller session id is supplied,
+            # capture any files the agent produces during the run and re-register
+            # them into the SHARED artifact store so CC can hand them to the user
+            # (the text-only reply otherwise strands them). Off for normal
+            # agent-UI calls (no session_id). docs/agent-artifact-sharing-plan.md P3
+            cc_session_id = data.get('session_id')
+            caller_user_id = data.get('user_id')
+            _psink_token = None
+            if cc_session_id:
+                try:
+                    from command_center.artifacts import produced_sink as _psink
+                    _psink_token = _psink.begin_capture()
+                except Exception:
+                    _psink_token = None
+
+            try:
+                response_text = agent_instance.run(prompt, use_smart_render=False)
+            finally:
+                produced_artifacts = []
+                if _psink_token is not None:
+                    try:
+                        from command_center.artifacts import produced_sink as _psink
+                        produced_artifacts = _psink.collected()
+                        _psink.end_capture(_psink_token)
+                    except Exception:
+                        produced_artifacts = []
+
             chat_history = agent_instance.get_chat_history()
+
+            artifacts = _register_delegated_artifacts(
+                produced_artifacts, agent_id, cc_session_id, caller_user_id) if cc_session_id else []
 
             return jsonify({
                 'status': 'success',
                 'response': response_text,
                 'chat_history': chat_history,
+                'artifacts': artifacts or None,
                 'agent_type': 'general',
             })
 

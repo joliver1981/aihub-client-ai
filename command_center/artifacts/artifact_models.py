@@ -17,6 +17,7 @@ class ArtifactType(str, Enum):
     IMAGE = "image"
     PPTX = "pptx"
     TEXT = "text"
+    DOCX = "docx"
 
 
 # Map artifact types to file extensions and MIME types
@@ -28,6 +29,7 @@ ARTIFACT_EXTENSIONS = {
     ArtifactType.IMAGE: (".png", "image/png"),
     ArtifactType.PPTX: (".pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"),
     ArtifactType.TEXT: (".txt", "text/plain"),
+    ArtifactType.DOCX: (".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
 }
 
 

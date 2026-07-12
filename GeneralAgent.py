@@ -1242,8 +1242,26 @@ def _save_artifact_and_block(name: str, fbytes: bytes, artifact_type: str) -> st
     import active_chat_context
     import chat_file_manager
 
+    # Cross-agent delegation (CC): when a capture is active, record the raw
+    # bytes so the delegated chat route can re-register them into the shared
+    # artifact store and hand a real download back to the orchestrator. No-op
+    # on the normal agent-UI path. See docs/agent-artifact-sharing-plan.md P3.
+    try:
+        from command_center.artifacts import produced_sink
+        produced_sink.capture(name, artifact_type, fbytes)
+        _sink_active = produced_sink.is_active()
+    except Exception:
+        _sink_active = False
+
     conv_id = active_chat_context.get_active_conversation_id()
     if not conv_id:
+        if _sink_active:
+            # Delegated run with no per-conversation store — the sink delivers
+            # the file. Report success so the agent doesn't retry/apologize.
+            return _json.dumps([{
+                "type": "artifact", "name": name,
+                "artifactType": artifact_type, "delivered_via": "delegation",
+            }])
         return (
             "Cannot create file: no active conversation. "
             "This tool requires the chat session to be initialized."

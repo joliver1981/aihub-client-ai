@@ -102,6 +102,10 @@ async def delegate_to_agent(
                     history.append({"role": "A", "content": content})
 
         payload = {"prompt": question, "history": str(history) if history else "[]"}
+        # Pass the CC session so the route can scope any files this agent
+        # produces to the shared store and hand them back as artifact handles.
+        if session_id:
+            payload["session_id"] = session_id
         logger.info(f"[delegate_to_agent] General agent {agent_id} via standard API")
 
     if user_context:

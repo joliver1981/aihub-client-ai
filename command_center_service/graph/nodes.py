@@ -1766,13 +1766,21 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             question=question,
             is_data_agent=False,
             session_id=state.get("session_id", "cc-default"),
+            user_context=state.get("user_context"),
         )
         if result.get("status") == "failed":
             error_text = result.get("text", "Unknown error")
             logger.warning(f"[converse/tool] General agent {agent_id} failed: {error_text}")
             return (f"⚠️ The agent (Agent #{agent_id}) could not complete the request. "
                     f"Error: {error_text}. Please try again shortly.")
-        return result.get("text", "No response from agent.")
+        parts = [result.get("text", "No response from agent.")]
+        # Files the agent produced were re-registered into the shared store and
+        # are downloadable via CC — surface them so they reach the user.
+        for art in (result.get("artifacts") or []):
+            if isinstance(art, dict):
+                url = art.get("download_url", "")
+                parts.append(f"\n📎 File created: [{art.get('name', 'file')}]({url}) — available to download.")
+        return "\n".join(parts)
 
     @lc_tool
     async def save_user_preference(preference_key: str, preference_value: str, agent_id: int = 0) -> str:
@@ -5971,6 +5979,18 @@ async def aggregate(state: CommandCenterState) -> dict:
                         block_placeholder += "\n" + json.dumps(text)
         except (json.JSONDecodeError, TypeError):
             pass
+
+        # Delegated artifact handles (large query results / files a general
+        # agent produced) arrive as a separate `artifacts` list, NOT embedded
+        # in `text` — preserve them as download chips so the multi-step path
+        # doesn't strand them (previously dropped: aggregate read only text).
+        for _art in (result.get("artifacts") or []):
+            if isinstance(_art, dict):
+                _ab = dict(_art)
+                _ab["type"] = "artifact"
+                preserved_blocks.append(_ab)
+                if block_placeholder is None:
+                    block_placeholder = f"[FILE: {_art.get('name', 'file')} — attached below, do NOT reproduce]"
 
         display_result = block_placeholder or str(result_text)[:500]
         results_summary.append({
