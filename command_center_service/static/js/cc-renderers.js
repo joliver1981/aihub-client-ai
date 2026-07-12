@@ -246,6 +246,17 @@ const CCRenderers = {
             wrapper.appendChild(title);
         }
 
+        // Preview banner — the result was capped for display; the full data is
+        // available via the download chip that accompanies large results.
+        if (block.truncated) {
+            const banner = document.createElement('div');
+            banner.className = 'cc-table-preview-banner';
+            banner.style.cssText = 'padding:6px 12px;font-size:12px;color:#8a6d1a;background:rgba(234,179,8,0.12);border-radius:4px;margin:0 0 6px;';
+            const total = (typeof block.total_rows === 'number') ? block.total_rows.toLocaleString() : 'all';
+            banner.textContent = `Preview — showing the first ${rows.length.toLocaleString()} of ${total} rows. Download for the complete dataset.`;
+            wrapper.appendChild(banner);
+        }
+
         const tableEl = this._buildInteractiveTable(columns, rows, block.title || 'table');
         if (tableEl) wrapper.appendChild(tableEl);
         return wrapper;

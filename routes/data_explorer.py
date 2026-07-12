@@ -580,6 +580,9 @@ def data_explorer_internal_query():
     question = data.get("question", "")
     caller_session_id = data.get("session_id", "internal-default")
     conversation_history_raw = data.get("history", "[]")
+    # Caller identity (optional) — used to scope any large-result artifact to
+    # {user_id}/{session_id} so the CC download gate can enforce ownership.
+    caller_user_id = data.get("user_id")
 
     if agent_id is None or question is None or str(question).strip() == "":
         return jsonify({"error": "agent_id and question are required"}), 400
@@ -677,11 +680,28 @@ def data_explorer_internal_query():
                     "blocks": [chart_image_block]
                 }
 
+    # Large-result artifact: when the answer is a DataFrame beyond the inline
+    # threshold, persist the FULL result to the shared artifact store as CSV
+    # and hand back a lightweight handle. The inline rich_content table stays
+    # a preview (renderer cap); the artifact is the full-fidelity copy the
+    # user downloads via CC. Never breaks the answer — errors are swallowed
+    # inside maybe_persist_result_artifacts.
+    from command_center.artifacts.data_export import maybe_persist_result_artifacts
+    _scope = f"{caller_user_id}/{caller_session_id}" if caller_user_id is not None else str(caller_session_id)
+    artifacts = maybe_persist_result_artifacts(
+        answer, answer_type,
+        session_scope=_scope,
+        name_hint=str(cleaned_question),
+        producing_agent=f"data_agent:{agent_id}",
+        source=str(query) if query else None,
+    )
+
     return jsonify({
         "status": "success",
         "response": str(answer),
         "answer_type": answer_type,
         "query": str(query),
         "rich_content": rich_content,
+        "artifacts": artifacts or None,
         "agent_type": "data",
     })

@@ -413,6 +413,7 @@ LLM_PANDAS_CODE_REGEN_PROMPT = os.getenv('LLM_PANDAS_CODE_REGEN_PROMPT')
 
 # Data Agents
 SQL_QUERY_ROW_SAFETY_CAP = int(os.getenv('SQL_QUERY_ROW_SAFETY_CAP', '1000000'))  # Hard ceiling on rows materialized by any single legacy SQL read (OOM guard; 0 disables). The agentic NLQ engine has its own NLQ_AGENTIC_SQL_ROW_CAP.
+ARTIFACT_EXPORT_ROW_THRESHOLD = int(os.getenv('ARTIFACT_EXPORT_ROW_THRESHOLD', '10000'))  # Data-agent results with more rows than this are ALSO persisted as a full-fidelity CSV artifact in the shared store (preview + download chip in CC; 0 disables). docs/agent-artifact-sharing-plan.md
 DISPLAY_ROW_LIMIT = 100
 DISPLAY_COLUMN_LIMIT = 20
 GENERAL_CHAT_AI_PROCESSING_ROW_LIMIT = 50               # AI processing row limit - beyond this datasets will be injected directly and bypass LLM (using data agents via general agent communication)

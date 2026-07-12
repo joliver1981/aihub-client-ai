@@ -1680,6 +1680,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             question=question,
             is_data_agent=True,
             session_id=state.get("session_id", "cc-default"),
+            user_context=state.get("user_context"),
         )
         if result.get("status") == "failed":
             error_text = result.get("text", "Unknown error")
@@ -1732,7 +1733,22 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         query = result.get("query")
         if query:
             response_parts.append(f"\n*SQL used:* `{query}`")
-        
+
+        # Large-result artifact(s): a full-fidelity CSV was persisted to the
+        # shared store. Tell the user it's downloadable (and give the URL) —
+        # the inline table, if any, is only a preview.
+        for art in (result.get("artifacts") or []):
+            if not isinstance(art, dict):
+                continue
+            rc = art.get("row_count")
+            url = art.get("download_url", "")
+            response_parts.append(
+                f"\n📎 Full result"
+                + (f" ({rc:,} rows)" if isinstance(rc, int) else "")
+                + f" available to download: [{art.get('name', 'result.csv')}]({url}) "
+                + "— the table above is a preview, not the complete dataset."
+            )
+
         return "\n".join(response_parts)
 
     @lc_tool
@@ -4406,12 +4422,20 @@ def _build_response_blocks(result: dict, agent_name: str, agent_id: str, *, fail
                         if isinstance(table_data, list) and table_data:
                             headers = list(table_data[0].keys())
                             rows = [[str(r.get(c, "")) for c in headers] for r in table_data]
-                            blocks.append({
+                            _tmeta = block.get("metadata") or {}
+                            cc_table = {
                                 "type": "table",
                                 "title": block.get("title", ""),
                                 "headers": headers,
                                 "rows": rows,
-                            })
+                            }
+                            # Preview signal — the renderer capped the rows; the
+                            # UI shows a banner and (usually) a download chip.
+                            if _tmeta.get("truncated"):
+                                cc_table["truncated"] = True
+                                if _tmeta.get("total_rows") is not None:
+                                    cc_table["total_rows"] = _tmeta.get("total_rows")
+                            blocks.append(cc_table)
                             has_rich = True
                     elif btype == "list" and block.get("content"):
                         items = block["content"]
@@ -4430,6 +4454,22 @@ def _build_response_blocks(result: dict, agent_name: str, agent_id: str, *, fail
         blocks = [{"type": "text", "content": (
             f"📊 **{agent_name}** (Agent #{agent_id}):\n\n{response_text}"
         )}]
+
+    # Large-result artifact handles (full CSV persisted to the shared store).
+    # The inline table above is a PREVIEW; these chips are the full download.
+    artifacts = result.get("artifacts") or []
+    for art in artifacts:
+        if not isinstance(art, dict):
+            continue
+        rc = art.get("row_count")
+        note = (f"📎 The full result"
+                + (f" ({rc:,} rows)" if isinstance(rc, int) else "")
+                + " is available to download — the table above is a preview.")
+        blocks.append({"type": "text", "content": note})
+        # Ensure it renders as a download chip (artifact is a direct block type).
+        art_block = dict(art)
+        art_block["type"] = "artifact"
+        blocks.append(art_block)
 
     # Meta block for conversation coherence — the LLM sees this in message history
     # and knows which agent produced which data. Frontend renders as subtle text.
@@ -4509,6 +4549,7 @@ async def gather_data(state: CommandCenterState) -> dict:
             conversation_history=conversation_history,
             is_data_agent=is_data_agent,
             session_id=session_id,
+            user_context=state.get("user_context"),
         )
         elapsed_ms = int((_time.perf_counter() - t0) * 1000)
         trace_log(

@@ -125,6 +125,10 @@ async def delegate_to_agent(
                     result["query"] = data["query"]
                 if data.get("answer_type"):
                     result["answer_type"] = data["answer_type"]
+                # Artifact handles (large results persisted to the shared
+                # store) — the by-reference channel of the artifact plan.
+                if data.get("artifacts"):
+                    result["artifacts"] = data["artifacts"]
                 return result
             else:
                 return {
