@@ -1,6 +1,6 @@
 # Cross-Agent Artifact & Data Sharing — Plan
 
-**Status:** design approved (2026-07-12), not yet implemented. No code changed by this doc.
+**Status:** "this-version" cut line BUILT 2026-07-12 (P0 + P1 + P2-core + P3 + P4-lite `read_artifact`) — commits 8efed34, 837426c, 95e7230, aa2c1ac, cdf361d. 83 unit tests green. Ships behind existing thresholds/flags; needs a main-app + CC-service restart to go live. Phase 5 (surfacing hardening: robust chip passthrough, download-token signing, split-deploy) deferred. See §Build status below.
 **Goal:** let the Command Center (CC) agent orchestrate data/artifacts produced by data agents and general agents — so the user talks only to CC and CC gathers files/datasets on their behalf.
 
 Related: [nlq-engine architecture review], [cc-silent-success-remediation-plan.md](cc-silent-success-remediation-plan.md), [data-provenance.md](data-provenance.md).
@@ -109,3 +109,18 @@ To remove the embarrassing gap without over-reaching: **Phase 0 + Phase 1 + Phas
 - Producers (main app): `GeneralAgent.py:1145–1468` (create_* tools), `chat_file_manager.py`.
 - Security: `app.py:2216` (`/download`), `app.py:8141`/`:8175` (`/document/serve`).
 - Env: `Build_AIHub_Executables_OneDir_Dev_v3.bat` (main app + agents = `aihub2.1`; CC + builder = `aihubbuilder`).
+
+## Build status (2026-07-12)
+
+Implemented the "this-version" cut line. New/changed modules:
+- **P0** (8efed34): `SmartContentRenderer_hybrid.py:276` reads the real config name; `config.SMART_RENDER_HYBRID_MAX_TABLE_DISPLAY_ROWS` default 10k (env-overridable) + `SQL_QUERY_ROW_SAFETY_CAP`; `sql_row_cap.py` (new) wired into `AppUtils` reads + `query_a_database`; `@login_required` + validation on `/download` and both `/document/serve`; CC delegated-table LLM inlining capped (`CC_DELEGATED_TABLE_LLM_ROW_CAP`).
+- **P2-core** (837426c): `ArtifactManager.resolve_shared_artifacts_dir()` (`AIHUB_ARTIFACTS_DIR`) + `get_shared_artifact_manager()`; `ArtifactMetadata` provenance (producing_agent/source/row_count/columns, sidecar-back-compat); both CC construction sites repointed.
+- **P1** (95e7230): `command_center/artifacts/data_export.py` (new) + `ARTIFACT_EXPORT_ROW_THRESHOLD` (10k); `/data_explorer/internal/query` persists big results as CSV + returns `artifacts`; delegator forwards them; `_build_response_blocks` chip + preview note; converse download note; `cc-renderers.js` preview banner.
+- **P3** (aa2c1ac): `produced_sink.py` (new) + capture in `GeneralAgent._save_artifact_and_block`; `/api/agents/<id>/chat` `_register_delegated_artifacts`; delegator sends `session_id` for general agents; `ArtifactType.DOCX`; converse + `aggregate` surface general-agent artifacts.
+- **P4-lite** (cdf361d): `read_artifact` CC tool (ownership-gated, CSV row-capped, binary-refused); `prepare_workdir` seeds session artifacts into the `run_python` workdir.
+
+Tests: `tests_v2/unit/test_artifact_phase{0,1,2_store,3_delegation,4_read}.py` (68 new) + `test_nlq_engine_factory.py` hygiene. Full endpoint/engine→persist→HTTP and the CC render path are e2e-tier (need live DB + running services), NOT covered by unit tests — verify after restart.
+
+**Restart required:** main app (data path, `/download`+`/document/serve` auth, general-agent capture) **and** CC service (delegation surfacing, `read_artifact`, workdir seeding). Set `AIHUB_ARTIFACTS_DIR` only if the shared folder shouldn't be `command_center_service/data/artifacts`.
+
+**Deferred (Phase 5):** robust chip passthrough (a stray text block still trips the `all()` gate at `nodes.py`), history re-render flattening, download-token signing (identity still client-asserted), delegated-agent artifacts as real chips on the converse path (currently a markdown link), split-deployment shared filesystem.
