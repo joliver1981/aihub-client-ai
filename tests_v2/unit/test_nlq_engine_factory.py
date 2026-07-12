@@ -113,8 +113,12 @@ def test_breaker_reads_config_when_not_overridden(monkeypatch):
 
 # ── construction fidelity ────────────────────────────────────────────────
 
-def test_construct_plain_legacy_engine():
+def test_construct_plain_legacy_engine(monkeypatch):
     """GeneralAgent parity: enhance=False yields unwrapped sub-engines."""
+    # Pin legacy mode — the ambient env may run the agentic pilot
+    # (NLQ_ENGINE_DEFAULT=agentic), and this test is about LEGACY construction.
+    monkeypatch.setattr(cfg, 'NLQ_ENGINE_DEFAULT', 'legacy', raising=False)
+    monkeypatch.setattr(cfg, 'NLQ_AGENTIC_AGENT_IDS', '', raising=False)
     from LLMDataEngineV2 import LLMDataEngine
     from LLMQueryEngine import LLMQueryEngine
     engine = factory.create_nlq_engine(agent_id=1, enhance=False, purpose='unit-test')
@@ -122,8 +126,11 @@ def test_construct_plain_legacy_engine():
     assert type(engine.query_engine) is LLMQueryEngine
 
 
-def test_construct_enhanced_engine_with_injected_deps():
+def test_construct_enhanced_engine_with_injected_deps(monkeypatch):
     """Route parity: deps injection applies the enhancement return values."""
+    # Pin legacy mode (see test_construct_plain_legacy_engine).
+    monkeypatch.setattr(cfg, 'NLQ_ENGINE_DEFAULT', 'legacy', raising=False)
+    monkeypatch.setattr(cfg, 'NLQ_AGENTIC_AGENT_IDS', '', raising=False)
     sentinel_qe, sentinel_ae = object(), object()
 
     def fake_enhance(engine, systems):

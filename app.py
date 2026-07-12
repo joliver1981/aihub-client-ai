@@ -2214,7 +2214,14 @@ def resource_path(relative_path):
 
 
 @app.route('/download/<file_id>')
+@login_required
 def download_file(file_id):
+    # file_id must be the uuid4 issued when the CSV was written. Reject anything
+    # else — on Windows a crafted id like '..\..\x' would otherwise escape tmp/
+    # (Flask's default converter blocks '/' but not '\').
+    import re
+    if not re.fullmatch(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', file_id):
+        abort(404)
     file_path = resource_path(f'tmp/{file_id}.csv')
     return send_file(file_path, as_attachment=True)
 
@@ -8139,6 +8146,7 @@ def iter_pages(current_page, total_pages, left_edge=2, right_edge=2, left_curren
             
 
 @app.route('/document/serve/<path:filepath>')
+@login_required
 def serve_document(filepath):
     # Print debug information
     print('Requested document:', filepath)
@@ -8173,6 +8181,7 @@ def serve_document(filepath):
 
 
 @app.route('/document/serve')
+@login_required
 def serve_document_2():
     encoded_path = request.args.get('path')
     if not encoded_path:

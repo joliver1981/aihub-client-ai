@@ -272,8 +272,10 @@ class SmartContentRendererHybrid:
         Create table block without LLM - pure data transformation.
         All values are sanitized for JSON serialization.
         """
-        # Limit rows for large datasets
-        max_rows = getattr(cfg, 'MAX_TABLE_DISPLAY_ROWS', 1000)
+        # Limit rows for large datasets. Read the real (prefixed) config name —
+        # the bare 'MAX_TABLE_DISPLAY_ROWS' never existed on the config module,
+        # so this silently capped every table at the 1000 fallback.
+        max_rows = int(getattr(cfg, 'SMART_RENDER_HYBRID_MAX_TABLE_DISPLAY_ROWS', 10000))
         truncated = bool(len(df) > max_rows)
         
         if truncated:

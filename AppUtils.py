@@ -583,6 +583,9 @@ def _set_target_database_connection(connection_string):
 ############################################################################
 ##### WARNING: This is used by the NLQ engine to query local databases #####
 ############################################################################
+from sql_row_cap import read_sql_query_row_capped, fetch_rows_capped
+
+
 def execute_sql_query(query, connection_string):
     try:
         # Set target connection
@@ -599,7 +602,8 @@ def execute_sql_query(query, connection_string):
             print(86 * '=')
 
         # Execute the SQL query and fetch the results into a Pandas DataFrame
-        result_df = pd.read_sql_query(query, connLLMDB)
+        # (row-capped: SQL_QUERY_ROW_SAFETY_CAP guards against unbounded SELECTs)
+        result_df, _row_capped = read_sql_query_row_capped(query, connLLMDB)
 
         # Close the database connection
         #connLLMDB.close()
@@ -638,7 +642,8 @@ def execute_sql_query_v2_legacy(query, connection_string):
             print(86 * '=')
 
         # Execute the SQL query and fetch the results into a Pandas DataFrame
-        result_df = pd.read_sql_query(query, connLLMDB)
+        # (row-capped: SQL_QUERY_ROW_SAFETY_CAP guards against unbounded SELECTs)
+        result_df, _row_capped = read_sql_query_row_capped(query, connLLMDB)
 
         # Return successful result with no error
         return result_df, None
@@ -670,8 +675,9 @@ def execute_sql_query_v2(query, connection_string):
         conn = pyodbc.connect(connection_string, timeout=30)
         
         # Execute the SQL query and fetch the results into a Pandas DataFrame
-        result_df = pd.read_sql_query(query, conn)
-        
+        # (row-capped: SQL_QUERY_ROW_SAFETY_CAP guards against unbounded SELECTs)
+        result_df, _row_capped = read_sql_query_row_capped(query, conn)
+
         # Return successful result with no error
         return result_df, None
         
@@ -2490,23 +2496,25 @@ def query_a_database(connection_id: int, query: str) -> str:
         
         # Check if the query is a SELECT query (returns results)
         if query.strip().upper().startswith('SELECT'):
-            # Fetch data and column names
-            rows = cursor.fetchall()
+            # Fetch data and column names (row-capped: SQL_QUERY_ROW_SAFETY_CAP
+            # guards against an unbounded SELECT exhausting memory)
+            rows, row_capped = fetch_rows_capped(cursor)
             columns = [column[0] for column in cursor.description]
-            
+
             # Convert to DataFrame for easy formatting
             df = pd.DataFrame.from_records(rows, columns=columns)
-            
+
             # Handle empty results
             if df.empty:
                 return "Query executed successfully but returned no results."
-            
+
+            cap_note = "\n[Result capped by SQL_QUERY_ROW_SAFETY_CAP — total row count is higher]" if row_capped else ""
             # Check if result set is too large
             if len(df) > 100:
                 result = df.head(100).to_string(index=False)
-                return f"{result}\n\n[Showing first 100 rows of {len(df)} total rows]"
+                return f"{result}\n\n[Showing first 100 rows of {len(df)} total rows]{cap_note}"
             else:
-                return df.to_string(index=False)
+                return df.to_string(index=False) + cap_note
         else:
             # For non-SELECT queries, commit changes and return affected rows
             conn.commit()

@@ -19,6 +19,12 @@ from graph.tracing import trace_llm_call
 
 logger = logging.getLogger(__name__)
 
+# Max table rows from a DELEGATED agent's rich_content that get inlined (as
+# markdown) into the follow-up LLM call. The UI-bound block can carry far more
+# (renderer cap, ~10k) — but the LLM only needs a preview, and inlining
+# thousands of rows would blow the context window.
+_DELEGATED_TABLE_LLM_ROW_CAP = int(os.getenv("CC_DELEGATED_TABLE_LLM_ROW_CAP", "200"))
+
 # Minimum role for privileged CC operations (platform mutations / tool exec).
 # Role model: 1 = User, 2 = Developer, 3 = Admin.
 MIN_DEV_ROLE = 2
@@ -1697,14 +1703,24 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                         if btype == "chart_image" and block.get("content"):
                             response_parts.append(f"\n[CHART_IMAGE:{block['content']}]")
                         elif btype == "table" and block.get("content"):
-                            # Format table data as markdown
+                            # Format table data as markdown — capped: this string is
+                            # fed back into the follow-up LLM call, so inlining every
+                            # row of a large table would blow the context window (the
+                            # renderer-side block can now carry up to 10k rows).
                             table_data = block["content"]
                             if isinstance(table_data, list) and table_data:
-                                cols = list(table_data[0].keys())
+                                meta = block.get("metadata") or {}
+                                total_rows = meta.get("total_rows") or len(table_data)
+                                shown = table_data[:_DELEGATED_TABLE_LLM_ROW_CAP]
+                                cols = list(shown[0].keys())
                                 header = " | ".join(cols)
                                 sep = " | ".join(["---"] * len(cols))
-                                rows = "\n".join(" | ".join(str(r.get(c, "")) for c in cols) for r in table_data)
+                                rows = "\n".join(" | ".join(str(r.get(c, "")) for c in cols) for r in shown)
                                 response_parts.append(f"\n{header}\n{sep}\n{rows}")
+                                if len(table_data) > len(shown) or (isinstance(total_rows, int) and total_rows > len(shown)):
+                                    response_parts.append(
+                                        f"\n[table preview: showing first {len(shown)} of {total_rows} rows — "
+                                        f"do not present this as the complete dataset]")
                         elif btype == "list" and block.get("content"):
                             items = block["content"]
                             if isinstance(items, list):

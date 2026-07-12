@@ -363,7 +363,7 @@ SMART_RENDER_HYBRID_USE_MINI_MODEL = True               # Use mini or full model
 SMART_RENDER_HYBRID_ENABLE_AI_INSIGHTS = True           # Include AI insights (increases response time)
 SMART_RENDER_HYBRID_ENABLE_VIZ_SUGGESTIONS = False      # This output is not actually used
 SMART_RENDER_HYBRID_AI_INSIGHTS_MAX_ROWS = 10000        # Max data to show AI for insights
-SMART_RENDER_HYBRID_MAX_TABLE_DISPLAY_ROWS = 100000     # Max rows to show user
+SMART_RENDER_HYBRID_MAX_TABLE_DISPLAY_ROWS = int(os.getenv('SMART_RENDER_HYBRID_MAX_TABLE_DISPLAY_ROWS', '10000'))  # Max rows sent to the UI in one table block (client pages/filters). NOTE: until 2026-07 a config-name bug (renderer read bare MAX_TABLE_DISPLAY_ROWS) made the effective cap 1000; beyond this cap results ship as a downloadable artifact per docs/agent-artifact-sharing-plan.md
 SMART_RENDER_HYBRID_MAX_CONTENT_FOR_AI = 250000         # Max chars that can be provided to AI
 MAX_LOG_CHARS = 1000                                    # Max chars that can be written to log files per entry
 SMART_CHANGE_BATCH_SIZE = 25                            # Max numbers of lines evaluated by AI in Excel updates
@@ -412,6 +412,7 @@ LLM_PANDAS_CODE_REGEN_SYSTEM = os.getenv('LLM_PANDAS_CODE_REGEN_SYSTEM')
 LLM_PANDAS_CODE_REGEN_PROMPT = os.getenv('LLM_PANDAS_CODE_REGEN_PROMPT')
 
 # Data Agents
+SQL_QUERY_ROW_SAFETY_CAP = int(os.getenv('SQL_QUERY_ROW_SAFETY_CAP', '1000000'))  # Hard ceiling on rows materialized by any single legacy SQL read (OOM guard; 0 disables). The agentic NLQ engine has its own NLQ_AGENTIC_SQL_ROW_CAP.
 DISPLAY_ROW_LIMIT = 100
 DISPLAY_COLUMN_LIMIT = 20
 GENERAL_CHAT_AI_PROCESSING_ROW_LIMIT = 50               # AI processing row limit - beyond this datasets will be injected directly and bypass LLM (using data agents via general agent communication)
