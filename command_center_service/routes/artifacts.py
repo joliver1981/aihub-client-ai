@@ -33,9 +33,8 @@ def init_artifacts(artifact_mgr, session_mgr=None):
 def _get_artifact_manager():
     global _artifact_mgr
     if _artifact_mgr is None:
-        from command_center.artifacts.artifact_manager import ArtifactManager
-        storage_dir = str(Path(__file__).parent.parent / "data" / "artifacts")
-        _artifact_mgr = ArtifactManager(storage_dir)
+        from command_center.artifacts.artifact_manager import ArtifactManager, resolve_shared_artifacts_dir
+        _artifact_mgr = ArtifactManager(resolve_shared_artifacts_dir())
     return _artifact_mgr
 
 

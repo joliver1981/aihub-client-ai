@@ -157,8 +157,10 @@ async def lifespan(app: FastAPI):
     # up the artifact's parent session (BUG-R3-006 fix).
     try:
         from routes.artifacts import router as artifacts_router, init_artifacts
-        from command_center.artifacts.artifact_manager import ArtifactManager
-        artifact_storage = str(Path(__file__).parent / "data" / "artifacts")
+        from command_center.artifacts.artifact_manager import ArtifactManager, resolve_shared_artifacts_dir
+        # Shared store: same folder the main app's agents write into
+        # (AIHUB_ARTIFACTS_DIR override; defaults to this service's data/artifacts).
+        artifact_storage = resolve_shared_artifacts_dir()
         artifact_mgr = ArtifactManager(artifact_storage)
         init_artifacts(artifact_mgr, session_mgr=session_mgr)
         app.include_router(artifacts_router)

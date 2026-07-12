@@ -23,6 +23,46 @@ DEFAULT_TTL_SECONDS = 86400
 _META_SUFFIX = ".meta.json"
 
 
+def resolve_shared_artifacts_dir() -> str:
+    """Absolute path of the SHARED artifact store.
+
+    Every producer (CC service tools, the main app's data/general agents, the
+    workflow engine) must resolve the SAME folder so an artifact registered by
+    one process is servable by another — the CC service is the single download
+    server (command_center_service/routes/artifacts.py). See
+    docs/agent-artifact-sharing-plan.md.
+
+    Resolution order:
+      1. AIHUB_ARTIFACTS_DIR env var — packaged/frozen installs set this to a
+         shared location (the frozen services live in separate dist dirs, so
+         a relative default would NOT be shared there).
+      2. <repo root>/command_center_service/data/artifacts — derived from this
+         package's location. This is the CC service's historical default, so
+         existing artifacts keep working, and in dev (all services run from
+         one tree) every process resolves the identical folder with zero
+         configuration.
+    """
+    env_dir = os.getenv("AIHUB_ARTIFACTS_DIR", "").strip()
+    if env_dir:
+        return env_dir
+    repo_root = Path(__file__).resolve().parents[2]
+    return str(repo_root / "command_center_service" / "data" / "artifacts")
+
+
+# Lazily-created singleton for processes OUTSIDE the CC service (main app,
+# workflow engine). The CC service keeps its own instance wired through
+# routes.artifacts.init_artifacts — both point at the same folder, and the
+# on-disk .meta.json sidecars make metadata visible across instances.
+_shared_manager: Optional["ArtifactManager"] = None
+
+
+def get_shared_artifact_manager() -> "ArtifactManager":
+    global _shared_manager
+    if _shared_manager is None:
+        _shared_manager = ArtifactManager(resolve_shared_artifacts_dir())
+    return _shared_manager
+
+
 class ArtifactManager:
     """Manages creation, storage, and retrieval of file artifacts."""
 
@@ -38,6 +78,10 @@ class ArtifactManager:
         artifact_type: ArtifactType,
         content_bytes: bytes,
         session_id: str,
+        producing_agent: Optional[str] = None,
+        source: Optional[str] = None,
+        row_count: Optional[int] = None,
+        columns: Optional[list] = None,
     ) -> ArtifactMetadata:
         """
         Store an artifact and return its metadata.
@@ -47,6 +91,9 @@ class ArtifactManager:
             artifact_type: Type of artifact (excel, pdf, csv, etc.)
             content_bytes: Raw file bytes
             session_id: Session that created this artifact
+            producing_agent: Optional provenance — which agent/tool made it
+            source: Optional provenance — what it was made from (e.g. SQL)
+            row_count/columns: Optional shape for tabular artifacts
         """
         artifact_id = str(uuid.uuid4())[:12]
 
@@ -68,6 +115,10 @@ class ArtifactManager:
             artifact_type=artifact_type,
             size_bytes=len(content_bytes),
             session_id=session_id,
+            producing_agent=producing_agent,
+            source=source,
+            row_count=row_count,
+            columns=columns,
         )
         self._metadata[artifact_id] = metadata
 
