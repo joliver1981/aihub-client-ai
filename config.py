@@ -422,6 +422,25 @@ CONFIDENCE_THRESHOLD_REQUESTING_MORE_INFO = 89          # Only request more info
 CONFIDENCE_THRESHOLD_FOR_ANALYTICAL_PROCESSING = 86     # Only use analytical engine if above threshold (and dataset_sufficient==no)
 REFINE_ZERO_ROW_RESPONSES = True                        # If no data is returned and True, the AI will 'cleanse' the response
 ATTEMPT_TO_RESPOND_ON_USERS_BEHALF = True               # If True the AI will attempt to fulfill requests from the AI for more info
+
+# ── NLQ V3 agentic engine (docs/nlq-agentic-engine-plan.md) ────────────────
+# Engine selection is ADDITIVE: the legacy engine (LLMDataEngineV2) is the
+# default and the trusted fallback; it is never modified. All NLQ entry points
+# construct engines via nlq_engine_factory.create_nlq_engine().
+NLQ_ENGINE_DEFAULT = os.getenv('NLQ_ENGINE_DEFAULT', 'legacy').strip().lower()   # 'legacy' | 'agentic'
+NLQ_AGENTIC_AGENT_IDS = os.getenv('NLQ_AGENTIC_AGENT_IDS', '')          # csv allowlist: these agents use agentic even when default=legacy
+NLQ_LEGACY_AGENT_IDS = os.getenv('NLQ_LEGACY_AGENT_IDS', '')            # csv escape hatch: these agents stay legacy even when default=agentic
+NLQ_AGENTIC_FALLBACK = os.getenv('NLQ_AGENTIC_FALLBACK', 'true').lower() in ['true', '1', 't', 'y', 'yes']  # serve request via legacy when agentic fails
+NLQ_AGENTIC_TIMEOUT_S = int(os.getenv('NLQ_AGENTIC_TIMEOUT_S', '90'))   # wall-clock budget per agentic request
+NLQ_AGENTIC_MAX_TOOL_ITERATIONS = int(os.getenv('NLQ_AGENTIC_MAX_TOOL_ITERATIONS', '8'))
+NLQ_AGENTIC_BREAKER_THRESHOLD = int(os.getenv('NLQ_AGENTIC_BREAKER_THRESHOLD', '3'))     # consecutive failures -> breaker opens
+NLQ_AGENTIC_BREAKER_COOLDOWN_S = int(os.getenv('NLQ_AGENTIC_BREAKER_COOLDOWN_S', '600'))
+NLQ_AGENTIC_MODEL = os.getenv('NLQ_AGENTIC_MODEL', '')                  # empty -> get_openai_config() resolution (platform GPT deployment)
+NLQ_AGENTIC_SQL_ROW_CAP = int(os.getenv('NLQ_AGENTIC_SQL_ROW_CAP', '10000'))
+NLQ_AGENTIC_STRICT_TOOLS = os.getenv('NLQ_AGENTIC_STRICT_TOOLS', 'true').lower() in ['true', '1', 't', 'y', 'yes']  # P0 2026-07-11: strict tools + json_schema verified through openai_proxy_request_v3 (gpt-5.2, api 2024-12-01-preview)
+NLQ_SHADOW_COMPARE = os.getenv('NLQ_SHADOW_COMPARE', 'false').lower() in ['true', '1', 't', 'y', 'yes']  # run agentic silently on legacy traffic, log-only
+NLQ_SHADOW_SAMPLE_PCT = int(os.getenv('NLQ_SHADOW_SAMPLE_PCT', '10'))
+
 DATA_AGENT_ERROR_CATEGORIES = {
         'database_connection': 'Unable to connect to the database. Please try again later or contact support.',
         'query_syntax': 'There was an issue with the database query. Our team has been notified.',

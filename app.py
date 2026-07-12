@@ -1641,10 +1641,8 @@ def data_chat_modern():
         if 'session_id' not in session:
             session['session_id'] = str(uuid.uuid4())
 
-        engine = LLMDataEngine(provider=cfg.NLQ_PROVIDER)
-        enhanced_query_engine, enhanced_analytical_engine = enhance_engines(engine, nlq_systems)
-        engine.query_engine = enhanced_query_engine
-        engine.analytical_engine = enhanced_analytical_engine
+        from nlq_engine_factory import create_nlq_engine
+        engine = create_nlq_engine(purpose="data_chat_page", deps=(enhance_engines, nlq_systems))
         llm_data_engines[session['session_id']] = pickle.dumps(engine)
     except Exception as e:
         print(str(e))
@@ -1671,19 +1669,10 @@ def data_assistants():
         if 'session_id' not in session:
             session['session_id'] = str(uuid.uuid4())
 
-        # Create a new Assistant for the session if not already created
-        if session['session_id'] not in llm_data_engines:
-            engine = LLMDataEngine(provider=cfg.NLQ_PROVIDER)
-            enhanced_query_engine, enhanced_analytical_engine = enhance_engines(engine, nlq_systems)
-            engine.query_engine = enhanced_query_engine
-            engine.analytical_engine = enhanced_analytical_engine
-            llm_data_engines[session['session_id']] = pickle.dumps(engine)
-        else:
-            engine = LLMDataEngine(provider=cfg.NLQ_PROVIDER)
-            enhanced_query_engine, enhanced_analytical_engine = enhance_engines(engine, nlq_systems)
-            engine.query_engine = enhanced_query_engine
-            engine.analytical_engine = enhanced_analytical_engine
-            llm_data_engines[session['session_id']] = pickle.dumps(engine)
+        # Create a fresh Assistant for the session (both prior branches built one identically)
+        from nlq_engine_factory import create_nlq_engine
+        engine = create_nlq_engine(purpose="data_assistants_page", deps=(enhance_engines, nlq_systems))
+        llm_data_engines[session['session_id']] = pickle.dumps(engine)
 
     except Exception as e:
         print(str(e))
@@ -2548,10 +2537,8 @@ def api_agent_chat(agent_id):
         if is_data:
             # ── Data agent path ──────────────────────────────────────
             logger.info(f'[api_agent_chat] Data agent {agent_id} — using LLMDataEngine')
-            engine = LLMDataEngine(provider=cfg.NLQ_PROVIDER)
-            enhanced_qe, enhanced_ae = enhance_engines(engine, nlq_systems)
-            engine.query_engine = enhanced_qe
-            engine.analytical_engine = enhanced_ae
+            from nlq_engine_factory import create_nlq_engine
+            engine = create_nlq_engine(agent_id=agent_id, purpose="api_agent_chat", deps=(enhance_engines, nlq_systems))
 
             conversation_history = str(history) if history else '[]'
             response_obj, _ = process_chat_data_request(

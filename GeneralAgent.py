@@ -659,7 +659,8 @@ def ask_query_agent_a_question(agent_id: int, question: str) -> str:
     if user_id is None:
         user_id = RequestTracking.get_user_id()
 
-    engine = LLMDataEngine(provider=cfg.NLQ_PROVIDER)
+    from nlq_engine_factory import create_nlq_engine
+    engine = create_nlq_engine(agent_id=agent_id, enhance=False, purpose="general_agent_tool")
     result = engine.get_answer(agent_id, question)
 
     # Handle both return formats: dict (when rich content enabled) and tuple (legacy)

@@ -149,13 +149,9 @@ def data_explorer():
         if "session_id" not in session:
             session["session_id"] = str(uuid.uuid4())
 
-        from LLMDataEngineV2 import LLMDataEngine
-        enhance_engines, nlq_systems = _get_enhancement_deps()
+        from nlq_engine_factory import create_nlq_engine
 
-        engine = LLMDataEngine(provider=cfg.NLQ_PROVIDER)
-        enhanced_qe, enhanced_ae = enhance_engines(engine, nlq_systems)
-        engine.query_engine = enhanced_qe
-        engine.analytical_engine = enhanced_ae
+        engine = create_nlq_engine(purpose="data_explorer_page", deps=_get_enhancement_deps())
         _save_session_engine(session["session_id"], engine)
     except Exception as e:
         logger.error(f"Error initializing Data Explorer engine: {e}")
@@ -308,16 +304,12 @@ def data_explorer_chat():
 def data_explorer_reset():
     """Reset the Data Explorer session — create a fresh engine."""
     try:
-        from LLMDataEngineV2 import LLMDataEngine
-        enhance_engines, nlq_systems = _get_enhancement_deps()
+        from nlq_engine_factory import create_nlq_engine
 
         session_id = session.get("session_id", str(uuid.uuid4()))
         session["session_id"] = session_id
 
-        engine = LLMDataEngine(provider=cfg.NLQ_PROVIDER)
-        enhanced_qe, enhanced_ae = enhance_engines(engine, nlq_systems)
-        engine.query_engine = enhanced_qe
-        engine.analytical_engine = enhanced_ae
+        engine = create_nlq_engine(purpose="data_explorer_reset", deps=_get_enhancement_deps())
         _save_session_engine(session_id, engine)
 
         return jsonify({"status": "ok", "message": "Session reset."})
@@ -588,12 +580,8 @@ def data_explorer_internal_query():
     engine = _internal_engines.get(_engine_key)
     if engine is None:
         try:
-            from LLMDataEngineV2 import LLMDataEngine
-            enhance_engines, nlq_systems = _get_enhancement_deps()
-            engine = LLMDataEngine(provider=cfg.NLQ_PROVIDER)
-            enhanced_qe, enhanced_ae = enhance_engines(engine, nlq_systems)
-            engine.query_engine = enhanced_qe
-            engine.analytical_engine = enhanced_ae
+            from nlq_engine_factory import create_nlq_engine
+            engine = create_nlq_engine(agent_id=agent_id, purpose="cc_internal_query", deps=_get_enhancement_deps())
             _internal_engines[_engine_key] = engine
             logger.info(f"[internal_query] Created new engine for {_engine_key}")
         except Exception as e:
