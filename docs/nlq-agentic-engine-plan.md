@@ -1,7 +1,7 @@
 # Agentic NLQ Engine (V3) — Build Plan
 
 **Date:** 2026-07-11
-**Status:** PLAN — no code written yet
+**Status:** P0–P6 COMPLETE (built + validated). Engine ships DORMANT — default `legacy`; enable per-agent via `NLQ_AGENTIC_AGENT_IDS` (see §11 runbook). Headline: agentic 100% vs legacy 95.8% on the 24-q battery, ~5× faster, auto-fallback + breaker proven live.
 **Companion analysis:** the 2026-07-11 NLQ architecture review (memory: `nlq-engine-architecture-review`)
 
 ---
@@ -225,7 +225,7 @@ Instant rollback at every stage = flip one env var (or let the breaker do it aut
 | **P3 — ✅ DONE 2026-07-11** | Core engine: loop, state, `get_table_details`, `run_sql`, `respond`, contract mapping (text+table), telemetry; wired into factory + breaker/fallback in `get_answer` | 24 P3 unit tests green (95 total NLQ V3); **live smoke on agent 281 PASSED** — text answer (100,000 orders, 12.9s) + table answer (4 categories, 7.0s) through the real proxy+DB, row cap injected, rich-content rendered. Full cloned Playwright battery pending app restart (dev). | done |
 | **P4 — ✅ DONE 2026-07-11** | `create_chart` (ported spec renderer), `ask_user`, dictionary-driven formatting, multi-turn dataset refs (`get_dataset_preview`), rich-content dict parity | 17 P4 unit tests green (112 total NLQ V3); **live chart smoke on agent 281 PASSED** — query→create_chart→respond(chart), real 47KB PNG data-URI, 10.9s. Formal Playwright battery = P5 (needs app restart). | done |
 | **P5 — ✅ DONE 2026-07-11** | Both-engines in-process runner + core battery run + 31-question expansion + Playwright clone | **Gates PASS**: agentic **100.0%** vs legacy **95.8%** (24-q core, same battery); agentic **p50 6.1s** vs legacy 31.7s (~5×); injection blocked by sql_gate. | done |
-| **P6** | Fallback/breaker hardening, shadow mode, docs, pilot enablement notes | Forced-failure drill: kill agentic mid-traffic → users see legacy answers, logs show the story | ~1–2 days |
+| **P6 — ✅ DONE 2026-07-11** | Fallback/breaker hardening (chaos flag), shadow mode, pilot runbook | 9 P6 unit tests green; **live chaos drill PASSED** — `NLQ_AGENTIC_FORCE_ERROR=true` → agentic fails → legacy transparently answers "75 employees" from the real DB. Runbook in §11. | done |
 
 Sequencing rule: commit each phase to the current branch immediately (no side branches — standing directive), push in batches.
 
@@ -252,3 +252,48 @@ Later / explicitly out of scope now: Python-sandbox tool (reuse the CC code-inte
 | Frozen/onedir packaging surprises | Pure-Python deps only (`sqlglot`); use existing `get_log_path`/`APP_ROOT` patterns (memory `frozen-onedir-app-root`) |
 | Concurrent same-session turns racing (pre-existing) | New state is per-session and small; add a per-key lock in the factory's `_internal_engines` path (additive; legacy path untouched) |
 | Silent quality regressions post-flip | Fallback + shadow logs + keeping the side-by-side battery runnable on demand |
+
+---
+
+## 11. Operations / pilot runbook (P6)
+
+> **P6 OUTCOME (2026-07-11).** Hardened the reliability path and proved it live.
+> - **Chaos flag `NLQ_AGENTIC_FORCE_ERROR`**: forces the agentic engine to fail at the top of `_run_agentic`, so it flows through the exact real exception → `breaker.record_failure()` → `_fallback` path. Live drill: with it on, agent 281 "how many employees?" → agentic fails → legacy transparently answers **75** from the real DB. Users see a real answer, never an error.
+> - **Shadow mode** (`AgenticNLQEngine.shadow_run` + `nlq_engine_factory.maybe_run_shadow`, wired into `/data_explorer/chat`): on a sampled fraction of *legacy*-served requests, runs agentic in a background daemon thread and logs a `[NLQ_SHADOW]` comparison. Log-only, **breaker-isolated** (a shadow failure can never open the production breaker — `shadow_run` bypasses `get_answer`), swallows all errors. Off by default; doubles LLM/DB cost on sampled requests.
+> - 9 P6 unit tests: chaos→fallback, breaker trips after N failures and *stops invoking agentic* once open, cooldown recovery, shadow isolation + sampling + best-effort. Full NLQ V3 unit total now 121.
+
+### Enable the pilot
+1. Set `NLQ_AGENTIC_AGENT_IDS=<agent_id>[,<id>...]` (per-agent allowlist; leaves everyone else on legacy). Keep `NLQ_ENGINE_DEFAULT=legacy`.
+2. Restart the main app (mode is resolved at engine construction; the running process caches config).
+3. Confirm routing: dev app with `NLQ_AGENTIC_ECHO_ENGINE_HEADER=true` returns `X-NLQ-Engine: agentic` on `/data_explorer/chat`; or watch for `[nlq_factory] mode=agentic` in the log.
+
+### Monitor
+- `[nlq_factory] mode=…` — which engine each request built.
+- `[NLQ_AGENTIC_FALLBACK] …` (ERROR) — a request fell back to legacy; the reason is logged. A trickle is fine; a flood means investigate.
+- `[nlq_factory] Circuit breaker OPEN …` (ERROR) — agentic disabled process-wide for the cooldown; every request is on legacy until it auto-recovers.
+- `nlq_agentic_trace.jsonl` (via `get_log_path`) — per-request tool trace, iterations, timing, `fallback_used`.
+- `[DATA_EXPLORER_TIMING] engine=agentic …` — latency + tool breakdown, parity with the legacy timing line.
+
+### Roll back (any of these; fastest first)
+- **Instant, per-process, automatic**: the circuit breaker opens itself after `NLQ_AGENTIC_BREAKER_THRESHOLD` consecutive failures → all traffic on legacy for `NLQ_AGENTIC_BREAKER_COOLDOWN_S`.
+- **Per-agent**: add the agent to `NLQ_LEGACY_AGENT_IDS` (deny-list beats allow-list), or remove it from `NLQ_AGENTIC_AGENT_IDS`; restart.
+- **Global kill switch**: `NLQ_ENGINE_DEFAULT=legacy` + clear `NLQ_AGENTIC_AGENT_IDS`; restart. V2 is byte-for-byte unchanged, so this is a true return to the known-good engine.
+
+### Config reference (all `config.py`, env-overridable)
+| Key | Default | Purpose |
+|---|---|---|
+| `NLQ_ENGINE_DEFAULT` | `legacy` | global engine |
+| `NLQ_AGENTIC_AGENT_IDS` | `` | per-agent allowlist for agentic |
+| `NLQ_LEGACY_AGENT_IDS` | `` | per-agent denylist (wins over allow) |
+| `NLQ_AGENTIC_FALLBACK` | `true` | serve via legacy on agentic failure |
+| `NLQ_AGENTIC_TIMEOUT_S` | `90` | per-request wall-clock budget |
+| `NLQ_AGENTIC_MAX_TOOL_ITERATIONS` | `8` | loop cap |
+| `NLQ_AGENTIC_BREAKER_THRESHOLD` | `3` | consecutive failures → breaker opens |
+| `NLQ_AGENTIC_BREAKER_COOLDOWN_S` | `600` | breaker auto-reset window |
+| `NLQ_AGENTIC_SQL_ROW_CAP` | `10000` | injected TOP/LIMIT when SQL uncapped |
+| `NLQ_AGENTIC_STRICT_TOOLS` | `true` | strict OpenAI tool schemas (P0-verified) |
+| `NLQ_AGENTIC_MODEL` | `` | override GPT model (else platform default) |
+| `NLQ_AGENTIC_ECHO_ENGINE_HEADER` | `false` | dev/CI: emit `X-NLQ-Engine` |
+| `NLQ_AGENTIC_FORCE_ERROR` | `false` | chaos drill: force agentic to fail |
+| `NLQ_SHADOW_COMPARE` | `false` | shadow agentic on sampled legacy traffic |
+| `NLQ_SHADOW_SAMPLE_PCT` | `10` | shadow sampling percentage |

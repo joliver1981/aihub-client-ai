@@ -441,6 +441,7 @@ NLQ_AGENTIC_STRICT_TOOLS = os.getenv('NLQ_AGENTIC_STRICT_TOOLS', 'true').lower()
 NLQ_SHADOW_COMPARE = os.getenv('NLQ_SHADOW_COMPARE', 'false').lower() in ['true', '1', 't', 'y', 'yes']  # run agentic silently on legacy traffic, log-only
 NLQ_SHADOW_SAMPLE_PCT = int(os.getenv('NLQ_SHADOW_SAMPLE_PCT', '10'))
 NLQ_AGENTIC_ECHO_ENGINE_HEADER = os.getenv('NLQ_AGENTIC_ECHO_ENGINE_HEADER', 'false').lower() in ['true', '1', 't', 'y', 'yes']  # dev/CI: emit X-NLQ-Engine on /data_explorer/chat so the agentic competency suite can confirm routing
+NLQ_AGENTIC_FORCE_ERROR = os.getenv('NLQ_AGENTIC_FORCE_ERROR', 'false').lower() in ['true', '1', 't', 'y', 'yes']  # CHAOS DRILL: force the agentic engine to fail so you can verify fallback-to-legacy + breaker live, without a real breakage. Leave OFF in normal operation.
 
 DATA_AGENT_ERROR_CATEGORIES = {
         'database_connection': 'Unable to connect to the database. Please try again later or contact support.',

@@ -21,12 +21,14 @@ GeneralAgent's ask_query_agent_a_question historically builds a PLAIN engine
 (no enhancement wrappers) — callers preserve that with enhance=False.
 """
 import logging
+import random
 import threading
 import time
 
 import config as cfg
 
 logger = logging.getLogger("nlq_engine_factory")
+shadow_logger = logging.getLogger("nlq_shadow")
 
 MODE_LEGACY = 'legacy'
 MODE_AGENTIC = 'agentic'
@@ -156,6 +158,38 @@ def _construct_legacy(provider=None, enhance=True, deps=None):
 def _construct_agentic():
     from nlq_agentic import AgenticNLQEngine
     return AgenticNLQEngine(provider="openai")
+
+
+def maybe_run_shadow(agent_id, question, history, legacy_answer_type=None):
+    """Shadow mode: on a sampled fraction of LEGACY-served requests, ALSO run the
+    agentic engine in a background daemon thread and log a comparison. Log-only —
+    it never touches the user's response, never affects the circuit breaker
+    (uses AgenticNLQEngine.shadow_run, which is breaker-isolated), and swallows
+    every error. Gated by NLQ_SHADOW_COMPARE + NLQ_SHADOW_SAMPLE_PCT; both off by
+    default, so this is a no-op in normal operation. Doubles LLM/DB cost on
+    sampled requests — keep the sample small.
+    """
+    try:
+        if not getattr(cfg, "NLQ_SHADOW_COMPARE", False):
+            return
+        pct = int(getattr(cfg, "NLQ_SHADOW_SAMPLE_PCT", 10))
+        if pct <= 0 or random.random() * 100.0 >= pct:
+            return
+
+        def _run():
+            try:
+                engine = _construct_agentic()
+                summary = engine.shadow_run(agent_id, question, history=history)
+                shadow_logger.warning(
+                    "[NLQ_SHADOW] agent=%s q=%r legacy_type=%s agentic=%s",
+                    agent_id, (question or "")[:80], legacy_answer_type, summary
+                )
+            except Exception as e:  # pragma: no cover - best-effort
+                shadow_logger.warning(f"[NLQ_SHADOW] shadow run failed: {e}")
+
+        threading.Thread(target=_run, name="nlq-shadow", daemon=True).start()
+    except Exception as e:  # pragma: no cover - never let shadow break a request
+        logger.debug(f"[nlq_factory] maybe_run_shadow skipped: {e}")
 
 
 def create_nlq_engine(agent_id=None, provider=None, enhance=True, purpose='', deps=None):

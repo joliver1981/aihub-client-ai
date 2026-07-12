@@ -258,6 +258,14 @@ class AgenticNLQEngine:
                 pass
 
     def _run_agentic(self, agent_id, input_question, trace):
+        # Chaos drill (NLQ_AGENTIC_FORCE_ERROR): deterministically fail so an
+        # operator can verify the fallback-to-legacy path and breaker under real
+        # traffic without an actual outage. Raised here so it flows through the
+        # exact same exception → breaker.record_failure() → _fallback path as a
+        # genuine failure. Off in normal operation.
+        if getattr(cfg, "NLQ_AGENTIC_FORCE_ERROR", False):
+            raise RuntimeError("NLQ_AGENTIC_FORCE_ERROR is set — simulated agentic failure (chaos drill)")
+
         self._set_target_database(agent_id)
         self.state.agent_id = agent_id
         self.state.question_count += 1
@@ -297,6 +305,29 @@ class AgenticNLQEngine:
         self.state.add_message(input_question, is_user=True)
         self.state.add_message(self._history_note(result), is_user=False)
         return result
+
+    def shadow_run(self, agent_id, input_question, history=None):
+        """Run the agentic pipeline for SHADOW comparison only — log-only, fully
+        isolated. Bypasses the circuit breaker and fallback so a shadow failure
+        can never affect production routing, and never raises. Returns a small
+        summary dict for the shadow logger.
+        """
+        try:
+            self.clear_chat_hist()
+            for entry in (history or []):
+                if isinstance(entry, dict):
+                    is_user = entry.get("role") in ("Q", "user")
+                    self.add_message_to_hist(entry.get("content", ""), is_user=is_user)
+            trace = RequestTrace(agent_id, input_question, mode="shadow")
+            t0 = time.time()
+            result = self._run_agentic(agent_id, input_question, trace)
+            atype = self._answer_type_of(result)
+            answer = result.get("answer") if isinstance(result, dict) else (result[0] if result else "")
+            return {"ok": True, "answer_type": atype, "answer": str(answer)[:300],
+                    "elapsed_s": round(time.time() - t0, 1),
+                    "tool_calls": len(trace.tool_calls), "iterations": trace.iterations}
+        except Exception as e:
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
     # ── fallback to the trusted legacy engine ───────────────────────────
     def _fallback(self, agent_id, input_question, trace, reason):

@@ -295,6 +295,16 @@ def data_explorer_chat():
     # Save engine state
     _save_session_engine(session_id, engine)
 
+    # Shadow mode: if a legacy engine served this, optionally run the agentic
+    # engine in the background and log a comparison (log-only, sampled, off by
+    # default). Never affects this response.
+    if type(engine).__name__ != "AgenticNLQEngine":
+        try:
+            from nlq_engine_factory import maybe_run_shadow
+            maybe_run_shadow(agent_id, cleaned_question, conv_history, answer_type)
+        except Exception:
+            pass
+
     resp = jsonify(response_payload)
     # Dev/CI only: let the agentic competency suite confirm which engine served
     # this request (return shapes are identical by design, so it can't tell
