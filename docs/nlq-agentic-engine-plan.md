@@ -167,6 +167,8 @@ Per request: mode, tool trace (name, args digest, ms, ok/error), SQL executed, i
 - Wired into the **new engine only**. (Optionally offering it to V2's `execute_sql_query_v2` behind a default-off flag is a separate, later decision — not part of this plan, per the don't-touch rule.)
 - Unit-test matrix is Phase 2's acceptance gate (below).
 
+> **P2 DONE (2026-07-11): `sql_gate.py` at repo root, 57-test matrix green.** Two-layer enforcement chosen after probing sqlglot 25.34.1: (1) allowlist the single top-level statement to SELECT/UNION/parenthesized-SELECT; (2) **walk the entire AST** for forbidden nodes. Layer 2 is load-bearing — sqlglot parses `WITH x AS (DELETE FROM t RETURNING id) SELECT * FROM x` as a *top-level SELECT*, so a type check alone would pass a data-modifying CTE; the walk catches the embedded `Delete`. Forbidden set: Insert/Update/Delete/Merge/Drop/Create/Alter/TruncateTable/Grant/Command(EXEC/EXECUTE)/Set/Use, plus `SELECT ... INTO`. Fails **closed** on multi-statement (`SELECT 1; DROP…` → 2 statements → reject), unparseable, and empty. `apply_row_cap` fails **open** (memory net, not the security boundary): wraps unions/subqueries so the cap bounds the whole result, respects an existing equal-or-smaller cap, tightens a larger one. `gate_sql()` convenience returns a `GateResult(ok, sql, reason, cap_applied, dialect)`. `sqlglot` added to `app_onedir.spec` `packages_to_collect` (dynamic dialect submodules; already installed in aihub2.1 as a pandasai transitive dep — no root requirements.txt exists, conda env is source of truth).
+
 ---
 
 ## 6. Provider decision: OpenAI/GPT (and the small Phase 0 spike that remains)
@@ -219,7 +221,7 @@ Instant rollback at every stage = flip one env var (or let the breaker do it aut
 |---|---|---|---|
 | **P0 — ✅ DONE 2026-07-11** | OpenAI tools spike: `tool_calls`→`role="tool"` round-trip + strict-schema/`json_schema` support check on the configured endpoint(s) | **PASS ×3** (see §6 outcome) — strict mode ON | done |
 | **P1 — ✅ DONE 2026-07-11** | Factory + config keys + wire construction sites + breaker skeleton (legacy-only behavior) + interface audit of what routes touch on `engine`/`environment` | All 7 request-serving sites wired via `create_nlq_engine` (vestigial `app.py:707` global + load-test `:5641` intentionally left direct); 13 unit tests green incl. real-engine construction fidelity; audit recorded in §3. Live legacy-competency re-verification pending next app restart. | done |
-| **P2** | `sql_gate.py` + unit matrix; `sqlglot` into requirements + PyInstaller spec | Matrix green on mssql/postgres/mysql | ~1 day |
+| **P2 — ✅ DONE 2026-07-11** | `sql_gate.py` + unit matrix; `sqlglot` into PyInstaller spec (no root requirements.txt — conda env is truth) | **57 tests green** (mssql/postgres/mysql/oracle/snowflake); AST-walk blocks the DELETE-in-CTE bypass + stacked statements; cap injection per dialect | done |
 | **P3** | Core engine: loop, state, `get_table_details`, `run_sql`, `respond`, contract mapping (text+table), telemetry | Cloned battery ≥ 90% in dev; traces readable | ~3–4 days |
 | **P4** | `create_chart` (ported spec renderer), `ask_user`, dictionary-driven formatting, multi-turn dataset refs, rich-content dict parity | Chart renders in UI; formatting cases pass; battery ≥ 95.8% | ~2–3 days |
 | **P5** | Battery expansion + side-by-side runner + comparison report artifact | Agentic ≥ legacy overall; p50 ≤ 15s; injection cases blocked by gate | ~2 days |
