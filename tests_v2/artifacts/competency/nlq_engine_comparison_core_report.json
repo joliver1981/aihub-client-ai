@@ -1,0 +1,810 @@
+{
+  "summaries": {
+    "legacy": {
+      "n": 24,
+      "overall_pct": 95.83333333333333,
+      "earned": 23.0,
+      "total_weight": 24.0,
+      "sql_hits": 21,
+      "ans_hits": 19,
+      "both": 17,
+      "errors": 0,
+      "p50_s": 31.7,
+      "mean_s": 26.2,
+      "max_s": 38.1
+    },
+    "agentic": {
+      "n": 24,
+      "overall_pct": 100.0,
+      "earned": 24.0,
+      "total_weight": 24.0,
+      "sql_hits": 22,
+      "ans_hits": 22,
+      "both": 20,
+      "errors": 0,
+      "p50_s": 6.1,
+      "mean_s": 6.3,
+      "max_s": 8.7
+    }
+  },
+  "rows": {
+    "legacy": [
+      {
+        "question": "List the distinct product categories sold in the stores.",
+        "dimensions": [
+          "simple_select",
+          "distinct_count"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT DISTINCT pm.category\nFROM TS.sales s\nINNER JOIN TS.product_master pm ON s.product_id = pm.product_id;",
+        "answer": "              category\n           Electronics\n        Home & Kitchen\nBeauty & Personal Care\n              Clothing",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 31.9,
+        "error": null
+      },
+      {
+        "question": "How many distinct cities have store locations?",
+        "dimensions": [
+          "distinct_count",
+          "aggregate_sum"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT COUNT(DISTINCT city) AS distinct_cities\nFROM TS.location_master;",
+        "answer": " distinct_cities\n              15",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 19.5,
+        "error": null
+      },
+      {
+        "question": "What product categories are available?",
+        "dimensions": [
+          "simple_select"
+        ],
+        "weight": 1.0,
+        "sql": "",
+        "answer": "Great question! I can help you explore the product categories available in our catalog.\n\nWhile I don't have the specific category names listed right in front of me at this moment, I do have access to detailed product information that would let me answer this for you. Here's what I can tell you about our products:\n\n- **Product Categories** \u2013 The high-level groupings that products are organized into (this is exactly what you're asking about!)\n- **Subcategories** \u2013 More detailed classifications within each main category\n- **Product details** \u2013 Things like product names, sizes, colors, and descrip",
+        "answer_type": "string",
+        "sql_ok": false,
+        "ans_ok": false,
+        "score": 0.0,
+        "elapsed_s": 9.8,
+        "error": null
+      },
+      {
+        "question": "How many products are in the Electronics category?",
+        "dimensions": [
+          "count",
+          "where_filter"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT COUNT(product_id) AS products_by_category\nFROM TS.product_master\nWHERE category = 'Electronics';",
+        "answer": " products_by_category\n                   64",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": false,
+        "score": 1.0,
+        "elapsed_s": 17.9,
+        "error": null
+      },
+      {
+        "question": "How many stores are located in California?",
+        "dimensions": [
+          "count",
+          "where_filter"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT COUNT(store_id) AS number_of_stores\nFROM TS.location_master\nWHERE state = 'California';",
+        "answer": " number_of_stores\n                0",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": false,
+        "score": 1.0,
+        "elapsed_s": 17.6,
+        "error": null
+      },
+      {
+        "question": "How many employees does the company have?",
+        "dimensions": [
+          "count"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT COUNT(employee_id) AS employee_count\nFROM TS.employee_data;",
+        "answer": " employee_count\n             75",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 22.0,
+        "error": null
+      },
+      {
+        "question": "What is the total sales revenue across all stores?",
+        "dimensions": [
+          "aggregate_sum"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT SUM(total_revenue) AS total_sales_revenue\nFROM TS.sales;",
+        "answer": " total_sales_revenue\n        1.923453e+09",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": false,
+        "score": 1.0,
+        "elapsed_s": 19.1,
+        "error": null
+      },
+      {
+        "question": "What is the average revenue per sale?",
+        "dimensions": [
+          "aggregate_avg"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT AVG(total_revenue) AS average_revenue_per_sale\nFROM TS.sales;",
+        "answer": " average_revenue_per_sale\n               807.988205",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": false,
+        "score": 1.0,
+        "elapsed_s": 15.8,
+        "error": null
+      },
+      {
+        "question": "What is the total sales revenue by product category?",
+        "dimensions": [
+          "group_by",
+          "join_2",
+          "aggregate_sum"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT\n    p.category,\n    SUM(s.total_revenue) AS total_sales_revenue\nFROM TS.sales s\nINNER JOIN TS.product_master p\n    ON s.product_id = p.product_id\nGROUP BY p.category\nORDER BY total_sales_revenue DESC;",
+        "answer": "              category total_sales_revenue\n           Electronics   $1,531,922,624.38\n              Clothing     $210,406,440.46\n        Home & Kitchen     $176,376,205.19\nBeauty & Personal Care       $4,747,819.24",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 35.5,
+        "error": null
+      },
+      {
+        "question": "Show me total sales revenue by year.",
+        "dimensions": [
+          "group_by",
+          "date_filter",
+          "aggregate_sum"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT\n    YEAR(sale_date) AS sale_year,\n    SUM(total_revenue) AS total_sales_revenue\nFROM TS.sales\nGROUP BY YEAR(sale_date)\nORDER BY sale_year;",
+        "answer": "sale_year total_sales_revenue\n     2024       $4,694,653.20\n     2025   $1,240,216,392.21\n     2026     $678,542,043.86",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 35.9,
+        "error": null
+      },
+      {
+        "question": "Which store had the highest total sales revenue? Just give me the top one.",
+        "dimensions": [
+          "order_by_top_n",
+          "join_2",
+          "aggregate_sum"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 1\n    l.store_id,\n    l.store_name,\n    SUM(s.total_revenue) AS total_sales_revenue\nFROM TS.sales s\nINNER JOIN TS.location_master l ON s.store_id = l.store_id\nGROUP BY l.store_id, l.store_name\nORDER BY SUM(s.total_revenue) DESC;",
+        "answer": "store_id    store_name total_sales_revenue\n    S003 Central Plaza     $255,317,634.14",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 35.5,
+        "error": null
+      },
+      {
+        "question": "What are the top 5 products by units sold?",
+        "dimensions": [
+          "order_by_top_n",
+          "join_2"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 5\n    p.product_id,\n    p.product_name,\n    SUM(s.quantity_sold) AS total_quantity_sold\nFROM TS.sales s\nINNER JOIN TS.product_master p\n    ON s.product_id = p.product_id\nGROUP BY p.product_id, p.product_name\nORDER BY total_quantity_sold DESC;",
+        "answer": "product_id       product_name  total_quantity_sold\n     P0016     Laptops Item 8               338560\n     P0112 Formal Wear Item 8               286237\n     P0020     Tablets Item 4               284494\n     P0121  Appliances Item 1               224833\n     P0052     Cameras Item 4               206504",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 35.8,
+        "error": null
+      },
+      {
+        "question": "Which store names had at least one sale? Show distinct store names.",
+        "dimensions": [
+          "join_2",
+          "distinct_count"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT DISTINCT lm.store_name\nFROM TS.location_master lm\nINNER JOIN TS.sales s ON lm.store_id = s.store_id;",
+        "answer": "       store_name\n    Hillside Mall\n  Bayfront Outlet\nSouthpoint Center\n    Westside Mall\n Northside Outlet\n   Eastgate Store\n    Lakeside Mall\n   Uptown Gallery\n  Riverside Plaza\nDowntown Flagship\n   Midtown Market\n    Capital Store\n    Central Plaza\n  Parkview Center\n     Metro Center",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 34.2,
+        "error": null
+      },
+      {
+        "question": "What is the total revenue per city across all stores?",
+        "dimensions": [
+          "join_3",
+          "group_by",
+          "aggregate_sum"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT\n    lm.city,\n    SUM(s.total_revenue) AS total_sales_revenue\nFROM TS.sales s\nINNER JOIN TS.location_master lm\n    ON s.store_id = lm.store_id\nGROUP BY lm.city\nORDER BY total_sales_revenue DESC;",
+        "answer": "         city total_sales_revenue\n      Chicago     $255,317,634.14\n Philadelphia     $255,161,920.23\n     San Jose     $211,418,816.80\n      Phoenix     $184,513,479.26\n    San Diego     $150,172,825.68\nSan Francisco     $133,751,446.19\n     New York     $108,520,727.51\n     Columbus     $108,487,292.65\n  Los Angeles      $96,119,212.14\n       Austin      $95,334,017.66\n Jacksonville      $93,390,143.84\n      Houston      $82,870,210.15\n  San Antonio      $67,726,665.72\n    Charlotte      $45,944,493.57\n       Dallas      $34,724,203.73",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 38.1,
+        "error": null
+      },
+      {
+        "question": "Which product category has the most distinct products?",
+        "dimensions": [
+          "group_by",
+          "comparison"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 1 category, COUNT(DISTINCT product_id) AS distinct_product_count\nFROM TS.product_master\nGROUP BY category\nORDER BY distinct_product_count DESC;",
+        "answer": "   category  distinct_product_count\nElectronics                      64",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 32.5,
+        "error": null
+      },
+      {
+        "question": "How many sales transactions happened in 2025?",
+        "dimensions": [
+          "date_filter",
+          "count",
+          "where_filter"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT COUNT(DISTINCT transaction_id) AS distinct_transactions\nFROM TS.sales\nWHERE YEAR(sale_date) = 2025;",
+        "answer": " distinct_transactions\n                100000",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 19.5,
+        "error": null
+      },
+      {
+        "question": "What was the total revenue for sales in January 2025?",
+        "dimensions": [
+          "date_filter",
+          "aggregate_sum",
+          "where_filter"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT SUM(total_revenue) AS total_sales_revenue\nFROM TS.sales\nWHERE sale_date >= '2025-01-01' AND sale_date < '2025-02-01';",
+        "answer": " total_sales_revenue\n        1.089992e+08",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 17.2,
+        "error": null
+      },
+      {
+        "question": "Did the Downtown Flagship store generate more revenue than the Westside Mall store?",
+        "dimensions": [
+          "comparison",
+          "where_filter"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT\n    l.store_name,\n    SUM(s.total_revenue) AS total_sales_revenue\nFROM TS.sales s\nINNER JOIN TS.location_master l\n    ON s.store_id = l.store_id\nWHERE l.store_name IN ('Downtown Flagship', 'Westside Mall')\nGROUP BY l.store_name\nORDER BY total_sales_revenue DESC;",
+        "answer": "Yes. The Downtown Flagship store generated more revenue than the Westside Mall store. Downtown Flagship generated $108,520,727.51 in total sales revenue, while Westside Mall generated $96,119,212.14.",
+        "answer_type": "string",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 34.7,
+        "error": null
+      },
+      {
+        "question": "Which is the largest store by revenue: Central Plaza, Eastgate Store, or Downtown Flagship?",
+        "dimensions": [
+          "comparison",
+          "order_by_top_n"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 1\n    lm.store_name,\n    SUM(s.total_revenue) AS total_sales_revenue\nFROM TS.sales s\nINNER JOIN TS.location_master lm\n    ON s.store_id = lm.store_id\nWHERE lm.store_name IN ('Central Plaza', 'Eastgate Store', 'Downtown Flagship')\nGROUP BY lm.store_name\nORDER BY total_sales_revenue DESC;",
+        "answer": "   store_name total_sales_revenue\nCentral Plaza     $255,317,634.14",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 37.6,
+        "error": null
+      },
+      {
+        "question": "Show me the customer churn rate for the past quarter.",
+        "dimensions": [
+          "not_present"
+        ],
+        "weight": 1.0,
+        "sql": "",
+        "answer": "*I can\u2019t provide a customer churn rate because customer retention information isn\u2019t available here. I can still help with related insights from the past quarter, such as sales trends, store traffic, conversion rates, or overall store performance.",
+        "answer_type": "string",
+        "sql_ok": false,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 7.9,
+        "error": null
+      },
+      {
+        "question": "What is the marketing spend by campaign last year?",
+        "dimensions": [
+          "not_present"
+        ],
+        "weight": 1.0,
+        "sql": "",
+        "answer": "*I can\u2019t provide marketing spend by campaign because that information isn\u2019t available here. You can still ask about related business metrics such as sales trends, product performance, store traffic, inventory levels, or pricing results for last year.",
+        "answer_type": "string",
+        "sql_ok": false,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 7.3,
+        "error": null
+      },
+      {
+        "question": "Which dates this year are holidays? List the holiday name for each.",
+        "dimensions": [
+          "where_filter",
+          "date_filter"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT date, holiday_name\nFROM TS.calendar_master\nWHERE is_holiday = 'Yes'\n  AND gregorian_year = YEAR(GETDATE())\nORDER BY date;",
+        "answer": "      date           holiday_name\n2026-01-01               New Year\n2026-01-19 Martin Luther King Day\n2026-02-16         Presidents Day\n2026-05-25           Memorial Day\n2026-06-19             Juneteenth\n2026-07-04       Independence Day\n2026-09-07              Labor Day\n2026-11-26           Thanksgiving\n2026-12-25              Christmas",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 31.5,
+        "error": null
+      },
+      {
+        "question": "Which store has the highest average daily foot traffic?",
+        "dimensions": [
+          "join_2",
+          "group_by",
+          "order_by_top_n"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 1\n    st.store_id,\n    lm.store_name,\n    AVG(CAST(st.foot_traffic_count AS FLOAT)) AS avg_daily_foot_traffic\nFROM TS.store_traffic st\nINNER JOIN TS.location_master lm\n    ON st.store_id = lm.store_id\nGROUP BY st.store_id, lm.store_name\nORDER BY avg_daily_foot_traffic DESC;",
+        "answer": "store_id     store_name  avg_daily_foot_traffic\n    S008 Uptown Gallery                     630",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 37.8,
+        "error": null
+      },
+      {
+        "question": "Which employee made the most sales by revenue?",
+        "dimensions": [
+          "join_2",
+          "group_by",
+          "order_by_top_n"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 1\n    e.employee_id,\n    e.employee_name,\n    SUM(s.total_revenue) AS total_sales_revenue\nFROM TS.sales s\nINNER JOIN TS.employee_data e\n    ON s.employee_id = e.employee_id\nGROUP BY e.employee_id, e.employee_name\nORDER BY SUM(s.total_revenue) DESC;",
+        "answer": "employee_id   employee_name total_sales_revenue\n      E0022 William Sanchez      $44,159,634.94",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 34.7,
+        "error": null
+      }
+    ],
+    "agentic": [
+      {
+        "question": "List the distinct product categories sold in the stores.",
+        "dimensions": [
+          "simple_select",
+          "distinct_count"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT DISTINCT TOP 10000 pm.category FROM TS.sales AS s INNER JOIN TS.product_master AS pm ON s.product_id = pm.product_id ORDER BY pm.category",
+        "answer": "              category\nBeauty & Personal Care\n              Clothing\n           Electronics\n        Home & Kitchen",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 7.7,
+        "error": null
+      },
+      {
+        "question": "How many distinct cities have store locations?",
+        "dimensions": [
+          "distinct_count",
+          "aggregate_sum"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 10000 COUNT(DISTINCT city) AS distinct_city_count FROM TS.location_master",
+        "answer": "There are 15 distinct cities with store locations.",
+        "answer_type": "string",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 4.2,
+        "error": null
+      },
+      {
+        "question": "What product categories are available?",
+        "dimensions": [
+          "simple_select"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT DISTINCT TOP 10000 category FROM TS.product_master ORDER BY category",
+        "answer": "              category\nBeauty & Personal Care\n              Clothing\n           Electronics\n        Home & Kitchen",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 6.6,
+        "error": null
+      },
+      {
+        "question": "How many products are in the Electronics category?",
+        "dimensions": [
+          "count",
+          "where_filter"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 10000 COUNT(*) AS electronics_product_count FROM TS.product_master WHERE category = 'Electronics'",
+        "answer": "There are 64 products in the Electronics category.",
+        "answer_type": "string",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 4.8,
+        "error": null
+      },
+      {
+        "question": "How many stores are located in California?",
+        "dimensions": [
+          "count",
+          "where_filter"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 10000 COUNT(DISTINCT store_id) AS california_store_count FROM TS.location_master WHERE state = 'California'",
+        "answer": "There are 0 stores located in California.",
+        "answer_type": "string",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 4.8,
+        "error": null
+      },
+      {
+        "question": "How many employees does the company have?",
+        "dimensions": [
+          "count"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 10000 COUNT(*) AS employee_count FROM TS.employee_data",
+        "answer": "The company currently has 75 employees.",
+        "answer_type": "string",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 4.6,
+        "error": null
+      },
+      {
+        "question": "What is the total sales revenue across all stores?",
+        "dimensions": [
+          "aggregate_sum"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 10000 SUM(total_revenue) AS total_sales_revenue FROM TS.sales",
+        "answer": "The total sales revenue across all stores is approximately 1.92 billion.",
+        "answer_type": "string",
+        "sql_ok": true,
+        "ans_ok": false,
+        "score": 1.0,
+        "elapsed_s": 4.6,
+        "error": null
+      },
+      {
+        "question": "What is the average revenue per sale?",
+        "dimensions": [
+          "aggregate_avg"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 10000 AVG(CAST(total_revenue AS FLOAT)) AS average_revenue_per_sale FROM TS.sales",
+        "answer": "The average revenue per sale is 807.99.",
+        "answer_type": "string",
+        "sql_ok": true,
+        "ans_ok": false,
+        "score": 1.0,
+        "elapsed_s": 4.9,
+        "error": null
+      },
+      {
+        "question": "What is the total sales revenue by product category?",
+        "dimensions": [
+          "group_by",
+          "join_2",
+          "aggregate_sum"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 10000 pm.category, SUM(s.total_revenue) AS total_sales_revenue FROM TS.sales AS s INNER JOIN TS.product_master AS pm ON s.product_id = pm.product_id GROUP BY pm.category ORDER BY total_sales_revenue DESC",
+        "answer": "              category total_sales_revenue\n           Electronics   $1,531,922,624.38\n              Clothing     $210,406,440.46\n        Home & Kitchen     $176,376,205.19\nBeauty & Personal Care       $4,747,819.24",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 7.3,
+        "error": null
+      },
+      {
+        "question": "Show me total sales revenue by year.",
+        "dimensions": [
+          "group_by",
+          "date_filter",
+          "aggregate_sum"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 10000 YEAR(sale_date) AS sales_year, SUM(total_revenue) AS total_sales_revenue FROM TS.sales GROUP BY YEAR(sale_date) ORDER BY sales_year",
+        "answer": " sales_year total_sales_revenue\n       2024       $4,694,653.20\n       2025   $1,240,216,392.21\n       2026     $678,542,043.86",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 7.7,
+        "error": null
+      },
+      {
+        "question": "Which store had the highest total sales revenue? Just give me the top one.",
+        "dimensions": [
+          "order_by_top_n",
+          "join_2",
+          "aggregate_sum"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 1 lm.store_name, SUM(s.total_revenue) AS total_sales_revenue\nFROM TS.sales s\nINNER JOIN TS.location_master lm ON s.store_id = lm.store_id\nGROUP BY lm.store_name\nORDER BY total_sales_revenue DESC;",
+        "answer": "The store with the highest total sales revenue is Central Plaza, with total sales revenue of approximately 255.3 million.",
+        "answer_type": "string",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 5.6,
+        "error": null
+      },
+      {
+        "question": "What are the top 5 products by units sold?",
+        "dimensions": [
+          "order_by_top_n",
+          "join_2"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 5\n    s.product_id,\n    p.product_name,\n    SUM(s.quantity_sold) AS total_units_sold\nFROM TS.sales s\nINNER JOIN TS.product_master p\n    ON s.product_id = p.product_id\nGROUP BY s.product_id, p.product_name\nORDER BY total_units_sold DESC;",
+        "answer": "product_id       product_name  total_units_sold\n     P0016     Laptops Item 8            338560\n     P0112 Formal Wear Item 8            286237\n     P0020     Tablets Item 4            284494\n     P0121  Appliances Item 1            224833\n     P0052     Cameras Item 4            206504",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 8.7,
+        "error": null
+      },
+      {
+        "question": "Which store names had at least one sale? Show distinct store names.",
+        "dimensions": [
+          "join_2",
+          "distinct_count"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT DISTINCT TOP 10000 lm.store_name FROM TS.sales AS s INNER JOIN TS.location_master AS lm ON s.store_id = lm.store_id ORDER BY lm.store_name",
+        "answer": "       store_name\n  Bayfront Outlet\n    Capital Store\n    Central Plaza\nDowntown Flagship\n   Eastgate Store\n    Hillside Mall\n    Lakeside Mall\n     Metro Center\n   Midtown Market\n Northside Outlet\n  Parkview Center\n  Riverside Plaza\nSouthpoint Center\n   Uptown Gallery\n    Westside Mall",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 7.4,
+        "error": null
+      },
+      {
+        "question": "What is the total revenue per city across all stores?",
+        "dimensions": [
+          "join_3",
+          "group_by",
+          "aggregate_sum"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 10000 lm.city, SUM(s.total_revenue) AS total_revenue FROM TS.sales AS s INNER JOIN TS.location_master AS lm ON s.store_id = lm.store_id GROUP BY lm.city ORDER BY total_revenue DESC",
+        "answer": "         city   total_revenue\n      Chicago $255,317,634.14\n Philadelphia $255,161,920.23\n     San Jose $211,418,816.80\n      Phoenix $184,513,479.26\n    San Diego $150,172,825.68\nSan Francisco $133,751,446.19\n     New York $108,520,727.51\n     Columbus $108,487,292.65\n  Los Angeles  $96,119,212.14\n       Austin  $95,334,017.66\n Jacksonville  $93,390,143.84\n      Houston  $82,870,210.15\n  San Antonio  $67,726,665.72\n    Charlotte  $45,944,493.57\n       Dallas  $34,724,203.73",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 8.1,
+        "error": null
+      },
+      {
+        "question": "Which product category has the most distinct products?",
+        "dimensions": [
+          "group_by",
+          "comparison"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 1\n    category,\n    COUNT(DISTINCT product_id) AS distinct_product_count\nFROM TS.product_master\nGROUP BY category\nORDER BY distinct_product_count DESC;",
+        "answer": "The product category with the most distinct products is Electronics, with 64 unique products.",
+        "answer_type": "string",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 4.8,
+        "error": null
+      },
+      {
+        "question": "How many sales transactions happened in 2025?",
+        "dimensions": [
+          "date_filter",
+          "count",
+          "where_filter"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 10000 COUNT(DISTINCT transaction_id) AS sales_transactions_2025 FROM TS.sales WHERE sale_date >= '2025-01-01' AND sale_date < '2026-01-01'",
+        "answer": "There were 100,000 sales transactions recorded in 2025.",
+        "answer_type": "string",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 6.5,
+        "error": null
+      },
+      {
+        "question": "What was the total revenue for sales in January 2025?",
+        "dimensions": [
+          "date_filter",
+          "aggregate_sum",
+          "where_filter"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 10000 SUM(total_revenue) AS total_revenue_january_2025 FROM TS.sales WHERE sale_date >= '2025-01-01' AND sale_date < '2025-02-01'",
+        "answer": "The total revenue for sales in January 2025 was 108,999,200.",
+        "answer_type": "string",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 5.2,
+        "error": null
+      },
+      {
+        "question": "Did the Downtown Flagship store generate more revenue than the Westside Mall store?",
+        "dimensions": [
+          "comparison",
+          "where_filter"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 10000 lm.store_name, SUM(s.total_revenue) AS total_revenue FROM TS.sales AS s INNER JOIN TS.location_master AS lm ON s.store_id = lm.store_id WHERE lm.store_name IN ('Downtown Flagship', 'Westside Mall') GROUP BY lm.store_name",
+        "answer": "       store_name   total_revenue\n    Westside Mall  $96,119,212.14\nDowntown Flagship $108,520,727.51",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 8.3,
+        "error": null
+      },
+      {
+        "question": "Which is the largest store by revenue: Central Plaza, Eastgate Store, or Downtown Flagship?",
+        "dimensions": [
+          "comparison",
+          "order_by_top_n"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 10000 lm.store_name, SUM(s.total_revenue) AS total_revenue FROM TS.sales AS s INNER JOIN TS.location_master AS lm ON s.store_id = lm.store_id WHERE lm.store_name IN ('Central Plaza', 'Eastgate Store', 'Downtown Flagship') GROUP BY lm.store_name ORDER BY total_revenue DESC",
+        "answer": "Central Plaza is the largest store by revenue among the three stores listed.\n\nTotal revenue:\n- Central Plaza: 255.3 million\n- Downtown Flagship: 108.5 million\n- Eastgate Store: 82.9 million",
+        "answer_type": "string",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 8.4,
+        "error": null
+      },
+      {
+        "question": "Show me the customer churn rate for the past quarter.",
+        "dimensions": [
+          "not_present"
+        ],
+        "weight": 1.0,
+        "sql": "",
+        "answer": "How would you like to define customer churn rate in this data? The available tables include sales transactions and store traffic, but there is no explicit customer account or subscription table. For example, should churn mean customers who purchased in a prior period but not in the past quarter, or something else?",
+        "answer_type": "string",
+        "sql_ok": false,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 5.6,
+        "error": null
+      },
+      {
+        "question": "What is the marketing spend by campaign last year?",
+        "dimensions": [
+          "not_present"
+        ],
+        "weight": 1.0,
+        "sql": "",
+        "answer": "I can\u2019t answer that from the available data because there isn\u2019t a marketing or campaign spend table in the current database catalog. The available tables cover sales, products, inventory, employees, store traffic, pricing, and planning data, but nothing related to marketing campaigns or advertising spend.",
+        "answer_type": "string",
+        "sql_ok": false,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 5.4,
+        "error": null
+      },
+      {
+        "question": "Which dates this year are holidays? List the holiday name for each.",
+        "dimensions": [
+          "where_filter",
+          "date_filter"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 10000 [date], holiday_name FROM TS.calendar_master WHERE gregorian_year = YEAR(GETDATE()) AND is_holiday = 'Yes' ORDER BY [date]",
+        "answer": "      date           holiday_name\n2026-01-01               New Year\n2026-01-19 Martin Luther King Day\n2026-02-16         Presidents Day\n2026-05-25           Memorial Day\n2026-06-19             Juneteenth\n2026-07-04       Independence Day\n2026-09-07              Labor Day\n2026-11-26           Thanksgiving\n2026-12-25              Christmas",
+        "answer_type": "dataframe",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 7.9,
+        "error": null
+      },
+      {
+        "question": "Which store has the highest average daily foot traffic?",
+        "dimensions": [
+          "join_2",
+          "group_by",
+          "order_by_top_n"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 1 st.store_id,\n       lm.store_name,\n       AVG(CAST(st.foot_traffic_count AS FLOAT)) AS avg_daily_foot_traffic\nFROM TS.store_traffic st\nLEFT JOIN TS.location_master lm\n    ON st.store_id = lm.store_id\nGROUP BY st.store_id, lm.store_name\nORDER BY avg_daily_foot_traffic DESC;",
+        "answer": "The store with the highest average daily foot traffic is S008 \u2014 Uptown Gallery, with an average of 630.32 visitors per day.",
+        "answer_type": "string",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 5.9,
+        "error": null
+      },
+      {
+        "question": "Which employee made the most sales by revenue?",
+        "dimensions": [
+          "join_2",
+          "group_by",
+          "order_by_top_n"
+        ],
+        "weight": 1.0,
+        "sql": "SELECT TOP 1 e.employee_id, e.employee_name, SUM(s.total_revenue) AS total_sales_revenue\nFROM TS.sales s\nINNER JOIN TS.employee_data e ON s.employee_id = e.employee_id\nGROUP BY e.employee_id, e.employee_name\nORDER BY total_sales_revenue DESC;",
+        "answer": "The employee with the highest sales revenue is William Sanchez (Employee ID: E0022), with total sales revenue of approximately $44.16 million.",
+        "answer_type": "string",
+        "sql_ok": true,
+        "ans_ok": true,
+        "score": 1.0,
+        "elapsed_s": 6.2,
+        "error": null
+      }
+    ]
+  },
+  "agent_id": 281,
+  "battery": "core"
+}

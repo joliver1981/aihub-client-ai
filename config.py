@@ -440,6 +440,7 @@ NLQ_AGENTIC_SQL_ROW_CAP = int(os.getenv('NLQ_AGENTIC_SQL_ROW_CAP', '10000'))
 NLQ_AGENTIC_STRICT_TOOLS = os.getenv('NLQ_AGENTIC_STRICT_TOOLS', 'true').lower() in ['true', '1', 't', 'y', 'yes']  # P0 2026-07-11: strict tools + json_schema verified through openai_proxy_request_v3 (gpt-5.2, api 2024-12-01-preview)
 NLQ_SHADOW_COMPARE = os.getenv('NLQ_SHADOW_COMPARE', 'false').lower() in ['true', '1', 't', 'y', 'yes']  # run agentic silently on legacy traffic, log-only
 NLQ_SHADOW_SAMPLE_PCT = int(os.getenv('NLQ_SHADOW_SAMPLE_PCT', '10'))
+NLQ_AGENTIC_ECHO_ENGINE_HEADER = os.getenv('NLQ_AGENTIC_ECHO_ENGINE_HEADER', 'false').lower() in ['true', '1', 't', 'y', 'yes']  # dev/CI: emit X-NLQ-Engine on /data_explorer/chat so the agentic competency suite can confirm routing
 
 DATA_AGENT_ERROR_CATEGORIES = {
         'database_connection': 'Unable to connect to the database. Please try again later or contact support.',

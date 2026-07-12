@@ -295,7 +295,15 @@ def data_explorer_chat():
     # Save engine state
     _save_session_engine(session_id, engine)
 
-    return jsonify(response_payload)
+    resp = jsonify(response_payload)
+    # Dev/CI only: let the agentic competency suite confirm which engine served
+    # this request (return shapes are identical by design, so it can't tell
+    # otherwise). Off in production.
+    if getattr(cfg, "NLQ_AGENTIC_ECHO_ENGINE_HEADER", False):
+        resp.headers["X-NLQ-Engine"] = (
+            "agentic" if type(engine).__name__ == "AgenticNLQEngine" else "legacy"
+        )
+    return resp
 
 
 @data_explorer_bp.route("/data_explorer/reset", methods=["POST"])
