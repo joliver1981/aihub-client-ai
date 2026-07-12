@@ -153,6 +153,11 @@ def _construct_legacy(provider=None, enhance=True, deps=None):
     return engine
 
 
+def _construct_agentic():
+    from nlq_agentic import AgenticNLQEngine
+    return AgenticNLQEngine(provider="openai")
+
+
 def create_nlq_engine(agent_id=None, provider=None, enhance=True, purpose='', deps=None):
     """Single construction point for NLQ engines.
 
@@ -161,6 +166,7 @@ def create_nlq_engine(agent_id=None, provider=None, enhance=True, purpose='', de
                   (per-agent allow/deny lists only apply when this is passed).
         provider: LLM provider for the legacy engine; defaults to cfg.NLQ_PROVIDER.
         enhance: apply engine_enhancements wrappers (GeneralAgent passes False).
+                 Ignored for the agentic engine (it has no sub-engines to wrap).
         purpose: short caller tag for logs.
         deps: optional (enhance_engines, nlq_systems) tuple — app.py passes its
               module-level pair; when omitted they are late-imported.
@@ -173,10 +179,16 @@ def create_nlq_engine(agent_id=None, provider=None, enhance=True, purpose='', de
                 f"(agent={agent_id}, purpose={purpose})"
             )
         else:
-            logger.warning(
-                f"[nlq_factory] mode=agentic resolved (agent={agent_id}, purpose={purpose}) "
-                f"but the agentic engine is not implemented yet (P3) — using legacy"
-            )
+            try:
+                engine = _construct_agentic()
+                logger.info(f"[nlq_factory] mode=agentic (agent={agent_id}, purpose={purpose})")
+                return engine
+            except Exception as e:
+                # Construction must never take the feature down — fall back to legacy.
+                logger.error(
+                    f"[nlq_factory] agentic construction failed ({e}); using legacy "
+                    f"(agent={agent_id}, purpose={purpose})"
+                )
     else:
         logger.info(f"[nlq_factory] mode=legacy (agent={agent_id}, purpose={purpose})")
     return _construct_legacy(provider=provider, enhance=enhance, deps=deps)

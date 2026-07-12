@@ -137,11 +137,28 @@ def test_construct_enhanced_engine_with_injected_deps():
     assert engine.analytical_engine is sentinel_ae
 
 
-def test_agentic_mode_returns_legacy_in_p1(monkeypatch):
-    """P1 contract: agentic mode logs and falls through to legacy construction."""
+def test_agentic_mode_constructs_agentic_engine(monkeypatch):
+    """P3: agentic mode now builds the real AgenticNLQEngine (breaker closed)."""
     monkeypatch.setattr(cfg, 'NLQ_ENGINE_DEFAULT', 'agentic', raising=False)
     monkeypatch.setattr(cfg, 'NLQ_AGENTIC_AGENT_IDS', '', raising=False)
     monkeypatch.setattr(cfg, 'NLQ_LEGACY_AGENT_IDS', '', raising=False)
+    factory.agentic_breaker.record_success()  # ensure closed
+    from nlq_agentic import AgenticNLQEngine
+    engine = factory.create_nlq_engine(agent_id=42, purpose='unit-test')
+    assert isinstance(engine, AgenticNLQEngine)
+
+
+def test_agentic_construction_failure_falls_back_to_legacy(monkeypatch):
+    """Construction must never take the feature down — a broken agentic ctor -> legacy."""
+    monkeypatch.setattr(cfg, 'NLQ_ENGINE_DEFAULT', 'agentic', raising=False)
+    monkeypatch.setattr(cfg, 'NLQ_AGENTIC_AGENT_IDS', '', raising=False)
+    monkeypatch.setattr(cfg, 'NLQ_LEGACY_AGENT_IDS', '', raising=False)
+    factory.agentic_breaker.record_success()
+
+    def boom():
+        raise RuntimeError("simulated agentic import failure")
+    monkeypatch.setattr(factory, '_construct_agentic', boom)
+
     from LLMDataEngineV2 import LLMDataEngine
     engine = factory.create_nlq_engine(agent_id=42, enhance=False, purpose='unit-test')
     assert isinstance(engine, LLMDataEngine)
