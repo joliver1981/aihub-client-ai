@@ -720,6 +720,9 @@ class TestSdkEndToEnd:
         assert content == "resolved-connection-ERPDB|2026-07"
         assert "[aihub] resolved fine" in result["stdout_tail"]
         assert resolve_server[0]["kind"] == "connection"
+        # egress logging: the SDK's HTTP call to the resolve server must appear
+        log = open(os.path.join(result["workdir"], "run.log"), encoding="utf-8").read()
+        assert "network egress" in log and "127.0.0.1" in log.split("network egress")[1]
 
     def test_sdk_undeclared_name_is_refused(self, mgr, monkeypatch, resolve_server):
         import automations.runner as runner_mod
@@ -895,3 +898,124 @@ class TestInternalManage:
     def test_unknown_action_400(self, client):
         r = self._post(client, "explode")
         assert r.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# P4: webhook trigger
+# ---------------------------------------------------------------------------
+
+class TestWebhook:
+    @pytest.fixture
+    def client(self, monkeypatch, mgr):
+        from flask import Flask
+        import automations.api as api_mod
+
+        monkeypatch.setenv("CC_JWT_SECRET", "hook-secret")
+        self.runner = StubRunner(mgr)
+        self.run_calls = []
+        real_run = self.runner.run
+        self.runner.run = lambda *a, **k: self.run_calls.append(k) or real_run(*a, **k)
+        monkeypatch.setattr(api_mod, "_manager", mgr)
+        monkeypatch.setattr(api_mod, "_runner", self.runner)
+        app = Flask(__name__)
+        app.register_blueprint(api_mod.automations_bp)
+        return app.test_client()
+
+    def _hook(self, aid):
+        from automations.api import _webhook_token
+        return f"/automations/api/hook/{aid}/{_webhook_token(aid)}"
+
+    def test_token_is_deterministic_and_scoped(self, monkeypatch):
+        monkeypatch.setenv("CC_JWT_SECRET", "hook-secret")
+        from automations.api import _webhook_token
+        assert _webhook_token("a1") == _webhook_token("a1")
+        assert _webhook_token("a1") != _webhook_token("a2")
+
+    def test_valid_hook_fires_202(self, client, mgr):
+        import time
+        aid = _make_automation(mgr, "print(1)\n", {"name": "hooked"})
+        r = client.post(self._hook(aid), json={"inputs": {}})
+        assert r.status_code == 202
+        assert r.get_json()["run_id"]
+        deadline = time.time() + 10
+        while not self.run_calls and time.time() < deadline:
+            time.sleep(0.05)
+        assert self.run_calls and self.run_calls[0]["trigger"] == "webhook"
+
+    def test_bad_token_403(self, client, mgr):
+        aid = _make_automation(mgr, "print(1)\n", {"name": "hooked2"})
+        r = client.post(f"/automations/api/hook/{aid}/wrongtoken", json={})
+        assert r.status_code == 403
+
+    def test_unpromoted_409(self, client, mgr):
+        aid = _make_automation(mgr, "print(1)\n", {"name": "hooked3"}, promote=False)
+        r = client.post(self._hook(aid), json={})
+        assert r.status_code == 409
+
+    def test_undeclared_input_400_before_running(self, client, mgr):
+        aid = _make_automation(mgr, "print(1)\n", {"name": "hooked4"})
+        r = client.post(self._hook(aid), json={"inputs": {"nope": 1}})
+        assert r.status_code == 400
+        assert not self.run_calls
+
+
+# ---------------------------------------------------------------------------
+# P5: solution bundle export / install round-trip
+# ---------------------------------------------------------------------------
+
+class TestSolutionRoundTrip:
+    def test_pack_then_install(self, mgr, tmp_path, monkeypatch):
+        import automations.manager as manager_mod_
+        from solution_bundler import SolutionBundler
+        from solution_installer import SolutionInstaller, InstallOptions, InstallResult
+
+        # a source automation with code + manifest + a sample, promoted
+        aid = _make_automation(mgr, "print('bundled code')\n", {
+            "name": "export-me",
+            "secrets": ["ACME_SFTP"],
+            "packages": ["pdfplumber"],
+        })
+        mgr.add_sample(aid, 1, "sample.pdf", b"%PDF-sample")
+
+        # both bundler and installer construct AutomationManager() themselves
+        monkeypatch.setattr(manager_mod_, "AutomationManager", lambda *a, **k: mgr)
+
+        bundler = SolutionBundler(None)
+        entries, secret_prompts, display = bundler._pack_automation(aid)
+        assert display == "export-me"
+        assert secret_prompts == ["ACME_SFTP"]  # -> installer credential prompt
+        names = [rel for rel, _ in entries]
+        assert "automation.json" in names and "main.py" in names and "samples/sample.pdf" in names
+        meta = json.loads(dict(entries)["automation.json"])
+        assert meta["exported_version"] == 1 and meta["was_promoted"] is True
+        # credential VALUES never exported
+        assert "sftp-secret-value" not in str(entries)
+
+        # lay the entries out as a staged bundle and install
+        staged = tmp_path / "bundle" / "automations" / "export-me"
+        for rel, data in entries:
+            p = staged / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(data)
+
+        installer = SolutionInstaller.__new__(SolutionInstaller)
+        result = InstallResult(solution_id="t", solution_name="t")
+        options = InstallOptions(name_suffix="_installed")
+        installer._install_automations(None, tmp_path / "bundle", {}, options, result)
+
+        assert result.assets and result.assets[0].status == "installed", result.assets
+        assert result.assets[0].name == "export-me_installed"
+        installed = [a for a in mgr.list_automations() if a["name"] == "export-me_installed"]
+        assert installed, "installed automation not in registry"
+        # deliberately NOT promoted on install — dry-run on the target first
+        assert installed[0]["pinned_version"] == 0
+        assert installed[0]["current_version"] == 1
+        assert mgr.get_code(installed[0]["automation_id"]) == "print('bundled code')\n"
+
+    def test_pack_unsaved_automation_is_skipped(self, mgr, monkeypatch):
+        import automations.manager as manager_mod_
+        from solution_bundler import SolutionBundler
+        _, auto, _ = mgr.create_automation("empty-auto", "", 1)
+        monkeypatch.setattr(manager_mod_, "AutomationManager", lambda *a, **k: mgr)
+        entries, prompts, display = SolutionBundler(None)._pack_automation(auto["automation_id"])
+        assert entries == []  # no saved version -> skip, never a half-bundle

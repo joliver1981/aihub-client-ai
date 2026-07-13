@@ -988,6 +988,19 @@ BUILDER DELEGATION RULES:
                         "outputVariable": "Variable to store output"
                     },
                     "use_cases": ["Run scripts", "Call external tools", "System integration", "Batch processing"]
+                },
+                "Automation": {
+                    "description": "Run a persisted Automation (AI-generated, versioned Python solution) — its PROMOTED version only",
+                    "key_config": {
+                        "automationId": "Automation GUID (or use automationName)",
+                        "automationName": "Automation name (alternative to automationId)",
+                        "inputs": "Object of run inputs; string values support dollar-brace substitution",
+                        "outputVariable": "Variable for the full result (status, run_id, output_files, workdir, error)",
+                        "filesVariable": "Variable receiving the list of ABSOLUTE produced-file paths",
+                        "allowUnverified": "Pass on 'unverified' outcomes too (default false)",
+                        "continueOnError": "Continue workflow on failure (boolean, default false)"
+                    },
+                    "use_cases": ["Custom PDF/text processing", "Complex transforms", "Verified SFTP/API pushes", "Anything the other nodes can't express"]
                 }
             }
             return self._escape_curly(json.dumps(node_types, indent=2))

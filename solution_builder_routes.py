@@ -751,6 +751,7 @@ def _build_zip_from_request_body():
         connection_ids=[int(x) for x in (selections.get("connection_ids") or []) if str(x).lstrip("-").isdigit()],
         environment_ids=[x for x in (selections.get("environment_ids") or []) if x is not None],
         knowledge_document_ids=[int(x) for x in (selections.get("knowledge_document_ids") or []) if str(x).lstrip("-").isdigit()],
+        automation_ids=[str(x) for x in (selections.get("automation_ids") or []) if x],
         seed_schema_sql=seed_schema,
         seed_csvs=seed_csvs,
         sample_input_files=sample_inputs,

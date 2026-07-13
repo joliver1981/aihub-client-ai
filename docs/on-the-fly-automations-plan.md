@@ -1,6 +1,12 @@
 # On-the-fly Automations — "do it, run it, own it" — Plan
 
-**Status:** P0 + P1 + P2 + P3 BUILT 2026-07-13. Migration 014 APPLIED to the platform DB by James; full lifecycle live-verified against the real platform DB.
+**Status:** ALL PHASES (P0–P5) BUILT 2026-07-13. Migration 014 APPLIED to the platform DB by James; full lifecycle live-verified against the real platform DB.
+
+**P4 (composability + triggers):** workflow **"Automation" node** (`workflow_execution.py _execute_automation_node` — runs the pinned version in-process, inputs from workflow variables with ${var} substitution, produced-file paths + honest tri-state into variables; success→pass, failed/skipped→fail, unverified→fail unless `allowUnverified`) registered across the canon (`NODE_DETAIL_REFERENCE`, `WORKFLOW_NODE_TYPES`, `VALID_WORKFLOW_NODE_TYPES`, WorkflowAgent tool) — the canvas-UI config panel (an `automation_node.js` like `portal_node.js`) is a KNOWN GAP, AI-builder/JSON paths work. **Webhook trigger:** `POST /automations/api/hook/<id>/<token>` (derived HMAC token, never stored, rotate via CC_JWT_SECRET; input-validated 400s, async 202). **Email trigger = composition:** inbound-email already fires workflows → put an Automation node in the workflow; no new plumbing. File-watch NOT built (deliberate cut).
+**P5 (distribution):** Solutions Author bundles automations (`automations/<name>/{automation.json, main.py, samples/}` — pinned version's code + manifest; declared secrets auto-become installer credential prompts; VALUES never exported) and installs them **unpromoted** (dry-run + promote on the target system — verify where the code will actually run). `solution_manifest.py` shapes/inventory extended.
+**P1 leftover closed:** minimal read-only runs dashboard at `GET /automations/` + best-effort **egress logging** (preamble socket-connect hook → `_egress.log` folded into run.log).
+
+75 unit tests green. Previous status detail below.
 
 **P2 (credential security spine):** `automations/sdk/aihub_runtime/` — a stdlib-only SDK PYTHONPATH-injected into every run; generated code calls `aihub.connection("ERPDB")` / `aihub.secret("NAME")` / `aihub.input("period")`. The runner signs a run-scoped token (`shared_auth.sign_automation_run_token`, aud `automation-run`, carries the manifest's connection/secret ALLOWLISTS); the SDK exchanges it at `/automations/api/runtime/resolve`, which enforces signature + allowlist + run-still-running (a leaked token dies with the run). Credential VALUES are no longer placed in the subprocess env — the legacy env-var path survives behind `AUTOMATIONS_ENV_CRED_INJECTION` (default off).
 

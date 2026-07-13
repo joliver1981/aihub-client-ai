@@ -268,6 +268,7 @@ class SolutionInstaller:
             self._install_connections(manifest, staging_root, auth_headers, options, result)
             self._install_environments(manifest, staging_root, auth_headers, options, result)
             self._install_knowledge(manifest, staging_root, auth_headers, options, result)
+            self._install_automations(manifest, staging_root, auth_headers, options, result)
             self._install_seed_data(manifest, staging_root, options, result)
 
             # ── Manifest inventory check ──
@@ -732,6 +733,81 @@ class SolutionInstaller:
                 result.assets.append(
                     AssetResult(kind="knowledge", name=name, status="failed", detail=str(e))
                 )
+
+    def _install_automations(self, manifest, root, auth, options, result):
+        """Install exported Automations (persisted AI-generated Python
+        solutions). Creates the asset + saves the bundled code/manifest as v1
+        + attaches samples — deliberately UNPROMOTED and UNSCHEDULED: the
+        receiving developer must dry-run and promote on the target system
+        (verification happens where the code will actually run). A dedicated
+        environment is provisioned per automation when the feature allows;
+        the automation's manifest 'packages' list is recorded for it."""
+        auto_dir = root / "automations"
+        if not auto_dir.exists():
+            return
+        for entry in sorted(auto_dir.iterdir()):
+            if not entry.is_dir():
+                continue
+            meta_path = entry / "automation.json"
+            name = entry.name
+            try:
+                if not meta_path.is_file():
+                    raise ValueError("automation.json missing in bundle folder")
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                auto_manifest = meta.get("manifest") or {}
+                entrypoint = auto_manifest.get("entrypoint", "main.py")
+                code_path = entry / entrypoint
+                if not code_path.is_file():
+                    raise ValueError(f"code file '{entrypoint}' missing in bundle folder")
+                code = code_path.read_text(encoding="utf-8")
+                final_name = (meta.get("name") or name) + options.name_suffix
+                auto_manifest["name"] = final_name
+
+                from automations.manager import AutomationManager
+                mgr = AutomationManager()
+                ok, auto, err = mgr.create_automation(
+                    name=final_name,
+                    description=meta.get("description") or "",
+                    owner_user_id=self._resolve_installer_user_id(auth),
+                )
+                if not ok:
+                    raise ValueError(err or "create failed")
+                aid = auto["automation_id"]
+                ok, version, errors = mgr.save_version(aid, code, auto_manifest)
+                if not ok:
+                    mgr.delete_automation(aid)
+                    raise ValueError("; ".join(errors) or "save failed")
+                samples = entry / "samples"
+                if samples.is_dir():
+                    for sample in sorted(samples.iterdir()):
+                        if sample.is_file():
+                            mgr.add_sample(aid, version, sample.name, sample.read_bytes())
+                result.assets.append(AssetResult(
+                    kind="automation", name=final_name, status="installed",
+                    detail=("saved as v1, NOT promoted — dry-run and promote it on this "
+                            "system before running/scheduling; packages needed: "
+                            + ", ".join(auto_manifest.get("packages") or []) if auto_manifest.get("packages")
+                            else "saved as v1, NOT promoted — dry-run and promote it on this system"),
+                ))
+            except Exception as e:
+                logger.exception("automation install failed for %s", name)
+                result.assets.append(AssetResult(
+                    kind="automation", name=name, status="failed", detail=str(e)))
+
+    @staticmethod
+    def _resolve_installer_user_id(auth) -> int:
+        """Best-effort owner for installed automations: the installing user's
+        id from the signed assertion when present, else admin (1)."""
+        try:
+            from shared_auth import verify_token, AUD_INTERNAL
+            token = (auth or {}).get("X-AIHub-User") or ""
+            if token:
+                claims, err = verify_token(token, AUD_INTERNAL)
+                if claims and claims.get("sub"):
+                    return int(claims["sub"])
+        except Exception:
+            pass
+        return 1
 
     def _verify_manifest_inventory(self, manifest, root, result):
         """Emit a failed AssetResult for every manifest entry with no backing

@@ -2654,7 +2654,22 @@ Common patterns:
 - DO NOT invent portalUrl / portalAction / downloadPath / username / password / credentials fields — they do not exist on this node.
 - Outputs:
   * <filesVariable>: list of downloaded file paths
-  * <outputVariable>: { status, file_count, files, final_result }"""
+  * <outputVariable>: { status, file_count, files, final_result }""",
+    "Automation": """Automation:
+- Purpose: Run a persisted AUTOMATION (an AI-generated, versioned Python solution built in Command Center) as a workflow step — custom logic the other node types cannot express (PDF parsing, complex transforms, API/SFTP pushes with verified outputs).
+- IMPORTANT: The node does NOT contain code. It RUNS the automation's PROMOTED (pinned) version; the automation must already exist and have a promoted version. Reference it by id or name.
+- Required config fields (one of):
+  * automationId: the automation's GUID, OR
+  * automationName: its unique name.
+- Optional config fields:
+  * inputs: object of input values for the run; string values support dollar-brace variable substitution.
+  * outputVariable: variable that receives the full result object (status, run_id, exit_code, output_files, workdir, error).
+  * filesVariable: variable that receives the LIST of ABSOLUTE paths of files the run produced — feed downstream File/Document nodes.
+  * allowUnverified: boolean (default false). The run outcome is honest tri-state: success / failed / unverified. By default only success follows the pass connection; set true to also pass on unverified (e.g. remote upload that could not be independently checked).
+  * continueOnError: boolean (default false).
+- Outputs:
+  * <filesVariable>: list of produced file paths (absolute)
+  * <outputVariable>: { status, run_id, exit_code, output_files, workdir, verify_report, error }"""
 }
 
 WORKFLOW_NODE_TYPES = """
@@ -2792,6 +2807,12 @@ Portal
 - Optional config: timeout (seconds, default 1200), continueOnError (true/false), uploadFilesVariable (a variable holding file path(s) to hand to the portal automation as inputs)
 - Do NOT invent browser-navigation config (there is no portalUrl / portalAction / downloadPath / credentials on this node — the saved portal automation and its per-user credentials own all of that; the owner is bound server-side at save time).
 - Outputs: downloaded file paths in filesVariable; full run result in outputVariable
+
+Automation
+- Run a persisted Automation (an AI-generated, versioned Python solution built in Command Center) as a workflow step — for custom logic the other node types cannot express (PDF parsing, complex transforms, verified API/SFTP pushes).
+- The node does NOT contain code — it runs the automation's PROMOTED (pinned) version; the automation must already exist with a promoted version. Reference by automationId (GUID) or automationName.
+- Optional config: inputs (object of run inputs; string values support dollar-brace substitution), outputVariable (full result object: status, run_id, exit_code, output_files, workdir, error), filesVariable (list of ABSOLUTE paths of files the run produced — feed downstream File/Document nodes), allowUnverified (default false — outcomes are honest tri-state success/failed/unverified and only success passes unless this is set), continueOnError (default false)
+- Outputs: produced file paths in filesVariable; full run result in outputVariable
 """
 
 # Canonical list of valid workflow node types. Must match what the workflow runtime
@@ -2804,6 +2825,7 @@ VALID_WORKFLOW_NODE_TYPES = [
     "Conditional", "Human Approval", "Alert", "Folder Selector", "File",
     "Set Variable", "Execute Application", "Excel Export", "Portal",
     "Integration", "Compliance Process", "Compliance Excel Export",
+    "Automation",
 ]
 
 

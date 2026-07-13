@@ -563,6 +563,8 @@ class WorkflowExecutionEngine:
             elif node_type == 'Compliance Excel Export':
                 print('Executing Compliance Excel Export node...')
                 result = self._execute_compliance_excel_export_node(execution_id, node, variables)
+            elif node_type == 'Automation':
+                result = self._execute_automation_node(execution_id, node, variables)
             elif node_type == 'Portal':
                 print('Executing Portal node...')
                 result = self._execute_portal_node(execution_id, node, variables)
@@ -4375,6 +4377,115 @@ Guidelines:
 
         if not ok and not continue_on_error:
             return {'success': False, 'error': (result.get('error') or f"portal workflow '{slug}' did not complete"), 'data': output_obj}
+        return {'success': True, 'data': output_obj}
+
+    def _execute_automation_node(self, execution_id, node, variables):
+        """Run a persisted Automation (AI-generated Python solution) as a
+        workflow step — the P4 composability seam of the Automations plan
+        (docs/on-the-fly-automations-plan.md).
+
+        Executes the automation's PINNED (promoted) version in-process via
+        AutomationRunner (same code path as manual/scheduled runs: dedicated
+        environment, run-token credential resolution, declared-output
+        verification, run history). The workflow sees the HONEST tri-state:
+        success follows 'pass'; failed/error/skipped follow 'fail'; unverified
+        follows 'fail' unless allowUnverified is set (never silently treated
+        as success).
+
+        Config keys: automationId (GUID) or automationName, inputs (dict —
+        string values support ${variable} substitution), outputVariable
+        (object: status/run_id/exit_code/output_files/workdir/error),
+        filesVariable (list of ABSOLUTE paths of files the run produced, for
+        downstream File/Document nodes), allowUnverified (default false),
+        continueOnError (default false).
+        """
+        node_id = node.get('id')
+        config = node.get('config', {}) or {}
+        automation_id = (config.get('automationId') or config.get('automation_id') or '').strip()
+        automation_name = (config.get('automationName') or config.get('automation_name') or '').strip()
+        output_variable = (config.get('outputVariable') or '').strip()
+        files_variable = (config.get('filesVariable') or '').strip()
+        allow_unverified = bool(config.get('allowUnverified', False))
+        continue_on_error = bool(config.get('continueOnError', False))
+
+        def _fail(msg, status='error', extra=None):
+            self.log_execution(execution_id, node_id, 'error', msg)
+            data = {'status': status, 'error': msg, 'output_files': []}
+            if extra:
+                data.update(extra)
+            return {'success': bool(continue_on_error), 'error': msg, 'data': data}
+
+        try:
+            from automations.manager import AutomationManager
+            from automations.runner import AutomationRunner
+            manager = AutomationManager()
+        except Exception as e:
+            return _fail(f"Automation node: automations subsystem unavailable: {e}")
+
+        if not automation_id and automation_name:
+            matches = [a for a in manager.list_automations()
+                       if a['name'].lower() == automation_name.lower()]
+            if matches:
+                automation_id = matches[0]['automation_id']
+        if not automation_id:
+            return _fail("Automation node: no automation selected (set automationId or automationName)")
+
+        auto = manager.get_automation(automation_id)
+        if not auto:
+            return _fail(f"Automation node: automation '{automation_name or automation_id}' not found")
+        if auto.get('pinned_version', 0) < 1:
+            return _fail(f"Automation node: '{auto['name']}' has no promoted version — dry-run and promote it first")
+
+        # Resolve inputs with workflow-variable substitution on string values.
+        raw_inputs = config.get('inputs') or {}
+        run_inputs = {}
+        if isinstance(raw_inputs, dict):
+            for k, v in raw_inputs.items():
+                run_inputs[k] = self._replace_variable_references(v, variables) if isinstance(v, str) else v
+
+        self.log_execution(execution_id, node_id, 'info',
+                           f"Automation node: running '{auto['name']}' (pinned v{auto['pinned_version']})")
+        try:
+            runner = AutomationRunner(manager=manager)
+            result = runner.run(automation_id, inputs=run_inputs, trigger='workflow')
+        except Exception as e:
+            return _fail(f"Automation node: run crashed: {e}")
+
+        status = result.get('status', 'error')
+        workdir = result.get('workdir') or ''
+        rel_files = result.get('output_files') or []
+        abs_files = [os.path.join(workdir, f) for f in rel_files] if workdir else []
+        output_obj = {
+            'status': status,
+            'run_id': result.get('run_id'),
+            'exit_code': result.get('exit_code'),
+            'output_files': abs_files,
+            'workdir': workdir,
+            'verify_report': result.get('verify_report'),
+            'error': result.get('error'),
+        }
+
+        if output_variable:
+            self._update_workflow_variable(
+                execution_id, output_variable,
+                self._determine_variable_type(output_obj), output_obj)
+            variables[output_variable] = output_obj
+        if files_variable:
+            self._update_workflow_variable(
+                execution_id, files_variable,
+                self._determine_variable_type(abs_files), abs_files)
+            variables[files_variable] = abs_files
+
+        ok = status == 'success' or (status == 'unverified' and allow_unverified)
+        self.log_execution(
+            execution_id, node_id, ('info' if ok else 'warning'),
+            f"Automation '{auto['name']}': outcome={status}, files={len(abs_files)}"
+            + (f", error={result.get('error')}" if result.get('error') else ''))
+
+        if not ok and not continue_on_error:
+            return {'success': False,
+                    'error': result.get('error') or f"automation '{auto['name']}' outcome was {status}",
+                    'data': output_obj}
         return {'success': True, 'data': output_obj}
 
     def _update_workflow_variable(self, execution_id: str, variable_name: str,

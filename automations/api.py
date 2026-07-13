@@ -26,6 +26,7 @@ import os
 import threading
 import uuid
 from functools import wraps
+from typing import Optional
 
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
@@ -71,6 +72,59 @@ def automations_gate(f):
             return jsonify({"error": "Access denied — Developer role required"}), 403
         return f(*args, **kwargs)
     return decorated
+
+
+# ----------------------------------------------------------------- runs UI
+
+_RUNS_PAGE = """<!DOCTYPE html>
+<html><head><title>Automations</title>
+<style>
+ body{font-family:Segoe UI,Arial,sans-serif;margin:24px;background:#f7f8fa;color:#1c2430}
+ h1{font-size:20px} h2{font-size:16px;margin-top:20px}
+ table{border-collapse:collapse;width:100%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+ th,td{padding:7px 10px;border-bottom:1px solid #e5e8ee;text-align:left;font-size:13px}
+ th{background:#eef1f6} tr:hover td{background:#f4f7fb;cursor:pointer}
+ .success{color:#177245;font-weight:600}.failed{color:#b3261e;font-weight:600}
+ .unverified{color:#9a6700;font-weight:600}.skipped,.running{color:#5f6b7a;font-weight:600}
+ pre{background:#101418;color:#d8e0ea;padding:12px;overflow:auto;max-height:420px;font-size:12px}
+ .muted{color:#5f6b7a;font-size:12px}
+</style></head><body>
+<h1>Automations — runs</h1>
+<div class="muted">Read-only view. Build and manage automations in Command Center; API under /automations/api/.</div>
+<div id="autos"></div><h2 id="runsTitle" style="display:none">Runs</h2><div id="runs"></div>
+<h2 id="logTitle" style="display:none">Run log</h2><pre id="log" style="display:none"></pre>
+<script>
+async function j(u){const r=await fetch(u);return r.json();}
+function cls(s){return ['success','failed','unverified','skipped','running'].includes(s)?s:'';}
+async function loadAutos(){
+ const d=await j('/automations/api/list');const a=d.automations||[];
+ let h='<table><tr><th>Name</th><th>Description</th><th>Latest</th><th>Live</th></tr>';
+ for(const x of a){h+=`<tr onclick="loadRuns('${x.automation_id}','${x.name}')"><td>${x.name}</td><td>${x.description||''}</td><td>v${x.current_version}</td><td>${x.pinned_version?('v'+x.pinned_version):'—'}</td></tr>`;}
+ document.getElementById('autos').innerHTML=h+'</table>'+(a.length?'':'<p class="muted">No automations yet.</p>');}
+async function loadRuns(id,name){
+ const d=await j('/automations/api/'+id+'/runs');const rs=d.runs||[];
+ document.getElementById('runsTitle').style.display='block';
+ document.getElementById('runsTitle').textContent='Runs — '+name;
+ let h='<table><tr><th>Started</th><th>Trigger</th><th>Version</th><th>Outcome</th><th>Exit</th></tr>';
+ for(const r of rs){h+=`<tr onclick="loadLog('${r.run_id}')"><td>${r.started_at||''}</td><td>${r.trigger_source}</td><td>v${r.version}</td><td class="${cls(r.status)}">${r.status}</td><td>${r.exit_code??''}</td></tr>`;}
+ document.getElementById('runs').innerHTML=h+'</table>'+(rs.length?'':'<p class="muted">No runs yet.</p>');
+ document.getElementById('log').style.display='none';document.getElementById('logTitle').style.display='none';}
+async function loadLog(runId){
+ const d=await j('/automations/api/runs/'+runId+'/log');
+ document.getElementById('logTitle').style.display='block';
+ const el=document.getElementById('log');el.style.display='block';
+ el.textContent=d.log||d.error||'(no log)';}
+loadAutos();
+</script></body></html>"""
+
+
+@automations_bp.route("/", methods=["GET"])
+@automations_gate
+def runs_ui():
+    """Minimal read-only runs dashboard (P1 deliverable): automations, run
+    history with honest outcomes, and per-run logs. Building/managing happens
+    in Command Center."""
+    return _RUNS_PAGE
 
 
 # ------------------------------------------------------------------- CRUD
@@ -382,6 +436,78 @@ def list_schedules(automation_id):
         }
         for r in rows
     ]})
+
+
+# ------------------------------------------------------------ webhook trigger
+
+def _webhook_token(automation_id: str) -> Optional[str]:
+    """Derived (never stored) per-automation webhook token:
+    HMAC(jwt_secret, automation_id). Rotating CC_JWT_SECRET rotates all hooks."""
+    import hashlib
+    import hmac as _hmac
+    try:
+        from shared_auth import get_jwt_secret
+        secret = get_jwt_secret()
+    except Exception:
+        secret = None
+    if not secret:
+        return None
+    return _hmac.new(secret.encode("utf-8"),
+                     f"automation-hook:{automation_id}".encode("utf-8"),
+                     hashlib.sha256).hexdigest()[:32]
+
+
+@automations_bp.route("/api/<automation_id>/webhook", methods=["GET"])
+@automations_gate
+def get_webhook(automation_id):
+    """Return the automation's webhook trigger path (derived token, no storage)."""
+    if not _get_manager().get_automation(automation_id):
+        return jsonify({"error": "not found"}), 404
+    token = _webhook_token(automation_id)
+    if not token:
+        return jsonify({"error": "webhook unavailable: no JWT secret configured"}), 503
+    return jsonify({
+        "url_path": f"/automations/api/hook/{automation_id}/{token}",
+        "method": "POST",
+        "body": {"inputs": {"<declared input>": "<value>"}},
+        "note": "POST JSON to this path to trigger the promoted version; "
+                "rotating CC_JWT_SECRET rotates the token",
+    })
+
+
+@automations_bp.route("/api/hook/<automation_id>/<token>", methods=["POST"])
+def webhook_trigger(automation_id, token):
+    """External webhook trigger (P4): fire the PROMOTED version. Auth is the
+    derived per-automation token in the path — constant-time compared, no
+    session. Runs async; responds 202 with the run_id to poll. Skip-if-running
+    and input validation behave exactly like any other trigger."""
+    import hmac as _hmac
+    if not getattr(cfg, "AUTOMATIONS_ENABLED", False):
+        return jsonify({"error": "Automations feature is disabled"}), 403
+    expected = _webhook_token(automation_id)
+    if not expected or not _hmac.compare_digest(token, expected):
+        return jsonify({"error": "invalid webhook token"}), 403
+    auto = _get_manager().get_automation(automation_id)
+    if not auto:
+        return jsonify({"error": "not found"}), 404
+    if auto["pinned_version"] < 1:
+        return jsonify({"error": "nothing promoted"}), 409
+
+    inputs = (request.get_json(silent=True) or {}).get("inputs") or {}
+    # validate inputs BEFORE going async so the caller gets a real 400
+    from .runner import resolve_inputs
+    manifest = _get_manager().get_manifest(automation_id, auto["pinned_version"]) or {}
+    _, err = resolve_inputs(manifest, inputs)
+    if err:
+        return jsonify({"error": err}), 400
+
+    run_id = str(uuid.uuid4())
+    threading.Thread(
+        target=_get_runner().run, daemon=True,
+        kwargs=dict(automation_id=automation_id, inputs=inputs, trigger="webhook",
+                    run_id=run_id),
+    ).start()
+    return jsonify({"run_id": run_id, "status": "started"}), 202
 
 
 # ------------------------------------------------ runtime credential resolve

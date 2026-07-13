@@ -49,6 +49,7 @@ ASSET_KIND_SHAPES = {
     "connections": "file",
     "environments": "file",
     "knowledge": "file",
+    "automations": "dir",
 }
 
 ASSET_KIND_SINGULAR = {
@@ -59,6 +60,7 @@ ASSET_KIND_SINGULAR = {
     "connections": "connection",
     "environments": "environment",
     "knowledge": "knowledge",
+    "automations": "automation",
 }
 
 # Placeholder pattern used in integrations / connections. Example: ${STRIPE_API_KEY}
@@ -130,13 +132,15 @@ class SolutionAssets:
     connections: List[str] = field(default_factory=list)
     environments: List[str] = field(default_factory=list)
     knowledge: List[str] = field(default_factory=list)
+    automations: List[str] = field(default_factory=list)
     # Seed-data inventory is more complex — schema.sql presence, list of seed CSVs, sample input filenames.
     data: Dict[str, Any] = field(default_factory=dict)
 
     def is_empty(self) -> bool:
         return not any([
             self.agents, self.tools, self.workflows, self.integrations,
-            self.connections, self.environments, self.knowledge, self.data,
+            self.connections, self.environments, self.knowledge,
+            self.automations, self.data,
         ])
 
     def count(self) -> int:
@@ -145,6 +149,7 @@ class SolutionAssets:
             len(self.agents) + len(self.tools) + len(self.workflows)
             + len(self.integrations) + len(self.connections)
             + len(self.environments) + len(self.knowledge)
+            + len(self.automations)
             + (1 if self.data.get("schema_sql") else 0)
             + len(self.data.get("seeds", []) or [])
             + len(self.data.get("sample_inputs", []) or [])
@@ -211,6 +216,7 @@ class SolutionManifest:
             connections=list(assets_raw.get("connections") or []),
             environments=list(assets_raw.get("environments") or []),
             knowledge=list(assets_raw.get("knowledge") or []),
+            automations=list(assets_raw.get("automations") or []),
             data=dict(assets_raw.get("data") or {}),
         )
         creds = [

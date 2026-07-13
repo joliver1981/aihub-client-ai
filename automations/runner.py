@@ -44,7 +44,12 @@ _INPUTS_FILE = "_inputs.json"
 _SKIP_GRACE_SECONDS = 600  # a 'running' row older than timeout+grace is stale, not live
 
 # Same preamble idea as the CC code interpreter: headless matplotlib + the
-# conda-extracted bundle's native DLLs for compiled extensions.
+# conda-extracted bundle's native DLLs for compiled extensions. Plus
+# best-effort EGRESS LOGGING: unattended scheduled code talks to the network,
+# so every socket connect is appended to _egress.log in the workdir (folded
+# into run.log afterwards). Best-effort by design — a failure to log must
+# never break the script.
+_EGRESS_LOG_NAME = "_egress.log"
 _PREAMBLE = (
     "import os as _os, sys as _sys\n"
     "_os.environ.setdefault('MPLBACKEND', 'Agg')\n"
@@ -52,6 +57,19 @@ _PREAMBLE = (
     "    _libbin = _os.path.join(_os.path.dirname(_sys.executable), 'Library', 'bin')\n"
     "    if hasattr(_os, 'add_dll_directory') and _os.path.isdir(_libbin):\n"
     "        _os.add_dll_directory(_libbin)\n"
+    "except Exception:\n"
+    "    pass\n"
+    "try:\n"
+    "    import socket as _sock\n"
+    "    _orig_connect = _sock.socket.connect\n"
+    "    def _aihub_logged_connect(self, addr, _oc=_orig_connect):\n"
+    "        try:\n"
+    "            with open('_egress.log', 'a', encoding='utf-8') as _f:\n"
+    "                _f.write(repr(addr) + '\\n')\n"
+    "        except Exception:\n"
+    "            pass\n"
+    "        return _oc(self, addr)\n"
+    "    _sock.socket.connect = _aihub_logged_connect\n"
     "except Exception:\n"
     "    pass\n"
 )
@@ -509,9 +527,17 @@ class AutomationRunner:
         for root, _dirs, files in os.walk(workdir):
             for name in files:
                 rel = os.path.relpath(os.path.join(root, name), workdir)
-                if rel not in pre_run_files and rel != _RUN_LOG_NAME:
+                if rel not in pre_run_files and rel not in (_RUN_LOG_NAME, _EGRESS_LOG_NAME):
                     output_files.append(rel)
         output_files.sort()
+
+        # -- fold the egress log (network destinations the script connected to)
+        egress = ""
+        try:
+            with open(os.path.join(workdir, _EGRESS_LOG_NAME), "r", encoding="utf-8") as f:
+                egress = f.read().strip()
+        except FileNotFoundError:
+            pass
 
         # -- honest outcome
         if timed_out:
@@ -527,7 +553,8 @@ class AutomationRunner:
             log_dir=workdir,
             header=self._log_header(auto, version, python_exe),
             stdout=stdout, stderr=stderr,
-            footer=f"exit_code: {exit_code}  outcome: {status}" + (f"  ({error})" if error else ""),
+            footer=(f"exit_code: {exit_code}  outcome: {status}" + (f"  ({error})" if error else "")
+                    + (f"\n\n===== network egress =====\n{egress}" if egress else "")),
         )
 
         return {

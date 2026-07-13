@@ -88,6 +88,7 @@ class SolutionBundler:
         connection_ids: Optional[List[int]] = None,
         environment_ids: Optional[List[int]] = None,
         knowledge_document_ids: Optional[List[int]] = None,
+        automation_ids: Optional[List[str]] = None,
         seed_schema_sql: Optional[bytes] = None,
         seed_csvs: Optional[Dict[str, bytes]] = None,          # {filename: bytes}
         sample_input_files: Optional[Dict[str, bytes]] = None,  # {filename: bytes}
@@ -108,7 +109,7 @@ class SolutionBundler:
         packed: Dict[str, List[str]] = {
             k: [] for k in (
                 "agents", "tools", "workflows", "integrations",
-                "connections", "environments", "knowledge",
+                "connections", "environments", "knowledge", "automations",
             )
         }
         skipped: List[Dict[str, str]] = []
@@ -193,6 +194,22 @@ class SolutionBundler:
                 display = self._get_environment_name(env_id) or f"environment_{env_id}"
                 zf.writestr(f"environments/{_safe_filename(display)}.zip", env_zip)
                 _packed("environments", f"{_safe_filename(display)}.zip")
+
+            # ── Automations (persisted AI-generated Python solutions) ─
+            for auto_id in (automation_ids or []):
+                entries, secret_prompts, display = self._pack_automation(str(auto_id))
+                if not entries:
+                    _skip("automations", display or auto_id,
+                          "automation not found or has no saved version")
+                    continue
+                folder = _safe_filename(display)
+                for inner_rel_path, data in entries:
+                    zf.writestr(f"automations/{folder}/{inner_rel_path}", data)
+                _packed("automations", folder)
+                # Secrets the automation's manifest declares become credential
+                # prompts so the installer collects them on the target system
+                # (values are NEVER exported).
+                self._ensure_credentials_for_placeholders(manifest, secret_prompts)
 
             # ── Knowledge documents ───────────────────────────────
             for doc_id in (knowledge_document_ids or []):
@@ -623,6 +640,53 @@ class SolutionBundler:
             logger.warning("env export returned %s for id=%s", resp.status_code, env_id)
             return None
         return resp.data
+
+    def _pack_automation(self, automation_id: str) -> Tuple[List[Tuple[str, bytes]], List[str], str]:
+        """Export one Automation: its EXPORTED version's code + manifest +
+        samples, plus metadata. Returns (entries, secret_placeholders, name).
+
+        The exported version is the pinned (live) one, falling back to the
+        latest save. Credential VALUES are never included — the automation
+        manifest only declares connection/secret NAMES, and the declared
+        secrets are surfaced as installer credential prompts. The install
+        lands UNPROMOTED: the receiving developer must dry-run and promote on
+        the target system (verify-on-the-target, same reason installs of
+        connections land as scaffolds)."""
+        try:
+            from automations.manager import AutomationManager
+            mgr = AutomationManager()
+            auto = mgr.get_automation(automation_id)
+            if not auto:
+                return [], [], automation_id
+            version = auto.get("pinned_version") or auto.get("current_version") or 0
+            if version < 1:
+                return [], [], auto["name"]
+            code = mgr.get_code(automation_id, version)
+            auto_manifest = mgr.get_manifest(automation_id, version) or {}
+            if code is None:
+                return [], [], auto["name"]
+
+            entries: List[Tuple[str, bytes]] = []
+            meta = {
+                "name": auto["name"],
+                "description": auto.get("description") or "",
+                "exported_version": version,
+                "was_promoted": bool(auto.get("pinned_version")),
+                "manifest": auto_manifest,
+            }
+            entries.append(("automation.json", json.dumps(meta, indent=2).encode("utf-8")))
+            entries.append((auto_manifest.get("entrypoint", "main.py"), code.encode("utf-8")))
+
+            samples_dir = Path(mgr.version_dir(automation_id, version)) / "samples"
+            if samples_dir.is_dir():
+                for sample in sorted(samples_dir.iterdir()):
+                    if sample.is_file():
+                        entries.append((f"samples/{sample.name}", sample.read_bytes()))
+
+            return entries, list(auto_manifest.get("secrets") or []), auto["name"]
+        except Exception as e:
+            logger.warning("Automation export failed for %s: %s", automation_id, e)
+            return [], [], automation_id
 
     def _pack_knowledge(self, doc_id: int) -> List[Tuple[str, bytes]]:
         """Read a knowledge document's file bytes + a small metadata JSON

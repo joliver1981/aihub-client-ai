@@ -37,7 +37,7 @@ DEFAULT_TIMEOUT_SECONDS = 600
 
 VALID_OUTPUT_KINDS = {"file", "sftp_upload", "ftp_upload", "http_upload"}
 VALID_INPUT_TYPES = {"string", "int", "float", "bool", "path"}
-VALID_TRIGGERS = {"manual", "api", "dry_run", "schedule", "workflow", "email"}
+VALID_TRIGGERS = {"manual", "api", "dry_run", "schedule", "workflow", "email", "webhook"}
 
 # Credential material must never appear in automation code — scripts read
 # connections/secrets from the env vars the runner injects (P0) / the
