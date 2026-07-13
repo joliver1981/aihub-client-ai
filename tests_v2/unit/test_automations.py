@@ -330,8 +330,19 @@ def _make_automation(mgr, code: str, manifest_overrides: Optional[Dict] = None,
     return aid
 
 
+class _EnvInjectCfg:
+    AUTOMATIONS_ENV_CRED_INJECTION = True
+
+
+class _NoInjectCfg:
+    AUTOMATIONS_ENV_CRED_INJECTION = False
+
+
 class TestRunner:
-    def test_success_run_with_credential_injection_and_verify(self, mgr):
+    def test_success_run_with_env_credential_injection_and_verify(self, mgr, monkeypatch):
+        """Legacy P0/P1 delivery path (flag on): values as env vars."""
+        import automations.runner as runner_mod
+        monkeypatch.setattr(runner_mod, "_load_cfg", lambda: _EnvInjectCfg)
         code = (
             "import os\n"
             "os.makedirs('out', exist_ok=True)\n"
@@ -353,6 +364,27 @@ class TestRunner:
         produced = os.path.join(result["workdir"], "out", "result.csv")
         content = open(produced).read()
         assert "PWD=injected" in content and "sftp-secret-value" in content
+
+    def test_default_flag_keeps_credential_values_out_of_env(self, mgr, monkeypatch):
+        """P2 default: env carries the run token, never the credential value."""
+        import automations.runner as runner_mod
+        monkeypatch.setattr(runner_mod, "_load_cfg", lambda: _NoInjectCfg)
+        monkeypatch.setenv("CC_JWT_SECRET", "test-secret-p2")
+        monkeypatch.setenv("AUTOMATIONS_RUNTIME_URL", "http://127.0.0.1:9")  # never called
+        code = (
+            "import os, json\n"
+            "report = {'conn_env': os.environ.get('AIHUB_CONN_ERPDB'),\n"
+            "          'token': bool(os.environ.get('AIHUB_RUN_TOKEN')),\n"
+            "          'url': os.environ.get('AIHUB_RUNTIME_URL')}\n"
+            "json.dump(report, open('report.json', 'w'))\n"
+        )
+        aid = _make_automation(mgr, code, {"name": "noinject", "connections": ["ERPDB"]})
+        result = StubRunner(mgr).run(aid)
+        assert result["status"] == "success", result
+        report = json.load(open(os.path.join(result["workdir"], "report.json")))
+        assert report["conn_env"] is None          # value NOT in env
+        assert report["token"] is True             # token present instead
+        assert report["url"] == "http://127.0.0.1:9"
 
     def test_nonzero_exit_is_failed(self, mgr):
         aid = _make_automation(mgr, "import sys\nsys.exit(3)\n", {"name": "boom"})
@@ -614,3 +646,252 @@ class TestSchedulerAutomationJob:
         assert records[-1][0] == "failed"
         assert "automation_id" in records[-1][1]
         assert "url" not in captured  # never called the API
+
+
+# ---------------------------------------------------------------------------
+# P2: aihub_runtime SDK + run-token resolution
+# ---------------------------------------------------------------------------
+
+class TestSdkEndToEnd:
+    """Full P2 loop with a REAL subprocess and REAL HTTP: the runner injects a
+    signed run token + PYTHONPATH; the script imports aihub_runtime and calls
+    connection(); a stub resolve server verifies the token with shared_auth and
+    enforces the allowlist."""
+
+    @pytest.fixture
+    def resolve_server(self, monkeypatch):
+        import http.server
+        import threading
+
+        monkeypatch.setenv("CC_JWT_SECRET", "test-secret-e2e")
+        requests_seen = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):  # keep test output clean
+                pass
+
+            def do_POST(self):
+                from shared_auth import verify_automation_run_token
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                requests_seen.append(body)
+                claims, err = verify_automation_run_token(body.get("token", ""))
+                if err:
+                    self._reply(403, {"error": f"invalid run token: {err}"})
+                    return
+                allowed = claims.get("connections" if body["kind"] == "connection" else "secrets") or []
+                if body["name"] not in allowed:
+                    self._reply(403, {"error": "not declared in manifest"})
+                    return
+                self._reply(200, {"value": f"resolved-{body['kind']}-{body['name']}"})
+
+            def _reply(self, code, payload):
+                data = json.dumps(payload).encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        monkeypatch.setenv("AUTOMATIONS_RUNTIME_URL", f"http://127.0.0.1:{server.server_port}")
+        yield requests_seen
+        server.shutdown()
+
+    def test_sdk_resolves_connection_via_token(self, mgr, monkeypatch, resolve_server):
+        import automations.runner as runner_mod
+        monkeypatch.setattr(runner_mod, "_load_cfg", lambda: _NoInjectCfg)
+        code = (
+            "import aihub_runtime as aihub\n"
+            "value = aihub.connection('ERPDB')\n"
+            "period = aihub.input('period', 'none')\n"
+            "with open('resolved.txt', 'w') as f:\n"
+            "    f.write(value + '|' + period)\n"
+            "aihub.log('resolved fine')\n"
+        )
+        aid = _make_automation(mgr, code, {
+            "name": "sdk-e2e", "connections": ["ERPDB"],
+            "inputs": [{"name": "period", "type": "string", "default": "2026-07"}],
+        })
+        result = StubRunner(mgr).run(aid)
+        assert result["status"] == "success", result
+        content = open(os.path.join(result["workdir"], "resolved.txt")).read()
+        assert content == "resolved-connection-ERPDB|2026-07"
+        assert "[aihub] resolved fine" in result["stdout_tail"]
+        assert resolve_server[0]["kind"] == "connection"
+
+    def test_sdk_undeclared_name_is_refused(self, mgr, monkeypatch, resolve_server):
+        import automations.runner as runner_mod
+        monkeypatch.setattr(runner_mod, "_load_cfg", lambda: _NoInjectCfg)
+        code = (
+            "import aihub_runtime as aihub\n"
+            "try:\n"
+            "    aihub.secret('NOT_DECLARED')\n"
+            "    print('GOT IT (bad)')\n"
+            "except aihub.AutomationRuntimeError as e:\n"
+            "    print('refused:', e)\n"
+            "    raise SystemExit(2)\n"
+        )
+        # manifest declares a connection but NOT the secret the script asks for
+        aid = _make_automation(mgr, code, {"name": "sdk-refuse", "connections": ["ERPDB"]})
+        result = StubRunner(mgr).run(aid)
+        assert result["status"] == "failed"
+        assert result["exit_code"] == 2
+        assert "refused:" in result["stdout_tail"]
+
+    def test_preflight_fails_when_no_token_and_no_env_injection(self, mgr, monkeypatch):
+        import automations.runner as runner_mod
+        monkeypatch.setattr(runner_mod, "_load_cfg", lambda: _NoInjectCfg)
+        aid = _make_automation(mgr, "print(1)\n", {"name": "notoken", "connections": ["ERPDB"]})
+        runner = StubRunner(mgr)
+        monkeypatch.setattr(runner, "_mint_run_token", lambda *a, **k: None)
+        result = runner.run(aid)
+        assert result["status"] == "failed"
+        assert "run-token signing is unavailable" in result["error"]
+
+
+class TestResolveEndpoint:
+    """The real Flask endpoint: signature, allowlist, and live-run checks."""
+
+    @pytest.fixture
+    def client(self, monkeypatch, mgr):
+        from flask import Flask
+        import automations.api as api_mod
+
+        monkeypatch.setenv("CC_JWT_SECRET", "test-secret-endpoint")
+
+        class EndpointRunner:
+            def __init__(self):
+                self.live_run = {"run_id": "run-1", "automation_id": "auto-1", "status": "running"}
+            def get_run(self, run_id):
+                return dict(self.live_run) if run_id == self.live_run["run_id"] else None
+            def _resolve_connection(self, name):
+                return "Driver=X;PWD=endpoint;" if name == "ERPDB" else None
+            def _resolve_secret(self, name):
+                return None
+
+        self.runner = EndpointRunner()
+        monkeypatch.setattr(api_mod, "_runner", self.runner)
+        monkeypatch.setattr(api_mod, "_manager", mgr)
+        app = Flask(__name__)
+        app.register_blueprint(api_mod.automations_bp)
+        return app.test_client()
+
+    def _token(self, **kw):
+        from shared_auth import sign_automation_run_token
+        args = dict(automation_id="auto-1", run_id="run-1",
+                    connections=["ERPDB"], secrets=[], ttl_seconds=300)
+        args.update(kw)
+        return sign_automation_run_token(**args)
+
+    def test_valid_token_resolves(self, client):
+        r = client.post("/automations/api/runtime/resolve",
+                        json={"token": self._token(), "kind": "connection", "name": "ERPDB"})
+        assert r.status_code == 200
+        assert r.get_json()["value"] == "Driver=X;PWD=endpoint;"
+
+    def test_undeclared_name_403(self, client):
+        r = client.post("/automations/api/runtime/resolve",
+                        json={"token": self._token(), "kind": "secret", "name": "SNEAKY"})
+        assert r.status_code == 403
+
+    def test_garbage_token_403(self, client):
+        r = client.post("/automations/api/runtime/resolve",
+                        json={"token": "junk", "kind": "connection", "name": "ERPDB"})
+        assert r.status_code == 403
+
+    def test_finished_run_403(self, client):
+        self.runner.live_run["status"] = "success"  # run over -> token dead
+        r = client.post("/automations/api/runtime/resolve",
+                        json={"token": self._token(), "kind": "connection", "name": "ERPDB"})
+        assert r.status_code == 403
+
+    def test_mismatched_automation_403(self, client):
+        r = client.post("/automations/api/runtime/resolve",
+                        json={"token": self._token(automation_id="other"),
+                              "kind": "connection", "name": "ERPDB"})
+        assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# P3: CC internal manage endpoint
+# ---------------------------------------------------------------------------
+
+class TestInternalManage:
+    """The CC tools' seam: X-API-Key auth + server-side role enforcement +
+    action dispatch against the real manager/runner (stub DB)."""
+
+    @pytest.fixture
+    def client(self, monkeypatch, mgr):
+        from flask import Flask
+        import automations.api as api_mod
+
+        monkeypatch.setenv("API_KEY", "svc-key-test")
+
+        class ManageRunner(StubRunner):
+            pass
+
+        monkeypatch.setattr(api_mod, "_manager", mgr)
+        monkeypatch.setattr(api_mod, "_runner", ManageRunner(mgr))
+        monkeypatch.setattr(api_mod, "_tables_ensured", True)
+        app = Flask(__name__)
+        app.register_blueprint(api_mod.automations_bp)
+        return app.test_client()
+
+    def _post(self, client, action, payload=None, role=2, api_key="svc-key-test"):
+        return client.post("/automations/api/internal/manage",
+                           headers={"X-API-Key": api_key},
+                           json={"action": action,
+                                 "user_context": {"user_id": 7, "role": role, "username": "dev"},
+                                 "payload": payload or {}})
+
+    def test_bad_api_key_401(self, client):
+        r = self._post(client, "list", api_key="wrong")
+        assert r.status_code == 401
+
+    def test_low_role_403_even_with_valid_key(self, client):
+        r = self._post(client, "list", role=1)
+        assert r.status_code == 403
+
+    def test_full_build_flow(self, client, monkeypatch):
+        import automations.runner as runner_mod
+        monkeypatch.setattr(runner_mod, "_load_cfg", lambda: _EnvInjectCfg)
+        # create
+        r = self._post(client, "create", {"name": "cc-built", "description": "via CC",
+                                          "provision_environment": False})
+        assert r.status_code == 201, r.get_json()
+        aid = r.get_json()["automation"]["automation_id"]
+        # save code + manifest
+        r = self._post(client, "save_code", {
+            "automation_id": aid,
+            "code": "with open('x.csv','w') as f: f.write('h\\n1\\n')\n",
+            "manifest": dict(VALID_MANIFEST, name="cc-built",
+                             outputs=[{"kind": "file", "path": "x.csv", "verify": {"min_rows": 1}}]),
+        })
+        assert r.status_code == 200 and r.get_json()["version"] == 1
+        # dry run (latest)
+        r = self._post(client, "dry_run", {"automation_id": aid})
+        assert r.get_json()["status"] == "success", r.get_json()
+        # promote
+        r = self._post(client, "promote", {"automation_id": aid})
+        assert r.get_json()["pinned_version"] == 1
+        # real run
+        r = self._post(client, "run", {"automation_id": aid})
+        assert r.get_json()["status"] == "success"
+        # history
+        r = self._post(client, "runs", {"automation_id": aid})
+        runs = r.get_json()["runs"]
+        assert len(runs) == 2  # dry_run + run
+
+    def test_save_code_rejects_secrets_via_manage(self, client):
+        r = self._post(client, "create", {"name": "cc-sec", "provision_environment": False})
+        aid = r.get_json()["automation"]["automation_id"]
+        r = self._post(client, "save_code", {"automation_id": aid,
+                                             "code": 'pw = "PWD=hunter22;"'})
+        assert r.status_code == 400
+        assert "credential" in r.get_json()["error"].lower()
+
+    def test_unknown_action_400(self, client):
+        r = self._post(client, "explode")
+        assert r.status_code == 400

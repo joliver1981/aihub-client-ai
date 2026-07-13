@@ -283,9 +283,21 @@ def schedule_automation(automation_id):
         return jsonify({"error": "nothing promoted — dry-run and promote a version before scheduling"}), 400
 
     data = request.get_json(silent=True) or {}
-    schedule_data = data.get("schedule")
+    payload, code = _create_automation_schedule(
+        auto, data.get("schedule"), data.get("inputs") or {},
+        user_id=current_user.id,
+        username=str(getattr(current_user, "username", current_user.id)),
+    )
+    return jsonify(payload), code
+
+
+def _create_automation_schedule(auto, schedule_data, inputs, user_id, username):
+    """Write the ScheduledJobs + params + ScheduleDefinitions rows for an
+    automation schedule. Shared by the user route and the CC internal manage
+    endpoint. Returns (payload_dict, http_code)."""
+    automation_id = auto["automation_id"]
     if not isinstance(schedule_data, dict):
-        return jsonify({"error": "'schedule' object is required (type: cron|interval|date)"}), 400
+        return {"error": "'schedule' object is required (type: cron|interval|date)"}, 400
 
     from scheduler_routes import _create_schedule
     conn = _get_manager()._db_conn()
@@ -297,15 +309,15 @@ def schedule_automation(automation_id):
                VALUES (?, 'automation', 0, ?, ?, getutcdate(), 1)""",
             f"Automation: {auto['name']}",
             f"Scheduled run of automation '{auto['name']}' ({automation_id}), pinned v{auto['pinned_version']}",
-            str(getattr(current_user, "username", current_user.id)),
+            username,
         )
         cursor.execute("SELECT @@IDENTITY")
         job_id = int(cursor.fetchone()[0])
 
         params = {
             "automation_id": (automation_id, "string"),
-            "inputs": (json.dumps(data.get("inputs") or {}), "json"),
-            "user_id": (str(current_user.id), "int"),
+            "inputs": (json.dumps(inputs or {}), "json"),
+            "user_id": (str(user_id), "int"),
         }
         for name, (value, ptype) in params.items():
             cursor.execute(
@@ -318,22 +330,22 @@ def schedule_automation(automation_id):
         schedule_id = _create_schedule(cursor, job_id, schedule_data)
         if not schedule_id:
             conn.rollback()
-            return jsonify({"error": "invalid schedule definition"}), 400
+            return {"error": "invalid schedule definition"}, 400
         conn.commit()
     except Exception as e:
         conn.rollback()
         logger.error(f"schedule_automation({automation_id}) failed: {e}")
-        return jsonify({"error": str(e)}), 500
+        return {"error": str(e)}, 500
     finally:
         conn.close()
 
-    return jsonify({
+    return {
         "scheduled_job_id": job_id,
         "schedule_id": schedule_id,
         "pinned_version": auto["pinned_version"],
         "note": "the scheduler engine picks this up on its next poll "
                 "(engine restart required if it predates the 'automation' job type)",
-    }), 201
+    }, 201
 
 
 @automations_bp.route("/api/<automation_id>/schedules", methods=["GET"])
@@ -370,6 +382,173 @@ def list_schedules(automation_id):
         }
         for r in rows
     ]})
+
+
+# ------------------------------------------------ runtime credential resolve
+
+@automations_bp.route("/api/runtime/resolve", methods=["POST"])
+def runtime_resolve():
+    """Resolve ONE connection/secret for a live automation run (P2 SDK path).
+
+    Called by the aihub_runtime SDK inside the automation subprocess. Auth is
+    the signed run token itself (scoped to one run + an allowlist of names) —
+    no session. Defense in depth: signature + audience + expiry (shared_auth),
+    name-in-allowlist, and the run must still be 'running' in AutomationRuns
+    (a leaked token is useless once the run finishes). Values are returned
+    once over localhost and never logged."""
+    if not getattr(cfg, "AUTOMATIONS_ENABLED", False):
+        return jsonify({"error": "Automations feature is disabled"}), 403
+    data = request.get_json(silent=True) or {}
+    token, kind, name = data.get("token"), data.get("kind"), data.get("name")
+    if not token or kind not in ("connection", "secret") or not name:
+        return jsonify({"error": "token, kind (connection|secret), and name are required"}), 400
+
+    from shared_auth import verify_automation_run_token
+    claims, err = verify_automation_run_token(token)
+    if err:
+        return jsonify({"error": f"invalid run token: {err}"}), 403
+
+    allowed = claims.get("connections" if kind == "connection" else "secrets") or []
+    if name not in allowed:
+        logger.warning(f"runtime_resolve: run {claims.get('run_id')} asked for undeclared {kind} '{name}'")
+        return jsonify({"error": f"{kind} '{name}' is not declared in this automation's manifest"}), 403
+
+    run = _get_runner().get_run(claims.get("run_id", ""))
+    if not run or run.get("status") != "running" or run.get("automation_id") != claims.get("automation_id"):
+        return jsonify({"error": "run token does not match a live run"}), 403
+
+    if kind == "connection":
+        value = _get_runner()._resolve_connection(name)
+    else:
+        value = _get_runner()._resolve_secret(name)
+    if not value:
+        return jsonify({"error": f"{kind} '{name}' could not be resolved"}), 404
+    return jsonify({"value": value})
+
+
+# --------------------------------------------- internal (CC builder tools)
+
+@automations_bp.route("/api/internal/manage", methods=["POST"])
+def internal_manage():
+    """Service-to-service management dispatch for the Command Center's
+    automation tools (P3). Auth: X-API-Key (service trust anchor) + the
+    CC-verified user_context; role >= 2 (Developer) is enforced HERE too so
+    the chokepoint doesn't rely on CC-side gating alone (same lesson as
+    CC_BUILD_ALLOW_ALL_USERS).
+
+    Body: {"action": ..., "user_context": {"user_id": int, "role": int,
+           "username": str}, "payload": {...}}"""
+    if request.headers.get("X-API-Key") != os.getenv("API_KEY", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    if not getattr(cfg, "AUTOMATIONS_ENABLED", False):
+        return jsonify({"error": "Automations feature is disabled"}), 403
+    data = request.get_json(silent=True) or {}
+    action = data.get("action")
+    uc = data.get("user_context") or {}
+    payload = data.get("payload") or {}
+    try:
+        role = int(uc.get("role") or 0)
+        user_id = int(uc.get("user_id") or 0)
+    except (TypeError, ValueError):
+        role, user_id = 0, 0
+    if role < 2 or user_id <= 0:
+        return jsonify({"error": "Developer role required"}), 403
+    username = str(uc.get("username") or user_id)
+
+    mgr = _get_manager()
+    runner = _get_runner()
+    aid = payload.get("automation_id")
+
+    def _need_auto():
+        a = mgr.get_automation(aid) if aid else None
+        return a
+
+    try:
+        if action == "list":
+            return jsonify({"automations": mgr.list_automations()})
+
+        if action == "get":
+            auto = _need_auto()
+            if not auto:
+                return jsonify({"error": "automation not found"}), 404
+            auto["versions"] = mgr.list_versions(aid)
+            auto["manifest"] = mgr.get_manifest(aid)
+            auto["code"] = mgr.get_code(aid)
+            return jsonify({"automation": auto})
+
+        if action == "create":
+            ok, auto, error = mgr.create_automation(
+                name=payload.get("name", ""), description=payload.get("description", ""),
+                owner_user_id=user_id, environment_id=payload.get("environment_id"))
+            if not ok:
+                return jsonify({"error": error}), 400
+            warning = None
+            if not payload.get("environment_id") and payload.get("provision_environment", True):
+                env_id, warning = _provision_environment(auto)
+                if env_id:
+                    mgr.set_environment(auto["automation_id"], env_id)
+                    auto = mgr.get_automation(auto["automation_id"])
+            resp = {"automation": auto}
+            if warning:
+                resp["warning"] = warning
+            return jsonify(resp), 201
+
+        if action == "save_code":
+            code = payload.get("code")
+            if not isinstance(code, str) or not code.strip():
+                return jsonify({"error": "'code' is required"}), 400
+            manifest = payload.get("manifest")
+            if manifest is not None:
+                ok, errors = validate_manifest(manifest)
+                if not ok:
+                    return jsonify({"error": "invalid manifest", "details": errors}), 400
+            ok, new_version, errors = mgr.save_version(aid, code, manifest)
+            if not ok:
+                return jsonify({"error": errors[0] if errors else "save failed",
+                                "details": errors}), 400
+            return jsonify({"version": new_version})
+
+        if action == "promote":
+            ok, version, error = mgr.promote(aid, payload.get("version"))
+            if not ok:
+                return jsonify({"error": error}), 400
+            return jsonify({"pinned_version": version})
+
+        if action in ("dry_run", "run"):
+            auto = _need_auto()
+            if not auto:
+                return jsonify({"error": "automation not found"}), 404
+            result = runner.run(aid, inputs=payload.get("inputs") or {},
+                                trigger="manual", version=payload.get("version"),
+                                requested_by=user_id, dry_run=(action == "dry_run"))
+            code = 200 if result.get("status") != "error" else 400
+            return jsonify(result), code
+
+        if action == "runs":
+            runs = runner.list_runs(aid, min(int(payload.get("limit", 20)), 100))
+            return jsonify({"runs": runs})
+
+        if action == "run_log":
+            log = runner.get_run_log(payload.get("run_id", ""))
+            if log is None:
+                return jsonify({"error": "no log for this run"}), 404
+            return jsonify({"log": log})
+
+        if action == "schedule":
+            auto = _need_auto()
+            if not auto:
+                return jsonify({"error": "automation not found"}), 404
+            if auto["pinned_version"] < 1:
+                return jsonify({"error": "nothing promoted — dry-run and promote first"}), 400
+            resp, code = _create_automation_schedule(
+                auto, payload.get("schedule"), payload.get("inputs") or {},
+                user_id=user_id, username=username)
+            return jsonify(resp), code
+
+        return jsonify({"error": f"unknown action '{action}'"}), 400
+    except Exception as e:
+        logger.exception(f"internal_manage action={action} failed")
+        return jsonify({"error": str(e)}), 500
 
 
 # ------------------------------------------------- internal (scheduler seam)

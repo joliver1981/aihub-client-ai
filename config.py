@@ -291,6 +291,7 @@ USE_APSCHEDULER_FOR_QUICKJOBS = True                    # Set to False to use Wi
 DOC_TYPE_DETECTION_PAGES_TO_USE = [0,1]                 # Pages to use for document type detection
 AGENT_ENVIRONMENTS_ENABLED = True                       # Enabled/disable agent environments feature
 AUTOMATIONS_ENABLED = True                              # Enable/disable on-the-fly Automations (Developer+ gated; see docs/on-the-fly-automations-plan.md)
+AUTOMATIONS_ENV_CRED_INJECTION = False                  # Legacy P0/P1 path: inject credential VALUES as AIHUB_CONN_*/AIHUB_SECRET_* env vars (default off — the aihub_runtime SDK resolves via run token instead)
 SMART_RENDER_ENABLED = True                             # Enabled/disable smart render for advanced output display to users
 SMART_RENDER_CONTENT_LIMIT = 100000                     # DEPRECATED AS CONTENT IS BASED ON OUTPUT TOKENS: Character limit for content to smart render (s/b based on input token limits)
 PKG_MGR_INSTALL_BASE = False                            # Enable/disable installation of base packages w/ environments (not needed)

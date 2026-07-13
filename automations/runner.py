@@ -63,6 +63,13 @@ _run_locks: Dict[str, threading.Lock] = {}
 _run_locks_guard = threading.Lock()
 
 
+def _load_cfg():
+    """Lazy config access (tests monkeypatch this; import stays side-effect
+    free until a run actually happens)."""
+    import config
+    return config
+
+
 def _env_var_name(prefix: str, name: str) -> str:
     return prefix + re.sub(r"[^A-Za-z0-9]", "_", name).upper()
 
@@ -272,6 +279,29 @@ class AutomationRunner:
         from local_secrets import get_local_secret
         return get_local_secret(name)
 
+    def _mint_run_token(self, automation_id: str, run_id: str,
+                        connections: List[str], secrets: List[str],
+                        ttl_seconds: int) -> Optional[str]:
+        """Sign a run-scoped credential token. None (with a warning) when the
+        signing secret/PyJWT is unavailable — the caller decides whether the
+        run can proceed."""
+        try:
+            from shared_auth import sign_automation_run_token
+            return sign_automation_run_token(automation_id, run_id,
+                                             connections, secrets, ttl_seconds)
+        except Exception as e:
+            logger.warning(f"run-token signing unavailable: {e}")
+            return None
+
+    @staticmethod
+    def _runtime_base_url() -> str:
+        """Base URL the SDK calls back to for credential resolution."""
+        override = os.getenv("AUTOMATIONS_RUNTIME_URL")
+        if override:
+            return override.rstrip("/")
+        from CommonUtils import get_base_url
+        return get_base_url().rstrip("/")
+
     # ------------------------------------------------------------- interpreter
 
     def _resolve_python(self, environment_id: Optional[str]) -> Optional[str]:
@@ -407,31 +437,53 @@ class AutomationRunner:
             for name in files:
                 pre_run_files.add(os.path.relpath(os.path.join(root, name), workdir))
 
-        # -- just-in-time credential injection (P0 shortcut; SDK in P2)
+        # -- credentials: pre-flight existence check ALWAYS; delivery is the
+        # signed run token + aihub_runtime SDK (values resolved server-side at
+        # use time). Env-var VALUE injection is the legacy P0/P1 path, kept
+        # behind AUTOMATIONS_ENV_CRED_INJECTION (default off).
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         env["AIHUB_RUN_ID"] = run_id
         env["AIHUB_AUTOMATION_ID"] = automation_id
         env["AIHUB_INPUTS_PATH"] = os.path.join(workdir, _INPUTS_FILE)
+        sdk_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sdk")
+        env["PYTHONPATH"] = sdk_dir + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+
+        conn_names = manifest.get("connections", [])
+        secret_names = manifest.get("secrets", [])
+        env_inject = bool(getattr(_load_cfg(), "AUTOMATIONS_ENV_CRED_INJECTION", False))
         missing = []
-        for conn_name in manifest.get("connections", []):
+        for conn_name in conn_names:
             conn_str = self._resolve_connection(conn_name)
-            if conn_str:
-                env[_env_var_name("AIHUB_CONN_", conn_name)] = conn_str
-            else:
+            if not conn_str:
                 missing.append(f"connection '{conn_name}'")
-        for secret_name in manifest.get("secrets", []):
+            elif env_inject:
+                env[_env_var_name("AIHUB_CONN_", conn_name)] = conn_str
+        for secret_name in secret_names:
             value = self._resolve_secret(secret_name)
-            if value:
-                env[_env_var_name("AIHUB_SECRET_", secret_name)] = value
-            else:
+            if not value:
                 missing.append(f"secret '{secret_name}'")
+            elif env_inject:
+                env[_env_var_name("AIHUB_SECRET_", secret_name)] = value
         if missing:
             # fail fast and honestly — do not let the script discover it mid-way
             error = "unresolvable at run time: " + ", ".join(missing)
             self._write_log(log_dir=workdir, header=self._log_header(auto, version, None),
                             stdout="", stderr=error, footer="outcome: failed (pre-flight)")
             return {"status": "failed", "error": error}
+
+        if conn_names or secret_names:
+            token = self._mint_run_token(automation_id, run_id, conn_names, secret_names,
+                                         ttl_seconds=timeout + 900)
+            if token:
+                env["AIHUB_RUN_TOKEN"] = token
+                env["AIHUB_RUNTIME_URL"] = self._runtime_base_url()
+            elif not env_inject:
+                error = ("cannot provide credentials to the run: run-token signing is "
+                         "unavailable (no JWT secret) and AUTOMATIONS_ENV_CRED_INJECTION is off")
+                self._write_log(log_dir=workdir, header=self._log_header(auto, version, None),
+                                stdout="", stderr=error, footer="outcome: failed (pre-flight)")
+                return {"status": "failed", "error": error}
 
         python_exe = self._resolve_python(auto.get("environment_id"))
         if not python_exe:

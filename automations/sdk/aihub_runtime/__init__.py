@@ -1,0 +1,131 @@
+"""
+aihub_runtime — the in-script SDK for AI Hub Automations.
+
+Generated automation code imports this to reach platform resources WITHOUT
+credentials ever appearing in the code, argv, or (by default) the process
+environment:
+
+    import aihub_runtime as aihub
+
+    conn_str = aihub.connection("ERPDB")     # ODBC connection string
+    sftp_url = aihub.secret("ACME_SFTP")     # value from the local secrets store
+    period   = aihub.input("period", "current")
+    aihub.log("extracted 214 employees")
+
+How it works: the runner injects AIHUB_RUN_TOKEN (a signed token scoped to this
+one run, carrying an allowlist of the manifest-declared connection/secret
+names) and AIHUB_RUNTIME_URL. connection()/secret() POST the opaque token to
+the main app's /automations/api/runtime/resolve endpoint, which verifies the
+signature + scope and resolves the value server-side. Values are cached in
+process memory only.
+
+Stdlib-only ON PURPOSE — this module is PYTHONPATH-injected into minimal
+per-automation venvs, so it must not require pip installs.
+
+Back-compat: when the platform runs with AUTOMATIONS_ENV_CRED_INJECTION
+enabled, credentials are also present as AIHUB_CONN_<NAME>/AIHUB_SECRET_<NAME>
+env vars; this SDK prefers those when set (no HTTP round-trip).
+"""
+
+import json as _json
+import os as _os
+import re as _re
+import sys as _sys
+import urllib.error as _urlerror
+import urllib.request as _urlrequest
+
+__all__ = ["connection", "secret", "input", "inputs", "log", "AutomationRuntimeError"]
+
+_RESOLVE_PATH = "/automations/api/runtime/resolve"
+_HTTP_TIMEOUT = int(_os.getenv("AIHUB_RUNTIME_HTTP_TIMEOUT", "30") or "30")
+
+_cache = {}
+_inputs_cache = None
+
+
+class AutomationRuntimeError(RuntimeError):
+    """A platform resource could not be resolved for this run."""
+
+
+def _env_var_name(prefix, name):
+    return prefix + _re.sub(r"[^A-Za-z0-9]", "_", name).upper()
+
+
+def _resolve(kind, name):
+    key = (kind, name)
+    if key in _cache:
+        return _cache[key]
+
+    # env-var fast path (only present when the platform enables it)
+    env_val = _os.environ.get(_env_var_name(
+        "AIHUB_CONN_" if kind == "connection" else "AIHUB_SECRET_", name))
+    if env_val:
+        _cache[key] = env_val
+        return env_val
+
+    token = _os.environ.get("AIHUB_RUN_TOKEN")
+    base_url = (_os.environ.get("AIHUB_RUNTIME_URL") or "").rstrip("/")
+    if not token or not base_url:
+        raise AutomationRuntimeError(
+            f"cannot resolve {kind} '{name}': this process was not started by the "
+            "automation runner (AIHUB_RUN_TOKEN/AIHUB_RUNTIME_URL missing)")
+
+    body = _json.dumps({"token": token, "kind": kind, "name": name}).encode("utf-8")
+    req = _urlrequest.Request(
+        base_url + _RESOLVE_PATH, data=body,
+        headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with _urlrequest.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:
+            payload = _json.loads(resp.read().decode("utf-8"))
+    except _urlerror.HTTPError as e:
+        try:
+            detail = _json.loads(e.read().decode("utf-8")).get("error", "")
+        except Exception:
+            detail = ""
+        raise AutomationRuntimeError(
+            f"could not resolve {kind} '{name}': HTTP {e.code} {detail}".strip()) from None
+    except Exception as e:
+        raise AutomationRuntimeError(
+            f"could not resolve {kind} '{name}': {e}") from None
+
+    value = payload.get("value")
+    if value is None:
+        raise AutomationRuntimeError(
+            f"could not resolve {kind} '{name}': {payload.get('error', 'no value returned')}")
+    _cache[key] = value
+    return value
+
+
+def connection(name):
+    """Return the connection string for a platform Connection by name.
+    The name must be declared in the automation manifest's "connections"."""
+    return _resolve("connection", name)
+
+
+def secret(name):
+    """Return the value of a local secret by name.
+    The name must be declared in the automation manifest's "secrets"."""
+    return _resolve("secret", name)
+
+
+def inputs():
+    """Return this run's resolved inputs as a dict (manifest defaults applied)."""
+    global _inputs_cache
+    if _inputs_cache is None:
+        path = _os.environ.get("AIHUB_INPUTS_PATH")
+        if path and _os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as f:
+                _inputs_cache = _json.load(f)
+        else:
+            _inputs_cache = {}
+    return dict(_inputs_cache)
+
+
+def input(name, default=None):  # noqa: A001 - deliberate, reads naturally in scripts
+    """Return one run input by name (manifest defaults already applied)."""
+    return inputs().get(name, default)
+
+
+def log(message):
+    """Structured progress line; lands in the run log (stdout)."""
+    print(f"[aihub] {message}", flush=True)

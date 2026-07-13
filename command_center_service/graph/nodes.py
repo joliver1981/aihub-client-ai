@@ -134,6 +134,20 @@ def _sftp_allowed(state) -> bool:
     return _SFTP_ALLOW_ALL or _has_dev_role(state)
 
 
+# Automations (persisted AI-generated Python solutions) build/run tools.
+# Default Developer+ only — building executable scheduled code is a platform
+# mutation; flip CC_AUTOMATIONS_ALLOW_ALL_USERS=true to open to all users.
+# The main app re-enforces the role at /automations/api/internal/manage, so
+# this gate is UX, not the security boundary.
+_AUTOMATIONS_TOOLS_ENABLED = os.getenv("CC_AUTOMATIONS_TOOLS_ENABLED", "true").lower() == "true"
+_AUTOMATIONS_ALLOW_ALL = os.getenv("CC_AUTOMATIONS_ALLOW_ALL_USERS", "false").lower() == "true"
+
+
+def _automations_allowed(state) -> bool:
+    """True if this user may build/run Automations."""
+    return _AUTOMATIONS_ALLOW_ALL or _has_dev_role(state)
+
+
 # ─── Helpers ──────────────────────────────────────────────────────────────
 
 def _build_delegation_context(messages: list, session_resources: list = None, max_chars: int = 1500) -> str:
@@ -1532,6 +1546,33 @@ async def converse(state: CommandCenterState) -> dict:
             "- If the user shares a password, never repeat it back in your reply."
         )
 
+    _automations_prompt = ""
+    if _AUTOMATIONS_TOOLS_ENABLED and _automations_allowed(state):
+        _automations_prompt = (
+            "## AUTOMATIONS (create_automation / save_automation_code / dry_run_automation / "
+            "promote_automation / run_automation / schedule_automation / list_automations / "
+            "get_automation / get_automation_runs)\n"
+            "You can build PERSISTED, deterministic Python solutions the platform owns and runs — "
+            "for custom business processes the workflow canvas can't express (e.g. 'read these PDFs, "
+            "extract the employee number, look up X in the database, produce a CSV in this format, "
+            "upload it to this SFTP server'). Write the code yourself; the platform versions, runs, "
+            "verifies, and schedules it.\n"
+            "- BUILD FLOW (follow in order): 1) confirm the process + gather connection/secret names "
+            "(create missing connections/secrets first via the normal build flow), 2) create_automation, "
+            "3) save_automation_code with a manifest declaring inputs/connections/secrets/outputs, "
+            "4) dry_run_automation and SHOW the user the verified result, 5) only after the user "
+            "confirms the dry-run is right: promote_automation, 6) run now or schedule_automation.\n"
+            "- CREDENTIALS: generated code must call aihub_runtime (aihub.connection('NAME') / "
+            "aihub.secret('NAME')) — NEVER hard-code passwords or connection strings; saves that "
+            "contain credential literals are rejected.\n"
+            "- DECLARE OUTPUTS in the manifest (files with min_rows, uploads with remote_listing) — "
+            "the runner independently verifies them after every run; that is what makes 'success' "
+            "trustworthy. A run can be success / failed / unverified / skipped — report the outcome "
+            "verbatim, never soften a failed or unverified run into success.\n"
+            "- Scheduled runs execute the PROMOTED version only; editing code never changes a "
+            "schedule until you promote again."
+        )
+
     system_prompt = COMMAND_CENTER_SYSTEM_PROMPT + f"""
 
 ## CURRENT DATE/TIME
@@ -1616,6 +1657,7 @@ If the user asks to use a tool that was previously created, use run_generated_to
 {_portal_prompt}
 {_schedule_prompt}
 {_sftp_prompt}
+{_automations_prompt}
 
 ## WEB SEARCH — REAL-TIME INFORMATION
 You have a search_web tool that performs live internet searches via Tavily (with DuckDuckGo fallback).
@@ -3789,6 +3831,239 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         return (f"Uploaded '{res.get('name')}' to {protocol}://{where} "
                 f"at {res.get('remote_path')}.")
 
+    # ── Automations: persisted, versioned, schedulable AI-generated Python ──
+    _AUTOMATIONS_DENIED = ("Building or running Automations requires a Developer role on this "
+                           "instance. Your account doesn't have permission to do that.")
+
+    def _am(action, payload=None, timeout=None):
+        from . import automation_tools as _at
+        kw = {"timeout": timeout} if timeout else {}
+        return _at.manage(action, state.get("user_context") or {}, payload or {}, **kw)
+
+    @lc_tool
+    async def list_automations() -> str:
+        """List the persisted Automations (AI-generated Python solutions) on this
+        platform: name, id, versions, what's promoted (live), and environment."""
+        if not _automations_allowed(state):
+            return _AUTOMATIONS_DENIED
+        res = await asyncio.to_thread(_am, "list")
+        if not res.get("ok"):
+            return f"Could not list automations: {res.get('error')}"
+        autos = res.get("automations") or []
+        if not autos:
+            return "No automations exist yet. Use create_automation to start one."
+        lines = []
+        for a in autos:
+            live = f"v{a['pinned_version']} live" if a.get("pinned_version") else "nothing promoted"
+            lines.append(f"- {a['name']} (id {a['automation_id']}): "
+                         f"latest v{a['current_version']}, {live}. {a.get('description') or ''}".rstrip())
+        return "\n".join(lines)
+
+    @lc_tool
+    async def create_automation(name: str, description: str = "") -> str:
+        """Create a NEW Automation: a persisted, versioned Python solution that the
+        platform owns and can run on a schedule (e.g. 'read PDFs, look up employees
+        in the database, produce a CSV, upload it via SFTP').
+
+        This creates the empty asset plus a dedicated Python environment. Next steps
+        after creating: save_automation_code, dry_run_automation, promote_automation,
+        then run or schedule it.
+
+        Args:
+            name: short unique name (e.g. 'payroll-pdf-to-sftp').
+            description: one-line description of the business process.
+        """
+        if not _automations_allowed(state):
+            return _AUTOMATIONS_DENIED
+        res = await asyncio.to_thread(_am, "create", {"name": name, "description": description})
+        if not res.get("ok"):
+            return f"Could not create the automation: {res.get('error')}"
+        auto = res.get("automation") or {}
+        msg = f"Created automation '{auto.get('name')}' (id {auto.get('automation_id')})."
+        if auto.get("environment_id"):
+            msg += f" Dedicated environment: {auto['environment_id']}."
+        if res.get("warning"):
+            msg += f" NOTE: {res['warning']}"
+        return msg + " Now save code with save_automation_code."
+
+    @lc_tool
+    async def get_automation(automation_id: str) -> str:
+        """Show one automation's full state: current code, manifest (inputs,
+        connections, secrets, packages, declared outputs), versions, and what's live."""
+        if not _automations_allowed(state):
+            return _AUTOMATIONS_DENIED
+        res = await asyncio.to_thread(_am, "get", {"automation_id": automation_id})
+        if not res.get("ok"):
+            return f"Could not fetch the automation: {res.get('error')}"
+        a = res.get("automation") or {}
+        import json as _json
+        return (f"{a.get('name')} (id {a.get('automation_id')}) — latest v{a.get('current_version')}, "
+                f"pinned v{a.get('pinned_version')} ({'live' if a.get('pinned_version') else 'NOT live'}), "
+                f"versions: {a.get('versions')}\n\nMANIFEST:\n{_json.dumps(a.get('manifest'), indent=2)}"
+                f"\n\nCODE:\n```python\n{a.get('code') or '(no code saved yet)'}\n```")
+
+    @lc_tool
+    async def save_automation_code(automation_id: str, code: str, manifest_json: str = "") -> str:
+        """Save Python code (and optionally an updated manifest) as the automation's
+        next immutable version. Saving does NOT make it live — dry-run, then promote.
+
+        The code runs as a plain script in the automation's environment. It must read
+        credentials via the aihub_runtime SDK, NEVER hard-code them:
+            import aihub_runtime as aihub
+            conn_str = aihub.connection("ERPDB")   # a platform Connection name
+            sftp_url = aihub.secret("ACME_SFTP")   # a local secret name
+            period   = aihub.input("period", "current")
+        Any connection/secret the code uses MUST be declared in the manifest.
+
+        Args:
+            automation_id: the automation's id.
+            code: the full Python script.
+            manifest_json: optional JSON string replacing the manifest — keys: name,
+                entrypoint, timeout_seconds, inputs [{name,type,default}], connections
+                [names], secrets [names], packages [pip specs], outputs
+                [{kind: file|sftp_upload|ftp_upload, path/name, remote_dir, secret,
+                  verify: {min_rows|remote_listing|min_size}}].
+        """
+        if not _automations_allowed(state):
+            return _AUTOMATIONS_DENIED
+        payload = {"automation_id": automation_id, "code": code}
+        if manifest_json.strip():
+            import json as _json
+            try:
+                payload["manifest"] = _json.loads(manifest_json)
+            except ValueError as e:
+                return f"manifest_json is not valid JSON: {e}"
+        res = await asyncio.to_thread(_am, "save_code", payload)
+        if not res.get("ok"):
+            details = res.get("details")
+            return ("Could not save: " + str(res.get("error"))
+                    + (f" Details: {details}" if details else ""))
+        return (f"Saved as v{res.get('version')} (not live yet). "
+                f"Dry-run it with dry_run_automation, then promote_automation to make it live.")
+
+    @lc_tool
+    async def dry_run_automation(automation_id: str, inputs_json: str = "") -> str:
+        """Test-run the LATEST saved code (not the promoted version) and report the
+        honest outcome including declared-output verification. Always dry-run before
+        promoting. Sample files attached to the version are seeded into the workdir.
+
+        Args:
+            automation_id: the automation's id.
+            inputs_json: optional JSON object of input values, e.g. '{"period": "2026-07"}'.
+        """
+        if not _automations_allowed(state):
+            return _AUTOMATIONS_DENIED
+        import json as _json
+        inputs = {}
+        if inputs_json.strip():
+            try:
+                inputs = _json.loads(inputs_json)
+            except ValueError as e:
+                return f"inputs_json is not valid JSON: {e}"
+        res = await asyncio.to_thread(_am, "dry_run",
+                                      {"automation_id": automation_id, "inputs": inputs})
+        from . import automation_tools as _at
+        if not res.get("ok"):
+            return f"Dry-run failed to start: {res.get('error')}"
+        return "DRY-RUN (latest saved version):\n" + _at.summarize_run(res)
+
+    @lc_tool
+    async def promote_automation(automation_id: str, version: int = 0) -> str:
+        """Make a version LIVE: scheduled and manual runs execute the promoted
+        (pinned) version only. Default promotes the latest saved version. Only
+        promote after a successful dry-run the user has confirmed."""
+        if not _automations_allowed(state):
+            return _AUTOMATIONS_DENIED
+        payload = {"automation_id": automation_id}
+        if version:
+            payload["version"] = version
+        res = await asyncio.to_thread(_am, "promote", payload)
+        if not res.get("ok"):
+            return f"Could not promote: {res.get('error')}"
+        return (f"v{res.get('pinned_version')} is now live. Runs and schedules execute this "
+                f"version until you promote another.")
+
+    @lc_tool
+    async def run_automation(automation_id: str, inputs_json: str = "") -> str:
+        """Run the LIVE (promoted) version of an automation now and report the honest
+        verified outcome. If a run is already in progress it is skipped, not queued."""
+        if not _automations_allowed(state):
+            return _AUTOMATIONS_DENIED
+        import json as _json
+        inputs = {}
+        if inputs_json.strip():
+            try:
+                inputs = _json.loads(inputs_json)
+            except ValueError as e:
+                return f"inputs_json is not valid JSON: {e}"
+        res = await asyncio.to_thread(_am, "run",
+                                      {"automation_id": automation_id, "inputs": inputs})
+        from . import automation_tools as _at
+        if not res.get("ok"):
+            return f"Run failed to start: {res.get('error')}"
+        return _at.summarize_run(res)
+
+    @lc_tool
+    async def get_automation_runs(automation_id: str) -> str:
+        """Show an automation's recent run history: when, trigger, outcome
+        (success / failed / unverified / skipped), exit code."""
+        if not _automations_allowed(state):
+            return _AUTOMATIONS_DENIED
+        res = await asyncio.to_thread(_am, "runs", {"automation_id": automation_id})
+        if not res.get("ok"):
+            return f"Could not fetch runs: {res.get('error')}"
+        runs = res.get("runs") or []
+        if not runs:
+            return "No runs yet for this automation."
+        lines = []
+        for r in runs[:20]:
+            lines.append(f"- {r.get('started_at')} [{r.get('trigger_source')}] v{r.get('version')} "
+                         f"→ {r.get('status')}"
+                         + (f" (exit {r.get('exit_code')})" if r.get("exit_code") is not None else ""))
+        return "\n".join(lines)
+
+    @lc_tool
+    async def schedule_automation(automation_id: str, cron_expression: str = "",
+                                  every_hours: int = 0, every_days: int = 0,
+                                  inputs_json: str = "") -> str:
+        """Schedule the LIVE (promoted) version of an automation to run automatically.
+        Requires a promoted version. GROUNDING: report ONLY the real schedule the tool
+        returns — never claim something was scheduled unless this tool succeeded.
+
+        Args:
+            automation_id: the automation's id.
+            cron_expression: cron like '0 6 * * *' (6:00 daily). Use this OR every_*.
+            every_hours: run every N hours (interval schedule).
+            every_days: run every N days (interval schedule).
+            inputs_json: optional JSON object of input values used for every run.
+        """
+        if not _automations_allowed(state):
+            return _AUTOMATIONS_DENIED
+        import json as _json
+        inputs = {}
+        if inputs_json.strip():
+            try:
+                inputs = _json.loads(inputs_json)
+            except ValueError as e:
+                return f"inputs_json is not valid JSON: {e}"
+        if cron_expression:
+            schedule = {"type": "cron", "cron_expression": cron_expression}
+        elif every_hours or every_days:
+            schedule = {"type": "interval"}
+            if every_hours:
+                schedule["interval_hours"] = every_hours
+            if every_days:
+                schedule["interval_days"] = every_days
+        else:
+            return "Provide either cron_expression or every_hours/every_days."
+        res = await asyncio.to_thread(_am, "schedule",
+                                      {"automation_id": automation_id,
+                                       "schedule": schedule, "inputs": inputs})
+        if not res.get("ok"):
+            return f"Could not schedule: {res.get('error')}"
+        return (f"Scheduled (job #{res.get('scheduled_job_id')}, schedule #{res.get('schedule_id')}) — "
+                f"runs pinned v{res.get('pinned_version')}. {res.get('note') or ''}".strip())
+
     tools = [query_data_agent, query_general_agent, delegate_to_builder_agent, save_user_preference, recall_all_memories, forget_preference, switch_active_agent, export_data, read_artifact, run_generated_tool, manipulate_pdf, generate_map, search_web, send_email, get_my_contact_info]
     if IMAGE_GENERATION_ENABLED:
         tools.append(generate_image)
@@ -3800,6 +4075,16 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         tools.append(sftp_list_files)
         tools.append(sftp_download)
         tools.append(sftp_upload)
+    if _AUTOMATIONS_TOOLS_ENABLED:
+        tools.append(list_automations)
+        tools.append(create_automation)
+        tools.append(get_automation)
+        tools.append(save_automation_code)
+        tools.append(dry_run_automation)
+        tools.append(promote_automation)
+        tools.append(run_automation)
+        tools.append(get_automation_runs)
+        tools.append(schedule_automation)
     if _PORTAL_FETCH_ENABLED:
         tools.append(fetch_from_portal)
         tools.append(check_portal_download)

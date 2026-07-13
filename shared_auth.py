@@ -43,6 +43,7 @@ ALGO = "HS256"
 AUD_CC = "command-center"
 AUD_INTERNAL = "aihub-internal"
 AUD_COBROWSE = "portal-cobrowse"
+AUD_AUTOMATION_RUN = "automation-run"
 
 # Default lifetimes (seconds).
 DEFAULT_CC_TTL = 172800
@@ -149,6 +150,33 @@ def verify_cobrowse_token(token: str,
                           secret: Optional[str] = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """Verify a co-browse token; returns (claims, error). claims carry run_id + sub + role."""
     return verify_token(token, AUD_COBROWSE, secret)
+
+
+def sign_automation_run_token(automation_id: str, run_id: str,
+                              connections: Optional[list] = None,
+                              secrets: Optional[list] = None,
+                              ttl_seconds: int = 900,
+                              secret: Optional[str] = None) -> str:
+    """Mint a token scoped to ONE automation run, carrying an ALLOWLIST of the
+    connection/secret names the run's manifest declares. The aihub_runtime SDK
+    (inside the automation subprocess) forwards this opaque token to the main
+    app's /automations/api/runtime/resolve endpoint, which verifies it and
+    resolves credentials server-side — credential values never enter the
+    generated code, argv, or the subprocess environment."""
+    payload = {
+        "automation_id": automation_id,
+        "run_id": run_id,
+        "connections": list(connections or []),
+        "secrets": list(secrets or []),
+    }
+    return _encode(payload, AUD_AUTOMATION_RUN, ttl_seconds, secret)
+
+
+def verify_automation_run_token(token: str,
+                                secret: Optional[str] = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Verify an automation run token; returns (claims, error). Claims carry
+    automation_id, run_id, and the connections/secrets allowlists."""
+    return verify_token(token, AUD_AUTOMATION_RUN, secret)
 
 
 def verify_token(token: str, expected_aud: str,
