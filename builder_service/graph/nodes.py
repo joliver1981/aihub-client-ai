@@ -163,7 +163,14 @@ def _goal_from_messages(messages) -> str:
         "awesome", "absolutely", "definitely", "sure thing", "make it so", "do that",
         "ship it", "run it", "lgtm", "works for me", "that works", "fine", "yes do it",
         "ok go ahead", "please proceed", "sounds perfect",
+        # P4 (D4): the named residual + siblings
+        "make it happen", "make it", "let's go", "lets go", "let's roll", "lets roll",
+        "hit it", "yes build it", "build it", "go build it", "let's build it", "lets build it",
     }
+    # Confirmation-like openers used by the length heuristic below.
+    _confirm_openers = ("yes", "ok", "okay", "sure", "go ", "do ", "make ", "run ",
+                        "ship ", "proceed", "let's", "lets", "hit ", "perfect",
+                        "great", "sounds", "please")
     human_texts = []
     for msg in (messages or []):
         content = None
@@ -178,8 +185,15 @@ def _goal_from_messages(messages) -> str:
     for content in reversed(human_texts):
         # normalize curly apostrophes ("let’s do it") so the skip-list matches
         normalized = content.strip().lower().replace("’", "'").rstrip(".!")
-        if normalized and normalized not in confirmations:
-            return content
+        if not normalized or normalized in confirmations:
+            continue
+        # Enumerating every confirmation phrase is inherently leaky (#12), so also
+        # skip an ULTRA-SHORT (<=3-word) confirmation-like opener when a longer,
+        # more substantive earlier human message is available to fall through to.
+        if len(normalized.split()) <= 3 and normalized.startswith(_confirm_openers):
+            if any(len(t.strip().split()) > 3 for t in human_texts if t is not content):
+                continue
+        return content
     return human_texts[-1]  # all human messages were bare confirmations → best available
 
 

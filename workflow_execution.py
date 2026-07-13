@@ -566,9 +566,6 @@ class WorkflowExecutionEngine:
             elif node_type == 'Portal':
                 print('Executing Portal node...')
                 result = self._execute_portal_node(execution_id, node, variables)
-            # elif node_type == 'Server':
-            #     result = self._execute_server_node(execution_id, node, variables)
-            # And so on...
             else:
                 # Unimplemented node type -> fail honestly instead of silently no-op'ing.
                 # This historically returned {'success': True}, so a workflow containing an

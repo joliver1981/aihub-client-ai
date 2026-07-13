@@ -58,8 +58,7 @@ VARIABLE SYNTAX:
 - In outputVariable names, use plain names without $\{...\}
 
 VALID NODE TYPES (ONLY these are allowed):
-Database, AI Action, AI Extract, Document, Loop, End Loop, Conditional, Human Approval, Alert,
-Folder Selector, File, Set Variable, Execute Application, Excel Export, Server, Integration.
+<<VALID_NODE_TYPES>>.
 If the plan references a node type not in this list (e.g., "Trigger", "Scheduled Trigger", "Timer"),
 skip it entirely and do NOT generate an add_node command for it.
 
@@ -168,7 +167,7 @@ Output:
   ]
 }
 ```
-""".replace("<<COMMAND_TYPES_DOC>>", sysprompts.WORKFLOW_COMMAND_TYPES).replace("<<NODE_TYPES_DOC>>", get_all_node_details())
+""".replace("<<COMMAND_TYPES_DOC>>", sysprompts.WORKFLOW_COMMAND_TYPES).replace("<<NODE_TYPES_DOC>>", get_all_node_details()).replace("<<VALID_NODE_TYPES>>", ", ".join(sysprompts.VALID_WORKFLOW_NODE_TYPES))
 
 
 class CommandGenerator:

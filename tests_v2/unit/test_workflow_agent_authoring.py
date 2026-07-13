@@ -145,18 +145,17 @@ def test_canonical_node_types_have_no_server():
     assert "Server" not in VALID_WORKFLOW_NODE_TYPES
 
 
-@pytest.mark.xfail(reason="Server drift in the WorkflowAgent prompt — removed in P4", strict=True)
 def test_workflow_agent_prompt_has_no_server_node(wf):
-    # The system prompt still literally lists 'Server' as a valid node type
-    # (WorkflowAgent.py:626) even though no engine handler exists. P4 removes it;
-    # this flips to passing then.
-    assert "Server" not in wf.SYSTEM
+    # P4: the prompt now sources node types from the canonical set, so the bogus
+    # 'Server' type (no engine handler) is gone. Guard against exact-token drift.
+    import re
+    assert not re.search(r"\bServer\b", wf.SYSTEM)
 
 
-@pytest.mark.xfail(reason="Server drift in the CommandGenerator prompt — removed in P4", strict=True)
 def test_command_generator_prompt_has_no_server_node():
+    import re
     import CommandGenerator as CG
-    assert "Server" not in CG.COMMAND_GENERATOR_SYSTEM_PROMPT
+    assert not re.search(r"\bServer\b", CG.COMMAND_GENERATOR_SYSTEM_PROMPT)
 
 
 # ── live conversation smoke (opt-in; real LLM) ───────────────────────────
@@ -182,11 +181,16 @@ def test_live_build_conversation_reaches_plan_or_commands():
         f"no plan or commands after conversation; phase={last_meta.get('phase')}"
 
 
-@pytest.mark.xfail(reason="prompt omits real 'Portal' node type — added in P4 alongside Server removal", strict=True)
 def test_workflow_agent_prompt_lists_real_node_types(wf):
-    # Drift caught by this battery: the prompt not only lists a bogus 'Server'
-    # but OMITS the real 'Portal' type (which has an engine handler). P4 syncs
-    # the prompt list to the canonical set.
+    # P4: prompt is sourced from canonical, so every real node type (incl.
+    # the previously-omitted 'Portal') is present.
     from system_prompts import VALID_WORKFLOW_NODE_TYPES
     missing = [t for t in VALID_WORKFLOW_NODE_TYPES if t not in wf.SYSTEM]
     assert not missing, f"prompt is missing canonical node types: {missing}"
+
+
+def test_command_generator_prompt_lists_real_node_types():
+    import CommandGenerator as CG
+    from system_prompts import VALID_WORKFLOW_NODE_TYPES
+    missing = [t for t in VALID_WORKFLOW_NODE_TYPES if t not in CG.COMMAND_GENERATOR_SYSTEM_PROMPT]
+    assert not missing, f"CommandGenerator prompt is missing canonical node types: {missing}"

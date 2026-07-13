@@ -630,9 +630,7 @@ KEY KNOWLEDGE:
 - Folder Selector is used when files come from network folders
 
 CRITICAL - VALID NODE TYPES:
-You may ONLY use these node types in workflow plans: Database, AI Action, AI Extract, Document,
-Loop, End Loop, Conditional, Human Approval, Alert, Folder Selector, File, Set Variable,
-Execute Application, Excel Export, Server, Integration, Compliance Process, Compliance Excel Export.
+You may ONLY use these node types in workflow plans: {valid_node_types}.
 Do NOT invent node types that are not in this list (e.g., "Trigger", "Scheduled Trigger", "Timer",
 "Webhook", "Start", "End", "Delay", "Wait"). These do not exist.
 Workflows are triggered externally — either manually, via the platform's schedule system, or via API call.
@@ -783,10 +781,14 @@ BUILDER DELEGATION RULES:
         # NOTE: This now uses a shortened node types doc since it only plans workflows now and does not generate build commands
         workflow_command_docs = workflow_command_docs.format(command_types_doc=sysprompts.WORKFLOW_COMMAND_TYPES, node_types_doc=sysprompts.WORKFLOW_NODE_TYPES)
 
+        # P4: source the valid node-type list from the single canonical set so
+        # the prompt can't drift (it previously listed a bogus 'Server' type with
+        # no engine handler and omitted the real 'Portal' type).
         self.SYSTEM = base_prompt.format(
             workflow_docs=workflow_command_docs,
             phase=self.phase.value,
-            phase_guidance=phase_guidance.get(self.phase, "")
+            phase_guidance=phase_guidance.get(self.phase, ""),
+            valid_node_types=", ".join(sysprompts.VALID_WORKFLOW_NODE_TYPES),
         )
 
         #print(f"SYSTEM PROMPT UPDATED TO PHASE: {self.SYSTEM}")
