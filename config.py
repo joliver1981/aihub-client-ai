@@ -350,6 +350,9 @@ COMMAND_GENERATOR_DEPLOYMENT = os.getenv('COMMAND_GENERATOR_DEPLOYMENT', '')  # 
 # parseable — replacing the fragile free-text + regex-extraction default path.
 # Set False to fall back to the legacy free-text tool behavior.
 WORKFLOW_STRUCTURED_COMMANDS = os.getenv('WORKFLOW_STRUCTURED_COMMANDS', 'true').lower() in ['true', '1', 't', 'y', 'yes']
+# Workflow Builder P2: persist in-progress build sessions to disk so they survive
+# a process restart / a request routed to a different worker (builder_session_store).
+WORKFLOW_DURABLE_SESSIONS = os.getenv('WORKFLOW_DURABLE_SESSIONS', 'true').lower() in ['true', '1', 't', 'y', 'yes']
 MAX_GENERAL_AGENT_ITERATIONS = 10                       # Prevents runaway tool calls
 # Server-side deadline (seconds) for a single general-agent LLM response.
 # Philosophy: if the model CAN finish a long task, let it — but cap it so a

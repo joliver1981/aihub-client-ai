@@ -5,6 +5,7 @@ from flask import Blueprint, request, jsonify, session
 from WorkflowAgent import WorkflowAgent
 from workflow_command_validator import validate_workflow
 from workflow_compiler import compile_workflow
+from builder_session_store import save_session, load_session, delete_session
 import logging
 from logging.handlers import WatchedFileHandler
 from CommonUtils import rotate_logs_on_startup, get_log_path
@@ -63,22 +64,44 @@ def workflow_builder_guide():
         is_validation_fix = data.get('is_validation_fix', False)
         is_builder_delegation = data.get('is_builder_delegation', False)
 
-        # Get or create agent for this session
+        # Get or create agent for this session. P2: on an in-memory miss, try the
+        # durable store before creating fresh — so a build survives a process
+        # restart or a request routed to a different worker.
         if session_id not in builder_sessions:
-            logger.info(f"Creating new WorkflowAgent for session {session_id}")
-            # Pass workflow_state during initialization
-            builder_sessions[session_id] = WorkflowAgent(
-                session_id=session_id,
-                workflow_state=workflow_state,
-                is_builder_delegation=is_builder_delegation,
-            )
-        
+            persisted = load_session(session_id)
+            if persisted:
+                try:
+                    builder_sessions[session_id] = WorkflowAgent.from_state(persisted)
+                    logger.info(f"Restored WorkflowAgent for session {session_id} from durable store")
+                except Exception as restore_err:
+                    logger.warning(
+                        f"Failed to restore session {session_id} ({restore_err}); creating fresh"
+                    )
+                    builder_sessions[session_id] = WorkflowAgent(
+                        session_id=session_id,
+                        workflow_state=workflow_state,
+                        is_builder_delegation=is_builder_delegation,
+                    )
+            else:
+                logger.info(f"Creating new WorkflowAgent for session {session_id}")
+                builder_sessions[session_id] = WorkflowAgent(
+                    session_id=session_id,
+                    workflow_state=workflow_state,
+                    is_builder_delegation=is_builder_delegation,
+                )
+
         agent = builder_sessions[session_id]
 
         logger.debug(f"Processing message '{message}' for session {session_id}")
-        
+
         # Process the message
         response_text, metadata = agent.process_message(message, workflow_state)
+
+        # P2: persist the updated build state after every turn.
+        try:
+            save_session(session_id, agent.serialize_state())
+        except Exception as persist_err:
+            logger.debug(f"Could not persist builder session {session_id}: {persist_err}")
 
         logger.debug(f"Response text: {response_text}")
         logger.debug(f"Metadata: {metadata}")
@@ -374,7 +397,9 @@ def workflow_builder_clear():
         if session_id in builder_sessions:
             del builder_sessions[session_id]
             logger.info(f"Cleared builder session {session_id}")
-        
+        # P2: also drop the durable copy so a cleared build can't be resurrected.
+        delete_session(session_id)
+
         return jsonify({
             'status': 'success',
             'message': 'Session cleared'

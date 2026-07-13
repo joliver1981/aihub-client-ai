@@ -231,3 +231,6 @@ training/runs/
 # Trimmed (LLM-keys-only) build config shipped loose to clients for the
 # source-run browser-use service. Contains encrypted secrets — never commit.
 _build_config_client.py
+
+# Workflow Builder P2 durable session store (runtime state)
+workflow_builder_sessions/

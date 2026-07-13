@@ -1765,3 +1765,58 @@ Output a complete JSON with action: build_workflow and commands array in a ```js
             "conversation_length": len(self.conversation_context),
             "has_workflow": self.generated_commands is not None
         }
+
+    # ── durable build state (P2) ─────────────────────────────────────────
+    def serialize_state(self) -> Dict:
+        """Snapshot the durable build state so an in-progress build survives a
+        process restart or a request routed to a different worker. Excludes the
+        LLM / agent executor / tools (rebuilt on restore). JSON-serializable."""
+        def _msg(m):
+            role = "ai" if isinstance(m, AIMessage) else "human"
+            return {"role": role, "content": getattr(m, "content", "")}
+        return {
+            "session_id": self.session_id,
+            "phase": self.phase.value,
+            "requirements": self.requirements.to_dict(),
+            "workflow_plan": self.workflow_plan,
+            "original_workflow_plan": self.original_workflow_plan,
+            "generated_commands": self.generated_commands,
+            "current_json_commands": self.current_json_commands,
+            "accumulated_commands": self.accumulated_commands,
+            "conversation_context": self.conversation_context,
+            "chat_history": [_msg(m) for m in self.chat_history],
+            "workflow_state": self.workflow_state,
+            "is_builder_delegation": self.is_builder_delegation,
+        }
+
+    @classmethod
+    def from_state(cls, state: Dict) -> "WorkflowAgent":
+        """Rehydrate a WorkflowAgent from serialize_state() output (P2)."""
+        agent = cls(
+            session_id=state.get("session_id"),
+            is_builder_delegation=state.get("is_builder_delegation", False),
+        )
+        try:
+            agent.phase = BuilderPhase(state.get("phase") or BuilderPhase.DISCOVERY.value)
+        except ValueError:
+            agent.phase = BuilderPhase.DISCOVERY
+        try:
+            agent.requirements = WorkflowRequirements(**(state.get("requirements") or {}))
+        except TypeError:
+            agent.requirements = WorkflowRequirements()
+        agent.workflow_plan = state.get("workflow_plan")
+        agent.original_workflow_plan = state.get("original_workflow_plan")
+        agent.generated_commands = state.get("generated_commands")
+        agent.current_json_commands = state.get("current_json_commands")
+        agent.accumulated_commands = state.get("accumulated_commands") or []
+        agent.conversation_context = state.get("conversation_context") or []
+        agent.workflow_state = state.get("workflow_state")
+        agent.chat_history = [
+            (AIMessage(content=m.get("content", "")) if m.get("role") == "ai"
+             else HumanMessage(content=m.get("content", "")))
+            for m in (state.get("chat_history") or [])
+        ]
+        # Rebuild the system prompt + executor for the restored phase.
+        agent._set_system_prompt()
+        agent._build_agent_executor()
+        return agent
