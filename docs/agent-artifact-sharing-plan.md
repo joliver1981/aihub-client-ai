@@ -123,4 +123,8 @@ Tests: `tests_v2/unit/test_artifact_phase{0,1,2_store,3_delegation,4_read}.py` (
 
 **Restart required:** main app (data path, `/download`+`/document/serve` auth, general-agent capture) **and** CC service (delegation surfacing, `read_artifact`, workdir seeding). Set `AIHUB_ARTIFACTS_DIR` only if the shared folder shouldn't be `command_center_service/data/artifacts`.
 
-**Deferred (Phase 5):** robust chip passthrough (a stray text block still trips the `all()` gate at `nodes.py`), history re-render flattening, download-token signing (identity still client-asserted), delegated-agent artifacts as real chips on the converse path (currently a markdown link), split-deployment shared filesystem.
+**Phase 5 — items 1 & 2 DONE (2026-07-12, commit 7c83e88):**
+- **Robust chip passthrough (P5-1).** `nodes.py` converse now salvages renderable blocks from MIXED tool output (`_salvage_chips`, both the first pass and the tool-round loop) and appends them, deduped, to the final answer — a stray text block no longer paraphrases chips away. `query_data_agent`/`query_general_agent` return real `[text, artifact…]` blocks, so delegated files/results render as **download chips**, not markdown links.
+- **History-reload survival (P5-2).** `command-center.js` `_addMessage` routes any stored assistant message carrying chips to `_addRichMessage` (never flattens), and `_unwrapJsonContent` degrades artifact/action blocks to clickable links instead of dropping them. Verified with a real-JS Node-vm behavioral test.
+
+**Still deferred (Phase 5, remaining):** download-token signing (identity still client-asserted on the artifacts route — the security item), and split-deployment shared filesystem (only relevant if services move off one box).
