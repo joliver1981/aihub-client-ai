@@ -172,6 +172,12 @@ class WorkflowAgent:
         else:
             temperature = 1.0 if reasoning_effort else 0.7
 
+        # AIHUB-0024 F3: a per-request timeout + bounded retries so a hung LLM
+        # call fails fast (caught by process_message -> honest fallback -> HTTP
+        # response) instead of hanging the worker thread until the client
+        # connection resets. Tunable via WORKFLOW_AGENT_LLM_TIMEOUT_S.
+        llm_timeout = int(getattr(cfg, 'WORKFLOW_AGENT_LLM_TIMEOUT_S', 120))
+
         if config['api_type'] == 'open_ai':
             self.llm = ChatOpenAI(
                 model=config['model'],
@@ -180,6 +186,8 @@ class WorkflowAgent:
                 max_tokens=16192,
                 reasoning_effort=reasoning_effort,
                 streaming=False,
+                timeout=llm_timeout,
+                max_retries=2,
             )
         else:
             self.llm = AzureChatOpenAI(
@@ -192,6 +200,8 @@ class WorkflowAgent:
                 max_tokens=16192,
                 reasoning_effort=reasoning_effort,
                 streaming=False,
+                timeout=llm_timeout,
+                max_retries=2,
             )
 
     def _has_existing_workflow(self, workflow_state: Dict) -> bool:
@@ -644,6 +654,7 @@ IMPORTANT CONTEXT:
 - Always explain what you're doing and why
 - Use the tools available to look up connections, agents, users, and groups BEFORE finalizing your plan
 
+{build_gate}
 Current Phase: {phase}
 
 Phase-Specific Guidance:
@@ -781,6 +792,30 @@ BUILDER DELEGATION RULES:
         # NOTE: This now uses a shortened node types doc since it only plans workflows now and does not generate build commands
         workflow_command_docs = workflow_command_docs.format(command_types_doc=sysprompts.WORKFLOW_COMMAND_TYPES, node_types_doc=sysprompts.WORKFLOW_NODE_TYPES)
 
+        # AIHUB-0024 F2: for a direct user conversation, do NOT build until the
+        # user explicitly confirms the plan — this stops a premature first-turn
+        # build and guarantees clarifications are folded in before building. In
+        # builder-delegation mode (CC has already gathered the requirements and
+        # drives the confirmation itself), build directly.
+        if self.is_builder_delegation:
+            build_gate = ""
+        else:
+            build_gate = (
+                "CRITICAL — PLAN, THEN CONFIRM, THEN BUILD:\n"
+                "- The user's opening request is a SPECIFICATION to plan, not a command to build immediately. "
+                "Do NOT call generate_workflow_commands on the first turn.\n"
+                "- Present a COMPLETE numbered <workflow_plan> as early as you reasonably can. For any external "
+                "detail the user hasn't given (a saved Portal workflow slug, an email address, a connection, a "
+                "file path), put a clearly-labeled PLACEHOLDER in the plan (e.g. portalWorkflowSlug: "
+                "\"<SAVED_PORTAL_WORKFLOW_SLUG>\") and note it must be set — do NOT stall through many rounds of "
+                "questions instead of presenting the plan.\n"
+                "- A message that only adds a clarification or changes a detail is NOT approval (e.g. \"yes, but "
+                "first ...\" is a clarification): fold it into the plan and re-present it.\n"
+                "- When the user EXPLICITLY approves (\"yes, build it\", \"that's correct, build it now\"), call "
+                "generate_workflow_commands so the build reflects every clarification. Once they've clearly said "
+                "to build, do NOT refuse or keep asking — build with the placeholders and tell them what to fill in.\n"
+            )
+
         # P4: source the valid node-type list from the single canonical set so
         # the prompt can't drift (it previously listed a bogus 'Server' type with
         # no engine handler and omitted the real 'Portal' type).
@@ -789,6 +824,7 @@ BUILDER DELEGATION RULES:
             phase=self.phase.value,
             phase_guidance=phase_guidance.get(self.phase, ""),
             valid_node_types=", ".join(sysprompts.VALID_WORKFLOW_NODE_TYPES),
+            build_gate=build_gate,
         )
 
         #print(f"SYSTEM PROMPT UPDATED TO PHASE: {self.SYSTEM}")

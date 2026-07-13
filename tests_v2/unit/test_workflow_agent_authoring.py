@@ -194,3 +194,34 @@ def test_command_generator_prompt_lists_real_node_types():
     from system_prompts import VALID_WORKFLOW_NODE_TYPES
     missing = [t for t in VALID_WORKFLOW_NODE_TYPES if t not in CG.COMMAND_GENERATOR_SYSTEM_PROMPT]
     assert not missing, f"CommandGenerator prompt is missing canonical node types: {missing}"
+
+
+# ── AIHUB-0024 F1: Portal node is documented (not just valid) ─────────────
+
+def test_portal_node_has_details_with_real_config_keys():
+    # F1: the agent declared "no native Portal node available" because Portal was
+    # in the valid list but had NO config details, so it invented bogus keys.
+    from system_prompts import NODE_DETAIL_REFERENCE, WORKFLOW_NODE_TYPES
+    assert "Portal" in NODE_DETAIL_REFERENCE
+    portal_doc = NODE_DETAIL_REFERENCE["Portal"]
+    assert "portalWorkflowSlug" in portal_doc and "filesVariable" in portal_doc
+    # and it warns off the hallucinated keys
+    assert "portalUrl" in portal_doc  # mentioned only to say "do not invent"
+    assert "Portal" in WORKFLOW_NODE_TYPES and "portalWorkflowSlug" in WORKFLOW_NODE_TYPES
+
+
+# ── AIHUB-0024 F2: build gate present for user sessions, absent for delegation ─
+
+def test_build_gate_present_for_user_session(wf):
+    assert "generate_workflow_commands until the user has EXPLICITLY" in wf.SYSTEM or \
+           "PLAN, THEN CONFIRM, THEN BUILD" in wf.SYSTEM
+
+
+def test_build_gate_absent_for_builder_delegation(monkeypatch):
+    import WorkflowAgent as WA
+    monkeypatch.setattr(WA.WorkflowAgent, "_initialize_llm",
+                        lambda self: setattr(self, "llm", MagicMock()))
+    monkeypatch.setattr(WA.WorkflowAgent, "_build_agent_executor",
+                        lambda self: setattr(self, "agent_executor", MagicMock()))
+    agent = WA.WorkflowAgent(session_id="deleg", is_builder_delegation=True)
+    assert "PLAN, THEN CONFIRM, THEN BUILD" not in agent.SYSTEM

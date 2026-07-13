@@ -2639,7 +2639,22 @@ Common patterns:
   * continueOnError: Boolean true or false
 - Outputs:
   * data.file_path: Path to the written Excel file
-  * data.rows_written: Number of rows exported"""
+  * data.rows_written: Number of rows exported""",
+    "Portal": """Portal:
+- Purpose: Run a SAVED Portal (browser/RPA) automation workflow to log into an external website/portal and download files (invoices, statements, reports). This is the only node that can drive a browser/portal.
+- IMPORTANT: The Portal node does NOT contain the browser steps. It RUNS a portal automation workflow the user already created and saved separately (Command Center portal builder). You reference that saved automation by slug/name; its per-user credentials and the owner are bound server-side at save time.
+- Required config fields:
+  * portalWorkflowSlug: The saved portal automation to run (its slug or name). If the user has not named one, note in the plan that they must create/select a saved portal workflow first.
+  * filesVariable: Variable name (no dollar-brace) that receives the bare LIST of downloaded file paths — feed this to a downstream Folder Selector or Loop.
+  * outputVariable: Variable name that receives the full result object (status, file_count, files, final_result).
+- Optional config fields:
+  * timeout: Seconds to allow the portal run (default 1200)
+  * continueOnError: Boolean true or false
+  * uploadFilesVariable: Variable holding file path(s) to hand to the portal automation as inputs
+- DO NOT invent portalUrl / portalAction / downloadPath / username / password / credentials fields — they do not exist on this node.
+- Outputs:
+  * <filesVariable>: list of downloaded file paths
+  * <outputVariable>: { status, file_count, files, final_result }"""
 }
 
 WORKFLOW_NODE_TYPES = """
@@ -2769,6 +2784,14 @@ Compliance Excel Export
 - Export the extracted fields of a compliance run to Excel (pairs with Compliance Process)
 - sourceMode: "version" (pass versionVariable resolving to a version_id, typical when Compliance Process is upstream) or "latest_in_set" (pick retailerId + setId; node resolves the latest version automatically)
 - Outputs: File path and row count in the result variable
+
+Portal
+- Run a saved Portal (browser/RPA) automation workflow to log into an external website/portal and download files (invoices, statements, reports). This is the ONLY way a workflow can drive a browser/portal.
+- The Portal node does NOT contain the browser steps itself — it RUNS a portal automation workflow that the user has already created and saved separately (in the Command Center portal builder). You reference that saved automation by its slug/name.
+- Required config: portalWorkflowSlug (the saved portal automation to run — its slug or name; if the user hasn't named one, note in your plan that they must create/select a saved portal workflow), filesVariable (a workflow variable that receives the bare list of downloaded file paths — feed this to a downstream Folder Selector or Loop), outputVariable (a workflow variable that receives the full result object: status, file_count, files, final_result)
+- Optional config: timeout (seconds, default 1200), continueOnError (true/false), uploadFilesVariable (a variable holding file path(s) to hand to the portal automation as inputs)
+- Do NOT invent browser-navigation config (there is no portalUrl / portalAction / downloadPath / credentials on this node — the saved portal automation and its per-user credentials own all of that; the owner is bound server-side at save time).
+- Outputs: downloaded file paths in filesVariable; full run result in outputVariable
 """
 
 # Canonical list of valid workflow node types. Must match what the workflow runtime

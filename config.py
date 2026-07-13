@@ -353,6 +353,9 @@ WORKFLOW_STRUCTURED_COMMANDS = os.getenv('WORKFLOW_STRUCTURED_COMMANDS', 'true')
 # Workflow Builder P2: persist in-progress build sessions to disk so they survive
 # a process restart / a request routed to a different worker (builder_session_store).
 WORKFLOW_DURABLE_SESSIONS = os.getenv('WORKFLOW_DURABLE_SESSIONS', 'true').lower() in ['true', '1', 't', 'y', 'yes']
+# Workflow Builder (AIHUB-0024 F3): per-request timeout (seconds) on the WorkflowAgent LLM
+# so a hung call fails fast instead of hanging the worker until the HTTP connection resets.
+WORKFLOW_AGENT_LLM_TIMEOUT_S = int(os.getenv('WORKFLOW_AGENT_LLM_TIMEOUT_S', '120'))
 MAX_GENERAL_AGENT_ITERATIONS = 10                       # Prevents runaway tool calls
 # Server-side deadline (seconds) for a single general-agent LLM response.
 # Philosophy: if the model CAN finish a long task, let it — but cap it so a
