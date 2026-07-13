@@ -1735,19 +1735,21 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             response_parts.append(f"\n*SQL used:* `{query}`")
 
         # Large-result artifact(s): a full-fidelity CSV was persisted to the
-        # shared store. Tell the user it's downloadable (and give the URL) —
-        # the inline table, if any, is only a preview.
-        for art in (result.get("artifacts") or []):
-            if not isinstance(art, dict):
-                continue
-            rc = art.get("row_count")
-            url = art.get("download_url", "")
+        # shared store. Return a REAL artifact block (download chip) alongside
+        # the prose so it survives to the user (P5-1) instead of a paraphrasable
+        # markdown link. The mixed [text, artifact] array is salvaged by the
+        # converse layer's chip-preservation.
+        artifacts = [a for a in (result.get("artifacts") or []) if isinstance(a, dict)]
+        if artifacts:
+            rc = artifacts[0].get("row_count")
             response_parts.append(
-                f"\n📎 Full result"
+                "\nThe full result"
                 + (f" ({rc:,} rows)" if isinstance(rc, int) else "")
-                + f" available to download: [{art.get('name', 'result.csv')}]({url}) "
-                + "— the table above is a preview, not the complete dataset."
+                + " is available to download below — the table above is a preview, "
+                + "not the complete dataset."
             )
+            chips = [dict(a, type="artifact") for a in artifacts]
+            return json.dumps([{"type": "text", "content": "\n".join(response_parts)}] + chips)
 
         return "\n".join(response_parts)
 
@@ -1774,12 +1776,15 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             return (f"⚠️ The agent (Agent #{agent_id}) could not complete the request. "
                     f"Error: {error_text}. Please try again shortly.")
         parts = [result.get("text", "No response from agent.")]
-        # Files the agent produced were re-registered into the shared store and
-        # are downloadable via CC — surface them so they reach the user.
-        for art in (result.get("artifacts") or []):
-            if isinstance(art, dict):
-                url = art.get("download_url", "")
-                parts.append(f"\n📎 File created: [{art.get('name', 'file')}]({url}) — available to download.")
+        # Files the agent produced were re-registered into the shared store.
+        # Return real artifact chips (P5-1) so they render as downloads, not a
+        # paraphrasable markdown link.
+        artifacts = [a for a in (result.get("artifacts") or []) if isinstance(a, dict)]
+        if artifacts:
+            names = ", ".join(a.get("name", "file") for a in artifacts)
+            parts.append(f"\nFile(s) created and available to download below: {names}.")
+            chips = [dict(a, type="artifact") for a in artifacts]
+            return json.dumps([{"type": "text", "content": "\n".join(parts)}] + chips)
         return "\n".join(parts)
 
     @lc_tool
@@ -3985,6 +3990,22 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             # the all() below fails and the chips get paraphrased away.
             direct_block_types = ("map", "artifact", "table", "image", "kpi", "action")
             direct_blocks = []
+            # P5-1: renderable chips salvaged from MIXED tool output (e.g. a
+            # delegated data/general agent returns [text, artifact]). The pure
+            # `all()` gate below misses these, so historically they were
+            # paraphrased away by the follow-up LLM. We collect them here and
+            # append them to the final answer so a download/CTA chip always
+            # reaches the user, even alongside prose.
+            preserved_chips = []
+
+            def _salvage_chips(parsed_val):
+                if isinstance(parsed_val, dict) and parsed_val.get("type") in direct_block_types:
+                    preserved_chips.append(parsed_val)
+                elif isinstance(parsed_val, list):
+                    for _b in parsed_val:
+                        if isinstance(_b, dict) and _b.get("type") in direct_block_types:
+                            preserved_chips.append(_b)
+
             for tr in tool_results:
                 try:
                     parsed = json.loads(tr.content)
@@ -3995,6 +4016,10 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                         # Array of CC blocks
                         if all(isinstance(b, dict) and b.get("type") in direct_block_types for b in parsed):
                             direct_blocks.extend(parsed)
+                        else:
+                            # Mixed array (e.g. [text, artifact]) — salvage the
+                            # renderable chips so they aren't paraphrased away.
+                            _salvage_chips(parsed)
                 except (json.JSONDecodeError, TypeError):
                     pass
 
@@ -4130,6 +4155,9 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                             for b in parsed
                         ):
                             direct_blocks.extend(parsed)
+                        else:
+                            # Mixed output this round — salvage chips too (P5-1).
+                            _salvage_chips(parsed)
                     except (json.JSONDecodeError, TypeError):
                         pass
 
@@ -4164,6 +4192,23 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
 
             # ── Output sanitizer: catch raw JSON / tool metadata leaking to user ──
             final_response = _sanitize_llm_response(final_response, llm)
+
+            # P5-1: if a tool returned chips inside MIXED output (e.g. a delegated
+            # agent's [text, artifact]), the follow-up LLM only produced prose —
+            # append the salvaged chips so the download/CTA still reaches the user
+            # as a real block (not a paraphrase). Dedup by artifact_id/url.
+            if preserved_chips:
+                _seen = set()
+                _chips = []
+                for _c in preserved_chips:
+                    _k = _c.get("artifact_id") or _c.get("url") or _c.get("download_url") or id(_c)
+                    if _k in _seen:
+                        continue
+                    _seen.add(_k)
+                    _chips.append(_c)
+                _intro = final_response.content if hasattr(final_response, "content") else str(final_response)
+                _blocks = ([{"type": "text", "content": _intro}] if _intro else []) + _chips
+                final_response = AIMessage(content=json.dumps(_blocks))
 
             result = {"messages": [final_response]}
             if active_deleg:

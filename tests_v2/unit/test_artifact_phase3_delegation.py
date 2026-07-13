@@ -193,8 +193,10 @@ def test_delegator_sends_session_id_for_general():
 
 def test_converse_and_aggregate_surface_general_artifacts():
     s = _src("command_center_service/graph/nodes.py")
-    # converse general path lists produced files
-    assert "File created:" in s
+    # converse general path surfaces produced files as real artifact chips (P5-1
+    # upgraded this from a markdown link to a chip)
+    assert "File(s) created and available to download below" in s
+    assert 'dict(a, type="artifact") for a in artifacts' in s
     # aggregate preserves the separate artifacts list as chips
     assert 'result.get("artifacts") or []' in s
     assert 'attached below, do NOT reproduce' in s

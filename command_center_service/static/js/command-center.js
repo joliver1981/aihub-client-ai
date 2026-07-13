@@ -424,7 +424,35 @@ const CC = {
         }
     },
 
+    // Block types that MUST render as interactive blocks (download chips, CTAs,
+    // tables, images…) and must never be flattened to markdown.
+    _RENDERABLE_BLOCK_TYPES: ['artifact', 'action', 'table', 'image', 'kpi', 'map'],
+
+    /** If `content` is (or wraps) a JSON blocks array containing any renderable
+     * chip, return that array; otherwise null. Guards every stored-message path
+     * so download/CTA chips survive a history reload. */
+    _tryRenderableBlocks(content) {
+        if (typeof content !== 'string') return null;
+        const t = content.trim();
+        if (!t.startsWith('[') || !t.endsWith(']')) return null;
+        try {
+            const arr = JSON.parse(t);
+            if (Array.isArray(arr) && arr.some(b =>
+                    b && typeof b === 'object' && this._RENDERABLE_BLOCK_TYPES.includes(b.type))) {
+                return arr;
+            }
+        } catch (e) {}
+        return null;
+    },
+
     _addMessage(role, content) {
+        // Assistant content that carries download/CTA chips must render as
+        // blocks — never flatten it to markdown (chips would vanish). P5-2.
+        if (role === 'assistant') {
+            const blocks = this._tryRenderableBlocks(content);
+            if (blocks) { this._addRichMessage(blocks); return; }
+        }
+
         const container = document.getElementById('messages');
         const div = document.createElement('div');
         div.className = `cc-message ${role}`;
@@ -456,6 +484,14 @@ const CC = {
                     const parts = arr
                         .filter(b => b && typeof b === 'object')
                         .map(b => {
+                            // Renderable chips have no content/text — degrade to a
+                            // clickable link instead of dropping them (P5-2).
+                            if (b.type === 'artifact' && b.download_url) {
+                                return `[⬇ ${b.name || 'Download file'}](${b.download_url})`;
+                            }
+                            if (b.type === 'action' && b.url) {
+                                return `[${b.label || b.cta || 'Open'}](${b.url})`;
+                            }
                             const c = b.content || b.text || '';
                             return this._unwrapJsonContent(c);
                         });
