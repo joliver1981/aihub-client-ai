@@ -231,6 +231,12 @@ class CommandGenerator:
                 logger.info(f"Using command generator model: {active}")
                 CommandGenerator._logged_active_model = True
 
+            # P1: JSON mode guarantees the response is a single parseable JSON
+            # object, eliminating the silent regex/json.loads parse-failure path.
+            # The system + user prompts both mention JSON (required by the API).
+            json_mode = getattr(cfg, 'WORKFLOW_STRUCTURED_COMMANDS', True)
+            response_format = {"type": "json_object"} if json_mode else None
+
             try:
                 response = quickPrompt(
                     prompt=user_prompt,
@@ -238,6 +244,7 @@ class CommandGenerator:
                     temp=0.2,
                     model_override=override_model,
                     deployment_override=override_deployment,
+                    response_format=response_format,
                 )
             except Exception as e:
                 if attempted_override:
@@ -248,6 +255,7 @@ class CommandGenerator:
                         prompt=user_prompt,
                         system=COMMAND_GENERATOR_SYSTEM_PROMPT,
                         temp=0.2,
+                        response_format=response_format,
                     )
                 else:
                     raise
@@ -269,13 +277,26 @@ class CommandGenerator:
             return None
     
     def _extract_commands(self, response_text: str) -> Optional[Dict]:
-        """Extract workflow commands JSON from response."""
+        """Extract workflow commands JSON from response.
+
+        With JSON mode (P1) the whole response is a JSON object, so the direct
+        parse below succeeds first-try. The markdown/raw fallbacks remain for the
+        legacy free-text path (WORKFLOW_STRUCTURED_COMMANDS=false).
+        """
         import re
-        
-        # Try markdown code blocks first
+
+        # JSON mode: the entire response is a single JSON object.
+        try:
+            data = json.loads(response_text.strip())
+            if isinstance(data, dict) and 'commands' in data:
+                return data
+        except json.JSONDecodeError:
+            pass
+
+        # Legacy free-text: markdown code blocks first
         json_pattern = r'```(?:json)?\s*(\{[\s\S]*?\})\s*```'
         matches = re.findall(json_pattern, response_text, re.DOTALL)
-        
+
         for match in matches:
             try:
                 data = json.loads(match)
@@ -283,8 +304,8 @@ class CommandGenerator:
                     return data
             except json.JSONDecodeError:
                 continue
-        
-        # Try raw JSON
+
+        # Legacy free-text: first-{ .. last-} slice
         try:
             start = response_text.find('{')
             end = response_text.rfind('}') + 1
@@ -294,5 +315,5 @@ class CommandGenerator:
                     return data
         except json.JSONDecodeError:
             pass
-        
+
         return None

@@ -344,7 +344,7 @@ def azureChatPrompt(messages, use_alternate_api=False):
 
 
 def quickPrompt(prompt, system="You are an assistant.", use_alternate_api=False, temp=0.0, provider="openai",
-                model_override=None, deployment_override=None):
+                model_override=None, deployment_override=None, response_format=None):
     """
     Quick single-prompt helper for OpenAI/Azure OpenAI API.
 
@@ -357,6 +357,9 @@ def quickPrompt(prompt, system="You are an assistant.", use_alternate_api=False,
                         (e.g. a fine-tuned 'ft:...' id). Ignored on Azure path.
         deployment_override: optional Azure deployment name to use when the resolved
                              api_type is 'azure'. Ignored on OpenAI path.
+        response_format: optional OpenAI response_format (e.g. {"type": "json_object"}
+                         for guaranteed-parseable JSON). Only applied on the OpenAI/Azure
+                         path; ignored for the anthropic provider.
     """
     if provider == "anthropic":
         return _anthropic_quick_prompt(prompt, system=system, temp=temp, model=cfg.ANTHROPIC_ADVANCED)
@@ -377,6 +380,9 @@ def quickPrompt(prompt, system="You are an assistant.", use_alternate_api=False,
         kwargs["temperature"] = 1.0
     else:
         kwargs["temperature"] = temp
+
+    if response_format is not None:
+        kwargs["response_format"] = response_format
 
     chat_completion = client.chat.completions.create(**kwargs)
     response = str(chat_completion.choices[0].message.content)

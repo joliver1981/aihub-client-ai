@@ -344,6 +344,12 @@ WORKFLOW_VALIDATOR_ALWAYS_RUN_LLM = os.getenv('WORKFLOW_VALIDATOR_ALWAYS_RUN_LLM
 USE_TWO_STAGE_ARCHITECTURE = os.getenv('USE_TWO_STAGE_ARCHITECTURE', 'false').lower() == 'true'
 COMMAND_GENERATOR_MODEL = os.getenv('COMMAND_GENERATOR_MODEL', '')  # e.g., 'ft:gpt-4.1-mini-2025-04-14:your-org::abc123'
 COMMAND_GENERATOR_DEPLOYMENT = os.getenv('COMMAND_GENERATOR_DEPLOYMENT', '')  # Azure deployment name if using Azure
+# Workflow Builder P1: reliable command generation. When True, the WorkflowAgent
+# always routes command generation through the CommandGenerator using OpenAI JSON
+# mode (response_format={"type":"json_object"}) so the returned JSON is guaranteed
+# parseable — replacing the fragile free-text + regex-extraction default path.
+# Set False to fall back to the legacy free-text tool behavior.
+WORKFLOW_STRUCTURED_COMMANDS = os.getenv('WORKFLOW_STRUCTURED_COMMANDS', 'true').lower() in ['true', '1', 't', 'y', 'yes']
 MAX_GENERAL_AGENT_ITERATIONS = 10                       # Prevents runaway tool calls
 # Server-side deadline (seconds) for a single general-agent LLM response.
 # Philosophy: if the model CAN finish a long task, let it — but cap it so a

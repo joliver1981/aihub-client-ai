@@ -24,8 +24,9 @@ from CommonUtils import rotate_logs_on_startup, get_all_node_details, get_node_d
 from role_decorators import get_internal_api_key
 import system_prompts as sysprompts
 
-# Import CommandGenerator for two-stage architecture
-if getattr(cfg, 'USE_TWO_STAGE_ARCHITECTURE', False):
+# Import CommandGenerator when structured command generation (P1, default) or the
+# legacy two-stage architecture is enabled.
+if getattr(cfg, 'WORKFLOW_STRUCTURED_COMMANDS', True) or getattr(cfg, 'USE_TWO_STAGE_ARCHITECTURE', False):
     try:
         from CommandGenerator import CommandGenerator
     except ImportError:
@@ -113,16 +114,24 @@ class WorkflowAgent:
             self.phase = BuilderPhase.PLANNING
             logger.info(f"Builder delegation mode — starting in PLANNING phase (skip DISCOVERY/REQUIREMENTS)")
 
-        # Initialize command generator for two-stage architecture
+        # Command generation. P1: WORKFLOW_STRUCTURED_COMMANDS (default True) routes
+        # command generation through the CommandGenerator with OpenAI JSON mode so
+        # the produced commands are guaranteed parseable — replacing the fragile
+        # free-text default path. USE_TWO_STAGE_ARCHITECTURE is the legacy flag; either
+        # one enables the CommandGenerator.
         self.use_two_stage = getattr(cfg, 'USE_TWO_STAGE_ARCHITECTURE', False)
+        self.use_structured_commands = getattr(cfg, 'WORKFLOW_STRUCTURED_COMMANDS', True)
         self.command_generator = None
-        if self.use_two_stage and CommandGenerator:
+        if (self.use_two_stage or self.use_structured_commands) and CommandGenerator:
             try:
                 self.command_generator = CommandGenerator()
-                logger.info("Two-stage architecture enabled - using CommandGenerator")
+                logger.info(
+                    f"CommandGenerator enabled (structured={self.use_structured_commands}, "
+                    f"two_stage={self.use_two_stage})"
+                )
             except Exception as e:
-                logger.warning(f"Failed to initialize CommandGenerator, falling back to single-stage: {e}")
-                self.use_two_stage = False
+                logger.warning(f"Failed to initialize CommandGenerator, falling back to inline generation: {e}")
+                self.command_generator = None
 
         # Auto-detect if we should start in refinement mode (overrides builder delegation for edits)
         if workflow_state and self._has_existing_workflow(workflow_state):
@@ -1606,132 +1615,11 @@ Output a complete JSON with action: build_workflow and commands array in a ```js
             max_iterations=10
         )
     
-    def _preprocess_json(self, json_str: str) -> str:
-        """
-        Preprocess JSON string to fix common issues from LLM output:
-        1. Remove JavaScript-style comments (// and /* */)
-        2. Fix improperly escaped backslashes in paths
-        3. Remove trailing commas
-        """
-        import re
-        
-        # Remove single-line comments (// ...)
-        json_str = re.sub(r'//.*$', '', json_str, flags=re.MULTILINE)
-        
-        # Remove multi-line comments (/* ... */)
-        json_str = re.sub(r'/\*[\s\S]*?\*/', '', json_str)
-        
-        # Fix backslash escaping in Windows paths
-        # Pattern: Look for paths like \\server\folder and ensure proper escaping
-        # This is tricky because we need to find unescaped backslashes in string values
-        
-        # Strategy: Find string values that look like paths and fix them
-        def fix_path_escapes(match):
-            """Fix backslash escaping within a JSON string value"""
-            content = match.group(1)
-            # Check if this looks like a Windows path (contains backslashes followed by word chars)
-            if '\\' in content and not content.startswith('${'):
-                # Replace single backslashes with double (but not already doubled)
-                # First, normalize any existing escaping
-                # \\\\  -> [QUAD]
-                # \\    -> [DOUBLE]  
-                # Then: [DOUBLE] that's followed by a letter/word -> should be \\\\
-                
-                # Replace \\\\ with placeholder
-                content = content.replace('\\\\\\\\', '\x00QUAD\x00')
-                # Replace remaining \\ with placeholder  
-                content = content.replace('\\\\', '\x00DOUBLE\x00')
-                # Any remaining single \ before a word char needs to be escaped
-                content = re.sub(r'\\([a-zA-Z_${}])', r'\\\\\1', content)
-                # Restore placeholders
-                content = content.replace('\x00QUAD\x00', '\\\\\\\\')
-                content = content.replace('\x00DOUBLE\x00', '\\\\')
-            return f'"{content}"'
-        
-        # Apply to all string values (simplistic approach - finds "..." patterns)
-        json_str = re.sub(r'"((?:[^"\\]|\\.)*)"', fix_path_escapes, json_str)
-        
-        # Remove trailing commas before ] or }
-        json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
-        
-        return json_str
-    
-    def _extract_workflow_commands_with_ai(self, response: str) -> Optional[Dict]:
-        """
-        Use AI to extract workflow commands from a response when regex/preprocessing fails.
-        This is a fallback that only runs when normal extraction doesn't work.
-        
-        Args:
-            response: The full AI response that may contain workflow commands
-            
-        Returns:
-            Dict with 'action' and 'commands' keys, or None if no commands found
-        """
-        try:
-            logger.info("Attempting AI-based workflow command extraction (fallback)")
-            
-            system_prompt = """You are a JSON extraction assistant. Your task is to extract workflow build commands from text.
+    # NOTE: _preprocess_json and _extract_workflow_commands_with_ai (a regex
+    # JSON-repair helper and an LLM re-extraction fallback) were removed in the
+    # Workflow Builder P1 hardening — both were dead code, and command JSON is
+    # now produced reliably via CommandGenerator + OpenAI JSON mode.
 
-The text may contain a JSON object with workflow commands in a format like:
-{
-  "action": "build_workflow",
-  "commands": [...]
-}
-
-RULES:
-1. If the text contains workflow commands, extract ONLY the JSON object
-2. Fix any JSON syntax errors (comments, trailing commas, escape sequences)
-3. Ensure all Windows paths have properly escaped backslashes (use \\\\)
-4. Return ONLY valid JSON - no explanations, no markdown, no code fences
-5. If no workflow commands are present, return exactly: {"no_commands": true}
-
-IMPORTANT: Your response must be ONLY the JSON object, nothing else."""
-
-            user_prompt = f"""Extract the workflow build commands from this text. Return only valid JSON.
-
-TEXT:
-{response}
-
-Remember: Return ONLY the JSON object, no other text."""
-
-            # Call the AI to extract commands
-            ai_response = azureQuickPrompt(
-                prompt=user_prompt,
-                system=system_prompt,
-                temp=0.0  # Deterministic for consistent extraction
-            )
-            
-            # Clean up the response (azureQuickPrompt already strips code fences)
-            ai_response = ai_response.strip()
-            
-            # Parse the extracted JSON
-            extracted = json.loads(ai_response)
-            
-            # Check if it found commands
-            if extracted.get("no_commands"):
-                logger.info("AI extraction found no workflow commands in response")
-                return None
-            
-            # Validate structure
-            if isinstance(extracted, dict) and 'commands' in extracted:
-                # Ensure action is set
-                if 'action' not in extracted:
-                    extracted['action'] = 'build_workflow'
-                    
-                logger.info(f"AI extraction successful - found {len(extracted['commands'])} commands")
-                return extracted
-            else:
-                logger.warning("AI extraction returned unexpected structure")
-                return None
-                
-        except json.JSONDecodeError as e:
-            logger.error(f"AI extraction returned invalid JSON: {e}")
-            return None
-        except Exception as e:
-            logger.error(f"AI extraction failed: {e}")
-            return None
-    
-    
     def update_phase(self, new_phase: BuilderPhase):
         """Update the current phase and system prompt"""
         self.phase = new_phase
