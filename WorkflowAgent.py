@@ -696,6 +696,7 @@ You're planning the workflow structure.
 - Identify any gaps or assumptions
 - Be specific about which nodes you'll use
 - For Database nodes, verify table and column names against the actual schema using get_database_schema before finalizing the plan
+- Once the user confirms the plan is correct, call the generate_workflow_commands tool to build it (do not wait for a specific keyword — act on their confirmation).
 
 IMPORTANT: When creating the workflow plan, wrap numbered steps in <workflow_plan> tags like this:
 
@@ -1723,39 +1724,52 @@ Output a complete JSON with action: build_workflow and commands array in a ```js
                 "error": str(e)
             }
     
+    # Forward-only phase order used by the state-driven progression below.
+    _PHASE_ORDER = [
+        BuilderPhase.DISCOVERY, BuilderPhase.REQUIREMENTS, BuilderPhase.PLANNING,
+        BuilderPhase.BUILDING, BuilderPhase.REFINEMENT,
+    ]
+
     def _auto_update_phase(self):
-        """Automatically update phase based on conversation progress"""
+        """Advance the phase from actual build STATE, not conversation keywords.
+
+        P3: the old machine advanced on substring matches ('yes'/'correct'/'make
+        it' appearing anywhere) and on raw message count (>4, >8), so an
+        incidental 'yes, but first…' jumped PLANNING->BUILDING and a long chat
+        advanced a phase with no real progress. Phase now REFLECTS progress:
+
+          commands generated  -> REFINEMENT
+          a plan exists        -> PLANNING
+          any requirement known-> REQUIREMENTS
+          otherwise            -> DISCOVERY   (still gathering)
+
+        The generate_workflow_commands tool moves PLANNING->BUILDING->REFINEMENT
+        itself as it runs, so those transitions no longer need keyword triggers.
+        Advancement is forward-only — a refined workflow never regresses because
+        a later turn happens to mention fewer details.
+        """
         reqs = self.requirements
-        
-        # Check conversation for key indicators
-        recent_messages = self.conversation_context[-5:] if len(self.conversation_context) >= 5 else self.conversation_context
-        recent_text = " ".join([m["content"].lower() for m in recent_messages])
-        
-        # Phase progression logic
-        if self.phase == BuilderPhase.DISCOVERY:
-            # Move to requirements if we have basic info
-            if reqs.process_name or reqs.trigger_type or len(self.conversation_context) > 4:
-                self.update_phase(BuilderPhase.REQUIREMENTS)
-        
-        elif self.phase == BuilderPhase.REQUIREMENTS:
-            # Move to planning if we have enough requirements
-            if (reqs.data_sources and (reqs.outputs or reqs.stakeholders)) or \
-               len(self.conversation_context) > 8 or \
-               any(word in recent_text for word in ["ready", "that's all", "everything", "complete"]):
-                self.update_phase(BuilderPhase.PLANNING)
-        
-        elif self.phase == BuilderPhase.PLANNING:
-            # Move to building when user confirms or says build
-            build_indicators = ["build", "create", "proceed", "yes", "go ahead", "looks good", 
-                              "that's right", "correct", "generate", "make it"]
-            if any(indicator in recent_text for indicator in build_indicators):
-                self.update_phase(BuilderPhase.BUILDING)
-        
-        elif self.phase == BuilderPhase.BUILDING:
-            # Move to refinement after building
-            if self.generated_commands or "generated" in recent_text:
-                self.update_phase(BuilderPhase.REFINEMENT)
-    
+        has_requirements = bool(
+            reqs.process_name or reqs.trigger_type or reqs.data_sources
+            or reqs.outputs or reqs.stakeholders or reqs.systems_involved
+        )
+
+        if self.generated_commands:
+            target = BuilderPhase.REFINEMENT
+        elif self.workflow_plan:
+            target = BuilderPhase.PLANNING
+        elif has_requirements:
+            target = BuilderPhase.REQUIREMENTS
+        else:
+            target = BuilderPhase.DISCOVERY
+
+        try:
+            if self._PHASE_ORDER.index(target) > self._PHASE_ORDER.index(self.phase):
+                self.update_phase(target)
+        except ValueError:
+            # Unknown phase (shouldn't happen) — leave it alone.
+            pass
+
     def get_session_summary(self) -> Dict:
         """Get a summary of the current session"""
         return {

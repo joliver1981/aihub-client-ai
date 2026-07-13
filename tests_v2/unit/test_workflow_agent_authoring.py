@@ -32,8 +32,14 @@ def wf(monkeypatch):
     import WorkflowAgent as WA
     monkeypatch.setattr(WA.WorkflowAgent, "_initialize_llm",
                         lambda self: setattr(self, "llm", MagicMock()))
-    monkeypatch.setattr(WA.WorkflowAgent, "_build_agent_executor",
-                        lambda self: setattr(self, "agent_executor", MagicMock()))
+
+    def _mock_build(self):
+        # Preserve a test-configured executor across phase rebuilds (update_phase
+        # calls _build_agent_executor; without this a phase change would clobber
+        # a mock the test set up).
+        if getattr(self, "agent_executor", None) is None:
+            self.agent_executor = MagicMock()
+    monkeypatch.setattr(WA.WorkflowAgent, "_build_agent_executor", _mock_build)
     agent = WA.WorkflowAgent(session_id="test-session")
     return agent
 
@@ -43,49 +49,57 @@ def _phase(name):
     return getattr(WA.BuilderPhase, name)
 
 
-# ── phase state machine (characterization — P3 will change these) ────────
+# ── phase state machine (P3: now deterministic, state-driven) ────────────
 
-def test_discovery_advances_on_process_name(wf):
+def test_phase_reflects_requirements(wf):
     assert wf.phase == _phase("DISCOVERY")
     wf.requirements.process_name = "Invoice approval"
     wf._auto_update_phase()
     assert wf.phase == _phase("REQUIREMENTS")
 
 
-def test_discovery_advances_on_message_count_alone(wf):
-    # FRAGILITY PIN: 5+ context messages advances the phase regardless of content.
-    assert wf.phase == _phase("DISCOVERY")
-    wf.conversation_context = [{"role": "user", "content": "hi"} for _ in range(5)]
-    wf._auto_update_phase()
-    assert wf.phase == _phase("REQUIREMENTS")
-
-
-def test_planning_advances_on_incidental_yes(wf):
-    # FRAGILITY PIN (the exact bug james flagged): a bare 'yes' anywhere in the
-    # last messages jumps PLANNING -> BUILDING, even mid-sentence.
-    wf.phase = _phase("PLANNING")
-    wf.conversation_context = [{"role": "user", "content": "yes, but first let me explain the edge cases"}]
-    wf._auto_update_phase()
-    assert wf.phase == _phase("BUILDING")
-
-
-def test_planning_advances_on_make_it(wf):
-    wf.phase = _phase("PLANNING")
-    wf.conversation_context = [{"role": "user", "content": "ok make it"}]
-    wf._auto_update_phase()
-    assert wf.phase == _phase("BUILDING")
-
-
-def test_requirements_advances_on_keyword_ready(wf):
-    wf.phase = _phase("REQUIREMENTS")
-    wf.conversation_context = [{"role": "user", "content": "that's everything, ready"}]
+def test_phase_advances_to_planning_on_plan(wf):
+    wf.requirements.process_name = "X"
+    wf.workflow_plan = "1. Folder Selector\n2. Alert"
     wf._auto_update_phase()
     assert wf.phase == _phase("PLANNING")
 
 
-def test_building_advances_to_refinement_on_generated_commands(wf):
-    wf.phase = _phase("BUILDING")
+def test_phase_advances_to_refinement_on_commands(wf):
     wf.generated_commands = [{"type": "add_node"}]
+    wf._auto_update_phase()
+    assert wf.phase == _phase("REFINEMENT")
+
+
+def test_incidental_yes_no_longer_jumps_to_building(wf):
+    # The exact fragility james flagged is FIXED: a bare 'yes' with no plan and
+    # no commands does NOT advance the phase.
+    wf.phase = _phase("PLANNING")
+    wf.conversation_context = [{"role": "user", "content": "yes, but first let me explain the edge cases"}]
+    wf._auto_update_phase()
+    assert wf.phase == _phase("PLANNING")  # stayed put — no state progress
+
+
+def test_message_count_no_longer_advances(wf):
+    # A long chat with no gathered requirements does NOT advance a phase.
+    assert wf.phase == _phase("DISCOVERY")
+    wf.conversation_context = [{"role": "user", "content": "hmm"} for _ in range(9)]
+    wf._auto_update_phase()
+    assert wf.phase == _phase("DISCOVERY")
+
+
+def test_keyword_ready_without_progress_does_not_advance(wf):
+    wf.phase = _phase("REQUIREMENTS")
+    wf.conversation_context = [{"role": "user", "content": "that's everything, ready"}]
+    wf._auto_update_phase()
+    assert wf.phase == _phase("REQUIREMENTS")  # no plan yet -> stays
+
+
+def test_phase_is_forward_only(wf):
+    # A refined workflow never regresses even if current state looks earlier.
+    wf.phase = _phase("REFINEMENT")
+    wf.generated_commands = None
+    wf.workflow_plan = None
     wf._auto_update_phase()
     assert wf.phase == _phase("REFINEMENT")
 
