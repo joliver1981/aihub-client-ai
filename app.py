@@ -12489,6 +12489,10 @@ app.register_blueprint(assignments_bp)
 from agent_environments.environment_api import environments_bp
 app.register_blueprint(environments_bp)
 
+# Import automations blueprint (on-the-fly Automations — persisted AI-generated Python solutions)
+from automations.api import automations_bp
+app.register_blueprint(automations_bp)
+
 # Import tier usage blueprint
 from admin_tier_usage import admin_tier_bp
 app.register_blueprint(admin_tier_bp)

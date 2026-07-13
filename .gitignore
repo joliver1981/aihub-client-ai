@@ -150,6 +150,9 @@ workflows/
 agent_environments/tenant_*
 agent_environments/python-bundle/*
 
+# Automations runtime data (code package automations/*.py stays tracked)
+automations/tenant_*
+
 /data/secrets
 /data/history
 /dist_save

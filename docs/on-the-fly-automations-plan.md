@@ -1,6 +1,6 @@
 # On-the-fly Automations — "do it, run it, own it" — Plan
 
-**Status:** PLAN ONLY (2026-07-13). Nothing built. Seams verified in code at the refs below.
+**Status:** P0 BUILT 2026-07-13 — asset + runner + API live on main (`automations/` package: manager.py / runner.py / api.py, `migrations/014_automations.sql`, blueprint registered in app.py, flag `AUTOMATIONS_ENABLED` in config.py). 42 unit tests green (`tests_v2/unit/test_automations.py`). Includes P1's verify-on-run for file outputs (exists/min_rows → tri-state) ahead of schedule; remote-output verification, the scheduler job type, and run-history UI remain P1. Needs a main-app restart to expose `/automations/api/*`. P0 uses the documented env-var credential shortcut (AIHUB_CONN_* / AIHUB_SECRET_*) — replace with the run-token SDK in P2 before any wider rollout.
 **Goal:** let a user (initially: an AI Hub developer) *describe* a custom business process to an agent — "read these PDFs, pull the employee number, look up X in the database, produce a CSV in this format, upload it to this SFTP server" — and have the agent build a **persisted, versioned, deterministic Python automation** wired to real connections/secrets, running in a managed Python environment, on a schedule, with honest verified outcomes. The platform's job shifts from *configuring* solutions in a UI to **owning and running** solutions that AI writes.
 
 Related: [cc-silent-success-remediation-plan.md](cc-silent-success-remediation-plan.md) (verify-on-run philosophy), [agent-artifact-sharing-plan.md](agent-artifact-sharing-plan.md) (storage precedents, artifacts), Workflow Builder Option-A hardening (structured builder-agent patterns, confirm-before-build gate).
@@ -145,9 +145,9 @@ Flow for the canonical example: gather requirements → ensure/create the DB con
 - **Egress is ungoverned by design** in the interpreter; unattended scheduled code raises the bar — log outbound destinations per run in P1 (parse at SDK level where possible), allowlisting later.
 - **Restart discipline:** main app + scheduler restarts to go live; live tree runs from `aihub-client-ai-dev` (never propose dist sync as a runtime fix).
 
-## 10. Open questions
+## 10. Open questions — DECIDED (James, 2026-07-13)
 
-1. **Env granularity** — one environment per automation (clean, more disk) vs shared per client/team (lean, dependency-conflict risk)? Proposal: default shared "automations" env per tenant, promote to dedicated env on first conflict; the manifest records which.
-2. **Version pinning at schedule time** — schedule points at `current_version` (auto-upgrades on edit) or a frozen `vN` (safer)? Proposal: frozen, with an explicit "promote latest" action.
-3. **Concurrent runs** — allow overlap or skip-if-running per automation? Proposal: manifest flag, default skip-if-running.
-4. **Where dry-run sample files live** — chat-upload store vs automation folder. Leaning: copy into `versions/vN/samples/` so the test is reproducible per version.
+1. **Env granularity:** **one environment per automation.** Clean isolation; disk cost accepted. The automation's manifest records its `environment_id`; create-automation provisions (or clones) a dedicated env.
+2. **Version pinning:** **frozen `vN` at schedule time, with an explicit "promote latest" action.** Schedules and API runs execute a pinned version; editing code never silently changes what a schedule runs.
+3. **Concurrent runs:** **skip-if-running, always.** No manifest flag, no overlap handling — if a run for the automation is in flight, a new trigger records a `skipped` run and exits. Keep it simple.
+4. **Dry-run samples:** **copied into `versions/vN/samples/`** so every version's test is reproducible.
