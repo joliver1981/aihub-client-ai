@@ -445,3 +445,172 @@ class TestRunner:
         log = open(os.path.join(result["workdir"], "run.log"), encoding="utf-8").read()
         assert "hello from automation" in log
         assert "outcome: success" in log
+
+
+# ---------------------------------------------------------------------------
+# P1: remote-output verification
+# ---------------------------------------------------------------------------
+
+from automations.remote_verify import parse_transfer_secret  # noqa: E402
+
+
+class TestParseTransferSecret:
+    def test_url_form(self):
+        c = parse_transfer_secret("sftp://user:p%40ss@host.example:2222")
+        assert c == {"host": "host.example", "port": 2222, "username": "user", "password": "p@ss"}
+
+    def test_json_form(self):
+        c = parse_transfer_secret('{"host": "h", "port": "21", "username": "u", "password": "p"}')
+        assert c == {"host": "h", "port": 21, "username": "u", "password": "p"}
+
+    def test_garbage_returns_none(self):
+        assert parse_transfer_secret("just-a-plain-api-key") is None
+        assert parse_transfer_secret("{not json") is None
+        assert parse_transfer_secret("") is None
+        assert parse_transfer_secret('{"port": 22}') is None  # no host
+
+
+class TestRemoteVerifyWiring:
+    """verify_outputs must translate the remote check's tri-state into the run
+    outcome: True->success, False->FAILED, None->unverified."""
+
+    MANIFEST = {"outputs": [{"kind": "sftp_upload", "secret": "S", "remote_dir": "/out",
+                             "name": "f_{period}.csv", "verify": {"remote_listing": True}}]}
+
+    def _wire(self, monkeypatch, tri_state, note="stub"):
+        import automations.remote_verify as rv
+        calls = {}
+
+        def fake_check(kind, secret_value, remote_dir, filename, verify):
+            calls.update(kind=kind, secret=secret_value, remote_dir=remote_dir, filename=filename)
+            return tri_state, note
+
+        monkeypatch.setattr(rv, "check_remote_output", fake_check)
+        return calls
+
+    def test_remote_ok_is_success(self, tmp_path, monkeypatch):
+        calls = self._wire(monkeypatch, True)
+        outcome, report = verify_outputs(self.MANIFEST, str(tmp_path), {"period": "07"},
+                                         secret_resolver=lambda n: "sftp://u:p@h:22")
+        assert outcome == "success"
+        assert calls["filename"] == "f_07.csv"  # inputs substituted
+        assert calls["secret"] == "sftp://u:p@h:22"
+
+    def test_remote_missing_is_failed(self, tmp_path, monkeypatch):
+        self._wire(monkeypatch, False)
+        outcome, report = verify_outputs(self.MANIFEST, str(tmp_path), {"period": "07"},
+                                         secret_resolver=lambda n: "sftp://u:p@h:22")
+        assert outcome == "failed"
+
+    def test_remote_uncheckable_is_unverified(self, tmp_path, monkeypatch):
+        self._wire(monkeypatch, None)
+        outcome, report = verify_outputs(self.MANIFEST, str(tmp_path), {"period": "07"},
+                                         secret_resolver=lambda n: "sftp://u:p@h:22")
+        assert outcome == "unverified"
+
+    def test_no_resolver_is_unverified(self, tmp_path):
+        outcome, report = verify_outputs(self.MANIFEST, str(tmp_path), {"period": "07"})
+        assert outcome == "unverified"
+
+
+# ---------------------------------------------------------------------------
+# P1: scheduler 'automation' job type
+# ---------------------------------------------------------------------------
+
+def _import_job_scheduler():
+    """Import job_scheduler, stubbing apscheduler if the test env lacks it
+    (the scheduler service runs in its own conda env)."""
+    import types
+    from unittest.mock import MagicMock
+    try:
+        import apscheduler  # noqa: F401
+    except ImportError:
+        for mod in ["apscheduler", "apscheduler.schedulers", "apscheduler.schedulers.background",
+                    "apscheduler.jobstores", "apscheduler.jobstores.sqlalchemy",
+                    "apscheduler.jobstores.memory", "apscheduler.executors",
+                    "apscheduler.executors.pool", "apscheduler.triggers",
+                    "apscheduler.triggers.cron", "apscheduler.triggers.date",
+                    "apscheduler.triggers.interval"]:
+            if mod not in sys.modules:
+                m = types.ModuleType(mod)
+                for attr in ("BackgroundScheduler", "SQLAlchemyJobStore", "MemoryJobStore",
+                             "ThreadPoolExecutor", "ProcessPoolExecutor",
+                             "CronTrigger", "DateTrigger", "IntervalTrigger"):
+                    setattr(m, attr, MagicMock())
+                sys.modules[mod] = m
+    import job_scheduler
+    return job_scheduler
+
+
+class TestSchedulerAutomationJob:
+    def _svc(self, monkeypatch, response_status=200, response_body=None):
+        js = _import_job_scheduler()
+        svc = js.JobSchedulerService.__new__(js.JobSchedulerService)
+        svc.api_base_url = "http://127.0.0.1:5000"
+        records = []
+        monkeypatch.setattr(svc, "_create_execution_record", lambda *a, **k: 77, raising=False)
+        monkeypatch.setattr(svc, "_update_execution_record",
+                            lambda eid, status, **k: records.append((status, k.get("result_message", ""))),
+                            raising=False)
+        monkeypatch.setattr(svc, "_increment_run_count", lambda *a, **k: None, raising=False)
+        monkeypatch.setattr(svc, "_update_last_run_time", lambda *a, **k: None, raising=False)
+
+        captured = {}
+
+        class _Resp:
+            status_code = response_status
+            def json(self):
+                return response_body or {}
+
+        def _post(url, json=None, headers=None, timeout=None):
+            captured["url"], captured["payload"], captured["headers"] = url, json, headers
+            return _Resp()
+
+        monkeypatch.setattr(js.requests, "post", _post)
+        return svc, records, captured
+
+    JOB = {"scheduled_job_id": 1, "schedule_id": 2, "job_name": "Nightly payroll",
+           "parameters": {"automation_id": "abc-123", "inputs": '{"period": "2026-07"}',
+                          "user_id": "13"}}
+
+    def test_success_outcome_completed(self, monkeypatch):
+        svc, records, captured = self._svc(monkeypatch, 200,
+                                           {"status": "success", "run_id": "r1"})
+        svc._execute_automation_job(self.JOB)
+        assert captured["url"].endswith("/automations/api/internal/run")
+        assert captured["payload"]["automation_id"] == "abc-123"
+        assert captured["payload"]["inputs"] == {"period": "2026-07"}
+        assert captured["payload"]["trigger"] == "schedule"
+        assert records[-1][0] == "completed"
+        assert "outcome=success" in records[-1][1]
+
+    def test_failed_outcome_failed(self, monkeypatch):
+        svc, records, _ = self._svc(monkeypatch, 200,
+                                    {"status": "failed", "run_id": "r2", "error": "exit code 1"})
+        svc._execute_automation_job(self.JOB)
+        assert records[-1][0] == "failed"
+        assert "exit code 1" in records[-1][1]
+
+    def test_unverified_completed_but_labeled(self, monkeypatch):
+        svc, records, _ = self._svc(monkeypatch, 200,
+                                    {"status": "unverified", "run_id": "r3"})
+        svc._execute_automation_job(self.JOB)
+        assert records[-1][0] == "completed"
+        assert "outcome=unverified" in records[-1][1]
+        assert "not verified" in records[-1][1]
+
+    def test_skipped_completed_with_note(self, monkeypatch):
+        svc, records, _ = self._svc(monkeypatch, 200,
+                                    {"status": "skipped", "run_id": "r4",
+                                     "note": "a run is already in progress"})
+        svc._execute_automation_job(self.JOB)
+        assert records[-1][0] == "completed"
+        assert "outcome=skipped" in records[-1][1]
+
+    def test_missing_automation_id_fails_without_http(self, monkeypatch):
+        svc, records, captured = self._svc(monkeypatch)
+        job = {"scheduled_job_id": 1, "schedule_id": 2, "job_name": "broken", "parameters": {}}
+        svc._execute_automation_job(job)
+        assert records[-1][0] == "failed"
+        assert "automation_id" in records[-1][1]
+        assert "url" not in captured  # never called the API

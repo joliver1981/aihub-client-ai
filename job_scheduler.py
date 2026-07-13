@@ -102,6 +102,7 @@ class JobSchedulerService:
             'workflow': self._execute_workflow_job,
             'command_center': self._execute_command_center_job,
             'portal_workflow': self._execute_portal_workflow_job,
+            'automation': self._execute_automation_job,
         }
 
         print('API Base URL:', self.api_base_url)
@@ -1162,6 +1163,80 @@ class JobSchedulerService:
                 execution_id,
                 'failed',
                 result_message=f"Error executing portal_workflow job: {str(e)}",
+                error_details=error_details
+            )
+
+    def _execute_automation_job(self, job_data: Dict[str, Any]):
+        """Execute a scheduled Automation: run the PINNED version of a persisted
+        AI-generated Python solution via the main app's internal automations
+        runner (X-API-Key), mirroring the portal_workflow dispatch. The
+        automation_id lives in job parameters (TargetId is int-typed; automation
+        ids are GUIDs). The runner returns an HONEST tri-state outcome —
+        'skipped' (already running) and 'unverified' (ran, but a declared remote
+        output could not be checked) are recorded verbatim, never upgraded to a
+        bare success. See docs/on-the-fly-automations-plan.md."""
+        scheduled_job_id = job_data['scheduled_job_id']
+        schedule_id = job_data['schedule_id']
+        job_name = job_data['job_name']
+        parameters = job_data.get('parameters', {})
+
+        def _pv(name, default=''):
+            v = parameters.get(name, default)
+            return v.get('value', default) if isinstance(v, dict) else v
+
+        automation_id = _pv('automation_id')
+        inputs_raw = _pv('inputs')
+        try:
+            inputs = json.loads(inputs_raw) if inputs_raw else {}
+        except (TypeError, ValueError):
+            inputs = {}
+
+        logger.info(f"Executing automation job: {job_name} (ID: {scheduled_job_id}, automation={automation_id})")
+        execution_id = self._create_execution_record(scheduled_job_id, schedule_id)
+        try:
+            self._update_execution_record(execution_id, 'running')
+            if not automation_id:
+                raise ValueError("job parameter 'automation_id' is missing")
+
+            api_url = f"{self.api_base_url}/automations/api/internal/run"
+            payload = {
+                'automation_id': automation_id,
+                'inputs': inputs,
+                'trigger': 'schedule',
+                'requested_by': _pv('user_id') or None,
+            }
+            headers = {'X-API-Key': os.getenv('API_KEY', '')}
+            # the automation's own manifest timeout governs the subprocess;
+            # this HTTP timeout just needs to outlast it (manifest max 86400
+            # is not sensible for a scheduled job — 2h covers real use)
+            response = requests.post(api_url, json=payload, headers=headers, timeout=7200)
+            data = response.json() if response.status_code in (200, 400) else {}
+            outcome = data.get('status', 'failed')
+
+            detail = data.get('error') or ''
+            if outcome == 'unverified':
+                detail = 'ran to completion but a declared remote output was not verified'
+            elif outcome == 'skipped':
+                detail = data.get('note', 'a run was already in progress')
+            message = (f"Automation outcome={outcome} run_id={data.get('run_id', '?')}"
+                       + (f". {detail}" if detail else ""))
+
+            # 'completed' only for outcomes that are not failures; the honest
+            # outcome string always travels in the message
+            record_status = 'completed' if outcome in ('success', 'skipped', 'unverified') else 'failed'
+            self._update_execution_record(execution_id, record_status, result_message=message[:500])
+            self._increment_run_count(schedule_id)
+            self._update_last_run_time(schedule_id, datetime.now())
+            logger.info(f"automation job {record_status}: {job_name} ({message})")
+
+        except Exception as e:
+            error_details = traceback.format_exc()
+            logger.error(f"Error executing automation job {job_name}: {str(e)}")
+            logger.error(error_details)
+            self._update_execution_record(
+                execution_id,
+                'failed',
+                result_message=f"Error executing automation job: {str(e)}",
                 error_details=error_details
             )
 

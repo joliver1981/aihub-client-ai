@@ -265,6 +265,113 @@ def get_run_log(run_id):
     return jsonify({"log": log})
 
 
+# ---------------------------------------------------------------- scheduling
+
+@automations_bp.route("/api/<automation_id>/schedule", methods=["POST"])
+@automations_gate
+def schedule_automation(automation_id):
+    """Create a scheduler job (job_type='automation') + schedule for this
+    automation. Reuses the platform scheduler's tables and _create_schedule
+    helper; the engine's _execute_automation_job fires it. Requires a
+    PROMOTED version — a schedule must never point at nothing. The automation
+    GUID travels in ScheduledJobParameters (TargetId is int-typed).
+    Body: {"schedule": {"type": "cron"|"interval"|"date", ...}, "inputs": {}}"""
+    auto = _get_manager().get_automation(automation_id)
+    if not auto:
+        return jsonify({"error": "not found"}), 404
+    if auto["pinned_version"] < 1:
+        return jsonify({"error": "nothing promoted — dry-run and promote a version before scheduling"}), 400
+
+    data = request.get_json(silent=True) or {}
+    schedule_data = data.get("schedule")
+    if not isinstance(schedule_data, dict):
+        return jsonify({"error": "'schedule' object is required (type: cron|interval|date)"}), 400
+
+    from scheduler_routes import _create_schedule
+    conn = _get_manager()._db_conn()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """INSERT INTO ScheduledJobs
+               (JobName, JobType, TargetId, Description, CreatedBy, CreatedAt, IsActive)
+               VALUES (?, 'automation', 0, ?, ?, getutcdate(), 1)""",
+            f"Automation: {auto['name']}",
+            f"Scheduled run of automation '{auto['name']}' ({automation_id}), pinned v{auto['pinned_version']}",
+            str(getattr(current_user, "username", current_user.id)),
+        )
+        cursor.execute("SELECT @@IDENTITY")
+        job_id = int(cursor.fetchone()[0])
+
+        params = {
+            "automation_id": (automation_id, "string"),
+            "inputs": (json.dumps(data.get("inputs") or {}), "json"),
+            "user_id": (str(current_user.id), "int"),
+        }
+        for name, (value, ptype) in params.items():
+            cursor.execute(
+                """INSERT INTO ScheduledJobParameters
+                   (ScheduledJobId, ParameterName, ParameterValue, ParameterType)
+                   VALUES (?, ?, ?, ?)""",
+                job_id, name, value, ptype,
+            )
+
+        schedule_id = _create_schedule(cursor, job_id, schedule_data)
+        if not schedule_id:
+            conn.rollback()
+            return jsonify({"error": "invalid schedule definition"}), 400
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"schedule_automation({automation_id}) failed: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
+    return jsonify({
+        "scheduled_job_id": job_id,
+        "schedule_id": schedule_id,
+        "pinned_version": auto["pinned_version"],
+        "note": "the scheduler engine picks this up on its next poll "
+                "(engine restart required if it predates the 'automation' job type)",
+    }), 201
+
+
+@automations_bp.route("/api/<automation_id>/schedules", methods=["GET"])
+@automations_gate
+def list_schedules(automation_id):
+    """List scheduler jobs/schedules attached to this automation."""
+    conn = _get_manager()._db_conn()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT j.ScheduledJobId, j.JobName, j.IsActive,
+                      s.ScheduleId, s.ScheduleType, s.CronExpression,
+                      s.NextRunTime, s.LastRunTime, s.IsActive AS ScheduleActive
+               FROM ScheduledJobs j
+               JOIN ScheduledJobParameters p
+                 ON p.ScheduledJobId = j.ScheduledJobId
+                AND p.ParameterName = 'automation_id' AND p.ParameterValue = ?
+               LEFT JOIN ScheduleDefinitions s ON s.ScheduledJobId = j.ScheduledJobId
+               WHERE j.JobType = 'automation'
+               ORDER BY j.ScheduledJobId""",
+            automation_id,
+        )
+        rows = cursor.fetchall()
+    finally:
+        conn.close()
+    return jsonify({"schedules": [
+        {
+            "scheduled_job_id": r.ScheduledJobId, "job_name": r.JobName,
+            "job_active": bool(r.IsActive), "schedule_id": r.ScheduleId,
+            "schedule_type": r.ScheduleType, "cron_expression": r.CronExpression,
+            "next_run_time": r.NextRunTime.isoformat() if r.NextRunTime else None,
+            "last_run_time": r.LastRunTime.isoformat() if r.LastRunTime else None,
+            "schedule_active": bool(r.ScheduleActive) if r.ScheduleActive is not None else None,
+        }
+        for r in rows
+    ]})
+
+
 # ------------------------------------------------- internal (scheduler seam)
 
 @automations_bp.route("/api/internal/run", methods=["POST"])

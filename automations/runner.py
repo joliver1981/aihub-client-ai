@@ -95,9 +95,14 @@ def resolve_inputs(manifest: Dict, provided: Optional[Dict]) -> Tuple[Optional[D
     return resolved, None
 
 
-def verify_outputs(manifest: Dict, workdir: str, inputs: Dict) -> Tuple[str, List[Dict]]:
+def verify_outputs(manifest: Dict, workdir: str, inputs: Dict,
+                   secret_resolver=None) -> Tuple[str, List[Dict]]:
     """Check every declared output. Returns (component_outcome, report) where
-    component_outcome is 'success' | 'failed' | 'unverified'."""
+    component_outcome is 'success' | 'failed' | 'unverified'.
+
+    secret_resolver(name) -> value enables independent remote verification of
+    sftp_upload/ftp_upload outputs (verify: {"remote_listing": true}); without
+    it remote outputs are honestly 'unverified'."""
     report = []
     any_failed = False
     any_unchecked = False
@@ -126,10 +131,22 @@ def verify_outputs(manifest: Dict, workdir: str, inputs: Dict) -> Tuple[str, Lis
                 except Exception as e:
                     entry["checks"].append({"check": "min_rows", "ok": False, "error": str(e)})
                     any_failed = True
+        elif kind in ("sftp_upload", "ftp_upload") and verify.get("remote_listing") and secret_resolver:
+            from .remote_verify import check_remote_output
+            filename = _substitute(out.get("name", ""), inputs)
+            entry["name"] = filename
+            secret_value = secret_resolver(out.get("secret", ""))
+            ok, note = check_remote_output(kind, secret_value, out.get("remote_dir", "/"),
+                                           filename, verify)
+            entry["checks"].append({"check": "remote_listing", "ok": ok, "note": note})
+            if ok is False:
+                any_failed = True
+            elif ok is None:
+                any_unchecked = True
         else:
-            # remote verification (sftp/ftp/http listing) lands in P1 —
-            # be honest that we did not check it
-            entry["checks"].append({"check": "remote", "ok": None, "note": "not verified (P1)"})
+            # no verifier requested/possible for this output — be honest
+            # that we did not check it rather than implying success
+            entry["checks"].append({"check": "remote", "ok": None, "note": "not verified"})
             any_unchecked = True
         report.append(entry)
     if any_failed:
@@ -450,7 +467,8 @@ class AutomationRunner:
         elif exit_code != 0:
             status, verify_report, error = "failed", None, f"exit code {exit_code}"
         else:
-            status, verify_report = verify_outputs(manifest, workdir, inputs)
+            status, verify_report = verify_outputs(manifest, workdir, inputs,
+                                                   secret_resolver=self._resolve_secret)
             error = "declared output verification failed" if status == "failed" else None
 
         self._write_log(

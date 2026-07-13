@@ -1118,27 +1118,40 @@ def run_python_code(code: str) -> str:
     Parameters: Python code as a string.
     Returns: The output of the code execution as a string, or any exceptions raised.
     """
+    # Runs in a subprocess of the SAME interpreter (sys.executable), so an
+    # agent executing inside its assigned environment keeps that venv's
+    # packages, while a crash/hang/os._exit in generated code can no longer
+    # take down or stall the host process (the old in-process exec could).
+    import os
+    import subprocess
     import sys
-    from io import StringIO
-
-    # Redirect stdout to capture print statements
-    old_stdout = sys.stdout
-    redirected_output = StringIO()
-    sys.stdout = redirected_output
+    import tempfile
 
     try:
-        # Execute the code
-        exec(code, {}, {})
-        # Retrieve the output and force it to string
-        result = redirected_output.getvalue()
-    except Exception as e:
-        # Catch and return exceptions as a string
-        result = f"Error: {e}"
-    finally:
-        # Restore the original stdout
-        sys.stdout = old_stdout
+        timeout = int(os.getenv('GENERAL_AGENT_RUN_PYTHON_TIMEOUT', '120'))
+    except (TypeError, ValueError):
+        timeout = 120
 
-    return str(result)
+    with tempfile.TemporaryDirectory(prefix='ga_runpy_') as workdir:
+        script_path = os.path.join(workdir, '_ga_run.py')
+        with open(script_path, 'w', encoding='utf-8') as f:
+            f.write(code)
+        try:
+            proc = subprocess.run(
+                [sys.executable, script_path],
+                cwd=workdir, capture_output=True, text=True,
+                encoding='utf-8', errors='replace', timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            return f"Error: code execution timed out after {timeout} seconds"
+        except Exception as e:
+            return f"Error: could not execute code: {e}"
+
+    result = proc.stdout or ''
+    if proc.returncode != 0:
+        stderr_tail = (proc.stderr or '').strip()[-4000:]
+        result += ('\n' if result else '') + f"Error (exit {proc.returncode}): {stderr_tail}"
+    return result[:20000] if result else "(no output)"
 
 
 @tool
