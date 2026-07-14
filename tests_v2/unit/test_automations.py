@@ -292,6 +292,19 @@ class StubRunner(AutomationRunner):
     def _db_has_live_run(self, automation_id, max_age_seconds):
         return self.live_run
 
+    def _db_get_run_field(self, run_id, field):
+        run = self.runs.get(run_id) or {}
+        return run.get(field)
+
+    def _db_set_run_status(self, run_id, status, only_if_in=None):
+        run = self.runs.get(run_id)
+        if not run:
+            return False
+        if only_if_in and run.get("status") not in only_if_in:
+            return False
+        run["status"] = status
+        return True
+
     def _db_insert_run(self, row):
         self.runs[row["run_id"]] = dict(row)
 
@@ -1019,3 +1032,204 @@ class TestSolutionRoundTrip:
         monkeypatch.setattr(manager_mod_, "AutomationManager", lambda *a, **k: mgr)
         entries, prompts, display = SolutionBundler(None)._pack_automation(auto["automation_id"])
         assert entries == []  # no saved version -> skip, never a half-bundle
+
+
+# ---------------------------------------------------------------------------
+# Studio Phase B: run event sidecar + supervised execution
+# ---------------------------------------------------------------------------
+
+class TestRunEvents:
+    def test_events_sidecar_written_with_increasing_seq(self, mgr):
+        aid = _make_automation(mgr, "print('line one')\nprint('line two')\n", {"name": "evented"})
+        result = StubRunner(mgr).run(aid)
+        assert result["status"] == "success"
+        path = os.path.join(result["workdir"], "events.jsonl")
+        events = [json.loads(l) for l in open(path, encoding="utf-8") if l.strip()]
+        types = [e["type"] for e in events]
+        assert types[0] == "run_started"
+        assert types[-1] == "finished"
+        assert "log" in types
+        log_lines = [e["line"] for e in events if e["type"] == "log"]
+        assert "line one" in log_lines and "line two" in log_lines
+        seqs = [e["seq"] for e in events]
+        assert seqs == sorted(seqs) and len(set(seqs)) == len(seqs)
+        # sidecar is not swept as an output file
+        assert "events.jsonl" not in result["output_files"]
+
+    def test_finished_event_carries_honest_outcome(self, mgr):
+        aid = _make_automation(mgr, "import sys\nsys.exit(4)\n", {"name": "evfail"})
+        result = StubRunner(mgr).run(aid)
+        path = os.path.join(result["workdir"], "events.jsonl")
+        events = [json.loads(l) for l in open(path, encoding="utf-8") if l.strip()]
+        finished = [e for e in events if e["type"] == "finished"][0]
+        assert finished["status"] == "failed" and finished["exit_code"] == 4
+
+    def test_abort_mid_run(self, mgr):
+        import threading as _t
+        import time as _time
+        import automations.runner as runner_mod
+        aid = _make_automation(mgr, "import time\nprint('starting')\ntime.sleep(60)\n",
+                               {"name": "abortme", "timeout_seconds": 120})
+        runner = StubRunner(mgr)
+
+        def flip_to_aborting():
+            deadline = _time.time() + 15
+            while _time.time() < deadline:
+                live = [r for r in runner.runs.values() if r.get("status") == "running"]
+                if live:
+                    live[0]["status"] = "aborting"
+                    return
+                _time.sleep(0.1)
+
+        # speed up the status poll for the test
+        old = runner_mod._STATUS_POLL_SECONDS
+        runner_mod._STATUS_POLL_SECONDS = 0.3
+        try:
+            _t.Thread(target=flip_to_aborting, daemon=True).start()
+            t0 = _time.time()
+            result = runner.run(aid)
+            elapsed = _time.time() - t0
+        finally:
+            runner_mod._STATUS_POLL_SECONDS = old
+        assert result["status"] == "aborted", result
+        assert result["error"] == "aborted by user"
+        assert elapsed < 30  # killed, not waited out
+        events = [json.loads(l) for l in
+                  open(os.path.join(result["workdir"], "events.jsonl"), encoding="utf-8") if l.strip()]
+        assert any(e["type"] == "abort" for e in events)
+
+    def test_request_abort_only_hits_live_runs(self, mgr):
+        aid = _make_automation(mgr, "print(1)\n", {"name": "done-run"})
+        runner = StubRunner(mgr)
+        result = runner.run(aid)
+        ok, note = runner.request_abort(result["run_id"])
+        assert not ok and "not live" in note
+
+
+# ---------------------------------------------------------------------------
+# Studio Phase C: checkpoint gates
+# ---------------------------------------------------------------------------
+
+from automations.checkpoints import (  # noqa: E402
+    create_checkpoint, decide_checkpoint, get_checkpoint, list_checkpoints,
+)
+
+
+class TestCheckpointStore:
+    def test_create_get_decide(self, tmp_path):
+        cp = create_checkpoint(str(tmp_path), "about to upload 1,240 rows")
+        assert get_checkpoint(str(tmp_path), cp["checkpoint_id"])["decision"] is None
+        decided = decide_checkpoint(str(tmp_path), cp["checkpoint_id"], "proceed", 7)
+        assert decided["decision"] == "proceed" and decided["decided_by"] == 7
+        # first decision wins (idempotent)
+        again = decide_checkpoint(str(tmp_path), cp["checkpoint_id"], "abort", 9)
+        assert again["decision"] == "proceed"
+
+    def test_list_and_missing(self, tmp_path):
+        assert list_checkpoints(str(tmp_path)) == []
+        create_checkpoint(str(tmp_path), "one")
+        create_checkpoint(str(tmp_path), "two")
+        assert len(list_checkpoints(str(tmp_path))) == 2
+        assert get_checkpoint(str(tmp_path), "nope") is None
+        assert decide_checkpoint(str(tmp_path), "nope", "proceed", 1) is None
+
+    def test_message_truncated(self, tmp_path):
+        cp = create_checkpoint(str(tmp_path), "x" * 2000)
+        assert len(cp["message"]) == 500
+
+
+class TestCheckpointEndpoints:
+    @pytest.fixture
+    def client(self, monkeypatch, mgr, tmp_path):
+        from flask import Flask
+        import automations.api as api_mod
+
+        monkeypatch.setenv("CC_JWT_SECRET", "cp-secret")
+        workdir = tmp_path / "runwork"
+        workdir.mkdir()
+        (workdir / "run.log").write_text("")
+
+        class CpRunner(StubRunner):
+            def get_run(self, run_id):
+                if run_id != "run-cp":
+                    return None
+                return {"run_id": "run-cp", "automation_id": "auto-cp",
+                        "status": self.runs.get("run-cp", {}).get("status", "running"),
+                        "log_path": str(workdir / "run.log"), "requested_by": None}
+
+        self.runner = CpRunner(mgr)
+        self.runner.runs["run-cp"] = {"run_id": "run-cp", "status": "running"}
+        self.workdir = str(workdir)
+        monkeypatch.setattr(api_mod, "_manager", mgr)
+        monkeypatch.setattr(api_mod, "_runner", self.runner)
+        app = Flask(__name__)
+        app.register_blueprint(api_mod.automations_bp)
+        return app.test_client()
+
+    def _token(self):
+        from shared_auth import sign_automation_run_token
+        return sign_automation_run_token("auto-cp", "run-cp", [], [], 300)
+
+    def test_full_gate_flow(self, client):
+        # script opens the gate
+        r = client.post("/automations/api/runtime/checkpoint",
+                        json={"token": self._token(), "message": "big upload ahead"})
+        assert r.status_code == 200, r.get_json()
+        cid = r.get_json()["checkpoint_id"]
+        assert self.runner.runs["run-cp"]["status"] == "waiting"
+        # SDK poll sees no decision yet
+        r = client.get(f"/automations/api/runtime/checkpoint?token={self._token()}&checkpoint_id={cid}")
+        assert r.get_json()["decision"] is None
+        # human proceeds (via the internal manage action, as CC would)
+        import os as _os
+        _os.environ["API_KEY"] = "svc-key-cp"
+        r = client.post("/automations/api/internal/manage",
+                        headers={"X-API-Key": "svc-key-cp"},
+                        json={"action": "checkpoint_decision",
+                              "user_context": {"user_id": 7, "role": 2, "username": "dev"},
+                              "payload": {"run_id": "run-cp", "checkpoint_id": cid,
+                                          "decision": "proceed"}})
+        assert r.status_code == 200, r.get_json()
+        assert self.runner.runs["run-cp"]["status"] == "running"
+        # SDK poll now sees proceed
+        r = client.get(f"/automations/api/runtime/checkpoint?token={self._token()}&checkpoint_id={cid}")
+        assert r.get_json()["decision"] == "proceed"
+        # events recorded both sides of the gate
+        events = [json.loads(l) for l in
+                  open(os.path.join(self.workdir, "events.jsonl"), encoding="utf-8") if l.strip()]
+        assert [e["type"] for e in events] == ["checkpoint", "checkpoint_decided"]
+
+    def test_abort_decision_flips_run_to_aborting(self, client):
+        r = client.post("/automations/api/runtime/checkpoint",
+                        json={"token": self._token(), "message": "risky"})
+        cid = r.get_json()["checkpoint_id"]
+        import os as _os
+        _os.environ["API_KEY"] = "svc-key-cp"
+        r = client.post("/automations/api/internal/manage",
+                        headers={"X-API-Key": "svc-key-cp"},
+                        json={"action": "checkpoint_decision",
+                              "user_context": {"user_id": 7, "role": 2, "username": "dev"},
+                              "payload": {"run_id": "run-cp", "checkpoint_id": cid,
+                                          "decision": "abort"}})
+        assert r.status_code == 200
+        assert self.runner.runs["run-cp"]["status"] == "aborting"
+
+    def test_bad_token_403(self, client):
+        r = client.post("/automations/api/runtime/checkpoint",
+                        json={"token": "junk", "message": "x"})
+        assert r.status_code == 403
+
+    def test_events_payload_includes_pending_checkpoint(self, client):
+        r = client.post("/automations/api/runtime/checkpoint",
+                        json={"token": self._token(), "message": "pending gate"})
+        assert r.status_code == 200
+        import os as _os
+        _os.environ["API_KEY"] = "svc-key-cp"
+        r = client.post("/automations/api/internal/manage",
+                        headers={"X-API-Key": "svc-key-cp"},
+                        json={"action": "run_events",
+                              "user_context": {"user_id": 7, "role": 2, "username": "dev"},
+                              "payload": {"run_id": "run-cp", "after": 0}})
+        body = r.get_json()
+        assert body["pending_checkpoint"]["message"] == "pending gate"
+        assert any(e["type"] == "checkpoint" for e in body["events"])

@@ -29,7 +29,9 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import uuid
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 import pyodbc
@@ -41,7 +43,52 @@ logger = logging.getLogger(__name__)
 
 _RUN_LOG_NAME = "run.log"
 _INPUTS_FILE = "_inputs.json"
+_EVENTS_FILE = "events.jsonl"
 _SKIP_GRACE_SECONDS = 600  # a 'running' row older than timeout+grace is stale, not live
+
+# Statuses that mean "this run is alive right now" — the skip-guard, the
+# runtime-resolve token check, and the active-runs endpoint all share it.
+# waiting  = paused at an aihub.checkpoint() gate
+# aborting = a human asked to stop; the runner will kill the child shortly
+LIVE_STATUSES = ("running", "waiting", "aborting")
+
+# How often the supervision loop polls (child exit, egress tail) and how often
+# it pays for a DB read of the run status (abort/checkpoint signals).
+_SUPERVISE_TICK_SECONDS = 0.25
+_STATUS_POLL_SECONDS = 2.0
+
+
+class RunEventLog:
+    """Append-only per-run event sidecar (events.jsonl in the workdir) — the
+    Studio's live feed. Best-effort by design: an emit failure never affects
+    the run. Events carry a monotonically increasing seq so the UI can poll
+    with ?after=N."""
+
+    def __init__(self, workdir: str):
+        self.path = os.path.join(workdir, _EVENTS_FILE)
+        self._lock = threading.Lock()
+        # continue the sequence if the file already has events (the checkpoint
+        # endpoint appends from another process/worker than the runner)
+        self.seq = 0
+        try:
+            with open(self.path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        self.seq += 1
+        except FileNotFoundError:
+            pass
+
+    def emit(self, event_type: str, **fields):
+        with self._lock:
+            self.seq += 1
+            record = {"seq": self.seq,
+                      "ts": datetime.utcnow().isoformat(timespec="milliseconds") + "Z",
+                      "type": event_type, **fields}
+            try:
+                with open(self.path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(record) + "\n")
+            except Exception:
+                pass
 
 # Same preamble idea as the CC code interpreter: headless matplotlib + the
 # conda-extracted bundle's native DLLs for compiled extensions. Plus
@@ -200,15 +247,62 @@ class AutomationRunner:
     def _db_has_live_run(self, automation_id: str, max_age_seconds: int) -> bool:
         conn = self._db_conn()
         cursor = conn.cursor()
+        placeholders = ", ".join("?" for _ in LIVE_STATUSES)
         cursor.execute(
-            """SELECT COUNT(*) FROM AutomationRuns
-               WHERE automation_id = ? AND status = 'running'
+            f"""SELECT COUNT(*) FROM AutomationRuns
+               WHERE automation_id = ? AND status IN ({placeholders})
                  AND started_at > DATEADD(SECOND, -?, GETUTCDATE())""",
-            automation_id, max_age_seconds,
+            automation_id, *LIVE_STATUSES, max_age_seconds,
         )
         count = cursor.fetchone()[0]
         conn.close()
         return count > 0
+
+    def _db_get_run_field(self, run_id: str, field: str) -> Optional[str]:
+        """Read one column of a run row (supervision-loop status poll)."""
+        if field not in ("status",):
+            raise ValueError(f"field '{field}' not readable here")
+        conn = self._db_conn()
+        cursor = conn.cursor()
+        cursor.execute(f"SELECT {field} FROM AutomationRuns WHERE run_id = ?", run_id)
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else None
+
+    def _db_set_run_status(self, run_id: str, status: str,
+                           only_if_in: Optional[Tuple[str, ...]] = None) -> bool:
+        """Flip a run's status (checkpoint waiting/running, abort request).
+        With only_if_in, the update is conditional and returns whether a row
+        changed — that makes abort/decide idempotent and race-safe."""
+        conn = self._db_conn()
+        cursor = conn.cursor()
+        if only_if_in:
+            placeholders = ", ".join("?" for _ in only_if_in)
+            cursor.execute(
+                f"UPDATE AutomationRuns SET status = ? WHERE run_id = ? AND status IN ({placeholders})",
+                status, run_id, *only_if_in,
+            )
+        else:
+            cursor.execute("UPDATE AutomationRuns SET status = ? WHERE run_id = ?", status, run_id)
+        changed = cursor.rowcount > 0
+        conn.commit()
+        conn.close()
+        return changed
+
+    # ------------------------------------------------------------- control
+
+    def request_abort(self, run_id: str) -> Tuple[bool, str]:
+        """Ask a live run to stop. The supervision loop sees 'aborting' on its
+        next status poll and kills the child; the final outcome is 'aborted'.
+        Works across workers — the DB row carries the signal."""
+        run = self._db_get_run(run_id)
+        if not run:
+            return False, "run not found"
+        if run.get("status") not in LIVE_STATUSES:
+            return False, f"run is not live (status: {run.get('status')})"
+        if self._db_set_run_status(run_id, "aborting", only_if_in=("running", "waiting")):
+            return True, "abort requested — the run will stop within a few seconds"
+        return False, "run just finished or abort already requested"
 
     def _db_insert_run(self, row: Dict):
         conn = self._db_conn()
@@ -264,6 +358,33 @@ class AutomationRunner:
             "started_at": r.started_at.isoformat() if r.started_at else None,
             "finished_at": r.finished_at.isoformat() if r.finished_at else None,
         }
+
+    def list_active_runs(self) -> List[Dict]:
+        """All live runs (running / waiting / aborting) with automation names —
+        Mission Control's board."""
+        conn = self._db_conn()
+        cursor = conn.cursor()
+        placeholders = ", ".join("?" for _ in LIVE_STATUSES)
+        cursor.execute(
+            f"""SELECT r.run_id, r.automation_id, a.name, r.version, r.trigger_source,
+                       r.status, r.started_at, r.log_path
+                FROM AutomationRuns r
+                JOIN Automations a ON a.automation_id = r.automation_id
+                WHERE r.status IN ({placeholders})
+                ORDER BY r.started_at DESC""",
+            *LIVE_STATUSES,
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [
+            {
+                "run_id": r.run_id, "automation_id": r.automation_id, "name": r.name,
+                "version": r.version, "trigger_source": r.trigger_source, "status": r.status,
+                "started_at": r.started_at.isoformat() if r.started_at else None,
+                "log_path": r.log_path,
+            }
+            for r in rows
+        ]
 
     def _db_list_runs(self, automation_id: str, limit: int = 50) -> List[Dict]:
         conn = self._db_conn()
@@ -507,29 +628,26 @@ class AutomationRunner:
         if not python_exe:
             return {"status": "failed", "error": "no usable Python interpreter found"}
 
-        # -- execute
-        timed_out = False
-        try:
-            proc = subprocess.run(
-                [python_exe, entrypoint],
-                cwd=workdir, env=env, capture_output=True, text=True,
-                encoding="utf-8", errors="replace", timeout=timeout,
-            )
-            exit_code, stdout, stderr = proc.returncode, proc.stdout or "", proc.stderr or ""
-        except subprocess.TimeoutExpired as te:
-            timed_out = True
-            exit_code = None
-            stdout = (te.stdout or b"").decode("utf-8", "replace") if isinstance(te.stdout, bytes) else (te.stdout or "")
-            stderr = (te.stderr or b"").decode("utf-8", "replace") if isinstance(te.stderr, bytes) else (te.stderr or "")
+        # -- execute under supervision: incremental output, live events, and
+        # honest cancellation (abort request or timeout kills the child)
+        events = RunEventLog(workdir)
+        events.emit("run_started", automation=auto["name"], automation_id=automation_id,
+                    run_id=run_id, version=version, dry_run=dry_run, timeout=timeout)
+        exit_code, stdout, stderr, timed_out, aborted = self._supervise(
+            [python_exe, entrypoint], workdir, env, timeout, run_id, events)
 
         # -- sweep new files (before verification so the report can reference them)
         output_files = []
         for root, _dirs, files in os.walk(workdir):
             for name in files:
                 rel = os.path.relpath(os.path.join(root, name), workdir)
-                if rel not in pre_run_files and rel not in (_RUN_LOG_NAME, _EGRESS_LOG_NAME):
+                if (rel not in pre_run_files
+                        and rel not in (_RUN_LOG_NAME, _EGRESS_LOG_NAME, _EVENTS_FILE)
+                        and not os.path.basename(rel).startswith("checkpoint_")):
                     output_files.append(rel)
         output_files.sort()
+        for f_rel in output_files:
+            events.emit("output_file", path=f_rel)
 
         # -- fold the egress log (network destinations the script connected to)
         egress = ""
@@ -540,7 +658,9 @@ class AutomationRunner:
             pass
 
         # -- honest outcome
-        if timed_out:
+        if aborted:
+            status, verify_report, error = "aborted", None, "aborted by user"
+        elif timed_out:
             status, verify_report, error = "failed", None, f"timed out after {timeout}s"
         elif exit_code != 0:
             status, verify_report, error = "failed", None, f"exit code {exit_code}"
@@ -548,6 +668,13 @@ class AutomationRunner:
             status, verify_report = verify_outputs(manifest, workdir, inputs,
                                                    secret_resolver=self._resolve_secret)
             error = "declared output verification failed" if status == "failed" else None
+        for entry in (verify_report or []):
+            for check in entry.get("checks", []):
+                events.emit("verify", kind=entry.get("kind"),
+                            target=entry.get("path") or entry.get("name"),
+                            check=check.get("check"), ok=check.get("ok"),
+                            note=check.get("note"))
+        events.emit("finished", status=status, exit_code=exit_code, error=error)
 
         self._write_log(
             log_dir=workdir,
@@ -563,6 +690,99 @@ class AutomationRunner:
             "stdout_tail": stdout[-2000:], "stderr_tail": stderr[-2000:],
             "workdir": workdir,
         }
+
+    def _supervise(self, cmd: List[str], workdir: str, env: Dict, timeout: int,
+                   run_id: str, events: RunEventLog) -> Tuple[Optional[int], str, str, bool, bool]:
+        """Run the child under a supervision loop instead of a blocking wait:
+        stdout/stderr stream to the event sidecar line-by-line as they happen,
+        new egress destinations are surfaced live, and the loop honors an
+        abort request (run status flipped to 'aborting' by the abort endpoint
+        — works across workers because the DB carries the signal).
+
+        Returns (exit_code, stdout, stderr, timed_out, aborted)."""
+        out_lines: List[str] = []
+        err_lines: List[str] = []
+
+        try:
+            proc = subprocess.Popen(
+                cmd, cwd=workdir, env=env,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, encoding="utf-8", errors="replace",
+            )
+        except Exception as e:
+            return None, "", f"could not start interpreter: {e}", False, False
+
+        def _pump(pipe, sink, stream_name):
+            try:
+                for line in iter(pipe.readline, ""):
+                    sink.append(line)
+                    events.emit("log", stream=stream_name, line=line.rstrip("\n")[:2000])
+            except Exception:
+                pass
+            finally:
+                try:
+                    pipe.close()
+                except Exception:
+                    pass
+
+        readers = [
+            threading.Thread(target=_pump, args=(proc.stdout, out_lines, "out"), daemon=True),
+            threading.Thread(target=_pump, args=(proc.stderr, err_lines, "err"), daemon=True),
+        ]
+        for t in readers:
+            t.start()
+
+        deadline = time.monotonic() + timeout
+        egress_pos = 0
+        next_status_poll = 0.0
+        timed_out = aborted = False
+        egress_path = os.path.join(workdir, _EGRESS_LOG_NAME)
+
+        while proc.poll() is None:
+            now = time.monotonic()
+            if now > deadline:
+                timed_out = True
+                self._kill(proc)
+                break
+            if now >= next_status_poll:
+                next_status_poll = now + _STATUS_POLL_SECONDS
+                try:
+                    if self._db_get_run_field(run_id, "status") == "aborting":
+                        aborted = True
+                        events.emit("abort", note="abort requested by user — terminating")
+                        self._kill(proc)
+                        break
+                except Exception:
+                    pass  # a status-poll hiccup must never kill a healthy run
+            # stream any new egress destinations
+            try:
+                with open(egress_path, "r", encoding="utf-8") as f:
+                    f.seek(egress_pos)
+                    for line in f:
+                        if line.strip():
+                            events.emit("egress", dest=line.strip()[:300])
+                    egress_pos = f.tell()
+            except FileNotFoundError:
+                pass
+            except Exception:
+                pass
+            time.sleep(_SUPERVISE_TICK_SECONDS)
+
+        for t in readers:
+            t.join(timeout=5)
+        exit_code = proc.poll()
+        return exit_code, "".join(out_lines), "".join(err_lines), timed_out, aborted
+
+    @staticmethod
+    def _kill(proc):
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        try:
+            proc.wait(timeout=10)
+        except Exception:
+            pass
 
     @staticmethod
     def _log_header(auto: Dict, version: int, python_exe: Optional[str]) -> str:

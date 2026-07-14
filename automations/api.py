@@ -26,7 +26,7 @@ import os
 import threading
 import uuid
 from functools import wraps
-from typing import Optional
+from typing import Dict, Optional
 
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
@@ -438,6 +438,214 @@ def list_schedules(automation_id):
     ]})
 
 
+# --------------------------------------------------- live runs (Studio feed)
+
+def _run_workdir(run: Dict) -> Optional[str]:
+    log_path = (run or {}).get("log_path")
+    return os.path.dirname(log_path) if log_path else None
+
+
+def _read_events(run: Dict, after: int = 0, limit: int = 500):
+    """Tail the run's events.jsonl sidecar starting after seq `after`."""
+    workdir = _run_workdir(run)
+    if not workdir:
+        return []
+    path = os.path.join(workdir, "events.jsonl")
+    events = []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except ValueError:
+                    continue
+                if ev.get("seq", 0) > after:
+                    events.append(ev)
+                    if len(events) >= limit:
+                        break
+    except FileNotFoundError:
+        pass
+    return events
+
+
+def _run_live_payload(run: Dict, after: int = 0) -> Dict:
+    """The Studio's poll payload: run state + new events + open checkpoints."""
+    from .checkpoints import list_checkpoints
+    events = _read_events(run, after)
+    workdir = _run_workdir(run)
+    checkpoints = list_checkpoints(workdir) if workdir else []
+    return {
+        "run": run,
+        "events": events,
+        "next": events[-1]["seq"] if events else after,
+        "checkpoints": checkpoints,
+        "pending_checkpoint": next((c for c in checkpoints if not c.get("decision")), None),
+    }
+
+
+@automations_bp.route("/api/runs/<run_id>/events", methods=["GET"])
+@automations_gate
+def run_events(run_id):
+    run = _get_runner().get_run(run_id)
+    if not run:
+        return jsonify({"error": "not found"}), 404
+    after = request.args.get("after", default=0, type=int)
+    return jsonify(_run_live_payload(run, after))
+
+
+@automations_bp.route("/api/active", methods=["GET"])
+@automations_gate
+def active_runs():
+    return jsonify({"active": _get_runner().list_active_runs()})
+
+
+@automations_bp.route("/api/runs/<run_id>/abort", methods=["POST"])
+@automations_gate
+def abort_run(run_id):
+    ok, note = _get_runner().request_abort(run_id)
+    return jsonify({"ok": ok, "note": note}), (200 if ok else 409)
+
+
+@automations_bp.route("/api/runs/<run_id>/checkpoints/<checkpoint_id>/decision", methods=["POST"])
+@automations_gate
+def checkpoint_decision(run_id, checkpoint_id):
+    """Human decision on a checkpoint gate: proceed resumes the script's poll
+    loop; abort flips the run to 'aborting' (the supervision loop kills it)."""
+    decision = (request.get_json(silent=True) or {}).get("decision")
+    if decision not in ("proceed", "abort"):
+        return jsonify({"error": "decision must be 'proceed' or 'abort'"}), 400
+    result, code = _decide_checkpoint(run_id, checkpoint_id, decision, current_user.id)
+    return jsonify(result), code
+
+
+def _decide_checkpoint(run_id, checkpoint_id, decision, decided_by):
+    from .checkpoints import decide_checkpoint
+    runner = _get_runner()
+    run = runner.get_run(run_id)
+    if not run:
+        return {"error": "run not found"}, 404
+    workdir = _run_workdir(run)
+    if not workdir:
+        return {"error": "run has no workdir"}, 409
+    checkpoint = decide_checkpoint(workdir, checkpoint_id, decision, decided_by)
+    if checkpoint is None:
+        return {"error": "checkpoint not found"}, 404
+    if decision == "proceed":
+        runner._db_set_run_status(run_id, "running", only_if_in=("waiting",))
+    else:
+        runner._db_set_run_status(run_id, "aborting", only_if_in=("waiting", "running"))
+    try:
+        from .runner import RunEventLog
+        RunEventLog(workdir).emit("checkpoint_decided",
+                                  checkpoint_id=checkpoint_id, decision=decision)
+    except Exception:
+        pass
+    return {"checkpoint": checkpoint}, 200
+
+
+# --------------------------------------------- runtime checkpoint (SDK side)
+
+@automations_bp.route("/api/runtime/checkpoint", methods=["POST", "GET"])
+def runtime_checkpoint():
+    """SDK side of a checkpoint gate (run-token auth, like runtime/resolve).
+
+    POST {token, message} → creates the gate, flips the run to 'waiting',
+    notifies the requesting user (in-app always; SMS/email behind env flags),
+    returns {checkpoint_id}.
+    GET ?token=...&checkpoint_id=... → {decision: null|proceed|abort} for the
+    SDK's poll loop."""
+    if not getattr(cfg, "AUTOMATIONS_ENABLED", False):
+        return jsonify({"error": "Automations feature is disabled"}), 403
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        token, message = data.get("token"), data.get("message") or "Checkpoint"
+    else:
+        token, message = request.args.get("token"), None
+
+    from shared_auth import verify_automation_run_token
+    claims, err = verify_automation_run_token(token or "")
+    if err:
+        return jsonify({"error": f"invalid run token: {err}"}), 403
+    run = _get_runner().get_run(claims.get("run_id", ""))
+    from .runner import LIVE_STATUSES
+    if (not run or run.get("automation_id") != claims.get("automation_id")
+            or run.get("status") not in LIVE_STATUSES):
+        return jsonify({"error": "run token does not match a live run"}), 403
+    workdir = _run_workdir(run)
+    if not workdir:
+        return jsonify({"error": "run has no workdir"}), 409
+
+    from . import checkpoints as cp
+    if request.method == "GET":
+        checkpoint = cp.get_checkpoint(workdir, request.args.get("checkpoint_id", ""))
+        if checkpoint is None:
+            return jsonify({"error": "checkpoint not found"}), 404
+        return jsonify({"decision": checkpoint.get("decision")})
+
+    checkpoint = cp.create_checkpoint(workdir, message)
+    _get_runner()._db_set_run_status(run["run_id"], "waiting", only_if_in=("running",))
+    try:
+        from .runner import RunEventLog
+        RunEventLog(workdir).emit("checkpoint", checkpoint_id=checkpoint["checkpoint_id"],
+                                  message=checkpoint["message"])
+    except Exception:
+        pass
+    _notify_checkpoint(run, checkpoint)
+    return jsonify({"checkpoint_id": checkpoint["checkpoint_id"], "poll_seconds": 2})
+
+
+def _notify_checkpoint(run: Dict, checkpoint: Dict):
+    """In-app is implicit (Mission Control + Studio show 'waiting' instantly).
+    SMS/email are opt-in via env flags and go to the run's requesting user.
+    Never fatal — a notification failure must not affect the gate."""
+    auto = _get_manager().get_automation(run.get("automation_id", "")) or {}
+    text = (f"AI Hub: automation '{auto.get('name', run.get('automation_id'))}' is paused "
+            f"and waiting on you: {checkpoint.get('message')} — decide in Mission Control.")
+    user_id = run.get("requested_by")
+    if not user_id:
+        return
+    email, phone = _user_contact(user_id)
+    if os.getenv("AUTOMATIONS_CHECKPOINT_NOTIFY_SMS", "false").lower() == "true" and phone:
+        try:
+            from AppUtils import sms_text_message_alert
+            sms_text_message_alert(text, phone)
+        except Exception as e:
+            logger.warning(f"checkpoint SMS notify failed: {e}")
+    if os.getenv("AUTOMATIONS_CHECKPOINT_NOTIFY_EMAIL", "false").lower() == "true" and email:
+        try:
+            from AppUtils import send_email_notification
+            send_email_notification(email, "Automation waiting on your decision", text)
+        except Exception as e:
+            logger.warning(f"checkpoint email notify failed: {e}")
+
+
+def _user_contact(user_id):
+    """(email, phone) for a user id; missing columns/rows are simply None."""
+    email = phone = None
+    try:
+        conn = _get_manager()._db_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT email FROM [User] WHERE id = ?", int(user_id))
+        row = cursor.fetchone()
+        email = row[0] if row else None
+        for col in ("phone", "phone_number", "mobile"):
+            try:
+                cursor.execute(f"SELECT {col} FROM [User] WHERE id = ?", int(user_id))
+                row = cursor.fetchone()
+                if row and row[0]:
+                    phone = row[0]
+                    break
+            except Exception:
+                continue
+        conn.close()
+    except Exception as e:
+        logger.warning(f"user contact lookup failed for {user_id}: {e}")
+    return email, phone
+
+
 # ------------------------------------------------------------ webhook trigger
 
 def _webhook_token(automation_id: str) -> Optional[str]:
@@ -539,8 +747,10 @@ def runtime_resolve():
         logger.warning(f"runtime_resolve: run {claims.get('run_id')} asked for undeclared {kind} '{name}'")
         return jsonify({"error": f"{kind} '{name}' is not declared in this automation's manifest"}), 403
 
+    from .runner import LIVE_STATUSES
     run = _get_runner().get_run(claims.get("run_id", ""))
-    if not run or run.get("status") != "running" or run.get("automation_id") != claims.get("automation_id"):
+    if (not run or run.get("status") not in LIVE_STATUSES
+            or run.get("automation_id") != claims.get("automation_id")):
         return jsonify({"error": "run token does not match a live run"}), 403
 
     if kind == "connection":
@@ -659,6 +869,28 @@ def internal_manage():
             if log is None:
                 return jsonify({"error": "no log for this run"}), 404
             return jsonify({"log": log})
+
+        if action == "active":
+            return jsonify({"active": runner.list_active_runs()})
+
+        if action == "run_events":
+            run = runner.get_run(payload.get("run_id", ""))
+            if not run:
+                return jsonify({"error": "run not found"}), 404
+            return jsonify(_run_live_payload(run, int(payload.get("after", 0))))
+
+        if action == "abort":
+            ok, note = runner.request_abort(payload.get("run_id", ""))
+            return jsonify({"ok": ok, "note": note}), (200 if ok else 409)
+
+        if action == "checkpoint_decision":
+            decision = payload.get("decision")
+            if decision not in ("proceed", "abort"):
+                return jsonify({"error": "decision must be 'proceed' or 'abort'"}), 400
+            result, code = _decide_checkpoint(payload.get("run_id", ""),
+                                              payload.get("checkpoint_id", ""),
+                                              decision, user_id)
+            return jsonify(result), code
 
         if action == "schedule":
             auto = _need_auto()

@@ -34,7 +34,8 @@ import sys as _sys
 import urllib.error as _urlerror
 import urllib.request as _urlrequest
 
-__all__ = ["connection", "secret", "input", "inputs", "log", "AutomationRuntimeError"]
+__all__ = ["connection", "secret", "input", "inputs", "log", "checkpoint",
+           "AutomationRuntimeError", "AutomationAborted"]
 
 _RESOLVE_PATH = "/automations/api/runtime/resolve"
 _HTTP_TIMEOUT = int(_os.getenv("AIHUB_RUNTIME_HTTP_TIMEOUT", "30") or "30")
@@ -45,6 +46,16 @@ _inputs_cache = None
 
 class AutomationRuntimeError(RuntimeError):
     """A platform resource could not be resolved for this run."""
+
+
+class AutomationAborted(SystemExit):
+    """A human declined a checkpoint — the run is being stopped. Exits with
+    code 75 if uncaught; the platform records the honest outcome 'aborted'
+    regardless (the supervisor terminates the process)."""
+
+    def __init__(self, message):
+        super().__init__(75)
+        self.message = message
 
 
 def _env_var_name(prefix, name):
@@ -129,3 +140,65 @@ def input(name, default=None):  # noqa: A001 - deliberate, reads naturally in sc
 def log(message):
     """Structured progress line; lands in the run log (stdout)."""
     print(f"[aihub] {message}", flush=True)
+
+
+def _runtime_post(path, body):
+    base_url = (_os.environ.get("AIHUB_RUNTIME_URL") or "").rstrip("/")
+    if not base_url:
+        raise AutomationRuntimeError(
+            "not started by the automation runner (AIHUB_RUNTIME_URL missing)")
+    req = _urlrequest.Request(
+        base_url + path, data=_json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"}, method="POST")
+    with _urlrequest.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:
+        return _json.loads(resp.read().decode("utf-8"))
+
+
+def checkpoint(message, poll_seconds=2):
+    """PAUSE the run at a human-judgment gate and wait for a decision.
+
+    Shows `message` to the user in Mission Control / the Studio panel (keep it
+    concrete: "About to upload 1,240 rows to acme-sftp — 3x larger than last
+    run"). Blocks until a Developer clicks Proceed (returns True) or Abort
+    (raises AutomationAborted). The automation's overall timeout still
+    applies while waiting — an unanswered gate times the run out honestly.
+
+    Use before irreversible steps: uploads, deletions, sends, anything that
+    crosses a system boundary with unusual data."""
+    import time as _time
+
+    token = _os.environ.get("AIHUB_RUN_TOKEN")
+    if not token:
+        raise AutomationRuntimeError(
+            "checkpoint() requires the run token (AIHUB_RUN_TOKEN missing)")
+    try:
+        created = _runtime_post("/automations/api/runtime/checkpoint",
+                                {"token": token, "message": str(message)})
+    except AutomationRuntimeError:
+        raise
+    except Exception as e:
+        raise AutomationRuntimeError(f"could not open checkpoint: {e}") from None
+    checkpoint_id = created.get("checkpoint_id")
+    if not checkpoint_id:
+        raise AutomationRuntimeError(
+            f"could not open checkpoint: {created.get('error', 'no id returned')}")
+    log(f"checkpoint: {message} — waiting for a decision")
+
+    base_url = (_os.environ.get("AIHUB_RUNTIME_URL") or "").rstrip("/")
+    from urllib.parse import urlencode as _urlencode
+    query = _urlencode({"token": token, "checkpoint_id": checkpoint_id})
+    while True:
+        _time.sleep(max(1, int(created.get("poll_seconds", poll_seconds))))
+        try:
+            with _urlrequest.urlopen(
+                    base_url + "/automations/api/runtime/checkpoint?" + query,
+                    timeout=_HTTP_TIMEOUT) as resp:
+                decision = _json.loads(resp.read().decode("utf-8")).get("decision")
+        except Exception:
+            continue  # transient poll failure — the gate stands; keep waiting
+        if decision == "proceed":
+            log("checkpoint approved — continuing")
+            return True
+        if decision == "abort":
+            log("checkpoint declined — aborting")
+            raise AutomationAborted(str(message))
