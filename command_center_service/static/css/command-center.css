@@ -421,7 +421,7 @@ code, pre, .cc-code {
     border-bottom: 1px solid var(--cc-border);
 }
 
-.cc-chat-header h1 { font-size: 16px; font-weight: 500; }
+.cc-chat-header h1 { font-size: 16px; font-weight: 500; margin-right: 16px; }
 
 .cc-status {
     font-size: 12px;
