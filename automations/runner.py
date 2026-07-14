@@ -614,18 +614,21 @@ class AutomationRunner:
                             stdout="", stderr=error, footer="outcome: failed (pre-flight)")
             return {"status": "failed", "error": error}
 
-        if conn_names or secret_names:
-            token = self._mint_run_token(automation_id, run_id, conn_names, secret_names,
-                                         ttl_seconds=timeout + 900)
-            if token:
-                env["AIHUB_RUN_TOKEN"] = token
-                env["AIHUB_RUNTIME_URL"] = self._runtime_base_url()
-            elif not env_inject:
-                error = ("cannot provide credentials to the run: run-token signing is "
-                         "unavailable (no JWT secret) and AUTOMATIONS_ENV_CRED_INJECTION is off")
-                self._write_log(log_dir=workdir, header=self._log_header(auto, version, None),
-                                stdout="", stderr=error, footer="outcome: failed (pre-flight)")
-                return {"status": "failed", "error": error}
+        # The run token is minted for EVERY run, not just credentialed ones —
+        # aihub.checkpoint() needs it too (AIHUB-0031 F2: a checkpoint-only
+        # automation got no token and the gate call failed). Credential
+        # resolution is still bounded by the allowlists in the claims.
+        token = self._mint_run_token(automation_id, run_id, conn_names, secret_names,
+                                     ttl_seconds=timeout + 900)
+        if token:
+            env["AIHUB_RUN_TOKEN"] = token
+            env["AIHUB_RUNTIME_URL"] = self._runtime_base_url()
+        elif (conn_names or secret_names) and not env_inject:
+            error = ("cannot provide credentials to the run: run-token signing is "
+                     "unavailable (no JWT secret) and AUTOMATIONS_ENV_CRED_INJECTION is off")
+            self._write_log(log_dir=workdir, header=self._log_header(auto, version, None),
+                            stdout="", stderr=error, footer="outcome: failed (pre-flight)")
+            return {"status": "failed", "error": error}
 
         python_exe = self._resolve_python(auto.get("environment_id"))
         if not python_exe:

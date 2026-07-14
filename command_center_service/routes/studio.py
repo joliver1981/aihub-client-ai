@@ -50,6 +50,15 @@ def _manage(action, uc, payload):
     return automation_tools.manage(action, uc, payload, timeout=30)
 
 
+def _relay(res, ok_code=200):
+    """Relay the upstream status code (401/403/404/409/...) instead of
+    flattening every failure — AIHUB-0031 F3 saw abort report 409 when the
+    real problem was an upstream 401."""
+    code = ok_code if res.get("ok") else (res.get("status_code") or 502)
+    res.pop("status_code", None)
+    return JSONResponse(res, status_code=code)
+
+
 @router.get("/state")
 async def studio_state_get(request: Request, session_id: str = ""):
     """The panel's heartbeat poll: the per-session build hint. Cheap on
@@ -74,7 +83,7 @@ async def studio_automation(automation_id: str, request: Request):
     if err:
         return err
     res = _manage("get", uc, {"automation_id": automation_id})
-    return JSONResponse(res, status_code=200 if res.get("ok") else 502)
+    return _relay(res)
 
 
 @router.get("/active")
@@ -83,7 +92,7 @@ async def studio_active(request: Request):
     if err:
         return err
     res = _manage("active", uc, {})
-    return JSONResponse(res, status_code=200 if res.get("ok") else 502)
+    return _relay(res)
 
 
 @router.get("/runs/{run_id}/events")
@@ -93,7 +102,7 @@ async def studio_run_events(run_id: str, request: Request, after: int = 0):
     if err:
         return err
     res = _manage("run_events", uc, {"run_id": run_id, "after": after})
-    return JSONResponse(res, status_code=200 if res.get("ok") else 502)
+    return _relay(res)
 
 
 @router.post("/runs/{run_id}/abort")
@@ -102,7 +111,7 @@ async def studio_abort(run_id: str, request: Request):
     if err:
         return err
     res = _manage("abort", uc, {"run_id": run_id})
-    return JSONResponse(res, status_code=200 if res.get("ok") else 409)
+    return _relay(res)
 
 
 @router.post("/runs/{run_id}/checkpoints/{checkpoint_id}/decision")
@@ -120,4 +129,4 @@ async def studio_checkpoint_decision(run_id: str, checkpoint_id: str, request: R
         return JSONResponse({"error": "decision must be 'proceed' or 'abort'"}, status_code=400)
     res = _manage("checkpoint_decision", uc,
                   {"run_id": run_id, "checkpoint_id": checkpoint_id, "decision": decision})
-    return JSONResponse(res, status_code=200 if res.get("ok") else 502)
+    return _relay(res)

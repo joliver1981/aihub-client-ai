@@ -766,6 +766,77 @@ class TestSdkEndToEnd:
         assert result["status"] == "failed"
         assert "run-token signing is unavailable" in result["error"]
 
+    def test_token_minted_even_without_declared_credentials(self, mgr, monkeypatch):
+        """AIHUB-0031 F2: aihub.checkpoint() needs the run token, so it must be
+        minted for EVERY run — not only when connections/secrets are declared."""
+        import automations.runner as runner_mod
+        monkeypatch.setattr(runner_mod, "_load_cfg", lambda: _NoInjectCfg)
+        monkeypatch.setenv("CC_JWT_SECRET", "f2-token-secret")
+        monkeypatch.setenv("AUTOMATIONS_RUNTIME_URL", "http://127.0.0.1:9")
+        code = (
+            "import os, json\n"
+            "json.dump({'token': bool(os.environ.get('AIHUB_RUN_TOKEN')),\n"
+            "           'url': bool(os.environ.get('AIHUB_RUNTIME_URL'))},\n"
+            "          open('t.json', 'w'))\n"
+        )
+        aid = _make_automation(mgr, code, {"name": "checkpoint-only"})  # NO creds declared
+        result = StubRunner(mgr).run(aid)
+        assert result["status"] == "success", result
+        report = json.load(open(os.path.join(result["workdir"], "t.json")))
+        assert report == {"token": True, "url": True}
+
+    def test_no_token_without_creds_still_runs(self, mgr, monkeypatch):
+        """Signing unavailable + no creds declared: the run proceeds (only
+        checkpoint()/resolve would fail inside, honestly, if called)."""
+        import automations.runner as runner_mod
+        monkeypatch.setattr(runner_mod, "_load_cfg", lambda: _NoInjectCfg)
+        aid = _make_automation(mgr, "print('fine')\n", {"name": "no-sign-no-creds"})
+        runner = StubRunner(mgr)
+        monkeypatch.setattr(runner, "_mint_run_token", lambda *a, **k: None)
+        result = runner.run(aid)
+        assert result["status"] == "success", result
+
+
+class TestServiceKeyAuth:
+    """AIHUB-0031 F1: internal endpoints must accept BOTH the raw tenant
+    API_KEY (scheduler convention) and the machine-derived internal service
+    key (what CC sends when AI_HUB_API_KEY isn't pinned)."""
+
+    def test_key_matrix(self, monkeypatch):
+        import automations.api as api_mod
+        monkeypatch.setenv("API_KEY", "raw-tenant-key")
+        import role_decorators
+        monkeypatch.setattr(role_decorators, "get_internal_api_key", lambda: "derived-internal-key")
+        assert api_mod._service_key_ok("raw-tenant-key") is True
+        assert api_mod._service_key_ok("derived-internal-key") is True
+        assert api_mod._service_key_ok("wrong") is False
+        assert api_mod._service_key_ok("") is False
+        assert api_mod._service_key_ok(None) is False
+
+    def test_internal_manage_accepts_derived_key(self, monkeypatch, mgr):
+        from flask import Flask
+        import automations.api as api_mod
+        import role_decorators
+        monkeypatch.setenv("API_KEY", "raw-tenant-key")
+        monkeypatch.setattr(role_decorators, "get_internal_api_key", lambda: "derived-internal-key")
+        monkeypatch.setattr(api_mod, "_manager", mgr)
+        monkeypatch.setattr(api_mod, "_runner", StubRunner(mgr))
+        app = Flask(__name__)
+        app.register_blueprint(api_mod.automations_bp)
+        client = app.test_client()
+        r = client.post("/automations/api/internal/manage",
+                        headers={"X-API-Key": "derived-internal-key"},
+                        json={"action": "list",
+                              "user_context": {"user_id": 7, "role": 2, "username": "cc"},
+                              "payload": {}})
+        assert r.status_code == 200, r.get_json()
+        r = client.post("/automations/api/internal/manage",
+                        headers={"X-API-Key": "nope"},
+                        json={"action": "list",
+                              "user_context": {"user_id": 7, "role": 2, "username": "cc"},
+                              "payload": {}})
+        assert r.status_code == 401
+
 
 class TestResolveEndpoint:
     """The real Flask endpoint: signature, allowlist, and live-run checks."""

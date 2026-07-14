@@ -48,10 +48,14 @@ def manage(action: str, user_context: Dict[str, Any],
         except ValueError:
             data = {"error": f"non-JSON response (HTTP {resp.status_code})"}
         data["ok"] = resp.status_code < 400
+        # carry the real upstream code so proxies can relay it instead of
+        # flattening every failure to one status (AIHUB-0031 F3)
+        data["status_code"] = resp.status_code
         return data
     except requests.RequestException as e:
         logger.warning(f"automations manage({action}) failed: {e}")
-        return {"ok": False, "error": f"could not reach the automations service: {e}"}
+        return {"ok": False, "status_code": 502,
+                "error": f"could not reach the automations service: {e}"}
 
 
 def summarize_run(result: Dict[str, Any]) -> str:

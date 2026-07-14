@@ -61,6 +61,28 @@ def _get_runner() -> AutomationRunner:
     return _runner
 
 
+def _service_key_ok(provided: Optional[str]) -> bool:
+    """Service-to-service auth for the internal endpoints. Accepts EITHER the
+    raw tenant API_KEY (the scheduler's convention) OR the machine-derived
+    internal service key (what the CC service sends when AI_HUB_API_KEY isn't
+    pinned in its env — AIHUB-0031 F1: all Studio proxy calls 502'd because
+    only the raw key was accepted). Constant-time compares."""
+    import hmac as _hmac
+    if not provided:
+        return False
+    raw = os.getenv("API_KEY", "")
+    if raw and _hmac.compare_digest(provided, raw):
+        return True
+    try:
+        from role_decorators import get_internal_api_key
+        derived = get_internal_api_key()
+        if derived and _hmac.compare_digest(provided, derived):
+            return True
+    except Exception as e:
+        logger.debug(f"internal-key derivation unavailable: {e}")
+    return False
+
+
 def automations_gate(f):
     """Feature flag + Developer/Admin role, same shape as agent_environments."""
     @wraps(f)
@@ -894,7 +916,7 @@ def internal_manage():
 
     Body: {"action": ..., "user_context": {"user_id": int, "role": int,
            "username": str}, "payload": {...}}"""
-    if request.headers.get("X-API-Key") != os.getenv("API_KEY", ""):
+    if not _service_key_ok(request.headers.get("X-API-Key")):
         return jsonify({"error": "unauthorized"}), 401
     if not getattr(cfg, "AUTOMATIONS_ENABLED", False):
         return jsonify({"error": "Automations feature is disabled"}), 403
@@ -1036,7 +1058,7 @@ def internal_run():
     type. X-API-Key auth, same as the CC scheduled-run pattern. Runs the
     PINNED version, waits, and returns the honest outcome so the scheduler
     can record it."""
-    if request.headers.get("X-API-Key") != os.getenv("API_KEY", ""):
+    if not _service_key_ok(request.headers.get("X-API-Key")):
         return jsonify({"error": "unauthorized"}), 401
     if not getattr(cfg, "AUTOMATIONS_ENABLED", False):
         return jsonify({"error": "Automations feature is disabled"}), 403
