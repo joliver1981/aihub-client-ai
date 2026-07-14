@@ -153,3 +153,42 @@ class TestClassifyIntentAutomationGuard:
         guard_pos = src.find("automation guard matched", ci_start)
         block = src[guard_pos - 900:guard_pos]
         assert '"builder"' in block  # active builder sessions keep their routing
+
+
+class TestConverseToolLoopHardening:
+    """Found live by the arbiter on human test 08/A2: after a transient tool
+    error, converse retried the IDENTICAL create_automation call 6× (never
+    progressing), hit the round cap, and the forced wrap-up CONFABULATED "the
+    tools are not available in the current runtime" — when the tools had been
+    called and had returned errors. Two fixes, both in the converse tool loop
+    (LLM-driven, so verified at the wiring level here; behavior is the tester's
+    live retest)."""
+
+    def test_anti_repeat_guard_short_circuits_identical_calls(self):
+        src = Path(nodes.__file__).read_text(encoding="utf-8")
+        assert "_seen_calls" in src and "_call_key" in src, "anti-repeat guard missing"
+        # the short-circuit must sit INSIDE the round loop and skip re-execution
+        loop = src[src.find("while _has_tc and _round < _MAX_TOOL_ROUNDS"):
+                   src.find("# ── Output sanitizer")]
+        assert "if _k in _seen_calls:" in loop
+        assert "short-circuiting" in loop
+        # the short-circuit path must NOT re-invoke the tool (it continues)
+        sc = loop[loop.find("if _k in _seen_calls:"):]
+        assert sc[:sc.find("continue")].count("tool_fn.ainvoke") == 0
+
+    def test_seen_calls_seeded_from_round_one(self):
+        src = Path(nodes.__file__).read_text(encoding="utf-8")
+        # round-1 calls must be recorded so a round-2 verbatim repeat is caught
+        assert 'for _tc0, _tr0 in zip(getattr(response, "tool_calls", []) or [], tool_results)' in src
+
+    def test_honest_wrapup_nudge_on_capped_toolless_pass(self):
+        src = Path(nodes.__file__).read_text(encoding="utf-8")
+        # the nudge must exist and forbid the exact confabulation observed
+        assert "NEVER say the tools are unavailable" in src
+        assert "promoted, or verified unless a tool result explicitly confirms it" in src
+        # it must be applied on the tool-LESS capped pass (llm.ainvoke), the
+        # branch that produced the confabulation — not the tool-bound branch
+        cap_start = src.find("hit tool-round cap")
+        cap = src[cap_start:src.find("has_tool_calls={_has_tc}", cap_start)]
+        assert "_honest_nudge" in cap
+        assert "llm.ainvoke(_convo + [_honest_nudge])" in cap

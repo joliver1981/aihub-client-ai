@@ -4512,6 +4512,24 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             _MAX_TOOL_ROUNDS = 6
             _round = 1
             _convo = follow_up_messages
+
+            # Anti-repeat guard (AIHUB-0028, found live): a model that gets a
+            # tool ERROR sometimes retries the IDENTICAL call every round until
+            # the cap, making no progress (observed: create_automation called
+            # 6× after a transient "could not reach" error, then a confabulated
+            # wrap-up). Track (tool, args) already tried this turn; a verbatim
+            # repeat is answered from cache with a firm "stop repeating" nudge
+            # instead of re-executing. Seed from round 1.
+            def _call_key(name, args):
+                try:
+                    return name + "|" + json.dumps(args, sort_keys=True, default=str)
+                except Exception:
+                    return name + "|" + str(args)
+
+            _seen_calls = {}
+            for _tc0, _tr0 in zip(getattr(response, "tool_calls", []) or [], tool_results):
+                _seen_calls[_call_key(_tc0["name"], _tc0["args"])] = str(_tr0.content)
+
             while _has_tc and _round < _MAX_TOOL_ROUNDS:
                 _round += 1
                 logger.info(f"[converse] Follow-up wants MORE tool calls — executing round {_round}")
@@ -4519,6 +4537,22 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 for tc in final_response.tool_calls:
                     tool_name = tc["name"]
                     tool_args = tc["args"]
+                    _k = _call_key(tool_name, tool_args)
+                    if _k in _seen_calls:
+                        logger.warning(
+                            f"[converse] Round {_round}: repeated identical call "
+                            f"{tool_name}(...) — short-circuiting to break the loop"
+                        )
+                        rn = (
+                            f"STOP — you already called {tool_name} with these exact arguments this "
+                            f"turn and it returned: {_seen_calls[_k][:600]}. Do not call it again "
+                            f"unchanged. Either change the arguments to fix the problem, call a "
+                            f"different tool to make progress, or stop and tell the user the real "
+                            f"outcome truthfully (including the error above). Never claim the tool is "
+                            f"unavailable — it was called and returned the result shown."
+                        )
+                        tool_results_n.append(ToolMessage(content=str(rn), tool_call_id=tc["id"]))
+                        continue
                     logger.info(f"[converse] Round {_round} tool call: {tool_name}({tool_args})")
                     tool_fn = tool_map.get(tool_name)
                     if tool_fn:
@@ -4534,6 +4568,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                             )
                     else:
                         rn = f"Unknown tool: {tool_name}"
+                    _seen_calls[_k] = str(rn)
                     tool_results_n.append(ToolMessage(content=str(rn), tool_call_id=tc["id"]))
 
                     # Track delegation
@@ -4582,7 +4617,20 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 else:
                     logger.warning(f"[converse] hit tool-round cap ({_MAX_TOOL_ROUNDS}); forcing a "
                                    "text wrap-up — the agent may not have finished its tool plan.")
-                    final_response = await llm.ainvoke(_convo)
+                    # Honest wrap-up (AIHUB-0028, found live): without guidance the
+                    # capped, tool-less pass confabulated ("the tools are not
+                    # available in the current runtime") when the tools had in fact
+                    # been called and returned errors. Force a truthful summary of
+                    # what actually happened — never a fabricated capability excuse.
+                    _honest_nudge = SystemMessage(content=(
+                        "You have reached the tool-call limit for this turn. Write a truthful summary "
+                        "based ONLY on what the tool results above actually returned. If any tool "
+                        "returned an error, report that error plainly and say the operation did NOT "
+                        "complete. NEVER say the tools are unavailable, not enabled, or missing — they "
+                        "were called; describe their real results. Do not claim anything was created, "
+                        "saved, promoted, or verified unless a tool result explicitly confirms it."
+                    ))
+                    final_response = await llm.ainvoke(_convo + [_honest_nudge])
                 trace_llm_call(state, node="converse", step=f"converse_round{_round}",
                                messages=_convo, response=final_response,
                                elapsed_ms=int((_trace_time.perf_counter() - _rN_t0) * 1000), model_hint="full")
