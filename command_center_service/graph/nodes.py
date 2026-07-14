@@ -1019,6 +1019,31 @@ async def classify_intent(state: CommandCenterState) -> dict:
             _guard_out["active_delegation"] = None
         return _guard_out
 
+    # AIHUB-0028 F1, round 2: AUTOMATION requests are converse territory — the
+    # automation tools live there and the Builder Agent doesn't know the asset
+    # type (it role-plays a clarify flow and never saves). The deterministic
+    # build guard above already ignores automation texts, but the LLM
+    # classifier below could still vote 'build' (observed live: "Create an
+    # automation called expense-audit…" → Builder clarify flow). Route
+    # automation mentions to converse DETERMINISTICALLY, before route memory
+    # and the LLM get a vote — the mirror image of the build guard. Converse
+    # is a safe landing either way: it holds the automation tools for
+    # Developers, the explicit refusal prompt for non-Developers, and its
+    # builder-delegation tool if the user really meant an agent/workflow.
+    # Active builder delegations are exempt (their CONTINUE path owns the
+    # session).
+    if (_AUTOMATIONS_TOOLS_ENABLED
+            and _BUILD_GUARD_AUTOMATION_RE.search(user_text)
+            and str((active or {}).get("agent_type") or "").lower() != "builder"):
+        logger.info(
+            "[classify_intent] automation guard matched — forcing intent=chat "
+            "(converse owns the automation tools)"
+        )
+        _auto_out = {"intent": "chat", "pending_agent_selection": False}
+        if active:
+            _auto_out["active_delegation"] = None
+        return _auto_out
+
     if not active or not active.get("agent_id"):
         from cc_config import USE_ROUTE_MEMORY
         # Never let a remembered agent route swallow a build request — a
