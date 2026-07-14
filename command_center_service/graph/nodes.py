@@ -934,6 +934,13 @@ _BUILD_GUARD_MEDIA_RE = re.compile(
     r"dashboard|visuali[sz]ation)\b",
     re.I,
 )
+# AUTOMATIONS are converse-tool territory (create/save/dry-run/promote/run via
+# the automation tools), NOT Builder Agent territory — the Builder doesn't know
+# the asset type and role-plays it (AIHUB-0028 F1: a save-code request routed
+# to the Builder and returned no save confirmation). A message that mentions
+# automations therefore never takes the deterministic build route; converse can
+# still explicitly delegate genuine agent/workflow work via its builder tool.
+_BUILD_GUARD_AUTOMATION_RE = re.compile(r"\bautomations?\b", re.I)
 
 
 def _is_explicit_build_request(text: str) -> bool:
@@ -951,6 +958,8 @@ def _is_explicit_build_request(text: str) -> bool:
     if _BUILD_GUARD_QUESTION_RE.match(text):
         return False
     if _BUILD_GUARD_MEDIA_RE.search(text):
+        return False
+    if _BUILD_GUARD_AUTOMATION_RE.search(text):
         return False
     if _BUILD_GUARD_REQUEST_RE.search(text):
         return True
@@ -1551,6 +1560,19 @@ async def converse(state: CommandCenterState) -> dict:
         )
 
     _automations_prompt = ""
+    if _AUTOMATIONS_TOOLS_ENABLED and not _automations_allowed(state):
+        # The user CANNOT build/run Automations. Say so explicitly, because
+        # without this the LLM answers an "automations" question from whatever
+        # it does have (e.g. the workflow list) instead of refusing —
+        # AIHUB-0028 F2.
+        _automations_prompt = (
+            "## AUTOMATIONS — NOT AVAILABLE TO THIS USER\n"
+            "This platform has an Automations feature (persisted AI-built Python solutions), "
+            "but it requires a Developer role and THIS user does not have it. If the user asks "
+            "to build, list, run, schedule or manage automations, politely explain that "
+            "Automations require a Developer role on this instance — do NOT substitute other "
+            "data (e.g. the workflow list) as if it were their automations."
+        )
     if _AUTOMATIONS_TOOLS_ENABLED and _automations_allowed(state):
         _automations_prompt = (
             "## AUTOMATIONS (create_automation / save_automation_code / dry_run_automation / "
@@ -1574,7 +1596,10 @@ async def converse(state: CommandCenterState) -> dict:
             "trustworthy. A run can be success / failed / unverified / skipped — report the outcome "
             "verbatim, never soften a failed or unverified run into success.\n"
             "- Scheduled runs execute the PROMOTED version only; editing code never changes a "
-            "schedule until you promote again."
+            "schedule until you promote again.\n"
+            "- NEVER delegate automation work to the Builder Agent — it does not know this asset "
+            "type. All automation operations go through these automation tools, and every save "
+            "must be confirmed to the user with the version number the tool returned."
         )
         if _AUTOMATIONS_PROPOSE_CHECKPOINTS:
             _automations_prompt += (
@@ -4135,7 +4160,12 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         tools.append(sftp_list_files)
         tools.append(sftp_download)
         tools.append(sftp_upload)
-    if _AUTOMATIONS_TOOLS_ENABLED:
+    # Bind-time role gate (AIHUB-0028 F2): a non-Developer never even SEES the
+    # automation tools, so the LLM can't half-answer an automations request
+    # from other data instead of refusing. The in-tool _automations_allowed
+    # checks stay as defense in depth; the server re-enforces at
+    # /automations/api/internal/manage regardless.
+    if _AUTOMATIONS_TOOLS_ENABLED and _automations_allowed(state):
         tools.append(list_automations)
         tools.append(create_automation)
         tools.append(get_automation)
