@@ -194,6 +194,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Schedules panel routes not available: {e}")
 
+    # Automation Studio panel API (user-facing; Developer+; proxies the main
+    # app's automations internal endpoints).
+    try:
+        from routes.studio import router as studio_router
+        app.include_router(studio_router)
+        logger.info("Studio routes initialized")
+    except Exception as e:
+        logger.warning(f"Studio routes not available: {e}")
+
     logger.info(f"Command Center Service ready on {HOST}:{PORT}")
     yield
     logger.info("Command Center Service shutting down")

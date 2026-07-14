@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/command-center.css?v=9">
+    <link rel="stylesheet" href="/static/css/command-center.css?v=10">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <!-- Leaflet.js for maps -->
@@ -30,20 +30,12 @@
 </head>
 <body>
     <div class="cc-app">
-        <!-- Left Sidebar -->
-        <aside class="cc-sidebar" id="sidebar">
+        <!-- Left Sidebar (history + suggestions) — hidden by default; toggled by
+             the History button in the chat header for more working room -->
+        <aside class="cc-sidebar collapsed" id="sidebar">
             <div class="cc-sidebar-header">
-                <h2>Command Center</h2>
-                <button class="cc-btn-icon" onclick="CC.createSession()" title="New Chat">+</button>
-                <button class="cc-btn-icon cc-btn-memory" onclick="CCMemory.openManager()" title="Manage Memory">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-                    </svg>
-                </button>
-                <button class="cc-btn-icon" onclick="CCSchedules.open()" title="Scheduled Tasks" style="position:relative">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-                    <span id="schedule-badge" style="display:none;position:absolute;top:-4px;right:-4px;background:#c0490d;color:#fff;border-radius:8px;font-size:10px;line-height:14px;min-width:14px;height:14px;text-align:center;padding:0 3px"></span>
-                </button>
+                <h2>History</h2>
+                <button class="cc-btn-icon" onclick="CC.toggleSidebar()" title="Hide history">✕</button>
             </div>
 
             <!-- Suggestions -->
@@ -76,6 +68,21 @@
             <div class="cc-chat-header">
                 <h1 id="chat-title">New Chat</h1>
                 <div class="cc-status" id="status-indicator"></div>
+                <div class="cc-header-actions">
+                    <button class="cc-btn-icon" onclick="CC.createSession()" title="New Chat">+</button>
+                    <button class="cc-btn-icon" id="btn-history" onclick="CC.toggleSidebar()" title="History">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
+                    </button>
+                    <button class="cc-btn-icon cc-btn-memory" onclick="CCMemory.openManager()" title="Manage Memory">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                        </svg>
+                    </button>
+                    <button class="cc-btn-icon" onclick="CCSchedules.open()" title="Scheduled Tasks" style="position:relative">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                        <span id="schedule-badge" style="display:none;position:absolute;top:-4px;right:-4px;background:#c0490d;color:#fff;border-radius:8px;font-size:10px;line-height:14px;min-width:14px;height:14px;text-align:center;padding:0 3px"></span>
+                    </button>
+                </div>
             </div>
 
             <div class="cc-messages" id="messages"></div>
@@ -111,6 +118,50 @@
                 </div>
             </div>
         </main>
+
+        <!-- Automation Studio panel (docked workbench; appears while CC builds
+             or runs an Automation — Developer role only) -->
+        <aside class="cc-studio" id="studio-panel" style="display:none">
+            <div class="cc-studio-header">
+                <h3><span class="cc-studio-dot" id="studio-dot"></span>Automation Studio</h3>
+                <span class="cc-studio-name" id="studio-name"></span>
+                <button class="cc-panel-close" onclick="CCStudio.hide()">✕</button>
+            </div>
+            <div class="cc-studio-rail" id="studio-rail"></div>
+            <div class="cc-studio-body">
+                <div class="cc-studio-section" id="studio-code-section" style="display:none">
+                    <h4>main.py <span class="cc-studio-ver" id="studio-code-ver"></span></h4>
+                    <pre class="cc-studio-code" id="studio-code"></pre>
+                </div>
+                <div class="cc-studio-section" id="studio-contract-section" style="display:none">
+                    <h4>The contract</h4>
+                    <div class="cc-studio-chips" id="studio-contract"></div>
+                </div>
+                <div class="cc-studio-section" id="studio-verify-section" style="display:none">
+                    <h4 id="studio-verify-title">Run result</h4>
+                    <div id="studio-verify"></div>
+                    <div class="cc-studio-outcome" id="studio-outcome"></div>
+                </div>
+                <div class="cc-studio-section" id="studio-live-section" style="display:none">
+                    <h4>Live run <span class="cc-studio-elapsed" id="studio-elapsed"></span></h4>
+                    <div class="cc-studio-budget"><div class="cc-studio-budget-fill" id="studio-budget"></div></div>
+                    <pre class="cc-studio-log" id="studio-live-log"></pre>
+                    <div class="cc-studio-chips" id="studio-egress"></div>
+                    <div class="cc-studio-gate" id="studio-gate" style="display:none">
+                        <div class="cc-studio-gate-msg" id="studio-gate-msg"></div>
+                        <div class="cc-studio-gate-btns">
+                            <button class="cc-studio-btn go" onclick="CCStudio.decide('proceed')">Proceed</button>
+                            <button class="cc-studio-btn stop" onclick="CCStudio.decide('abort')">Abort</button>
+                        </div>
+                    </div>
+                    <button class="cc-studio-btn stop" id="studio-abort" style="display:none"
+                            onclick="CCStudio.abortRun()">Abort run</button>
+                </div>
+            </div>
+            <div class="cc-studio-footer">
+                <a id="studio-mc-link" href="#" target="_blank">Open Mission Control ↗</a>
+            </div>
+        </aside>
 
         <!-- Right Panel (Task Progress + Agent Conversations) -->
         <aside class="cc-right-panel" id="right-panel" style="display:none">
@@ -187,7 +238,8 @@
       </div>
     </div>
 
-    <script src="/static/js/command-center.js?v=24"></script>
+    <script src="/static/js/command-center.js?v=25"></script>
     <script src="/static/js/command-center-schedules.js?v=4"></script>
+    <script src="/static/js/cc-studio.js?v=1"></script>
 </body>
 </html>

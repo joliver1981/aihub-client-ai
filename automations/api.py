@@ -77,53 +77,158 @@ def automations_gate(f):
 # ----------------------------------------------------------------- runs UI
 
 _RUNS_PAGE = """<!DOCTYPE html>
-<html><head><title>Automations</title>
+<html><head><title>Automations — Mission Control</title>
 <style>
- body{font-family:Segoe UI,Arial,sans-serif;margin:24px;background:#f7f8fa;color:#1c2430}
- h1{font-size:20px} h2{font-size:16px;margin-top:20px}
- table{border-collapse:collapse;width:100%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.08)}
- th,td{padding:7px 10px;border-bottom:1px solid #e5e8ee;text-align:left;font-size:13px}
- th{background:#eef1f6} tr:hover td{background:#f4f7fb;cursor:pointer}
- .success{color:#177245;font-weight:600}.failed{color:#b3261e;font-weight:600}
- .unverified{color:#9a6700;font-weight:600}.skipped,.running{color:#5f6b7a;font-weight:600}
- pre{background:#101418;color:#d8e0ea;padding:12px;overflow:auto;max-height:420px;font-size:12px}
- .muted{color:#5f6b7a;font-size:12px}
-</style></head><body>
-<h1>Automations — runs</h1>
-<div class="muted">Read-only view. Build and manage automations in Command Center; API under /automations/api/.</div>
-<div id="autos"></div><h2 id="runsTitle" style="display:none">Runs</h2><div id="runs"></div>
+ :root{--bg:#0b1114;--sf:#111a1f;--sf2:#16232a;--ln:#20323b;--tx:#dbe7ed;--mut:#7d95a1;--dim:#597079;
+       --cy:#22d3ee;--ok:#34d399;--bad:#f87171;--wn:#fbbf24}
+ *{box-sizing:border-box}
+ body{font-family:Segoe UI,Arial,sans-serif;margin:0;background:var(--bg);color:var(--tx)}
+ .wrap{max-width:1100px;margin:0 auto;padding:26px 22px 60px}
+ h1{font-size:19px;margin:0 0 2px;display:flex;align-items:center;gap:10px}
+ h2{font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);margin:28px 0 10px}
+ .muted{color:var(--dim);font-size:12px}
+ table{border-collapse:collapse;width:100%;background:var(--sf);border:1px solid var(--ln);border-radius:10px;overflow:hidden}
+ th,td{padding:8px 12px;border-bottom:1px solid var(--ln);text-align:left;font-size:13px}
+ th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);background:var(--sf2)}
+ tr:last-child td{border-bottom:none} tbody tr:hover td{background:var(--sf2);cursor:pointer}
+ .pill{display:inline-block;font-size:11px;font-weight:600;border-radius:99px;padding:1px 9px}
+ .success{background:rgba(52,211,153,.13);color:var(--ok)} .failed{background:rgba(248,113,113,.13);color:var(--bad)}
+ .unverified{background:rgba(251,191,36,.13);color:var(--wn)} .aborted{background:rgba(248,113,113,.10);color:#e8a0a0}
+ .skipped{background:rgba(125,149,161,.13);color:var(--mut)}
+ .running,.waiting,.aborting{background:rgba(34,211,238,.13);color:var(--cy)}
+ pre{background:#05080a;color:#c9d8e0;border:1px solid var(--ln);border-radius:8px;padding:10px 12px;
+     overflow:auto;max-height:380px;font-size:12px;font-family:Cascadia Code,Consolas,monospace;white-space:pre-wrap}
+ .card{background:var(--sf);border:1px solid rgba(34,211,238,.35);border-radius:10px;padding:14px 16px;margin:10px 0}
+ .card .head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;font-weight:600}
+ .bar{height:6px;border-radius:99px;background:#14212a;overflow:hidden;margin:10px 0 4px}
+ .fill{height:100%;width:0%;background:linear-gradient(90deg,#0e7490,var(--cy));transition:width 1s linear}
+ .cap{display:flex;justify-content:space-between;font-size:10.5px;color:var(--dim);font-family:Consolas,monospace}
+ .chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+ .chip{font-family:Consolas,monospace;font-size:10.5px;padding:2px 8px;border-radius:6px;background:var(--sf2);
+       border:1px solid var(--ln);color:#9cc3d2}
+ .gate{margin-top:10px;border:1px solid rgba(251,191,36,.45);background:rgba(251,191,36,.06);
+       border-radius:8px;padding:10px 12px}
+ .gate .msg{font-size:13px;color:#f2dcae;margin-bottom:8px}
+ button{font-size:12px;font-weight:600;padding:6px 14px;border-radius:6px;border:1px solid transparent;
+        cursor:pointer;font-family:inherit}
+ .go{background:#0e7490;color:#eafcff} .go:hover{background:var(--cy);color:#06282e}
+ .stop{background:transparent;border-color:rgba(248,113,113,.5);color:#f0a8a8} .stop:hover{background:rgba(248,113,113,.12)}
+ .dot{width:8px;height:8px;border-radius:50%;background:var(--cy);display:inline-block;
+      animation:pulse 1.7s ease-in-out infinite}
+ @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+ @media (prefers-reduced-motion: reduce){.dot{animation:none}.fill{transition:none}}
+ .livelog{max-height:200px}
+</style></head><body><div class="wrap">
+<h1><span class="dot"></span>Automations — Mission Control</h1>
+<div class="muted">Live runs update automatically. Build and manage automations in Command Center.</div>
+
+<h2>Live now</h2>
+<div id="live"><p class="muted">No runs in flight.</p></div>
+
+<h2>Automations</h2>
+<div id="autos"></div>
+<h2 id="runsTitle" style="display:none">Run history</h2><div id="runs"></div>
 <h2 id="logTitle" style="display:none">Run log</h2><pre id="log" style="display:none"></pre>
+
 <script>
-async function j(u){const r=await fetch(u);return r.json();}
-function cls(s){return ['success','failed','unverified','skipped','running'].includes(s)?s:'';}
+const cursors={}, meta={}, egress={};
+async function j(u,opts){const r=await fetch(u,opts);return r.json();}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function pill(s){return `<span class="pill ${esc(s)}">${esc(s)}</span>`;}
+
 async function loadAutos(){
  const d=await j('/automations/api/list');const a=d.automations||[];
- let h='<table><tr><th>Name</th><th>Description</th><th>Latest</th><th>Live</th></tr>';
- for(const x of a){h+=`<tr onclick="loadRuns('${x.automation_id}','${x.name}')"><td>${x.name}</td><td>${x.description||''}</td><td>v${x.current_version}</td><td>${x.pinned_version?('v'+x.pinned_version):'—'}</td></tr>`;}
- document.getElementById('autos').innerHTML=h+'</table>'+(a.length?'':'<p class="muted">No automations yet.</p>');}
+ let h='<table><thead><tr><th>Name</th><th>Description</th><th>Latest</th><th>Live version</th></tr></thead><tbody>';
+ for(const x of a){h+=`<tr onclick="loadRuns('${esc(x.automation_id)}','${esc(x.name)}')"><td>${esc(x.name)}</td><td>${esc(x.description||'')}</td><td>v${x.current_version}</td><td>${x.pinned_version?('v'+x.pinned_version):'—'}</td></tr>`;}
+ document.getElementById('autos').innerHTML=h+'</tbody></table>'+(a.length?'':'<p class="muted">No automations yet.</p>');}
+
 async function loadRuns(id,name){
  const d=await j('/automations/api/'+id+'/runs');const rs=d.runs||[];
- document.getElementById('runsTitle').style.display='block';
- document.getElementById('runsTitle').textContent='Runs — '+name;
- let h='<table><tr><th>Started</th><th>Trigger</th><th>Version</th><th>Outcome</th><th>Exit</th></tr>';
- for(const r of rs){h+=`<tr onclick="loadLog('${r.run_id}')"><td>${r.started_at||''}</td><td>${r.trigger_source}</td><td>v${r.version}</td><td class="${cls(r.status)}">${r.status}</td><td>${r.exit_code??''}</td></tr>`;}
- document.getElementById('runs').innerHTML=h+'</table>'+(rs.length?'':'<p class="muted">No runs yet.</p>');
+ const t=document.getElementById('runsTitle');t.style.display='block';t.textContent='Run history — '+name;
+ let h='<table><thead><tr><th>Started</th><th>Trigger</th><th>Version</th><th>Outcome</th><th>Exit</th></tr></thead><tbody>';
+ for(const r of rs){h+=`<tr onclick="loadLog('${esc(r.run_id)}')"><td>${esc(r.started_at||'')}</td><td>${esc(r.trigger_source)}</td><td>v${r.version}</td><td>${pill(r.status)}</td><td>${r.exit_code??''}</td></tr>`;}
+ document.getElementById('runs').innerHTML=h+'</tbody></table>'+(rs.length?'':'<p class="muted">No runs yet.</p>');
  document.getElementById('log').style.display='none';document.getElementById('logTitle').style.display='none';}
+
 async function loadLog(runId){
  const d=await j('/automations/api/runs/'+runId+'/log');
  document.getElementById('logTitle').style.display='block';
  const el=document.getElementById('log');el.style.display='block';
  el.textContent=d.log||d.error||'(no log)';}
-loadAutos();
-</script></body></html>"""
+
+// ── live board ─────────────────────────────────────────────────────────
+async function refreshLive(){
+ let d;try{d=await j('/automations/api/active');}catch(e){return;}
+ const live=document.getElementById('live');const runs=d.active||[];
+ for(const id of Object.keys(cursors)) if(!runs.find(r=>r.run_id===id)){delete cursors[id];delete meta[id];delete egress[id];}
+ if(!runs.length){live.innerHTML='<p class="muted">No runs in flight.</p>';return;}
+ for(const r of runs){
+   let card=document.getElementById('run-'+r.run_id);
+   if(!card){
+     card=document.createElement('div');card.className='card';card.id='run-'+r.run_id;
+     card.innerHTML=`<div class="head"><span>${esc(r.name)} <span class="muted">v${r.version} · ${esc(r.trigger_source)}</span></span>
+       <span>${pill(r.status)} <button class="stop" onclick="abortRun('${esc(r.run_id)}')">Abort</button></span></div>
+       <div class="bar"><div class="fill" id="fill-${esc(r.run_id)}"></div></div>
+       <div class="cap"><span id="el-${esc(r.run_id)}"></span><span id="to-${esc(r.run_id)}"></span></div>
+       <pre class="livelog" id="log-${esc(r.run_id)}"></pre><div class="chips" id="eg-${esc(r.run_id)}"></div>
+       <div class="gate" id="gate-${esc(r.run_id)}" style="display:none"></div>`;
+     if(live.querySelector('.muted'))live.innerHTML='';
+     live.appendChild(card);cursors[r.run_id]=0;meta[r.run_id]={};egress[r.run_id]=new Set();
+   }
+   card.querySelector('.pill').outerHTML=pill(r.status);
+   pollEvents(r.run_id);
+ }
+ for(const el of live.querySelectorAll('.card')) if(!runs.find(r=>'run-'+r.run_id===el.id)) el.remove();
+}
+
+async function pollEvents(runId){
+ let d;try{d=await j(`/automations/api/runs/${runId}/events?after=${cursors[runId]||0}`);}catch(e){return;}
+ cursors[runId]=d.next||cursors[runId];
+ const logEl=document.getElementById('log-'+runId), egEl=document.getElementById('eg-'+runId);
+ for(const ev of (d.events||[])){
+   if(ev.type==='run_started'){meta[runId]={start:Date.parse(ev.ts)||Date.now(),timeout:ev.timeout||600};}
+   else if(ev.type==='log'&&logEl){logEl.textContent+=(ev.line+'\\n');
+     const lines=logEl.textContent.split('\\n');if(lines.length>200)logEl.textContent=lines.slice(-200).join('\\n');
+     logEl.scrollTop=logEl.scrollHeight;}
+   else if(ev.type==='egress'&&egEl&&!egress[runId].has(ev.dest)){egress[runId].add(ev.dest);
+     egEl.insertAdjacentHTML('beforeend',`<span class="chip">▸ ${esc(ev.dest)}</span>`);}
+ }
+ const m=meta[runId];
+ if(m&&m.start){const s=Math.floor((Date.now()-m.start)/1000);
+   const f=document.getElementById('fill-'+runId);if(f)f.style.width=Math.min(100,s/m.timeout*100)+'%';
+   const e1=document.getElementById('el-'+runId);if(e1)e1.textContent=`elapsed ${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+   const e2=document.getElementById('to-'+runId);if(e2)e2.textContent=`timeout ${Math.floor(m.timeout/60)}:${String(m.timeout%60).padStart(2,'0')}`;}
+ const gate=document.getElementById('gate-'+runId);
+ const p=d.pending_checkpoint;
+ if(gate){ if(p&&!p.decision){gate.style.display='';
+   gate.innerHTML=`<div class="msg">⏸ Waiting for you — ${esc(p.message)}</div>
+     <button class="go" onclick="decide('${runId}','${esc(p.checkpoint_id)}','proceed')">Proceed</button>
+     <button class="stop" onclick="decide('${runId}','${esc(p.checkpoint_id)}','abort')">Abort</button>`;}
+  else gate.style.display='none';}
+}
+
+async function decide(runId,cid,decision){
+ await j(`/automations/api/runs/${runId}/checkpoints/${cid}/decision`,
+   {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({decision})});
+ refreshLive();
+}
+async function abortRun(runId){
+ if(!confirm('Abort this run? It stops within a few seconds and records the outcome "aborted".'))return;
+ await j(`/automations/api/runs/${runId}/abort`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+ refreshLive();
+}
+
+loadAutos();refreshLive();
+setInterval(refreshLive,3000);
+</script></div></body></html>"""
 
 
 @automations_bp.route("/", methods=["GET"])
 @automations_gate
 def runs_ui():
-    """Minimal read-only runs dashboard (P1 deliverable): automations, run
-    history with honest outcomes, and per-run logs. Building/managing happens
-    in Command Center."""
+    """Mission Control: live runs (event feed, budget bar, egress, checkpoint
+    gates, abort) + run history with honest outcomes. Building/managing
+    happens in Command Center."""
     return _RUNS_PAGE
 
 
@@ -153,17 +258,32 @@ def create_automation():
     warning = None
     if not environment_id and data.get("provision_environment", True):
         # one dedicated agent environment per automation (design decision).
-        # Provisioning failure is non-fatal: the runner falls back to the
-        # bundle python; the warning tells the caller honestly.
-        env_id, warning = _provision_environment(auto)
-        if env_id:
-            _get_manager().set_environment(auto["automation_id"], env_id)
-            auto = _get_manager().get_automation(auto["automation_id"])
+        # Provisioning builds a real venv (slow — tester finding AIHUB-0027 F3),
+        # so it runs in the BACKGROUND: create returns immediately and the
+        # environment_id is patched in when ready. Until then (or on failure)
+        # the runner falls back to the bundled Python — honest and non-fatal.
+        _provision_environment_async(auto)
+        warning = ("dedicated environment is being provisioned in the background; "
+                   "runs use the bundled Python until it is ready")
 
     resp = {"automation": auto}
     if warning:
         resp["warning"] = warning
     return jsonify(resp), 201
+
+
+def _provision_environment_async(auto):
+    def _work():
+        env_id, warn = _provision_environment(auto)
+        if env_id:
+            try:
+                _get_manager().set_environment(auto["automation_id"], env_id)
+                logger.info(f"automation {auto['automation_id']}: dedicated environment {env_id} ready")
+            except Exception as e:
+                logger.warning(f"automation {auto['automation_id']}: could not record environment: {e}")
+        elif warn:
+            logger.warning(f"automation {auto['automation_id']}: {warn}")
+    threading.Thread(target=_work, daemon=True).start()
 
 
 def _provision_environment(auto):
@@ -820,10 +940,9 @@ def internal_manage():
                 return jsonify({"error": error}), 400
             warning = None
             if not payload.get("environment_id") and payload.get("provision_environment", True):
-                env_id, warning = _provision_environment(auto)
-                if env_id:
-                    mgr.set_environment(auto["automation_id"], env_id)
-                    auto = mgr.get_automation(auto["automation_id"])
+                _provision_environment_async(auto)
+                warning = ("dedicated environment is being provisioned in the background; "
+                           "runs use the bundled Python until it is ready")
             resp = {"automation": auto}
             if warning:
                 resp["warning"] = warning

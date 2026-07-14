@@ -141,6 +141,10 @@ def _sftp_allowed(state) -> bool:
 # this gate is UX, not the security boundary.
 _AUTOMATIONS_TOOLS_ENABLED = os.getenv("CC_AUTOMATIONS_TOOLS_ENABLED", "true").lower() == "true"
 _AUTOMATIONS_ALLOW_ALL = os.getenv("CC_AUTOMATIONS_ALLOW_ALL_USERS", "false").lower() == "true"
+# When true (default), CC proactively proposes an aihub.checkpoint() gate
+# before irreversible steps (uploads, deletes, sends) while writing automation
+# code. Turn off to only add checkpoints when the user asks.
+_AUTOMATIONS_PROPOSE_CHECKPOINTS = os.getenv("CC_AUTOMATIONS_PROPOSE_CHECKPOINTS", "true").lower() == "true"
 
 
 def _automations_allowed(state) -> bool:
@@ -1572,6 +1576,15 @@ async def converse(state: CommandCenterState) -> dict:
             "- Scheduled runs execute the PROMOTED version only; editing code never changes a "
             "schedule until you promote again."
         )
+        if _AUTOMATIONS_PROPOSE_CHECKPOINTS:
+            _automations_prompt += (
+                "\n- CHECKPOINTS (do this proactively): whenever the code you write reaches an "
+                "IRREVERSIBLE step — uploading to an external system, deleting, sending, or acting "
+                "on unusual data — insert aihub.checkpoint(\"<concrete, quantified message>\") "
+                "before it, and tell the user you added a safety gate they will approve from "
+                "Mission Control. Skip the gate only if the user explicitly says to run "
+                "unattended."
+            )
 
     system_prompt = COMMAND_CENTER_SYSTEM_PROMPT + f"""
 
@@ -3840,6 +3853,15 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         kw = {"timeout": timeout} if timeout else {}
         return _at.manage(action, state.get("user_context") or {}, payload or {}, **kw)
 
+    def _studio(**fields):
+        """Feed the Studio panel's per-session state (pure UI hint — a failure
+        here must never affect the tool's real work)."""
+        try:
+            import studio_state
+            studio_state.update(state.get("session_id", "cc-default"), **fields)
+        except Exception:
+            pass
+
     @lc_tool
     async def list_automations() -> str:
         """List the persisted Automations (AI-generated Python solutions) on this
@@ -3875,10 +3897,15 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         """
         if not _automations_allowed(state):
             return _AUTOMATIONS_DENIED
+        _studio(phase="create", name=name, working=True)
         res = await asyncio.to_thread(_am, "create", {"name": name, "description": description})
         if not res.get("ok"):
+            _studio(working=False, error=res.get("error"))
             return f"Could not create the automation: {res.get('error')}"
         auto = res.get("automation") or {}
+        _studio(phase="create", working=False, error=None,
+                automation_id=auto.get("automation_id"), name=auto.get("name"),
+                environment_id=auto.get("environment_id"))
         msg = f"Created automation '{auto.get('name')}' (id {auto.get('automation_id')})."
         if auto.get("environment_id"):
             msg += f" Dedicated environment: {auto['environment_id']}."
@@ -3915,6 +3942,12 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             period   = aihub.input("period", "current")
         Any connection/secret the code uses MUST be declared in the manifest.
 
+        HUMAN CHECKPOINT GATES: before an irreversible step (upload, delete, send,
+        anything unusual), the code can PAUSE for a human decision:
+            aihub.checkpoint("About to upload 1,240 rows to acme-sftp")
+        The run waits until the user clicks Proceed (returns True) or Abort (the run
+        stops with outcome 'aborted'). Keep the message concrete and quantified.
+
         Args:
             automation_id: the automation's id.
             code: the full Python script.
@@ -3927,17 +3960,24 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         if not _automations_allowed(state):
             return _AUTOMATIONS_DENIED
         payload = {"automation_id": automation_id, "code": code}
+        manifest_obj = None
         if manifest_json.strip():
             import json as _json
             try:
-                payload["manifest"] = _json.loads(manifest_json)
+                manifest_obj = _json.loads(manifest_json)
+                payload["manifest"] = manifest_obj
             except ValueError as e:
                 return f"manifest_json is not valid JSON: {e}"
+        _studio(phase="code", automation_id=automation_id, working=True)
         res = await asyncio.to_thread(_am, "save_code", payload)
         if not res.get("ok"):
             details = res.get("details")
+            _studio(working=False, error=res.get("error"))
             return ("Could not save: " + str(res.get("error"))
                     + (f" Details: {details}" if details else ""))
+        _studio(phase="code", automation_id=automation_id, working=False, error=None,
+                saved_version=res.get("version"), code=code[:60000],
+                **({"manifest": manifest_obj} if manifest_obj else {}))
         return (f"Saved as v{res.get('version')} (not live yet). "
                 f"Dry-run it with dry_run_automation, then promote_automation to make it live.")
 
@@ -3960,11 +4000,19 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 inputs = _json.loads(inputs_json)
             except ValueError as e:
                 return f"inputs_json is not valid JSON: {e}"
+        _studio(phase="dry_run", automation_id=automation_id, working=True)
         res = await asyncio.to_thread(_am, "dry_run",
                                       {"automation_id": automation_id, "inputs": inputs})
         from . import automation_tools as _at
         if not res.get("ok"):
+            _studio(working=False, error=res.get("error"))
             return f"Dry-run failed to start: {res.get('error')}"
+        _studio(phase=("confirm" if res.get("status") == "success" else "dry_run"),
+                automation_id=automation_id, working=False, error=None,
+                last_run={"run_id": res.get("run_id"), "status": res.get("status"),
+                          "exit_code": res.get("exit_code"),
+                          "verify_report": res.get("verify_report"),
+                          "output_files": res.get("output_files"), "dry_run": True})
         return "DRY-RUN (latest saved version):\n" + _at.summarize_run(res)
 
     @lc_tool
@@ -3980,6 +4028,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         res = await asyncio.to_thread(_am, "promote", payload)
         if not res.get("ok"):
             return f"Could not promote: {res.get('error')}"
+        _studio(phase="live", automation_id=automation_id,
+                pinned_version=res.get("pinned_version"), error=None)
         return (f"v{res.get('pinned_version')} is now live. Runs and schedules execute this "
                 f"version until you promote another.")
 
@@ -3996,11 +4046,18 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 inputs = _json.loads(inputs_json)
             except ValueError as e:
                 return f"inputs_json is not valid JSON: {e}"
+        _studio(phase="live", automation_id=automation_id, working=True)
         res = await asyncio.to_thread(_am, "run",
                                       {"automation_id": automation_id, "inputs": inputs})
         from . import automation_tools as _at
         if not res.get("ok"):
+            _studio(working=False, error=res.get("error"))
             return f"Run failed to start: {res.get('error')}"
+        _studio(phase="live", automation_id=automation_id, working=False, error=None,
+                last_run={"run_id": res.get("run_id"), "status": res.get("status"),
+                          "exit_code": res.get("exit_code"),
+                          "verify_report": res.get("verify_report"),
+                          "output_files": res.get("output_files"), "dry_run": False})
         return _at.summarize_run(res)
 
     @lc_tool
@@ -4061,6 +4118,9 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                                        "schedule": schedule, "inputs": inputs})
         if not res.get("ok"):
             return f"Could not schedule: {res.get('error')}"
+        _studio(phase="live", automation_id=automation_id,
+                scheduled={"job_id": res.get("scheduled_job_id"),
+                           "schedule_id": res.get("schedule_id")}, error=None)
         return (f"Scheduled (job #{res.get('scheduled_job_id')}, schedule #{res.get('schedule_id')}) — "
                 f"runs pinned v{res.get('pinned_version')}. {res.get('note') or ''}".strip())
 

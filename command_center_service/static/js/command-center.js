@@ -20,6 +20,7 @@ const CC = {
     _TOKEN_REFRESH_THRESHOLD: 60 * 60 * 1000,   // Refresh when < 1 hour remaining
 
     async init() {
+        this.restoreSidebarPref();
         // Try to get user context from URL params or localStorage
         const params = new URLSearchParams(window.location.search);
         // Capture who last used this browser so we can detect a user switch.
@@ -608,6 +609,28 @@ const CC = {
         if (u.username) qp.set('username', String(u.username));
         if (u.name) qp.set('name', String(u.name));
         return qp.toString();
+    },
+
+    // ── Sidebar (history) toggle ────────────────────────────────────────
+    // Hidden by default for working room (the Studio panel docks right);
+    // the History button in the chat header toggles it. Preference persists
+    // per browser — it's a layout choice, not user data.
+    toggleSidebar() {
+        const el = document.getElementById('sidebar');
+        if (!el) return;
+        const open = el.classList.toggle('collapsed') === false;
+        try { localStorage.setItem('cc_sidebar_open', open ? '1' : '0'); } catch (e) {}
+        const btn = document.getElementById('btn-history');
+        if (btn) btn.classList.toggle('active', open);
+    },
+
+    restoreSidebarPref() {
+        let open = false;
+        try { open = localStorage.getItem('cc_sidebar_open') === '1'; } catch (e) {}
+        const el = document.getElementById('sidebar');
+        if (el) el.classList.toggle('collapsed', !open);
+        const btn = document.getElementById('btn-history');
+        if (btn) btn.classList.toggle('active', open);
     },
 
     async createSession() {

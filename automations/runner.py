@@ -205,7 +205,10 @@ def verify_outputs(manifest: Dict, workdir: str, inputs: Dict,
                     any_failed = True
         elif kind in ("sftp_upload", "ftp_upload") and verify.get("remote_listing") and secret_resolver:
             from .remote_verify import check_remote_output
-            filename = _substitute(out.get("name", ""), inputs)
+            # 'name' is canonical; accept 'remote_path' as an alias (its
+            # basename) — LLM-written manifests use both (AIHUB-0027 F1)
+            raw_name = out.get("name") or (out.get("remote_path", "").replace("\\", "/").rsplit("/", 1)[-1])
+            filename = _substitute(raw_name, inputs)
             entry["name"] = filename
             secret_value = secret_resolver(out.get("secret", ""))
             ok, note = check_remote_output(kind, secret_value, out.get("remote_dir", "/"),
@@ -686,6 +689,7 @@ class AutomationRunner:
 
         return {
             "status": status, "exit_code": exit_code, "error": error,
+            "version": version,
             "verify_report": verify_report, "output_files": output_files,
             "stdout_tail": stdout[-2000:], "stderr_tail": stderr[-2000:],
             "workdir": workdir,
