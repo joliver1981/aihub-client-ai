@@ -37,13 +37,21 @@ _PROCESS_SIGNALS = [
 ]
 _STRONG_SIGNAL = _PROCESS_SIGNALS[6]  # the explicit "automate / code flow / multi-step process" group
 
-# If the user asks for one of these OBJECTS, respect that — it is a Builder
-# object (or a visual workflow the user wants to see/edit), not an automation.
-# A single object signal suppresses the fast-path so the request keeps the
-# LLM/Builder route.
+# Objects that are (almost) always Builder targets — a hard veto: if the user
+# asks for one of these, respect that (Builder object, or a visual workflow they
+# want to see/edit), not an automation.
 _OBJECT_BUILDER_SIGNALS = re.compile(
-    r"\b(agent|assistant|chatbot|connection|mcp\b|knowledge\s*base|custom\s+tool|"
-    r"visual\s+workflow|workflow|canvas|dashboard)\b", re.I)
+    r"\b(agent|assistant|chatbot|mcp\s*server|mcp|knowledge\s*base|custom\s+tool|"
+    r"data\s+agent|visual\s+workflow|workflow|canvas|dashboard)\b", re.I)
+
+# 'connection'/'secret'/'credential' are NORMAL words in a code process that
+# REFERENCES an existing one by name (aihub.connection('AIRDB')). Veto only when
+# the user is CREATING one (AIHUB-0033 F1b-R2: the verbatim prompt "...look up
+# each employee using the existing 'AIRDB' connection..." must NOT be vetoed —
+# referencing an existing connection is the documented Code Flow pattern).
+_OBJECT_BUILD_CONN = re.compile(
+    r"\b(create|build|make|set\s?up|configure|add|new|register|provision)\b"
+    r"[^.]{0,25}\b(connection|secret|credentials?)\b", re.I)
 
 
 def looks_like_code_process(text: str) -> bool:
@@ -51,11 +59,12 @@ def looks_like_code_process(text: str) -> bool:
 
     Precision rules: an explicit "automate / code flow / multi-step process"
     phrase is sufficient on its own; otherwise require >=2 INDEPENDENT process
-    signals. Any object-builder signal (agent, connection, MCP, knowledge base,
-    custom tool, or an explicit 'workflow'/'canvas' the user wants) vetoes the
-    fast-path, so genuine Builder requests are never hijacked."""
+    signals. Vetoed by an object-builder signal (agent, MCP, knowledge base,
+    custom tool, or an explicit 'workflow'/'canvas' the user wants), or by a
+    CREATE-a-connection/secret ask — but NOT by merely referencing an existing
+    connection/secret by name, which is the normal Code Flow pattern."""
     t = text or ""
-    if _OBJECT_BUILDER_SIGNALS.search(t):
+    if _OBJECT_BUILDER_SIGNALS.search(t) or _OBJECT_BUILD_CONN.search(t):
         return False
     if _STRONG_SIGNAL.search(t):
         return True

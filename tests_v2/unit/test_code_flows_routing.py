@@ -33,15 +33,34 @@ def _looks():
 
 # --------------------------------------------------------------- F1 routing
 
-# the exact tester prompt that misrouted to the visual builder
+# the tester prompt that misrouted to the visual builder (paraphrase)
 TESTER_PROMPT = ("I want to set up a nightly automated process that reads the expense-report PDFs, "
                  "looks up each employee in the AIRDB database, produces a reconciled CSV, and "
                  "uploads it to our SFTP; if any step fails, send an alert. Please build this for me.")
+
+# VERBATIM shape (AIHUB-0033 F1b-R2): references the existing connection BY NAME —
+# the word 'connection' must NOT veto (it is the documented Code Flow pattern).
+TESTER_PROMPT_VERBATIM = ("Set up a nightly automated process: read the expense-report PDFs, look up "
+                          "each employee in our AIRDB database using the existing \"AIRDB\" connection, "
+                          "produce a reconciled CSV, and upload it to SFTP using the AUTODEMO_SFTP "
+                          "secret; if any step fails, send an alert.")
 
 
 class TestCodeProcessFastPath:
     def test_tester_prompt_is_a_code_process(self):
         assert _looks()(TESTER_PROMPT) is True   # would route to automation family, not builder
+
+    def test_verbatim_prompt_with_connection_reference(self):
+        # the exact failing input from round 2 — 'connection' referenced by name must not veto
+        assert _looks()(TESTER_PROMPT_VERBATIM) is True
+
+    @pytest.mark.parametrize("text", [
+        "each night, use the existing AIRDB connection to look up employees and upload a CSV to SFTP",
+        "reconcile invoices against the ERPDB connection and upload the result via SFTP daily",
+        "read the secret AUTODEMO_SFTP and push the nightly export there; alert on failure",
+    ])
+    def test_referencing_existing_connection_or_secret_is_not_vetoed(self, text):
+        assert _looks()(text) is True
 
     @pytest.mark.parametrize("text", [
         "automate a nightly SFTP upload of the sales CSV",
@@ -57,7 +76,8 @@ class TestCodeProcessFastPath:
         "build me a workflow I can see and edit on the canvas",  # explicit visual workflow
         "build a workflow that queries ERPDB and exports to Excel",  # AIHUB-0016: stays with builder
         "set up an MCP server for github",                    # object: mcp
-        "create a connection to AIRDB",                       # object: connection
+        "create a connection to AIRDB",                       # CREATE a connection -> builder
+        "set up a new SFTP connection and a secret for it",   # CREATE conn/secret -> builder
         "add a knowledge base to my assistant",               # objects: knowledge base / assistant
     ])
     def test_object_builder_requests_are_vetoed(self, text):

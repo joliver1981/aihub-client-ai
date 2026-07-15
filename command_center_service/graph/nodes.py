@@ -1097,6 +1097,30 @@ async def classify_intent(state: CommandCenterState) -> dict:
     # delegation (otherwise the delegation routing logic should decide).
     active = state.get("active_delegation")
 
+    # ── Deterministic code/data-process shortcut (AIHUB-0033 F1-R2) ─────
+    # A clear code/data PROCESS (parse files, DB look-up, reconcile, move
+    # files, on a schedule, alert on failure) must reach the code-flow /
+    # automation tools, which live in `converse`. Decide it HERE — ahead of
+    # the capability_router (which confidently early-returns intent='build'
+    # → the visual Workflow Builder, which has none of those tools, BEFORE
+    # the build-shape decision ever runs). High precision: only clear
+    # processes with no object-builder signal match; everything else falls
+    # through unchanged. Exempt an active builder session (don't hijack a
+    # build already in flight).
+    if (_AUTOMATIONS_TOOLS_ENABLED
+            and str((active or {}).get("agent_type") or "").lower() != "builder"):
+        try:
+            from graph.build_routing import looks_like_code_process
+            if looks_like_code_process(user_text):
+                logger.info("[classify_intent] code-process shortcut → intent=chat "
+                            "(converse owns the automation + code-flow tools)")
+                _cp_out = {"intent": "chat", "pending_agent_selection": False}
+                if active:
+                    _cp_out["active_delegation"] = None
+                return _cp_out
+        except Exception as _cp_err:
+            logger.debug(f"[classify_intent] code-process shortcut skipped: {_cp_err}")
+
     # ── Deterministic build guard (AIHUB-0015 F1 / 0021 F1) ─────────────
     # Fires before EVERY routing layer — including the active-delegation
     # mini-LLM router, whose nondeterministic CONTINUE could hand a
