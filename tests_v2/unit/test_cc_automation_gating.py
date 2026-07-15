@@ -325,3 +325,12 @@ class TestSmartBuildRoutingWiring:
         assert "dedicated Python environment" in nodes._BUILD_SHAPE_PROMPT
         assert "pip library" in nodes._BUILD_SHAPE_PROMPT
         assert "both" in nodes._BUILD_SHAPE_PROMPT  # combination is a valid answer
+
+    def test_build_shape_prompt_knows_existing_creds_and_dryrun(self):
+        """The decider must know automations USE existing connections/secrets
+        and have a built-in dry-run — else it over-routes to builder when a
+        request merely mentions a connection/secret (found live, AIHUB-0028)."""
+        p = nodes._BUILD_SHAPE_PROMPT
+        assert "EXISTING AI Hub" in p and "by name" in p
+        assert "DRY-RUN" in p
+        assert "NOT a reason to pick builder" in p
