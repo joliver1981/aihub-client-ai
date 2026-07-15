@@ -1,6 +1,8 @@
 # Code Flows — Plan
 
-**Status:** PLAN ONLY (2026-07-14). Nothing built. Design-only; react before we commit.
+**Status:** IN PROGRESS (2026-07-14). Decisions LOCKED by James. **v0 atom BUILT** (commit 8315b62): the inline **Code Step** node runs LLM-authored Python through the shared runner executor (`_execute_code` / `run_code_step`) with env + SDK + verification + live events + honest tri-state, and the engine dispatches it with pass/fail edges. The Automations asset path is byte-for-byte unchanged (thin wrapper over the same core; 90 automation tests still green). Still to build: authoring tools, expanded read-only SDK, canvas code-edit view, inter-step shared workdir.
+
+**Locked decisions (James, 2026-07-14):** (1) v0 reuse the engine ✓; (2) inter-step data = shared workdir + artifacts, small values as variables ✓; (3) fail edges → code steps calling `aihub.notify()` ✓; (4) the agent picks single-script (Automation) vs multi-step (Code Flow) *within the automation family* ✓; (5) **the canvas code view is EDITABLE, not read-only** — a dev must be able to fix a step (this is why a Code Step carries its code INLINE in the node, not as a referenced automation). Open-Q answers: the agent may name "code flows" internally; SDK is **read-only in v1** (connection/secret/query_data/ask_agent/notify — no create-resources); reuse the **existing canvas** as the viewer/editor.
 **Builds on:** [on-the-fly-automations-plan.md](on-the-fly-automations-plan.md) (Automations: environments, SDK, runner, verification, events, checkpoints, the workflow "Automation" node, the scheduler job type — all shipped).
 **Chosen approach (James, 2026-07-14):** *reuse the workflow execution engine with a code-only node palette.* Do NOT build a second workflow engine.
 
