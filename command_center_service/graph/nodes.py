@@ -4270,6 +4270,21 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     "list_scheduled_tasks": list_scheduled_tasks,
                     "cancel_scheduled_task": cancel_scheduled_task,
                     "get_my_contact_info": get_my_contact_info,
+                    # Automations (AIHUB-0028): these were bound to the LLM + in
+                    # the system prompt but MISSING here, so every call fell
+                    # through to "Unknown tool: <name>" and nothing executed.
+                    # tool_map may hold tools that aren't bound this turn (see
+                    # generate_image) — harmless; the LLM only calls bound ones,
+                    # and each tool re-checks the Developer gate internally.
+                    "list_automations": list_automations,
+                    "create_automation": create_automation,
+                    "get_automation": get_automation,
+                    "save_automation_code": save_automation_code,
+                    "dry_run_automation": dry_run_automation,
+                    "promote_automation": promote_automation,
+                    "run_automation": run_automation,
+                    "get_automation_runs": get_automation_runs,
+                    "schedule_automation": schedule_automation,
                 }
 
                 tool_fn = tool_map.get(tool_name)

@@ -192,3 +192,52 @@ class TestConverseToolLoopHardening:
         cap = src[cap_start:src.find("has_tool_calls={_has_tc}", cap_start)]
         assert "_honest_nudge" in cap
         assert "llm.ainvoke(_convo + [_honest_nudge])" in cap
+
+
+class TestConverseToolMapRegistration:
+    """AIHUB-0028 root cause (found live by the arbiter): the 9 automation
+    tools were bound to the LLM + in the system prompt but MISSING from the
+    converse tool_map (the execute dict), so every call fell through to
+    'Unknown tool: <name>' and NOTHING ran. The invariant that would have
+    caught it: every tool bound to the LLM must be executable via tool_map."""
+
+    import re as _re
+
+    AUTOMATION_TOOLS = [
+        "list_automations", "create_automation", "get_automation",
+        "save_automation_code", "dry_run_automation", "promote_automation",
+        "run_automation", "get_automation_runs", "schedule_automation",
+    ]
+
+    def _converse_src(self):
+        src = Path(nodes.__file__).read_text(encoding="utf-8")
+        start = src.find("async def converse")
+        end = src.find("\nasync def ", start + 10)
+        return src[start:end]
+
+    def _tool_map_keys(self, conv):
+        import re
+        seg = conv[conv.find("tool_map = {"):conv.find("tool_fn = tool_map.get")]
+        return set(re.findall(r'"([a-z_]+)":', seg))
+
+    def _bound_tool_names(self, conv):
+        import re
+        names = set(re.findall(r"tools\.append\(([a-z_]+)\)", conv))
+        m = re.search(r"tools = \[([^\]]+)\]", conv)
+        if m:
+            names |= {n.strip() for n in m.group(1).split(",") if n.strip()}
+        return names
+
+    def test_all_automation_tools_in_tool_map(self):
+        keys = self._tool_map_keys(self._converse_src())
+        missing = [t for t in self.AUTOMATION_TOOLS if t not in keys]
+        assert not missing, f"automation tools bound but not executable (Unknown tool): {missing}"
+
+    def test_every_bound_tool_is_executable(self):
+        """General invariant: no tool may be bound to the LLM without a
+        tool_map entry — otherwise it silently returns 'Unknown tool'."""
+        conv = self._converse_src()
+        keys = self._tool_map_keys(conv)
+        bound = self._bound_tool_names(conv)
+        missing = sorted(bound - keys)
+        assert not missing, f"bound to the LLM but missing from tool_map: {missing}"
