@@ -4324,6 +4324,12 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 )
 
                 tool_results.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+                # Log the tool RESULT preview to the service log (not just the
+                # trace, which truncates) so a tool that returns an error string
+                # — e.g. "Could not create the automation: <reason>" — is
+                # durably diagnosable. Without this, a returned-error (vs raised)
+                # failure left no record of the reason (AIHUB-0028 triage).
+                logger.info(f"[converse] Tool '{tool_name}' result: {str(result)[:300]}")
 
                 # Track delegation for agent query/switch tools
                 if tool_name in ("query_data_agent", "query_general_agent"):
@@ -4569,6 +4575,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     else:
                         rn = f"Unknown tool: {tool_name}"
                     _seen_calls[_k] = str(rn)
+                    logger.info(f"[converse] Round {_round} '{tool_name}' result: {str(rn)[:300]}")
                     tool_results_n.append(ToolMessage(content=str(rn), tool_call_id=tc["id"]))
 
                     # Track delegation
