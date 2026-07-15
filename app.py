@@ -12493,6 +12493,10 @@ app.register_blueprint(environments_bp)
 from automations.api import automations_bp
 app.register_blueprint(automations_bp)
 
+# Import code flows blueprint (multi-step Code Flows — a workflow of Code Step nodes)
+from codeflows.api import code_flows_bp
+app.register_blueprint(code_flows_bp)
+
 # Import tier usage blueprint
 from admin_tier_usage import admin_tier_bp
 app.register_blueprint(admin_tier_bp)

@@ -996,7 +996,11 @@ _BUILD_SHAPE_PROMPT = (
     "versus assembling a many-step visual workflow. STRONG automation signals: the request "
     "mentions parsing PDFs/Excel, needs a Python library, asks to 'dry-run' or 'verify' outputs, "
     "or moves files to SFTP/FTP using an existing secret. Needing a database CONNECTION or a "
-    "SECRET is NOT a reason to pick builder — automations resolve EXISTING ones by name.\n"
+    "SECRET is NOT a reason to pick builder — automations resolve EXISTING ones by name. A "
+    "MULTI-STEP code process (distinct stages, fail-branches to an alert step, files passed "
+    "between steps) is STILL 'automation' — the family includes multi-step Code Flows; only pick "
+    "'builder' for a workflow when the user explicitly wants an EDITABLE VISUAL workflow to click "
+    "through, not code that just runs.\n"
     "- builder — creates platform OBJECTS that people interact with or other resources reference: "
     "a data/general AGENT someone chats with, a CONNECTION, an MCP server, a custom TOOL an agent "
     "calls, a KNOWLEDGE base/document set, or a visual WORKFLOW the user explicitly wants to see and edit.\n"
@@ -1725,6 +1729,28 @@ async def converse(state: CommandCenterState) -> dict:
             "this asset type); if the same request ALSO needs an agent/connection/knowledge/MCP or an "
             "editable workflow, use delegate_to_builder_agent for that part. Every save must be "
             "confirmed to the user with the version number the tool returned."
+        )
+        _automations_prompt += (
+            "\n\n## CODE FLOWS — the MULTI-STEP sibling of an Automation\n"
+            "Within the same family, pick the SHAPE by the process:\n"
+            "- Single self-contained script → an AUTOMATION (above).\n"
+            "- A process with DISTINCT STAGES that should route independently — especially where a "
+            "FAILURE partway through must branch to an alert/cleanup step, or where later stages "
+            "consume earlier stages' files → a CODE FLOW. A Code Flow is a WORKFLOW of inline Code "
+            "Step nodes reusing the platform's workflow engine; each step is Python run through the "
+            "same runner (dedicated env, pip libraries, aihub_runtime SDK, output verification).\n"
+            "- Code Flow tools: create_code_flow → add_code_step (once per stage) → wire_steps "
+            "(on='pass'|'fail'|'complete') → dry_run_code_flow (executes the whole graph now and "
+            "shows the honest per-step outcome) → schedule_code_flow. update_step_code edits a step "
+            "in place when a dry-run shows it failing.\n"
+            "- CONTROL FLOW is the point: wire a step's 'fail' edge to a notify/cleanup step so a "
+            "partial failure is HANDLED, not silent. Pass files between steps by declaring the "
+            "producer's outputs and referencing them in a consumer's input default as "
+            "'${<step_id>_files[0]}'.\n"
+            "- Same rules as automations: existing connections/secrets by NAME via aihub.*, never "
+            "hard-code credentials, DECLARE outputs so each step is verified, report outcomes "
+            "verbatim (success/failed per step). Build the flow, dry-run it, show the user, then "
+            "schedule."
         )
         if _AUTOMATIONS_PROPOSE_CHECKPOINTS:
             _automations_prompt += (
@@ -4274,6 +4300,252 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         return (f"Scheduled (job #{res.get('scheduled_job_id')}, schedule #{res.get('schedule_id')}) — "
                 f"runs pinned v{res.get('pinned_version')}. {res.get('note') or ''}".strip())
 
+    # ── Code Flows: multi-step processes = a workflow of inline Code Step nodes ──
+    # Same Developer gate and family as Automations; a Code Flow is the
+    # multi-step sibling (single-script → Automation; multi-step → Code Flow).
+    def _cf(action, payload=None, timeout=None):
+        from . import codeflow_tools as _ct
+        kw = {"timeout": timeout} if timeout else {}
+        return _ct.manage(action, state.get("user_context") or {}, payload or {}, **kw)
+
+    def _cf_list(json_str, field):
+        """Parse an optional JSON-array tool arg; returns (list|None, error|None)."""
+        import json as _json
+        if not (json_str or "").strip():
+            return None, None
+        try:
+            val = _json.loads(json_str)
+        except ValueError as e:
+            return None, f"{field} is not valid JSON: {e}"
+        if not isinstance(val, list):
+            return None, f"{field} must be a JSON array"
+        return val, None
+
+    @lc_tool
+    async def list_code_flows() -> str:
+        """List the Code Flows on this platform (multi-step AI-authored processes,
+        each a workflow of Code Step nodes): name, how many steps, description."""
+        if not _automations_allowed(state):
+            return _AUTOMATIONS_DENIED
+        res = await asyncio.to_thread(_cf, "list")
+        if not res.get("ok"):
+            return f"Could not list code flows: {res.get('error')}"
+        flows = res.get("code_flows") or []
+        if not flows:
+            return "No code flows exist yet. Use create_code_flow to start one."
+        return "\n".join(f"- {f['name']} ({f.get('step_count', 0)} step(s)): "
+                         f"{f.get('description') or ''}".rstrip() for f in flows)
+
+    @lc_tool
+    async def create_code_flow(name: str, description: str = "") -> str:
+        """Create a NEW Code Flow: a multi-step business process built as a workflow
+        of inline Code Step nodes (LLM-authored Python), reusing the platform's
+        workflow engine. Choose a Code Flow over a single Automation when the process
+        has distinct stages that should route independently — e.g. 'pull invoices from
+        the ERP → transform → upload via SFTP → on any failure, alert', where a failed
+        step follows its 'fail' edge to a notify step.
+
+        After creating: add_code_step for each stage, wire_steps to connect them
+        (on='pass'/'fail'/'complete'), then dry_run_code_flow, and schedule_code_flow.
+
+        Args:
+            name: short unique name (e.g. 'nightly-invoice-recon').
+            description: one-line description of the process.
+        """
+        if not _automations_allowed(state):
+            return _AUTOMATIONS_DENIED
+        res = await asyncio.to_thread(_cf, "create", {"name": name, "description": description})
+        if not res.get("ok"):
+            return f"Could not create the code flow: {res.get('error')}"
+        info = res.get("code_flow") or {}
+        return (f"Created code flow '{info.get('name')}' (workflow #{info.get('workflow_id')}). "
+                f"Now add steps with add_code_step.")
+
+    @lc_tool
+    async def add_code_step(name: str, step_name: str, code: str,
+                            connections_json: str = "", secrets_json: str = "",
+                            packages_json: str = "", inputs_json: str = "",
+                            outputs_json: str = "", timeout: int = 600) -> str:
+        """Add one Code Step to a Code Flow. The step is inline Python run through the
+        Automations runner: it reads platform connections/secrets via the read-only
+        aihub_runtime SDK (import aihub_runtime as aihub; aihub.connection('NAME'),
+        aihub.secret('NAME'), aihub.input('name'), aihub.log(...)). NEVER hard-code
+        credentials — declare them in connections_json/secrets_json and the runner
+        injects them. Declare produced files in outputs_json so the step's success is
+        VERIFIED (a step that declares out.csv but produces nothing is 'failed', not
+        silently 'ok'). Downstream steps reference an upstream step's files with the
+        input default '${<step_id>_files[0]}'.
+
+        Args:
+            name: the code flow's name.
+            step_name: short label for this step (e.g. 'pull-invoices').
+            code: the Python source for this step.
+            connections_json: JSON array of platform connection names, e.g. '["ERPDB"]'.
+            secrets_json: JSON array of platform secret names, e.g. '["ACME_SFTP"]'.
+            packages_json: JSON array of pip packages this step needs, e.g. '["pdfplumber"]'.
+            inputs_json: JSON array of input specs, e.g.
+                '[{"name":"src","type":"string","default":"${s1_files[0]}"}]'.
+            outputs_json: JSON array of declared outputs to verify, e.g.
+                '[{"kind":"file","path":"out.csv"}]'.
+            timeout: per-step timeout in seconds (default 600).
+        """
+        if not _automations_allowed(state):
+            return _AUTOMATIONS_DENIED
+        payload = {"name": name, "step_name": step_name, "code": code, "timeout": timeout}
+        for arg, field in ((connections_json, "connections"), (secrets_json, "secrets"),
+                           (packages_json, "packages"), (inputs_json, "inputs"),
+                           (outputs_json, "outputs")):
+            val, err = _cf_list(arg, field)
+            if err:
+                return err
+            if val is not None:
+                payload[field] = val
+        res = await asyncio.to_thread(_cf, "add_step", payload)
+        if not res.get("ok"):
+            return f"Could not add the step: {res.get('error')}"
+        return (f"Added step '{step_name}' (id {res.get('step_id')}) to '{name}'. "
+                f"Wire it with wire_steps, or add the next step.")
+
+    @lc_tool
+    async def wire_steps(name: str, from_step: str, to_step: str, on: str = "pass") -> str:
+        """Connect two steps in a Code Flow with an edge (the engine's control flow).
+
+        on='pass'  → go to to_step when from_step SUCCEEDS (the happy path).
+        on='fail'  → go to to_step when from_step FAILS (route to an alert/notify step).
+        on='complete' → go to to_step regardless of outcome.
+
+        Args:
+            name: the code flow's name.
+            from_step: source step id (from add_code_step).
+            to_step: target step id.
+            on: 'pass' (default), 'fail', or 'complete'.
+        """
+        if not _automations_allowed(state):
+            return _AUTOMATIONS_DENIED
+        res = await asyncio.to_thread(_cf, "wire",
+                                      {"name": name, "from_step": from_step,
+                                       "to_step": to_step, "on": on})
+        if not res.get("ok"):
+            return f"Could not wire the steps: {res.get('error')}"
+        return f"Wired {from_step} —[{on}]→ {to_step} in '{name}'."
+
+    @lc_tool
+    async def update_step_code(name: str, step_id: str, code: str) -> str:
+        """Replace the Python code of an existing step (the canvas is editable — use
+        this to fix a step after a dry-run shows it failing). Re-runs the credential
+        scan; won't accept hard-coded secrets.
+
+        Args:
+            name: the code flow's name.
+            step_id: the step id to update.
+            code: the new Python source.
+        """
+        if not _automations_allowed(state):
+            return _AUTOMATIONS_DENIED
+        res = await asyncio.to_thread(_cf, "update_step_code",
+                                      {"name": name, "step_id": step_id, "code": code})
+        if not res.get("ok"):
+            return f"Could not update the step: {res.get('error')}"
+        return f"Updated code for step {step_id} in '{name}'."
+
+    @lc_tool
+    async def get_code_flow(name: str) -> str:
+        """Show a Code Flow's structure: each step (id, name, declared
+        connections/secrets/outputs) and the edges between them."""
+        if not _automations_allowed(state):
+            return _AUTOMATIONS_DENIED
+        res = await asyncio.to_thread(_cf, "get", {"name": name})
+        if not res.get("ok"):
+            return f"Could not fetch the code flow: {res.get('error')}"
+        cf = res.get("code_flow") or {}
+        defn = cf.get("definition") or {}
+        steps = defn.get("steps") or []
+        edges = defn.get("edges") or []
+        if not steps:
+            return f"Code flow '{name}' has no steps yet."
+        lines = [f"Code flow '{name}' (workflow #{cf.get('workflow_id')}): {len(steps)} step(s)"]
+        for s in steps:
+            bits = []
+            if s.get("connections"):
+                bits.append("conn=" + ",".join(s["connections"]))
+            if s.get("secrets"):
+                bits.append("secret=" + ",".join(s["secrets"]))
+            if s.get("outputs"):
+                bits.append(f"{len(s['outputs'])} declared output(s)")
+            lines.append(f"- [{s['id']}] {s.get('name')}"
+                         + (f" ({'; '.join(bits)})" if bits else ""))
+        for e in edges:
+            lines.append(f"  {e.get('from')} —[{e.get('on', 'pass')}]→ {e.get('to')}")
+        return "\n".join(lines)
+
+    @lc_tool
+    async def dry_run_code_flow(name: str) -> str:
+        """Execute the Code Flow end to end RIGHT NOW (in-process walk of the graph,
+        honoring pass/fail edges) and report the honest per-step outcome — files
+        produced, verification results, and the stderr tail of any failing step so
+        you can fix it with update_step_code. This is the built-in test-before-ship
+        path. GROUNDING: report only what this tool returns; never claim a step
+        succeeded unless its status says so.
+
+        Args:
+            name: the code flow's name.
+        """
+        if not _automations_allowed(state):
+            return _AUTOMATIONS_DENIED
+        from . import codeflow_tools as _ct
+        res = await asyncio.to_thread(_cf, "dry_run", {"name": name})
+        if not res.get("ok") and res.get("status") is None:
+            return f"Could not run the code flow: {res.get('error')}"
+        return _ct.summarize_walk(res)
+
+    @lc_tool
+    async def run_code_flow(name: str) -> str:
+        """Run the Code Flow now and report the per-step outcome. (In v0 this is the
+        same synchronous graph walk as dry_run_code_flow; the durable, scheduled path
+        is schedule_code_flow.)
+
+        Args:
+            name: the code flow's name.
+        """
+        if not _automations_allowed(state):
+            return _AUTOMATIONS_DENIED
+        from . import codeflow_tools as _ct
+        res = await asyncio.to_thread(_cf, "run", {"name": name})
+        if not res.get("ok") and res.get("status") is None:
+            return f"Could not run the code flow: {res.get('error')}"
+        return _ct.summarize_walk(res)
+
+    @lc_tool
+    async def schedule_code_flow(name: str, cron_expression: str = "",
+                                 every_hours: int = 0, every_days: int = 0) -> str:
+        """Schedule a Code Flow to run automatically. It runs on the platform's
+        EXISTING workflow scheduler (the flow is stored as a workflow), so no extra
+        setup. GROUNDING: report only the real schedule the tool returns.
+
+        Args:
+            name: the code flow's name.
+            cron_expression: cron like '0 2 * * *' (2:00 daily). Use this OR every_*.
+            every_hours: run every N hours (interval schedule).
+            every_days: run every N days (interval schedule).
+        """
+        if not _automations_allowed(state):
+            return _AUTOMATIONS_DENIED
+        if cron_expression:
+            schedule = {"type": "cron", "cron_expression": cron_expression}
+        elif every_hours or every_days:
+            schedule = {"type": "interval"}
+            if every_hours:
+                schedule["interval_hours"] = every_hours
+            if every_days:
+                schedule["interval_days"] = every_days
+        else:
+            return "Provide either cron_expression or every_hours/every_days."
+        res = await asyncio.to_thread(_cf, "schedule", {"name": name, "schedule": schedule})
+        if not res.get("ok"):
+            return f"Could not schedule: {res.get('error')}"
+        return (f"Scheduled code flow '{name}' (job #{res.get('scheduled_job_id')}, "
+                f"schedule #{res.get('schedule_id')}). {res.get('note') or ''}".strip())
+
     tools = [query_data_agent, query_general_agent, delegate_to_builder_agent, save_user_preference, recall_all_memories, forget_preference, switch_active_agent, export_data, read_artifact, run_generated_tool, manipulate_pdf, generate_map, search_web, send_email, get_my_contact_info]
     if IMAGE_GENERATION_ENABLED:
         tools.append(generate_image)
@@ -4300,6 +4572,16 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         tools.append(run_automation)
         tools.append(get_automation_runs)
         tools.append(schedule_automation)
+        # Code Flows ride the same Developer gate (same family as Automations).
+        tools.append(list_code_flows)
+        tools.append(create_code_flow)
+        tools.append(add_code_step)
+        tools.append(wire_steps)
+        tools.append(update_step_code)
+        tools.append(get_code_flow)
+        tools.append(dry_run_code_flow)
+        tools.append(run_code_flow)
+        tools.append(schedule_code_flow)
     if _PORTAL_FETCH_ENABLED:
         tools.append(fetch_from_portal)
         tools.append(check_portal_download)
@@ -4385,6 +4667,19 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     "run_automation": run_automation,
                     "get_automation_runs": get_automation_runs,
                     "schedule_automation": schedule_automation,
+                    # Code Flows — MUST be here too (the AIHUB-0028 dual-
+                    # registration trap: a tool bound to the LLM but missing
+                    # from tool_map falls through to "Unknown tool" and never
+                    # executes). Each re-checks the Developer gate internally.
+                    "list_code_flows": list_code_flows,
+                    "create_code_flow": create_code_flow,
+                    "add_code_step": add_code_step,
+                    "wire_steps": wire_steps,
+                    "update_step_code": update_step_code,
+                    "get_code_flow": get_code_flow,
+                    "dry_run_code_flow": dry_run_code_flow,
+                    "run_code_flow": run_code_flow,
+                    "schedule_code_flow": schedule_code_flow,
                 }
 
                 tool_fn = tool_map.get(tool_name)
