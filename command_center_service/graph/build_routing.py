@@ -54,6 +54,31 @@ _OBJECT_BUILD_CONN = re.compile(
     r"[^.]{0,25}\b(connection|secret|credentials?)\b", re.I)
 
 
+# Follow-up cues within an ONGOING code-flow authoring conversation (AIHUB-0035).
+# Used only when a code_flow_context marker is set, so these can be terse — the
+# point is to keep "now dry-run it" / "wire the fail edge" / "schedule it" in
+# `converse` (where the code-flow tools live) instead of re-classifying them as a
+# fresh 'build' that goes to the visual Builder.
+_CODE_FLOW_FOLLOWUP = re.compile(
+    r"\b(dry[- ]?run|code\s?flow|the\s+flow|wire\b|add\s+(?:a\s+)?step|step\s*\d|"
+    r"promote\s+it|schedule\s+it|run\s+it|run\s+the\s+flow|upload\s+step|alert\s+(?:step|handler)|"
+    r"failure\s+(?:handler|branch|edge)|fail[- ]edge|update\s+step|fix\s+step)\b", re.I)
+_CODE_FLOW_CONTINUE = re.compile(
+    r"^\s*(continue|proceed|go\s+ahead|do\s+it|yes[.! ]?|next|keep\s+going|finish(?:\s+it)?)\b", re.I)
+
+
+def looks_like_code_flow_followup(text: str) -> bool:
+    """True for a natural follow-up turn in a code-flow conversation. Matches
+    code-flow-specific cues anywhere, or a TERSE standalone continuation
+    ('continue', 'do it') — kept short so an unrelated long message that happens
+    to contain 'continue' doesn't match. An object-build follow-up ('now create
+    a data agent') does NOT match, so it still routes to the Builder."""
+    t = (text or "").strip()
+    if _CODE_FLOW_FOLLOWUP.search(t):
+        return True
+    return len(t.split()) <= 6 and bool(_CODE_FLOW_CONTINUE.match(t))
+
+
 def looks_like_code_process(text: str) -> bool:
     """True for a clear code/data process with no object-builder signal.
 

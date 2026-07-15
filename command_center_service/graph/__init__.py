@@ -69,6 +69,13 @@ class CommandCenterState(TypedDict, total=False):
     # Active delegation — which agent the user is mid-conversation with
     active_delegation: Optional[ActiveDelegation]
 
+    # Code-flow authoring continuity (AIHUB-0035): set by converse when a
+    # code-flow tool runs ({"name": <flow>}); read by classify_intent so terse
+    # follow-ups ("now dry-run it", "schedule it") stay in converse (which owns
+    # the code-flow tools) instead of re-routing to the visual Builder. Persisted
+    # across turns by chat.py's session-state save/load, like active_delegation.
+    code_flow_context: Optional[Dict[str, Any]]
+
     # Task decomposition
     sub_tasks: List[SubTask]
     current_task_index: int

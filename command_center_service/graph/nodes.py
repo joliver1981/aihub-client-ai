@@ -29,6 +29,14 @@ _DELEGATED_TABLE_LLM_ROW_CAP = int(os.getenv("CC_DELEGATED_TABLE_LLM_ROW_CAP", "
 # Role model: 1 = User, 2 = Developer, 3 = Admin.
 MIN_DEV_ROLE = 2
 
+# The code-flow authoring tools (converse-bound). When any of these runs, converse
+# stamps a code_flow_context marker so classify_intent keeps follow-up turns in
+# converse (AIHUB-0035).
+_CODE_FLOW_TOOL_NAMES = frozenset({
+    "create_code_flow", "add_code_step", "wire_steps", "update_step_code",
+    "get_code_flow", "dry_run_code_flow", "run_code_flow", "schedule_code_flow",
+})
+
 
 def _has_dev_role(state) -> bool:
     """True when the verified user is Developer (2) or Admin (3).
@@ -1120,6 +1128,29 @@ async def classify_intent(state: CommandCenterState) -> dict:
                 return _cp_out
         except Exception as _cp_err:
             logger.debug(f"[classify_intent] code-process shortcut skipped: {_cp_err}")
+
+    # ── Code-flow authoring continuity (AIHUB-0035) ─────────────────────
+    # Once a code flow is being authored in this session (marker set by
+    # converse when a code-flow tool ran), keep TERSE follow-ups — "now
+    # dry-run it", "wire the fail edge", "schedule it", "continue" — in
+    # converse (which owns the code-flow tools). Without this they re-classify
+    # as a fresh 'build' and go to the visual Builder, which can't see the
+    # flow. Object-build follow-ups don't match the follow-up cues, so they
+    # still route to the Builder. Exempt an active builder session.
+    if (state.get("code_flow_context") and _AUTOMATIONS_TOOLS_ENABLED
+            and str((active or {}).get("agent_type") or "").lower() != "builder"):
+        try:
+            from graph.build_routing import looks_like_code_flow_followup
+            if looks_like_code_flow_followup(user_text):
+                logger.info("[classify_intent] code-flow continuity → intent=chat "
+                            "(mid code-flow authoring; keep follow-up in converse)")
+                _cf_out = {"intent": "chat", "pending_agent_selection": False,
+                           "code_flow_context": state.get("code_flow_context")}
+                if active:
+                    _cf_out["active_delegation"] = None
+                return _cf_out
+        except Exception as _cf_err:
+            logger.debug(f"[classify_intent] code-flow continuity skipped: {_cf_err}")
 
     # ── Deterministic build guard (AIHUB-0015 F1 / 0021 F1) ─────────────
     # Fires before EVERY routing layer — including the active-delegation
@@ -4696,11 +4727,16 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             from graph.tracing import trace_log
             tool_results = []
             active_deleg = None
+            _used_code_flow_tool = False   # AIHUB-0035: set the continuity marker
+            _code_flow_name = None
 
             for tc in response.tool_calls:
                 tool_name = tc["name"]
                 tool_args = tc["args"]
                 logger.info(f"[converse] Tool call: {tool_name}({tool_args})")
+                if tool_name in _CODE_FLOW_TOOL_NAMES:
+                    _used_code_flow_tool = True
+                    _code_flow_name = (tool_args or {}).get("name") or _code_flow_name
 
                 # Execute the tool — ALL tools must be handled
                 tool_map = {
@@ -4985,6 +5021,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 result = {"messages": [AIMessage(content=content)]}
                 if active_deleg:
                     result["active_delegation"] = active_deleg
+                if _used_code_flow_tool:
+                    result["code_flow_context"] = {"name": _code_flow_name}
                 return result
 
             # Send tool results back to LLM for final response
@@ -5037,6 +5075,9 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 for tc in final_response.tool_calls:
                     tool_name = tc["name"]
                     tool_args = tc["args"]
+                    if tool_name in _CODE_FLOW_TOOL_NAMES:
+                        _used_code_flow_tool = True
+                        _code_flow_name = (tool_args or {}).get("name") or _code_flow_name
                     _k = _call_key(tool_name, tool_args)
                     if _k in _seen_calls:
                         logger.warning(
@@ -5107,6 +5148,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     result = {"messages": [AIMessage(content=content)]}
                     if active_deleg:
                         result["active_delegation"] = active_deleg
+                    if _used_code_flow_tool:
+                        result["code_flow_context"] = {"name": _code_flow_name}
                     return result
 
                 _convo = _convo + [final_response] + tool_results_n
@@ -5162,6 +5205,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             result = {"messages": [final_response]}
             if active_deleg:
                 result["active_delegation"] = active_deleg
+            if _used_code_flow_tool:
+                result["code_flow_context"] = {"name": _code_flow_name}
             return result
 
         # Sanitize even non-tool responses

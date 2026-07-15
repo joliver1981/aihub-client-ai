@@ -414,6 +414,10 @@ async def chat(request: Request):
             # Restore session resources (persistent resource awareness)
             if session_state.get("session_resources"):
                 graph_input["session_resources"] = session_state["session_resources"]
+            # Restore code-flow authoring continuity (AIHUB-0035) so terse
+            # follow-ups ("now dry-run it") stay in converse across turns.
+            if session_state.get("code_flow_context"):
+                graph_input["code_flow_context"] = session_state["code_flow_context"]
 
             # ── Load user preferences (Layer 2: cross-session, simple DB read) ─
             user_memory_context = ""
@@ -559,6 +563,12 @@ async def chat(request: Request):
             session_res = final_state.get("session_resources")
             if session_res:
                 new_state["session_resources"] = session_res
+            # Persist code-flow authoring continuity (AIHUB-0035). Sticky: keep
+            # the marker from the prior turn if this turn didn't set a new one,
+            # so a clarifying turn mid-authoring doesn't drop continuity.
+            code_flow_ctx = final_state.get("code_flow_context") or session_state.get("code_flow_context")
+            if code_flow_ctx:
+                new_state["code_flow_context"] = code_flow_ctx
             _session_mgr.save_session_state(session_id, new_state)
             logger.info(f"[chat] Saved session state for {session_id}")
 

@@ -93,6 +93,47 @@ class TestCodeProcessFastPath:
         assert _looks()(text) is False
 
 
+# ------------------------------------ AIHUB-0035 code-flow follow-up detector
+
+def _followup():
+    import importlib.util
+    path = os.path.abspath(os.path.join(
+        os.path.dirname(__file__), "..", "..",
+        "command_center_service", "graph", "build_routing.py"))
+    spec = importlib.util.spec_from_file_location("_cc_build_routing2", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.looks_like_code_flow_followup
+
+
+class TestCodeFlowFollowup:
+    @pytest.mark.parametrize("text", [
+        "now dry-run it",
+        "dry run the whole flow",
+        "Please continue: also wire the upload step's failure to the alert handler, then dry-run",
+        "wire the fail edge to the alert step",
+        "schedule it nightly at 2am",
+        "run it",
+        "add a step to email the summary",
+        "fix step 1",
+        "continue",
+        "go ahead",
+        "do it",
+    ])
+    def test_followups_match(self, text):
+        assert _followup()(text) is True
+
+    @pytest.mark.parametrize("text", [
+        "now create a data agent for the sales team",   # object build -> Builder
+        "build a workflow I can edit on the canvas",
+        "what were total sales last quarter?",           # data query
+        "continue reading the quarterly report and summarize every regional section for me",  # long, not terse
+        "",
+    ])
+    def test_non_followups_do_not_match(self, text):
+        assert _followup()(text) is False
+
+
 # ------------------------------------------------------- F5 scanner URL gap
 
 def _scan():
