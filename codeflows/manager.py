@@ -183,6 +183,9 @@ class CodeFlowManager:
         if findings:
             return False, None, ("code contains credential-looking literals — read connections/"
                                  "secrets via aihub.connection()/secret() instead: " + "; ".join(findings))
+        lint = compiler.lint_input_names(code, inputs)   # AIHUB-0037 name-mismatch guard
+        if lint:
+            return False, None, lint
         with _edit_lock(self.tenant_id, name):
             loaded = self._load_defn(name)
             if not loaded:
@@ -213,6 +216,9 @@ class CodeFlowManager:
             _wid, defn = loaded
             for s in defn.get("steps", []):
                 if s.get("id") == step_id:
+                    lint = compiler.lint_input_names(code, s.get("inputs"))  # AIHUB-0037
+                    if lint:
+                        return False, lint
                     s["code"] = code
                     self._save_definition(defn)
                     return True, None

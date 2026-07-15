@@ -34,7 +34,7 @@ import sys as _sys
 import urllib.error as _urlerror
 import urllib.request as _urlrequest
 
-__all__ = ["connection", "secret", "input", "inputs", "log", "checkpoint",
+__all__ = ["connection", "secret", "input", "inputs", "log", "checkpoint", "query",
            "AutomationRuntimeError", "AutomationAborted"]
 
 _RESOLVE_PATH = "/automations/api/runtime/resolve"
@@ -117,6 +117,53 @@ def secret(name):
     """Return the value of a local secret by name.
     The name must be declared in the automation manifest's "secrets"."""
     return _resolve("secret", name)
+
+
+def query(connection_name, sql, params=None):
+    """Run SQL against a platform Connection BY NAME and return the rows as a
+    list of dicts (column name -> value). Use this instead of hand-rolling
+    pyodbc / SQLAlchemy — it resolves the connection (which must be declared in
+    the step's `connections`), opens a pyodbc connection to that ODBC string,
+    executes `sql` with optional `params`, and returns the result set.
+
+        for row in aihub.query("AIRDB", "SELECT id, name FROM employees WHERE dept = ?", ["Sales"]):
+            print(row["id"], row["name"])
+
+    A non-SELECT statement is committed and returns []. `params` is a sequence
+    bound to the statement's `?` placeholders (use them — never string-format
+    values into SQL). Needs the 'pyodbc' package (present in the standard run
+    environments; otherwise declare 'pyodbc' in the step's packages)."""
+    conn_str = connection(connection_name)   # resolves + enforces the manifest allowlist
+    try:
+        import pyodbc  # lazy: keep this module stdlib-only at import time
+    except ImportError:
+        raise AutomationRuntimeError(
+            "aihub.query needs the 'pyodbc' package — declare 'pyodbc' in the step's packages"
+        ) from None
+    try:
+        cn = pyodbc.connect(conn_str)
+    except Exception as e:
+        raise AutomationRuntimeError(
+            f"aihub.query could not connect to '{connection_name}': {e}") from None
+    try:
+        cur = cn.cursor()
+        if params:
+            cur.execute(sql, list(params))
+        else:
+            cur.execute(sql)
+        if cur.description is None:            # non-SELECT (INSERT/UPDATE/DDL)
+            cn.commit()
+            return []
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+    except Exception as e:
+        raise AutomationRuntimeError(
+            f"aihub.query failed on '{connection_name}': {e}") from None
+    finally:
+        try:
+            cn.close()
+        except Exception:
+            pass
 
 
 def inputs():

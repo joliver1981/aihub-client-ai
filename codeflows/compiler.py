@@ -106,6 +106,27 @@ def new_step_id() -> str:
     return "s" + uuid.uuid4().hex[:8]
 
 
+_AIHUB_INPUT_RE = re.compile(r"aihub\.input\(\s*['\"]([^'\"]+)['\"]")
+
+
+def lint_input_names(code: str, inputs: Optional[List[Dict]]) -> Optional[str]:
+    """Return an error if the step code reads an `aihub.input('NAME')` that is
+    NOT in the step's declared inputs (AIHUB-0037: the reconcile step read
+    aihub.input('src_csv') but declared 'parsed_csv' -> None -> crash). Catches
+    the name-mismatch at author time. Returns None when every referenced input
+    is declared."""
+    declared = {i.get("name") for i in (inputs or []) if isinstance(i, dict) and i.get("name")}
+    referenced = set(_AIHUB_INPUT_RE.findall(code or ""))
+    missing = sorted(n for n in referenced if n not in declared)
+    if not missing:
+        return None
+    return ("step code reads undeclared input(s) via aihub.input(): "
+            + ", ".join(missing) + " — declared inputs are ["
+            + ", ".join(sorted(declared)) + "]. Fix the name to match a declared input, "
+            "or declare it (cross-step files come via an input defaulting to "
+            "${<upstream_step_id>_files[0]}).")
+
+
 # ---------------------------------------------------------------------- compile
 
 def _step_manifest(step: Dict) -> Dict:

@@ -1830,7 +1830,11 @@ async def converse(state: CommandCenterState) -> dict:
             "- Same rules as automations: existing connections/secrets by NAME via aihub.*, never "
             "hard-code credentials, DECLARE outputs so each step is verified, report outcomes "
             "verbatim (success/failed per step). Build the flow, dry-run it, show the user, then "
-            "schedule."
+            "schedule.\n"
+            "- DATABASE access: use `aihub.query('CONN', sql, params)` (returns rows as dicts) — do "
+            "NOT hand-roll pyodbc/SQLAlchemy. INPUT NAMES: the names a step reads with "
+            "`aihub.input('X')` must match the input names it declares (a mismatch is rejected on "
+            "save); pass a file between steps via an input defaulting to `${<upstream_step_id>_files[0]}`."
         )
         if _AUTOMATIONS_PROPOSE_CHECKPOINTS:
             _automations_prompt += (
@@ -4462,11 +4466,19 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                             outputs_json: str = "", timeout: int = 600,
                             allow_unverified: bool = False) -> str:
         """Add one Code Step to a Code Flow. The step is inline Python run through the
-        Automations runner: it reads platform connections/secrets via the read-only
-        aihub_runtime SDK (import aihub_runtime as aihub; aihub.connection('NAME'),
-        aihub.secret('NAME'), aihub.input('name'), aihub.log(...)). NEVER hard-code
-        credentials — declare them in connections_json/secrets_json and the runner
-        injects them. Declare produced files in outputs_json so the step's success is
+        Automations runner via the read-only aihub_runtime SDK (import aihub_runtime as
+        aihub): aihub.connection('NAME'), aihub.secret('NAME'), aihub.input('name'),
+        aihub.log(...), and — for SQL — aihub.query('CONN', sql, params) which returns
+        rows as a list of dicts. **Use aihub.query for database access — do NOT hand-roll
+        pyodbc or SQLAlchemy** (passing an ODBC string to SQLAlchemy create_engine is the
+        #1 code-gen failure). Example:
+            for row in aihub.query('AIRDB', 'SELECT id, amount FROM expenses WHERE emp = ?', [emp_id]):
+                total += row['amount']
+        NEVER hard-code credentials — declare them in connections_json/secrets_json and
+        the runner injects them. **INPUT NAMES MUST MATCH:** the names you read with
+        aihub.input('X') must exactly equal the input names you declare in inputs_json
+        (a mismatch is rejected at save). A downstream step consumes an upstream file via
+        an input whose default is '${<upstream_step_id>_files[0]}'. Declare produced files in outputs_json so the step's success is
         VERIFIED (a step that declares out.csv but produces nothing is 'failed', not
         silently 'ok'). Downstream steps reference an upstream step's files with the
         input default '${<step_id>_files[0]}', where <step_id> is the id RETURNED by
