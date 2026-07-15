@@ -461,7 +461,19 @@ const CC = {
         if (role === 'assistant') {
             const cleanContent = this._unwrapJsonContent(content);
             if (window.marked) {
-                div.innerHTML = marked.parse(cleanContent);
+                // Wrap markdown in the SAME `.cc-block-text` container the live
+                // render uses (CCRenderers._renderText). All the nice markdown
+                // styling (nested bullets, code, tables, headings) is scoped to
+                // `.cc-block-text`, so a bare `.cc-message` render — the path a
+                // RELOADED history message took — lost every rule and fell back
+                // to flat browser-default bullets. Mirror the rich path exactly.
+                const block = document.createElement('div');
+                block.className = 'cc-block cc-block-text';
+                block.innerHTML = marked.parse(cleanContent);
+                block.querySelectorAll('pre code').forEach(el => {
+                    if (window.hljs) { try { hljs.highlightElement(el); } catch(e) {} }
+                });
+                div.appendChild(block);
             } else {
                 div.textContent = cleanContent;
             }
