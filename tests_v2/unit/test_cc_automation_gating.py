@@ -241,3 +241,87 @@ class TestConverseToolMapRegistration:
         bound = self._bound_tool_names(conv)
         missing = sorted(bound - keys)
         assert not missing, f"bound to the LLM but missing from tool_map: {missing}"
+
+
+class TestBuildShapeDecider:
+    """The strong-model decision that replaces the keyword guards: given a
+    build-ish request it returns automation / builder / both / neither. Tests
+    the parsing/robustness with a fake LLM (the real decision quality is the
+    tester's live retest)."""
+
+    async def _run(self, monkeypatch, model_output):
+        import cc_config
+
+        class _Resp:
+            content = model_output
+
+        class _LLM:
+            async def ainvoke(self, msgs):
+                return _Resp()
+
+        monkeypatch.setattr(cc_config, "get_llm", lambda **k: _LLM())
+        monkeypatch.setattr(nodes, "trace_llm_call", lambda *a, **k: None)
+        return await nodes._classify_build_shape("build me something", {})
+
+    async def test_parses_each_shape(self, monkeypatch):
+        cases = [
+            ("automation", "automation"), ("builder", "builder"),
+            ("both", "both"), ("neither", "neither"),
+            ("AUTOMATION.", "automation"), ("both (an agent + a script)", "both"),
+            ("I think builder", "builder"), ('"automation"', "automation"),
+        ]
+        for out, exp in cases:
+            assert await self._run(monkeypatch, out) == exp, out
+
+    async def test_garbage_defaults_to_neither(self, monkeypatch):
+        assert await self._run(monkeypatch, "purple monkey dishwasher") == "neither"
+        assert await self._run(monkeypatch, "") == "neither"
+
+    async def test_llm_failure_returns_neither(self, monkeypatch):
+        import cc_config
+
+        def boom(**k):
+            raise RuntimeError("no llm here")
+
+        monkeypatch.setattr(cc_config, "get_llm", boom)
+        monkeypatch.setattr(nodes, "trace_llm_call", lambda *a, **k: None)
+        # never raises; safe fallback keeps the cheap classifier's own intent
+        assert await nodes._classify_build_shape("x", {}) == "neither"
+
+
+class TestSmartBuildRoutingWiring:
+    """The 'one intelligent decision point' replacing the keyword guards,
+    flag-guarded for instant revert."""
+
+    def _src(self):
+        return Path(nodes.__file__).read_text(encoding="utf-8")
+
+    def test_flag_default_on(self):
+        src = self._src()
+        assert 'os.getenv("CC_SMART_BUILD_ROUTING", "true")' in src
+        assert isinstance(nodes._SMART_BUILD_ROUTING, bool)
+
+    def test_legacy_keyword_guards_are_gated_behind_flag_off(self):
+        """The regex guards must only run when smart routing is OFF."""
+        src = self._src()
+        gate = src.find("if not _SMART_BUILD_ROUTING:")
+        assert gate != -1, "legacy guards not gated behind the flag"
+        after = src.find("Classified intent:", gate)
+        block = src[gate:after]
+        # both keyword guards live inside the flag-off block
+        assert "deterministic build guard matched" in block
+        assert "automation guard matched" in block
+
+    def test_shape_maps_to_intent_after_classifier(self):
+        src = self._src()
+        blk = src[src.find("intent in _BUILD_FAMILY_INTENTS"):src.find("Classified intent:")]
+        assert "_classify_build_shape(user_text, state)" in blk
+        assert 'shape in ("automation", "both")' in blk
+        assert 'intent = "chat"' in blk
+        assert 'shape == "builder"' in blk and 'intent = "build"' in blk
+
+    def test_build_shape_prompt_names_environment_and_libraries(self):
+        """The under-sold differentiator must be in the decider's prompt."""
+        assert "dedicated Python environment" in nodes._BUILD_SHAPE_PROMPT
+        assert "pip library" in nodes._BUILD_SHAPE_PROMPT
+        assert "both" in nodes._BUILD_SHAPE_PROMPT  # combination is a valid answer

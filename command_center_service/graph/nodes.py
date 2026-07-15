@@ -969,6 +969,70 @@ def _is_explicit_build_request(text: str) -> bool:
     return "assign" in tl and "tool" in tl
 
 
+# ── Smart build routing (replaces the fragile keyword guards) ──────────────
+# CC_SMART_BUILD_ROUTING (default ON): instead of regex keyword guards, a
+# STRONGER-model call decides the SHAPE of a build/create request —
+# automation / builder / both / neither — reasoning holistically about the
+# user's goal. Flag-guarded because this is core routing for ALL CC traffic:
+# a bad decision is an instant env revert to the old keyword guards, not a
+# redeploy. The cheap intent classifier gates it (only build-family intents
+# pay for the strong call — the intelligence-based triage).
+_SMART_BUILD_ROUTING = os.getenv("CC_SMART_BUILD_ROUTING", "true").lower() == "true"
+_BUILD_FAMILY_INTENTS = {"build", "multi_step", "create_tool"}
+
+_BUILD_SHAPE_PROMPT = (
+    "You decide HOW to fulfill a build/create/set-up request in the AI Hub platform. "
+    "Reply with ONE word only: automation, builder, both, or neither.\n\n"
+    "- automation — a Python SCRIPT the platform generates and OWNS: it runs in its own "
+    "dedicated Python environment where ANY pip library can be installed (pdfplumber, "
+    "paramiko, pandas, ML packages, vendor API SDKs, …), and the platform versions, runs, "
+    "VERIFIES its declared outputs, and schedules it. Choose this when the goal is a PROCESS: "
+    "read/parse files (PDF/Excel/CSV), call APIs, transform or reconcile data, produce and move "
+    "files (CSV to SFTP/FTP/HTTP), on demand or on a schedule/trigger — i.e. when writing code "
+    "with libraries is the path of least resistance versus assembling a many-step visual workflow.\n"
+    "- builder — creates platform OBJECTS that people interact with or other resources reference: "
+    "a data/general AGENT someone chats with, a CONNECTION, an MCP server, a custom TOOL an agent "
+    "calls, a KNOWLEDGE base/document set, or a visual WORKFLOW the user explicitly wants to see and edit.\n"
+    "- both — the goal genuinely needs an OBJECT and a PROCESS, e.g. 'create an agent and load this "
+    "document into its knowledge, and also a nightly export that feeds it'.\n"
+    "- neither — not actually a build/create request (a question, a data lookup, or chit-chat).\n\n"
+    "Decide by what the DELIVERABLE is, not by what is technically possible (a script can do almost "
+    "anything). If someone will TALK TO it, or other resources will REFERENCE it, or they asked for an "
+    "editable visual workflow → builder. If it is a script that runs and produces an outcome → automation. "
+    "Reply with exactly one word."
+)
+
+
+async def _classify_build_shape(user_text: str, state: "CommandCenterState") -> str:
+    """Strong-model decision: given a build-ish request, what is the right home?
+    Returns 'automation' | 'builder' | 'both' | 'neither'. Never raises — any
+    failure returns 'neither', so the caller safely keeps the cheap classifier's
+    own intent."""
+    try:
+        from cc_config import get_llm
+        llm = get_llm(mini=False, streaming=False)
+        _t0 = _trace_time.perf_counter()
+        resp = await llm.ainvoke([
+            SystemMessage(content=_BUILD_SHAPE_PROMPT),
+            HumanMessage(content=user_text),
+        ])
+        trace_llm_call(state, node="classify_intent", step="build_shape_decision",
+                       messages=[SystemMessage(content=_BUILD_SHAPE_PROMPT), HumanMessage(content=user_text)],
+                       response=resp, elapsed_ms=int((_trace_time.perf_counter() - _t0) * 1000),
+                       model_hint="full")
+        raw = (resp.content or "").strip().strip('"').lower()
+        first = raw.split()[0] if raw else ""
+        if first in ("automation", "builder", "both", "neither"):
+            return first
+        for w in ("both", "automation", "builder", "neither"):
+            if w in raw:
+                return w
+        return "neither"
+    except Exception as e:
+        logger.warning(f"[classify_intent] build-shape decision failed: {e}")
+        return "neither"
+
+
 # ─── Node: classify_intent ────────────────────────────────────────────────
 
 async def classify_intent(state: CommandCenterState) -> dict:
@@ -1009,40 +1073,30 @@ async def classify_intent(state: CommandCenterState) -> dict:
     # fabricated-success bug). Builder delegations are exempt: their
     # CONTINUE path already returns intent='build' and must keep the
     # builder session state.
-    if _is_explicit_build_request(user_text) and \
-            str((active or {}).get("agent_type") or "").lower() != "builder":
-        logger.info(
-            "[classify_intent] deterministic build guard matched — forcing intent=build"
-        )
-        _guard_out = {"intent": "build", "pending_agent_selection": False}
-        if active:
-            _guard_out["active_delegation"] = None
-        return _guard_out
-
-    # AIHUB-0028 F1, round 2: AUTOMATION requests are converse territory — the
-    # automation tools live there and the Builder Agent doesn't know the asset
-    # type (it role-plays a clarify flow and never saves). The deterministic
-    # build guard above already ignores automation texts, but the LLM
-    # classifier below could still vote 'build' (observed live: "Create an
-    # automation called expense-audit…" → Builder clarify flow). Route
-    # automation mentions to converse DETERMINISTICALLY, before route memory
-    # and the LLM get a vote — the mirror image of the build guard. Converse
-    # is a safe landing either way: it holds the automation tools for
-    # Developers, the explicit refusal prompt for non-Developers, and its
-    # builder-delegation tool if the user really meant an agent/workflow.
-    # Active builder delegations are exempt (their CONTINUE path owns the
-    # session).
-    if (_AUTOMATIONS_TOOLS_ENABLED
-            and _BUILD_GUARD_AUTOMATION_RE.search(user_text)
-            and str((active or {}).get("agent_type") or "").lower() != "builder"):
-        logger.info(
-            "[classify_intent] automation guard matched — forcing intent=chat "
-            "(converse owns the automation tools)"
-        )
-        _auto_out = {"intent": "chat", "pending_agent_selection": False}
-        if active:
-            _auto_out["active_delegation"] = None
-        return _auto_out
+    # LEGACY keyword guards — only when smart routing is OFF (instant revert
+    # path). When smart routing is ON, the strong build-shape decision after
+    # the classifier below replaces both of these with one intelligent call.
+    if not _SMART_BUILD_ROUTING:
+        if _is_explicit_build_request(user_text) and \
+                str((active or {}).get("agent_type") or "").lower() != "builder":
+            logger.info(
+                "[classify_intent] deterministic build guard matched — forcing intent=build"
+            )
+            _guard_out = {"intent": "build", "pending_agent_selection": False}
+            if active:
+                _guard_out["active_delegation"] = None
+            return _guard_out
+        if (_AUTOMATIONS_TOOLS_ENABLED
+                and _BUILD_GUARD_AUTOMATION_RE.search(user_text)
+                and str((active or {}).get("agent_type") or "").lower() != "builder"):
+            logger.info(
+                "[classify_intent] automation guard matched — forcing intent=chat "
+                "(converse owns the automation tools)"
+            )
+            _auto_out = {"intent": "chat", "pending_agent_selection": False}
+            if active:
+                _auto_out["active_delegation"] = None
+            return _auto_out
 
     if not active or not active.get("agent_id"):
         from cc_config import USE_ROUTE_MEMORY
@@ -1490,6 +1544,22 @@ Reply with ONLY one word: CONTINUE, CC_CAPABLE, or REROUTE."""
             logger.warning(f"Unknown intent '{intent}', defaulting to 'chat'")
             intent = "chat"
 
+        # Smart build routing: for build-family intents, a stronger model picks
+        # the SHAPE (automation / builder / both) — the one intelligent decision
+        # replacing the deleted keyword guards. Cheap classifier gates it, so
+        # only build-ish turns pay. Builder delegations mid-session are exempt.
+        if (_SMART_BUILD_ROUTING and intent in _BUILD_FAMILY_INTENTS
+                and str((active or {}).get("agent_type") or "").lower() != "builder"):
+            shape = await _classify_build_shape(user_text, state)
+            logger.info(f"[classify_intent] build-shape decision: {shape} (classifier said '{intent}')")
+            if shape in ("automation", "both"):
+                # converse holds BOTH the automation tools and
+                # delegate_to_builder_agent, so it can do either or orchestrate both
+                intent = "chat"
+            elif shape == "builder":
+                intent = "build"
+            # 'neither' → keep the classifier's build-family intent as-is
+
         logger.info(f"Classified intent: {intent}")
         return _intent_result({"intent": intent, "landscape": landscape, "pending_agent_selection": False})
 
@@ -1600,14 +1670,28 @@ async def converse(state: CommandCenterState) -> dict:
         )
     if _AUTOMATIONS_TOOLS_ENABLED and _automations_allowed(state):
         _automations_prompt = (
-            "## AUTOMATIONS (create_automation / save_automation_code / dry_run_automation / "
-            "promote_automation / run_automation / schedule_automation / list_automations / "
+            "## AUTOMATIONS vs. THE BUILDER — pick the right home for what the user wants\n"
+            "You can build in two ways; choose by what the DELIVERABLE is, not by what is "
+            "technically possible (a script can do almost anything). Many goals need BOTH — do each "
+            "part with the right tool.\n"
+            "- AUTOMATION (the tools below) — a Python SCRIPT the platform owns: it runs in its own "
+            "DEDICATED Python environment where ANY pip library can be installed (pdfplumber, "
+            "paramiko, pandas, ML, vendor SDKs), and the platform versions, runs, VERIFIES its "
+            "declared outputs, and schedules it. Reach for this when the goal is a PROCESS — parse "
+            "files, call APIs, transform/reconcile data, produce and move files (CSV/PDF → SFTP), on "
+            "a schedule or trigger — i.e. when writing code with libraries is more direct than a "
+            "many-step visual workflow.\n"
+            "- BUILDER (delegate_to_builder_agent) — creates platform OBJECTS people interact with or "
+            "other resources reference: a data/general AGENT someone chats with, a CONNECTION, an MCP "
+            "server, a custom TOOL an agent calls, a KNOWLEDGE base, or a visual WORKFLOW the user "
+            "wants to see and edit. If someone will TALK TO it or other resources will REFERENCE it, "
+            "it is a Builder object, not an Automation.\n"
+            "- Example needing BOTH: 'create an agent, load this doc into its knowledge, and a nightly "
+            "export that feeds it' → agent + knowledge via the Builder, the export as an Automation.\n\n"
+            "## AUTOMATIONS — the tools (create_automation / save_automation_code / dry_run_automation "
+            "/ promote_automation / run_automation / schedule_automation / list_automations / "
             "get_automation / get_automation_runs)\n"
-            "You can build PERSISTED, deterministic Python solutions the platform owns and runs — "
-            "for custom business processes the workflow canvas can't express (e.g. 'read these PDFs, "
-            "extract the employee number, look up X in the database, produce a CSV in this format, "
-            "upload it to this SFTP server'). Write the code yourself; the platform versions, runs, "
-            "verifies, and schedules it.\n"
+            "Write the code yourself; the platform versions, runs, verifies, and schedules it.\n"
             "- BUILD FLOW (follow in order): 1) confirm the process + gather connection/secret names "
             "(create missing connections/secrets first via the normal build flow), 2) create_automation, "
             "3) save_automation_code with a manifest declaring inputs/connections/secrets/outputs, "
@@ -1622,9 +1706,10 @@ async def converse(state: CommandCenterState) -> dict:
             "verbatim, never soften a failed or unverified run into success.\n"
             "- Scheduled runs execute the PROMOTED version only; editing code never changes a "
             "schedule until you promote again.\n"
-            "- NEVER delegate automation work to the Builder Agent — it does not know this asset "
-            "type. All automation operations go through these automation tools, and every save "
-            "must be confirmed to the user with the version number the tool returned."
+            "- Do the AUTOMATION parts with these tools (never the Builder Agent — it does not know "
+            "this asset type); if the same request ALSO needs an agent/connection/knowledge/MCP or an "
+            "editable workflow, use delegate_to_builder_agent for that part. Every save must be "
+            "confirmed to the user with the version number the tool returned."
         )
         if _AUTOMATIONS_PROPOSE_CHECKPOINTS:
             _automations_prompt += (
