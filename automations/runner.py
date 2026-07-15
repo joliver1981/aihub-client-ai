@@ -551,49 +551,72 @@ class AutomationRunner:
 
     def _execute(self, auto: Dict, manifest: Dict, version: int, run_id: str,
                  workdir: str, inputs: Dict, timeout: int, dry_run: bool) -> Dict:
+        """Asset path: load the pinned/latest code (+ dry-run samples) and hand
+        off to the shared code executor. Thin wrapper so the working Automations
+        path is byte-for-byte unchanged while inline Code Flow steps reuse the
+        same _execute_code core."""
         automation_id = auto["automation_id"]
-        os.makedirs(workdir, exist_ok=True)
-
-        # -- seed: inputs file + (dry-run) the version's sample files
-        with open(os.path.join(workdir, _INPUTS_FILE), "w", encoding="utf-8") as f:
-            json.dump(inputs, f, indent=2)
-        if dry_run:
-            samples = os.path.join(self.manager.version_dir(automation_id, version), "samples")
-            if os.path.isdir(samples):
-                for name in os.listdir(samples):
-                    src = os.path.join(samples, name)
-                    if os.path.isfile(src):
-                        shutil.copy2(src, os.path.join(workdir, name))
-
-        # -- write the frozen script
         code = self.manager.get_code(automation_id, version)
         if code is None:
             return {"status": "failed", "error": f"code for v{version} missing on disk"}
+        samples_dir = None
+        if dry_run:
+            samples_dir = os.path.join(self.manager.version_dir(automation_id, version), "samples")
+        return self._execute_code(
+            code=code, manifest=manifest,
+            identity={"id": automation_id, "name": auto["name"], "version": version,
+                      "environment_id": auto.get("environment_id")},
+            run_id=run_id, workdir=workdir, inputs=inputs, timeout=timeout,
+            dry_run=dry_run, samples_dir=samples_dir)
+
+    def _execute_code(self, code: str, manifest: Dict, identity: Dict, run_id: str,
+                      workdir: str, inputs: Dict, timeout: int, dry_run: bool,
+                      samples_dir: Optional[str] = None,
+                      force_env_inject: bool = False) -> Dict:
+        """Shared executor for BOTH a promoted Automation and an inline Code
+        Flow step. `identity` = {id, name, version, environment_id}. Runs the
+        code in an environment with the aihub_runtime SDK, supervises it (live
+        events, honest cancellation), verifies declared outputs, returns the
+        honest tri-state outcome. `force_env_inject` delivers credential VALUES
+        as env vars — the Code Flow step path uses it because a workflow step
+        has no live AutomationRuns row for the token/resolve endpoint (v0)."""
+        ident = identity["id"]
+        name = identity.get("name") or ident
+        version = identity.get("version", 1)
+        os.makedirs(workdir, exist_ok=True)
+
+        # -- seed: inputs file + (dry-run) sample files
+        with open(os.path.join(workdir, _INPUTS_FILE), "w", encoding="utf-8") as f:
+            json.dump(inputs, f, indent=2)
+        if samples_dir and os.path.isdir(samples_dir):
+            for sname in os.listdir(samples_dir):
+                src = os.path.join(samples_dir, sname)
+                if os.path.isfile(src):
+                    shutil.copy2(src, os.path.join(workdir, sname))
+
         entrypoint = manifest.get("entrypoint", "main.py")
-        script_path = os.path.join(workdir, entrypoint)
-        with open(script_path, "w", encoding="utf-8") as f:
-            f.write(_PREAMBLE + code)
+        with open(os.path.join(workdir, entrypoint), "w", encoding="utf-8") as f:
+            f.write(_PREAMBLE + (code or ""))
 
         pre_run_files = set()
         for root, _dirs, files in os.walk(workdir):
-            for name in files:
-                pre_run_files.add(os.path.relpath(os.path.join(root, name), workdir))
+            for fn in files:
+                pre_run_files.add(os.path.relpath(os.path.join(root, fn), workdir))
 
         # -- credentials: pre-flight existence check ALWAYS; delivery is the
-        # signed run token + aihub_runtime SDK (values resolved server-side at
-        # use time). Env-var VALUE injection is the legacy P0/P1 path, kept
-        # behind AUTOMATIONS_ENV_CRED_INJECTION (default off).
+        # signed run token + aihub_runtime SDK, or (force_env_inject / the
+        # AUTOMATIONS_ENV_CRED_INJECTION flag) credential VALUES as env vars.
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         env["AIHUB_RUN_ID"] = run_id
-        env["AIHUB_AUTOMATION_ID"] = automation_id
+        env["AIHUB_AUTOMATION_ID"] = ident
         env["AIHUB_INPUTS_PATH"] = os.path.join(workdir, _INPUTS_FILE)
         sdk_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sdk")
         env["PYTHONPATH"] = sdk_dir + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
 
         conn_names = manifest.get("connections", [])
         secret_names = manifest.get("secrets", [])
-        env_inject = bool(getattr(_load_cfg(), "AUTOMATIONS_ENV_CRED_INJECTION", False))
+        env_inject = force_env_inject or bool(getattr(_load_cfg(), "AUTOMATIONS_ENV_CRED_INJECTION", False))
         missing = []
         for conn_name in conn_names:
             conn_str = self._resolve_connection(conn_name)
@@ -608,36 +631,29 @@ class AutomationRunner:
             elif env_inject:
                 env[_env_var_name("AIHUB_SECRET_", secret_name)] = value
         if missing:
-            # fail fast and honestly — do not let the script discover it mid-way
             error = "unresolvable at run time: " + ", ".join(missing)
-            self._write_log(log_dir=workdir, header=self._log_header(auto, version, None),
+            self._write_log(log_dir=workdir, header=self._log_header(name, ident, version, None),
                             stdout="", stderr=error, footer="outcome: failed (pre-flight)")
-            return {"status": "failed", "error": error}
+            return {"status": "failed", "error": error, "workdir": workdir}
 
-        # The run token is minted for EVERY run, not just credentialed ones —
-        # aihub.checkpoint() needs it too (AIHUB-0031 F2: a checkpoint-only
-        # automation got no token and the gate call failed). Credential
-        # resolution is still bounded by the allowlists in the claims.
-        token = self._mint_run_token(automation_id, run_id, conn_names, secret_names,
-                                     ttl_seconds=timeout + 900)
+        token = self._mint_run_token(ident, run_id, conn_names, secret_names, ttl_seconds=timeout + 900)
         if token:
             env["AIHUB_RUN_TOKEN"] = token
             env["AIHUB_RUNTIME_URL"] = self._runtime_base_url()
         elif (conn_names or secret_names) and not env_inject:
             error = ("cannot provide credentials to the run: run-token signing is "
                      "unavailable (no JWT secret) and AUTOMATIONS_ENV_CRED_INJECTION is off")
-            self._write_log(log_dir=workdir, header=self._log_header(auto, version, None),
+            self._write_log(log_dir=workdir, header=self._log_header(name, ident, version, None),
                             stdout="", stderr=error, footer="outcome: failed (pre-flight)")
-            return {"status": "failed", "error": error}
+            return {"status": "failed", "error": error, "workdir": workdir}
 
-        python_exe = self._resolve_python(auto.get("environment_id"))
+        python_exe = self._resolve_python(identity.get("environment_id"))
         if not python_exe:
-            return {"status": "failed", "error": "no usable Python interpreter found"}
+            return {"status": "failed", "error": "no usable Python interpreter found", "workdir": workdir}
 
-        # -- execute under supervision: incremental output, live events, and
-        # honest cancellation (abort request or timeout kills the child)
+        # -- execute under supervision: incremental output, live events, honest cancellation
         events = RunEventLog(workdir)
-        events.emit("run_started", automation=auto["name"], automation_id=automation_id,
+        events.emit("run_started", automation=name, automation_id=ident,
                     run_id=run_id, version=version, dry_run=dry_run, timeout=timeout)
         exit_code, stdout, stderr, timed_out, aborted = self._supervise(
             [python_exe, entrypoint], workdir, env, timeout, run_id, events)
@@ -645,8 +661,8 @@ class AutomationRunner:
         # -- sweep new files (before verification so the report can reference them)
         output_files = []
         for root, _dirs, files in os.walk(workdir):
-            for name in files:
-                rel = os.path.relpath(os.path.join(root, name), workdir)
+            for fn in files:
+                rel = os.path.relpath(os.path.join(root, fn), workdir)
                 if (rel not in pre_run_files
                         and rel not in (_RUN_LOG_NAME, _EGRESS_LOG_NAME, _EVENTS_FILE)
                         and not os.path.basename(rel).startswith("checkpoint_")):
@@ -655,7 +671,6 @@ class AutomationRunner:
         for f_rel in output_files:
             events.emit("output_file", path=f_rel)
 
-        # -- fold the egress log (network destinations the script connected to)
         egress = ""
         try:
             with open(os.path.join(workdir, _EGRESS_LOG_NAME), "r", encoding="utf-8") as f:
@@ -678,25 +693,48 @@ class AutomationRunner:
             for check in entry.get("checks", []):
                 events.emit("verify", kind=entry.get("kind"),
                             target=entry.get("path") or entry.get("name"),
-                            check=check.get("check"), ok=check.get("ok"),
-                            note=check.get("note"))
+                            check=check.get("check"), ok=check.get("ok"), note=check.get("note"))
         events.emit("finished", status=status, exit_code=exit_code, error=error)
 
         self._write_log(
             log_dir=workdir,
-            header=self._log_header(auto, version, python_exe),
+            header=self._log_header(name, ident, version, python_exe),
             stdout=stdout, stderr=stderr,
             footer=(f"exit_code: {exit_code}  outcome: {status}" + (f"  ({error})" if error else "")
                     + (f"\n\n===== network egress =====\n{egress}" if egress else "")),
         )
 
         return {
-            "status": status, "exit_code": exit_code, "error": error,
-            "version": version,
+            "status": status, "exit_code": exit_code, "error": error, "version": version,
             "verify_report": verify_report, "output_files": output_files,
             "stdout_tail": stdout[-2000:], "stderr_tail": stderr[-2000:],
             "workdir": workdir,
         }
+
+    def run_code_step(self, code: str, manifest: Dict, step_name: str,
+                      inputs: Optional[Dict] = None, environment_id: Optional[str] = None,
+                      run_id: Optional[str] = None, workdir: Optional[str] = None) -> Dict:
+        """Execute an INLINE Code Flow step — LLM-authored Python that lives in
+        a workflow node, not a promoted Automation asset — through the shared
+        executor. No AutomationRuns row (the workflow engine tracks the step);
+        credentials are delivered as env vars (v0), since there is no live run
+        row backing the token/resolve endpoint for this ephemeral execution."""
+        run_id = run_id or str(uuid.uuid4())
+        if workdir is None:
+            workdir = get_app_path("automations", f"tenant_{self.tenant_id}",
+                                   "_codeflow_runs", run_id)
+        timeout = int(manifest.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS))
+        resolved_inputs, err = resolve_inputs(manifest, inputs)
+        if err:
+            return {"status": "error", "error": err, "run_id": run_id, "workdir": workdir}
+        result = self._execute_code(
+            code=code, manifest=manifest,
+            identity={"id": f"codestep-{run_id}", "name": step_name, "version": 1,
+                      "environment_id": environment_id},
+            run_id=run_id, workdir=workdir, inputs=resolved_inputs, timeout=timeout,
+            dry_run=False, samples_dir=None, force_env_inject=True)
+        result["run_id"] = run_id
+        return result
 
     def _supervise(self, cmd: List[str], workdir: str, env: Dict, timeout: int,
                    run_id: str, events: RunEventLog) -> Tuple[Optional[int], str, str, bool, bool]:
@@ -792,8 +830,8 @@ class AutomationRunner:
             pass
 
     @staticmethod
-    def _log_header(auto: Dict, version: int, python_exe: Optional[str]) -> str:
-        return (f"automation: {auto['name']} ({auto['automation_id']})\n"
+    def _log_header(name: str, ident: str, version: int, python_exe: Optional[str]) -> str:
+        return (f"automation: {name} ({ident})\n"
                 f"version: v{version}\npython: {python_exe or 'unresolved'}\n")
 
     @staticmethod

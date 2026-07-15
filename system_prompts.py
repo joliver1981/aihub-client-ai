@@ -2825,7 +2825,7 @@ VALID_WORKFLOW_NODE_TYPES = [
     "Conditional", "Human Approval", "Alert", "Folder Selector", "File",
     "Set Variable", "Execute Application", "Excel Export", "Portal",
     "Integration", "Compliance Process", "Compliance Excel Export",
-    "Automation",
+    "Automation", "Code Step",
 ]
 
 

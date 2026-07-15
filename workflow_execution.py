@@ -565,6 +565,8 @@ class WorkflowExecutionEngine:
                 result = self._execute_compliance_excel_export_node(execution_id, node, variables)
             elif node_type == 'Automation':
                 result = self._execute_automation_node(execution_id, node, variables)
+            elif node_type == 'Code Step':
+                result = self._execute_code_step_node(execution_id, node, variables)
             elif node_type == 'Portal':
                 print('Executing Portal node...')
                 result = self._execute_portal_node(execution_id, node, variables)
@@ -4485,6 +4487,98 @@ Guidelines:
         if not ok and not continue_on_error:
             return {'success': False,
                     'error': result.get('error') or f"automation '{auto['name']}' outcome was {status}",
+                    'data': output_obj}
+        return {'success': True, 'data': output_obj}
+
+    def _execute_code_step_node(self, execution_id, node, variables):
+        """Run an INLINE Code Step — the atom of a CODE FLOW (see
+        docs/code-flows-plan.md). The step's LLM-authored Python lives in the
+        node config (so it is editable on the canvas) and runs through the
+        Automations runner machinery: a real Python environment with the
+        aihub_runtime SDK (aihub.connection()/secret()/input()/notify()),
+        declared-output verification, and live events. The engine's pass/fail
+        edges provide the flow control — a failed step follows 'fail' to an
+        alert step; success follows 'pass'.
+
+        Config keys: code (the Python), connections/secrets/packages (lists),
+        inputs ([{name,type,default}]), outputs (verify specs, same shape as an
+        automation manifest), timeout, outputVariable (object: status/exit_code/
+        output_files/workdir/error), filesVariable (absolute produced-file
+        paths), continueOnError.
+        """
+        node_id = node.get('id')
+        config = node.get('config', {}) or {}
+        code = config.get('code') or ''
+        step_name = config.get('label') or config.get('name') or f"step-{node_id}"
+        output_variable = (config.get('outputVariable') or '').strip()
+        files_variable = (config.get('filesVariable') or '').strip()
+        continue_on_error = bool(config.get('continueOnError', False))
+
+        def _fail(msg, status='error'):
+            self.log_execution(execution_id, node_id, 'error', msg)
+            data = {'status': status, 'error': msg, 'output_files': []}
+            return {'success': bool(continue_on_error), 'error': msg, 'data': data}
+
+        if not code.strip():
+            return _fail("Code Step has no code")
+
+        try:
+            from automations.runner import AutomationRunner
+            runner = AutomationRunner()
+        except Exception as e:
+            return _fail(f"Code Step: automations runner unavailable: {e}")
+
+        # inputs: manifest-declared, string values get ${var} substitution
+        raw_inputs = config.get('inputs') or []
+        manifest = {
+            'entrypoint': 'step.py',
+            'connections': config.get('connections', []) or [],
+            'secrets': config.get('secrets', []) or [],
+            'packages': config.get('packages', []) or [],
+            'inputs': raw_inputs if isinstance(raw_inputs, list) else [],
+            'outputs': config.get('outputs', []) or [],
+            'timeout_seconds': int(config.get('timeout') or 600),
+        }
+        run_inputs = {}
+        for spec in manifest['inputs']:
+            iname = spec.get('name') if isinstance(spec, dict) else None
+            if not iname:
+                continue
+            val = variables.get(iname, spec.get('default') if isinstance(spec, dict) else None)
+            run_inputs[iname] = self._replace_variable_references(val, variables) if isinstance(val, str) else val
+
+        self.log_execution(execution_id, node_id, 'info', f"Code Step '{step_name}': running")
+        try:
+            result = runner.run_code_step(code, manifest, step_name, inputs=run_inputs,
+                                          environment_id=config.get('environmentId'))
+        except Exception as e:
+            return _fail(f"Code Step: run crashed: {e}")
+
+        status = result.get('status', 'error')
+        workdir = result.get('workdir') or ''
+        abs_files = [os.path.join(workdir, f) for f in (result.get('output_files') or [])] if workdir else []
+        output_obj = {
+            'status': status, 'run_id': result.get('run_id'), 'exit_code': result.get('exit_code'),
+            'output_files': abs_files, 'workdir': workdir,
+            'verify_report': result.get('verify_report'), 'error': result.get('error'),
+            'stdout_tail': result.get('stdout_tail'), 'stderr_tail': result.get('stderr_tail'),
+        }
+        if output_variable:
+            self._update_workflow_variable(execution_id, output_variable,
+                                           self._determine_variable_type(output_obj), output_obj)
+            variables[output_variable] = output_obj
+        if files_variable:
+            self._update_workflow_variable(execution_id, files_variable,
+                                           self._determine_variable_type(abs_files), abs_files)
+            variables[files_variable] = abs_files
+
+        ok = status == 'success'
+        self.log_execution(execution_id, node_id, ('info' if ok else 'warning'),
+                           f"Code Step '{step_name}': outcome={status}, files={len(abs_files)}"
+                           + (f", error={result.get('error')}" if result.get('error') else ''))
+        if not ok and not continue_on_error:
+            return {'success': False,
+                    'error': result.get('error') or f"code step '{step_name}' outcome was {status}",
                     'data': output_obj}
         return {'success': True, 'data': output_obj}
 
