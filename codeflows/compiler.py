@@ -34,6 +34,7 @@ ${var} / ${var[0]} / ${var.key} substitution so steps pass data (absolute
 file paths) forward.
 """
 
+import json
 import os
 import re
 import uuid
@@ -148,6 +149,7 @@ def compile_to_workflow(defn: Dict) -> Dict:
                 "outputVariable": f"{sid}_out",
                 "filesVariable": f"{sid}_files",
                 "continueOnError": bool(s.get("continueOnError", False)),
+                "allowUnverified": bool(s.get("allowUnverified", False)),
             },
         })
     connections = []
@@ -185,18 +187,30 @@ def _get_path(variables: Dict, expr: str) -> Any:
 
 
 def _substitute(value: Any, variables: Dict) -> Any:
-    """${expr} substitution on a string input value; a whole-string ${x} keeps
-    x's native type, an embedded ${x} stringifies."""
+    """${expr} substitution on a string input value. Mirrors the ENGINE's
+    _replace_variable_references so the dry-run walk predicts the scheduled path
+    faithfully: a reference always resolves to TEXT — a resolved str is kept
+    verbatim, a resolved dict/list is json.dumps'd, other scalars are str()'d
+    (this is why cross-step passing uses a string element like ${s1_files[0]},
+    not a whole ${s1_out} object)."""
     if not isinstance(value, str):
         return value
+
+    def _as_text(r):
+        if isinstance(r, str):
+            return r
+        if isinstance(r, (dict, list)):
+            return json.dumps(r)
+        return str(r)
+
     whole = _SUB_RE.fullmatch(value.strip())
     if whole:
         resolved = _get_path(variables, whole.group(1))
-        return resolved if resolved is not None else value
+        return _as_text(resolved) if resolved is not None else value
 
     def _repl(mo):
         r = _get_path(variables, mo.group(1))
-        return str(r) if r is not None else mo.group(0)
+        return _as_text(r) if r is not None else mo.group(0)
     return _SUB_RE.sub(_repl, value)
 
 
@@ -259,7 +273,11 @@ def dry_run_walk(defn: Dict, runner, base_workdir: str, max_steps: int = 50) -> 
         result = runner.run_code_step(
             step.get("code", ""), _step_manifest(step), step.get("name") or current,
             inputs=inputs, environment_id=step.get("environmentId"),
-            workdir=os.path.join(base_workdir, current),
+            # Unique per VISIT (not just per step id) so a re-entered step on a
+            # loop/back-edge gets a fresh dir — matches the engine's fresh
+            # uuid-workdir-per-execution and avoids counting a prior visit's
+            # files as this visit's output.
+            workdir=os.path.join(base_workdir, f"{current}_{visits[current]}"),
         )
         status = result.get("status", "error")
         workdir = result.get("workdir") or ""
@@ -273,12 +291,24 @@ def dry_run_walk(defn: Dict, runner, base_workdir: str, max_steps: int = 50) -> 
             "stdout_tail": result.get("stdout_tail"), "stderr_tail": result.get("stderr_tail"),
         })
 
-        success = status == "success" or bool(step.get("continueOnError"))
+        # A step "passes" (takes the pass edge) on success; 'unverified' passes
+        # only if the step opted in (allowUnverified), mirroring the Automation
+        # node; continueOnError forces the pass edge regardless.
+        success = (status == "success"
+                   or (status == "unverified" and bool(step.get("allowUnverified")))
+                   or bool(step.get("continueOnError")))
         nxt = _next_step(edges, current, success)
         if not success and nxt is None:
             overall_failed = True
             break
         current = nxt
+
+    # If the loop stopped because we hit the step ceiling with more graph to run
+    # (current still set), that is a truncated/runaway flow — NOT a success.
+    if current and len(trace) >= max_steps:
+        trace.append({"step_id": current, "status": "error",
+                      "error": f"max_steps ({max_steps}) reached before the flow terminated"})
+        overall_failed = True
 
     return {
         "status": "failed" if overall_failed else "success",

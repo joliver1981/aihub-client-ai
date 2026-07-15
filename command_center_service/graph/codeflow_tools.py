@@ -57,17 +57,27 @@ def manage(action: str, user_context: Dict[str, Any],
 
 
 def summarize_walk(result: Dict[str, Any]) -> str:
-    """Honest multi-step summary of a dry_run/run walk for the chat — one line
-    per step with its outcome, files produced, and (on failure) the stderr
-    tail so the dev can fix the offending step."""
+    """Honest multi-step summary of a run walk for the chat — one line per step
+    with its outcome, files produced, and (on failure) the stderr tail so the
+    dev can fix the offending step. The walk EXECUTES every step for real with
+    live credentials, so the header says so; and a top-line 'success' is
+    annotated when a step failed but was handled by a fail-edge, so a handled
+    failure can never read as a clean pass."""
     status = result.get("status", "?")
     if status == "error":
         return f"Code flow could not run: {result.get('error')}"
     steps = result.get("steps") or []
-    header = (f"Walk outcome: **{status}** — {len(steps)} step(s) executed")
+    # a step is "not clean" if it did not end in success (failed/error/unverified)
+    bad = [s for s in steps if s.get("status") != "success"]
+    if status == "success" and bad:
+        headline = f"**success — but {len(bad)} step(s) did not pass (handled via fail-edge)**"
+    else:
+        headline = f"**{status}**"
+    header = (f"Walk outcome: {headline} — {len(steps)} step(s) executed for real "
+              f"(live credentials, real side effects)")
     lines = [header]
     for i, s in enumerate(steps, 1):
-        mark = {"success": "✓", "failed": "✗", "error": "✗"}.get(s.get("status"), "?")
+        mark = {"success": "✓", "failed": "✗", "error": "✗", "unverified": "⚠"}.get(s.get("status"), "?")
         label = s.get("name") or s.get("step_id")
         extra = ""
         if s.get("exit_code") is not None and s.get("status") != "success":
@@ -76,7 +86,7 @@ def summarize_walk(result: Dict[str, Any]) -> str:
         files = s.get("output_files") or []
         if files:
             lines.append("    files: " + ", ".join(files[:6]))
-        if s.get("status") in ("failed", "error"):
+        if s.get("status") in ("failed", "error", "unverified"):
             tail = (s.get("stderr_tail") or s.get("error") or "").strip()
             if tail:
                 lines.append("    stderr: " + tail[-500:])

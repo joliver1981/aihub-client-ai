@@ -34,6 +34,9 @@ class _MemManager(CodeFlowManager):
         self._store[name] = {"id": wid, "data": workflow_data}
         return wid
 
+    def _db_exists(self, name):
+        return name in self._store
+
     def _db_load(self, name):
         row = self._store.get(name)
         return (row["id"], row["data"]) if row else None
@@ -83,6 +86,24 @@ def test_create_rejects_duplicate_name(mgr):
 def test_create_requires_name(mgr):
     ok, _info, err = mgr.create_code_flow("   ")
     assert not ok and "required" in err
+
+
+def test_create_rejects_collision_with_corrupt_existing_row(mgr):
+    # #10: a same-name Workflows row whose data is unparseable (NULL/corrupt) must
+    # still be treated as a collision — not silently clobbered by the MERGE. The
+    # real _db_exists is parse-independent; the stub mirrors that (name in store).
+    mgr._store["taken"] = {"id": 500, "data": None}  # corrupt/NULL workflow_data
+    ok, _info, err = mgr.create_code_flow("taken")
+    assert not ok and "already exists" in err
+    assert mgr._store["taken"]["data"] is None       # untouched
+
+
+def test_load_and_get_ignore_non_code_flow_rows(mgr):
+    # a plain workflow row must not be loadable/editable/gettable as a code flow
+    mgr._store["plain"] = {"id": 501, "data": {"kind": "workflow", "nodes": [{"id": "n"}]}}
+    assert mgr.get_code_flow("plain") is None
+    ok, _sid, err = mgr.add_step("plain", "s", "print(1)")
+    assert not ok and "not found" in err
 
 
 # ----------------------------------------------------------------- add / wire

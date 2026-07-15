@@ -14,6 +14,8 @@ DB access is isolated in _db_* methods so unit tests stub them.
 import json
 import logging
 import os
+import threading
+from contextlib import contextmanager
 from typing import Dict, List, Optional, Tuple
 
 import pyodbc
@@ -22,6 +24,26 @@ from CommonUtils import get_app_path, get_db_connection_string
 from . import compiler
 
 logger = logging.getLogger(__name__)
+
+# Serialize the read-modify-write of a single flow's definition WITHIN a process
+# so two overlapping authoring calls (add_step/wire/update_step_code) can't lose
+# each other's edit (last-writer-wins). Keyed by (tenant, flow name). Cross-
+# process durability would need an optimistic version check on the MERGE; the
+# only cross-process writer (the scheduler) never edits definitions.
+_EDIT_LOCKS: Dict[tuple, threading.Lock] = {}
+_EDIT_LOCKS_GUARD = threading.Lock()
+
+
+@contextmanager
+def _edit_lock(tenant_id, name):
+    key = (tenant_id, name)
+    with _EDIT_LOCKS_GUARD:
+        lock = _EDIT_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _EDIT_LOCKS[key] = lock
+    with lock:
+        yield
 
 
 class CodeFlowManager:
@@ -59,6 +81,18 @@ class CodeFlowManager:
         row = cursor.fetchone()
         conn.close()
         return int(row[0]) if row else 0
+
+    def _db_exists(self, name: str) -> bool:
+        """Does ANY Workflows row with this name exist? Parse-independent (a row
+        with corrupt/NULL workflow_data still counts) so create_code_flow's dup
+        guard can't be defeated by an unparseable same-name row it would then
+        clobber via the name-keyed MERGE."""
+        conn = self._db_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM Workflows WHERE workflow_name = ?", name)
+        row = cursor.fetchone()
+        conn.close()
+        return row is not None
 
     def _db_load(self, name: str) -> Optional[Tuple[int, Dict]]:
         conn = self._db_conn()
@@ -118,7 +152,7 @@ class CodeFlowManager:
         name = (name or "").strip()
         if not name:
             return False, None, "name is required"
-        if self._db_load(name) is not None:
+        if self._db_exists(name):
             return False, None, f"a code flow (or workflow) named '{name}' already exists"
         defn = {"name": name, "description": description or "", "steps": [], "edges": []}
         wid, _ = self._save_definition(defn)
@@ -129,6 +163,8 @@ class CodeFlowManager:
         if not loaded:
             return None
         wid, data = loaded
+        if data.get("kind") != compiler.CODE_FLOW_KIND:  # never treat a plain workflow as a code flow
+            return None
         defn = data.get("definition")
         if not isinstance(defn, dict):
             return None
@@ -138,57 +174,63 @@ class CodeFlowManager:
                  connections: Optional[List[str]] = None, secrets: Optional[List[str]] = None,
                  packages: Optional[List[str]] = None, inputs: Optional[List[Dict]] = None,
                  outputs: Optional[List[Dict]] = None, timeout: int = 600,
-                 continue_on_error: bool = False) -> Tuple[bool, Optional[str], Optional[str]]:
-        loaded = self._load_defn(name)
-        if not loaded:
-            return False, None, "code flow not found"
-        _wid, defn = loaded
-        # save-time credential-literal scan (reuse the automations scanner)
+                 continue_on_error: bool = False,
+                 allow_unverified: bool = False) -> Tuple[bool, Optional[str], Optional[str]]:
+        # save-time credential-literal scan (reuse the automations scanner) —
+        # outside the lock since it only inspects the incoming code arg.
         from automations.manager import scan_for_secrets
         findings = scan_for_secrets(code)
         if findings:
             return False, None, ("code contains credential-looking literals — read connections/"
                                  "secrets via aihub.connection()/secret() instead: " + "; ".join(findings))
-        step = {
-            "id": compiler.new_step_id(), "name": step_name or "step", "code": code,
-            "connections": connections or [], "secrets": secrets or [],
-            "packages": packages or [], "inputs": inputs or [], "outputs": outputs or [],
-            "timeout": int(timeout or 600), "continueOnError": bool(continue_on_error),
-        }
-        defn.setdefault("steps", []).append(step)
-        if not defn.get("start"):
-            defn["start"] = step["id"]
-        self._save_definition(defn)
-        return True, step["id"], None
+        with _edit_lock(self.tenant_id, name):
+            loaded = self._load_defn(name)
+            if not loaded:
+                return False, None, "code flow not found"
+            _wid, defn = loaded
+            step = {
+                "id": compiler.new_step_id(), "name": step_name or "step", "code": code,
+                "connections": connections or [], "secrets": secrets or [],
+                "packages": packages or [], "inputs": inputs or [], "outputs": outputs or [],
+                "timeout": int(timeout or 600), "continueOnError": bool(continue_on_error),
+                "allowUnverified": bool(allow_unverified),
+            }
+            defn.setdefault("steps", []).append(step)
+            if not defn.get("start"):
+                defn["start"] = step["id"]
+            self._save_definition(defn)
+            return True, step["id"], None
 
     def update_step_code(self, name: str, step_id: str, code: str) -> Tuple[bool, Optional[str]]:
-        loaded = self._load_defn(name)
-        if not loaded:
-            return False, "code flow not found"
-        _wid, defn = loaded
         from automations.manager import scan_for_secrets
         findings = scan_for_secrets(code)
         if findings:
             return False, "code contains credential-looking literals: " + "; ".join(findings)
-        for s in defn.get("steps", []):
-            if s.get("id") == step_id:
-                s["code"] = code
-                self._save_definition(defn)
-                return True, None
-        return False, f"step '{step_id}' not found"
+        with _edit_lock(self.tenant_id, name):
+            loaded = self._load_defn(name)
+            if not loaded:
+                return False, "code flow not found"
+            _wid, defn = loaded
+            for s in defn.get("steps", []):
+                if s.get("id") == step_id:
+                    s["code"] = code
+                    self._save_definition(defn)
+                    return True, None
+            return False, f"step '{step_id}' not found"
 
     def wire(self, name: str, from_step: str, to_step: str, on: str = "pass") -> Tuple[bool, Optional[str]]:
-        loaded = self._load_defn(name)
-        if not loaded:
-            return False, "code flow not found"
-        _wid, defn = loaded
-        ids = {s["id"] for s in defn.get("steps", [])}
-        if from_step not in ids or to_step not in ids:
-            return False, "both from and to must be existing step ids"
         if on not in ("pass", "fail", "complete"):
             return False, "'on' must be pass, fail, or complete"
-        defn.setdefault("edges", []).append({"from": from_step, "to": to_step, "on": on})
-        ok, errors = compiler.validate_definition(defn)
+        with _edit_lock(self.tenant_id, name):
+            loaded = self._load_defn(name)
+            if not loaded:
+                return False, "code flow not found"
+            _wid, defn = loaded
+            ids = {s["id"] for s in defn.get("steps", [])}
+            if from_step not in ids or to_step not in ids:
+                return False, "both from and to must be existing step ids"
+            defn.setdefault("edges", []).append({"from": from_step, "to": to_step, "on": on})
+            ok, errors = compiler.validate_definition(defn)
         if not ok:
             return False, "; ".join(errors)
         self._save_definition(defn)
@@ -199,6 +241,8 @@ class CodeFlowManager:
         if not loaded:
             return None
         wid, data = loaded
+        if data.get("kind") != compiler.CODE_FLOW_KIND:  # don't expose a plain workflow's graph via this API
+            return None
         return {"name": name, "workflow_id": wid,
                 "definition": data.get("definition"),
                 "nodes": data.get("nodes"), "connections": data.get("connections")}

@@ -185,3 +185,84 @@ def test_schedule_requires_steps(client):
     _manage(client, "create", {"name": "empty"})
     r = _manage(client, "schedule", {"name": "empty", "schedule": {"type": "cron"}})
     assert r.status_code == 400 and "no steps" in r.get_json()["error"]
+
+
+# ---- #23: update_step_code credential scan through the dispatch chokepoint ----
+
+def test_update_step_code_rejects_credentials_through_dispatch(client):
+    _manage(client, "create", {"name": "flow"})
+    sid = _manage(client, "add_step", {"name": "flow", "step_name": "s",
+                                       "code": "print('ok')"}).get_json()["step_id"]
+    r = _manage(client, "update_step_code",
+                {"name": "flow", "step_id": sid,
+                 "code": 'password = "hunter2-not-a-placeholder"'})
+    assert r.status_code == 400 and "credential" in r.get_json()["error"].lower()
+    # the stored code was NOT changed
+    cf = _manage(client, "get", {"name": "flow"}).get_json()["code_flow"]
+    assert "print('ok')" in cf["nodes"][0]["config"]["code"]
+
+
+# ---- #19: the real schedule SQL writer (stubbed cursor) ----
+
+class _FakeCursor:
+    def __init__(self):
+        self.calls = []
+        self.identity = 4242
+    def execute(self, sql, *params):
+        self.calls.append((sql, params))
+    def fetchone(self):
+        return (self.identity,)
+
+
+class _FakeConn:
+    def __init__(self, cur):
+        self._c = cur
+        self.committed = self.rolledback = self.closed = False
+    def cursor(self):
+        return self._c
+    def commit(self):
+        self.committed = True
+    def rollback(self):
+        self.rolledback = True
+    def close(self):
+        self.closed = True
+
+
+def _fake_mgr(conn):
+    import types
+    return types.SimpleNamespace(_db_conn=lambda: conn)
+
+
+def test_schedule_writer_uses_workflow_job_type_and_types_params(monkeypatch):
+    import scheduler_routes
+    cur = _FakeCursor()
+    conn = _FakeConn(cur)
+    monkeypatch.setattr(cf_api, "_get_manager", lambda: _fake_mgr(conn))
+    monkeypatch.setattr(scheduler_routes, "_create_schedule", lambda cursor, job_id, sched: 77)
+
+    resp, code = cf_api._create_code_flow_schedule(
+        "nightly", 555, {"type": "cron", "cron_expression": "0 2 * * *"},
+        {"period": "2026-07", "opts": {"x": 1}}, user_id=7, username="dev")
+
+    assert code == 201 and resp["workflow_id"] == 555 and conn.committed
+    # the ScheduledJobs insert uses the existing 'workflow' job type + TargetId=555
+    job_insert = next(c for c in cur.calls if "INSERT INTO ScheduledJobs" in c[0])
+    assert "'workflow'" in job_insert[0] and 555 in job_insert[1]
+    # param typing: str -> 'string', dict -> json.dumps + 'json'
+    param_inserts = [c for c in cur.calls if "ScheduledJobParameters" in c[0]]
+    by_name = {c[1][1]: c[1] for c in param_inserts}
+    assert by_name["period"][2] == "2026-07" and by_name["period"][3] == "string"
+    import json as _json
+    assert by_name["opts"][2] == _json.dumps({"x": 1}) and by_name["opts"][3] == "json"
+
+
+def test_schedule_writer_rolls_back_on_invalid_schedule(monkeypatch):
+    import scheduler_routes
+    cur = _FakeCursor()
+    conn = _FakeConn(cur)
+    monkeypatch.setattr(cf_api, "_get_manager", lambda: _fake_mgr(conn))
+    monkeypatch.setattr(scheduler_routes, "_create_schedule", lambda cursor, job_id, sched: None)
+
+    resp, code = cf_api._create_code_flow_schedule(
+        "nightly", 555, {"type": "bogus"}, {}, user_id=7, username="dev")
+    assert code == 400 and conn.rolledback and not conn.committed

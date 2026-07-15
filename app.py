@@ -14,7 +14,7 @@ matplotlib.interactive(False)
 import matplotlib.pyplot as plt
 plt.ioff()  # Turn off interactive mode
 
-from flask import Flask, redirect, render_template, request, url_for, jsonify, send_file, flash, session, Response, abort, make_response
+from flask import Flask, redirect, render_template, request, url_for, jsonify, send_file, flash, session, Response, abort, make_response, g
 from flask_session import Session
 
 from AppUtils import *
@@ -5833,10 +5833,48 @@ def get_workflow():
     return jsonify(json_df)
 
 
+def _workflow_is_code_flow(workflow_id):
+    """True if this Workflows row is a Code Flow (kind='code_flow'). A Code Flow
+    is arbitrary Developer-authored Python that the Code Flows API restricts to
+    Developers; because it is stored as an ordinary Workflows row, the generic
+    run/delete routes must apply the same restriction to SESSION callers. Best
+    effort: on any lookup error, return False (fail open to normal-workflow
+    behavior, which those routes already permit)."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+        cursor.execute("SELECT JSON_VALUE(workflow_data, '$.kind') FROM Workflows WHERE id = ?",
+                       int(workflow_id))
+        row = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return bool(row and row[0] == 'code_flow')
+    except Exception as e:
+        logger.warning(f"_workflow_is_code_flow({workflow_id}) lookup failed: {e}")
+        return False
+
+
+def _deny_code_flow_for_non_developer(workflow_id):
+    """Return a 403 response tuple if a SESSION caller below Developer is trying
+    to act on a Code Flow row; else None. API-key callers (scheduler/internal)
+    are trusted and always allowed."""
+    if getattr(g, 'auth_method', None) != 'session':
+        return None
+    role = getattr(current_user, 'role', None)
+    if (role is None or role < 2) and _workflow_is_code_flow(workflow_id):
+        return jsonify({"status": "error",
+                        "message": "Developer role required to run or delete a Code Flow"}), 403
+    return None
+
+
 @app.route("/delete/workflow/<int:workflow_id>", methods=['DELETE'])
 @cross_origin()
 @api_key_or_session_required()
 def del_workflow(workflow_id):
+    denied = _deny_code_flow_for_non_developer(workflow_id)
+    if denied:
+        return denied
     result = delete_workflow(workflow_id)
     if result:
         return jsonify({"status": "success"})
@@ -10476,14 +10514,23 @@ def run_workflow():
         workflow_id = data.get('workflow_id')
         if not workflow_id:
             return jsonify({"status": "error", "message": "workflow_id is required"}), 400
-        
+
+        # Code Flows are Developer-only arbitrary credentialed code; enforce that
+        # here too (a code_flow is stored as an ordinary Workflows row, so this
+        # generic route would otherwise let any authenticated user trigger it).
+        denied = _deny_code_flow_for_non_developer(workflow_id)
+        if denied:
+            return denied
+
         initiator = data.get('initiator', 'api')
-        
+        runtime_variables = data.get('variables') or {}
+
         if USE_WORKFLOW_EXECUTOR_SERVICE:
             try:
                 result = workflow_client.start_workflow(
                     workflow_id=int(workflow_id),
-                    initiator=initiator
+                    initiator=initiator,
+                    variables=runtime_variables or None,
                 )
                 return jsonify({
                     "status": "success",
@@ -10509,7 +10556,17 @@ def run_workflow():
             workflow_data = json.loads(row[0])
             cursor.close()
             conn.close()
-            
+
+            # Seed runtime variables (parity with the executor-service path) so a
+            # scheduled Code Flow's step inputs (${var}) resolve.
+            if runtime_variables:
+                workflow_data.setdefault('variables', {})
+                for var_name, var_value in runtime_variables.items():
+                    workflow_data['variables'][var_name] = {
+                        'name': var_name, 'type': 'string',
+                        'defaultValue': str(var_value) if var_value is not None else '',
+                    }
+
             execution_id = workflow_engine.start_workflow(workflow_id, workflow_data, initiator)
             return jsonify({
                 "status": "success",

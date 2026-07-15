@@ -1740,9 +1740,14 @@ async def converse(state: CommandCenterState) -> dict:
             "Step nodes reusing the platform's workflow engine; each step is Python run through the "
             "same runner (dedicated env, pip libraries, aihub_runtime SDK, output verification).\n"
             "- Code Flow tools: create_code_flow → add_code_step (once per stage) → wire_steps "
-            "(on='pass'|'fail'|'complete') → dry_run_code_flow (executes the whole graph now and "
-            "shows the honest per-step outcome) → schedule_code_flow. update_step_code edits a step "
-            "in place when a dry-run shows it failing.\n"
+            "(on='pass'|'fail'|'complete') → dry_run_code_flow → schedule_code_flow. "
+            "update_step_code edits a step in place when a run shows it failing. NOTE: "
+            "dry_run_code_flow (and run_code_flow) EXECUTE the steps for real with live "
+            "credentials — there is no sandbox; warn the user before running a flow with "
+            "irreversible steps, and gate those with aihub.checkpoint().\n"
+            "- STEP IDS: add_code_step RETURNS the step's id (a random 's…' id, NOT 's1'). Use "
+            "that returned id in wire_steps and in any '${<returned_id>_files[0]}' reference — an "
+            "unresolved ${…} is passed through as a literal string, not an error.\n"
             "- CONTROL FLOW is the point: wire a step's 'fail' edge to a notify/cleanup step so a "
             "partial failure is HANDLED, not silent. Pass files between steps by declaring the "
             "producer's outputs and referencing them in a consumer's input default as "
@@ -4321,6 +4326,20 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             return None, f"{field} must be a JSON array"
         return val, None
 
+    async def _cf_walk_timeout(name):
+        """Client HTTP timeout for a synchronous walk: the dispatch runs every
+        step to completion before responding, so a fixed 900s can trip while a
+        multi-step flow is still (really) running server-side, misreporting it as
+        unreachable and inviting a double-fire retry. Size the timeout to the sum
+        of the flow's declared per-step timeouts (+margin), capped."""
+        try:
+            got = await asyncio.to_thread(_cf, "get", {"name": name})
+            steps = ((got.get("code_flow") or {}).get("definition") or {}).get("steps") or []
+            total = sum(int(s.get("timeout") or 600) + 30 for s in steps) + 120
+            return max(300, min(total, 3600))
+        except Exception:
+            return 900
+
     @lc_tool
     async def list_code_flows() -> str:
         """List the Code Flows on this platform (multi-step AI-authored processes,
@@ -4365,7 +4384,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
     async def add_code_step(name: str, step_name: str, code: str,
                             connections_json: str = "", secrets_json: str = "",
                             packages_json: str = "", inputs_json: str = "",
-                            outputs_json: str = "", timeout: int = 600) -> str:
+                            outputs_json: str = "", timeout: int = 600,
+                            allow_unverified: bool = False) -> str:
         """Add one Code Step to a Code Flow. The step is inline Python run through the
         Automations runner: it reads platform connections/secrets via the read-only
         aihub_runtime SDK (import aihub_runtime as aihub; aihub.connection('NAME'),
@@ -4374,7 +4394,10 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         injects them. Declare produced files in outputs_json so the step's success is
         VERIFIED (a step that declares out.csv but produces nothing is 'failed', not
         silently 'ok'). Downstream steps reference an upstream step's files with the
-        input default '${<step_id>_files[0]}'.
+        input default '${<step_id>_files[0]}', where <step_id> is the id RETURNED by
+        the upstream add_code_step call (a random 's…' id, not 's1'). Only string/
+        scalar references cross steps reliably — pass a file PATH element like
+        ${s_abc_files[0]}, not a whole ${s_abc_out} object.
 
         Args:
             name: the code flow's name.
@@ -4386,12 +4409,20 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             inputs_json: JSON array of input specs, e.g.
                 '[{"name":"src","type":"string","default":"${s1_files[0]}"}]'.
             outputs_json: JSON array of declared outputs to verify, e.g.
-                '[{"kind":"file","path":"out.csv"}]'.
+                '[{"kind":"file","path":"out.csv"}]'. For an sftp_upload/ftp_upload
+                output, add "remote_listing" so the upload is VERIFIED (counts as
+                pass); without it the outcome is 'unverified' and the step is
+                treated as failed unless allow_unverified=True.
             timeout: per-step timeout in seconds (default 600).
+            allow_unverified: if True, an 'unverified' outcome (exit 0 but a
+                declared output couldn't be checked) still takes the pass edge
+                instead of failing the step. Use for uploads you can't remotely
+                verify. Default False.
         """
         if not _automations_allowed(state):
             return _AUTOMATIONS_DENIED
-        payload = {"name": name, "step_name": step_name, "code": code, "timeout": timeout}
+        payload = {"name": name, "step_name": step_name, "code": code, "timeout": timeout,
+                   "allow_unverified": bool(allow_unverified)}
         for arg, field in ((connections_json, "connections"), (secrets_json, "secrets"),
                            (packages_json, "packages"), (inputs_json, "inputs"),
                            (outputs_json, "outputs")):
@@ -4480,12 +4511,18 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
 
     @lc_tool
     async def dry_run_code_flow(name: str) -> str:
-        """Execute the Code Flow end to end RIGHT NOW (in-process walk of the graph,
-        honoring pass/fail edges) and report the honest per-step outcome — files
-        produced, verification results, and the stderr tail of any failing step so
-        you can fix it with update_step_code. This is the built-in test-before-ship
-        path. GROUNDING: report only what this tool returns; never claim a step
-        succeeded unless its status says so.
+        """Execute the Code Flow end to end RIGHT NOW (walks the graph, honoring
+        pass/fail edges) and report the honest per-step outcome — files produced,
+        verification results, and the stderr tail of any failing step so you can
+        fix it with update_step_code.
+
+        ⚠ THIS REALLY RUNS THE CODE with the flow's LIVE connections and secrets:
+        it is NOT a sandbox. Any step that uploads, sends, deletes, or writes to an
+        external system performs that side effect for real. Before running a flow
+        with irreversible steps, tell the user it will execute for real (and prefer
+        adding aihub.checkpoint() gates on irreversible steps). GROUNDING: report
+        only what this tool returns; never claim a step succeeded unless its status
+        says so.
 
         Args:
             name: the code flow's name.
@@ -4493,16 +4530,18 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         if not _automations_allowed(state):
             return _AUTOMATIONS_DENIED
         from . import codeflow_tools as _ct
-        res = await asyncio.to_thread(_cf, "dry_run", {"name": name})
+        to = await _cf_walk_timeout(name)
+        res = await asyncio.to_thread(_cf, "dry_run", {"name": name}, to)
         if not res.get("ok") and res.get("status") is None:
             return f"Could not run the code flow: {res.get('error')}"
         return _ct.summarize_walk(res)
 
     @lc_tool
     async def run_code_flow(name: str) -> str:
-        """Run the Code Flow now and report the per-step outcome. (In v0 this is the
-        same synchronous graph walk as dry_run_code_flow; the durable, scheduled path
-        is schedule_code_flow.)
+        """Run the Code Flow now and report the per-step outcome. Like
+        dry_run_code_flow, this EXECUTES every step for real with the flow's live
+        credentials (no sandbox) — the two are the same synchronous graph walk in
+        v0. The durable, scheduled path is schedule_code_flow.
 
         Args:
             name: the code flow's name.
@@ -4510,7 +4549,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         if not _automations_allowed(state):
             return _AUTOMATIONS_DENIED
         from . import codeflow_tools as _ct
-        res = await asyncio.to_thread(_cf, "run", {"name": name})
+        to = await _cf_walk_timeout(name)
+        res = await asyncio.to_thread(_cf, "run", {"name": name}, to)
         if not res.get("ok") and res.get("status") is None:
             return f"Could not run the code flow: {res.get('error')}"
         return _ct.summarize_walk(res)

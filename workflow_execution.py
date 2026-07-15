@@ -4495,7 +4495,7 @@ Guidelines:
         docs/code-flows-plan.md). The step's LLM-authored Python lives in the
         node config (so it is editable on the canvas) and runs through the
         Automations runner machinery: a real Python environment with the
-        aihub_runtime SDK (aihub.connection()/secret()/input()/notify()),
+        aihub_runtime SDK (aihub.connection()/secret()/input()/log()/checkpoint()),
         declared-output verification, and live events. The engine's pass/fail
         edges provide the flow control — a failed step follows 'fail' to an
         alert step; success follows 'pass'.
@@ -4509,10 +4509,13 @@ Guidelines:
         node_id = node.get('id')
         config = node.get('config', {}) or {}
         code = config.get('code') or ''
-        step_name = config.get('label') or config.get('name') or f"step-{node_id}"
+        # The compiler writes the human name at the node TOP level as 'label';
+        # read that first so logs/events show 'pull', not 'step-<nodeId>'.
+        step_name = node.get('label') or config.get('label') or config.get('name') or f"step-{node_id}"
         output_variable = (config.get('outputVariable') or '').strip()
         files_variable = (config.get('filesVariable') or '').strip()
         continue_on_error = bool(config.get('continueOnError', False))
+        allow_unverified = bool(config.get('allowUnverified', False))
 
         def _fail(msg, status='error'):
             self.log_execution(execution_id, node_id, 'error', msg)
@@ -4572,7 +4575,10 @@ Guidelines:
                                            self._determine_variable_type(abs_files), abs_files)
             variables[files_variable] = abs_files
 
-        ok = status == 'success'
+        # 'unverified' (exit 0 but a declared output couldn't be checked — e.g. an
+        # sftp_upload without remote_listing) passes only if the step opted in,
+        # mirroring the Automation node's allow_unverified.
+        ok = status == 'success' or (status == 'unverified' and allow_unverified)
         self.log_execution(execution_id, node_id, ('info' if ok else 'warning'),
                            f"Code Step '{step_name}': outcome={status}, files={len(abs_files)}"
                            + (f", error={result.get('error')}" if result.get('error') else ''))
