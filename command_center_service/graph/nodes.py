@@ -1010,6 +1010,11 @@ _BUILD_SHAPE_PROMPT = (
     "Decide by what the DELIVERABLE is, not by what is technically possible (a script can do almost "
     "anything). If someone will TALK TO it, or other resources will REFERENCE it, or they asked for an "
     "editable visual workflow → builder. If it is a script that runs and produces an outcome → automation. "
+    "Examples: 'nightly, read expense PDFs, look up employees in the database, make a reconciled CSV, "
+    "upload via SFTP, alert if any step fails' → automation (a multi-step code process — a Code Flow); "
+    "'reconcile invoices against ERPDB and email a report every morning' → automation; "
+    "'create a data agent for the sales team' → builder; "
+    "'build me a workflow I can see and edit on the canvas' → builder. "
     "Reply with exactly one word."
 )
 
@@ -1019,6 +1024,21 @@ async def _classify_build_shape(user_text: str, state: "CommandCenterState") -> 
     Returns 'automation' | 'builder' | 'both' | 'neither'. Never raises — any
     failure returns 'neither', so the caller safely keeps the cheap classifier's
     own intent."""
+    # Deterministic high-precision fast-path (AIHUB-0033 F1): a clear code/data
+    # PROCESS (parse files, DB lookup, reconcile, move files, on a schedule,
+    # alert on failure) belongs to the automation family — converse owns the
+    # automation AND code-flow tools. The LLM shape decision alone misrouted
+    # exactly this case to the visual builder (which has no code-flow tools),
+    # so pin the unambiguous cases here. Ambiguous requests still fall through
+    # to the LLM below.
+    try:
+        from graph.build_routing import looks_like_code_process
+        if looks_like_code_process(user_text):
+            logger.info("[classify_intent] build-shape fast-path: code/data process -> automation")
+            return "automation"
+    except Exception as e:
+        logger.debug(f"[classify_intent] code-process fast-path skipped: {e}")
+
     try:
         from cc_config import get_llm
         llm = get_llm(mini=False, streaming=False)

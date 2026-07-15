@@ -46,6 +46,12 @@ _SECRET_PATTERNS = [
     re.compile(r"(?i)\b(pwd|password|passwd)\s*=\s*[\"'][^\"']{3,}[\"']"),
     re.compile(r"(?i)\b(pwd|password|passwd)\s*=\s*(?![\"']?\{)[A-Za-z0-9!@#$%^&*_+-]{3,}\s*;"),  # ODBC "PWD=...;"
     re.compile(r"(?i)\b(api[_-]?key|secret[_-]?key|access[_-]?token)\s*=\s*[\"'][A-Za-z0-9_\-]{16,}[\"']"),
+    # URL with embedded LITERAL credentials, e.g. sftp://user:pass@host
+    # (AIHUB-0033 F5) — the value form of an SFTP/DB secret; read it via
+    # aihub.secret() instead. Excludes {}$%() from the user:pass segments so a
+    # URL BUILT from variables (f-string {x}, %s, $x, .format()) is not a false
+    # positive — only hard-coded literals match.
+    re.compile(r"(?i)\b([a-z][a-z0-9+.\-]*)://[^/\s:@\"'{}$%()]+:[^/\s:@\"'{}$%()]+@"),
 ]
 
 
