@@ -21,6 +21,7 @@ Execution contract (P0):
 DB access is isolated in _db_* methods so unit tests can stub them.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -56,6 +57,25 @@ LIVE_STATUSES = ("running", "waiting", "aborting")
 # it pays for a DB read of the run status (abort/checkpoint signals).
 _SUPERVISE_TICK_SECONDS = 0.25
 _STATUS_POLL_SECONDS = 2.0
+
+# Declared step/automation `packages` are installed (AIHUB-0036) into a cached
+# per-package-set directory via `pip install --target` (no venv overhead) and
+# injected on PYTHONPATH — so a code step that imports e.g. pdfplumber works
+# without a pre-provisioned environment. Cached by hash(sorted(packages)+base
+# interpreter), so the install cost is paid once per unique dep set.
+_PKG_INSTALL_TIMEOUT_SECONDS = int(os.getenv("AUTOMATIONS_PKG_INSTALL_TIMEOUT", "600"))
+_PKG_INSTALL_MARKER = ".installed"
+_pkg_install_locks: Dict[str, threading.Lock] = {}
+_pkg_install_guard = threading.Lock()
+
+
+def _pkg_install_lock(key: str) -> threading.Lock:
+    with _pkg_install_guard:
+        lk = _pkg_install_locks.get(key)
+        if lk is None:
+            lk = threading.Lock()
+            _pkg_install_locks[key] = lk
+        return lk
 
 
 class RunEventLog:
@@ -474,6 +494,59 @@ class AutomationRunner:
 
         return sys.executable  # dev machines
 
+    def _ensure_packages(self, packages, base_python: str) -> Tuple[Optional[str], Optional[str]]:
+        """Make declared pip `packages` importable by the step (AIHUB-0036).
+
+        Installs them via `pip install --target <cache>` into a directory keyed
+        by hash(sorted(packages) + base interpreter), reused across runs, and
+        returns (pythonpath_dir | None, error | None). No venv — the target dir
+        is prepended to the step's PYTHONPATH. Cross-process safe: install into a
+        temp dir, then atomically rename into place (a loser reuses the winner's).
+        Honest: a pip failure returns an error string (the caller fails the run);
+        it never silently proceeds. Disable with AUTOMATIONS_PKG_AUTO_INSTALL=false
+        (then a missing dep just fails at import time, still honest)."""
+        pkgs = [p.strip() for p in (packages or []) if isinstance(p, str) and p.strip()]
+        if not pkgs:
+            return None, None
+        if os.getenv("AUTOMATIONS_PKG_AUTO_INSTALL", "true").lower() != "true":
+            return None, None
+        if not base_python:
+            return None, "no interpreter to install packages with"
+
+        key = hashlib.sha256(("\n".join(sorted(pkgs)) + "|" + base_python).encode("utf-8")).hexdigest()[:16]
+        cache_dir = get_app_path("automations", "_pkg_cache", key)
+        marker = os.path.join(cache_dir, _PKG_INSTALL_MARKER)
+        if os.path.isfile(marker):
+            return cache_dir, None
+
+        with _pkg_install_lock(key):
+            if os.path.isfile(marker):            # another thread finished while we waited
+                return cache_dir, None
+            os.makedirs(os.path.dirname(cache_dir), exist_ok=True)
+            tmp = cache_dir + ".tmp-" + uuid.uuid4().hex[:8]
+            os.makedirs(tmp, exist_ok=True)
+            cmd = [base_python, "-m", "pip", "install", "--no-input",
+                   "--disable-pip-version-check", "--target", tmp, *pkgs]
+            try:
+                proc = subprocess.run(cmd, capture_output=True, text=True,
+                                      timeout=_PKG_INSTALL_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                shutil.rmtree(tmp, ignore_errors=True)
+                return None, f"installing packages {pkgs} timed out after {_PKG_INSTALL_TIMEOUT_SECONDS}s"
+            except Exception as e:
+                shutil.rmtree(tmp, ignore_errors=True)
+                return None, f"could not install packages {pkgs}: {e}"
+            if proc.returncode != 0:
+                tail = ((proc.stderr or "") + (proc.stdout or "")).strip()[-800:]
+                shutil.rmtree(tmp, ignore_errors=True)
+                return None, f"pip install of {pkgs} failed: {tail}"
+            open(os.path.join(tmp, _PKG_INSTALL_MARKER), "w", encoding="utf-8").close()
+            try:
+                os.rename(tmp, cache_dir)         # atomic publish
+            except OSError:
+                shutil.rmtree(tmp, ignore_errors=True)  # someone published first — use theirs
+            return (cache_dir if os.path.isfile(marker) else tmp), None
+
     # -------------------------------------------------------------------- run
 
     def run(self, automation_id: str, inputs: Optional[Dict] = None,
@@ -650,6 +723,17 @@ class AutomationRunner:
         python_exe = self._resolve_python(identity.get("environment_id"))
         if not python_exe:
             return {"status": "failed", "error": "no usable Python interpreter found", "workdir": workdir}
+
+        # -- declared packages: install (cached) and inject on PYTHONPATH so the
+        # step can import a non-base dep (e.g. pdfplumber) — AIHUB-0036. A pip
+        # failure is an honest run failure, never a silent proceed.
+        pkg_dir, pkg_err = self._ensure_packages(manifest.get("packages"), python_exe)
+        if pkg_err:
+            self._write_log(log_dir=workdir, header=self._log_header(name, ident, version, python_exe),
+                            stdout="", stderr=pkg_err, footer="outcome: failed (package install)")
+            return {"status": "failed", "error": pkg_err, "workdir": workdir}
+        if pkg_dir:
+            env["PYTHONPATH"] = pkg_dir + os.pathsep + env["PYTHONPATH"]
 
         # -- execute under supervision: incremental output, live events, honest cancellation
         events = RunEventLog(workdir)
