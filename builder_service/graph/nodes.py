@@ -5266,6 +5266,21 @@ Do NOT add commentary, do NOT rephrase, do NOT add your own questions.
                 node_count = compile_result.get("node_count", 0)
                 connection_count = compile_result.get("connection_count", 0)
 
+                # AIHUB-0034 F2c/F4c: if the user asked for a capability the visual
+                # builder has NO node for (SFTP/FTP transfer, remote upload, custom
+                # code), it was SILENTLY DROPPED even though the compile "succeeded".
+                # Disclose it deterministically instead of letting the LLM
+                # confabulate a "verified SFTP upload" that isn't in the workflow.
+                from graph.build_outcome import (detect_unsupported_capability,
+                                                 success_with_dropped_step_message)
+                _convo_text = " ".join(
+                    str(getattr(_m, "content", "")) for _m in (state.get("messages") or [])
+                ) + " " + (response_text or "")
+                _dropped = detect_unsupported_capability(_convo_text)
+                if _dropped:
+                    _deterministic_reply = success_with_dropped_step_message(
+                        workflow_name, workflow_id, node_count, _dropped, is_edit)
+
                 if is_edit:
                     format_prompt = f"""The {agent_name} has modified your workflow and I've saved the changes!
 

@@ -13,8 +13,47 @@ draft/failed build can never headline a false success (the AIHUB-0021
 honest-outcome rule).
 """
 
+import re as _re
+
 _AUTHORITATIVE_NOTE = ("\n\n---\n_Agent notes below may describe the intended workflow as if it "
                        "were finished — the validated status above is authoritative:_\n\n")
+
+# Capabilities the VISUAL workflow builder has NO node for. When the user asks
+# for one of these, the builder cannot build it — it must be a Code Flow. If the
+# builder "succeeds" anyway it has silently dropped the step (AIHUB-0034 F2c/F4c:
+# the SFTP upload was dropped and confabulated as a verified step).
+_UNSUPPORTED_PATTERNS = [
+    (_re.compile(r"\b(sftp|ftps?)\b", _re.I), "SFTP/FTP file transfer"),
+    (_re.compile(r"\bupload\b[^.\n]{0,40}\b(server|remote|sftp|ftp|host|bucket|s3)\b", _re.I),
+     "upload/transfer to a remote server"),
+    (_re.compile(r"\brun\b[^.\n]{0,20}\b(code|script|python)\b|\bcustom\s+code\b", _re.I),
+     "custom code execution"),
+]
+
+
+def detect_unsupported_capability(text):
+    """Return a short label if the text requests a capability the visual builder
+    has NO node for (SFTP/FTP transfer, remote upload, custom code); else None."""
+    t = text or ""
+    for pat, label in _UNSUPPORTED_PATTERNS:
+        if pat.search(t):
+            return label
+    return None
+
+
+def success_with_dropped_step_message(workflow_name, workflow_id, node_count, dropped, is_edit=False):
+    """Honest SUCCESS reply when a requested capability had no node and was left
+    out — credit what WAS built, disclose what was NOT, steer to a Code Flow.
+    Deterministic so the reply cannot confabulate the dropped step as 'verified'."""
+    verb = "updated" if is_edit else "created"
+    name = f' "{workflow_name}"' if workflow_name else ""
+    return (f"**✅ Workflow{name} {verb} (ID {workflow_id}, {node_count} node(s)) — but it does NOT "
+            f"include the {dropped} you asked for.**\n\n"
+            f"The visual workflow builder has no node for that, so that step was left out — the rest "
+            f"(e.g. the query and a local export) was built. It is NOT a complete replacement for what "
+            f"you asked for.\n\n"
+            f"To do the {dropped} part, build it as a **Code Flow / Automation** — it can reference the "
+            f"same connections and secrets by name. Want me to hand that part off to a Code Flow?")
 
 
 def _with_notes(message: str, agent_notes: str) -> str:

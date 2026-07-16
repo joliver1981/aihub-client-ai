@@ -73,6 +73,35 @@ class TestDeterministicReplyStructure:
         assert "missing target node" in blocks[0]["content"]
 
 
+class TestUnsupportedCapability:
+    """F2c/F4c: a SUCCESS build that silently dropped a requested SFTP/FTP/code
+    step must be disclosed, not confabulated as 'verified'."""
+    @pytest.mark.parametrize("text,expect", [
+        ("read sales from AIRDB and upload to SFTP", "SFTP/FTP file transfer"),
+        ("push the file to our ftp server", "SFTP/FTP file transfer"),
+        ("query the DB then run this python to reconcile", "custom code execution"),
+        ("upload the CSV to the remote server", "upload/transfer to a remote server"),
+    ])
+    def test_detects_unsupported(self, text, expect):
+        assert _mod().detect_unsupported_capability(text) == expect
+
+    @pytest.mark.parametrize("text", [
+        "query AIRDB and export the results to a table",
+        "build a workflow that sends an email summary",
+        "",
+    ])
+    def test_supported_requests_return_none(self, text):
+        assert _mod().detect_unsupported_capability(text) is None
+
+    def test_dropped_step_message_is_honest(self):
+        # the tester's scenario: workflow saved (id 1251) but the SFTP upload was dropped
+        msg = _mod().success_with_dropped_step_message(
+            "test-0034-wf", 1251, 3, "SFTP/FTP file transfer")
+        assert "does NOT include" in msg and "SFTP/FTP file transfer" in msg
+        assert "Code Flow" in msg
+        assert "NOT a complete replacement" in msg
+
+
 class TestErrorMessage:
     def test_leads_with_failure(self):
         msg = _mod().error_message("Could not parse SQLAlchemy URL", agent_notes=SPECULATIVE)
