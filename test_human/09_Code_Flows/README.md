@@ -21,7 +21,7 @@ honesty — **new in commit `5c8cded`, restart required**).
 |---|------|-----|
 | 0.1 | **Restart services** on latest main (≥ `5c8cded`): main app, **CC service**, **builder service** (Scenario F needs all three fresh) | project restart batch / your usual commands |
 | 0.2 | **Hard-refresh** the CC browser tab (Ctrl+F5) | |
-| 0.3 | **Start the SFTP test server** (leave its window open) | **Double-click** `test_human\_sftp_test_server\Start_SFTP_Server.bat` (does nothing if it's already running; close the window or Ctrl+C to stop) |
+| 0.3 | **Start the SFTP test server** (leave its window open) | **Double-click `Start_SFTP_Server.bat` in this folder** (does nothing if it's already running; close the window or Ctrl+C to stop) |
 | 0.4 | **Seed the SFTP secret** (name `AUTODEMO_SFTP`) if not present | Local Secrets page → `AUTODEMO_SFTP` = `sftp://testuser:testpass@127.0.0.1:2222` |
 | 0.5 | **AIRDB reachable?** Ping `10.0.0.6` / test the `AIRDB` Connection. If the DB is offline, Scenarios A/C/D lose their data beats (honest failures instead) — prefer online | Connections page |
 | 0.6 | Log into CC as a **Developer** (admin works). Scenario G also needs a **role-1 (Viewer)** account | `/command-center` |
