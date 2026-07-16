@@ -58,6 +58,21 @@ class TestDraftMessage:
         assert "authoritative" not in msg and "Agent notes" not in msg
 
 
+class TestDeterministicReplyStructure:
+    """F2b: the builder emits the honest message as a structured text block,
+    bypassing the LLM — so the reply is guaranteed to lead honestly."""
+    def test_draft_reply_is_valid_structured_block_leading_honestly(self):
+        import json
+        content = _mod().draft_message("test-0034-wf", 1249,
+                                       errors=["node-3 -> node-4 references a missing target node"],
+                                       agent_notes=SPECULATIVE)
+        blocks = json.loads(json.dumps([{"type": "text", "content": content}]))  # the bypass payload
+        assert blocks[0]["type"] == "text"
+        body = blocks[0]["content"].lstrip()
+        assert body.startswith("**⚠️") and not body.startswith("✅")
+        assert "missing target node" in blocks[0]["content"]
+
+
 class TestErrorMessage:
     def test_leads_with_failure(self):
         msg = _mod().error_message("Could not parse SQLAlchemy URL", agent_notes=SPECULATIVE)

@@ -5241,6 +5241,12 @@ async def handle_agent_response(state: dict) -> dict:
         # This ensures tokens are properly streamed to the frontend
         llm = get_llm(mini=False)
 
+        # AIHUB-0034 F2b: for a draft/failed build we return a DETERMINISTIC honest
+        # reply (set below) instead of letting the LLM recompose it — the LLM added
+        # a false "✅ Workflow created / Verified configuration" headline over the
+        # honest draft prompt. This guarantees the verdict leads.
+        _deterministic_reply = None
+
         if is_asking_questions:
             # Agent is asking more questions - relay as-is without LLM commentary
             format_prompt = f"""Relay this from the {agent_name} to the user.
@@ -5285,26 +5291,20 @@ The workflow has been saved to the platform and is ready to use. You can find it
 
 Let the user know their workflow is ready and offer to help with anything else."""
             elif compile_result.get("status") == "draft":
-                # F2: saved but failed validation — a draft, not "ready to use".
-                workflow_id = compile_result.get("workflow_id")
-                workflow_name = compile_result.get("workflow_name", "New Workflow")
+                # F2/F2b: saved but failed validation — a DRAFT, not "created/ready".
+                # Deterministic honest reply (LEADS with the verdict), bypassing the
+                # LLM so it can't headline a false "✅ created / verified".
+                from graph.build_outcome import draft_message
                 verrors = (compile_result.get("validation") or {}).get("errors", []) or []
-                _err_lines = "\n".join(f"- {e}" for e in verrors[:8]) or "- (validation reported errors; see workflow details)"
-                action_verb = "updated" if is_edit else "created"
-                format_prompt = f"""The {agent_name} designed a workflow and I {action_verb} and SAVED it (ID {workflow_id}), but it did NOT pass validation — so it is saved as a DRAFT and is NOT ready to run.
-
-Validation issues that must be fixed:
-{_err_lines}
-
-Let the user know the workflow was saved as a draft but needs these fixes before it can run, and offer to help fix them. Do NOT tell the user it is ready to use."""
+                _deterministic_reply = draft_message(
+                    compile_result.get("workflow_name", "the workflow"),
+                    compile_result.get("workflow_id"), errors=verrors, is_edit=is_edit)
+                format_prompt = ""  # unused — deterministic reply is authoritative
             else:
-                error = compile_result.get("error", "Unknown error")
-                action_verb = "updating" if is_edit else "creating"
-                format_prompt = f"""The {agent_name} designed a workflow plan, but there was an issue {action_verb} it:
-
-Error: {error}
-
-Let the user know about the issue and suggest they may need to refine the requirements or try again."""
+                from graph.build_outcome import error_message
+                _deterministic_reply = error_message(
+                    compile_result.get("error", "Unknown error"), is_edit=is_edit)
+                format_prompt = ""  # unused — deterministic reply is authoritative
 
         elif agent_result and agent_result.get("workflow_commands"):
             # WorkflowAgent-specific: Workflow commands were produced but NOT compiled yet.
@@ -5343,10 +5343,18 @@ Summarize what was accomplished and offer to help with anything else."""
 
 Present this response to the user in a helpful way."""
 
-        response = await safe_llm_invoke(llm, [
-            SystemMessage(content=BUILDER_SYSTEM_PROMPT + "\n\n" + STRUCTURED_RESPONSE_FORMAT),
-            HumanMessage(content=format_prompt),
-        ])
+        if _deterministic_reply is not None:
+            # AIHUB-0034 F2b: draft/failed build — deliver the honest verdict verbatim
+            # (a single structured text block), NOT an LLM recomposition.
+            import json as _bo_json
+            from langchain_core.messages import AIMessage as _BOAIMessage
+            response = _BOAIMessage(content=_bo_json.dumps(
+                [{"type": "text", "content": _deterministic_reply}]))
+        else:
+            response = await safe_llm_invoke(llm, [
+                SystemMessage(content=BUILDER_SYSTEM_PROMPT + "\n\n" + STRUCTURED_RESPONSE_FORMAT),
+                HumanMessage(content=format_prompt),
+            ])
 
         result = {
             "messages": [response],

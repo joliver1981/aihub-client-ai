@@ -646,6 +646,13 @@ Do NOT invent node types that are not in this list (e.g., "Trigger", "Scheduled 
 Workflows are triggered externally — either manually, via the platform's schedule system, or via API call.
 There is NO trigger node. If the user requests a scheduled trigger, note in your plan that a
 schedule should be created separately after the workflow is built.
+There is also NO SFTP/FTP node, no file-UPLOAD/transfer node, and no "run code"/script node
+(AIHUB-0034). If the user asks to upload or transfer a file (SFTP/FTP) or run custom code, do NOT
+invent a node for it and do NOT ask the user for SFTP/FTP host, port, username, password, or key —
+those steps are not part of a visual workflow. Instead, tell the user plainly that the upload / code
+part must be built as a **Code Flow / Automation** (which references the same connections and secrets
+by name), and build only the parts the visual workflow DOES support (e.g. the SQL query + export).
+Trying to wire a non-existent node is what produces a broken, unrunnable draft — don't.
 
 IMPORTANT CONTEXT:
 - Gather requirements naturally through conversation
