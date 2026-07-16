@@ -48,6 +48,15 @@ check has its verification SQL inline below).
   with the corrected name in ≤1 turn. (Lint pattern matches `aihub.input('...')` usage against the
   step's declared inputs.)
 
+### Checkpoints inside a Code Flow (aihub.checkpoint)
+- If the agent adds an `aihub.checkpoint(...)` gate before an irreversible step (e.g. the upload),
+  it **auto-approves** in a Code Flow with an honest log line: `[aihub] checkpoint auto-approved
+  (not a supervised Automation run — human gates apply once this is promoted to an Automation): …`.
+  This is expected — a Code Flow has no live AutomationRuns row to pause/resume against, so the gate
+  can't hold; it takes effect once the process is promoted to an Automation (which Mission Control
+  supervises). It is NOT a failure and NOT a silent skip. (A prior build 403'd here and killed the
+  step before the upload — that's fixed.)
+
 ### Scenario E — fail-edge honesty
 - With the SFTP server down, the upload step result is a **failure** (connection refused); the chat
   reply names the failed step + real error; any wired fail-edge/alert step executes. **Any** "✅

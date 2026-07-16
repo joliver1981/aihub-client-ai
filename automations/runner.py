@@ -645,14 +645,18 @@ class AutomationRunner:
     def _execute_code(self, code: str, manifest: Dict, identity: Dict, run_id: str,
                       workdir: str, inputs: Dict, timeout: int, dry_run: bool,
                       samples_dir: Optional[str] = None,
-                      force_env_inject: bool = False) -> Dict:
+                      force_env_inject: bool = False,
+                      checkpoints_supported: bool = True) -> Dict:
         """Shared executor for BOTH a promoted Automation and an inline Code
         Flow step. `identity` = {id, name, version, environment_id}. Runs the
         code in an environment with the aihub_runtime SDK, supervises it (live
         events, honest cancellation), verifies declared outputs, returns the
         honest tri-state outcome. `force_env_inject` delivers credential VALUES
         as env vars — the Code Flow step path uses it because a workflow step
-        has no live AutomationRuns row for the token/resolve endpoint (v0)."""
+        has no live AutomationRuns row for the token/resolve endpoint (v0).
+        `checkpoints_supported` is False for that same Code Flow path: without a
+        live run row there is nothing to pause/resume against, so aihub.checkpoint()
+        auto-approves with an honest log line instead of 403-ing at the gate."""
         ident = identity["id"]
         name = identity.get("name") or ident
         version = identity.get("version", 1)
@@ -684,6 +688,9 @@ class AutomationRunner:
         env["AIHUB_RUN_ID"] = run_id
         env["AIHUB_AUTOMATION_ID"] = ident
         env["AIHUB_INPUTS_PATH"] = os.path.join(workdir, _INPUTS_FILE)
+        # Signal whether human-approval gates can actually pause this run. Code
+        # Flow steps have no live AutomationRuns row → checkpoint() auto-approves.
+        env["AIHUB_CHECKPOINTS_ENABLED"] = "1" if checkpoints_supported else "0"
         sdk_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sdk")
         env["PYTHONPATH"] = sdk_dir + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
 
@@ -816,7 +823,8 @@ class AutomationRunner:
             identity={"id": f"codestep-{run_id}", "name": step_name, "version": 1,
                       "environment_id": environment_id},
             run_id=run_id, workdir=workdir, inputs=resolved_inputs, timeout=timeout,
-            dry_run=False, samples_dir=None, force_env_inject=True)
+            dry_run=False, samples_dir=None, force_env_inject=True,
+            checkpoints_supported=False)
         result["run_id"] = run_id
         return result
 

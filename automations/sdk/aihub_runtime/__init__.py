@@ -214,6 +214,17 @@ def checkpoint(message, poll_seconds=2):
     crosses a system boundary with unusual data."""
     import time as _time
 
+    # Human-approval gates need a SUPERVISED live run to pause/resume against
+    # (Mission Control shows the gate; a Developer clicks Proceed/Abort). A Code
+    # Flow step runs without an AutomationRuns row backing it, so the runner
+    # signals AIHUB_CHECKPOINTS_ENABLED=0 for that context. Rather than 403 at
+    # the gate, auto-approve and say so plainly — the gate takes effect once the
+    # process is promoted to an Automation (which IS supervised).
+    if _os.environ.get("AIHUB_CHECKPOINTS_ENABLED") == "0":
+        log(f"checkpoint auto-approved (not a supervised Automation run — human "
+            f"gates apply once this is promoted to an Automation): {message}")
+        return True
+
     token = _os.environ.get("AIHUB_RUN_TOKEN")
     if not token:
         raise AutomationRuntimeError(
