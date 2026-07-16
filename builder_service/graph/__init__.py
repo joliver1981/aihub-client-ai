@@ -98,6 +98,15 @@ class BuilderState(TypedDict, total=False):
     # Workflow edit context — set when editing an existing workflow
     workflow_edit_context: Optional[Dict[str, Any]]  # {workflow_id, workflow_name, workflow_state}
 
+    # Result of the most recent workflow compile (create/edit). Carries the
+    # ACTUALLY-PERSISTED workflow_data (nodes/connections/variables), so the SSE
+    # layer can read back the real node types and report only steps that were
+    # truly built. AIHUB-0034: must be a DECLARED channel — LangGraph drops any
+    # key a node returns that isn't in this schema, which is why a node's
+    # `result["compile_result"] = ...` never reached `graph.get_state().values`
+    # and the honest-step disclosure "didn't fire live".
+    compile_result: Optional[Dict[str, Any]]  # {status, workflow_id, workflow_data, ...}
+
     # User context (role-based permissions)
     user_context: Optional[Dict[str, Any]]  # {user_id, role, tenant_id, username, name}
 

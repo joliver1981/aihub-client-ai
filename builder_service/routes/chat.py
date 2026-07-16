@@ -48,6 +48,11 @@ def init_routes(_graph, _session_manager):
     session_manager = _session_manager
 
 
+# AIHUB-0034: the persisted-node read-back lives in a dependency-free helper so
+# it is unit-testable without the FastAPI/sse_starlette stack.
+from routes.compile_readback import extract_compile_result as _extract_compile_result
+
+
 PHASE_CONFIG = {
     "classify_intent": {
         "phase": "thinking",
@@ -227,6 +232,27 @@ async def chat(request: ChatRequest):
                     yield {
                         "event": "plan",
                         "data": json.dumps(plan),
+                    }
+
+                # AIHUB-0034: emit the ACTUALLY-PERSISTED node types (a read-back of
+                # the compiled workflow) so the CC builds the reply's step list from
+                # real nodes, not the LLM plan — a step that wasn't compiled (e.g. an
+                # SFTP upload the builder has no node for) can then never be reported
+                # as built/verified.
+                _compile = _extract_compile_result(final_state)
+                if _compile is not None:
+                    _wf_data = _compile.get("workflow_data") or {}
+                    _node_types = [n.get("type") for n in (_wf_data.get("nodes") or [])
+                                   if isinstance(n, dict) and n.get("type")]
+                    logger.info(f"  🧾 workflow_saved read-back: id={_compile.get('workflow_id')}, "
+                                f"status={_compile.get('status')}, node_types={_node_types}")
+                    yield {
+                        "event": "workflow_saved",
+                        "data": json.dumps({
+                            "workflow_id": _compile.get("workflow_id"),
+                            "status": _compile.get("status"),
+                            "node_types": _node_types,
+                        }),
                     }
 
                 # ─── Agent Conversation Events ────────────────────────────────

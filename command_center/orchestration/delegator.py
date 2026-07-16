@@ -235,6 +235,7 @@ async def delegate_to_builder(
 
                 token_buffer = []
                 plan_data = None
+                workflow_saved = None   # AIHUB-0034: persisted node read-back
                 current_event = None
                 saw_error_event = False
 
@@ -256,6 +257,8 @@ async def delegate_to_builder(
                             token_buffer.append(data.get("text", ""))
                         elif current_event == "plan":
                             plan_data = data
+                        elif current_event == "workflow_saved":
+                            workflow_saved = data   # AIHUB-0034: persisted node types (read-back)
                         elif current_event == "status":
                             logger.info(f"Builder status: {data.get('label', '')}")
                         elif current_event == "error":
@@ -286,6 +289,29 @@ async def delegate_to_builder(
 
                 if not full_response:
                     full_response = "Builder Agent processed the request but returned no visible output."
+
+                # AIHUB-0034: PREPEND the authoritative step list built from the
+                # ACTUALLY-PERSISTED nodes (the builder's read-back), so the reply
+                # the CC composes cannot headline a step (e.g. an SFTP upload) that
+                # is not in the saved workflow. Deterministic — not LLM-narrated.
+                if workflow_saved and workflow_saved.get("node_types") is not None:
+                    try:
+                        from command_center.orchestration.build_reply import (
+                            persisted_steps_block, dropped_capability)
+                        _plan_text = " ".join(
+                            str(s.get("description", "")) for s in (plan_data or {}).get("steps", []))
+                        _block = persisted_steps_block(
+                            workflow_saved.get("workflow_id"), workflow_saved.get("status"),
+                            workflow_saved.get("node_types"), _plan_text)
+                        if dropped_capability(workflow_saved.get("node_types"), _plan_text):
+                            # The builder's own narration confabulates the dropped step
+                            # as built — REPLACE it with the authoritative block so the
+                            # CC has only honest data to recompose from.
+                            full_response = _block
+                        else:
+                            full_response = _block + "\n\n---\n" + full_response
+                    except Exception as _bre:
+                        logger.warning(f"[delegate_to_builder] persisted-steps block failed: {_bre}")
 
                 # Fail-closed status derivation. Historically this returned a hard-coded
                 # 'completed' for any stream that didn't raise, so in-stream errors and
