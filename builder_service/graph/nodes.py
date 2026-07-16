@@ -4984,26 +4984,22 @@ The workflow has been saved and is ready to use."""
                 verrors = (compile_result.get("validation") or {}).get("errors", []) or []
                 action_verb = "updated" if result_mode == "edit" else "created"
                 logger.warning(f"  [_handle_workflow_agent_metadata] Workflow saved as DRAFT (invalid): ID={result_workflow_id}, errors={verrors}")
-                _err_lines = "\n".join(f"- {e}" for e in verrors[:8]) or "- (validation reported errors; see workflow details)"
-                response_text = f"""{response_text}
-
-**Workflow saved as a draft — not yet ready to run.**
-- **Name:** {workflow_name}
-- **ID:** {result_workflow_id}
-
-I {action_verb} and saved the workflow, but it did not pass validation, so it is NOT ready to use yet. These issues need to be resolved first:
-{_err_lines}
-
-Tell me how you'd like to fix these and I'll update the workflow."""
+                # AIHUB-0034 F2: LEAD with the honest verdict. `response_text` is the
+                # agent's SPECULATIVE message written before this compile result was
+                # known (it may say "✅ created / verified"); the helper demotes it
+                # below the authoritative status so the reply can never headline a
+                # false success.
+                from graph.build_outcome import draft_message
+                response_text = draft_message(workflow_name, result_workflow_id,
+                                              errors=verrors, agent_notes=response_text,
+                                              is_edit=(result_mode == "edit"))
             else:
                 error = compile_result.get("error", "Unknown error")
-                action_verb = "update" if edit_workflow_id else "create"
                 logger.warning(f"  [_handle_workflow_agent_metadata] Workflow compile failed: {error}")
-                response_text = f"""{response_text}
-
-**Note:** I tried to {action_verb} the workflow but encountered an issue: {error}
-
-You may need to refine the requirements or try again."""
+                # AIHUB-0034 F2: lead with the failure; demote the speculative preamble.
+                from graph.build_outcome import error_message
+                response_text = error_message(error, agent_notes=response_text,
+                                              is_edit=bool(edit_workflow_id))
 
             # Clean up the session after compile
             session_id = agent_metadata.get("session_id")
@@ -5011,11 +5007,11 @@ You may need to refine the requirements or try again."""
                 await adapter.clear_session("/api/workflow/builder", current_conv_id)
 
         except Exception as e:
-            action_verb = "update" if edit_workflow_id else "create"
             logger.error(f"  [_handle_workflow_agent_metadata] Error calling compile: {e}", exc_info=True)
-            response_text = f"""{response_text}
-
-**Note:** I tried to {action_verb} the workflow but encountered an error: {str(e)}"""
+            # AIHUB-0034 F2: lead with the failure; demote the speculative preamble.
+            from graph.build_outcome import error_message
+            response_text = error_message(str(e), agent_notes=response_text,
+                                          is_edit=bool(edit_workflow_id))
 
         finally:
             await adapter.close()
