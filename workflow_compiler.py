@@ -114,6 +114,21 @@ def load_workflow_from_database(
             conn.close()
             return False, None, f"Unexpected workflow_data type: {type(wf_data_raw)}"
         
+        # AIHUB-0039: the visual builder/compiler must never load a Code Flow for
+        # editing — its "edit" materializes visual nodes over the whole definition
+        # and DESTROYS the code steps (live: wf 1256 'store-headcount' reduced to
+        # one broken node and dropped from the /codeflows registry). Code Flows
+        # are edited only via the code-flow tools in Command Center chat.
+        if isinstance(workflow_data, dict) and workflow_data.get("kind") == "code_flow":
+            conn.close()
+            return False, None, (
+                f"Workflow '{wf_name}' (ID {wf_id}) is a Code Flow (a code process). "
+                f"The visual Workflow Builder cannot edit Code Flows — a builder edit "
+                f"would replace its code steps and destroy the flow. Nothing was changed. "
+                f"To modify it, use the code-flow tools in Command Center chat "
+                f"(e.g. \"add a step to {wf_name} that ...\")."
+            )
+
         # Validate basic structure
         if not isinstance(workflow_data, dict) or 'nodes' not in workflow_data:
             conn.close()
@@ -604,7 +619,30 @@ def save_compiled_workflow(
         
         # Set tenant context
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
-        
+
+        # AIHUB-0039 belt: refuse to overwrite a Code Flow row no matter how we got
+        # here — update-by-id, or the MERGE-by-name upsert colliding with a code
+        # flow's name (a "create" using an existing code flow's name would clobber
+        # it just like an edit). The load-side guard covers the edit path; this
+        # covers every save path.
+        if workflow_id:
+            cursor.execute(
+                "SELECT id, JSON_VALUE(workflow_data, '$.kind') FROM Workflows WHERE id = ?",
+                (workflow_id,))
+        else:
+            cursor.execute(
+                "SELECT id, JSON_VALUE(workflow_data, '$.kind') FROM Workflows WHERE workflow_name = ?",
+                (workflow_name,))
+        _target_row = cursor.fetchone()
+        if _target_row and (_target_row[1] or "").lower() == "code_flow":
+            conn.close()
+            return False, None, (
+                f"Refusing to overwrite '{workflow_name}' (ID {_target_row[0]}): it is a "
+                f"Code Flow (a code process). The visual builder cannot modify Code Flows — "
+                f"nothing was changed. Use the code-flow tools in Command Center chat, or "
+                f"choose a different name for the new workflow."
+            )
+
         if workflow_id:
             # Direct update by ID (edit mode — ID is known)
             cursor.execute("""
