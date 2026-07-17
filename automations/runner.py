@@ -188,13 +188,19 @@ def resolve_inputs(manifest: Dict, provided: Optional[Dict]) -> Tuple[Optional[D
 
 
 def verify_outputs(manifest: Dict, workdir: str, inputs: Dict,
-                   secret_resolver=None) -> Tuple[str, List[Dict]]:
+                   secret_resolver=None, output_files: Optional[List[str]] = None
+                   ) -> Tuple[str, List[Dict]]:
     """Check every declared output. Returns (component_outcome, report) where
     component_outcome is 'success' | 'failed' | 'unverified'.
 
     secret_resolver(name) -> value enables independent remote verification of
     sftp_upload/ftp_upload outputs (verify: {"remote_listing": true}); without
-    it remote outputs are honestly 'unverified'."""
+    it remote outputs are honestly 'unverified'.
+
+    output_files: the step's swept produced files (workdir-relative). AIHUB-0044:
+    remote verification checks these basenames as fallback candidates, so a real
+    upload isn't failed just because the declared output NAME was a symbolic
+    label rather than the uploaded filename."""
     report = []
     any_failed = False
     any_unchecked = False
@@ -225,14 +231,46 @@ def verify_outputs(manifest: Dict, workdir: str, inputs: Dict,
                     any_failed = True
         elif kind in ("sftp_upload", "ftp_upload") and verify.get("remote_listing") and secret_resolver:
             from .remote_verify import check_remote_output
-            # 'name' is canonical; accept 'remote_path' as an alias (its
-            # basename) — LLM-written manifests use both (AIHUB-0027 F1)
-            raw_name = out.get("name") or (out.get("remote_path", "").replace("\\", "/").rsplit("/", 1)[-1])
-            filename = _substitute(raw_name, inputs)
-            entry["name"] = filename
+            # AIHUB-0044: the declared NAME is often a symbolic label, not the
+            # uploaded filename (live: name 'store_headcount_upload' while the
+            # step really uploaded store_headcount_2026-07.csv — a REAL upload
+            # was failed). Verify against CANDIDATES in order: explicit
+            # remote_path basename, the substituted name, then the step's
+            # actually-produced local files' basenames. Verified if ANY is on
+            # the remote; failed only when NONE is (no weakening — a file that
+            # was never uploaded matches no candidate).
+            candidates = []
+            _rp = (out.get("remote_path") or "").replace("\\", "/").rsplit("/", 1)[-1]
+            if _rp:
+                candidates.append(_substitute(_rp, inputs))
+            if out.get("name"):
+                candidates.append(_substitute(out["name"], inputs))
+            for f_rel in (output_files or []):
+                b = os.path.basename(f_rel)
+                if b:
+                    candidates.append(b)
+            seen = set()
+            candidates = [c for c in candidates
+                          if c and not (c in seen or seen.add(c))]
             secret_value = secret_resolver(out.get("secret", ""))
-            ok, note = check_remote_output(kind, secret_value, out.get("remote_dir", "/"),
-                                           filename, verify)
+            ok, note = None, "no candidate filename to check"
+            for cand in candidates:
+                ok, note = check_remote_output(kind, secret_value, out.get("remote_dir", "/"),
+                                               cand, verify)
+                if ok is True:
+                    entry["name"] = cand
+                    note = f"found '{cand}' in {out.get('remote_dir', '/')}" + \
+                           (f" ({note})" if note else "")
+                    break
+                if ok is None:
+                    # couldn't check at all (bad secret / connect error) — the
+                    # server won't answer differently for another name
+                    break
+            else:
+                if candidates:
+                    entry["name"] = candidates[0]
+                    note = (f"none of {candidates} found in {out.get('remote_dir', '/')} "
+                            f"on the remote")
             entry["checks"].append({"check": "remote_listing", "ok": ok, "note": note})
             if ok is False:
                 any_failed = True
@@ -778,7 +816,8 @@ class AutomationRunner:
             status, verify_report, error = "failed", None, f"exit code {exit_code}"
         else:
             status, verify_report = verify_outputs(manifest, workdir, inputs,
-                                                   secret_resolver=self._resolve_secret)
+                                                   secret_resolver=self._resolve_secret,
+                                                   output_files=output_files)
             error = "declared output verification failed" if status == "failed" else None
 
         # AIHUB-0040: deterministic transfer-claim evidence. If the step declared a
