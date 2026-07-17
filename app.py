@@ -6046,17 +6046,40 @@ def save_workflow_to_database(workflow_name, workflow_data, owner_id=None):
 
         # Convert workflow data to JSON string
         workflow_json = json.dumps(workflow_data)
-        
+
         # First, get the tenant context
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
-        
+
+        # AIHUB-0039 R2: this generic save IS the live builder edit-save path, and
+        # its MERGE-by-name silently overwrote Code Flow rows (live: wf 1259
+        # 'store-headcount-v3' went from kind='code_flow' + 5 code steps to one
+        # broken visual node and vanished from the /codeflows registry, while the
+        # compile-side guard's "Nothing was changed" had already fired — non-fatally).
+        # Refuse any save that would STRIP kind='code_flow' from an existing row.
+        # The code-flow layer's own saves carry kind='code_flow' and pass through.
+        if (workflow_data or {}).get('kind') != 'code_flow':
+            cursor.execute(
+                "SELECT id, JSON_VALUE(workflow_data, '$.kind') FROM Workflows WHERE workflow_name = ?",
+                (workflow_name,))
+            _kind_row = cursor.fetchone()
+            if _kind_row and (_kind_row[1] or '').lower() == 'code_flow':
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                raise ValueError(
+                    f"Refusing to overwrite '{workflow_name}' (ID {_kind_row[0]}): it is a "
+                    f"Code Flow (a code process). The visual workflow editor/builder cannot "
+                    f"modify Code Flows — nothing was changed. Use the code-flow tools in "
+                    f"Command Center chat, or choose a different name.")
+
         # SQL to insert/update workflow
         workflow_sql = """
         MERGE INTO Workflows AS target
         USING (VALUES (?, ?, getutcdate(), ?)) AS source (workflow_name, workflow_data, last_modified, version)
         ON target.workflow_name = source.workflow_name
         WHEN MATCHED THEN
-            UPDATE SET 
+            UPDATE SET
                 workflow_data = source.workflow_data,
                 last_modified = source.last_modified,
                 version = target.version + 1
