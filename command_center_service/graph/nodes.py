@@ -7446,6 +7446,31 @@ def _verification_footer(summary: dict) -> str:
     return ("\n\n---\n" + "\n\n".join(blocks)) if blocks else ""
 
 
+def _persisted_steps_footer(wf_saved: dict) -> str:
+    """AIHUB-0038: deterministic saved-workflow read-back footer.
+
+    Appended AFTER the distiller whenever the delegator captured a
+    `workflow_saved` read-back, so the authoritative step list survives no
+    matter what the distiller LLM wrote (same fail-closed principle as
+    _verification_footer, but for the SUCCESS direction's step list)."""
+    try:
+        node_types = [t for t in (wf_saved.get("node_types") or []) if t]
+        if not node_types:
+            return ""
+        wf_id = wf_saved.get("workflow_id")
+        id_part = f" (ID {wf_id})" if wf_id else ""
+        status_part = (" — saved as a DRAFT, not yet runnable"
+                       if wf_saved.get("status") == "draft" else "")
+        return (
+            f"\n\n---\n📋 **Saved workflow{id_part}{status_part} — authoritative read-back. "
+            f"It contains exactly these {len(node_types)} step(s):** "
+            + " → ".join(node_types)
+            + ". Any step not listed here is NOT in the workflow."
+        )
+    except Exception:
+        return ""
+
+
 def _deterministic_builder_summary(summary: dict, plan_data: dict) -> Optional[str]:
     """W5 (#17): fail-closed the SUCCESS direction. When the distiller LLM is unavailable
     (crash/timeout), synthesize an honest user-facing message from the verified plan
@@ -7735,70 +7760,121 @@ async def build(state: CommandCenterState) -> dict:
                 response_text = result2["text"]
             if isinstance(result2, dict) and result2.get("plan"):
                 latest_plan = result2["plan"]
+            # AIHUB-0038: the execution call's persisted-node read-back supersedes
+            # the draft call's — adopt result2 wholesale when it carries one.
+            if isinstance(result2, dict) and result2.get("workflow_saved"):
+                result = result2
 
         # Phase 4: classify the executed plan by read-back verification so both the
         # distiller and a deterministic footer can be honest about what actually landed.
         verification_summary = _summarize_verification(latest_plan or {})
 
+        # AIHUB-0038: structured persisted-node read-back from the delegator. When
+        # present it is the AUTHORITY on what the saved workflow contains — the
+        # user-visible step list must come from it, never from the distiller LLM.
+        _wf_saved = result.get("workflow_saved") if isinstance(result, dict) else None
+        _dropped_cap = result.get("dropped_capability") if isinstance(result, dict) else None
+
         # Distill builder output into a user-facing message (never show raw JSON)
         raw_builder_text = response_text
         distilled_text = None
-        try:
-            from cc_config import get_step_llm
-            llm2 = get_step_llm("builder_distiller")
-
-            # Keep prompt small but include enough context for judgment.
-            log_tail = (existing.get("builder_log") or [])[-6:]
-            _bd_conv = _format_conversation_for_prompt(messages)
-            _bd_conv_block = (
-                f"Recent user-facing conversation (for understanding what the user was asking):\n{_bd_conv}\n\n"
-                if _bd_conv else ""
-            )
-            distill_prompt = (
-                "You are the AI Hub Command Center. You are the user's representative.\n"
-                "You received a message from an internal Builder agent. The Builder message may contain raw JSON, internal tool plans, or repeated confirmation prompts.\n\n"
-                "RULES:\n"
-                "- NEVER output raw JSON or internal tool-call formats.\n"
-                "- If the builder is asking for confirmation and the user has NOT confirmed yet, summarize the plan in plain English and ask the user to confirm.\n"
-                "- If the user already confirmed (their last message is affirmative) and the builder is still asking to confirm, assume CC already handled execution; summarize current status or final result.\n"
-                "- If the builder reports success, output a concise success message (e.g., ✅ Agent created: <name>).\n"
-                "- If the builder reports failure, output a concise failure message (❌ Failed: <reason>) plus what you need from the user if anything.\n"
-                "- VERIFICATION (authoritative): the 'Verification' section below is an independent read-back of platform state. ONLY claim something was created/done for steps marked VERIFIED. For any step marked UNVERIFIED, say it was attempted but could NOT be confirmed and ask the user to double-check — do NOT call it done. For FAILED steps, report the failure. Never present unverified or failed work as success.\n"
-                "- Use the recent user-facing conversation below to interpret short/ambiguous user messages (e.g. 'yes' may refer to an earlier confirmation prompt).\n"
-                "- Keep it short.\n\n"
-                f"{_bd_conv_block}"
-                f"Last user message: {user_text!r}\n"
-                f"Builder message (internal): {raw_builder_text[:6000]!r}\n"
-                f"Verification (authoritative read-back of platform state):\n{_render_verification_for_prompt(verification_summary)}\n"
-                f"Recent builder log tail (internal): {json.dumps(log_tail)[:4000]}\n"
-            )
-            distill_prompt += _preferences_block(state)
-
-            _dist_msgs = [
-                SystemMessage(content="You rewrite internal agent messages into user-facing responses with good judgment."),
-                HumanMessage(content=distill_prompt),
-            ]
-            _dist_t0 = _trace_time.perf_counter()
-            distilled = await llm2.ainvoke(_dist_msgs)
-            trace_llm_call(state, node="build", step="builder_distiller",
-                           messages=_dist_msgs, response=distilled,
-                           elapsed_ms=int((_trace_time.perf_counter() - _dist_t0) * 1000), model_hint="mini")
-            if distilled and getattr(distilled, "content", None):
-                distilled_text = str(distilled.content).strip()
-        except Exception as _distill_err:
+        if _dropped_cap and _wf_saved:
+            # AIHUB-0038: the user asked for a capability the visual builder has no
+            # node for and it was DROPPED from the saved workflow. The delegator
+            # already replaced the builder narration with the authoritative
+            # persisted-steps block — deliver that block VERBATIM. No LLM may
+            # recompose this reply: the live 09 run showed the builder_distiller
+            # rewriting the disclosure back into "✅ created and verified"
+            # including the dropped SFTP step.
             trace_log(
                 state,
-                event_type="distill_error",
+                event_type="distill_bypassed",
                 node="delegate_to_builder",
-                payload={"error": str(_distill_err)},
-                level="warning",
+                payload={
+                    "reason": f"dropped_capability={_dropped_cap}",
+                    "workflow_id": (_wf_saved or {}).get("workflow_id"),
+                    "node_types": (_wf_saved or {}).get("node_types"),
+                },
+                level="info",
             )
+            logger.info(
+                f"[build] distiller BYPASSED (dropped capability: {_dropped_cap}) — "
+                f"replying with the deterministic persisted-steps block"
+            )
+        else:
+            try:
+                from cc_config import get_step_llm
+                llm2 = get_step_llm("builder_distiller")
+
+                # Keep prompt small but include enough context for judgment.
+                log_tail = (existing.get("builder_log") or [])[-6:]
+                _bd_conv = _format_conversation_for_prompt(messages)
+                _bd_conv_block = (
+                    f"Recent user-facing conversation (for understanding what the user was asking):\n{_bd_conv}\n\n"
+                    if _bd_conv else ""
+                )
+                # AIHUB-0038: when a persisted-node read-back exists, its step list is
+                # AUTHORITATIVE — the distiller may not restate a different one.
+                _auth_steps_rule = ""
+                if _wf_saved and _wf_saved.get("node_types"):
+                    _auth_steps_rule = (
+                        "- AUTHORITATIVE SAVED WORKFLOW (independent read-back): the saved "
+                        "workflow contains EXACTLY these steps: "
+                        + ", ".join(str(t) for t in _wf_saved["node_types"])
+                        + ". NEVER list, claim, or imply any other step was built/"
+                        "configured/verified. If the user asked for more than these "
+                        "steps, the extra part is NOT in this workflow — do not restate "
+                        "the user's request as if it were all built.\n"
+                    )
+                distill_prompt = (
+                    "You are the AI Hub Command Center. You are the user's representative.\n"
+                    "You received a message from an internal Builder agent. The Builder message may contain raw JSON, internal tool plans, or repeated confirmation prompts.\n\n"
+                    "RULES:\n"
+                    "- NEVER output raw JSON or internal tool-call formats.\n"
+                    "- If the builder is asking for confirmation and the user has NOT confirmed yet, summarize the plan in plain English and ask the user to confirm.\n"
+                    "- If the user already confirmed (their last message is affirmative) and the builder is still asking to confirm, assume CC already handled execution; summarize current status or final result.\n"
+                    "- If the builder reports success, output a concise success message (e.g., ✅ Agent created: <name>).\n"
+                    "- If the builder reports failure, output a concise failure message (❌ Failed: <reason>) plus what you need from the user if anything.\n"
+                    "- VERIFICATION (authoritative): the 'Verification' section below is an independent read-back of platform state. ONLY claim something was created/done for steps marked VERIFIED. For any step marked UNVERIFIED, say it was attempted but could NOT be confirmed and ask the user to double-check — do NOT call it done. For FAILED steps, report the failure. Never present unverified or failed work as success.\n"
+                    + _auth_steps_rule +
+                    "- Use the recent user-facing conversation below to interpret short/ambiguous user messages (e.g. 'yes' may refer to an earlier confirmation prompt).\n"
+                    "- Keep it short.\n\n"
+                    f"{_bd_conv_block}"
+                    f"Last user message: {user_text!r}\n"
+                    f"Builder message (internal): {raw_builder_text[:6000]!r}\n"
+                    f"Verification (authoritative read-back of platform state):\n{_render_verification_for_prompt(verification_summary)}\n"
+                    f"Recent builder log tail (internal): {json.dumps(log_tail)[:4000]}\n"
+                )
+                distill_prompt += _preferences_block(state)
+
+                _dist_msgs = [
+                    SystemMessage(content="You rewrite internal agent messages into user-facing responses with good judgment."),
+                    HumanMessage(content=distill_prompt),
+                ]
+                _dist_t0 = _trace_time.perf_counter()
+                distilled = await llm2.ainvoke(_dist_msgs)
+                trace_llm_call(state, node="build", step="builder_distiller",
+                               messages=_dist_msgs, response=distilled,
+                               elapsed_ms=int((_trace_time.perf_counter() - _dist_t0) * 1000), model_hint="mini")
+                if distilled and getattr(distilled, "content", None):
+                    distilled_text = str(distilled.content).strip()
+            except Exception as _distill_err:
+                trace_log(
+                    state,
+                    event_type="distill_error",
+                    node="delegate_to_builder",
+                    payload={"error": str(_distill_err)},
+                    level="warning",
+                )
 
         # Use distilled if available; otherwise fall back. W5 (#17): before the generic
         # apology, try a DETERMINISTIC summary from the verified plan so a distiller crash
         # on a real success doesn't show a scary "couldn't format it" message. Only use the
         # apology when there is genuinely nothing verifiable to report.
-        if distilled_text:
+        if _dropped_cap and _wf_saved:
+            # AIHUB-0038: deterministic — the delegator's authoritative block IS the reply.
+            response_text = raw_builder_text
+        elif distilled_text:
             response_text = distilled_text
         else:
             response_text = _deterministic_builder_summary(verification_summary, latest_plan) or (
@@ -7812,6 +7888,13 @@ async def build(state: CommandCenterState) -> dict:
         _ver_footer = _verification_footer(verification_summary)
         if _ver_footer:
             response_text = response_text + _ver_footer
+
+        # AIHUB-0038 fail-closed guarantee for the step list: whenever a persisted-node
+        # read-back exists, pin the authoritative saved-steps footer AFTER distillation
+        # so the distiller can never remove, contradict, or re-add steps. (On the
+        # dropped-capability path the whole reply is already the authoritative block.)
+        if _wf_saved and not _dropped_cap:
+            response_text = response_text + _persisted_steps_footer(_wf_saved)
 
         # Persist builder delegation context for multi-turn
         builder_log = list(existing.get("builder_log", []))

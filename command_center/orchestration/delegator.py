@@ -294,6 +294,7 @@ async def delegate_to_builder(
                 # ACTUALLY-PERSISTED nodes (the builder's read-back), so the reply
                 # the CC composes cannot headline a step (e.g. an SFTP upload) that
                 # is not in the saved workflow. Deterministic — not LLM-narrated.
+                dropped_cap_label = None
                 if workflow_saved and workflow_saved.get("node_types") is not None:
                     try:
                         from command_center.orchestration.build_reply import (
@@ -303,7 +304,9 @@ async def delegate_to_builder(
                         _block = persisted_steps_block(
                             workflow_saved.get("workflow_id"), workflow_saved.get("status"),
                             workflow_saved.get("node_types"), _plan_text)
-                        if dropped_capability(workflow_saved.get("node_types"), _plan_text):
+                        dropped_cap_label = dropped_capability(
+                            workflow_saved.get("node_types"), _plan_text)
+                        if dropped_cap_label:
                             # The builder's own narration confabulates the dropped step
                             # as built — REPLACE it with the authoritative block so the
                             # CC has only honest data to recompose from.
@@ -328,6 +331,12 @@ async def delegate_to_builder(
                     "status": delegation_status,
                     "plan": plan_data,
                     "builder_session_id": effective_session_id,
+                    # AIHUB-0038: expose the persisted-node read-back STRUCTURED so the
+                    # CC reply layer can pin the final user-visible step list
+                    # deterministically (the text alone gets rewritten by the
+                    # builder_distiller LLM).
+                    "workflow_saved": workflow_saved,
+                    "dropped_capability": dropped_cap_label,
                 }
 
     except Exception as e:
