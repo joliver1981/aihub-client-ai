@@ -301,11 +301,15 @@ async def delegate_to_builder(
                             persisted_steps_block, dropped_capability)
                         _plan_text = " ".join(
                             str(s.get("description", "")) for s in (plan_data or {}).get("steps", []))
+                        # AIHUB-0038 R2: per-node configured-ness (from the true
+                        # read-back) makes coverage evidence-based — a hollow
+                        # placeholder node can no longer suppress the disclosure.
+                        _nodes_info = workflow_saved.get("nodes")
                         _block = persisted_steps_block(
                             workflow_saved.get("workflow_id"), workflow_saved.get("status"),
-                            workflow_saved.get("node_types"), _plan_text)
+                            workflow_saved.get("node_types"), _plan_text, nodes=_nodes_info)
                         dropped_cap_label = dropped_capability(
-                            workflow_saved.get("node_types"), _plan_text)
+                            workflow_saved.get("node_types"), _plan_text, nodes=_nodes_info)
                         if dropped_cap_label:
                             # The builder's own narration confabulates the dropped step
                             # as built — REPLACE it with the authoritative block so the

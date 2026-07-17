@@ -4909,9 +4909,17 @@ def _workflow_name_from_conversation(conv_id) -> str | None:
         from agent_communication.manager import get_communication_manager
         conv = get_communication_manager().get_conversation(conv_id)
         for m in (conv.messages if conv else []):
-            if getattr(m, "role", "") != "user":
+            # AIHUB-0038 R2: the delegation request carries role='builder' (the
+            # Builder relaying the user's ask to the WorkflowAgent) — role='user'
+            # is only ESCALATED input, so the original filter matched nothing
+            # live and the uuid fallback fired. Accept both, tolerate dicts.
+            if isinstance(m, dict):
+                role, content = m.get("role", ""), m.get("content", "")
+            else:
+                role, content = getattr(m, "role", ""), getattr(m, "content", "")
+            if str(role) not in ("user", "builder"):
                 continue
-            match = _pat.search(getattr(m, "content", "") or "")
+            match = _pat.search(content or "")
             if match:
                 name = next((g for g in match.groups() if g), "").strip().strip("'\"`* ")
                 if name:

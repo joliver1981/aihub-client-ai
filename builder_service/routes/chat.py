@@ -241,18 +241,35 @@ async def chat(request: ChatRequest):
                 # as built/verified.
                 _compile = _extract_compile_result(final_state)
                 if _compile is not None:
-                    _wf_data = _compile.get("workflow_data") or {}
-                    _node_types = [n.get("type") for n in (_wf_data.get("nodes") or [])
-                                   if isinstance(n, dict) and n.get("type")]
-                    logger.info(f"  🧾 workflow_saved read-back: id={_compile.get('workflow_id')}, "
-                                f"status={_compile.get('status')}, node_types={_node_types}")
+                    # AIHUB-0038 R2: describe the row the USER opens, from the DB.
+                    # (F2: the compile row and the executor-created NAMED row can
+                    # differ — live 1260 vs 1261 — and the old compile-echo
+                    # vouched the wrong one. F1: per-node configured-ness rides
+                    # along so a hollow placeholder can't count as coverage.)
+                    from routes.compile_readback import (
+                        resolve_user_facing_workflow_id, fetch_workflow_readback, shape_nodes)
+                    _user_wf_id = resolve_user_facing_workflow_id(final_state, _compile)
+                    _rb = None
+                    if _user_wf_id:
+                        try:
+                            from builder_config import AI_HUB_BASE_URL, AI_HUB_API_KEY
+                            _rb = fetch_workflow_readback(_user_wf_id, AI_HUB_BASE_URL, AI_HUB_API_KEY)
+                        except Exception as _rb_err:
+                            logger.warning(f"  🧾 true read-back failed ({_rb_err}) — falling back to compile echo")
+                    if _rb is None:
+                        _wf_data = _compile.get("workflow_data") or {}
+                        _nodes = shape_nodes(_wf_data.get("nodes"))
+                        _rb = {"workflow_id": _compile.get("workflow_id"),
+                               "node_types": [n["type"] for n in _nodes],
+                               "nodes": _nodes,
+                               "source": "compile_result"}
+                    _rb["status"] = _compile.get("status")
+                    logger.info(f"  🧾 workflow_saved read-back: id={_rb.get('workflow_id')}, "
+                                f"status={_rb.get('status')}, node_types={_rb.get('node_types')} "
+                                f"(source={_rb.get('source')})")
                     yield {
                         "event": "workflow_saved",
-                        "data": json.dumps({
-                            "workflow_id": _compile.get("workflow_id"),
-                            "status": _compile.get("status"),
-                            "node_types": _node_types,
-                        }),
+                        "data": json.dumps(_rb),
                     }
 
                 # ─── Agent Conversation Events ────────────────────────────────

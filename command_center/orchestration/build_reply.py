@@ -39,31 +39,64 @@ def unsupported_capability(text):
     return None
 
 
-def dropped_capability(node_types, plan_text):
+def dropped_capability(node_types, plan_text, nodes=None):
     """Return a label when the plan asked for an unsupported capability AND no
     persisted node covers it (i.e. it was silently dropped); else None. This is
-    the confabulation case — the builder's own narration will claim it was built."""
+    the confabulation case — the builder's own narration will claim it was built.
+
+    AIHUB-0038 R2 (F1): coverage is EVIDENCE-based when per-node info is
+    available (`nodes` = [{type, configured}], from the true read-back): a
+    transfer-capable node counts ONLY if it is configured. A hollow placeholder
+    (live: an 'Automation' node with empty data, no secret/host/path) must not
+    suppress the drop disclosure. Without `nodes` (legacy event shape), fall
+    back to type-name coverage."""
     label = unsupported_capability(plan_text)
     if not label:
         return None
-    covered = any((t or "").strip().lower() in _TRANSFER_NODE_TYPES for t in (node_types or []))
+    if nodes is not None:
+        covered = any(
+            (n.get("type") or "").strip().lower() in _TRANSFER_NODE_TYPES
+            and bool(n.get("configured"))
+            for n in nodes if isinstance(n, dict))
+    else:
+        covered = any((t or "").strip().lower() in _TRANSFER_NODE_TYPES for t in (node_types or []))
     return None if covered else label
 
 
-def persisted_steps_block(workflow_id, status, node_types, plan_text=""):
+def persisted_steps_block(workflow_id, status, node_types, plan_text="", nodes=None):
     """Build the AUTHORITATIVE, deterministic step block from the ACTUALLY-PERSISTED
     node types. Lists only real nodes; if the plan requested an unsupported
     capability that no persisted node covers, discloses it was NOT built and
     steers it to a Code Flow. This is prepended to the builder reply so the reply
-    can never headline a step that isn't in the saved workflow."""
+    can never headline a step that isn't in the saved workflow.
+
+    With per-node info (`nodes` = [{type, configured}], AIHUB-0038 R2), an
+    UNCONFIGURED transfer-capable node is marked as a placeholder in the list,
+    and coverage for the drop disclosure is evidence-based."""
+    if nodes is not None:
+        node_types = [n.get("type") for n in nodes
+                      if isinstance(n, dict) and n.get("type")]
     node_types = [t for t in (node_types or []) if t]
     header_id = f" (ID {workflow_id})" if workflow_id else ""
     verb = "saved as a DRAFT (not yet runnable)" if status == "draft" else "saved"
     lines = [f"**Actual saved workflow{header_id} — {verb}. It contains exactly these "
              f"{len(node_types)} step(s):**"]
-    lines += [f"- {t}" for t in node_types] or ["- (no nodes were persisted)"]
+    if nodes is not None:
+        for n in nodes:
+            if not (isinstance(n, dict) and n.get("type")):
+                continue
+            t = n["type"]
+            if (t or "").strip().lower() in _TRANSFER_NODE_TYPES and not n.get("configured"):
+                lines.append(f"- {t} (UNCONFIGURED placeholder — carries no transfer "
+                             f"settings and will not perform any upload)")
+            else:
+                lines.append(f"- {t}")
+        if not node_types:
+            lines.append("- (no nodes were persisted)")
+    else:
+        lines += [f"- {t}" for t in node_types] or ["- (no nodes were persisted)"]
 
-    dropped = dropped_capability(node_types, plan_text)
+    dropped = dropped_capability(node_types, plan_text, nodes=nodes)
     if dropped:
         lines.append(
             f"\n⚠️ The **{dropped}** you asked for is NOT in this workflow — the visual builder has "

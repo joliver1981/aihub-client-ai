@@ -134,6 +134,43 @@ async def test_live_path_never_reports_the_dropped_sftp_step(_delegator):
     assert result["status"] == "completed"
 
 
+async def test_live_path_hollow_automation_node_still_discloses_drop(_delegator, monkeypatch):
+    """AIHUB-0038 R2 (F1) — the tester's live retest shape: the compile
+    materialized a HOLLOW 'Automation' node (no transfer settings). With
+    per-node evidence in the workflow_saved event, the drop disclosure must
+    still fire and REPLACE the confabulated narration."""
+    hollow = [
+        "event: token",
+        'data: {"text": "\\u2705 Verified \\u2014 Upload it via SFTP is configured."}',
+        "",
+        "event: plan",
+        'data: {"status": "success", "steps": [{"description": "SFTP-upload the CSV to /outgoing", "status": "completed"}]}',
+        "",
+        "event: workflow_saved",
+        'data: {"workflow_id": 1260, "status": "draft", '
+        '"node_types": ["Database", "Excel Export", "Set Variable", "Automation"], '
+        '"nodes": [{"type": "Database", "configured": false}, {"type": "Excel Export", "configured": false}, '
+        '{"type": "Set Variable", "configured": false}, {"type": "Automation", "configured": false}], '
+        '"source": "db_readback"}',
+        "",
+        "event: done",
+        'data: {"session_id": "test-session"}',
+        "",
+    ]
+    monkeypatch.setattr(_FakeAsyncClient, "stream",
+                        lambda self, *a, **k: _FakeStreamCtx(hollow))
+
+    result = await _delegator.delegate_to_builder(
+        message="create truth-test-2: query AIRDB, save CSV, SFTP-upload to /outgoing",
+        builder_session_id="test-session",
+    )
+    text = result["text"]
+    assert result["dropped_capability"] == "SFTP/FTP file transfer"
+    assert "NOT in this workflow" in text and "Code Flow" in text
+    assert "UNCONFIGURED placeholder" in text          # the hollow node is named honestly
+    assert "Verified — Upload it via SFTP" not in text  # confabulation replaced
+
+
 async def test_live_path_fully_supported_build_keeps_builder_narration(_delegator, monkeypatch):
     # A build with NO dropped capability must PREPEND the honest block and keep
     # the builder's narration (regression guard against over-suppression).
