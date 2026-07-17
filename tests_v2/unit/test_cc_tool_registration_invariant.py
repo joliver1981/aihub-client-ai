@@ -68,6 +68,7 @@ def test_code_flow_tools_are_registered_both_places():
     bound = _bound_names(src)
     mapped = _tool_map_keys(src)
     cf_tools = {"list_code_flows", "create_code_flow", "add_code_step", "wire_steps",
+                "unwire_steps", "remove_code_step",
                 "update_step_code", "get_code_flow", "dry_run_code_flow",
                 "run_code_flow", "schedule_code_flow"}
     assert cf_tools <= bound, f"code-flow tools not bound: {sorted(cf_tools - bound)}"

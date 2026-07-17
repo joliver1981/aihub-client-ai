@@ -244,6 +244,52 @@ class CodeFlowManager:
                     return True, None
             return False, f"step '{step_id}' not found"
 
+    def unwire(self, name: str, from_step: str, to_step: str,
+               on: Optional[str] = None) -> Tuple[bool, Optional[str]]:
+        """AIHUB-0045: remove edge(s) between two steps. `on` narrows to one edge
+        type ('pass'/'fail'/'complete'); None removes every edge between the
+        pair. Returns an error if nothing matched (so a typo can't silently
+        no-op)."""
+        if on is not None and on not in ("pass", "fail", "complete"):
+            return False, "'on' must be pass, fail, complete, or omitted for all"
+        with _edit_lock(self.tenant_id, name):
+            loaded = self._load_defn(name)
+            if not loaded:
+                return False, "code flow not found"
+            _wid, defn = loaded
+            edges = defn.get("edges") or []
+            kept = [e for e in edges
+                    if not (e.get("from") == from_step and e.get("to") == to_step
+                            and (on is None or e.get("on", "pass") == on))]
+            removed = len(edges) - len(kept)
+            if removed == 0:
+                have = [f"{e.get('from')} -[{e.get('on', 'pass')}]-> {e.get('to')}" for e in edges]
+                return False, (f"no {'edge' if on is None else on + ' edge'} from '{from_step}' "
+                               f"to '{to_step}' exists. current edges: {have or ['(none)']}")
+            defn["edges"] = kept
+            self._save_definition(defn)
+            return True, None
+
+    def remove_step(self, name: str, step_id: str) -> Tuple[bool, Optional[str]]:
+        """AIHUB-0045: remove a step AND every edge touching it. If it was the
+        start step, the start moves to the first remaining step."""
+        with _edit_lock(self.tenant_id, name):
+            loaded = self._load_defn(name)
+            if not loaded:
+                return False, "code flow not found"
+            _wid, defn = loaded
+            steps = defn.get("steps") or []
+            remaining = [s for s in steps if s.get("id") != step_id]
+            if len(remaining) == len(steps):
+                return False, f"step '{step_id}' not found"
+            defn["steps"] = remaining
+            defn["edges"] = [e for e in (defn.get("edges") or [])
+                             if e.get("from") != step_id and e.get("to") != step_id]
+            if defn.get("start") == step_id:
+                defn["start"] = remaining[0]["id"] if remaining else None
+            self._save_definition(defn)
+            return True, None
+
     def wire(self, name: str, from_step: str, to_step: str, on: str = "pass") -> Tuple[bool, Optional[str]]:
         if on not in ("pass", "fail", "complete"):
             return False, "'on' must be pass, fail, or complete"

@@ -35,6 +35,7 @@ MIN_DEV_ROLE = 2
 _CODE_FLOW_TOOL_NAMES = frozenset({
     "create_code_flow", "add_code_step", "wire_steps", "update_step_code",
     "get_code_flow", "dry_run_code_flow", "run_code_flow", "schedule_code_flow",
+    "unwire_steps", "remove_code_step",
 })
 
 
@@ -1828,7 +1829,11 @@ async def converse(state: CommandCenterState) -> dict:
             "same runner (dedicated env, pip libraries, aihub_runtime SDK, output verification).\n"
             "- Code Flow tools: create_code_flow → add_code_step (once per stage) → wire_steps "
             "(on='pass'|'fail'|'complete') → dry_run_code_flow → schedule_code_flow. "
-            "update_step_code edits a step in place when a run shows it failing. NOTE: "
+            "update_step_code edits a step in place when a run shows it failing. "
+            "unwire_steps removes an edge and remove_code_step removes a step+its edges — when "
+            "INSERTING a step between two wired steps, wire the two new edges AND unwire the old "
+            "direct edge (a step may have at most ONE edge per outcome type; competing edges are "
+            "rejected, never silently first-match). NOTE: "
             "dry_run_code_flow (and run_code_flow) EXECUTE the steps for real with live "
             "credentials — there is no sandbox; warn the user before running a flow with "
             "irreversible steps, and gate those with aihub.checkpoint().\n"
@@ -4570,6 +4575,50 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         return f"Wired {from_step} —[{on}]→ {to_step} in '{name}'."
 
     @lc_tool
+    async def unwire_steps(name: str, from_step: str, to_step: str, on: str = "") -> str:
+        """Remove an edge between two steps in a Code Flow (AIHUB-0045).
+
+        USE THIS when you insert a step between two existing steps: after wiring
+        A→NEW and NEW→B, unwire the old direct A→B edge — otherwise the flow has
+        two competing 'pass' edges and the dry-run/wire will REJECT the ambiguity
+        (a step may have at most one edge per outcome type).
+
+        Args:
+            name: the code flow's name.
+            from_step: source step id of the edge to remove.
+            to_step: target step id of the edge to remove.
+            on: 'pass', 'fail', or 'complete' to remove just that edge type;
+                leave empty to remove every edge between the pair.
+        """
+        if not _automations_allowed(state):
+            return _AUTOMATIONS_DENIED
+        payload = {"name": name, "from_step": from_step, "to_step": to_step}
+        if (on or "").strip():
+            payload["on"] = on.strip()
+        res = await asyncio.to_thread(_cf, "unwire", payload)
+        if not res.get("ok"):
+            return f"Could not unwire the steps: {res.get('error')}"
+        return f"Removed edge {from_step} → {to_step} in '{name}'."
+
+    @lc_tool
+    async def remove_code_step(name: str, step_id: str) -> str:
+        """Remove a step from a Code Flow, along with every edge touching it
+        (AIHUB-0045). If it was the start step, the start moves to the first
+        remaining step. Re-wire around the gap afterwards if needed.
+
+        Args:
+            name: the code flow's name.
+            step_id: id of the step to remove (from add_code_step / get_code_flow).
+        """
+        if not _automations_allowed(state):
+            return _AUTOMATIONS_DENIED
+        res = await asyncio.to_thread(_cf, "remove_step",
+                                      {"name": name, "step_id": step_id})
+        if not res.get("ok"):
+            return f"Could not remove the step: {res.get('error')}"
+        return f"Removed step {step_id} (and its edges) from '{name}'."
+
+    @lc_tool
     async def update_step_code(name: str, step_id: str, code: str) -> str:
         """Replace the Python code of an existing step (the canvas is editable — use
         this to fix a step after a dry-run shows it failing). Re-runs the credential
@@ -4726,6 +4775,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         tools.append(create_code_flow)
         tools.append(add_code_step)
         tools.append(wire_steps)
+        tools.append(unwire_steps)
+        tools.append(remove_code_step)
         tools.append(update_step_code)
         tools.append(get_code_flow)
         tools.append(dry_run_code_flow)
@@ -4829,6 +4880,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     "create_code_flow": create_code_flow,
                     "add_code_step": add_code_step,
                     "wire_steps": wire_steps,
+                    "unwire_steps": unwire_steps,
+                    "remove_code_step": remove_code_step,
                     "update_step_code": update_step_code,
                     "get_code_flow": get_code_flow,
                     "dry_run_code_flow": dry_run_code_flow,

@@ -226,6 +226,19 @@ def internal_manage():
                 return jsonify({"error": err}), 400
             return jsonify({"ok": True})
 
+        if action == "unwire":
+            ok, err = mgr.unwire(name, payload.get("from_step", ""), payload.get("to_step", ""),
+                                 on=payload.get("on"))
+            if not ok:
+                return jsonify({"error": err}), 400
+            return jsonify({"ok": True})
+
+        if action == "remove_step":
+            ok, err = mgr.remove_step(name, payload.get("step_id", ""))
+            if not ok:
+                return jsonify({"error": err}), 400
+            return jsonify({"ok": True})
+
         if action == "wire":
             ok, err = mgr.wire(name, payload.get("from_step", ""), payload.get("to_step", ""),
                                on=payload.get("on", "pass"))

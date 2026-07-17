@@ -89,6 +89,25 @@ def validate_definition(defn: Dict) -> Tuple[bool, List[str]]:
         if on not in _VALID_EDGE_TYPES:
             errors.append(f"edges[{j}]: 'on' must be one of {_VALID_EDGE_TYPES}")
 
+    # AIHUB-0045: a code flow is single-path per outcome — the walk/engine follows
+    # ONE next step. Multiple outgoing edges of the SAME type from one step used
+    # to be silently first-match-wins (live: after inserting a step "before the
+    # upload", the stale direct pass edge kept winning and the new step never
+    # ran). Make the ambiguity a hard error naming the competing edges and the
+    # fix (unwire the stale one).
+    from collections import Counter
+    edge_counts = Counter(
+        (e.get("from"), e.get("on", "pass"))
+        for e in (defn.get("edges") or []) if isinstance(e, dict))
+    for (frm, on), n in sorted(edge_counts.items(), key=lambda kv: str(kv[0])):
+        if n > 1 and frm in id_set:
+            targets = [e.get("to") for e in defn["edges"]
+                       if isinstance(e, dict) and e.get("from") == frm and e.get("on", "pass") == on]
+            errors.append(
+                f"step '{frm}' has {n} competing '{on}' edges (to {targets}) — the flow "
+                f"would silently follow only the first. unwire the stale edge(s) so each "
+                f"step has at most one '{on}' edge.")
+
     start = _start_id(defn)
     if steps and start not in id_set:
         errors.append(f"start step '{start}' is not a step id")
