@@ -1074,6 +1074,17 @@ async def _classify_build_shape(user_text: str, state: "CommandCenterState") -> 
 
 # ─── Node: classify_intent ────────────────────────────────────────────────
 
+def _builder_in_flight(active) -> bool:
+    """AIHUB-0043: True only for a builder delegation that is genuinely IN
+    FLIGHT (mid-build / awaiting an answer). A completed/partial/failed build
+    leaves active_delegation in state — treating that stale marker as 'builder
+    active' disabled the code-flow routing guards for the REST of the session,
+    so every terse follow-up misrouted to the visual Builder."""
+    if str((active or {}).get("agent_type") or "").lower() != "builder":
+        return False
+    return str((active or {}).get("build_status") or "in_progress").lower() == "in_progress"
+
+
 async def classify_intent(state: CommandCenterState) -> dict:
     """Classify the user's intent using a mini LLM call.
     
@@ -1113,10 +1124,10 @@ async def classify_intent(state: CommandCenterState) -> dict:
     # → the visual Workflow Builder, which has none of those tools, BEFORE
     # the build-shape decision ever runs). High precision: only clear
     # processes with no object-builder signal match; everything else falls
-    # through unchanged. Exempt an active builder session (don't hijack a
-    # build already in flight).
-    if (_AUTOMATIONS_TOOLS_ENABLED
-            and str((active or {}).get("agent_type") or "").lower() != "builder"):
+    # through unchanged. Exempt a builder session only while it is genuinely
+    # IN FLIGHT (AIHUB-0043: a completed build's stale delegation must not
+    # disable this shortcut for the rest of the session).
+    if _AUTOMATIONS_TOOLS_ENABLED and not _builder_in_flight(active):
         try:
             from graph.build_routing import looks_like_code_process
             if looks_like_code_process(user_text):
@@ -1136,9 +1147,10 @@ async def classify_intent(state: CommandCenterState) -> dict:
     # converse (which owns the code-flow tools). Without this they re-classify
     # as a fresh 'build' and go to the visual Builder, which can't see the
     # flow. Object-build follow-ups don't match the follow-up cues, so they
-    # still route to the Builder. Exempt an active builder session.
+    # still route to the Builder. Exempt only an IN-FLIGHT builder session
+    # (AIHUB-0043 — same stale-delegation trap as the shortcut above).
     if (state.get("code_flow_context") and _AUTOMATIONS_TOOLS_ENABLED
-            and str((active or {}).get("agent_type") or "").lower() != "builder"):
+            and not _builder_in_flight(active)):
         try:
             from graph.build_routing import looks_like_code_flow_followup
             if looks_like_code_flow_followup(user_text):
