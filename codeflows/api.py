@@ -214,7 +214,8 @@ def internal_manage():
                 packages=payload.get("packages"), inputs=payload.get("inputs"),
                 outputs=payload.get("outputs"), timeout=int(payload.get("timeout", 600)),
                 continue_on_error=bool(payload.get("continue_on_error", False)),
-                allow_unverified=bool(payload.get("allow_unverified", False)))
+                allow_unverified=bool(payload.get("allow_unverified", False)),
+                unverified_consent=bool(payload.get("unverified_consent", False)))
             if not ok:
                 return jsonify({"error": err}), 400
             return jsonify({"step_id": step_id}), 201

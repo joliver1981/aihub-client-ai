@@ -86,6 +86,12 @@ def summarize_walk(result: Dict[str, Any]) -> str:
         files = s.get("output_files") or []
         if files:
             lines.append("    files: " + ", ".join(files[:6]))
+        # AIHUB-0040: transfer claims derive from runner EVIDENCE, not the step's
+        # own log lines — a step that declared a remote transfer but produced no
+        # network egress must read as "nothing was transferred", never "attempted".
+        if s.get("no_egress_transfer"):
+            lines.append("    🚫 declared a remote transfer but NO network egress was observed — "
+                         "nothing was transferred (do NOT report this upload as attempted or done)")
         if s.get("status") in ("failed", "error", "unverified"):
             tail = (s.get("stderr_tail") or s.get("error") or "").strip()
             if tail:

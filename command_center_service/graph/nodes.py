@@ -4464,7 +4464,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                             connections_json: str = "", secrets_json: str = "",
                             packages_json: str = "", inputs_json: str = "",
                             outputs_json: str = "", timeout: int = 600,
-                            allow_unverified: bool = False) -> str:
+                            allow_unverified: bool = False,
+                            user_approved_unverified: bool = False) -> str:
         """Add one Code Step to a Code Flow. The step is inline Python run through the
         Automations runner via the read-only aihub_runtime SDK (import aihub_runtime as
         aihub): aihub.connection('NAME'), aihub.secret('NAME'), aihub.input('name'),
@@ -4503,13 +4504,22 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             timeout: per-step timeout in seconds (default 600).
             allow_unverified: if True, an 'unverified' outcome (exit 0 but a
                 declared output couldn't be checked) still takes the pass edge
-                instead of failing the step. Use for uploads you can't remotely
-                verify. Default False.
+                instead of failing the step. REQUIRES the user's explicit
+                consent — see user_approved_unverified. Default False.
+            user_approved_unverified: set True ONLY after the USER explicitly
+                agreed, in this conversation, to skip verification for this
+                step (their consent is recorded on the step). NEVER set it on
+                your own initiative — the save is rejected without it when
+                allow_unverified is True. A "simulated"/placeholder transfer
+                step is NEVER acceptable; a step declaring an sftp/ftp output
+                must contain the real transfer code (paramiko etc.) and a
+                verifiable output 'name' — placeholders are rejected at save.
         """
         if not _automations_allowed(state):
             return _AUTOMATIONS_DENIED
         payload = {"name": name, "step_name": step_name, "code": code, "timeout": timeout,
-                   "allow_unverified": bool(allow_unverified)}
+                   "allow_unverified": bool(allow_unverified),
+                   "unverified_consent": bool(user_approved_unverified)}
         for arg, field in ((connections_json, "connections"), (secrets_json, "secrets"),
                            (packages_json, "packages"), (inputs_json, "inputs"),
                            (outputs_json, "outputs")):

@@ -175,7 +175,8 @@ class CodeFlowManager:
                  packages: Optional[List[str]] = None, inputs: Optional[List[Dict]] = None,
                  outputs: Optional[List[Dict]] = None, timeout: int = 600,
                  continue_on_error: bool = False,
-                 allow_unverified: bool = False) -> Tuple[bool, Optional[str], Optional[str]]:
+                 allow_unverified: bool = False,
+                 unverified_consent: bool = False) -> Tuple[bool, Optional[str], Optional[str]]:
         # save-time credential-literal scan (reuse the automations scanner) —
         # outside the lock since it only inspects the incoming code arg.
         from automations.manager import scan_for_secrets
@@ -186,6 +187,20 @@ class CodeFlowManager:
         lint = compiler.lint_input_names(code, inputs)   # AIHUB-0037 name-mismatch guard
         if lint:
             return False, None, lint
+        lint = compiler.lint_transfer_honesty(code, outputs)   # AIHUB-0040 placeholder guard
+        if lint:
+            return False, None, lint
+        # AIHUB-0040: allow_unverified suppresses output verification — it cannot be
+        # self-granted by the authoring agent. It requires explicit user consent,
+        # which is recorded on the step for audit.
+        if allow_unverified and not unverified_consent:
+            return False, None, (
+                "allow_unverified=True disables output verification and cannot be set without "
+                "the user's explicit consent. Ask the user to approve skipping verification for "
+                "this step; only after they explicitly agree, retry with "
+                "user_approved_unverified=true (their consent is recorded on the step). "
+                "Prefer fixing verification instead: declare the output with a 'name' and "
+                '"verify": {"remote_listing": true}.')
         with _edit_lock(self.tenant_id, name):
             loaded = self._load_defn(name)
             if not loaded:
@@ -198,6 +213,8 @@ class CodeFlowManager:
                 "timeout": int(timeout or 600), "continueOnError": bool(continue_on_error),
                 "allowUnverified": bool(allow_unverified),
             }
+            if allow_unverified:
+                step["unverifiedConsent"] = "user"   # AIHUB-0040 audit marker
             defn.setdefault("steps", []).append(step)
             if not defn.get("start"):
                 defn["start"] = step["id"]
@@ -217,6 +234,9 @@ class CodeFlowManager:
             for s in defn.get("steps", []):
                 if s.get("id") == step_id:
                     lint = compiler.lint_input_names(code, s.get("inputs"))  # AIHUB-0037
+                    if lint:
+                        return False, lint
+                    lint = compiler.lint_transfer_honesty(code, s.get("outputs"))  # AIHUB-0040
                     if lint:
                         return False, lint
                     s["code"] = code

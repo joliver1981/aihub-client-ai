@@ -780,6 +780,35 @@ class AutomationRunner:
             status, verify_report = verify_outputs(manifest, workdir, inputs,
                                                    secret_resolver=self._resolve_secret)
             error = "declared output verification failed" if status == "failed" else None
+
+        # AIHUB-0040: deterministic transfer-claim evidence. If the step declared a
+        # remote-transfer output but the egress hook recorded NO network connection,
+        # nothing was transferred — say so explicitly (this is what caught the live
+        # "# Simulated upload placeholder" step: unverified outcome, zero egress).
+        # We do NOT flip an independently-VERIFIED success (remote_listing saw the
+        # file) — absence of egress there is a hook artifact, not evidence.
+        no_egress_transfer = False
+        _declared_transfer = any(
+            isinstance(o, dict) and o.get("kind") in ("sftp_upload", "ftp_upload")
+            for o in manifest.get("outputs", []))
+        if _declared_transfer and not egress and status in ("unverified", "success"):
+            _independently_verified = any(
+                c.get("check") == "remote_listing" and c.get("ok") is True
+                for entry in (verify_report or []) for c in entry.get("checks", []))
+            if not _independently_verified:
+                no_egress_transfer = True
+                if verify_report is None:
+                    verify_report = []
+                verify_report.append({
+                    "kind": "egress", "checks": [{
+                        "check": "network_egress", "ok": False,
+                        "note": ("step declares a remote transfer but NO network egress was "
+                                 "observed — nothing was transferred")}]})
+                if status == "success":
+                    status, error = "failed", "declared a remote transfer but no network egress occurred"
+                elif status == "unverified":
+                    error = "no network egress — the declared transfer did not happen"
+
         for entry in (verify_report or []):
             for check in entry.get("checks", []):
                 events.emit("verify", kind=entry.get("kind"),
@@ -800,6 +829,11 @@ class AutomationRunner:
             "verify_report": verify_report, "output_files": output_files,
             "stdout_tail": stdout[-2000:], "stderr_tail": stderr[-2000:],
             "workdir": workdir,
+            # AIHUB-0040: transfer-claim evidence for honest chat reporting —
+            # egress destinations recorded by the socket hook, and the explicit
+            # "declared a transfer but nothing left the box" flag.
+            "egress": [ln for ln in egress.splitlines() if ln.strip()][:20],
+            "no_egress_transfer": no_egress_transfer,
         }
 
     def run_code_step(self, code: str, manifest: Dict, step_name: str,

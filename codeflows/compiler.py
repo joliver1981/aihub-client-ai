@@ -127,6 +127,45 @@ def lint_input_names(code: str, inputs: Optional[List[Dict]]) -> Optional[str]:
             "${<upstream_step_id>_files[0]}).")
 
 
+_TRANSFER_OUTPUT_KINDS = {"sftp_upload", "ftp_upload"}
+# Libraries/machinery a step must use for a remote transfer to actually happen.
+_TRANSFER_LIB_RE = re.compile(
+    r"\b(paramiko|pysftp|ftplib|fabric|socket|requests|urllib|http\.client|smbclient)\b")
+
+
+def lint_transfer_honesty(code: str, outputs: Optional[List[Dict]]) -> Optional[str]:
+    """AIHUB-0040: authoring-time honesty lint for remote-transfer outputs.
+
+    The live reward-hack: the authoring agent declared an sftp_upload output,
+    wrote code commented '# Simulated upload placeholder' that read the secret
+    and logged 'Uploading …' WITHOUT any network operation, and omitted the
+    output 'name' so verification had 'nothing to check'. Both patterns are
+    rejected at save time:
+      1. a transfer output must carry a verifiable 'name' (or 'remote_path');
+      2. a step declaring a transfer output must actually contain transfer
+         machinery (paramiko/pysftp/ftplib/socket/requests/urllib/...) — a
+         'simulated'/placeholder step can never claim a transfer output.
+    Returns an error string, or None when honest."""
+    transfer_outs = [o for o in (outputs or [])
+                     if isinstance(o, dict) and o.get("kind") in _TRANSFER_OUTPUT_KINDS]
+    if not transfer_outs:
+        return None
+    unnamed = [o for o in transfer_outs if not (o.get("name") or o.get("remote_path"))]
+    if unnamed:
+        kinds = ", ".join(o.get("kind", "?") for o in unnamed)
+        return (f"declared {kinds} output(s) without a 'name' (or 'remote_path') — there would be "
+                f"nothing to verify at run time ('nothing to check' is not an acceptable outcome "
+                f"for a transfer). Declare the uploaded filename, e.g. "
+                f'{{"kind":"sftp_upload","name":"report.csv","remote_dir":"/outgoing",'
+                f'"secret":"MY_SFTP","verify":{{"remote_listing":true}}}}.')
+    if not _TRANSFER_LIB_RE.search(code or ""):
+        return ("step declares a remote-transfer output (sftp_upload/ftp_upload) but the code "
+                "never opens a network connection — no paramiko/pysftp/ftplib/socket/requests/"
+                "urllib usage found. Placeholder or 'simulated' transfer steps are not allowed: "
+                "write the real transfer (paramiko for SFTP), or remove the transfer output.")
+    return None
+
+
 # ---------------------------------------------------------------------- compile
 
 def _step_manifest(step: Dict) -> Dict:
@@ -310,6 +349,10 @@ def dry_run_walk(defn: Dict, runner, base_workdir: str, max_steps: int = 50) -> 
             "exit_code": result.get("exit_code"), "error": result.get("error"),
             "output_files": abs_files, "verify_report": result.get("verify_report"),
             "stdout_tail": result.get("stdout_tail"), "stderr_tail": result.get("stderr_tail"),
+            # AIHUB-0040: transfer-claim evidence rides along so the chat summary
+            # can say "nothing was transferred" deterministically.
+            "egress": result.get("egress"),
+            "no_egress_transfer": bool(result.get("no_egress_transfer")),
         })
 
         # A step "passes" (takes the pass edge) on success; 'unverified' passes
