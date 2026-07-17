@@ -7724,6 +7724,20 @@ async def build(state: CommandCenterState) -> dict:
             # Fast path: exact match to a known affirmative keyword
             if lt in AFFIRM_KEYWORDS:
                 return True
+            # AIHUB-0046: a reply that STARTS with an explicit confirm token is an
+            # affirmation no matter its length or what follows — live, "Yes, I
+            # confirm. Execute the plan now and actually create/save the workflow."
+            # was rejected by the length guard, so a held plan needed a second,
+            # differently-worded confirmation. Deterministic, no LLM. Messages
+            # containing a question are never auto-confirms.
+            _CONFIRM_PREFIXES = ("yes", "yep", "yeah", "ok", "okay", "confirm",
+                                 "confirmed", "sure", "go ahead", "proceed", "do it",
+                                 "execute the plan", "run the plan", "approved")
+            if "?" not in t and any(
+                    lt == p or lt.startswith(p + " ") or lt.startswith(p + ",")
+                    or lt.startswith(p + ".") or lt.startswith(p + "!")
+                    for p in _CONFIRM_PREFIXES):
+                return True
             # Any message starting with a new-request verb is NEVER an affirmation,
             # regardless of how the LLM interprets it.
             if any(lt.startswith(v) for v in _NEW_REQUEST_VERBS):
@@ -7751,15 +7765,28 @@ async def build(state: CommandCenterState) -> dict:
                 # Fallback: keyword check if LLM fails
                 return lt in AFFIRM_KEYWORDS
 
-        # Auto-confirm: either (a) user said "yes" and builder is asking to confirm,
-        # or (b) builder returned a draft plan with concrete steps (user already
-        # provided all needed info, no reason to make them confirm separately).
+        # Auto-confirm: either (a) user said "yes" and a builder plan is awaiting
+        # confirmation, or (b) builder returned a draft plan with concrete steps
+        # (user already provided all needed info, no reason to make them confirm
+        # separately).
         _should_auto_confirm = False
         _auto_confirm_reason = ""
 
-        if (await _is_affirmative(user_text)) and ("shall i go ahead" in response_text.lower() or "shall i proceed" in response_text.lower()):
+        # AIHUB-0046: trigger (a) used to require the literal phrases "shall i go
+        # ahead/proceed" in the builder reply — live phrasing varies, so a user's
+        # affirmative to a HELD DRAFT PLAN never executed. A held draft plan with
+        # steps now counts as "awaiting confirmation" regardless of wording.
+        _resp_l = response_text.lower()
+        _builder_asks = ("shall i go ahead" in _resp_l or "shall i proceed" in _resp_l
+                         or "please confirm" in _resp_l
+                         or "do you want me to proceed" in _resp_l)
+        _plan_held = (isinstance(latest_plan, dict)
+                      and (latest_plan.get("status") or "").lower() == "draft"
+                      and bool(latest_plan.get("steps")))
+
+        if (_builder_asks or _plan_held) and (await _is_affirmative(user_text)):
             _should_auto_confirm = True
-            _auto_confirm_reason = "user affirmed; builder still asking to confirm"
+            _auto_confirm_reason = "user affirmed; builder plan awaiting confirmation"
         elif latest_plan and isinstance(latest_plan, dict):
             plan_status = (latest_plan.get("status") or "").lower()
             plan_steps = latest_plan.get("steps", [])
@@ -7780,7 +7807,14 @@ async def build(state: CommandCenterState) -> dict:
             }
             has_mutating = any(
                 (s.get("is_destructive") is True) or
-                ((s.get("domain", "").lower(), s.get("action", "").lower()) in mutating_actions)
+                ((s.get("domain", "").lower(), s.get("action", "").lower()) in mutating_actions) or
+                # AIHUB-0046: a delegation step to the workflow agent BUILDS/SAVES
+                # workflows — it is mutating even though its (domain, action) is
+                # ("agent", "workflow_agent") and matches no table entry above.
+                # Live, it classified mutating=False, so the confirm gate reasoned
+                # about it as read-only.
+                (s.get("domain", "").lower() in ("agent", "agents")
+                 and "workflow" in str(s.get("action", "")).lower())
                 for s in plan_steps
             ) if plan_steps else False
             is_small = 0 < len(plan_steps) <= 2
@@ -7901,6 +7935,21 @@ async def build(state: CommandCenterState) -> dict:
                         "steps, the extra part is NOT in this workflow — do not restate "
                         "the user's request as if it were all built.\n"
                     )
+                # AIHUB-0046: a HELD plan (draft, nothing executed) must read as
+                # awaiting confirmation — live, the narration speculated "I can't
+                # confirm the workflow was created … please double-check", which
+                # confuses users when nothing was even attempted yet.
+                _plan_still_held = (not _should_auto_confirm and _wf_saved is None
+                                    and isinstance(latest_plan, dict)
+                                    and (latest_plan.get("status") or "").lower() == "draft"
+                                    and bool(latest_plan.get("steps")))
+                if _plan_still_held:
+                    _auth_steps_rule += (
+                        "- PLAN NOT EXECUTED YET: nothing has been created or attempted — "
+                        "do NOT speculate about whether anything was created and do NOT "
+                        "tell the user to double-check. State plainly that the plan is "
+                        "awaiting their confirmation.\n"
+                    )
                 distill_prompt = (
                     "You are the AI Hub Command Center. You are the user's representative.\n"
                     "You received a message from an internal Builder agent. The Builder message may contain raw JSON, internal tool plans, or repeated confirmation prompts.\n\n"
@@ -7970,6 +8019,18 @@ async def build(state: CommandCenterState) -> dict:
         # dropped-capability path the whole reply is already the authoritative block.)
         if _wf_saved and not _dropped_cap:
             response_text = response_text + _persisted_steps_footer(_wf_saved)
+
+        # AIHUB-0046 fail-closed: a HELD plan (draft with steps, nothing saved, no
+        # auto-confirm fired) always ends with the deterministic awaiting-confirmation
+        # footer — the truth ("nothing built yet, reply yes") survives whatever the
+        # distiller wrote, same pattern as the verification footer.
+        if (not _should_auto_confirm and _wf_saved is None
+                and isinstance(latest_plan, dict)
+                and (latest_plan.get("status") or "").lower() == "draft"
+                and latest_plan.get("steps")):
+            response_text = response_text + (
+                "\n\n⏸️ **Nothing has been built yet** — this plan is awaiting your "
+                "go-ahead. Reply **yes** to build it now.")
 
         # Persist builder delegation context for multi-turn
         builder_log = list(existing.get("builder_log", []))
