@@ -524,6 +524,27 @@ class ActionExecutor:
             if api_name not in filtered_params and f.default is not None:
                 filtered_params[api_name] = f.default
 
+        # AIHUB-0042 fail-fast: a REQUIRED REFERENCE body field (a resource id the
+        # route cannot work without — e.g. workflows.execute's workflow_id) that is
+        # still missing after filtering + defaults can only 400 upstream. Fail here
+        # with the truth instead of sending a doomed request (live: the self-heal
+        # re-extraction lost workflow_id and every builder dry-run POSTed
+        # {'input_data': {}} → "workflow_id is required").
+        for f in route.input_fields:
+            _ftype = getattr(getattr(f, "field_type", None), "value", None)
+            if (getattr(f, "required", False) and f.default is None
+                    and _ftype == "reference"
+                    and f.name not in (route.path_params or [])
+                    and f.effective_api_field not in filtered_params):
+                return ExecutionResult(
+                    status=ExecutionStatus.FAILED,
+                    message=f"Missing required parameter '{f.name}' for {capability_id}",
+                    error=(
+                        f"required parameter '{f.name}' was not provided (it may have been "
+                        f"dropped by parameter re-extraction) — the request was not sent"
+                    ),
+                )
+
         # Special case: if creating an agent and missing agent_objective, provide a default
         if capability_id == "agents.create" and "agent_objective" not in filtered_params:
             agent_name = filtered_params.get("agent_description", "the agent")

@@ -3202,6 +3202,11 @@ async def execute(state: dict) -> dict:
                     # Attempt correction if feasible
                     correction_attempts = 0
                     max_corrections = 2
+                    # AIHUB-0042: keep the FIRST failure — if the self-heal retry also
+                    # fails, its secondary error (e.g. "workflow_id is required") must
+                    # not mask the real upstream cause ("No start node defined").
+                    _first_error = result.error
+                    _first_http = getattr(result, "http_status", None)
                     while analysis.auto_fixable and correction_attempts < max_corrections:
                         correction_attempts += 1
                         strategy_name = analysis.suggested_strategies[0] if analysis.suggested_strategies else None
@@ -3224,8 +3229,14 @@ async def execute(state: dict) -> dict:
                         })
 
                         if correction_result.success and correction_result.new_parameters:
-                            # Correction produced new parameters — re-execute the step
-                            corrected_params = correction_result.new_parameters
+                            # Correction produced new parameters — re-execute the step.
+                            # AIHUB-0042: MERGE over the originals, never replace — the
+                            # enrichment strategy re-extracts from the step DESCRIPTION
+                            # via a mini-LLM and routinely loses params the description
+                            # doesn't spell out (live: workflow_id vanished, so every
+                            # builder dry-run retried as {'input_data': {}} → 400).
+                            # A corrected value overwrites; an omitted param survives.
+                            corrected_params = {**parameters, **correction_result.new_parameters}
                             logger.info(f"  [execute]   🔧 Re-executing with corrected params: {corrected_params}")
                             result = await executor.execute_step(
                                 domain=domain,
@@ -3278,6 +3289,15 @@ async def execute(state: dict) -> dict:
                                 capability_id=capability_id,
                                 parameters=correction_result.new_parameters or parameters,
                             )
+
+                    # AIHUB-0042: self-heal failed — surface the FIRST real error, noting
+                    # the retry's secondary failure instead of replacing the cause with it.
+                    if (not correction_applied and not result.is_success
+                            and _first_error and result.error and result.error != _first_error):
+                        result.error = (f"{_first_error} (a self-heal retry was attempted and "
+                                        f"also failed: {result.error})")
+                        if _first_http is not None:
+                            result.http_status = _first_http
 
                 # Record outcome for successful steps (skip if already recorded by correction loop)
                 if result.is_success and _resilience_available and not correction_applied:
