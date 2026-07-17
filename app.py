@@ -6217,16 +6217,19 @@ def save_workflow():
         if os.path.exists(file_path):
             is_new = True
             
-        # Save to file
-        logger.info(f"Saving workflow to file: {filename}")
-        save_to_file(filename, workflow_data)
-        
-        # Save to database
+        # Save to database FIRST — the DB is the source of truth and its guards
+        # (AIHUB-0039: the code_flow kind-strip refusal) must veto the save
+        # before any side effect. Previously the file mirror was written first,
+        # so a refused save still left a stray workflows/<name>.json behind.
         workflow_name = os.path.splitext(filename)[0]  # Remove .json extension
         logger.info(f"Saving workflow to database: {workflow_name}")
         workflow_id = None
         _owner_id = current_user.id if current_user.is_authenticated else None
         workflow_id = save_workflow_to_database(workflow_name, workflow_data, owner_id=_owner_id)
+
+        # Save to file (mirror) only after the DB accepted the save
+        logger.info(f"Saving workflow to file: {filename}")
+        save_to_file(filename, workflow_data)
 
         # ── Deterministic validation (AIHUB-0016 F1) ────────────────────
         # The saved JSON is persisted AS-IS (draft doctrine: validity gates

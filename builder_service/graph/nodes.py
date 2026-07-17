@@ -2350,9 +2350,19 @@ async def execute(state: dict) -> dict:
                                     newly_created_workflows[wf_name] = saved_id
                                     logger.info(f"  [execute]   📋 Tracked new workflow '{wf_name}' → ID {saved_id}")
                             else:
-                                logger.warning(f"  [execute]   ⚠ Workflow save failed: {save_result.error}")
-                                # Don't fail the step — the delegation itself succeeded
+                                # AIHUB-0039 OBS1: a failed/refused SAVE means the step's
+                                # deliverable (a saved workflow) does not exist — fail the
+                                # STEP crisply so the CC verification footer reports ❌.
+                                # Previously this was a warning + 'completed' ("the
+                                # delegation itself succeeded") and honesty rode the
+                                # read-back's vaguer "could not be verified".
+                                logger.warning(
+                                    f"  [execute]   ✗ Workflow save failed — failing the step: "
+                                    f"{save_result.error}")
                                 delegation_result["workflow_save_error"] = save_result.error
+                                delegation_result["error"] = save_result.error
+                                updated_step["status"] = "failed"
+                                updated_step["result"] = delegation_result
 
                         except Exception as e:
                             logger.error(f"  [execute]   ✗ Workflow compile/save error: {e}", exc_info=True)
