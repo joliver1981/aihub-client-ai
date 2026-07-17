@@ -861,6 +861,16 @@ def compile_workflow(
     workflow_data = materialize_commands(commands_json, base_workflow=existing_workflow)
     result["workflow_data"] = workflow_data
     logger.info(f"STEP 3 complete: {len(workflow_data['nodes'])} nodes materialized")
+
+    # AIHUB-0041: a non-empty plan that materializes to ZERO nodes is a failed
+    # compile, never a saveable workflow — the live run saved empty shells
+    # (rows 1255/1257) and reported them "created and verified".
+    if not workflow_data.get("nodes"):
+        result["error"] = ("the plan materialized to zero nodes — refusing to save an empty "
+                           "workflow. The plan did not translate into any executable steps; "
+                           "nothing was created.")
+        logger.error("FAILED at Step 3: materialized zero nodes from a non-empty plan")
+        return result
     
     # ----- STEP 4: Validate -----
     logger.info("STEP 4: Validating workflow...")

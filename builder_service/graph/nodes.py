@@ -4871,6 +4871,36 @@ Original request: {latest_message}"""),
 # This keeps agent-specific logic isolated and the main handler generic.
 
 
+def _workflow_name_from_conversation(conv_id) -> str | None:
+    """AIHUB-0041: recover the workflow name the USER actually asked for from the
+    delegation conversation ('...create a workflow named truth-test: ...').
+
+    Without this, a missing requirements.process_name fell back to the literal
+    "New Workflow" — and save_compiled_workflow's MERGE-by-name matched the
+    stale shared row of that name (388) on EVERY save, so compiled nodes landed
+    in scratch while the user's named row persisted empty and the workflow_saved
+    read-back vouched for the wrong id."""
+    import re as _re
+    _pat = _re.compile(
+        r"\b(?:named|called|titled|name it)\s+"
+        r"(?:\"([^\"]{1,80})\"|'([^']{1,80})'|\*\*([^*]{1,80})\*\*|([A-Za-z0-9][\w-]{0,60}))",
+        _re.I)
+    try:
+        from agent_communication.manager import get_communication_manager
+        conv = get_communication_manager().get_conversation(conv_id)
+        for m in (conv.messages if conv else []):
+            if getattr(m, "role", "") != "user":
+                continue
+            match = _pat.search(getattr(m, "content", "") or "")
+            if match:
+                name = next((g for g in match.groups() if g), "").strip().strip("'\"`* ")
+                if name:
+                    return name[:80]
+    except Exception:
+        pass
+    return None
+
+
 async def _handle_workflow_agent_metadata(
     agent_metadata: dict,
     response_text: str,
@@ -4932,12 +4962,25 @@ async def _handle_workflow_agent_metadata(
 
         adapter = WorkflowBuilderAdapter()
 
-        # Extract workflow name: prefer edit context name, then requirements, then default
+        # Extract workflow name: edit context > requirements > the name the USER
+        # gave in the delegation request > a UNIQUE fallback. AIHUB-0041: the old
+        # literal "New Workflow" fallback MERGE-matched the stale shared row 388
+        # on every save — compiled nodes landed in scratch while the named row
+        # stayed empty and the read-back vouched the wrong id. The fallback must
+        # never be a reusable name.
         requirements = agent_metadata.get("requirements", {})
         if workflow_edit_context and workflow_edit_context.get("workflow_name"):
             workflow_name = workflow_edit_context["workflow_name"]
         else:
-            workflow_name = requirements.get("process_name") or "New Workflow"
+            workflow_name = (requirements.get("process_name")
+                             or _workflow_name_from_conversation(current_conv_id))
+            if not workflow_name:
+                import uuid as _uuid
+                workflow_name = f"New Workflow {_uuid.uuid4().hex[:8]}"
+                logger.warning(
+                    f"  [_handle_workflow_agent_metadata] no workflow name in requirements or "
+                    f"conversation — using unique fallback '{workflow_name}' (never the shared "
+                    f"'New Workflow' scratch row)")
 
         try:
             compile_result = await adapter.compile_workflow(
