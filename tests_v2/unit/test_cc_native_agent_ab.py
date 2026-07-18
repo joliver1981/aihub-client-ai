@@ -11,9 +11,12 @@ assessment, Option B), with the classic path's behavior pinned untouched:
    competing-edge hard error / start handling / catalog validation) and the
    save → TRUE-read-back honesty contract (draft verdicts, empty rows, the
    AIHUB-0041 row-mismatch alarm) with HTTP mocked.
-3. graph.edges.route_by_intent — the single native gate: build-intent turns
-   about a visual workflow go to converse ONLY on native turns; classic
-   routing is byte-for-byte unchanged.
+3. Routing intelligence (mini-LLM upgrade, james's directive): the build-shape
+   classifier gains a native-only 'visual_workflow' label (classic prompt and
+   parse byte-identical), _native_workflow_shape_divert makes the decision
+   with the regex demoted to a fast-path, and workflow-follow-up continuity
+   consults a mini-LLM when the deterministic cues miss. route_by_intent is a
+   pure map again — no regex gate at the edge.
 """
 from __future__ import annotations
 
@@ -379,41 +382,234 @@ class TestRunHonesty:
         assert "approval" in msg
 
 
-# ─── 3. The edges gate (native vs classic routing) ───────────────────────
+# ─── 3. Routing intelligence: shape classifier, divert helper, continuity ─
 
-@pytest.mark.skipif(not _EDGES_OK, reason="graph.edges not importable (langgraph missing)")
-class TestRouteByIntentGate:
-    def _state(self, text, impl=None, intent="build"):
-        msg = types.SimpleNamespace(content=text)
-        st = {"intent": intent, "messages": [msg]}
-        if impl is not None:
-            st["agent_impl"] = impl
-        return st
+import importlib
 
-    def test_classic_build_still_routes_to_build_node(self):
-        assert edges.route_by_intent(self._state("build a workflow for invoices")) == "build"
 
-    def test_classic_explicit_impl_routes_to_build_node(self):
-        assert edges.route_by_intent(
-            self._state("build a workflow for invoices", impl="classic")) == "build"
+def _live(module: str):
+    """Import (or fetch) a module under the CC package path so monkeypatches
+    hit the SAME instance graph.nodes resolves at call time."""
+    saved = list(sys.path)
+    try:
+        sys.path.insert(0, _CC)
+        return importlib.import_module(module)
+    finally:
+        sys.path[:] = saved
 
-    def test_native_workflow_build_routes_to_converse(self):
-        assert edges.route_by_intent(
-            self._state("build a workflow for invoices", impl="native")) == "converse"
 
-    def test_native_object_build_keeps_build_node(self):
-        assert edges.route_by_intent(
-            self._state("create a data agent for ERPDB", impl="native")) == "build"
+try:
+    nodes = _import_cc("graph.nodes")   # import LAST: later graph.* lazy imports resolve live
+    cc_cfg = _live("cc_config")
+    edges_live = _live("graph.edges")
+    state_pkg = _live("graph")
+    from langchain_core.messages import HumanMessage
+    _NODES_OK = True
+except Exception:  # pragma: no cover — langchain/langgraph missing in this env
+    _NODES_OK = False
 
-    def test_native_mixed_request_keeps_build_node(self):
-        assert edges.route_by_intent(
-            self._state("build an agent and a workflow that calls it", impl="native")) == "build"
 
-    def test_non_build_intents_untouched(self):
-        assert edges.route_by_intent(self._state("hello", impl="native", intent="chat")) == "converse"
-        assert edges.route_by_intent(self._state("sales?", impl="native", intent="query")) == "gather_data"
+class _StubLLM:
+    """Captures ainvoke calls and returns a canned reply (or raises)."""
+
+    def __init__(self, reply="", raise_exc=False):
+        self.reply = reply
+        self.raise_exc = raise_exc
+        self.calls = []
+
+    async def ainvoke(self, msgs):
+        self.calls.append(msgs)
+        if self.raise_exc:
+            raise RuntimeError("stub LLM failure")
+        return types.SimpleNamespace(content=self.reply)
+
+
+def _st(text="build something", native=True, marker=None):
+    s = {
+        "messages": [HumanMessage(content=text)],
+        "session_id": "t-native-routing",
+        "user_context": {"user_id": 1, "role": 3, "tenant_id": 1, "username": "admin"},
+    }
+    if native:
+        s["agent_impl"] = "native"
+    if marker is not None:
+        s["code_flow_context"] = marker
+    return s
+
+
+pytestmark_nodes = pytest.mark.skipif(not _NODES_OK, reason="graph.nodes not importable here")
+
+
+@pytest.mark.skipif(not _NODES_OK, reason="graph.nodes not importable here")
+class TestBuildShapeNativeExtension:
+    async def test_native_prompt_carries_label_and_parses_it(self, monkeypatch):
+        stub = _StubLLM("visual_workflow")
+        monkeypatch.setattr(cc_cfg, "get_llm", lambda mini=False, streaming=True: stub)
+        shape = await nodes._classify_build_shape(
+            "please set up the quarterly reporting flow for me", _st(native=True))
+        assert shape == "visual_workflow"
+        assert "visual_workflow" in stub.calls[0][0].content
+
+    async def test_native_tolerates_space_variant(self, monkeypatch):
+        stub = _StubLLM("visual workflow")
+        monkeypatch.setattr(cc_cfg, "get_llm", lambda mini=False, streaming=True: stub)
+        assert await nodes._classify_build_shape(
+            "make that editable thing we discussed", _st(native=True)) == "visual_workflow"
+
+    async def test_classic_prompt_and_parse_are_byte_identical(self, monkeypatch):
+        # The classic prompt must not contain the new label, and even a rogue
+        # 'visual_workflow' reply must parse exactly as before (→ neither).
+        stub = _StubLLM("visual_workflow")
+        monkeypatch.setattr(cc_cfg, "get_llm", lambda mini=False, streaming=True: stub)
+        shape = await nodes._classify_build_shape(
+            "please set up the quarterly reporting flow for me", _st(native=False))
+        assert shape == "neither"
+        assert stub.calls[0][0].content == nodes._BUILD_SHAPE_PROMPT
+        assert "visual_workflow" not in nodes._BUILD_SHAPE_PROMPT
+
+    async def test_classic_normal_labels_unchanged(self, monkeypatch):
+        stub = _StubLLM("builder")
+        monkeypatch.setattr(cc_cfg, "get_llm", lambda mini=False, streaming=True: stub)
+        assert await nodes._classify_build_shape(
+            "create a data agent", _st(native=False)) == "builder"
+
+    async def test_code_process_fast_path_skips_llm(self, monkeypatch):
+        stub = _StubLLM("visual_workflow")
+        monkeypatch.setattr(cc_cfg, "get_llm", lambda mini=False, streaming=True: stub)
+        shape = await nodes._classify_build_shape(
+            "automate parsing the expense PDFs nightly and upload the CSV via SFTP",
+            _st(native=True))
+        assert shape == "automation"
+        assert stub.calls == []
+
+
+@pytest.mark.skipif(not _NODES_OK, reason="graph.nodes not importable here")
+class TestNativeWorkflowShapeDivert:
+    def _shape_stub(self, monkeypatch, result):
+        calls = []
+
+        async def fake_shape(user_text, state):
+            calls.append(user_text)
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+        monkeypatch.setattr(nodes, "_classify_build_shape", fake_shape)
+        return calls
+
+    async def test_classic_turn_is_free_and_false(self, monkeypatch):
+        calls = self._shape_stub(monkeypatch, "visual_workflow")
+        assert await nodes._native_workflow_shape_divert(
+            "build a workflow for invoices", _st(native=False)) is False
+        assert calls == []  # zero LLM cost on classic turns
+
+    async def test_regex_fast_path_skips_llm(self, monkeypatch):
+        calls = self._shape_stub(monkeypatch, "builder")
+        assert await nodes._native_workflow_shape_divert(
+            "build a workflow on the canvas for invoice review", _st(native=True)) is True
+        assert calls == []  # deterministic accelerator, no shape call
+
+    async def test_llm_decides_on_regex_miss(self, monkeypatch):
+        calls = self._shape_stub(monkeypatch, "visual_workflow")
+        assert await nodes._native_workflow_shape_divert(
+            "set up something editable that queries AIRDB then emails Bob",
+            _st(native=True)) is True
+        assert len(calls) == 1
+
+    async def test_builder_shape_keeps_builder_path(self, monkeypatch):
+        self._shape_stub(monkeypatch, "builder")
+        assert await nodes._native_workflow_shape_divert(
+            "set up a new MCP server for the finance data",
+            _st(native=True)) is False
+
+    async def test_fail_open_on_error(self, monkeypatch):
+        self._shape_stub(monkeypatch, RuntimeError("boom"))
+        assert await nodes._native_workflow_shape_divert(
+            "set up something editable that queries AIRDB then emails Bob",
+            _st(native=True)) is False
+
+
+@pytest.mark.skipif(not _NODES_OK, reason="graph.nodes not importable here")
+class TestWorkflowContinuityMiniLLM:
+    MARKER = {"name": "wf-x", "kind": "visual_workflow"}
+    # deliberately misses every deterministic cue in _WORKFLOW_FOLLOWUP
+    REGEX_MISS = "make the second one feed into the export instead"
+
+    def _step_stub(self, monkeypatch, reply="YES", raise_exc=False):
+        stub = _StubLLM(reply, raise_exc=raise_exc)
+        monkeypatch.setattr(cc_cfg, "get_step_llm", lambda step, **kw: stub)
+        return stub
+
+    async def test_yes_means_followup(self, monkeypatch):
+        self._step_stub(monkeypatch, "YES")
+        assert await nodes._is_workflow_followup_llm(
+            self.REGEX_MISS, self.MARKER, _st()) is True
+
+    async def test_no_and_error_fail_open(self, monkeypatch):
+        self._step_stub(monkeypatch, "NO")
+        assert await nodes._is_workflow_followup_llm(
+            self.REGEX_MISS, self.MARKER, _st()) is False
+        self._step_stub(monkeypatch, raise_exc=True)
+        assert await nodes._is_workflow_followup_llm(
+            self.REGEX_MISS, self.MARKER, _st()) is False
+
+    async def test_classify_intent_stays_native_on_llm_yes(self, monkeypatch):
+        # Deterministic cues miss; the mini-LLM says YES → the turn stays in
+        # converse on the same workflow, marker preserved.
+        assert not br.looks_like_workflow_followup(self.REGEX_MISS)
+        self._step_stub(monkeypatch, "YES")
+        out = await nodes.classify_intent(
+            _st(self.REGEX_MISS, native=True, marker=self.MARKER))
+        assert out["intent"] == "chat"
+        assert out["code_flow_context"] == self.MARKER
+
+
+@pytest.mark.skipif(not _NODES_OK, reason="graph.nodes not importable here")
+class TestSmartBuildRoutingShapeMapping:
+    """Drive the REAL classify_intent to the final smart-build-routing block
+    with the router/route-memory off and the classifier stubbed to 'build'."""
+
+    def _wire(self, monkeypatch, shape):
+        ls = _live("command_center.orchestration.landscape_scanner")
+
+        async def fake_scan(user_context=None):
+            return {"agents": [], "data_agents": [], "connections": []}
+
+        monkeypatch.setattr(ls, "scan_platform", fake_scan)
+        monkeypatch.setattr(ls, "format_landscape_summary", lambda *a, **k: "")
+        monkeypatch.setattr(cc_cfg, "USE_ROUTE_MEMORY", False)
+        monkeypatch.setattr(cc_cfg, "USE_CAPABILITY_ROUTER", False)
+        monkeypatch.setattr(cc_cfg, "USE_INTENT_HEURISTICS", False)
+        monkeypatch.setattr(cc_cfg, "get_step_llm",
+                            lambda step, **kw: _StubLLM("build"))
+
+        async def fake_shape(user_text, state):
+            return shape
+
+        monkeypatch.setattr(nodes, "_classify_build_shape", fake_shape)
+
+    async def test_visual_workflow_shape_routes_to_chat(self, monkeypatch):
+        self._wire(monkeypatch, "visual_workflow")
+        out = await nodes.classify_intent(_st("please make me that editable thing"))
+        assert out["intent"] == "chat"
+
+    async def test_builder_shape_still_routes_to_build(self, monkeypatch):
+        self._wire(monkeypatch, "builder")
+        out = await nodes.classify_intent(_st("please make me that editable thing"))
+        assert out["intent"] == "build"
+
+
+@pytest.mark.skipif(not _NODES_OK, reason="graph.nodes not importable here")
+class TestEdgeIsPureMapAgain:
+    def test_no_regex_gate_at_the_edge(self):
+        # The decision moved into classify_intent (LLM); the edge must not
+        # overrule it. A build intent routes to the build node regardless of
+        # impl or message text.
+        st = {"intent": "build", "agent_impl": "native",
+              "messages": [types.SimpleNamespace(content="build a workflow for invoices")]}
+        assert edges_live.route_by_intent(st) == "build"
 
     def test_agent_impl_is_declared_state_channel(self):
         # AIHUB-0034 lesson: an undeclared key would be silently dropped by
-        # LangGraph and the native gate would never see it.
-        assert "agent_impl" in cc_state.CommandCenterState.__annotations__
+        # LangGraph and every native seam would go dark.
+        assert "agent_impl" in state_pkg.CommandCenterState.__annotations__

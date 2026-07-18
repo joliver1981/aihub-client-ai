@@ -1066,9 +1066,65 @@ _BUILD_SHAPE_PROMPT = (
 )
 
 
+# Native-agent (CC_AGENT="native") variant of the build-shape prompt: adds a
+# fifth label so the ONE intelligent build-shape call also decides
+# native-vs-builder for visual workflows (james's directive: model intelligence
+# over keyword regexes — build_routing.looks_like_visual_workflow_build is
+# demoted to a fail-open fast-path). Classic turns NEVER see this prompt: the
+# A/B guarantee keeps their classifier prompt and parse byte-identical.
+_BUILD_SHAPE_PROMPT_NATIVE = (
+    "You decide HOW to fulfill a build/create/set-up request in the AI Hub platform. "
+    "Reply with ONE word only: automation, builder, visual_workflow, both, or neither.\n\n"
+    "- automation — a Python SCRIPT the platform generates and OWNS: it runs in its own "
+    "dedicated Python environment where ANY pip library can be installed (pdfplumber, "
+    "paramiko, pandas, ML packages, vendor API SDKs, …), and the platform versions, runs, "
+    "VERIFIES its declared outputs, and schedules it. It USES the tenant's EXISTING AI Hub "
+    "connections and secrets by name (no new connection/integration setup needed — the code "
+    "calls aihub.connection('NAME') / aihub.secret('NAME')), and it has a BUILT-IN DRY-RUN that "
+    "executes against sample data and shows verified results before anything goes live. Choose "
+    "this when the goal is a PROCESS: read/parse files (PDF/Excel/CSV), call APIs, transform or "
+    "reconcile data, produce and move files (CSV to SFTP/FTP/HTTP), on demand or on a "
+    "schedule/trigger — i.e. when writing code with libraries is the path of least resistance "
+    "versus assembling a many-step visual workflow. STRONG automation signals: the request "
+    "mentions parsing PDFs/Excel, needs a Python library, asks to 'dry-run' or 'verify' outputs, "
+    "or moves files to SFTP/FTP using an existing secret. Needing a database CONNECTION or a "
+    "SECRET is NOT a reason to pick builder — automations resolve EXISTING ones by name. A "
+    "MULTI-STEP code process (distinct stages, fail-branches to an alert step, files passed "
+    "between steps) is STILL 'automation' — the family includes multi-step Code Flows; an "
+    "EDITABLE VISUAL workflow the user clicks through on the canvas is 'visual_workflow', not "
+    "code that just runs.\n"
+    "- builder — creates platform OBJECTS that people interact with or other resources reference: "
+    "a data/general AGENT someone chats with, a CONNECTION, an MCP server, a custom TOOL an agent "
+    "calls, or a KNOWLEDGE base/document set. NOT a solo visual workflow — that is "
+    "'visual_workflow' — but a workflow requested TOGETHER WITH any of these objects IS "
+    "'builder', which can produce both.\n"
+    "- visual_workflow — the deliverable is a VISUAL WORKFLOW itself and nothing else: an "
+    "editable canvas of typed nodes (Database, Conditional, Loop, Alert, Excel Export, …) the "
+    "user wants created, edited, wired, or run. The Command Center builds these natively with "
+    "its own tools.\n"
+    "- both — the goal genuinely needs an OBJECT and a PROCESS, e.g. 'create an agent and load this "
+    "document into its knowledge, and also a nightly export that feeds it'.\n"
+    "- neither — not actually a build/create request (a question, a data lookup, or chit-chat).\n\n"
+    "Decide by what the DELIVERABLE is, not by what is technically possible (a script can do almost "
+    "anything). If someone will TALK TO it, or other resources will REFERENCE it → builder. If it is "
+    "a script that runs and produces an outcome → automation. If it is the editable canvas workflow "
+    "itself → visual_workflow. "
+    "Examples: 'nightly, read expense PDFs, look up employees in the database, make a reconciled CSV, "
+    "upload via SFTP, alert if any step fails' → automation (a multi-step code process — a Code Flow); "
+    "'reconcile invoices against ERPDB and email a report every morning' → automation; "
+    "'create a data agent for the sales team' → builder; "
+    "'build me a workflow I can see and edit on the canvas' → visual_workflow; "
+    "'build a workflow that queries AIRDB and emails the result' → visual_workflow; "
+    "'create a data agent and a workflow that calls it' → builder. "
+    "Reply with exactly one word."
+)
+
+
 async def _classify_build_shape(user_text: str, state: "CommandCenterState") -> str:
     """Strong-model decision: given a build-ish request, what is the right home?
-    Returns 'automation' | 'builder' | 'both' | 'neither'. Never raises — any
+    Returns 'automation' | 'builder' | 'both' | 'neither' — plus, ONLY on
+    native-impl turns, 'visual_workflow' (the native prompt/parse are gated on
+    agent_impl so classic turns stay byte-identical). Never raises — any
     failure returns 'neither', so the caller safely keeps the cheap classifier's
     own intent."""
     # Deterministic high-precision fast-path (AIHUB-0033 F1): a clear code/data
@@ -1086,19 +1142,31 @@ async def _classify_build_shape(user_text: str, state: "CommandCenterState") -> 
     except Exception as e:
         logger.debug(f"[classify_intent] code-process fast-path skipped: {e}")
 
+    _native = _native_impl(state)
+    _prompt = _BUILD_SHAPE_PROMPT_NATIVE if _native else _BUILD_SHAPE_PROMPT
     try:
         from cc_config import get_llm
         llm = get_llm(mini=False, streaming=False)
         _t0 = _trace_time.perf_counter()
         resp = await llm.ainvoke([
-            SystemMessage(content=_BUILD_SHAPE_PROMPT),
+            SystemMessage(content=_prompt),
             HumanMessage(content=user_text),
         ])
         trace_llm_call(state, node="classify_intent", step="build_shape_decision",
-                       messages=[SystemMessage(content=_BUILD_SHAPE_PROMPT), HumanMessage(content=user_text)],
+                       messages=[SystemMessage(content=_prompt), HumanMessage(content=user_text)],
                        response=resp, elapsed_ms=int((_trace_time.perf_counter() - _t0) * 1000),
                        model_hint="full")
         raw = (resp.content or "").strip().strip('"').lower()
+        if _native:
+            # tolerate "visual workflow" (space) for the underscore label
+            raw = raw.replace("visual workflow", "visual_workflow")
+            first = raw.split()[0] if raw else ""
+            if first in ("automation", "builder", "visual_workflow", "both", "neither"):
+                return first
+            for w in ("both", "visual_workflow", "automation", "builder", "neither"):
+                if w in raw:
+                    return w
+            return "neither"
         first = raw.split()[0] if raw else ""
         if first in ("automation", "builder", "both", "neither"):
             return first
@@ -1109,6 +1177,70 @@ async def _classify_build_shape(user_text: str, state: "CommandCenterState") -> 
     except Exception as e:
         logger.warning(f"[classify_intent] build-shape decision failed: {e}")
         return "neither"
+
+
+async def _native_workflow_shape_divert(user_text: str, state: "CommandCenterState") -> bool:
+    """Native A/B agent only: True when this build turn's deliverable is a
+    visual workflow ITSELF — converse's native workflow tools own it, not the
+    builder delegation. The decision-maker is the intelligent build-shape call
+    (label 'visual_workflow'); the deterministic regex is ONLY a fast-path
+    accelerator for unambiguous phrasings (same pattern as the code-process
+    fast-path inside _classify_build_shape). Classic turns: always False with
+    zero LLM cost — the A/B guarantee. Fail-open: any error or any other shape
+    → False, and the builder path (which still works) handles the turn."""
+    if not _native_impl(state):
+        return False
+    try:
+        from graph.build_routing import looks_like_visual_workflow_build
+        if looks_like_visual_workflow_build(user_text):
+            logger.info("[classify_intent] native build-shape fast-path: "
+                        "visual workflow → converse (native workflow tools)")
+            return True
+    except Exception as _fp_err:
+        logger.debug(f"[classify_intent] native workflow fast-path skipped: {_fp_err}")
+    try:
+        shape = await _classify_build_shape(user_text, state)
+        if shape == "visual_workflow":
+            logger.info("[classify_intent] native build-shape: visual_workflow → "
+                        "converse (native workflow tools)")
+            return True
+    except Exception as _nw_err:
+        logger.debug(f"[classify_intent] native workflow-shape divert skipped: {_nw_err}")
+    return False
+
+
+async def _is_workflow_followup_llm(user_text: str, marker: dict,
+                                    state: "CommandCenterState") -> bool:
+    """Mini-LLM continuity check for an ongoing NATIVE visual-workflow authoring
+    session (marker kind='visual_workflow'), consulted only when the
+    deterministic follow-up cues MISS — keyword regexes are an accelerator
+    here, never the decision-maker. YES → the turn stays in converse on the
+    same workflow. Fail-open: NO, an ambiguous reply, or any error returns
+    False and the turn falls through to normal classification."""
+    try:
+        from cc_config import get_step_llm
+        llm = get_step_llm("workflow_continuity")
+        wf_name = (marker or {}).get("name") or "the workflow being edited"
+        _msgs = [HumanMessage(content=(
+            f'The user is mid-conversation building/editing a visual workflow named '
+            f'"{wf_name}" (typed nodes, edges, variables, runs). Is the following '
+            f'message a follow-up action or question about THAT workflow — e.g. add/'
+            f'change/remove/rename/configure a step, wire or unwire nodes, set the '
+            f'start, add a variable, run/test it, or ask about its structure? Treat a '
+            f'NEW unrelated request (a different resource, a general data question, '
+            f'chit-chat) as NO.\n'
+            f'Message: "{user_text}"\n'
+            f'Reply with ONLY "YES" or "NO".'))]
+        _t0 = _trace_time.perf_counter()
+        resp = await llm.ainvoke(_msgs)
+        trace_llm_call(state, node="classify_intent", step="workflow_continuity",
+                       messages=_msgs, response=resp,
+                       elapsed_ms=int((_trace_time.perf_counter() - _t0) * 1000),
+                       model_hint="mini")
+        return str(getattr(resp, "content", "")).strip().upper().startswith("YES")
+    except Exception as e:
+        logger.debug(f"[classify_intent] workflow-continuity mini-LLM skipped: {e}")
+        return False
 
 
 # ─── Node: classify_intent ────────────────────────────────────────────────
@@ -1259,8 +1391,17 @@ async def classify_intent(state: CommandCenterState) -> dict:
             # kind="visual_workflow" is stamped ONLY by the native agent's
             # workflow tools, so classic sessions take the code-flow matcher
             # under the original condition — byte-for-byte classic behavior.
-            _followup_hit = (looks_like_workflow_followup(user_text) if _marker_is_workflow
-                             else looks_like_code_flow_followup(user_text))
+            if _marker_is_workflow:
+                # Deterministic cues are only a fast-path; on a miss, a
+                # mini-LLM makes the call (james's directive: intelligence
+                # over keyword matching). Fail-open — an uncertain or failed
+                # check falls through to normal classification.
+                _followup_hit = looks_like_workflow_followup(user_text)
+                if not _followup_hit:
+                    _followup_hit = await _is_workflow_followup_llm(
+                        user_text, _continuity_marker, state)
+            else:
+                _followup_hit = looks_like_code_flow_followup(user_text)
             if _followup_hit:
                 logger.info("[classify_intent] %s continuity → intent=chat "
                             "(mid-authoring; keep follow-up in converse)",
@@ -1620,6 +1761,13 @@ Reply with ONLY one word: CONTINUE, CC_CAPABLE, or REROUTE."""
         _thresh = float(router_result.get("confidence_threshold", 0.7))
         _intent = router_result.get("intent")
         if _intent and _conf >= _thresh:
+            # Native A/B agent: a confident 'build' from the router still defers
+            # to the intelligent build-shape decision for the one question the
+            # router can't answer — is the deliverable a visual workflow itself
+            # (converse's native tools) or a platform object (builder)? Classic
+            # turns skip this entirely (zero extra LLM cost, byte-identical).
+            if _intent == "build" and await _native_workflow_shape_divert(user_text, state):
+                return _intent_result({"intent": "chat", "pending_agent_selection": False})
             logger.info(
                 f"[classify_intent] capability_router matched: capability={_cap} "
                 f"confidence={_conf:.2f} → intent={_intent}"
@@ -1762,6 +1910,11 @@ Reply with ONLY one word: CONTINUE, CC_CAPABLE, or REROUTE."""
             if shape in ("automation", "both"):
                 # converse holds BOTH the automation tools and
                 # delegate_to_builder_agent, so it can do either or orchestrate both
+                intent = "chat"
+            elif shape == "visual_workflow":
+                # Native A/B agent only (the label exists only in the native
+                # prompt/parse): the deliverable IS a visual workflow —
+                # converse's native workflow tools build it, never the builder.
                 intent = "chat"
             elif shape == "builder":
                 intent = "build"

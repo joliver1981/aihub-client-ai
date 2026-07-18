@@ -439,6 +439,9 @@ MINI_LLM_STEPS: dict = {
     "answer_quality_gate":          os.getenv("CC_MINI_ANSWER_QUALITY_GATE", "true").lower() == "true",
     "capability_router":            os.getenv("CC_MINI_CAPABILITY_ROUTER", "true").lower() == "true",
     "export_intent_detector":       os.getenv("CC_MINI_EXPORT_INTENT_DETECTOR", "true").lower() == "true",
+    # native A/B agent: YES/NO continuity check for visual-workflow follow-ups
+    # (consulted only when the deterministic cues miss; fail-open)
+    "workflow_continuity":          os.getenv("CC_MINI_WORKFLOW_CONTINUITY", "true").lower() == "true",
 }
 
 
