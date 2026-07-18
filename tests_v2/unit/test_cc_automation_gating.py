@@ -165,15 +165,18 @@ class TestConverseToolLoopHardening:
     live retest)."""
 
     def test_anti_repeat_guard_short_circuits_identical_calls(self):
+        # AIHUB-0048 F2 evolved the guard: _seen_calls/_call_key became the
+        # progress-aware _ToolRepeatGuard (verbatim repeat short-circuits ONLY
+        # when nothing else executed since). The 0028 invariant it must keep:
+        # the short-circuit sits INSIDE the round loop and skips re-execution.
         src = Path(nodes.__file__).read_text(encoding="utf-8")
-        assert "_seen_calls" in src and "_call_key" in src, "anti-repeat guard missing"
-        # the short-circuit must sit INSIDE the round loop and skip re-execution
-        loop = src[src.find("while _has_tc and _round < _MAX_TOOL_ROUNDS"):
+        assert "_repeat_guard = _ToolRepeatGuard()" in src, "anti-repeat guard missing"
+        loop = src[src.find("while _has_tc and _round <"):
                    src.find("# ── Output sanitizer")]
-        assert "if _k in _seen_calls:" in loop
+        assert "_repeat_guard.cached_if_no_progress(" in loop
         assert "short-circuiting" in loop
         # the short-circuit path must NOT re-invoke the tool (it continues)
-        sc = loop[loop.find("if _k in _seen_calls:"):]
+        sc = loop[loop.find("if _cached is not None:"):]
         assert sc[:sc.find("continue")].count("tool_fn.ainvoke") == 0
 
     def test_seen_calls_seeded_from_round_one(self):

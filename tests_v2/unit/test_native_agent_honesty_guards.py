@@ -175,6 +175,63 @@ class TestInsertBetweenAtomic:
         assert (mid, "A", "pass") in edges
 
 
+class TestProgressAwareRoundCap:
+    """AIHUB-0050 F1 — the flat _MAX_TOOL_ROUNDS=6 truncated any one-turn build
+    needing >6 sequential tool calls (standard branching build = 8: create +
+    4 nodes + 3 edges), leaving honest-but-incomplete DRAFTs that needed a user
+    nudge to finish. The cap is now progress-aware: rounds that execute at
+    least one live (non-short-circuited) tool call never exhaust the budget;
+    only consecutive all-cached rounds do (the 0028 spin), with a generous
+    absolute backstop bounding true runaways."""
+
+    def _src(self):
+        return (Path(_CC) / "graph" / "nodes.py").read_text(encoding="utf-8")
+
+    def _loop(self):
+        src = self._src()
+        return src[src.find("while _has_tc and _round <"):src.find("# ── Output sanitizer")]
+
+    def test_flat_cap_gone_and_bounds_sized_for_real_builds(self):
+        import re
+        src = self._src()
+        assert "_MAX_TOOL_ROUNDS = 6" not in src, "flat 6-round cap is back — 0050 F1 regressed"
+        stall = int(re.search(r"_MAX_STALLED_ROUNDS = (\d+)", src).group(1))
+        abs_cap = int(re.search(r"_MAX_TOOL_ROUNDS_ABS = (\d+)", src).group(1))
+        # backstop must fit a branching (8 calls) AND a large (~20-node) build,
+        # while the stall budget stays a tight anti-spin bound
+        assert abs_cap >= 16, f"absolute backstop {abs_cap} would truncate large builds"
+        assert 2 <= stall <= 4, f"stall budget {stall} defeats the anti-runaway purpose"
+
+    def test_loop_and_reinvoke_gate_use_both_bounds(self):
+        src = self._src()
+        assert ("while _has_tc and _round < _MAX_TOOL_ROUNDS_ABS "
+                "and _stalled_rounds < _MAX_STALLED_ROUNDS:") in src
+        # the tools-bound re-invoke must mirror the while bounds exactly, so we
+        # never solicit tool calls we won't execute
+        gate = src[src.find("if _round < _MAX_TOOL_ROUNDS_ABS and "
+                            "_stalled_rounds < _MAX_STALLED_ROUNDS:"):]
+        assert "llm_with_tools.ainvoke(_convo)" in gate[:200]
+
+    def test_stall_bookkeeping_is_progress_aware(self):
+        loop = self._loop()
+        # reset-or-increment on round progress; live counter zeroed each round
+        assert "_stalled_rounds = 0 if _live_this_round else _stalled_rounds + 1" in loop
+        assert "_live_this_round = 0" in loop
+        # a live execution (the path that records into the repeat guard) counts
+        # as progress; the cached short-circuit path must NOT
+        rec = loop[loop.find("_repeat_guard.record(tool_name, tool_args, rn)"):]
+        assert "_live_this_round += 1" in rec[:120]
+        cached_branch = loop[loop.find("if _cached is not None:"):loop.find("continue")]
+        assert "_live_this_round += 1" not in cached_branch
+
+    def test_capped_wrapup_states_honest_reason(self):
+        loop = self._loop()
+        assert "absolute tool-round backstop" in loop
+        assert "consecutive no-progress rounds" in loop
+        # the honest-nudge tool-less wrap-up survives (0028 confabulation guard)
+        assert "llm.ainvoke(_convo + [_honest_nudge])" in loop
+
+
 class TestSourceContracts:
     def _src(self):
         return (Path(_CC) / "graph" / "nodes.py").read_text(encoding="utf-8")

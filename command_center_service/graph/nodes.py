@@ -5699,15 +5699,27 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             _has_tc = bool(hasattr(final_response, 'tool_calls') and final_response.tool_calls)
             logger.info(f"[converse] Follow-up response: {len(_fc)} chars, has_tool_calls={_has_tc}, preview={_fc[:150]!r}")
 
-            # Keep executing tool rounds while the model keeps asking for tools, up to a cap,
-            # BINDING TOOLS each round so the agent can actually ACT. The old code allowed only a
-            # single extra round and then forced a TOOL-LESS final pass (llm, not llm_with_tools);
-            # an agent that spent its two rounds exploring (e.g. list_portal_workflows then
+            # Keep executing tool rounds while the model keeps asking for tools, BINDING TOOLS
+            # each round so the agent can actually ACT. The old code allowed only a single extra
+            # round and then forced a TOOL-LESS final pass (llm, not llm_with_tools); an agent
+            # that spent its two rounds exploring (e.g. list_portal_workflows then
             # describe_portal_workflow) could never reach the execution call (run_portal_workflow /
             # fetch_from_portal) and would just narrate its intent ("Using the saved portal
             # workflow") with nothing reaching the browser. The loop lets explore->act complete.
-            _MAX_TOOL_ROUNDS = 6
+            #
+            # AIHUB-0050 F1: the cap is PROGRESS-AWARE, not a flat round count. A flat
+            # _MAX_TOOL_ROUNDS=6 truncated any one-turn build needing >6 sequential tool calls
+            # (a standard branching build — create + 4 nodes + 3 edges — is 8), forcing an
+            # honest-but-incomplete DRAFT + a user nudge to finish. The cap's real job is
+            # anti-runaway, and a runaway is a loop making NO progress — so rounds that execute
+            # at least one live (non-short-circuited) tool call never exhaust the budget; only
+            # CONSECUTIVE all-cached rounds do (the 0028 spin, already answered from the
+            # _ToolRepeatGuard cache). A generous absolute backstop still bounds the turn
+            # against a pathological always-new-calls runaway.
+            _MAX_STALLED_ROUNDS = 3    # consecutive rounds with zero live tool executions
+            _MAX_TOOL_ROUNDS_ABS = 24  # hard backstop; ~20-node builds fit, runaways cannot
             _round = 1
+            _stalled_rounds = 0
             _convo = follow_up_messages
 
             # Anti-repeat guard (AIHUB-0028, found live): a model that gets a
@@ -5725,10 +5737,11 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             for _tc0, _tr0 in zip(getattr(response, "tool_calls", []) or [], tool_results):
                 _repeat_guard.record(_tc0["name"], _tc0["args"], _tr0.content)
 
-            while _has_tc and _round < _MAX_TOOL_ROUNDS:
+            while _has_tc and _round < _MAX_TOOL_ROUNDS_ABS and _stalled_rounds < _MAX_STALLED_ROUNDS:
                 _round += 1
                 logger.info(f"[converse] Follow-up wants MORE tool calls — executing round {_round}")
                 tool_results_n = []
+                _live_this_round = 0
                 for tc in final_response.tool_calls:
                     tool_name = tc["name"]
                     tool_args = tc["args"]
@@ -5771,6 +5784,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     else:
                         rn = f"Unknown tool: {tool_name}"
                     _repeat_guard.record(tool_name, tool_args, rn)
+                    _live_this_round += 1
                     # AIHUB-0048 F1: capture mutation + read-back evidence (round N)
                     if tool_name in _WORKFLOW_MUTATING_TOOL_NAMES:
                         _wf_mutated = True
@@ -5821,14 +5835,29 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                                                        "kind": "visual_workflow"}
                     return result
 
+                # AIHUB-0050 F1: progress bookkeeping — a round where every call was served
+                # from the repeat-guard cache made no forward progress; a round with any live
+                # execution resets the stall counter (large builds run to completion).
+                _stalled_rounds = 0 if _live_this_round else _stalled_rounds + 1
+                if not _live_this_round:
+                    logger.warning(f"[converse] Round {_round} made NO live tool calls "
+                                   f"(all short-circuited repeats) — stall {_stalled_rounds}/"
+                                   f"{_MAX_STALLED_ROUNDS}")
+
                 _convo = _convo + [final_response] + tool_results_n
                 _rN_t0 = _trace_time.perf_counter()
                 # Keep tools bound so the agent can still act; only the final capped pass drops
                 # them to force a text wrap-up instead of another (impossible) tool round.
-                if _round < _MAX_TOOL_ROUNDS:
+                if _round < _MAX_TOOL_ROUNDS_ABS and _stalled_rounds < _MAX_STALLED_ROUNDS:
                     final_response = await llm_with_tools.ainvoke(_convo)
                 else:
-                    logger.warning(f"[converse] hit tool-round cap ({_MAX_TOOL_ROUNDS}); forcing a "
+                    _cap_reason = (
+                        f"absolute tool-round backstop ({_MAX_TOOL_ROUNDS_ABS})"
+                        if _round >= _MAX_TOOL_ROUNDS_ABS else
+                        f"{_MAX_STALLED_ROUNDS} consecutive no-progress rounds "
+                        f"(identical repeats, all short-circuited)"
+                    )
+                    logger.warning(f"[converse] hit tool-round cap — {_cap_reason}; forcing a "
                                    "text wrap-up — the agent may not have finished its tool plan.")
                     # Honest wrap-up (AIHUB-0028, found live): without guidance the
                     # capped, tool-less pass confabulated ("the tools are not
