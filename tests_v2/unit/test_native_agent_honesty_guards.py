@@ -232,6 +232,79 @@ class TestProgressAwareRoundCap:
         assert "llm.ainvoke(_convo + [_honest_nudge])" in loop
 
 
+class TestWorkflowNamePolicy:
+    """AIHUB-0052 F1 — name hygiene. The charset regex allowed reserved Windows
+    device names ('con' → mirror write failed AFTER the DB save, orphaning row
+    1295) and .json-suffixed names ('report.json.json' → stray double-extension
+    file). Policy now lives at BOTH layers: workflow_tools.name_error (instant
+    honest agent refusal) and app.py _workflow_mirror_filename_error (the
+    /save/workflow chokepoint every caller converges on — which previously had
+    NO filename validation at all, so traversal was only client-blocked)."""
+
+    @pytest.mark.parametrize("bad", [
+        "con", "CON", "Con.json", "prn", "aux", "nul", "com3", "LPT9",
+        "report.json.json", "REPORT.JSON", "data.json",
+        "../evil", "x" * 130, "", ".hidden",
+    ])
+    def test_native_name_error_rejects(self, bad):
+        assert _wt().name_error(bad) is not None
+
+    @pytest.mark.parametrize("good", [
+        "conference", "con-report", "console output", "nul-check",
+        "Payroll v1.2", "Monthly Report", "lpt10",
+    ])
+    def test_native_name_error_accepts(self, good):
+        assert _wt().name_error(good) is None
+
+    def test_save_definition_uses_name_error(self):
+        src = (Path(_CC) / "graph" / "workflow_tools.py").read_text(encoding="utf-8")
+        body = src[src.find("def save_definition"):src.find("def ", src.find("def save_definition") + 10)]
+        assert "name_error(name)" in body
+
+    # ── server chokepoint (app.py is not importable in tests — 0039 pattern:
+    #    extract the self-contained function source and exec it) ──
+    def _server_fn(self):
+        import os as _os
+        import re as _re2
+        src = (_ROOT / "app.py").read_text(encoding="utf-8", errors="replace")
+        m = _re2.search(
+            r"(def _workflow_mirror_filename_error\(filename\):.*?)\n\n\n?@app\.route",
+            src, _re2.S)
+        assert m, "_workflow_mirror_filename_error not found in app.py"
+        ns = {"os": _os}
+        exec(m.group(1), ns)  # noqa: S102 - our own source under test
+        return ns["_workflow_mirror_filename_error"]
+
+    @pytest.mark.parametrize("bad", [
+        "../evil.json", "..\\evil.json", "a/b.json", "a\\b.json",
+        "con.json", "COM3.json", "nul", "prn.json",
+        "report.json.json",              # stem 'report.json' ends .json
+        "x<y.json", 'q"o.json', "star*.json", "pipe|.json",
+        "trailing..json",                # stem 'trailing.' ends with a dot
+        ("y" * 160) + ".json", "", None, ".json",
+    ])
+    def test_server_filename_error_rejects(self, bad):
+        assert self._server_fn()(bad) is not None
+
+    @pytest.mark.parametrize("good", [
+        "Payroll (v2).json",             # legacy UI shape must keep saving
+        "conference.json", "report v1.2.json", "nul-check.json",
+        "Monthly Report.json", "plain.json",
+    ])
+    def test_server_filename_error_accepts(self, good):
+        assert self._server_fn()(good) is None
+
+    def test_route_wires_validator_before_db_save_and_mirror_is_honest(self):
+        src = (_ROOT / "app.py").read_text(encoding="utf-8", errors="replace")
+        route = src[src.find('@app.route("/save/workflow"'):src.find("def rename_workflow")]
+        call = route.find("_workflow_mirror_filename_error(filename)")
+        db = route.find("save_workflow_to_database(workflow_name")
+        assert 0 < call < db, "filename validation must run BEFORE any side effect"
+        # mirror failure must report the partial state, not a generic error
+        assert "mirror_write_failed" in route
+        assert route.find("save_to_file(filename, workflow_data)") < route.find("mirror_write_failed")
+
+
 class TestSourceContracts:
     def _src(self):
         return (Path(_CC) / "graph" / "nodes.py").read_text(encoding="utf-8")

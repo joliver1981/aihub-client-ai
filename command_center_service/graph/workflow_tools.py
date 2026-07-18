@@ -65,6 +65,33 @@ _VALID_EDGE_TYPES = ("pass", "fail", "complete")
 # MERGE key in the DB — keep them filesystem- and merge-safe.
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _\-\.]{0,118}$")
 
+# AIHUB-0052 F1: shapes the charset regex ALLOWS that are still unsafe as the
+# server-side mirror filename workflows/<name>.json:
+#  - reserved Windows device stems ('con' → the mirror write fails/goes to the
+#    device, orphaning the DB row that was already saved);
+#  - names already ending in .json ('report.json.json' → stray
+#    workflows/report.json.json.json double-extension file).
+# Stem match only — 'conference' or 'con-report' are fine.
+_RESERVED_DEVICE_RE = re.compile(r"^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)", re.I)
+
+
+def name_error(name: str) -> str | None:
+    """Full pre-HTTP name policy. Returns a user-facing error string, or None
+    when the name is safe. The server chokepoint re-checks the dangerous
+    subset (every caller converges there); this gives the agent an instant
+    honest refusal with a rename steer."""
+    name = (name or "").strip()
+    if not _NAME_RE.match(name):
+        return ("workflow name must be 1-119 chars of letters/digits/space/_-. "
+                "and start with a letter or digit")
+    if _RESERVED_DEVICE_RE.match(name):
+        return (f"'{name}' is a reserved Windows device name and cannot be used "
+                "as a workflow name — pick a different name (e.g. add a suffix)")
+    if name.lower().endswith(".json"):
+        return ("workflow names must not end in .json — the platform stores the "
+                "workflow as <name>.json itself; drop the extension from the name")
+    return None
+
 
 # ─── HTTP plumbing ────────────────────────────────────────────────────────
 
@@ -426,10 +453,9 @@ def save_definition(name: str, definition: Dict[str, Any]) -> Dict[str, Any]:
     Returns the server's honest validity verdict plus the read-back —
     the wrapper composes the user-facing message from THIS, never from memory."""
     name = (name or "").strip()
-    if not _NAME_RE.match(name or ""):
-        return {"ok": False, "error":
-                "workflow name must be 1-119 chars of letters/digits/space/_-. "
-                "and start with a letter or digit"}
+    _name_err = name_error(name)
+    if _name_err:
+        return {"ok": False, "error": _name_err}
     if (definition.get("kind") or "").lower() == "code_flow":
         return {"ok": False, "error": "refusing to write a code_flow row from the visual-workflow tools"}
     body = {"filename": f"{name}.json", "workflow": definition}

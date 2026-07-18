@@ -6166,6 +6166,48 @@ def save_to_file(filename, workflow_data):
         logger.error(f"File save error: {str(e)}")
         raise
 
+def _workflow_mirror_filename_error(filename):
+    """AIHUB-0052 F1: /save/workflow is the chokepoint EVERY caller converges on
+    (builder, native CC agent, UI, raw API) and it writes workflows/<filename>
+    verbatim — so the dangerous name shapes must be refused HERE, not only in
+    per-client validators. Rejects exactly the shapes that corrupt the mirror:
+      - path traversal / separators ('../evil.json' would escape workflows/ —
+        previously only the native client's regex blocked this);
+      - characters Windows cannot write (<>:"|?* and control chars) and
+        trailing dot/space stems — the write fails AFTER the DB row is saved,
+        orphaning it;
+      - reserved Windows device stems (con/prn/aux/nul/com1-9/lpt1-9): same
+        orphan failure (live: 'con' -> DB id 1295, workflows/con.json absent);
+      - stems already ending .json ('report.json.json' -> stray
+        workflows/report.json.json.json double-extension file);
+      - oversized stems (>150 chars: MAX_PATH headroom).
+    Deliberately NOT enforcing the native client's full cosmetic charset here:
+    legacy rows saved from the UI may carry names like 'Payroll (v2)' that are
+    perfectly writable — rejecting them at the chokepoint would break existing
+    edit-saves. Returns an error string, or None when safe."""
+    import re as _re
+    if not filename or not isinstance(filename, str):
+        return "filename must be a non-empty string"
+    if filename != os.path.basename(filename.replace("\\", "/")) or ".." in filename:
+        return "filename must be a bare name with no path separators or '..'"
+    stem = os.path.splitext(filename)[0].strip()
+    if not stem:
+        return "workflow name is empty"
+    if len(stem) > 150:
+        return "workflow name is too long (max 150 characters)"
+    if _re.search(r'[<>:"|?*\x00-\x1f]', filename):
+        return "workflow name contains characters Windows cannot store in a filename (<>:\"|?* or control characters)"
+    if stem != stem.rstrip(". "):
+        return "workflow name must not end with a dot or space"
+    if _re.match(r"^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)", stem, _re.I):
+        return (f"'{stem}' is a reserved Windows device name and cannot be used as a "
+                "workflow name — choose a different name")
+    if stem.lower().endswith(".json"):
+        return ("workflow names must not end in .json — the platform stores the workflow "
+                "as <name>.json itself; drop the extension from the name")
+    return None
+
+
 @app.route("/save/workflow", methods=['POST'])
 @cross_origin()
 @api_key_or_session_required(min_role=2)
@@ -6210,6 +6252,14 @@ def save_workflow():
            'connections' not in workflow_data:
             raise ValueError("Invalid workflow data structure")
 
+        # AIHUB-0052 F1: refuse dangerous mirror filenames at the chokepoint
+        # (traversal, Windows-unwritable, reserved device stems, .json-suffixed
+        # stems) BEFORE any side effect — an unwritable mirror name previously
+        # orphaned the already-saved DB row.
+        _fname_err = _workflow_mirror_filename_error(filename)
+        if _fname_err:
+            raise ValueError(f"Invalid workflow name: {_fname_err}")
+
         # Check if workflow is new
         workflows_dir = os.path.join(os.path.dirname(__file__), 'workflows')
         file_path = os.path.join(workflows_dir, filename)
@@ -6227,9 +6277,28 @@ def save_workflow():
         _owner_id = current_user.id if current_user.is_authenticated else None
         workflow_id = save_workflow_to_database(workflow_name, workflow_data, owner_id=_owner_id)
 
-        # Save to file (mirror) only after the DB accepted the save
+        # Save to file (mirror) only after the DB accepted the save.
+        # AIHUB-0052 F1: a mirror-write failure must never be silent OR masquerade
+        # as a whole-save failure — the DB row (source of truth) IS saved by now.
+        # Report the partial state explicitly so callers can see exactly what
+        # persisted instead of an "unexpected error" that hides the saved row.
         logger.info(f"Saving workflow to file: {filename}")
-        save_to_file(filename, workflow_data)
+        try:
+            save_to_file(filename, workflow_data)
+        except Exception as _mirror_err:
+            logger.error(
+                f"Workflow '{workflow_name}' saved to DATABASE (id {workflow_id}) but the "
+                f"file mirror write failed: {_mirror_err}")
+            return jsonify({
+                "status": "error",
+                "message": (
+                    f"Workflow was saved to the database (id {workflow_id}; the database is "
+                    f"authoritative) but the file mirror '{filename}' could NOT be written: "
+                    f"{_mirror_err}"),
+                "workflow_id": workflow_id,
+                "database_version": workflow_id,
+                "mirror_write_failed": True,
+            }), 500
 
         # ── Deterministic validation (AIHUB-0016 F1) ────────────────────
         # The saved JSON is persisted AS-IS (draft doctrine: validity gates
