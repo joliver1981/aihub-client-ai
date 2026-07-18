@@ -179,6 +179,41 @@ def list_rows() -> Dict[str, Any]:
     return {"ok": True, "rows": out}
 
 
+def list_connections() -> Dict[str, Any]:
+    """AIHUB-0056 A: data connections as [{id, name, type, database}] so the
+    agent resolves connection names to the numeric id a Database node needs —
+    instead of interrogating the user for it. SECRET HYGIENE: the /get/
+    connections route carries masked password/username columns; this wrapper
+    WHITELISTS identity fields only, so credentials (even masked) never enter
+    the LLM context."""
+    res = _get("/get/connections")
+    if not res.get("ok"):
+        return {"ok": False, "error": res.get("error") or f"HTTP {res.get('status_code')}"}
+    rows = res.get("data") or []
+    if not isinstance(rows, list):
+        return {"ok": False, "error": "unexpected /get/connections shape"}
+
+    def _pick(r: Dict[str, Any], *keys: str) -> str:
+        lower = {str(k).lower(): v for k, v in r.items()}
+        for k in keys:
+            v = lower.get(k)
+            if v is not None and str(v).strip():
+                return str(v).strip()
+        return ""
+
+    out = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        cid = _pick(r, "id", "connection_id")
+        name = _pick(r, "connection_name", "name", "connectionname")
+        ctype = _pick(r, "connection_type", "type", "db_type", "engine", "provider")
+        db = _pick(r, "database", "database_name", "initial_catalog")
+        if cid and name:
+            out.append({"id": cid, "name": name, "type": ctype, "database": db})
+    return {"ok": True, "connections": out}
+
+
 def resolve(name_or_id: str) -> Dict[str, Any]:
     """Resolve a workflow reference (exact name, case-insensitive, or numeric id)
     to {id, name, kind}. NOT fuzzy on purpose — a build tool must never guess

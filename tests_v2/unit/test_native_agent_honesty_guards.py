@@ -305,6 +305,113 @@ class TestWorkflowNamePolicy:
         assert route.find("save_to_file(filename, workflow_data)") < route.find("mirror_write_failed")
 
 
+class TestPlainEnglishBuildAndContinuity:
+    """AIHUB-0056 — pack-10 §A/§B. (A) The agent interrogated the user for a
+    numeric connection id (no lookup tool existed) across 4+ rounds instead of
+    building a draft. (B) After that multi-turn build, the terse "run it"
+    delegated to the builder: the visual_workflow marker only existed after a
+    TOOL ran, so clarification turns had no continuity and the marker did not
+    survive to the run turn. Fixes: list_data_connections tool + DRAFT-FIRST
+    prompt; marker stamped AT THE DIVERT; marker recovery from the read-back
+    fingerprints in the conversation history."""
+
+    def _nodes_src(self):
+        return (Path(_CC) / "graph" / "nodes.py").read_text(encoding="utf-8")
+
+    # ── A: connection lookup ──
+    def test_list_connections_whitelists_identity_fields_only(self, monkeypatch):
+        wt = _wt()
+        rows = [
+            {"id": 58, "Connection_Name": "AIRDB", "connection_type": "sqlserver",
+             "database": "AIR", "username": "ai_user", "password": "••••••••",
+             "_password_type": "local", "server": "10.0.0.6"},
+            {"id": 2, "name": "Warehouse", "engine": "postgres",
+             "password": "supersecret-legacy"},
+            "not-a-dict",
+        ]
+        monkeypatch.setattr(wt, "_get", lambda path, timeout=30: {"ok": True, "data": rows})
+        res = wt.list_connections()
+        assert res["ok"] is True
+        assert res["connections"] == [
+            {"id": "58", "name": "AIRDB", "type": "sqlserver", "database": "AIR"},
+            {"id": "2", "name": "Warehouse", "type": "postgres", "database": ""},
+        ]
+        blob = repr(res)
+        assert "••••" not in blob and "supersecret" not in blob
+        assert "ai_user" not in blob and "10.0.0.6" not in blob
+
+    def test_list_connections_error_passthrough(self, monkeypatch):
+        wt = _wt()
+        monkeypatch.setattr(wt, "_get", lambda path, timeout=30: {"ok": False, "error": "down"})
+        assert wt.list_connections()["ok"] is False
+
+    def test_lookup_tool_fully_registered_and_not_mutating(self):
+        src = self._nodes_src()
+        assert "list_data_connections" in nodes._WORKFLOW_TOOL_NAMES
+        assert "list_data_connections" not in nodes._WORKFLOW_MUTATING_TOOL_NAMES
+        assert "tools.append(list_data_connections)" in src
+        assert '"list_data_connections": list_data_connections' in src
+
+    def test_prompt_teaches_draft_first_and_self_resolution(self):
+        src = self._nodes_src()
+        block = src[src.find("_workflow_native_prompt = ("):src.find("### NODE CATALOG")]
+        assert "DRAFT-FIRST (non-negotiable)" in block
+        assert "list_data_connections and resolve the id YOURSELF" in block
+        assert "AT MOST ONE focused question" in block
+        assert "CONFIRM-THEN-BUILD" not in block  # the interrogation-era rule is gone
+
+    # ── B: continuity marker ──
+    def test_authoring_marker_stamps_and_preserves(self):
+        fresh = nodes._authoring_marker({})
+        assert fresh == {"name": "", "kind": "visual_workflow"}
+        named = {"name": "daily-store-headcount", "kind": "visual_workflow"}
+        assert nodes._authoring_marker({"code_flow_context": named}) is named
+        # a code-flow marker (no visual kind) is NOT carried into workflow authoring
+        cf = {"name": "store-headcount-v2"}
+        assert nodes._authoring_marker({"code_flow_context": cf})["kind"] == "visual_workflow"
+
+    def test_both_divert_sites_stamp_the_marker(self):
+        src = self._nodes_src()
+        # capability-router early return
+        cap = src[src.find("_native_workflow_shape_divert(user_text, state):"):]
+        assert '"code_flow_context": _authoring_marker(state)' in cap[:300]
+        # smart-build visual_workflow branch feeds the final result
+        assert "_wf_divert_marker = _authoring_marker(state)" in src
+        assert '_final_out["code_flow_context"] = _wf_divert_marker' in src
+        assert "_wf_divert_marker = None" in src  # initialized on every classify pass
+
+    def test_marker_recovery_fingerprints_match_the_emitters(self):
+        src = self._nodes_src()
+        gate = src[src.find("marker RECOVERY from the conversation itself") - 400:
+                   src.find("_marker_is_workflow = ")]
+        assert 'if not _continuity_marker and _native_impl(state):' in gate
+        # the fingerprints scanned must be the EXACT strings the native path
+        # emits — if the pin wording drifts, this test forces the recovery
+        # scanner to follow it.
+        assert '"Authoritative persisted state" in _hc' in gate
+        assert '"🧾 Read-back of the saved row" in _hc' in gate
+        assert "Authoritative persisted state" in src[src.find("_wf_last_readback"):]
+        wt_src = (Path(_CC) / "graph" / "workflow_tools.py").read_text(encoding="utf-8")
+        assert "🧾 Read-back of the saved row" in wt_src
+
+    def test_run_it_is_a_deterministic_followup_cue(self):
+        saved_path = list(sys.path)
+        saved = {k: v for k, v in sys.modules.items() if k == "graph" or k.startswith("graph.")}
+        try:
+            for k in list(saved):
+                del sys.modules[k]
+            sys.path.insert(0, _CC)
+            from graph.build_routing import looks_like_workflow_followup  # noqa: PLC0415
+            assert looks_like_workflow_followup("run it") is True
+            assert looks_like_workflow_followup("test it") is True
+            assert looks_like_workflow_followup("what's the weather in Boston") is False
+        finally:
+            sys.path[:] = saved_path
+            for k in [k for k in sys.modules if k == "graph" or k.startswith("graph.")]:
+                del sys.modules[k]
+            sys.modules.update(saved)
+
+
 class TestSourceContracts:
     def _src(self):
         return (Path(_CC) / "graph" / "nodes.py").read_text(encoding="utf-8")

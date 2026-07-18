@@ -47,7 +47,7 @@ _WORKFLOW_TOOL_NAMES = frozenset({
     "add_workflow_node", "update_workflow_node", "remove_workflow_node",
     "wire_workflow_nodes", "unwire_workflow_nodes", "set_workflow_start",
     "set_workflow_variable", "run_workflow", "check_workflow_run",
-    "insert_workflow_node_between",
+    "insert_workflow_node_between", "list_data_connections",
 })
 
 # AIHUB-0048 F1: native mutating tools — a reply claiming a completed build
@@ -1209,6 +1209,20 @@ async def _native_workflow_shape_divert(user_text: str, state: "CommandCenterSta
     return False
 
 
+def _authoring_marker(state: "CommandCenterState") -> dict:
+    """AIHUB-0056 B: the visual_workflow continuity marker, stamped AT THE
+    DIVERT — the moment a turn is classified as native visual-workflow
+    authoring — not only after a workflow tool runs. Live failure: during a
+    multi-turn clarification build no tool had run yet, so the user's ANSWER
+    turns re-classified from scratch (their text alone has no build shape) and
+    could wander to the builder; and the post-build "run it" found no marker.
+    Preserves an existing visual_workflow marker (it may carry the name)."""
+    _m = state.get("code_flow_context")
+    if isinstance(_m, dict) and _m.get("kind") == "visual_workflow":
+        return _m
+    return {"name": "", "kind": "visual_workflow"}
+
+
 async def _is_workflow_followup_llm(user_text: str, marker: dict,
                                     state: "CommandCenterState") -> bool:
     """Mini-LLM continuity check for an ongoing NATIVE visual-workflow authoring
@@ -1381,6 +1395,29 @@ async def classify_intent(state: CommandCenterState) -> dict:
     # still route to the Builder. Exempt only an IN-FLIGHT builder session
     # (AIHUB-0043 — same stale-delegation trap as the shortcut above).
     _continuity_marker = state.get("code_flow_context") or {}
+    # AIHUB-0056 B: marker RECOVERY from the conversation itself. The live
+    # pack-10 break: the terse "run it" after a multi-turn build delegated to
+    # the builder because the session-state marker was gone — while the
+    # message HISTORY (which demonstrably survived; the agent still had full
+    # context) carried the native read-back pins. Those pins are deterministic
+    # fingerprints only the native workflow path emits, so an absent marker is
+    # reconstructed from them. The follow-up regex/mini-LLM still decides
+    # whether THIS message continues the authoring — an unrelated ask falls
+    # through to normal classification exactly as before.
+    if not _continuity_marker and _native_impl(state):
+        try:
+            for _hist_m in messages[-6:-1]:
+                _hc = getattr(_hist_m, "content", "")
+                if isinstance(_hc, str) and (
+                        "Authoritative persisted state" in _hc
+                        or "🧾 Read-back of the saved row" in _hc):
+                    _continuity_marker = {"name": "", "kind": "visual_workflow"}
+                    logger.info(
+                        "[classify_intent] visual-workflow continuity marker RECOVERED "
+                        "from the conversation's read-back fingerprint (state marker absent)")
+                    break
+        except Exception as _rec_err:
+            logger.debug(f"[classify_intent] marker recovery skipped: {_rec_err}")
     _marker_is_workflow = (isinstance(_continuity_marker, dict)
                            and _continuity_marker.get("kind") == "visual_workflow")
     if (_continuity_marker and not _builder_in_flight(active)
@@ -1767,7 +1804,8 @@ Reply with ONLY one word: CONTINUE, CC_CAPABLE, or REROUTE."""
             # (converse's native tools) or a platform object (builder)? Classic
             # turns skip this entirely (zero extra LLM cost, byte-identical).
             if _intent == "build" and await _native_workflow_shape_divert(user_text, state):
-                return _intent_result({"intent": "chat", "pending_agent_selection": False})
+                return _intent_result({"intent": "chat", "pending_agent_selection": False,
+                                       "code_flow_context": _authoring_marker(state)})
             logger.info(
                 f"[classify_intent] capability_router matched: capability={_cap} "
                 f"confidence={_conf:.2f} → intent={_intent}"
@@ -1893,6 +1931,7 @@ Reply with ONLY one word: CONTINUE, CC_CAPABLE, or REROUTE."""
                        messages=_ic_msgs, response=response,
                        elapsed_ms=int((_trace_time.perf_counter() - _ic_t0) * 1000), model_hint="full")
         intent = response.content.strip().strip('"').lower()
+        _wf_divert_marker = None  # AIHUB-0056 B: set when shape=visual_workflow
 
         valid_intents = {"chat", "query", "analyze", "delegate", "build", "multi_step", "create_tool"}
         if intent not in valid_intents:
@@ -1915,13 +1954,20 @@ Reply with ONLY one word: CONTINUE, CC_CAPABLE, or REROUTE."""
                 # Native A/B agent only (the label exists only in the native
                 # prompt/parse): the deliverable IS a visual workflow —
                 # converse's native workflow tools build it, never the builder.
+                # AIHUB-0056 B: stamp the authoring marker at the divert so the
+                # whole authoring conversation (clarifications included) keeps
+                # continuity from turn 1.
                 intent = "chat"
+                _wf_divert_marker = _authoring_marker(state)
             elif shape == "builder":
                 intent = "build"
             # 'neither' → keep the classifier's build-family intent as-is
 
         logger.info(f"Classified intent: {intent}")
-        return _intent_result({"intent": intent, "landscape": landscape, "pending_agent_selection": False})
+        _final_out = {"intent": intent, "landscape": landscape, "pending_agent_selection": False}
+        if _wf_divert_marker is not None:
+            _final_out["code_flow_context"] = _wf_divert_marker
+        return _intent_result(_final_out)
 
     except Exception as e:
         logger.error(f"Intent classification failed: {e}")
@@ -2170,12 +2216,21 @@ async def converse(state: CommandCenterState) -> dict:
             "requested step has no node in the catalog, SAY SO and offer the real homes — a CODE FLOW "
             "(or single AUTOMATION), or an Automation node running a promoted Automation as a workflow "
             "step. NEVER silently drop a requested step.\n"
-            "- Database nodes take a NUMERIC connection id (as a string, e.g. \"1\") from the platform "
-            "scan's connection list — never a connection name. Workflow variables use ${var} "
-            "substitution; declare them with set_workflow_variable or a node's outputVariable.\n"
-            "- CONFIRM-THEN-BUILD: for a multi-node build, state the plan as one short list and build "
-            "in the same turn when the request is clear; ask first only when genuinely ambiguous. "
-            "After building, show the read-back structure so the user sees exactly what exists.\n\n"
+            "- Database nodes take a NUMERIC connection id (as a string, e.g. \"1\") — never a "
+            "connection name. When the user names a connection (\"our AIRDB connection\"), call "
+            "list_data_connections and resolve the id YOURSELF; NEVER ask the user for a numeric id. "
+            "Workflow variables use ${var} substitution; declare them with set_workflow_variable or "
+            "a node's outputVariable.\n"
+            "- DRAFT-FIRST (non-negotiable): when the request is clear about WHAT the workflow should "
+            "do, BUILD it THIS turn. Resolve connections with list_data_connections; where a detail "
+            "is unspecified (exact columns, join keys, query shape), write a reasonable, clearly-"
+            "labeled first-cut config and STATE the assumption in your reply — the save's validity "
+            "verdict and 🧾 read-back keep you honest, and the user refines from a draft far faster "
+            "than from an interrogation. Ask AT MOST ONE focused question per build, and only when "
+            "something essential cannot be resolved with your tools (never re-ask for names, paths, "
+            "or recipients already given). NEVER stall a clear request behind multiple rounds of "
+            "clarification.\n"
+            "- After building, show the read-back structure so the user sees exactly what exists.\n\n"
             "### NODE CATALOG — the ONLY valid node types and their config\n"
             + _WF_NODE_DOC
         )
@@ -5306,6 +5361,28 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         return msg
 
     @lc_tool
+    async def list_data_connections() -> str:
+        """List the platform's data connections (id, name, type, database) so a
+        Database node's numeric connection id can be resolved from the
+        connection NAME the user mentions. ALWAYS call this yourself instead of
+        asking the user for a connection id. Credentials are never included.
+        """
+        if not _workflow_tools_allowed(state):
+            return _WORKFLOW_DENIED
+        from . import workflow_tools as _wt
+        res = _wt.list_connections()
+        if not res.get("ok"):
+            return f"❌ Could not list connections: {res.get('error')}"
+        conns = res.get("connections") or []
+        if not conns:
+            return "No data connections exist on this platform yet."
+        lines = [f"- id {c['id']} — {c['name']}"
+                 + (f" ({c['type']}" + (f", db {c['database']})" if c['database'] else ")")
+                    if c['type'] else (f" (db {c['database']})" if c['database'] else ""))
+                 for c in conns]
+        return "Data connections (use the numeric id in a Database node's config):\n" + "\n".join(lines)
+
+    @lc_tool
     async def unwire_workflow_nodes(workflow: str, from_node: str, to_node: str,
                                     on: str = "") -> str:
         """Remove an edge between two nodes, then save. Leave `on` empty to
@@ -5470,6 +5547,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         tools.append(set_workflow_variable)
         tools.append(run_workflow)
         tools.append(check_workflow_run)
+        tools.append(list_data_connections)
     if _PORTAL_FETCH_ENABLED:
         tools.append(fetch_from_portal)
         tools.append(check_portal_download)
@@ -5604,6 +5682,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     "set_workflow_variable": set_workflow_variable,
                     "run_workflow": run_workflow,
                     "check_workflow_run": check_workflow_run,
+                    "list_data_connections": list_data_connections,
                 }
 
                 tool_fn = tool_map.get(tool_name)
