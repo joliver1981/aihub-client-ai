@@ -330,7 +330,11 @@ async def chat(request: ChatRequest):
                 "data": json.dumps({"session_id": session.session_id}),
             }
 
-    return EventSourceResponse(event_generator())
+    # AIHUB-0047: ping keeps the stream warm through long, quiet stretches (a
+    # slow LLM call streams nothing for a while) — without it the CC delegator's
+    # httpx read can idle out mid-build. Pings are SSE comment lines; the
+    # delegator's line parser ignores them (covered by test).
+    return EventSourceResponse(event_generator(), ping=15)
 
 
 # ─── Session Management ──────────────────────────────────

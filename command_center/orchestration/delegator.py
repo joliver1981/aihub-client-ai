@@ -210,7 +210,13 @@ async def delegate_to_builder(
         #   event: token\ndata: {"text": "..."}
         #   event: plan\ndata: {...}
         #   event: done\ndata: {"session_id":...}
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        # AIHUB-0047: a bare float timeout made `read` an idle cap — a long
+        # builder LLM call with no streamed bytes killed the delegation mid-
+        # build ("network error"). The builder now pings every 15s, and the
+        # read timeout is generous so only a genuinely dead stream trips it.
+        _timeouts = httpx.Timeout(connect=15.0, read=max(float(timeout), 300.0),
+                                  write=60.0, pool=60.0)
+        async with httpx.AsyncClient(timeout=_timeouts) as client:
             async with client.stream("POST", url, json=payload, headers=headers) as resp:
                 # Fail-closed: a non-2xx response never raises during streaming and would
                 # otherwise be reported as a completed delegation. Detect it before

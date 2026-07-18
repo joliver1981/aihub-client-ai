@@ -34,6 +34,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
+# AIHUB-0047: max SSE silence before a heartbeat status event is emitted while
+# the graph is running (long builder delegations stream nothing for minutes and
+# idle proxies/fetch drop the connection). Tunable for tests/deployments.
+_SSE_HEARTBEAT_SECONDS = float(os.getenv("CC_SSE_HEARTBEAT_SECONDS", "15"))
+
 _graph = None
 _session_mgr = None
 
@@ -509,10 +514,25 @@ async def chat(request: Request):
                 _invoke_task = asyncio.create_task(
                     _graph.ainvoke(graph_input, config=config)
                 )
+                # AIHUB-0047: a long, quiet graph turn (e.g. a multi-step builder
+                # delegation) used to yield NOTHING for minutes — proxies and the
+                # browser fetch drop idle SSE streams ("network error" / "Failed
+                # to fetch"). Emit a heartbeat status whenever the stream has
+                # been silent too long; it rides the existing status channel so
+                # every consumer already parses it.
+                _hb_last = time.monotonic()
                 while not _invoke_task.done():
                     _pev = await _progress_queue.get(timeout=0.3)
                     if _pev is not None:
                         yield _sse_event("status", _pev["data"])
+                        _hb_last = time.monotonic()
+                    elif time.monotonic() - _hb_last >= _SSE_HEARTBEAT_SECONDS:
+                        yield _sse_event("status", {
+                            "phase": "working",
+                            "message": "Still working — a long-running step is in progress...",
+                            "heartbeat": True,
+                        })
+                        _hb_last = time.monotonic()
                 final_state = await _invoke_task
                 # Drain any remaining queued events
                 while True:
