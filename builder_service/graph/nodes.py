@@ -3656,7 +3656,7 @@ async def execute(state: dict) -> dict:
                                     _tn = t.get("TABLE_NAME") or t.get("table_name")
                                     _ts = t.get("TABLE_SCHEMA") or t.get("table_schema") or "dbo"
                                     if _tn:
-                                        _qual = f"{_ts}.{_tn}"
+                                        _qual = str(_tn) if ("." in str(_tn)) else f"{_ts}.{_tn}"
                                         _dt_map[_qual.lower()] = _qual
                                         _dt_map.setdefault(str(_tn).lower(), _qual)
                                 if _dt_map:
