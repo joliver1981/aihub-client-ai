@@ -38,6 +38,17 @@ _CODE_FLOW_TOOL_NAMES = frozenset({
     "unwire_steps", "remove_code_step",
 })
 
+# Native visual-workflow tools (the CC_AGENT="native" A/B agent). Any of these
+# running stamps the continuity marker with kind="visual_workflow" so
+# classify_intent keeps follow-up turns in converse — the visual_workflow twin
+# of the AIHUB-0035 code-flow marker. Only registered/bound on native turns.
+_WORKFLOW_TOOL_NAMES = frozenset({
+    "list_workflows", "get_workflow_structure", "create_workflow",
+    "add_workflow_node", "update_workflow_node", "remove_workflow_node",
+    "wire_workflow_nodes", "unwire_workflow_nodes", "set_workflow_start",
+    "set_workflow_variable", "run_workflow", "check_workflow_run",
+})
+
 
 def _has_dev_role(state) -> bool:
     """True when the verified user is Developer (2) or Admin (3).
@@ -159,6 +170,23 @@ _AUTOMATIONS_PROPOSE_CHECKPOINTS = os.getenv("CC_AUTOMATIONS_PROPOSE_CHECKPOINTS
 def _automations_allowed(state) -> bool:
     """True if this user may build/run Automations."""
     return _AUTOMATIONS_ALLOW_ALL or _has_dev_role(state)
+
+
+# ── Native A/B agent (CC_AGENT="native") ──────────────────────────────────
+_NATIVE_WORKFLOW_ALLOW_ALL = os.getenv("CC_NATIVE_WORKFLOW_ALLOW_ALL_USERS", "false").lower() == "true"
+
+
+def _native_impl(state) -> bool:
+    """True when this turn runs the 'native' A/B agent implementation
+    (set by chat.py from CC_AGENT or the request's agent_impl override).
+    Absent/empty/unknown → classic, so every native seam is opt-in."""
+    return (state.get("agent_impl") or "classic") == "native"
+
+
+def _workflow_tools_allowed(state) -> bool:
+    """True if this user may build visual workflows with the native tools.
+    Mirrors the canvas gate (/save/workflow is min_role=2): Developer+."""
+    return _NATIVE_WORKFLOW_ALLOW_ALL or _has_dev_role(state)
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────
@@ -1150,13 +1178,23 @@ async def classify_intent(state: CommandCenterState) -> dict:
     # flow. Object-build follow-ups don't match the follow-up cues, so they
     # still route to the Builder. Exempt only an IN-FLIGHT builder session
     # (AIHUB-0043 — same stale-delegation trap as the shortcut above).
-    if (state.get("code_flow_context") and _AUTOMATIONS_TOOLS_ENABLED
-            and not _builder_in_flight(active)):
+    _continuity_marker = state.get("code_flow_context") or {}
+    _marker_is_workflow = (isinstance(_continuity_marker, dict)
+                           and _continuity_marker.get("kind") == "visual_workflow")
+    if (_continuity_marker and not _builder_in_flight(active)
+            and (_marker_is_workflow or _AUTOMATIONS_TOOLS_ENABLED)):
         try:
-            from graph.build_routing import looks_like_code_flow_followup
-            if looks_like_code_flow_followup(user_text):
-                logger.info("[classify_intent] code-flow continuity → intent=chat "
-                            "(mid code-flow authoring; keep follow-up in converse)")
+            from graph.build_routing import (looks_like_code_flow_followup,
+                                             looks_like_workflow_followup)
+            # kind="visual_workflow" is stamped ONLY by the native agent's
+            # workflow tools, so classic sessions take the code-flow matcher
+            # under the original condition — byte-for-byte classic behavior.
+            _followup_hit = (looks_like_workflow_followup(user_text) if _marker_is_workflow
+                             else looks_like_code_flow_followup(user_text))
+            if _followup_hit:
+                logger.info("[classify_intent] %s continuity → intent=chat "
+                            "(mid-authoring; keep follow-up in converse)",
+                            "workflow" if _marker_is_workflow else "code-flow")
                 _cf_out = {"intent": "chat", "pending_agent_selection": False,
                            "code_flow_context": state.get("code_flow_context")}
                 if active:
@@ -1863,6 +1901,66 @@ async def converse(state: CommandCenterState) -> dict:
                 "unattended."
             )
 
+    # ── Native visual-workflow prompt (CC_AGENT="native" A/B agent) ─────────
+    # On classic turns these three hold the historical text verbatim; on a
+    # native Developer turn they teach the LLM to build visual workflows with
+    # its OWN tools (delegation stays only for non-workflow platform objects).
+    _workflow_native_prompt = ""
+    _limitations_build_line = (
+        "- You CANNOT directly create agents, workflows, or platform resources — you MUST use delegate_to_builder_agent for that.")
+    _build_rule_5 = (
+        "5. **Build/create request** (create an agent, build a workflow, set up a connection) → call delegate_to_builder_agent. NEVER pretend to create agents yourself.")
+    if _native_impl(state) and _workflow_tools_allowed(state):
+        try:
+            from system_prompts import WORKFLOW_NODE_TYPES as _WF_NODE_DOC
+        except Exception:
+            _WF_NODE_DOC = "(node catalog unavailable — use get_workflow_structure on an existing workflow as a reference)"
+        _workflow_native_prompt = (
+            "## VISUAL WORKFLOWS — BUILD THEM YOURSELF (native workflow tools)\n"
+            "You build and edit VISUAL WORKFLOWS directly with your own tools — NEVER delegate a "
+            "workflow build to the Builder Agent. A visual workflow is the editable canvas of typed "
+            "nodes under /workflow (distinct from: an AUTOMATION = one owned script; a CODE FLOW = a "
+            "flow of Code Step nodes; a PORTAL workflow = a saved browser/RPA login-and-download owned "
+            "by the portal tools).\n"
+            "- THE TOOLS: create_workflow → add_workflow_node (one per step; config_json per the node "
+            "catalog below; the first node auto-becomes the start) → wire_workflow_nodes "
+            "(on='pass'|'fail'|'complete') → get_workflow_structure to review → run_workflow to test. "
+            "Edit with update_workflow_node / remove_workflow_node / unwire_workflow_nodes / "
+            "set_workflow_start / set_workflow_variable. check_workflow_run reads a run's honest "
+            "per-step outcome later.\n"
+            "- GROUNDING (non-negotiable): every save returns a 🧾 read-back of what the saved row "
+            "REALLY contains plus the server's validity verdict. Describe the workflow ONLY from that "
+            "read-back — never restate the user's request as if it were all built. If it says "
+            "DRAFT / EMPTY / ROW MISMATCH, tell the user exactly that. Report run outcomes only from "
+            "run_workflow / check_workflow_run; a still-running or paused run is reported as exactly "
+            "that — never as success.\n"
+            "- SLOT RULE: a node gets ONE outgoing 'pass' OR 'complete' edge (+ at most ONE 'fail'). "
+            "Competing edges are rejected — when inserting a node between two wired nodes, wire the "
+            "two new edges AND unwire the old direct edge.\n"
+            "- CAPABILITY HONESTY: there is NO node for SFTP/FTP/API pushes or custom Python. If a "
+            "requested step has no node in the catalog, SAY SO and offer the real homes — a CODE FLOW "
+            "(or single AUTOMATION), or an Automation node running a promoted Automation as a workflow "
+            "step. NEVER silently drop a requested step.\n"
+            "- Database nodes take a NUMERIC connection id (as a string, e.g. \"1\") from the platform "
+            "scan's connection list — never a connection name. Workflow variables use ${var} "
+            "substitution; declare them with set_workflow_variable or a node's outputVariable.\n"
+            "- CONFIRM-THEN-BUILD: for a multi-node build, state the plan as one short list and build "
+            "in the same turn when the request is clear; ask first only when genuinely ambiguous. "
+            "After building, show the read-back structure so the user sees exactly what exists.\n\n"
+            "### NODE CATALOG — the ONLY valid node types and their config\n"
+            + _WF_NODE_DOC
+        )
+        _limitations_build_line = (
+            "- VISUAL WORKFLOWS you build YOURSELF with the workflow tools (create_workflow / "
+            "add_workflow_node / …) — do NOT delegate workflow builds. Other platform resources "
+            "(agents, connections, MCP servers, knowledge bases, custom tools) you CANNOT create "
+            "directly — use delegate_to_builder_agent for those.")
+        _build_rule_5 = (
+            "5. **Build/create request**: a VISUAL WORKFLOW build/edit → use YOUR OWN workflow tools "
+            "(create_workflow / add_workflow_node / wire_workflow_nodes / …) — never delegate a "
+            "workflow build. Any OTHER platform object (agent, connection, MCP server, knowledge "
+            "base, custom tool) → call delegate_to_builder_agent. NEVER pretend to create agents yourself.")
+
     system_prompt = COMMAND_CENTER_SYSTEM_PROMPT + f"""
 
 ## CURRENT DATE/TIME
@@ -1907,7 +2005,7 @@ Before processing ANY user message, classify it:
 2. **Data query** (show sales, revenue report, how many orders, etc.) → call query_data_agent with the right agent
 3. **Platform question** (what agents do I have, list connections, etc.) → answer from platform scan data
 4. **Follow-up on previous data** (top 3 from that, drill down, etc.) → forward to the SAME agent via query_data_agent
-5. **Build/create request** (create an agent, build a workflow, set up a connection) → call delegate_to_builder_agent. NEVER pretend to create agents yourself.
+{_build_rule_5}
 6. **Map/visualization request** → use YOUR OWN tools: generate_map for maps/choropleths, generate_image for images. Do NOT ask the data agent to create maps — data agents can only retrieve data, not generate visualizations. If you already have the data from a previous response, use it directly with generate_map instead of querying the data agent again.
 7. **Chart request** on existing data → call query_data_agent asking for a chart (data agents CAN produce charts via matplotlib, but NOT maps).
 8. **Email request** (send an email, email this to someone, share via email) → use YOUR OWN send_email tool. If files need to be attached, first create them with export_data, then call send_email with the artifact_id. Do NOT delegate email to general agents.
@@ -1948,6 +2046,7 @@ If the user asks to use a tool that was previously created, use run_generated_to
 {_schedule_prompt}
 {_sftp_prompt}
 {_automations_prompt}
+{_workflow_native_prompt}
 
 ## WEB SEARCH — REAL-TIME INFORMATION
 You have a search_web tool that performs live internet searches via Tavily (with DuckDuckGo fallback).
@@ -1976,7 +2075,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
 - For choropleth maps: pass a JSON object with "regions" array (each has "name", "value", "label").
 
 ## LIMITATIONS — BE HONEST
-- You CANNOT directly create agents, workflows, or platform resources — you MUST use delegate_to_builder_agent for that.
+{_limitations_build_line}
 - You CANNOT run arbitrary code outside of custom tools. If you don't have a tool for something, say so.
 - NEVER hallucinate capabilities you don't have. If you can't do it, say "I don't have that capability yet."
 
@@ -4744,6 +4843,315 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         return (f"Scheduled code flow '{name}' (job #{res.get('scheduled_job_id')}, "
                 f"schedule #{res.get('schedule_id')}). {res.get('note') or ''}".strip())
 
+    # ── Native visual-workflow tools (CC_AGENT="native" A/B agent) ──────────
+    # The Code Flows pattern applied to VISUAL workflows: thin typed wrappers
+    # over the deterministic manager (graph/workflow_tools.py), which persists
+    # ONLY through the main app's guarded POST /save/workflow (the exact
+    # chokepoint the canvas UI uses — the AIHUB-0039 kind-guard and 0016
+    # validation protect this path for free) and reads truth back after every
+    # save. Registered ONLY on native-impl Developer turns (bind-time gating,
+    # the AIHUB-0028 F2 discipline); each tool re-checks the gate in depth.
+    _WORKFLOW_DENIED = ("Building visual workflows from chat requires a Developer role on "
+                        "this instance. Your account doesn't have permission to do that.")
+
+    def _wf_json_obj(json_str, field):
+        """Parse an optional JSON-object tool arg; returns (dict, error|None)."""
+        import json as _json
+        if not (json_str or "").strip():
+            return {}, None
+        try:
+            val = _json.loads(json_str)
+        except ValueError as e:
+            return None, f"{field} is not valid JSON: {e}"
+        if not isinstance(val, dict):
+            return None, f"{field} must be a JSON object"
+        return val, None
+
+    async def _wf_mutate_and_save(workflow, mutate):
+        """Load → deterministic surgery → save via the guarded chokepoint →
+        TRUE read-back. Returns (result_message, mutation_result_dict)."""
+        from . import workflow_tools as _wt
+        got = await asyncio.to_thread(_wt.get_definition, workflow)
+        if not got.get("ok"):
+            return f"Could not load workflow '{workflow}': {got.get('error')}", None
+        res = mutate(got["definition"])
+        if not res.get("ok"):
+            return f"❌ {res.get('error')}", None
+        saved = await asyncio.to_thread(_wt.save_definition, got["name"], got["definition"])
+        msg = _wt.summarize_save(got["name"], saved)
+        if res.get("note"):
+            msg += f" ({res['note']})"
+        return msg, res
+
+    @lc_tool
+    async def list_workflows() -> str:
+        """List the platform's visual workflows: id, name. Code Flow rows are
+        marked — those are edited with the code-flow tools, never these."""
+        if not _workflow_tools_allowed(state):
+            return _WORKFLOW_DENIED
+        from . import workflow_tools as _wt
+        res = await asyncio.to_thread(_wt.list_rows)
+        if not res.get("ok"):
+            return f"Could not list workflows: {res.get('error')}"
+        rows = res.get("rows") or []
+        if not rows:
+            return "No workflows exist yet. Use create_workflow to start one."
+        lines = []
+        for r in rows:
+            tag = "  [CODE FLOW — use the code-flow tools]" if r.get("kind") == "code_flow" else ""
+            lines.append(f"- {r['name']} (id {r['id']}){tag}")
+        return "\n".join(lines)
+
+    @lc_tool
+    async def get_workflow_structure(workflow: str) -> str:
+        """Show a visual workflow's REAL persisted structure: every node (id,
+        type, label, start flag, config keys), every edge, variables, and any
+        structural issues. This read-back is the ground truth — describe the
+        workflow to the user from THIS, never from memory.
+
+        Args:
+            workflow: the workflow's exact name or numeric id.
+        """
+        if not _workflow_tools_allowed(state):
+            return _WORKFLOW_DENIED
+        from . import workflow_tools as _wt
+        got = await asyncio.to_thread(_wt.get_definition, workflow)
+        if not got.get("ok"):
+            return f"Could not load the workflow: {got.get('error')}"
+        return _wt.summarize_structure(got["id"], got["name"], got["definition"])
+
+    @lc_tool
+    async def create_workflow(name: str, description: str = "") -> str:
+        """Create a NEW empty visual workflow (saved as a draft until it has a
+        wired, valid node graph). Then add nodes with add_workflow_node and
+        connect them with wire_workflow_nodes.
+
+        Args:
+            name: unique workflow name (letters/digits/space/_-., e.g. 'invoice-review').
+            description: one-line description.
+        """
+        if not _workflow_tools_allowed(state):
+            return _WORKFLOW_DENIED
+        from . import workflow_tools as _wt
+        existing = await asyncio.to_thread(_wt.resolve, name)
+        if existing.get("ok"):
+            kind = " (a Code Flow — pick a different name; code flows are off-limits here)" \
+                if existing.get("kind") == "code_flow" else ""
+            return (f"A workflow named '{existing['name']}' already exists (id {existing['id']}){kind}. "
+                    f"Edit it, or choose a different name.")
+        definition = {"nodes": [], "connections": [], "variables": {}}
+        if description:
+            definition["description"] = description
+        saved = await asyncio.to_thread(_wt.save_definition, name, definition)
+        if not saved.get("ok"):
+            return f"❌ Could not create the workflow: {saved.get('error')}"
+        return (f"Created workflow '{name}' (id {saved.get('workflow_id')}) as an empty draft. "
+                f"Now add nodes with add_workflow_node — the first node becomes the start node.")
+
+    @lc_tool
+    async def add_workflow_node(workflow: str, node_type: str, label: str = "",
+                                config_json: str = "", make_start: bool = False) -> str:
+        """Add ONE node to a visual workflow and save. The node type MUST be one
+        of the catalog types in your system prompt (Database, AI Action, AI
+        Extract, Document, Loop, End Loop, Conditional, Human Approval, Alert,
+        Folder Selector, File, Set Variable, Execute Application, Excel Export,
+        Portal, Integration, Automation, …) — there is NO node for SFTP/FTP/API
+        pushes or custom Python; offer a Code Flow or an Automation node instead
+        of silently substituting. Configure per the catalog: e.g. a Database
+        node needs {"connection": "<numeric id as string>", "query": "...",
+        "saveToVariable": true, "outputVariable": "rows"}.
+
+        Args:
+            workflow: the workflow's exact name or numeric id.
+            node_type: a catalog node type (exact name, case-insensitive).
+            label: short human label shown on the canvas.
+            config_json: JSON object with the node's config fields.
+            make_start: set True to make this the start node.
+        Returns the new node's id — use it in wire_workflow_nodes.
+        """
+        if not _workflow_tools_allowed(state):
+            return _WORKFLOW_DENIED
+        from . import workflow_tools as _wt
+        cfg, err = _wf_json_obj(config_json, "config_json")
+        if err:
+            return err
+        _out = {}
+        def _mut(definition):
+            r = _wt.add_node(definition, node_type, label, cfg,
+                             user_context=state.get("user_context"), make_start=make_start)
+            _out.update(r)
+            return r
+        msg, res = await _wf_mutate_and_save(workflow, _mut)
+        if res and _out.get("node_id"):
+            msg = f"Added node [{_out['node_id']}] {_out.get('type')}. " + msg
+        return msg
+
+    @lc_tool
+    async def update_workflow_node(workflow: str, node_id: str,
+                                   config_json: str = "", label: str = "") -> str:
+        """Update an existing node's config (merge) and/or label, then save.
+
+        Args:
+            workflow: the workflow's exact name or numeric id.
+            node_id: the node id (from add_workflow_node / get_workflow_structure).
+            config_json: JSON object of config fields to set/overwrite.
+            label: new label (optional).
+        """
+        if not _workflow_tools_allowed(state):
+            return _WORKFLOW_DENIED
+        from . import workflow_tools as _wt
+        cfg, err = _wf_json_obj(config_json, "config_json")
+        if err:
+            return err
+        msg, _ = await _wf_mutate_and_save(
+            workflow, lambda d: _wt.update_node(d, node_id, cfg or None, label or None))
+        return msg
+
+    @lc_tool
+    async def remove_workflow_node(workflow: str, node_id: str) -> str:
+        """Remove a node and every edge touching it, then save. If it was the
+        start node, the start moves to the first remaining node — re-wire and
+        re-set the start as needed.
+
+        Args:
+            workflow: the workflow's exact name or numeric id.
+            node_id: the node id to remove.
+        """
+        if not _workflow_tools_allowed(state):
+            return _WORKFLOW_DENIED
+        from . import workflow_tools as _wt
+        msg, _ = await _wf_mutate_and_save(workflow, lambda d: _wt.remove_node(d, node_id))
+        return msg
+
+    @lc_tool
+    async def wire_workflow_nodes(workflow: str, from_node: str, to_node: str,
+                                  on: str = "pass") -> str:
+        """Connect two nodes with an edge, then save. SLOT RULE: a node gets ONE
+        outgoing 'pass' OR 'complete' edge (mutually exclusive) plus at most ONE
+        'fail' edge — a competing edge is REJECTED; unwire the old edge first
+        when inserting a node between two wired nodes.
+
+        Args:
+            workflow: the workflow's exact name or numeric id.
+            from_node: source node id.
+            to_node: target node id.
+            on: 'pass' (success), 'fail', or 'complete' (either outcome).
+        """
+        if not _workflow_tools_allowed(state):
+            return _WORKFLOW_DENIED
+        from . import workflow_tools as _wt
+        msg, _ = await _wf_mutate_and_save(workflow, lambda d: _wt.wire(d, from_node, to_node, on))
+        return msg
+
+    @lc_tool
+    async def unwire_workflow_nodes(workflow: str, from_node: str, to_node: str,
+                                    on: str = "") -> str:
+        """Remove an edge between two nodes, then save. Leave `on` empty to
+        remove every edge between the pair, or 'pass'/'fail'/'complete' for
+        just that type.
+
+        Args:
+            workflow: the workflow's exact name or numeric id.
+            from_node: source node id of the edge to remove.
+            to_node: target node id of the edge to remove.
+            on: edge type to remove, or empty for all.
+        """
+        if not _workflow_tools_allowed(state):
+            return _WORKFLOW_DENIED
+        from . import workflow_tools as _wt
+        msg, _ = await _wf_mutate_and_save(
+            workflow, lambda d: _wt.unwire(d, from_node, to_node, on or None))
+        return msg
+
+    @lc_tool
+    async def set_workflow_start(workflow: str, node_id: str) -> str:
+        """Mark a node as the workflow's start node (exactly one node runs
+        first), then save.
+
+        Args:
+            workflow: the workflow's exact name or numeric id.
+            node_id: the node to start from.
+        """
+        if not _workflow_tools_allowed(state):
+            return _WORKFLOW_DENIED
+        from . import workflow_tools as _wt
+        msg, _ = await _wf_mutate_and_save(workflow, lambda d: _wt.set_start(d, node_id))
+        return msg
+
+    @lc_tool
+    async def set_workflow_variable(workflow: str, name: str, var_type: str = "string",
+                                    default_value: str = "", description: str = "") -> str:
+        """Declare (or overwrite) a workflow variable, then save. Nodes reference
+        variables with ${name} substitution (e.g. a Database query's
+        ${customerId}, an Alert's ${total}).
+
+        Args:
+            workflow: the workflow's exact name or numeric id.
+            name: variable name (referenced as ${name}).
+            var_type: 'string' | 'number' | 'boolean' | 'array' | 'object'.
+            default_value: default value as a string.
+            description: what the variable holds.
+        """
+        if not _workflow_tools_allowed(state):
+            return _WORKFLOW_DENIED
+        from . import workflow_tools as _wt
+        msg, _ = await _wf_mutate_and_save(
+            workflow, lambda d: _wt.set_variable(d, name, var_type, default_value, description))
+        return msg
+
+    @lc_tool
+    async def run_workflow(workflow: str, variables_json: str = "",
+                           wait_seconds: int = 90) -> str:
+        """Execute a visual workflow NOW and report the honest outcome. ⚠ THIS
+        REALLY RUNS the workflow with live connections — nodes that write, send,
+        or upload perform those side effects for real. The engine runs it
+        asynchronously: this tool waits up to wait_seconds and then reports the
+        REAL status — a run still executing is reported as running (check later
+        with check_workflow_run), NEVER as success. GROUNDING: report only what
+        this tool returns.
+
+        Args:
+            workflow: the workflow's exact name or numeric id.
+            variables_json: JSON object of runtime variable values (optional).
+            wait_seconds: how long to wait for completion (10–300, default 90).
+        """
+        if not _workflow_tools_allowed(state):
+            return _WORKFLOW_DENIED
+        from . import workflow_tools as _wt
+        variables, err = _wf_json_obj(variables_json, "variables_json")
+        if err:
+            return err
+        got = await asyncio.to_thread(_wt.get_definition, workflow)
+        if not got.get("ok"):
+            return f"Could not load the workflow: {got.get('error')}"
+        if not got["definition"].get("nodes"):
+            return (f"Workflow '{got['name']}' (id {got['id']}) is EMPTY — nothing to run. "
+                    f"Add nodes first; do not report this as a successful run.")
+        issues = _wt.local_issues(got["definition"])
+        started = await asyncio.to_thread(_wt.start_run, got["id"], variables or None)
+        if not started.get("ok"):
+            pre = f" (known structural issues: {'; '.join(issues)})" if issues else ""
+            return f"❌ Run failed to start: {started.get('error')}{pre}"
+        exec_id = started.get("execution_id")
+        wait = max(10, min(int(wait_seconds or 90), 300))
+        outcome = await asyncio.to_thread(_wt.wait_for_outcome, str(exec_id), wait)
+        return _wt.summarize_run(outcome)
+
+    @lc_tool
+    async def check_workflow_run(execution_id: str) -> str:
+        """Read a workflow run's CURRENT status and per-step outcomes (for runs
+        started earlier or still executing). GROUNDING: report exactly what this
+        returns — running is running, failed is failed.
+
+        Args:
+            execution_id: the execution id run_workflow returned.
+        """
+        if not _workflow_tools_allowed(state):
+            return _WORKFLOW_DENIED
+        from . import workflow_tools as _wt
+        outcome = await asyncio.to_thread(_wt.get_run_status, execution_id)
+        return _wt.summarize_run(outcome)
+
     tools = [query_data_agent, query_general_agent, delegate_to_builder_agent, save_user_preference, recall_all_memories, forget_preference, switch_active_agent, export_data, read_artifact, run_generated_tool, manipulate_pdf, generate_map, search_web, send_email, get_my_contact_info]
     if IMAGE_GENERATION_ENABLED:
         tools.append(generate_image)
@@ -4782,6 +5190,23 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         tools.append(dry_run_code_flow)
         tools.append(run_code_flow)
         tools.append(schedule_code_flow)
+    # Native visual-workflow tools: ONLY on native-impl Developer turns. A
+    # classic turn's LLM never sees these, so the A/B separation is structural
+    # (bind-time), not prompt-dependent — and a native non-Developer is refused
+    # the same way automations are (AIHUB-0028 F2 discipline).
+    if _native_impl(state) and _workflow_tools_allowed(state):
+        tools.append(list_workflows)
+        tools.append(get_workflow_structure)
+        tools.append(create_workflow)
+        tools.append(add_workflow_node)
+        tools.append(update_workflow_node)
+        tools.append(remove_workflow_node)
+        tools.append(wire_workflow_nodes)
+        tools.append(unwire_workflow_nodes)
+        tools.append(set_workflow_start)
+        tools.append(set_workflow_variable)
+        tools.append(run_workflow)
+        tools.append(check_workflow_run)
     if _PORTAL_FETCH_ENABLED:
         tools.append(fetch_from_portal)
         tools.append(check_portal_download)
@@ -4814,6 +5239,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             active_deleg = None
             _used_code_flow_tool = False   # AIHUB-0035: set the continuity marker
             _code_flow_name = None
+            _used_workflow_tool = False    # native agent: visual_workflow marker twin
+            _workflow_ref = None
 
             for tc in response.tool_calls:
                 tool_name = tc["name"]
@@ -4822,6 +5249,10 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 if tool_name in _CODE_FLOW_TOOL_NAMES:
                     _used_code_flow_tool = True
                     _code_flow_name = (tool_args or {}).get("name") or _code_flow_name
+                if tool_name in _WORKFLOW_TOOL_NAMES:
+                    _used_workflow_tool = True
+                    _workflow_ref = ((tool_args or {}).get("workflow")
+                                     or (tool_args or {}).get("name") or _workflow_ref)
 
                 # Execute the tool — ALL tools must be handled
                 tool_map = {
@@ -4887,6 +5318,23 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     "dry_run_code_flow": dry_run_code_flow,
                     "run_code_flow": run_code_flow,
                     "schedule_code_flow": schedule_code_flow,
+                    # Native visual-workflow tools (CC_AGENT="native") — MUST
+                    # be here too (the AIHUB-0028 dual-registration trap: a
+                    # tool bound to the LLM but missing from tool_map falls
+                    # through to "Unknown tool" and never executes). Each
+                    # re-checks the Developer gate internally.
+                    "list_workflows": list_workflows,
+                    "get_workflow_structure": get_workflow_structure,
+                    "create_workflow": create_workflow,
+                    "add_workflow_node": add_workflow_node,
+                    "update_workflow_node": update_workflow_node,
+                    "remove_workflow_node": remove_workflow_node,
+                    "wire_workflow_nodes": wire_workflow_nodes,
+                    "unwire_workflow_nodes": unwire_workflow_nodes,
+                    "set_workflow_start": set_workflow_start,
+                    "set_workflow_variable": set_workflow_variable,
+                    "run_workflow": run_workflow,
+                    "check_workflow_run": check_workflow_run,
                 }
 
                 tool_fn = tool_map.get(tool_name)
@@ -5110,6 +5558,9 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     result["active_delegation"] = active_deleg
                 if _used_code_flow_tool:
                     result["code_flow_context"] = {"name": _code_flow_name}
+                elif _used_workflow_tool:
+                    result["code_flow_context"] = {"name": _workflow_ref,
+                                                   "kind": "visual_workflow"}
                 return result
 
             # Send tool results back to LLM for final response
@@ -5165,6 +5616,10 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     if tool_name in _CODE_FLOW_TOOL_NAMES:
                         _used_code_flow_tool = True
                         _code_flow_name = (tool_args or {}).get("name") or _code_flow_name
+                    if tool_name in _WORKFLOW_TOOL_NAMES:
+                        _used_workflow_tool = True
+                        _workflow_ref = ((tool_args or {}).get("workflow")
+                                         or (tool_args or {}).get("name") or _workflow_ref)
                     _k = _call_key(tool_name, tool_args)
                     if _k in _seen_calls:
                         logger.warning(
@@ -5237,6 +5692,9 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                         result["active_delegation"] = active_deleg
                     if _used_code_flow_tool:
                         result["code_flow_context"] = {"name": _code_flow_name}
+                    elif _used_workflow_tool:
+                        result["code_flow_context"] = {"name": _workflow_ref,
+                                                       "kind": "visual_workflow"}
                     return result
 
                 _convo = _convo + [final_response] + tool_results_n
@@ -5294,6 +5752,9 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 result["active_delegation"] = active_deleg
             if _used_code_flow_tool:
                 result["code_flow_context"] = {"name": _code_flow_name}
+            elif _used_workflow_tool:
+                result["code_flow_context"] = {"name": _workflow_ref,
+                                               "kind": "visual_workflow"}
             return result
 
         # Sanitize even non-tool responses

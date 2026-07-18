@@ -136,3 +136,10 @@ class CommandCenterState(TypedDict, total=False):
 
     # Trace context (per user turn) — used by Inspector
     trace: Optional[Dict[str, Any]]  # {trace_id, user_id, session_id, user_message, created_at}
+
+    # A/B agent implementation for this turn: "classic" (default) | "native".
+    # Set by chat.py from CC_AGENT / the request's agent_impl override. MUST be
+    # a declared channel — LangGraph silently drops node-returned keys absent
+    # from the schema (the AIHUB-0034 lesson, learned on the builder's graph).
+    # Absent/empty means "classic": the native agent is opt-in at every seam.
+    agent_impl: str

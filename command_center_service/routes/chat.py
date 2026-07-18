@@ -129,6 +129,23 @@ async def chat(request: Request):
     # default timezone for scheduled cron times when the user names no explicit zone.
     browser_tz = body.get("timezone")
 
+    # ── A/B agent implementation (CC_AGENT + optional per-request override) ──
+    # "classic" = today's agent (build → builder delegation). "native" = the
+    # experimental agent whose visual-workflow builds use CC's own deterministic
+    # tools. The override lets a test session drive "native" while the service
+    # default — and every other user — stays on CC_AGENT (normally classic).
+    # Unknown values fall back to the service default; the default falls back
+    # to classic, so this can never change behavior unless explicitly asked to.
+    from cc_config import CC_AGENT as _CC_AGENT_DEFAULT, CC_AGENT_ALLOW_OVERRIDE
+    _impl_requested = str(body.get("agent_impl") or "").strip().lower()
+    if CC_AGENT_ALLOW_OVERRIDE and _impl_requested in ("classic", "native"):
+        agent_impl = _impl_requested
+    else:
+        agent_impl = "native" if _CC_AGENT_DEFAULT == "native" else "classic"
+    if agent_impl != "classic":
+        logger.info(f"[chat] agent_impl={agent_impl}"
+                    + (" (per-request override)" if _impl_requested else " (service default)"))
+
     # ---- Identity: trust the signed CC session JWT, NOT the request body. ----
     # The token is sent as `Authorization: Bearer <jwt>` (fallback: body.token).
     # Body `user_context` is no longer trusted as the identity source — it can
@@ -363,8 +380,11 @@ async def chat(request: Request):
                     session_id=trace_meta.session_id,
                 )
 
-            # Send session info (including auto-generated title)
-            yield _sse_event("session", {"session_id": session_id, "title": session_title})
+            # Send session info (including auto-generated title). agent_impl is
+            # included so an A/B test can VERIFY which agent handled the turn
+            # instead of trusting the request it sent.
+            yield _sse_event("session", {"session_id": session_id, "title": session_title,
+                                         "agent_impl": agent_impl})
 
             # Load conversation history for context continuity
             from langchain_core.messages import AIMessage as _AIMessage
@@ -423,6 +443,8 @@ async def chat(request: Request):
             # follow-ups ("now dry-run it") stay in converse across turns.
             if session_state.get("code_flow_context"):
                 graph_input["code_flow_context"] = session_state["code_flow_context"]
+            # A/B agent implementation for this turn (declared state channel).
+            graph_input["agent_impl"] = agent_impl
 
             # ── Load user preferences (Layer 2: cross-session, simple DB read) ─
             user_memory_context = ""

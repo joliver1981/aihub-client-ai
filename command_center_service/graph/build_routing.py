@@ -79,6 +79,51 @@ def looks_like_code_flow_followup(text: str) -> bool:
     return len(t.split()) <= 6 and bool(_CODE_FLOW_CONTINUE.match(t))
 
 
+# ── Native-agent (CC_AGENT="native") visual-workflow routing ──────────────
+# Under the native A/B agent, a build request that is about a VISUAL WORKFLOW
+# itself is handled in `converse` with CC's own deterministic workflow tools
+# instead of the builder delegation. Phase 1 keeps NON-workflow platform
+# objects (agents, MCP, knowledge bases, custom tools, connections) on the
+# classic builder path, so a request naming one of those — even alongside a
+# workflow — conservatively keeps the builder path, which can build both.
+
+_VISUAL_WORKFLOW_SIGNAL = re.compile(r"\b(?:visual\s+)?work\s?flows?\b|\bcanvas\b", re.I)
+
+_NON_WORKFLOW_OBJECT = re.compile(
+    r"\b(agent|assistant|chatbot|mcp\s*server|mcp|knowledge\s*base|custom\s+tool|"
+    r"data\s+agent|integration)\b", re.I)
+
+# Follow-up cues within an ONGOING native workflow-authoring conversation —
+# the visual_workflow twin of _CODE_FLOW_FOLLOWUP, matched only when a
+# code_flow_context marker with kind="visual_workflow" is set (which only the
+# native agent's workflow tools write, so classic routing never sees this).
+_WORKFLOW_FOLLOWUP = re.compile(
+    r"\b(work\s?flows?|the\s+flow|node|step|wire|unwire|connect|edge|"
+    r"start\s+node|variable|run\s+it|test\s+it|save\s+it|schedule\s+it|"
+    r"add\s+(?:a\s+|an\s+)?\w{0,20}\s?(?:node|step)|fix|update|remove|delete|rename)\b", re.I)
+
+
+def looks_like_visual_workflow_build(text: str) -> bool:
+    """True when a build-intent turn is about a visual workflow itself — the
+    native agent builds those with its own tools. False when a non-workflow
+    platform object is (also) requested: those keep the classic builder path
+    in phase 1, and the builder can include the workflow part too."""
+    t = text or ""
+    if not _VISUAL_WORKFLOW_SIGNAL.search(t):
+        return False
+    return not (_NON_WORKFLOW_OBJECT.search(t) or _OBJECT_BUILD_CONN.search(t))
+
+
+def looks_like_workflow_followup(text: str) -> bool:
+    """Follow-up matcher for an ongoing NATIVE workflow-authoring session
+    (marker kind="visual_workflow"). Same shape as looks_like_code_flow_followup:
+    workflow-ish cues anywhere, or a terse standalone continuation."""
+    t = (text or "").strip()
+    if _WORKFLOW_FOLLOWUP.search(t):
+        return True
+    return len(t.split()) <= 6 and bool(_CODE_FLOW_CONTINUE.match(t))
+
+
 def looks_like_code_process(text: str) -> bool:
     """True for a clear code/data process with no object-builder signal.
 

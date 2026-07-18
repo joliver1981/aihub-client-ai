@@ -15,6 +15,25 @@ def route_by_intent(state: CommandCenterState) -> str:
     intent = state.get("intent", "chat")
     logger.info(f"Routing by intent: {intent}")
 
+    # ── Native A/B agent (CC_AGENT="native"): visual-workflow builds are
+    # handled by converse's OWN deterministic workflow tools, never the
+    # builder delegation. This single gate sits at the one chokepoint every
+    # classify_intent branch converges on, so it covers the capability
+    # router, the intent classifier, and the legacy guards alike. Classic
+    # turns (agent_impl absent or != "native") fall through untouched.
+    if intent == "build" and (state.get("agent_impl") or "classic") == "native":
+        try:
+            from graph.build_routing import looks_like_visual_workflow_build
+            _msgs = state.get("messages", [])
+            _last = _msgs[-1] if _msgs else None
+            _text = str(getattr(_last, "content", "") or "")
+            if looks_like_visual_workflow_build(_text):
+                logger.info("[route_by_intent] native agent: visual-workflow build → "
+                            "converse (native workflow tools)")
+                return "converse"
+        except Exception as _nw_err:
+            logger.debug(f"[route_by_intent] native workflow gate skipped: {_nw_err}")
+
     route_map = {
         "chat": "converse",
         "query": "gather_data",

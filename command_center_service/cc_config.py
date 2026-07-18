@@ -279,6 +279,39 @@ CC_UI_NEXT_GEN = CC_UI == "next_gen"
 """True when the experimental Ops Command Room UI is selected."""
 
 
+# ─── Agent Implementation Toggle (A/B) ──────────────────────────────────
+#
+# CC_AGENT selects which agent implementation handles a chat turn — the A/B
+# switch for the native-build Command Center agent (2026-07 architecture
+# assessment, Option B) and the production rollback lever.
+#   - "classic" (default) → today's agent: build requests route to the build
+#                           node and delegate to builder_service.
+#   - "native"            → the experimental agent: VISUAL WORKFLOWS are built
+#                           with CC's own deterministic workflow tools (the
+#                           Code Flows pattern — graph/workflow_tools.py, saving
+#                           through the main app's guarded /save/workflow).
+#                           Non-workflow object builds (agents, connections,
+#                           MCP, …) still use the classic builder path in
+#                           phase 1.
+# Anything other than "native" falls back to "classic", so historical behavior
+# is preserved when the variable is unset, empty, or mistyped.
+#
+# Per-request A/B: /api/chat also accepts a top-level "agent_impl" body field
+# ("classic" | "native") that overrides CC_AGENT for that request when
+# CC_AGENT_ALLOW_OVERRIDE is true (default) — so the native agent can be
+# driven in a test session while the service default (and every other user)
+# stays classic. Set CC_AGENT_ALLOW_OVERRIDE=false to pin the whole service
+# to CC_AGENT in production.
+CC_AGENT = os.getenv("CC_AGENT", "classic").strip().lower()
+"""Command Center agent implementation. 'classic' (default) or 'native'."""
+
+CC_AGENT_NATIVE = CC_AGENT == "native"
+"""True when the native-build agent is the service default."""
+
+CC_AGENT_ALLOW_OVERRIDE = os.getenv("CC_AGENT_ALLOW_OVERRIDE", "true").lower() == "true"
+"""Allow per-request agent_impl override on /api/chat (A/B testing)."""
+
+
 # ─── Feature Toggles ────────────────────────────────────────────────────
 
 IMAGE_GENERATION_ENABLED = os.getenv("CC_IMAGE_GENERATION_ENABLED", "true").lower() == "true"
