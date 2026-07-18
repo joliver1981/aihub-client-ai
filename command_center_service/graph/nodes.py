@@ -47,6 +47,16 @@ _WORKFLOW_TOOL_NAMES = frozenset({
     "add_workflow_node", "update_workflow_node", "remove_workflow_node",
     "wire_workflow_nodes", "unwire_workflow_nodes", "set_workflow_start",
     "set_workflow_variable", "run_workflow", "check_workflow_run",
+    "insert_workflow_node_between",
+})
+
+# AIHUB-0048 F1: native mutating tools — a reply claiming a completed build
+# change is only honest when one of these actually ran this turn.
+_WORKFLOW_MUTATING_TOOL_NAMES = frozenset({
+    "create_workflow", "add_workflow_node", "update_workflow_node",
+    "remove_workflow_node", "wire_workflow_nodes", "unwire_workflow_nodes",
+    "set_workflow_start", "set_workflow_variable",
+    "insert_workflow_node_between",
 })
 
 
@@ -1103,6 +1113,66 @@ async def _classify_build_shape(user_text: str, state: "CommandCenterState") -> 
 
 # ─── Node: classify_intent ────────────────────────────────────────────────
 
+_MUTATION_CLAIM_RE = None
+
+
+def _claims_completed_mutation(text: str) -> bool:
+    """AIHUB-0048 F1: True when a reply asserts a JUST-COMPLETED build/edit
+    mutation (the live fabrication: '✅ Inserted Set Variable node … Current
+    persisted structure: […]' with zero tool calls). Tuned tight to
+    first-person/checkmarked completion claims so recaps of earlier turns
+    don't false-positive."""
+    global _MUTATION_CLAIM_RE
+    import re as _re
+    if _MUTATION_CLAIM_RE is None:
+        _MUTATION_CLAIM_RE = _re.compile(
+            r"(current persisted structure)"
+            r"|(✅\s*(inserted|added|removed|updated|saved|created|wired|rewired|deleted))"
+            r"|(\bI(?:'|’)?ve\s+(?:now\s+)?(inserted|added|removed|updated|saved|created|"
+            r"wired|rewired|deleted)\b[^.\n]{0,60}\b(node|edge|connection|workflow|step|variable)\b)",
+            _re.I)
+    return bool(_MUTATION_CLAIM_RE.search(text or ""))
+
+
+class _ToolRepeatGuard:
+    """AIHUB-0028 anti-repeat, made PROGRESS-AWARE for AIHUB-0048 F2.
+
+    The original guard short-circuited any verbatim (tool, args) repeat in a
+    turn — which also killed LEGITIMATE retries whose preconditions had been
+    fixed by intervening calls (live: wire(Q→MID) failed on a competing edge,
+    the agent unwired Q→A, then retried wire(Q→MID) and got the cached STOP —
+    leaving the graph edge-less). Rule now: short-circuit ONLY when nothing
+    else has executed since that exact call's last attempt (a true no-progress
+    loop); if other calls ran in between, allow the retry and re-record it."""
+
+    def __init__(self):
+        self._results = {}
+        self._seq = {}
+        self._counter = 0
+
+    @staticmethod
+    def key(name, args):
+        try:
+            return name + "|" + json.dumps(args, sort_keys=True, default=str)
+        except Exception:
+            return name + "|" + str(args)
+
+    def record(self, name, args, result):
+        k = self.key(name, args)
+        self._counter += 1
+        self._results[k] = str(result)
+        self._seq[k] = self._counter
+
+    def cached_if_no_progress(self, name, args):
+        """Return the cached result to short-circuit with, or None to allow."""
+        k = self.key(name, args)
+        if k not in self._results:
+            return None
+        if self._seq.get(k) == self._counter:
+            return self._results[k]      # nothing ran since — a no-progress loop
+        return None                      # world changed — legitimate retry
+
+
 def _builder_in_flight(active) -> bool:
     """AIHUB-0043: True only for a builder delegation that is genuinely IN
     FLIGHT (mid-build / awaiting an answer). A completed/partial/failed build
@@ -1927,7 +1997,13 @@ async def converse(state: CommandCenterState) -> dict:
             "(on='pass'|'fail'|'complete') → get_workflow_structure to review → run_workflow to test. "
             "Edit with update_workflow_node / remove_workflow_node / unwire_workflow_nodes / "
             "set_workflow_start / set_workflow_variable. check_workflow_run reads a run's honest "
-            "per-step outcome later.\n"
+            "per-step outcome later. To INSERT a node between two already-wired nodes ALWAYS use "
+            "insert_workflow_node_between (ONE atomic call: adds + rewires from→new→to, rolls back "
+            "on failure) — never a manual add+unwire+wire+wire sequence, which can be interrupted "
+            "and leave the workflow disconnected.\n"
+            "- EDITS RUN TOOLS (non-negotiable): NEVER claim you inserted/added/removed/rewired/"
+            "saved anything unless the matching tool ran THIS turn and its result confirms it. If "
+            "you did not call a tool, say plainly that no change has been made yet.\n"
             "- GROUNDING (non-negotiable): every save returns a 🧾 read-back of what the saved row "
             "REALLY contains plus the server's validity verdict. Describe the workflow ONLY from that "
             "read-back — never restate the user's request as if it were all built. If it says "
@@ -5044,6 +5120,39 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         return msg
 
     @lc_tool
+    async def insert_workflow_node_between(workflow: str, node_type: str,
+                                           from_node: str, to_node: str,
+                                           label: str = "",
+                                           config_json: str = "") -> str:
+        """Insert a new node BETWEEN two already-wired nodes in ONE atomic
+        operation: adds the node, removes the old from→to edge, and wires
+        from→new→to — then saves once. ALWAYS use this (never a manual
+        add + unwire + wire + wire sequence) when the user asks to insert a
+        step between two existing steps; a manual sequence can be interrupted
+        and leave the workflow disconnected. On any failure nothing changes.
+
+        Args:
+            workflow: the workflow's exact name or numeric id.
+            node_type: a catalog node type (exact name, case-insensitive).
+            from_node: the existing upstream node id (edge source).
+            to_node: the existing downstream node id (edge target).
+            label: short human label shown on the canvas.
+            config_json: JSON object with the new node's config fields.
+        Returns the new node's id and the rewired path.
+        """
+        if not _workflow_tools_allowed(state):
+            return _WORKFLOW_DENIED
+        from . import workflow_tools as _wt
+        cfg, err = _wf_json_obj(config_json, "config_json")
+        if err:
+            return err
+        msg, _ = await _wf_mutate_and_save(
+            workflow,
+            lambda d: _wt.insert_between(d, node_type, label, cfg, from_node, to_node,
+                                         user_context=state.get("user_context")))
+        return msg
+
+    @lc_tool
     async def unwire_workflow_nodes(workflow: str, from_node: str, to_node: str,
                                     on: str = "") -> str:
         """Remove an edge between two nodes, then save. Leave `on` empty to
@@ -5202,6 +5311,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         tools.append(update_workflow_node)
         tools.append(remove_workflow_node)
         tools.append(wire_workflow_nodes)
+        tools.append(insert_workflow_node_between)
         tools.append(unwire_workflow_nodes)
         tools.append(set_workflow_start)
         tools.append(set_workflow_variable)
@@ -5241,6 +5351,11 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             _code_flow_name = None
             _used_workflow_tool = False    # native agent: visual_workflow marker twin
             _workflow_ref = None
+            # AIHUB-0048 F1: track whether a MUTATING workflow tool ran this turn
+            # and stash the last 🧾 read-back so the final reply's persisted-state
+            # claim is pinned to tool evidence, never LLM narration.
+            _wf_mutated = False
+            _wf_last_readback = None
 
             for tc in response.tool_calls:
                 tool_name = tc["name"]
@@ -5330,6 +5445,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     "update_workflow_node": update_workflow_node,
                     "remove_workflow_node": remove_workflow_node,
                     "wire_workflow_nodes": wire_workflow_nodes,
+                    "insert_workflow_node_between": insert_workflow_node_between,
                     "unwire_workflow_nodes": unwire_workflow_nodes,
                     "set_workflow_start": set_workflow_start,
                     "set_workflow_variable": set_workflow_variable,
@@ -5389,6 +5505,11 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 )
 
                 tool_results.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+                # AIHUB-0048 F1: capture mutation + read-back evidence (round 1)
+                if tool_name in _WORKFLOW_MUTATING_TOOL_NAMES:
+                    _wf_mutated = True
+                    if "🧾" in str(result):
+                        _wf_last_readback = str(result)
                 # Log the tool RESULT preview to the service log (not just the
                 # trace, which truncates) so a tool that returns an error string
                 # — e.g. "Could not create the automation: <reason>" — is
@@ -5596,15 +5717,13 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             # wrap-up). Track (tool, args) already tried this turn; a verbatim
             # repeat is answered from cache with a firm "stop repeating" nudge
             # instead of re-executing. Seed from round 1.
-            def _call_key(name, args):
-                try:
-                    return name + "|" + json.dumps(args, sort_keys=True, default=str)
-                except Exception:
-                    return name + "|" + str(args)
-
-            _seen_calls = {}
+            # AIHUB-0048 F2: progress-aware (see _ToolRepeatGuard) — a verbatim
+            # repeat is only short-circuited when NOTHING else executed since
+            # its last attempt; a retry after intervening calls (fixed
+            # preconditions, e.g. re-wiring after an unwire) runs for real.
+            _repeat_guard = _ToolRepeatGuard()
             for _tc0, _tr0 in zip(getattr(response, "tool_calls", []) or [], tool_results):
-                _seen_calls[_call_key(_tc0["name"], _tc0["args"])] = str(_tr0.content)
+                _repeat_guard.record(_tc0["name"], _tc0["args"], _tr0.content)
 
             while _has_tc and _round < _MAX_TOOL_ROUNDS:
                 _round += 1
@@ -5620,19 +5739,19 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                         _used_workflow_tool = True
                         _workflow_ref = ((tool_args or {}).get("workflow")
                                          or (tool_args or {}).get("name") or _workflow_ref)
-                    _k = _call_key(tool_name, tool_args)
-                    if _k in _seen_calls:
+                    _cached = _repeat_guard.cached_if_no_progress(tool_name, tool_args)
+                    if _cached is not None:
                         logger.warning(
                             f"[converse] Round {_round}: repeated identical call "
-                            f"{tool_name}(...) — short-circuiting to break the loop"
+                            f"{tool_name}(...) with NO intervening progress — short-circuiting"
                         )
                         rn = (
-                            f"STOP — you already called {tool_name} with these exact arguments this "
-                            f"turn and it returned: {_seen_calls[_k][:600]}. Do not call it again "
-                            f"unchanged. Either change the arguments to fix the problem, call a "
-                            f"different tool to make progress, or stop and tell the user the real "
-                            f"outcome truthfully (including the error above). Never claim the tool is "
-                            f"unavailable — it was called and returned the result shown."
+                            f"STOP — you already called {tool_name} with these exact arguments and "
+                            f"nothing else has run since; it returned: {_cached[:600]}. Do not call "
+                            f"it again unchanged. Either change the arguments to fix the problem, "
+                            f"call a different tool to make progress, or stop and tell the user the "
+                            f"real outcome truthfully (including the error above). Never claim the "
+                            f"tool is unavailable — it was called and returned the result shown."
                         )
                         tool_results_n.append(ToolMessage(content=str(rn), tool_call_id=tc["id"]))
                         continue
@@ -5651,7 +5770,12 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                             )
                     else:
                         rn = f"Unknown tool: {tool_name}"
-                    _seen_calls[_k] = str(rn)
+                    _repeat_guard.record(tool_name, tool_args, rn)
+                    # AIHUB-0048 F1: capture mutation + read-back evidence (round N)
+                    if tool_name in _WORKFLOW_MUTATING_TOOL_NAMES:
+                        _wf_mutated = True
+                        if "🧾" in str(rn):
+                            _wf_last_readback = str(rn)
                     logger.info(f"[converse] Round {_round} '{tool_name}' result: {str(rn)[:300]}")
                     tool_results_n.append(ToolMessage(content=str(rn), tool_call_id=tc["id"]))
 
@@ -5730,6 +5854,21 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             # ── Output sanitizer: catch raw JSON / tool metadata leaking to user ──
             final_response = _sanitize_llm_response(final_response, llm)
 
+            # AIHUB-0048 F1: pin the persisted state to tool evidence. When a
+            # mutating workflow tool ran this turn, the reply always ends with
+            # the LAST save's 🧾 read-back verbatim (the 0038 output-pin
+            # doctrine — the narration above cannot be the only description of
+            # what persisted).
+            if _wf_mutated and _wf_last_readback:
+                _rb_idx = _wf_last_readback.find("🧾")
+                _rb_pin = (_wf_last_readback[_rb_idx:] if _rb_idx >= 0
+                           else _wf_last_readback)[:900]
+                _cur = final_response.content if hasattr(final_response, "content") else ""
+                if "🧾" not in (_cur or "")[-1000:]:
+                    final_response = AIMessage(content=(
+                        (_cur or "") + "\n\n📋 **Authoritative persisted state "
+                        "(deterministic read-back of the saved row):**\n" + _rb_pin))
+
             # P5-1: if a tool returned chips inside MIXED output (e.g. a delegated
             # agent's [text, artifact]), the follow-up LLM only produced prose —
             # append the salvaged chips so the download/CTA still reaches the user
@@ -5759,6 +5898,29 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
 
         # Sanitize even non-tool responses
         response = _sanitize_llm_response(response, llm)
+
+        # AIHUB-0048 F1 (blocker, live): with ZERO tool calls this turn, the
+        # model fabricated "✅ Inserted … / Current persisted structure: […]" —
+        # a claimed, saved structural edit that never happened (DB read-back
+        # proved the row unchanged). Deterministic fail-closed guard: a no-tool
+        # reply that claims a just-completed build mutation gets the truth
+        # appended — nothing ran, nothing changed.
+        _nt_text = response.content if hasattr(response, "content") else ""
+        if isinstance(_nt_text, str) and _claims_completed_mutation(_nt_text):
+            logger.warning("[converse] fabrication guard: no-tool reply claimed a completed "
+                           "mutation — appending the no-changes-were-made correction")
+            try:
+                from graph.tracing import trace_log as _fg_trace
+                _fg_trace(state, event_type="fabrication_guard",
+                          node="converse", payload={"preview": _nt_text[:300]}, level="warning")
+            except Exception:
+                pass
+            response = AIMessage(content=(
+                _nt_text + "\n\n⚠️ **Correction (automatic honesty check):** no build/edit "
+                "tools were executed in this turn, so NO changes were actually made to any "
+                "workflow or resource just now. If the message above describes a change as "
+                "completed, that description is wrong — tell me to actually perform it and "
+                "I will run the real tools."))
         return {"messages": [response]}
     except Exception as e:
         logger.error(f"Conversation failed: {e}", exc_info=True)

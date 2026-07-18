@@ -341,6 +341,44 @@ def unwire(definition: Dict[str, Any], from_id: str, to_id: str,
     return {"ok": True, "removed": removed}
 
 
+def insert_between(definition: Dict[str, Any], node_type: str, label: str,
+                   config: Dict[str, Any], from_id: str, to_id: str,
+                   user_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """AIHUB-0048 F2: ATOMIC in-memory insert-between — add the node and rewire
+    from→new→to as ONE operation (the caller saves once), so a multi-call tool
+    sequence can never be interrupted half-way and leave the graph edge-less
+    (live: the second wire was suppressed and slot-repro-wf persisted with
+    edges=[]). The from→to edge must exist; its edge type carries over to
+    from→new and new→to gets 'pass'. On ANY failure the definition is restored
+    exactly as it was."""
+    import copy as _copy
+    snapshot = _copy.deepcopy(definition)
+    edge = next((c for c in definition.get("connections", [])
+                 if _edge_ends(c)[0] == from_id and _edge_ends(c)[1] == to_id), None)
+    if edge is None:
+        return {"ok": False, "error":
+                f"no edge {from_id} → {to_id} exists to insert into — check the ids "
+                f"(get_workflow_structure) or wire them first"}
+    edge_on = _edge_ends(edge)[2]
+    added = add_node(definition, node_type, label, config, user_context=user_context)
+    if not added.get("ok"):
+        definition.clear()
+        definition.update(snapshot)
+        return added
+    new_id = added["node_id"]
+    r1 = unwire(definition, from_id, to_id, on=edge_on)
+    r2 = wire(definition, from_id, new_id, on=edge_on) if r1.get("ok") else r1
+    r3 = wire(definition, new_id, to_id, on="pass") if r2.get("ok") else r2
+    if not (r1.get("ok") and r2.get("ok") and r3.get("ok")):
+        _err = (r1 if not r1.get("ok") else r2 if not r2.get("ok") else r3).get("error")
+        definition.clear()
+        definition.update(snapshot)
+        return {"ok": False, "error":
+                f"insert-between failed and was fully rolled back (workflow unchanged) — {_err}"}
+    return {"ok": True, "node_id": new_id,
+            "rewired": f"{from_id} —[{edge_on}]→ {new_id} —[pass]→ {to_id}"}
+
+
 def set_start(definition: Dict[str, Any], node_id: str) -> Dict[str, Any]:
     target = _find_node(definition, node_id)
     if not target:
