@@ -114,6 +114,14 @@ def maybe_persist_result_artifacts(
             dfs = [answer]
         elif answer_type == "multi_dataframe" and isinstance(answer, (list, tuple)):
             dfs = [d for d in answer if isinstance(d, pd.DataFrame)]
+        elif answer_type in ("dataframe", "multi_dataframe"):
+            # AIHUB-0023: a dataframe-typed answer that is NOT a DataFrame is a
+            # shape anomaly worth surfacing — a silent [] here cost a full e2e
+            # round of diagnosis.
+            logger.warning(
+                f"[data_export] answer_type={answer_type} but answer is "
+                f"{type(answer).__name__} — no artifact (shape anomaly)")
+            return []
         else:
             return []
 
@@ -127,6 +135,14 @@ def maybe_persist_result_artifacts(
                 )
                 if block:
                     blocks.append(block)
+            else:
+                # AIHUB-0023: the skip must be observable — it doubles as the
+                # one-probe check that the RUNNING process actually loaded the
+                # intended threshold (the e2e round failed on an unloaded .env
+                # edit with nothing in the logs to say so).
+                logger.info(
+                    f"[data_export] dataframe below export threshold "
+                    f"(rows={len(df)} <= threshold={threshold}) — no artifact")
         return blocks
     except Exception as e:
         logger.error(f"[data_export] maybe_persist failed (answer unaffected): {e}")

@@ -78,6 +78,46 @@ def test_threshold_disabled_returns_empty(mgr):
     assert blocks == []
 
 
+# ── AIHUB-0023: reachability + observability of the skip paths ───────────
+
+def test_default_threshold_sits_below_the_live_sql_cap():
+    """The live NLQ engines cap SQL fetches at 10k rows; with the old 10000
+    default the strict len>threshold gate could NEVER fire — Scenario A was
+    unreachable at defaults. The default must stay strictly below the cap."""
+    import re
+    src = (REPO_ROOT / "config.py").read_text(encoding="utf-8")
+    m = re.search(r"ARTIFACT_EXPORT_ROW_THRESHOLD = int\(os\.getenv\("
+                  r"'ARTIFACT_EXPORT_ROW_THRESHOLD', '(\d+)'\)\)", src)
+    assert m, "threshold default not found in config.py"
+    assert int(m.group(1)) < 10000, (
+        f"default {m.group(1)} >= the 10k SQL row cap — the export gate "
+        f"(len > threshold) can never fire at defaults")
+
+
+def test_below_threshold_skip_is_logged(mgr, caplog):
+    """The e2e round failed on an unloaded .env threshold with NOTHING in the
+    logs to say so. The skip line doubles as a one-probe check of the value
+    the RUNNING process actually loaded."""
+    import logging
+    with caplog.at_level(logging.INFO, logger="command_center.artifacts.data_export"):
+        data_export.maybe_persist_result_artifacts(
+            _df(30), "dataframe", "7/s", threshold=25000, manager=mgr)
+    assert any("below export threshold" in r.message
+               and "rows=30" in r.message and "threshold=25000" in r.message
+               for r in caplog.records)
+
+
+def test_dataframe_typed_non_dataframe_answer_warns(mgr, caplog):
+    """answer_type='dataframe' with a stringified answer is a shape anomaly
+    (the export silently no-ops on it) — it must WARN, not vanish."""
+    import logging
+    with caplog.at_level(logging.WARNING, logger="command_center.artifacts.data_export"):
+        blocks = data_export.maybe_persist_result_artifacts(
+            "   id  val\n0   1    2", "dataframe", "7/s", threshold=10, manager=mgr)
+    assert blocks == []
+    assert any("shape anomaly" in r.message for r in caplog.records)
+
+
 def test_default_threshold_from_config(mgr, monkeypatch):
     import config as cfg
     monkeypatch.setattr(cfg, "ARTIFACT_EXPORT_ROW_THRESHOLD", 100, raising=False)
