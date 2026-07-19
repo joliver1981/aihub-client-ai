@@ -5485,14 +5485,37 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             cols = data.get("columns") or []
             if not cols:
                 return (f"Table {table} on connection {conn_id}: no columns returned — "
-                        f"the table may not exist under that exact name; list tables first.")
+                        f"the table may not exist under that exact name; list tables first."
+                        + (f" (live schema error: {data.get('live_error')})"
+                           if data.get("live_error") else ""))
             lines = []
             for c in cols[:120]:
                 cn = c.get("COLUMN_NAME") or c.get("column_name") or "?"
                 ct = c.get("DATA_TYPE") or c.get("data_type") or ""
-                lines.append(f"- {cn}" + (f" ({ct})" if ct else ""))
-            return (f"REAL columns of {table} (connection {conn_id}) — use ONLY these names:\n"
-                    + "\n".join(lines))
+                line = f"- {cn}" + (f" ({ct})" if ct else "")
+                if c.get("is_primary_key"):
+                    line += " [PK]"
+                if c.get("is_foreign_key") and c.get("foreign_key_table"):
+                    line += (f" [FK → {c['foreign_key_table']}"
+                             + (f".{c['foreign_key_column']}" if c.get("foreign_key_column") else "")
+                             + "]")
+                if c.get("column_description"):
+                    line += f" — {str(c['column_description'])[:140]}"
+                lines.append(line)
+            header = f"REAL columns of {table} (connection {conn_id}) — use ONLY these names:"
+            if data.get("table_description"):
+                header += f"\nTable: {str(data['table_description'])[:200]}"
+            if data.get("primary_key_columns"):
+                header += f"\nPrimary key(s): {data['primary_key_columns']}"
+            if data.get("related_tables"):
+                header += f"\nRelated tables: {str(data['related_tables'])[:200]}"
+            src_note = {
+                "live+dictionary": "(live schema, enriched with the Data Dictionary)",
+                "live_only": "(live schema; table not documented in the Data Dictionary)",
+                "dictionary_only": ("⚠ Data Dictionary ONLY — the live schema read failed "
+                                    f"({data.get('live_error')}); names may be stale"),
+            }.get(data.get("source") or "", "")
+            return header + ("\n" + src_note if src_note else "") + "\n" + "\n".join(lines)
         r = _wt._get(f"/api/discover/tables/{conn_id}")
         data = r.get("data") or {}
         if not r.get("ok") or not data.get("success"):

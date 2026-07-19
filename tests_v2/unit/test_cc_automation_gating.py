@@ -454,3 +454,49 @@ class TestAutomationAuthoringContinuity:
         assert "@api_key_or_session_required(min_role=2)" in blk
         assert "missing required query param 'table'" in blk
         assert "get_table_schema_from_database" in blk
+
+
+class TestSchemaDictionaryMerge:
+    """AIHUB-0057 round 1.5 (james's direction): schema discovery consults the
+    curated Data Dictionary (llm_Tables/llm_Columns — descriptions, PK/FK join
+    semantics) MERGED over the live INFORMATION_SCHEMA truth. The dictionary
+    enriches; it never blocks: james's own scenario had TS tables invisible to
+    the metadata agent, so dictionary-only would have failed — the live layer
+    is the safety net, and a live-read failure falls back to the dictionary
+    only with an explicit possibly-stale marker."""
+
+    def _app_src(self):
+        from pathlib import Path as _P
+        return (_P(nodes.__file__).resolve().parents[2] / "app.py").read_text(
+            encoding="utf-8", errors="replace")
+
+    def test_dictionary_helper_reads_both_tables_and_fails_open(self):
+        src = self._app_src()
+        fn = src[src.find("def _data_dictionary_for_table"):]
+        fn = fn[:fn.find("\n@app.route('/api/discover/schema")]
+        assert "FROM llm_Tables WHERE connection_id = ?" in fn
+        assert "FROM llm_Columns WHERE table_id = ?" in fn
+        # qualified OR bare table-name match (storage is inconsistent)
+        assert "table_name = ? OR table_name = ?" in fn
+        # enrichment must fail open — never block the live truth
+        assert "return None" in fn and "enrichment skipped" in fn
+
+    def test_endpoint_merges_and_marks_source_honestly(self):
+        src = self._app_src()
+        i = src.find("def discover_table_schema_api")
+        blk = src[i:i + 6000]
+        assert "'live+dictionary'" in blk and "'live_only'" in blk
+        assert "'dictionary_only'" in blk
+        # dictionary-only fallback carries the live failure reason
+        assert "live_error" in blk
+        # FK join semantics reach the merged columns
+        assert "foreign_key_table" in blk and "foreign_key_column" in blk
+
+    def test_tool_renders_semantics_and_source_notes(self):
+        from pathlib import Path as _P
+        src = _P(nodes.__file__).read_text(encoding="utf-8")
+        tool = src[src.find("async def get_connection_schema"):]
+        tool = tool[:tool.find("async def unwire_workflow_nodes")]
+        assert "[PK]" in tool and "[FK → " in tool
+        assert "enriched with the Data Dictionary" in tool
+        assert "Data Dictionary ONLY" in tool and "may be stale" in tool

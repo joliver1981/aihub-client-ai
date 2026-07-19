@@ -15928,14 +15928,49 @@ def discover_tables_api(connection_id):
         }), 500
 
 
+def _data_dictionary_for_table(connection_id, table):
+    """AIHUB-0057 (james): the curated Data Dictionary layer for one table —
+    table description, PKs, related tables, and per-column descriptions/FK
+    metadata from llm_Tables/llm_Columns. Returns None when the table is not
+    documented. Fail-open: any error returns None (the dictionary ENRICHES
+    the live schema; it must never block it)."""
+    try:
+        bare = table.split('.')[-1]
+        rows = query_app_database(
+            "SELECT id, table_description, primary_key_columns, related_tables "
+            "FROM llm_Tables WHERE connection_id = ? AND (table_name = ? OR table_name = ?)",
+            (connection_id, table, bare))
+        if not rows:
+            return None
+        t = rows[0]
+        cols = query_app_database(
+            "SELECT column_name, column_description, is_primary_key, is_foreign_key, "
+            "foreign_key_table, foreign_key_column, semantic_type "
+            "FROM llm_Columns WHERE table_id = ?", (t['id'],))
+        return {
+            'table_description': t.get('table_description') or '',
+            'primary_key_columns': t.get('primary_key_columns') or '',
+            'related_tables': t.get('related_tables') or '',
+            'columns': {c['column_name']: c for c in (cols or [])},
+        }
+    except Exception as e:
+        logger.warning(f"[discover/schema] data-dictionary enrichment skipped: {e}")
+        return None
+
+
 @app.route('/api/discover/schema/<int:connection_id>')
 @api_key_or_session_required(min_role=2)
 def discover_table_schema_api(connection_id):
     """AIHUB-0057: column-level schema for ONE table on a connection — the
     deterministic grounding the CC agent uses BEFORE authoring SQL (live
     failure: an automation's query invented join columns and only discovered
-    reality when the dry-run failed). Read-only; same gate as the tables
-    discovery above."""
+    reality when the dry-run failed). Two layers, merged (james's direction):
+    the LIVE INFORMATION_SCHEMA is the ground truth (always current, exists
+    for every connection), and the curated Data Dictionary enriches it with
+    descriptions/PK/FK semantics wherever the tenant documented the table.
+    If the live read fails but the dictionary has the table, fall back to
+    dictionary-only WITH an explicit source marker — never silently. Read-
+    only; same gate as the tables discovery above."""
     table = (request.args.get('table') or '').strip()
     if not table:
         return jsonify({'success': False, 'error': "missing required query param 'table'"}), 400
@@ -15945,8 +15980,54 @@ def discover_table_schema_api(connection_id):
         if not target_conn_str:
             return jsonify({'success': False, 'error': 'Connection not found or no connection string'}), 404
         logger.info(f"Discovering schema for {table} on connection {connection_id} ({db_type})")
-        columns = get_table_schema_from_database(execute_sql_query_v2, table, target_conn_str)
-        return jsonify({'success': True, 'table': table, 'columns': columns or []})
+        dictionary = _data_dictionary_for_table(connection_id, table)
+        live_error = None
+        try:
+            columns = get_table_schema_from_database(execute_sql_query_v2, table, target_conn_str) or []
+        except Exception as _live_err:
+            columns, live_error = [], str(_live_err)
+        if columns:
+            if dictionary:
+                dcols = dictionary['columns']
+                for c in columns:
+                    d = dcols.get(c.get('COLUMN_NAME') or c.get('column_name'))
+                    if d:
+                        c['column_description'] = d.get('column_description') or ''
+                        c['is_primary_key'] = d.get('is_primary_key')
+                        c['is_foreign_key'] = d.get('is_foreign_key')
+                        c['foreign_key_table'] = d.get('foreign_key_table') or ''
+                        c['foreign_key_column'] = d.get('foreign_key_column') or ''
+            return jsonify({
+                'success': True, 'table': table, 'columns': columns,
+                'source': 'live+dictionary' if dictionary else 'live_only',
+                'documented': bool(dictionary),
+                'table_description': (dictionary or {}).get('table_description', ''),
+                'primary_key_columns': (dictionary or {}).get('primary_key_columns', ''),
+                'related_tables': (dictionary or {}).get('related_tables', ''),
+            })
+        if dictionary:
+            # Live read failed/empty but the tenant documented this table —
+            # serve the dictionary honestly marked as possibly-stale.
+            dict_columns = [
+                {'COLUMN_NAME': name,
+                 'DATA_TYPE': '',
+                 'column_description': d.get('column_description') or '',
+                 'is_primary_key': d.get('is_primary_key'),
+                 'is_foreign_key': d.get('is_foreign_key'),
+                 'foreign_key_table': d.get('foreign_key_table') or '',
+                 'foreign_key_column': d.get('foreign_key_column') or ''}
+                for name, d in dictionary['columns'].items()]
+            return jsonify({
+                'success': True, 'table': table, 'columns': dict_columns,
+                'source': 'dictionary_only', 'documented': True,
+                'live_error': live_error or 'live schema returned no columns',
+                'table_description': dictionary.get('table_description', ''),
+                'primary_key_columns': dictionary.get('primary_key_columns', ''),
+                'related_tables': dictionary.get('related_tables', ''),
+            })
+        return jsonify({'success': True, 'table': table, 'columns': [],
+                        'source': 'live_only', 'documented': False,
+                        'live_error': live_error})
     except Exception as e:
         logger.error(f"Error discovering schema for {table}: {str(e)}", exc_info=True)
         return jsonify({'success': False, 'error': f"Unexpected error: {str(e)}"}), 500
