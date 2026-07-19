@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import threading
+import time
 import uuid
 from functools import wraps
 from typing import Dict, Optional
@@ -400,14 +401,86 @@ def promote(automation_id):
 
 # --------------------------------------------------------------------- runs
 
+# AIHUB-0058: budget for the INLINE (wait/dry-run) path. The old code blocked
+# in runner.run() until the run terminated — a script pausing at a human-
+# approval checkpoint therefore blocked the HTTP request INDEFINITELY: the CC
+# client read-timed out ("Read timed out"), the agent told the user the run
+# "could not start" (it had — it was WAITING for their decision), and the
+# runner eventually killed the run at the manifest timeout with the approval
+# question never surfaced. Live: expense-audit v2-v5, "seen before" by james.
+_INLINE_WAIT_CAP_S = int(os.getenv("AUTOMATIONS_INLINE_WAIT_CAP_S", "240"))
+_INLINE_POLL_S = 0.5
+
+
+def _await_inline_result(runner, run_id, holder, thread,
+                         cap_s=None, poll_s=None, clock=time, live_payload=None):
+    """Poll a threaded run until it finishes, pauses on a checkpoint, or the
+    inline budget elapses. Returns (payload, http_code). Fast runs return the
+    runner's EXACT result (byte-compatible with the old blocking path); a
+    pending checkpoint returns immediately with the question so the caller can
+    surface it to the human; the cap returns an honest still-running payload.
+    clock/live_payload injectable for tests."""
+    cap_s = _INLINE_WAIT_CAP_S if cap_s is None else cap_s
+    poll_s = _INLINE_POLL_S if poll_s is None else poll_s
+    live_payload = live_payload or _run_live_payload
+    deadline = clock.time() + cap_s
+    while True:
+        if not thread.is_alive() and holder.get("result") is not None:
+            result = holder["result"]
+            return result, (200 if result.get("status") != "error" else 400)
+        run = None
+        try:
+            run = runner.get_run(run_id)
+        except Exception:
+            pass
+        if run and run.get("status") == "waiting":
+            try:
+                pc = (live_payload(run, 0) or {}).get("pending_checkpoint")
+            except Exception:
+                pc = None
+            if pc:
+                return {"status": "waiting", "run_id": run_id,
+                        "waiting_on_checkpoint": True,
+                        "pending_checkpoint": pc,
+                        "note": ("run PAUSED at a human-approval checkpoint — "
+                                 "surface the question and decide via "
+                                 "checkpoint_decision (proceed|abort); the run "
+                                 "is NOT failed and has NOT timed out")}, 200
+        if clock.time() >= deadline:
+            return {"status": "running", "run_id": run_id,
+                    "inline_wait_elapsed": True,
+                    "note": (f"still executing after {cap_s}s — NOT a failure; "
+                             f"poll run_events/runs for the outcome")}, 200
+        clock.sleep(poll_s)
+
+
+def _run_inline(automation_id, inputs, trigger, version, requested_by, dry_run):
+    """Start a run in a worker thread and wait inline per _await_inline_result.
+    Shared by the user route and the internal manage endpoint."""
+    runner = _get_runner()
+    run_id = str(uuid.uuid4())
+    holder = {}
+
+    def _target():
+        try:
+            holder["result"] = runner.run(
+                automation_id, inputs=inputs, trigger=trigger, version=version,
+                requested_by=requested_by, dry_run=dry_run, run_id=run_id)
+        except Exception as e:  # never leave the waiter spinning on a crash
+            holder["result"] = {"status": "error", "error": str(e)}
+
+    thread = threading.Thread(target=_target, daemon=True)
+    thread.start()
+    return _await_inline_result(runner, run_id, holder, thread)
+
+
 def _start_run(automation_id, inputs, trigger, version, requested_by, dry_run, wait):
     """Shared by the user route and the internal (scheduler) route."""
     runner = _get_runner()
     if wait or dry_run:  # dry-run UX needs the result inline
-        result = runner.run(automation_id, inputs=inputs, trigger=trigger,
-                            version=version, requested_by=requested_by, dry_run=dry_run)
-        code = 200 if result.get("status") != "error" else 400
-        return jsonify(result), code
+        payload, code = _run_inline(automation_id, inputs, trigger, version,
+                                    requested_by, dry_run)
+        return jsonify(payload), code
 
     run_id = str(uuid.uuid4())
     thread = threading.Thread(
@@ -995,10 +1068,11 @@ def internal_manage():
             auto = _need_auto()
             if not auto:
                 return jsonify({"error": "automation not found"}), 404
-            result = runner.run(aid, inputs=payload.get("inputs") or {},
-                                trigger="manual", version=payload.get("version"),
-                                requested_by=user_id, dry_run=(action == "dry_run"))
-            code = 200 if result.get("status") != "error" else 400
+            # AIHUB-0058: shared inline path — returns early with the pending
+            # checkpoint question instead of blocking until the client times out.
+            result, code = _run_inline(aid, payload.get("inputs") or {},
+                                       "manual", payload.get("version"),
+                                       user_id, dry_run=(action == "dry_run"))
             return jsonify(result), code
 
         if action == "runs":

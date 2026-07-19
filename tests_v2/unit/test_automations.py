@@ -1304,3 +1304,100 @@ class TestCheckpointEndpoints:
         body = r.get_json()
         assert body["pending_checkpoint"]["message"] == "pending gate"
         assert any(e["type"] == "checkpoint" for e in body["events"])
+
+
+class TestInlineWaitCheckpointAware:
+    """AIHUB-0058 (james live): the inline dry-run blocked in runner.run()
+    until the client read-timed out while the script sat at a human-approval
+    checkpoint — the agent then claimed the run 'could not start' (it was
+    WAITING for the user's decision). _await_inline_result returns fast runs
+    byte-identically, surfaces a pending checkpoint immediately, and honors an
+    inline budget with an honest still-running payload."""
+
+    class _Clock:
+        def __init__(self):
+            self.t = 0.0
+        def time(self):
+            return self.t
+        def sleep(self, s):
+            self.t += s
+
+    class _Thread:
+        def __init__(self, alive=True):
+            self._alive = alive
+        def is_alive(self):
+            return self._alive
+
+    class _Runner:
+        def __init__(self, run=None):
+            self._run = run
+        def get_run(self, run_id):
+            return self._run
+
+    @staticmethod
+    def _api():
+        import importlib
+        try:
+            return importlib.import_module("automations.api")
+        except Exception as e:  # pragma: no cover - env-dependent
+            import pytest as _pt
+            _pt.skip(f"automations.api not importable here: {e}")
+
+    def test_fast_run_returns_exact_result(self):
+        api = self._api()
+        holder = {"result": {"status": "success", "run_id": "r1", "verify_report": [1]}}
+        payload, code = api._await_inline_result(
+            self._Runner(), "r1", holder, self._Thread(alive=False),
+            cap_s=5, poll_s=0.1, clock=self._Clock())
+        assert payload is holder["result"] and code == 200
+
+    def test_error_result_maps_to_400(self):
+        api = self._api()
+        holder = {"result": {"status": "error", "error": "boom"}}
+        payload, code = api._await_inline_result(
+            self._Runner(), "r1", holder, self._Thread(alive=False),
+            cap_s=5, poll_s=0.1, clock=self._Clock())
+        assert code == 400
+
+    def test_pending_checkpoint_returns_immediately_with_question(self):
+        api = self._api()
+        pc = {"checkpoint_id": "c1", "message": "About to upload 11 rows — proceed?"}
+        payload, code = api._await_inline_result(
+            self._Runner(run={"status": "waiting"}), "r1", {}, self._Thread(alive=True),
+            cap_s=60, poll_s=0.1, clock=self._Clock(),
+            live_payload=lambda run, after: {"pending_checkpoint": pc})
+        assert code == 200
+        assert payload["waiting_on_checkpoint"] is True
+        assert payload["pending_checkpoint"] is pc
+        assert "NOT failed" in payload["note"]
+
+    def test_waiting_without_pending_checkpoint_keeps_polling_to_result(self):
+        """After a proceed decision the run may read 'waiting' briefly with no
+        open checkpoint — that must NOT early-return; the loop continues to
+        the real result."""
+        api = self._api()
+        holder = {}
+        thread = self._Thread(alive=True)
+        clock = self._Clock()
+        calls = {"n": 0}
+        class _R(self._Runner):
+            def get_run(self, run_id):
+                calls["n"] += 1
+                if calls["n"] >= 3:
+                    thread._alive = False
+                    holder["result"] = {"status": "success", "run_id": "r1"}
+                return {"status": "waiting"}
+        payload, code = api._await_inline_result(
+            _R(), "r1", holder, thread, cap_s=60, poll_s=0.1, clock=clock,
+            live_payload=lambda run, after: {"pending_checkpoint": None})
+        assert code == 200 and payload["status"] == "success"
+
+    def test_inline_cap_returns_honest_still_running(self):
+        api = self._api()
+        payload, code = api._await_inline_result(
+            self._Runner(run={"status": "running"}), "r9", {}, self._Thread(alive=True),
+            cap_s=3, poll_s=1.0, clock=self._Clock())
+        assert code == 200
+        assert payload["inline_wait_elapsed"] is True
+        assert payload["run_id"] == "r9"
+        assert "NOT a failure" in payload["note"]

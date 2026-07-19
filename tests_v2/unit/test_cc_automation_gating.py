@@ -356,7 +356,8 @@ class TestAutomationAuthoringContinuity:
     def test_automation_tool_names_cover_the_authoring_family(self):
         expected = {"create_automation", "get_automation", "save_automation_code",
                     "dry_run_automation", "promote_automation", "run_automation",
-                    "get_automation_runs", "schedule_automation"}
+                    "get_automation_runs", "schedule_automation",
+                    "decide_automation_checkpoint"}  # AIHUB-0058
         assert expected == set(nodes._AUTOMATION_TOOL_NAMES)
         # merely LISTING automations is not authoring — must NOT glue a session
         assert "list_automations" not in nodes._AUTOMATION_TOOL_NAMES
@@ -551,3 +552,76 @@ class TestAuthoringSessionFooters:
         emitted_cf = "\n\n🧩 _Code Flow authoring session: **store-headcount-v2**_"
         m2 = re.search(r"🧩 _Code Flow authoring session: \*\*(.+?)\*\*_", emitted_cf)
         assert m2 and m2.group(1) == "store-headcount-v2"
+
+
+class TestCheckpointAwareRunTools:
+    """AIHUB-0058 CC side: paused-at-checkpoint runs are surfaced as approval
+    questions (never failures/timeouts), client timeouts recover the true run
+    state, and the user's decision flows back via decide_automation_checkpoint."""
+
+    def _src(self):
+        from pathlib import Path as _P
+        return _P(nodes.__file__).read_text(encoding="utf-8")
+
+    def test_run_tools_handle_all_three_new_shapes(self):
+        src = self._src()
+        for fn in ("async def dry_run_automation", "async def run_automation"):
+            body = src[src.find(fn):]
+            body = body[:body.find("@lc_tool", 10)]
+            assert 'res.get("waiting_on_checkpoint")' in body, fn
+            assert 'res.get("inline_wait_elapsed")' in body, fn
+            assert 'res.get("timed_out")' in body, fn
+            assert "never claim it did not start" in body, fn
+
+    def test_decide_tool_registered_and_in_marker_family(self):
+        src = self._src()
+        assert "tools.append(decide_automation_checkpoint)" in src
+        assert '"decide_automation_checkpoint": decide_automation_checkpoint' in src
+        assert "decide_automation_checkpoint" in nodes._AUTOMATION_TOOL_NAMES
+
+    def test_decide_tool_requires_explicit_decision_and_reports_honestly(self):
+        src = self._src()
+        body = src[src.find("async def decide_automation_checkpoint"):]
+        body = body[:body.find("@lc_tool", 10)]
+        assert '("proceed", "abort")' in body           # only the two real decisions
+        assert "checkpoint_decision" in body            # server action used
+        assert "do NOT claim success yet" in body       # bounded-wait honesty
+
+    def test_prompt_teaches_paused_not_failed(self):
+        src = self._src()
+        blk = src[src.find("## AUTOMATIONS — the tools"):src.find("## CODE FLOWS")]
+        assert "CHECKPOINTS PAUSE, THEY DON'T FAIL" in blk
+        assert "decide_automation_checkpoint" in blk
+        assert "'could not start'" in blk
+
+    def test_manage_timeout_recovers_latest_run_state(self, monkeypatch):
+        import importlib, sys as _sys
+        saved = list(_sys.path)
+        try:
+            _sys.path.insert(0, _CC)
+            at = importlib.import_module("graph.automation_tools")
+        except Exception as e:  # pragma: no cover - env-dependent
+            pytest.skip(f"automation_tools not importable: {e}")
+        finally:
+            _sys.path[:] = saved
+
+        import requests as _rq
+        calls = {"n": 0}
+
+        class _Resp:
+            status_code = 200
+            def json(self):
+                return {"runs": [{"run_id": "r5", "status": "waiting"}]}
+
+        def _post(url, json=None, headers=None, timeout=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise _rq.Timeout("Read timed out")
+            return _Resp()
+
+        monkeypatch.setattr(at.requests, "post", _post)
+        out = at.manage("dry_run", {"user_id": 1, "role": 2},
+                        {"automation_id": "a1"}, timeout=1)
+        assert out["ok"] is False and out["timed_out"] is True
+        assert out["latest_run"]["run_id"] == "r5"
+        assert out["latest_run"]["status"] == "waiting"

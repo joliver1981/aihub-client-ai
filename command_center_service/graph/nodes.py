@@ -48,6 +48,7 @@ _AUTOMATION_TOOL_NAMES = frozenset({
     "create_automation", "get_automation", "save_automation_code",
     "dry_run_automation", "promote_automation", "run_automation",
     "get_automation_runs", "schedule_automation",
+    "decide_automation_checkpoint",
 })
 
 # Native visual-workflow tools (the CC_AGENT="native" A/B agent). Any of these
@@ -2209,6 +2210,13 @@ async def converse(state: CommandCenterState) -> dict:
             "the runner independently verifies them after every run; that is what makes 'success' "
             "trustworthy. A run can be success / failed / unverified / skipped — report the outcome "
             "verbatim, never soften a failed or unverified run into success.\n"
+            "- CHECKPOINTS PAUSE, THEY DON'T FAIL: when a run (or dry-run) hits an "
+            "aihub.checkpoint(), the tool result says the run is PAUSED with the checkpoint's "
+            "question. Present that question to the user verbatim and wait for their explicit "
+            "approve/abort; then call decide_automation_checkpoint. NEVER describe a paused run as "
+            "failed, timed out, or 'could not start'. Likewise, a client-side timeout on a "
+            "run/dry-run does NOT mean the run never started — the tool re-checks and tells you "
+            "the real state; report THAT.\n"
             "- Scheduled runs execute the PROMOTED version only; editing code never changes a "
             "schedule until you promote again.\n"
             "- Do the AUTOMATION parts with these tools (never the Builder Agent — it does not know "
@@ -4757,6 +4765,37 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         res = await asyncio.to_thread(_am, "dry_run",
                                       {"automation_id": automation_id, "inputs": inputs})
         from . import automation_tools as _at
+        # AIHUB-0058: a run paused at a human-approval checkpoint is neither a
+        # failure nor a timeout — surface the QUESTION and how to decide it.
+        if res.get("waiting_on_checkpoint"):
+            pc = res.get("pending_checkpoint") or {}
+            _studio(phase="dry_run", automation_id=automation_id, working=False,
+                    error=None, last_run={"run_id": res.get("run_id"),
+                                          "status": "waiting", "dry_run": True})
+            return (f"⏸️ DRY-RUN PAUSED — human approval required.\n"
+                    f"The run is WAITING (not failed) at a checkpoint:\n"
+                    f"“{pc.get('message') or pc.get('question') or 'approval requested'}”\n"
+                    f"run_id: {res.get('run_id')} | checkpoint_id: {pc.get('checkpoint_id')}\n"
+                    f"Ask the user to approve or abort, then call "
+                    f"decide_automation_checkpoint with their decision.")
+        if res.get("inline_wait_elapsed"):
+            _studio(phase="dry_run", automation_id=automation_id, working=False,
+                    error=None, last_run={"run_id": res.get("run_id"),
+                                          "status": "running", "dry_run": True})
+            return (f"⏳ Dry-run STILL EXECUTING (run_id {res.get('run_id')}) — this is "
+                    f"not a failure. Check get_automation_runs shortly for the outcome; "
+                    f"do NOT claim success or failure yet.")
+        if res.get("timed_out"):
+            lr = res.get("latest_run") or {}
+            _studio(working=False, error=res.get("error"))
+            if lr:
+                return (f"The dry-run REQUEST timed out client-side, but the run itself "
+                        f"{('is ' + str(lr.get('status'))) if lr.get('status') else 'may still be running'} "
+                        f"(run_id {lr.get('run_id')}, started {lr.get('started_at')}). "
+                        f"Do NOT tell the user it never started — report this state and "
+                        f"check get_automation_runs for the outcome.")
+            return ("The dry-run request timed out client-side and the run state could "
+                    "not be confirmed — say exactly that; never claim it did not start.")
         if not res.get("ok"):
             _studio(working=False, error=res.get("error"))
             return f"Dry-run failed to start: {res.get('error')}"
@@ -4767,6 +4806,53 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                           "verify_report": res.get("verify_report"),
                           "output_files": res.get("output_files"), "dry_run": True})
         return "DRY-RUN (latest saved version):\n" + _at.summarize_run(res)
+
+    @lc_tool
+    async def decide_automation_checkpoint(run_id: str, checkpoint_id: str,
+                                           decision: str) -> str:
+        """Decide a PAUSED automation run's human-approval checkpoint on the
+        user's behalf — ONLY after they explicitly said approve/proceed or
+        abort. 'proceed' resumes the script; 'abort' stops the run. After
+        proceeding, waits briefly and reports the run's honest latest state.
+
+        Args:
+            run_id: the paused run's id.
+            checkpoint_id: the checkpoint's id (from the paused-run message).
+            decision: 'proceed' or 'abort' — the user's explicit choice.
+        """
+        if not _automations_allowed(state):
+            return _AUTOMATIONS_DENIED
+        decision = (decision or "").strip().lower()
+        if decision not in ("proceed", "abort"):
+            return "decision must be 'proceed' or 'abort' (the user's explicit choice)."
+        res = await asyncio.to_thread(_am, "checkpoint_decision",
+                                      {"run_id": run_id, "checkpoint_id": checkpoint_id,
+                                       "decision": decision})
+        if not res.get("ok"):
+            return f"Could not record the decision: {res.get('error') or res}"
+        if decision == "abort":
+            return (f"🛑 Abort recorded for run {run_id} — the script stops at the "
+                    f"checkpoint. Check get_automation_runs for the final state.")
+        # proceed → give the resumed run a bounded window, then report truth
+        import time as _time
+        deadline = _time.time() + 120
+        last = None
+        while _time.time() < deadline:
+            chk = await asyncio.to_thread(_am, "run_events", {"run_id": run_id})
+            run = (chk or {}).get("run") or {}
+            last = run.get("status") or last
+            if last in ("success", "failed", "unverified", "skipped", "aborted"):
+                from . import automation_tools as _at
+                detail = {k: run.get(k) for k in
+                          ("run_id", "status", "exit_code", "verify_report",
+                           "output_files", "error") if run.get(k) is not None}
+                detail.setdefault("run_id", run_id)
+                return ("▶️ Proceed recorded; the run resumed and finished.\n"
+                        + _at.summarize_run(detail))
+            await asyncio.sleep(3)
+        return (f"▶️ Proceed recorded — run {run_id} resumed and is still executing "
+                f"(last status: {last or 'running'}). Check get_automation_runs for "
+                f"the outcome; do NOT claim success yet.")
 
     @lc_tool
     async def promote_automation(automation_id: str, version: int = 0) -> str:
@@ -4803,6 +4889,31 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         res = await asyncio.to_thread(_am, "run",
                                       {"automation_id": automation_id, "inputs": inputs})
         from . import automation_tools as _at
+        # AIHUB-0058: same checkpoint/still-running/timeout honesty as dry-run.
+        if res.get("waiting_on_checkpoint"):
+            pc = res.get("pending_checkpoint") or {}
+            _studio(phase="live", automation_id=automation_id, working=False,
+                    error=None, last_run={"run_id": res.get("run_id"),
+                                          "status": "waiting", "dry_run": False})
+            return (f"⏸️ RUN PAUSED — human approval required at a checkpoint:\n"
+                    f"“{pc.get('message') or pc.get('question') or 'approval requested'}”\n"
+                    f"run_id: {res.get('run_id')} | checkpoint_id: {pc.get('checkpoint_id')}\n"
+                    f"Ask the user to approve or abort, then call "
+                    f"decide_automation_checkpoint.")
+        if res.get("inline_wait_elapsed"):
+            return (f"⏳ Run STILL EXECUTING (run_id {res.get('run_id')}) — not a "
+                    f"failure; check get_automation_runs for the outcome. Do NOT "
+                    f"claim success or failure yet.")
+        if res.get("timed_out"):
+            lr = res.get("latest_run") or {}
+            _studio(working=False, error=res.get("error"))
+            if lr:
+                return (f"The run REQUEST timed out client-side, but the run itself "
+                        f"{('is ' + str(lr.get('status'))) if lr.get('status') else 'may still be running'} "
+                        f"(run_id {lr.get('run_id')}). Do NOT say it never started — "
+                        f"report this state and check get_automation_runs.")
+            return ("The run request timed out client-side and the run state could not "
+                    "be confirmed — say exactly that; never claim it did not start.")
         if not res.get("ok"):
             _studio(working=False, error=res.get("error"))
             return f"Run failed to start: {res.get('error')}"
@@ -5692,6 +5803,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         tools.append(get_automation)
         tools.append(save_automation_code)
         tools.append(dry_run_automation)
+        tools.append(decide_automation_checkpoint)
         tools.append(promote_automation)
         tools.append(run_automation)
         tools.append(get_automation_runs)
@@ -5835,6 +5947,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     "get_automation": get_automation,
                     "save_automation_code": save_automation_code,
                     "dry_run_automation": dry_run_automation,
+                    "decide_automation_checkpoint": decide_automation_checkpoint,
                     "promote_automation": promote_automation,
                     "run_automation": run_automation,
                     "get_automation_runs": get_automation_runs,

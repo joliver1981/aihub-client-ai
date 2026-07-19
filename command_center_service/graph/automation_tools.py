@@ -52,6 +52,26 @@ def manage(action: str, user_context: Dict[str, Any],
         # flattening every failure to one status (AIHUB-0031 F3)
         data["status_code"] = resp.status_code
         return data
+    except requests.Timeout as e:
+        # AIHUB-0058: a client-side timeout on a RUN action must never be
+        # reported as "could not start" — the run usually STARTED (live: the
+        # dry-run was sitting at a human-approval checkpoint while the agent
+        # told the user it never began). Re-check the truth cheaply and hand
+        # the caller the latest run state to report honestly.
+        logger.warning(f"automations manage({action}) timed out: {e}")
+        out = {"ok": False, "status_code": 504, "timed_out": True,
+               "error": f"the request timed out client-side: {e}"}
+        if action in ("dry_run", "run") and payload and payload.get("automation_id"):
+            try:
+                chk = manage("runs", user_context,
+                             {"automation_id": payload["automation_id"], "limit": 1},
+                             timeout=15)
+                runs = (chk or {}).get("runs") or []
+                if runs:
+                    out["latest_run"] = runs[0]
+            except Exception as _chk_err:  # the recovery itself must not raise
+                logger.debug(f"post-timeout run check failed: {_chk_err}")
+        return out
     except requests.RequestException as e:
         logger.warning(f"automations manage({action}) failed: {e}")
         return {"ok": False, "status_code": 502,
