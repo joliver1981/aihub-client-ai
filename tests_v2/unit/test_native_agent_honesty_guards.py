@@ -381,13 +381,16 @@ class TestPlainEnglishBuildAndContinuity:
         assert "_wf_divert_marker = None" in src  # initialized on every classify pass
 
     def test_marker_recovery_fingerprints_match_the_emitters(self):
+        # AIHUB-0057 r2 extended the recovery to all three authoring kinds:
+        # the gate opens for ANY absent marker, with the workflow fingerprint
+        # still native-gated INSIDE the scan (its tools only exist there).
         src = self._nodes_src()
-        gate = src[src.find("marker RECOVERY from the conversation itself") - 400:
+        gate = src[src.find("recovery now covers ALL THREE authoring kinds") - 200:
                    src.find("_marker_is_workflow = ")]
-        assert 'if not _continuity_marker and _native_impl(state):' in gate
-        # the fingerprints scanned must be the EXACT strings the native path
-        # emits — if the pin wording drifts, this test forces the recovery
-        # scanner to follow it.
+        assert "if not _continuity_marker:" in gate
+        assert "if _native_impl(state) and (" in gate  # workflow fingerprint stays native-only
+        # the fingerprints scanned must be the EXACT strings the emitters pin —
+        # if the wording drifts, this test forces the scanner to follow it.
         assert '"Authoritative persisted state" in _hc' in gate
         assert '"🧾 Read-back of the saved row" in _hc' in gate
         assert "Authoritative persisted state" in src[src.find("_wf_last_readback"):]

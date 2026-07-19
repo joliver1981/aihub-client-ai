@@ -1431,11 +1431,42 @@ async def classify_intent(state: CommandCenterState) -> dict:
     # reconstructed from them. The follow-up regex/mini-LLM still decides
     # whether THIS message continues the authoring — an unrelated ask falls
     # through to normal classification exactly as before.
-    if not _continuity_marker and _native_impl(state):
+    if not _continuity_marker:
+        # AIHUB-0057 r2: recovery now covers ALL THREE authoring kinds (live:
+        # an automation session lost its state marker across a 12-minute gap
+        # and the fix-up turn went to the builder with the continuity mini-LLM
+        # never consulted). Each kind pins a deterministic fingerprint into
+        # the assistant reply — the workflow read-back (0048), the automation
+        # and code-flow session footers (0057 r2) — and the footers carry the
+        # asset NAME, which is recovered too. Workflow recovery stays gated on
+        # native impl (its tools only exist there); automation/code-flow tools
+        # exist on both impls.
         try:
-            for _hist_m in messages[-6:-1]:
+            import re as _re_rec
+            for _hist_m in reversed(messages[-6:-1]):
                 _hc = getattr(_hist_m, "content", "")
-                if isinstance(_hc, str) and (
+                if not isinstance(_hc, str):
+                    continue
+                _m_auto = _re_rec.search(
+                    r"⚙️ _Automation authoring session: \*\*(.+?)\*\*_", _hc)
+                if _m_auto:
+                    _nm = _m_auto.group(1)
+                    _continuity_marker = {"name": "" if _nm == "unnamed" else _nm,
+                                          "kind": "automation"}
+                    logger.info(
+                        "[classify_intent] automation continuity marker RECOVERED "
+                        "from the session footer (state marker absent)")
+                    break
+                _m_cf = _re_rec.search(
+                    r"🧩 _Code Flow authoring session: \*\*(.+?)\*\*_", _hc)
+                if _m_cf:
+                    _nm = _m_cf.group(1)
+                    _continuity_marker = {"name": "" if _nm == "unnamed" else _nm}
+                    logger.info(
+                        "[classify_intent] code-flow continuity marker RECOVERED "
+                        "from the session footer (state marker absent)")
+                    break
+                if _native_impl(state) and (
                         "Authoritative persisted state" in _hc
                         or "🧾 Read-back of the saved row" in _hc):
                     _continuity_marker = {"name": "", "kind": "visual_workflow"}
@@ -6298,6 +6329,29 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     final_response = AIMessage(content=(
                         (_cur or "") + "\n\n📋 **Authoritative persisted state "
                         "(deterministic read-back of the saved row):**\n" + _rb_pin))
+
+            # AIHUB-0057 r2: deterministic session footers for automation and
+            # code-flow authoring turns. The 0056 marker-recovery only worked
+            # for visual workflows because ONLY that path pins a deterministic
+            # string into the assistant reply; automation replies were pure
+            # LLM narration, so when the session-state marker was lost (live:
+            # a 12-minute gap dropped it and turn 2 routed to the builder with
+            # the continuity mini-LLM never consulted), the history carried
+            # nothing to recover from. The footer rides the messages array —
+            # which demonstrably survives — and doubles as user-visible
+            # session clarity. Name included so recovery restores it too.
+            if _used_automation_tool and not _used_code_flow_tool and not _used_workflow_tool:
+                _cur = final_response.content if hasattr(final_response, "content") else ""
+                if isinstance(_cur, str) and "⚙️ _Automation authoring session:" not in _cur[-400:]:
+                    final_response = AIMessage(content=(
+                        (_cur or "") + "\n\n⚙️ _Automation authoring session: **"
+                        + (_automation_name or "unnamed") + "**_"))
+            elif _used_code_flow_tool:
+                _cur = final_response.content if hasattr(final_response, "content") else ""
+                if isinstance(_cur, str) and "🧩 _Code Flow authoring session:" not in _cur[-400:]:
+                    final_response = AIMessage(content=(
+                        (_cur or "") + "\n\n🧩 _Code Flow authoring session: **"
+                        + (_code_flow_name or "unnamed") + "**_"))
 
             # P5-1: if a tool returned chips inside MIXED output (e.g. a delegated
             # agent's [text, artifact]), the follow-up LLM only produced prose —

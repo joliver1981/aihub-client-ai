@@ -500,3 +500,54 @@ class TestSchemaDictionaryMerge:
         assert "[PK]" in tool and "[FK → " in tool
         assert "enriched with the Data Dictionary" in tool
         assert "Data Dictionary ONLY" in tool and "may be stale" in tool
+
+
+class TestAuthoringSessionFooters:
+    """AIHUB-0057 round 2 (openclaw retest): schema grounding + marker
+    stamping PASSED, but the live fix-up turn arrived after a 12-minute gap
+    with the session-state marker GONE — the continuity gate skipped (no
+    mini-LLM event in the trace) and the capability_router sent the turn to
+    the Builder. The 0056 history-recovery only covered visual workflows,
+    because only that path pins a deterministic string into the reply.
+    Round 2: automation and code-flow turns append a deterministic session
+    footer (name included), and the recovery scanner covers all three kinds."""
+
+    def _src(self):
+        from pathlib import Path as _P
+        return _P(nodes.__file__).read_text(encoding="utf-8")
+
+    def test_footers_emitted_on_the_final_reply_path(self):
+        src = self._src()
+        blk = src[src.find("deterministic session footers for automation"):]
+        blk = blk[:blk.find("# P5-1:")]
+        assert '⚙️ _Automation authoring session: **"' in blk
+        assert '🧩 _Code Flow authoring session: **"' in blk
+        # idempotence: no double-append when the footer is already present
+        assert '"⚙️ _Automation authoring session:" not in _cur[-400:]' in blk
+        # code-flow precedence mirrors the marker precedence at the return sites
+        assert "elif _used_code_flow_tool:" in blk
+
+    def test_recovery_covers_all_three_kinds_and_extracts_names(self):
+        src = self._src()
+        gate = src[src.find("recovery now covers ALL THREE authoring kinds") - 200:
+                   src.find("_marker_is_workflow = (")]
+        assert "if not _continuity_marker:" in gate
+        # regexes must match the emitted footers EXACTLY (drift-guarded pair)
+        assert r"⚙️ _Automation authoring session: \*\*(.+?)\*\*_" in gate
+        assert r"🧩 _Code Flow authoring session: \*\*(.+?)\*\*_" in gate
+        assert '"kind": "automation"' in gate
+        # names ride the footer back into the marker; 'unnamed' maps to ''
+        assert '"" if _nm == "unnamed" else _nm' in gate
+        # workflow fingerprint recovery stays native-gated inside the scan
+        assert "if _native_impl(state) and (" in gate
+
+    def test_footer_and_recovery_regex_agree(self):
+        """Round-trip: the emitted footer must be matched by the recovery
+        regex, name extracted — the drift guard that keeps both halves glued."""
+        import re
+        emitted = "\n\n⚙️ _Automation authoring session: **expense-audit**_"
+        m = re.search(r"⚙️ _Automation authoring session: \*\*(.+?)\*\*_", emitted)
+        assert m and m.group(1) == "expense-audit"
+        emitted_cf = "\n\n🧩 _Code Flow authoring session: **store-headcount-v2**_"
+        m2 = re.search(r"🧩 _Code Flow authoring session: \*\*(.+?)\*\*_", emitted_cf)
+        assert m2 and m2.group(1) == "store-headcount-v2"
