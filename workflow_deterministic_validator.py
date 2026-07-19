@@ -450,6 +450,65 @@ def detect_database_config_errors(state: Dict) -> List[Issue]:
                     f"Set outputVariable to a name where the query result will be stored."
                 ),
             ))
+        # --- Execution-impossible configs (AIHUB-0054) ----------------------
+        # The engine (_execute_database_node) raises ValueError BEFORE doing any
+        # work when the connection is empty, or when the declared operation's
+        # required payload is absent ("Database connection is required",
+        # "SQL query is required", "Stored procedure name is required",
+        # "Table name is required for SELECT/INSERT operation"). An empty string
+        # is exactly as fatal as a missing key. Previously BOTH shapes were
+        # accepted as "runnable" (live: a Database node with empty connection +
+        # empty query saved with saved_as_draft=false), which made the draft
+        # honesty affordance unreachable on the native path. Flagging them as
+        # ERROR (no fixer) sends the save to DRAFT with a per-node reason.
+        # High-precision per the module design goal: any non-empty value —
+        # including a ${variable} reference the engine substitutes at runtime —
+        # counts as configured; only provably-impossible empties are flagged.
+        # The save still PERSISTS (draft doctrine gates messaging, never
+        # persistence), so existing lenient rows keep loading/running unchanged;
+        # only the verdict becomes honest.
+        connection_missing = conn is None or not str(conn).strip()
+        if connection_missing:
+            issues.append(Issue(
+                severity=ERROR,
+                code="DATABASE_NODE_MISSING_CONNECTION",
+                node_id=nid,
+                field_name="connection",
+                message=(
+                    f"Database node {nid}: no connection is configured. The workflow "
+                    f"engine raises 'Database connection is required' before doing any "
+                    f"work — this node cannot execute. Set 'connection' to the numeric "
+                    f"connection ID."
+                ),
+            ))
+        op_raw = cfg.get("dbOperation") or "query"
+        op = str(op_raw).strip().lower() or "query"
+        # Engine's per-operation required payload (workflow_execution.py):
+        #   query     -> query
+        #   procedure -> procedure
+        #   select/insert/update/delete -> tableName
+        required_field = {
+            "query": "query",
+            "procedure": "procedure",
+            "select": "tableName",
+            "insert": "tableName",
+            "update": "tableName",
+            "delete": "tableName",
+        }.get(op)
+        if required_field and not str(cfg.get(required_field) or "").strip():
+            issues.append(Issue(
+                severity=ERROR,
+                code="DATABASE_NODE_MISSING_OPERATION_CONFIG",
+                node_id=nid,
+                field_name=required_field,
+                message=(
+                    f"Database node {nid}: dbOperation '{op}' requires "
+                    f"'{required_field}' but it is empty. The workflow engine raises "
+                    f"before executing — this node cannot run. Configure "
+                    f"'{required_field}' (or choose another operation)."
+                ),
+                extra={"dbOperation": op},
+            ))
     return issues
 
 

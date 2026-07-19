@@ -6309,6 +6309,7 @@ def save_workflow():
         # and skipping that translation makes every graph detector pass
         # vacuously. Validator crash fails OPEN — never block a save on it.
         validation_errors = []
+        validation_warnings = []
         try:
             import workflow_deterministic_validator as _det_val
             _validation_state = {
@@ -6328,6 +6329,9 @@ def save_workflow():
             # (stricter than the compile route's post-fix is_valid — correct,
             # because /save/workflow persists the payload unfixed).
             validation_errors = [i.message for i in _det.errors]
+            # AIHUB-0054: surface warning-severity issues too (e.g. ambiguous
+            # success/fail slots) — additive, never changes the verdict.
+            validation_warnings = [i.message for i in _det.warnings]
         except Exception as _val_err:
             logger.warning(f"Workflow validation skipped (validator error): {_val_err}")
         is_valid = not validation_errors
@@ -6342,6 +6346,7 @@ def save_workflow():
             "is_valid": is_valid,
             "saved_as_draft": saved_as_draft,
             "validation_errors": validation_errors,
+            "validation_warnings": validation_warnings,
         }
 
         if saved_as_draft:

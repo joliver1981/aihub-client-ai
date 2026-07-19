@@ -271,6 +271,14 @@ def _find_node(definition: Dict[str, Any], node_id: str) -> Optional[Dict[str, A
     return None
 
 
+def _record_disclosure(definition: Dict[str, Any], message: str) -> None:
+    """AIHUB-0054: record a silent auto-fix the platform performed while editing
+    (auto-promoted start, auto-cleaned edges) so save_definition can disclose it
+    in the save result. Lives on the in-memory definition only — save_definition
+    strips the key from the POST body so it never persists into the row."""
+    definition.setdefault("_build_disclosures", []).append(message)
+
+
 def _edge_ends(c: Dict[str, Any]) -> Tuple[str, str, str]:
     return (c.get("source", c.get("from", "")),
             c.get("target", c.get("to", "")),
@@ -318,6 +326,16 @@ def add_node(definition: Dict[str, Any], node_type: str, label: str,
     nodes.append(node)
     if make_start or not any(n.get("isStart") for n in nodes):
         set_start(definition, node_id)
+        if not make_start and len(nodes) > 1:
+            # AIHUB-0054: a start existed nowhere and this was NOT the first
+            # node — the platform silently promoted the new node to start.
+            # Record it so save_definition discloses the auto-fix in the save
+            # result (the user must hear that the platform rewired their graph).
+            _record_disclosure(
+                definition,
+                f"No start node was set, so '{node['label']}' ({node_id}) was "
+                f"auto-promoted to start. Use set_workflow_start to choose a "
+                f"different entry point.")
     return {"ok": True, "node_id": node_id, "type": canon}
 
 
@@ -348,9 +366,23 @@ def remove_node(definition: Dict[str, Any], node_id: str) -> Dict[str, Any]:
     ]
     dropped_edges = before - len(definition["connections"])
     note = ""
+    # AIHUB-0054: the edge auto-clean and start auto-promotion used to be
+    # invisible outside this tool's return — record them so the save result
+    # discloses every silent structural change the platform made.
+    if dropped_edges:
+        _record_disclosure(
+            definition,
+            f"Removing '{node.get('label') or node_id}' also removed "
+            f"{dropped_edges} edge(s) that touched it.")
     if was_start and definition["nodes"]:
         definition["nodes"][0]["isStart"] = True
         note = f"start moved to '{definition['nodes'][0].get('id')}'"
+        _record_disclosure(
+            definition,
+            f"The removed node was the workflow start — "
+            f"'{definition['nodes'][0].get('label') or definition['nodes'][0].get('id')}' "
+            f"was auto-promoted to start. Use set_workflow_start to choose a "
+            f"different entry point.")
     return {"ok": True, "removed_edges": dropped_edges, "note": note}
 
 
@@ -493,13 +525,19 @@ def save_definition(name: str, definition: Dict[str, Any]) -> Dict[str, Any]:
         return {"ok": False, "error": _name_err}
     if (definition.get("kind") or "").lower() == "code_flow":
         return {"ok": False, "error": "refusing to write a code_flow row from the visual-workflow tools"}
-    body = {"filename": f"{name}.json", "workflow": definition}
+    # AIHUB-0054: _build_disclosures is build-time metadata (auto-fix notes),
+    # never workflow data — strip it from the POST body so it can't persist,
+    # and drain it on a successful save so it's reported exactly once.
+    disclosures = list(definition.get("_build_disclosures") or [])
+    body = {"filename": f"{name}.json",
+            "workflow": {k: v for k, v in definition.items() if k != "_build_disclosures"}}
     res = _post("/save/workflow", body, timeout=SAVE_TIMEOUT)
     if not res.get("ok"):
         # 400s carry the server's real refusal (e.g. the AIHUB-0039 code-flow
         # guard) in "message" — surface it verbatim.
         return {"ok": False, "status_code": res.get("status_code"),
                 "error": res.get("message") or res.get("error") or "save failed"}
+    definition.pop("_build_disclosures", None)
     saved_id = res.get("workflow_id")
 
     # TRUE read-back of the row the user will open: resolve by NAME again and
@@ -524,6 +562,8 @@ def save_definition(name: str, definition: Dict[str, Any]) -> Dict[str, Any]:
         "is_valid": bool(res.get("is_valid")),
         "saved_as_draft": bool(res.get("saved_as_draft")),
         "validation_errors": res.get("validation_errors") or [],
+        "validation_warnings": res.get("validation_warnings") or [],
+        "disclosures": disclosures,
         "readback": readback,
     }
 
@@ -623,6 +663,12 @@ def summarize_save(name: str, result: Dict[str, Any]) -> str:
         parts.append(f"⚠ Saved as DRAFT (not yet runnable): {errs}")
     elif result.get("is_valid"):
         parts.append("Validation: passed (runnable).")
+    # AIHUB-0054: disclose platform auto-fixes (auto-promoted start, auto-cleaned
+    # edges) so the user hears every silent structural change, not just the verdict.
+    if result.get("disclosures"):
+        parts.append("🔧 Auto-fixes during this build: " + "; ".join(result["disclosures"]))
+    if result.get("validation_warnings"):
+        parts.append("⚠ Validation warnings: " + "; ".join(result["validation_warnings"]))
     return " ".join(parts)
 
 
