@@ -38,6 +38,18 @@ _CODE_FLOW_TOOL_NAMES = frozenset({
     "unwire_steps", "remove_code_step",
 })
 
+# AIHUB-0057: automation tools stamp the continuity marker too (kind
+# "automation"). Live failure: after create_automation + dry_run_automation,
+# the user's fix-up answer ("Instead of location_id use store_id…") had NO
+# authoring context to hold it in converse — it re-classified as a data
+# question and was delegated to a data agent that role-played advice while
+# the automation was never updated.
+_AUTOMATION_TOOL_NAMES = frozenset({
+    "create_automation", "get_automation", "save_automation_code",
+    "dry_run_automation", "promote_automation", "run_automation",
+    "get_automation_runs", "schedule_automation",
+})
+
 # Native visual-workflow tools (the CC_AGENT="native" A/B agent). Any of these
 # running stamps the continuity marker with kind="visual_workflow" so
 # classify_intent keeps follow-up turns in converse — the visual_workflow twin
@@ -1223,26 +1235,30 @@ def _authoring_marker(state: "CommandCenterState") -> dict:
     return {"name": "", "kind": "visual_workflow"}
 
 
-async def _is_workflow_followup_llm(user_text: str, marker: dict,
-                                    state: "CommandCenterState") -> bool:
-    """Mini-LLM continuity check for an ongoing NATIVE visual-workflow authoring
-    session (marker kind='visual_workflow'), consulted only when the
-    deterministic follow-up cues MISS — keyword regexes are an accelerator
-    here, never the decision-maker. YES → the turn stays in converse on the
-    same workflow. Fail-open: NO, an ambiguous reply, or any error returns
-    False and the turn falls through to normal classification."""
+async def _is_authoring_followup_llm(user_text: str, marker: dict,
+                                     state: "CommandCenterState",
+                                     what_desc: str,
+                                     actions_desc: str) -> bool:
+    """Mini-LLM continuity check for an ongoing authoring session (visual
+    workflow / code flow / automation), consulted only when the deterministic
+    follow-up cues MISS — keyword regexes are an accelerator here, never the
+    decision-maker (james's directive; AIHUB-0057 extended this beyond visual
+    workflows after a live automation fix-up answer got delegated to a data
+    agent). YES → the turn stays in converse on the same asset. Fail-open:
+    NO, an ambiguous reply, or any error returns False and the turn falls
+    through to normal classification."""
     try:
         from cc_config import get_step_llm
         llm = get_step_llm("workflow_continuity")
-        wf_name = (marker or {}).get("name") or "the workflow being edited"
+        name = (marker or {}).get("name") or "the asset being edited"
         _msgs = [HumanMessage(content=(
-            f'The user is mid-conversation building/editing a visual workflow named '
-            f'"{wf_name}" (typed nodes, edges, variables, runs). Is the following '
-            f'message a follow-up action or question about THAT workflow — e.g. add/'
-            f'change/remove/rename/configure a step, wire or unwire nodes, set the '
-            f'start, add a variable, run/test it, or ask about its structure? Treat a '
-            f'NEW unrelated request (a different resource, a general data question, '
-            f'chit-chat) as NO.\n'
+            f'The user is mid-conversation building/editing {what_desc} named '
+            f'"{name}". Is the following message a follow-up instruction, '
+            f'correction, answer, or question about THAT work — e.g. supplying a '
+            f'value, table or column name it asked for, correcting an assumption, '
+            f'{actions_desc}, or asking about its state? Treat a NEW unrelated '
+            f'request (a different resource, a general data question, chit-chat) '
+            f'as NO.\n'
             f'Message: "{user_text}"\n'
             f'Reply with ONLY "YES" or "NO".'))]
         _t0 = _trace_time.perf_counter()
@@ -1253,8 +1269,19 @@ async def _is_workflow_followup_llm(user_text: str, marker: dict,
                        model_hint="mini")
         return str(getattr(resp, "content", "")).strip().upper().startswith("YES")
     except Exception as e:
-        logger.debug(f"[classify_intent] workflow-continuity mini-LLM skipped: {e}")
+        logger.debug(f"[classify_intent] authoring-continuity mini-LLM skipped: {e}")
         return False
+
+
+async def _is_workflow_followup_llm(user_text: str, marker: dict,
+                                    state: "CommandCenterState") -> bool:
+    """Visual-workflow continuity (marker kind='visual_workflow') — thin
+    wrapper over the general authoring-continuity check."""
+    return await _is_authoring_followup_llm(
+        user_text, marker, state,
+        "a visual workflow (typed nodes, edges, variables, runs)",
+        "adding/changing/removing/wiring nodes, setting the start, adding a "
+        "variable, or running/testing it")
 
 
 # ─── Node: classify_intent ────────────────────────────────────────────────
@@ -1438,11 +1465,37 @@ async def classify_intent(state: CommandCenterState) -> dict:
                     _followup_hit = await _is_workflow_followup_llm(
                         user_text, _continuity_marker, state)
             else:
+                # Code-flow AND automation markers (AIHUB-0057): same doctrine —
+                # the regex is a fast-path; a natural-language fix-up answer
+                # ("Instead of location_id use store_id and store_name does
+                # exist") matches no cue and previously fell through to normal
+                # classification, where it delegated to a data agent that
+                # role-played advice while the asset was never updated.
+                _marker_is_automation = (isinstance(_continuity_marker, dict)
+                                         and _continuity_marker.get("kind") == "automation")
                 _followup_hit = looks_like_code_flow_followup(user_text)
+                if not _followup_hit:
+                    if _marker_is_automation:
+                        _followup_hit = await _is_authoring_followup_llm(
+                            user_text, _continuity_marker, state,
+                            "an AUTOMATION (a single owned Python script asset "
+                            "with declared inputs, dry-runs, verified outputs, "
+                            "promotion and scheduling)",
+                            "changing its code, query, columns or inputs, "
+                            "re-running or dry-running it, promoting or "
+                            "scheduling it")
+                    else:
+                        _followup_hit = await _is_authoring_followup_llm(
+                            user_text, _continuity_marker, state,
+                            "a CODE FLOW (a flow of Python code steps)",
+                            "changing a step's code or wiring, adding/removing "
+                            "steps, dry-running or running it, scheduling it")
             if _followup_hit:
                 logger.info("[classify_intent] %s continuity → intent=chat "
                             "(mid-authoring; keep follow-up in converse)",
-                            "workflow" if _marker_is_workflow else "code-flow")
+                            "workflow" if _marker_is_workflow
+                            else ("automation" if (_continuity_marker or {}).get("kind") == "automation"
+                                  else "code-flow"))
                 _cf_out = {"intent": "chat", "pending_agent_selection": False,
                            "code_flow_context": state.get("code_flow_context")}
                 if active:
@@ -2105,11 +2158,18 @@ async def converse(state: CommandCenterState) -> dict:
             "declare its name in the manifest. Only create a connection/secret if it genuinely "
             "does not exist yet. When a name is given (e.g. an AIRDB connection, an AUTODEMO_SFTP "
             "secret), use it directly.\n"
+            "- SCHEMA GROUNDING (non-negotiable): before authoring ANY SQL against a named "
+            "connection, call get_connection_schema — first with no table to see the real tables, "
+            "then per table for its REAL columns — and write the query against exactly those "
+            "names. NEVER invent table, column, or join names; an invented join key fails the "
+            "dry-run and wastes the user's time. If discovery itself fails, say exactly that and "
+            "ask ONE focused question.\n"
             "- BUILD FLOW (follow in order): 1) confirm the process + the connection/secret NAMES to "
-            "use, 2) create_automation, 3) save_automation_code with a manifest declaring "
-            "inputs/connections/secrets/outputs, 4) dry_run_automation and SHOW the user the verified "
-            "result, 5) only after the user confirms the dry-run is right: promote_automation, "
-            "6) run now or schedule_automation. The dry-run is BUILT IN — when a user asks to "
+            "use, 2) ground the schema (get_connection_schema) for any SQL, 3) create_automation, "
+            "4) save_automation_code with a manifest declaring "
+            "inputs/connections/secrets/outputs, 5) dry_run_automation and SHOW the user the verified "
+            "result, 6) only after the user confirms the dry-run is right: promote_automation, "
+            "7) run now or schedule_automation. The dry-run is BUILT IN — when a user asks to "
             "'dry-run' a process, that is an automation, not a workflow.\n"
             "- CREDENTIALS: generated code must call aihub_runtime (aihub.connection('NAME') / "
             "aihub.secret('NAME')) — NEVER hard-code passwords or connection strings; saves that "
@@ -2219,6 +2279,8 @@ async def converse(state: CommandCenterState) -> dict:
             "- Database nodes take a NUMERIC connection id (as a string, e.g. \"1\") — never a "
             "connection name. When the user names a connection (\"our AIRDB connection\"), call "
             "list_data_connections and resolve the id YOURSELF; NEVER ask the user for a numeric id. "
+            "Ground a Database node's SQL in the REAL schema first (get_connection_schema for "
+            "tables, then columns) — never invent table/column/join names. "
             "Workflow variables use ${var} substitution; declare them with set_workflow_variable or "
             "a node's outputVariable.\n"
             "- DRAFT-FIRST (non-negotiable): when the request is clear about WHAT the workflow should "
@@ -5383,6 +5445,69 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         return "Data connections (use the numeric id in a Database node's config):\n" + "\n".join(lines)
 
     @lc_tool
+    async def get_connection_schema(connection: str, table: str = "") -> str:
+        """Discover the REAL schema of a data connection before authoring any
+        SQL against it. With no table: lists the connection's tables. With a
+        table (e.g. 'TS.employee_data'): returns its actual columns and types.
+        ALWAYS ground table/column/join names in this — NEVER invent them.
+
+        Args:
+            connection: the connection's name (e.g. 'AIRDB') or numeric id.
+            table: optional qualified table name to get column-level schema.
+        """
+        # Developer-family gate: available on automation/code-flow AND native
+        # workflow turns; both families require the same role.
+        if not (_automations_allowed(state) or _workflow_tools_allowed(state)):
+            return ("Schema discovery is available to Developer/Admin users only.")
+        from urllib.parse import quote as _quote
+        from . import workflow_tools as _wt
+        ref = str(connection or "").strip()
+        conn_id = None
+        if ref.isdigit():
+            conn_id = ref
+        else:
+            res = _wt.list_connections()
+            if not res.get("ok"):
+                return f"❌ Could not resolve connection '{ref}': {res.get('error')}"
+            matches = [c for c in (res.get("connections") or [])
+                       if c["name"].lower() == ref.lower()]
+            if not matches:
+                names = ", ".join(c["name"] for c in (res.get("connections") or [])[:15])
+                return (f"❌ No connection named '{ref}' (exact match). "
+                        f"Existing connections: {names or 'none'}")
+            conn_id = matches[0]["id"]
+        if table.strip():
+            r = _wt._get(f"/api/discover/schema/{conn_id}?table={_quote(table.strip())}")
+            data = r.get("data") or {}
+            if not r.get("ok") or not data.get("success"):
+                return (f"❌ Schema discovery failed for {table} on connection {conn_id}: "
+                        f"{data.get('error') or r.get('error') or 'unknown error'}")
+            cols = data.get("columns") or []
+            if not cols:
+                return (f"Table {table} on connection {conn_id}: no columns returned — "
+                        f"the table may not exist under that exact name; list tables first.")
+            lines = []
+            for c in cols[:120]:
+                cn = c.get("COLUMN_NAME") or c.get("column_name") or "?"
+                ct = c.get("DATA_TYPE") or c.get("data_type") or ""
+                lines.append(f"- {cn}" + (f" ({ct})" if ct else ""))
+            return (f"REAL columns of {table} (connection {conn_id}) — use ONLY these names:\n"
+                    + "\n".join(lines))
+        r = _wt._get(f"/api/discover/tables/{conn_id}")
+        data = r.get("data") or {}
+        if not r.get("ok") or not data.get("success"):
+            return (f"❌ Table discovery failed on connection {conn_id}: "
+                    f"{data.get('error') or r.get('error') or 'unknown error'}")
+        tables = data.get("tables") or []
+        if not tables:
+            return f"Connection {conn_id}: no tables discovered."
+        lines = [f"- {t.get('TABLE_NAME')}"
+                 + (f" ({t.get('column_count')} cols)" if t.get("column_count") else "")
+                 for t in tables[:200]]
+        return (f"Tables on connection {conn_id} (call again with table=<name> for columns):\n"
+                + "\n".join(lines))
+
+    @lc_tool
     async def unwire_workflow_nodes(workflow: str, from_node: str, to_node: str,
                                     on: str = "") -> str:
         """Remove an edge between two nodes, then save. Leave `on` empty to
@@ -5548,6 +5673,12 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         tools.append(run_workflow)
         tools.append(check_workflow_run)
         tools.append(list_data_connections)
+    # AIHUB-0057: schema grounding for authored SQL — available to the
+    # automations/code-flow family AND native workflow turns (same Developer
+    # gate re-checked inside the tool). Bound once.
+    if ((_AUTOMATIONS_TOOLS_ENABLED and _automations_allowed(state))
+            or (_native_impl(state) and _workflow_tools_allowed(state))):
+        tools.append(get_connection_schema)
     if _PORTAL_FETCH_ENABLED:
         tools.append(fetch_from_portal)
         tools.append(check_portal_download)
@@ -5582,6 +5713,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             _code_flow_name = None
             _used_workflow_tool = False    # native agent: visual_workflow marker twin
             _workflow_ref = None
+            _used_automation_tool = False  # AIHUB-0057: automation marker twin
+            _automation_name = None
             # AIHUB-0048 F1: track whether a MUTATING workflow tool ran this turn
             # and stash the last 🧾 read-back so the final reply's persisted-state
             # claim is pinned to tool evidence, never LLM narration.
@@ -5599,6 +5732,9 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     _used_workflow_tool = True
                     _workflow_ref = ((tool_args or {}).get("workflow")
                                      or (tool_args or {}).get("name") or _workflow_ref)
+                if tool_name in _AUTOMATION_TOOL_NAMES:
+                    _used_automation_tool = True
+                    _automation_name = (tool_args or {}).get("name") or _automation_name
 
                 # Execute the tool — ALL tools must be handled
                 tool_map = {
@@ -5683,6 +5819,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     "run_workflow": run_workflow,
                     "check_workflow_run": check_workflow_run,
                     "list_data_connections": list_data_connections,
+                    "get_connection_schema": get_connection_schema,
                 }
 
                 tool_fn = tool_map.get(tool_name)
@@ -5914,6 +6051,9 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 elif _used_workflow_tool:
                     result["code_flow_context"] = {"name": _workflow_ref,
                                                    "kind": "visual_workflow"}
+                elif _used_automation_tool:
+                    result["code_flow_context"] = {"name": _automation_name,
+                                                   "kind": "automation"}
                 return result
 
             # Send tool results back to LLM for final response
@@ -5984,6 +6124,9 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                         _used_workflow_tool = True
                         _workflow_ref = ((tool_args or {}).get("workflow")
                                          or (tool_args or {}).get("name") or _workflow_ref)
+                    if tool_name in _AUTOMATION_TOOL_NAMES:
+                        _used_automation_tool = True
+                        _automation_name = (tool_args or {}).get("name") or _automation_name
                     _cached = _repeat_guard.cached_if_no_progress(tool_name, tool_args)
                     if _cached is not None:
                         logger.warning(
@@ -6065,6 +6208,9 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     elif _used_workflow_tool:
                         result["code_flow_context"] = {"name": _workflow_ref,
                                                        "kind": "visual_workflow"}
+                    elif _used_automation_tool:
+                        result["code_flow_context"] = {"name": _automation_name,
+                                                       "kind": "automation"}
                     return result
 
                 # AIHUB-0050 F1: progress bookkeeping — a round where every call was served
@@ -6155,6 +6301,9 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             elif _used_workflow_tool:
                 result["code_flow_context"] = {"name": _workflow_ref,
                                                "kind": "visual_workflow"}
+            elif _used_automation_tool:
+                result["code_flow_context"] = {"name": _automation_name,
+                                               "kind": "automation"}
             return result
 
         # Sanitize even non-tool responses

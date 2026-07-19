@@ -15928,6 +15928,30 @@ def discover_tables_api(connection_id):
         }), 500
 
 
+@app.route('/api/discover/schema/<int:connection_id>')
+@api_key_or_session_required(min_role=2)
+def discover_table_schema_api(connection_id):
+    """AIHUB-0057: column-level schema for ONE table on a connection — the
+    deterministic grounding the CC agent uses BEFORE authoring SQL (live
+    failure: an automation's query invented join columns and only discovered
+    reality when the dry-run failed). Read-only; same gate as the tables
+    discovery above."""
+    table = (request.args.get('table') or '').strip()
+    if not table:
+        return jsonify({'success': False, 'error': "missing required query param 'table'"}), 400
+    try:
+        from ai_metadata_generator import get_table_schema_from_database
+        target_conn_str, _cid, db_type = get_database_connection_string(connection_id)
+        if not target_conn_str:
+            return jsonify({'success': False, 'error': 'Connection not found or no connection string'}), 404
+        logger.info(f"Discovering schema for {table} on connection {connection_id} ({db_type})")
+        columns = get_table_schema_from_database(execute_sql_query_v2, table, target_conn_str)
+        return jsonify({'success': True, 'table': table, 'columns': columns or []})
+    except Exception as e:
+        logger.error(f"Error discovering schema for {table}: {str(e)}", exc_info=True)
+        return jsonify({'success': False, 'error': f"Unexpected error: {str(e)}"}), 500
+
+
 
 import uuid
 from threading import Thread

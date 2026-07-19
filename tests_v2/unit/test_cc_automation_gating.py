@@ -337,3 +337,120 @@ class TestSmartBuildRoutingWiring:
         assert "EXISTING AI Hub" in p and "by name" in p
         assert "DRY-RUN" in p
         assert "NOT a reason to pick builder" in p
+
+
+class TestAutomationAuthoringContinuity:
+    """AIHUB-0057 (filed from james's live browser test): after
+    create_automation + dry_run_automation, the fix-up answer "Instead of
+    location_id use store_id and store_name does exist" was DELEGATED to a
+    data agent that role-played advice — the automation was never updated.
+    Root causes: automation tools stamped NO continuity marker, and the
+    code-flow/automation continuity branch was regex-only. Plus: authored SQL
+    invented column names (no schema grounding)."""
+
+    def _src(self):
+        from pathlib import Path as _P
+        return _P(nodes.__file__).read_text(encoding="utf-8")
+
+    # ── marker plumbing ──
+    def test_automation_tool_names_cover_the_authoring_family(self):
+        expected = {"create_automation", "get_automation", "save_automation_code",
+                    "dry_run_automation", "promote_automation", "run_automation",
+                    "get_automation_runs", "schedule_automation"}
+        assert expected == set(nodes._AUTOMATION_TOOL_NAMES)
+        # merely LISTING automations is not authoring — must NOT glue a session
+        assert "list_automations" not in nodes._AUTOMATION_TOOL_NAMES
+
+    def test_marker_captured_in_both_tool_rounds_and_all_return_sites(self):
+        src = self._src()
+        assert src.count("if tool_name in _AUTOMATION_TOOL_NAMES:") == 2  # round 1 + round N
+        assert src.count('"kind": "automation"') >= 3                     # all 3 return sites
+
+    # ── mini-LLM backstop on the non-workflow branch ──
+    def test_gate_backstops_code_flow_and_automation_with_mini_llm(self):
+        src = self._src()
+        gate = src[src.find("Code-flow AND automation markers (AIHUB-0057)"):
+                   src.find("if _followup_hit:")]
+        assert "looks_like_code_flow_followup(user_text)" in gate      # regex stays fast-path
+        assert gate.count("_is_authoring_followup_llm(") == 2          # automation + code-flow
+        assert "an AUTOMATION" in gate and "a CODE FLOW" in gate
+
+    def test_workflow_wrapper_delegates_to_the_general_check(self):
+        src = self._src()
+        body = src[src.find("async def _is_workflow_followup_llm"):]
+        body = body[:body.find("\n\n\n")]
+        assert "_is_authoring_followup_llm(" in body
+
+    def test_general_prompt_covers_the_live_fixup_shape(self):
+        src = self._src()
+        fn = src[src.find("async def _is_authoring_followup_llm"):]
+        fn = fn[:fn.find("async def _is_workflow_followup_llm")]
+        # "Instead of location_id use store_id and store_name does exist" is a
+        # correction supplying column names — the prompt must name that shape.
+        assert "table or column name it asked for" in fn
+        assert "correcting an assumption" in fn
+
+    def test_authoring_followup_llm_parses_and_fails_open(self, monkeypatch):
+        import asyncio
+        import importlib
+        import sys as _sys
+
+        class _Resp:
+            def __init__(self, c): self.content = c
+
+        class _LLM:
+            def __init__(self, c): self._c = c
+            async def ainvoke(self, msgs): return _Resp(self._c)
+
+        cc_cfg = _sys.modules.get("cc_config")
+        if cc_cfg is None:
+            saved = list(_sys.path)
+            try:
+                _sys.path.insert(0, _CC)
+                cc_cfg = importlib.import_module("cc_config")
+            except Exception as e:  # pragma: no cover - env-dependent
+                pytest.skip(f"cc_config not importable here: {e}")
+            finally:
+                _sys.path[:] = saved
+
+        for reply, expected in [("YES", True), ("yes.", True), ("NO", False), ("maybe", False)]:
+            monkeypatch.setattr(cc_cfg, "get_step_llm", lambda _s, _r=reply: _LLM(_r))
+            got = asyncio.run(nodes._is_authoring_followup_llm(
+                "Instead of location_id use store_id", {"name": "expense-audit",
+                                                        "kind": "automation"},
+                {}, "an AUTOMATION", "changing its code"))
+            assert got is expected, f"reply {reply!r} → {got}, wanted {expected}"
+
+        def _boom(_s):
+            raise RuntimeError("llm down")
+        monkeypatch.setattr(cc_cfg, "get_step_llm", _boom)
+        assert asyncio.run(nodes._is_authoring_followup_llm(
+            "x", {}, {}, "an AUTOMATION", "acts")) is False  # fail-open
+
+    # ── schema grounding ──
+    def test_schema_tool_registered_and_marker_neutral(self):
+        src = self._src()
+        assert "tools.append(get_connection_schema)" in src
+        assert '"get_connection_schema": get_connection_schema' in src
+        # read-only discovery must not stamp any authoring marker
+        assert "get_connection_schema" not in nodes._AUTOMATION_TOOL_NAMES
+        assert "get_connection_schema" not in nodes._WORKFLOW_TOOL_NAMES
+
+    def test_prompts_mandate_schema_grounding(self):
+        src = self._src()
+        auto_blk = src[src.find("## AUTOMATIONS — the tools"):src.find("## CODE FLOWS")]
+        assert "SCHEMA GROUNDING (non-negotiable)" in auto_blk
+        assert "NEVER invent table, column, or join names" in auto_blk
+        wf_blk = src[src.find("_workflow_native_prompt = ("):src.find("### NODE CATALOG")]
+        assert "get_connection_schema" in wf_blk
+
+    def test_app_schema_route_exists_gated_and_requires_table(self):
+        from pathlib import Path as _P
+        app_src = (_P(nodes.__file__).resolve().parents[2] / "app.py").read_text(
+            encoding="utf-8", errors="replace")
+        i = app_src.find("@app.route('/api/discover/schema/<int:connection_id>')")
+        assert i > 0
+        blk = app_src[i:i + 1800]
+        assert "@api_key_or_session_required(min_role=2)" in blk
+        assert "missing required query param 'table'" in blk
+        assert "get_table_schema_from_database" in blk
