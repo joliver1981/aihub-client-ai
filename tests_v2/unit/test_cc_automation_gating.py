@@ -690,3 +690,36 @@ class TestCheckpointDecisionRouting:
         blk = src[src.find("## AUTOMATIONS — the tools"):src.find("## CODE FLOWS")]
         assert "that answers YOUR question from the previous message" in blk
         assert "NEVER treat their reply as a new or" in blk
+
+
+class TestSecretShapeAndStylePromptLaws:
+    """James live retest round 3: generated code crashed on
+    sftp_secret.get('host') — it guessed aihub.secret() returns a dict; the
+    platform returns a STRING (URL or JSON form, per remote_verify's own
+    parser). Plus the requested style nudge for richer build summaries."""
+
+    def test_prompt_teaches_secret_return_shape(self):
+        from pathlib import Path as _P
+        src = _P(nodes.__file__).read_text(encoding="utf-8")
+        blk = src[src.find("## AUTOMATIONS — the tools"):src.find("## CODE FLOWS")]
+        assert "SECRET RETURN SHAPE" in blk
+        assert "plain " in blk and "STRING" in blk
+        assert "never call .get() on it" in blk
+        assert "sftp://user:pass@host:2222" in blk        # matches remote_verify's doc
+        assert "json.loads" in blk and "urlparse" in blk
+
+    def test_prompt_style_nudge_present(self):
+        from pathlib import Path as _P
+        src = _P(nodes.__file__).read_text(encoding="utf-8")
+        blk = src[src.find("## AUTOMATIONS — the tools"):src.find("## CODE FLOWS")]
+        assert "FORMATTING" in blk and "TABLE for" in blk
+        assert "Avoid long flat bullet runs" in blk
+
+    def test_secret_formats_match_remote_verify_contract(self):
+        # drift guard: the two formats the prompt teaches must be the two the
+        # runner's verifier actually parses
+        from pathlib import Path as _P
+        rv = (_P(nodes.__file__).resolve().parents[2] / "automations" /
+              "remote_verify.py").read_text(encoding="utf-8")
+        assert "sftp://user:pass@host:2222" in rv
+        assert '"host"' in rv and "json.loads" in rv
