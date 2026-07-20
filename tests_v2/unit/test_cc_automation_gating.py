@@ -592,7 +592,7 @@ class TestCheckpointAwareRunTools:
         blk = src[src.find("## AUTOMATIONS — the tools"):src.find("## CODE FLOWS")]
         assert "CHECKPOINTS PAUSE, THEY DON'T FAIL" in blk
         assert "decide_automation_checkpoint" in blk
-        assert "'could not start'" in blk
+        assert "NEVER describe a paused run as failed" in blk
 
     def test_manage_timeout_recovers_latest_run_state(self, monkeypatch):
         import importlib, sys as _sys
@@ -625,3 +625,68 @@ class TestCheckpointAwareRunTools:
         assert out["ok"] is False and out["timed_out"] is True
         assert out["latest_run"]["run_id"] == "r5"
         assert out["latest_run"]["status"] == "waiting"
+
+
+class TestCheckpointDecisionRouting:
+    """AIHUB-0058 r2 (james live): the paused message asked 'Reply with
+    approve/abort' — then 'approve' was consumed by the BUILD confirm-gate,
+    which reported on a nonexistent build plan. The pause→decision pair is now
+    decided deterministically: the paused message carries the
+    'decide_automation_checkpoint' fingerprint, and a terse decision right
+    after it routes to converse before any build machinery votes."""
+
+    class _Msg:
+        def __init__(self, content):
+            self.content = content
+
+    _PAUSE = ("⏸️ DRY-RUN PAUSED — human approval required.\n"
+              "run_id: r1 | checkpoint_id: c1\n"
+              "Ask the user to approve or abort, then call "
+              "decide_automation_checkpoint with their decision.")
+
+    def _msgs(self, *contents):
+        return [self._Msg(c) for c in contents]
+
+    def test_terse_decisions_after_pause_match(self):
+        for reply in ("approve", "Approve", "approved", "abort", "proceed",
+                      "go ahead", "yes", "no", "stop", "approve it",
+                      "approve the upload", "do it."):
+            msgs = self._msgs("build it", self._PAUSE, reply)
+            assert nodes._is_checkpoint_decision_reply(reply, msgs) is True, reply
+
+    def test_no_pause_fingerprint_no_match(self):
+        msgs = self._msgs("build it", "Saved as v6. Dry-run next?", "approve")
+        assert nodes._is_checkpoint_decision_reply("approve", msgs) is False
+
+    def test_long_or_unrelated_replies_do_not_match(self):
+        msgs = self._msgs("q", self._PAUSE, "x")
+        assert nodes._is_checkpoint_decision_reply(
+            "approve the budget increase for next quarter please", msgs) is False
+        assert nodes._is_checkpoint_decision_reply(
+            "what is the weather in Boston", msgs) is False
+
+    def test_stale_pause_outside_recent_window_no_match(self):
+        # pause happened many turns ago — a bare 'yes' now answers something else
+        msgs = self._msgs(self._PAUSE, "a1", "u2", "a2", "u3", "a3", "yes")
+        assert nodes._is_checkpoint_decision_reply("yes", msgs) is False
+
+    def test_gate_wired_before_continuity_and_build_machinery(self):
+        from pathlib import Path as _P
+        src = _P(nodes.__file__).read_text(encoding="utf-8")
+        gate = src.find("checkpoint decision reply → intent=chat")
+        assert gate > 0
+        ci = src.find("async def classify_intent")
+        continuity = src.find("Code-flow authoring continuity (AIHUB-0035)", ci)
+        build_guard = src.find("Deterministic build guard", ci)
+        assert ci < gate < continuity < build_guard
+        # the gate stamps/preserves the authoring marker so converse holds context
+        blk = src[gate:gate + 800]
+        assert '"kind": "automation"' in blk
+
+    def test_minillm_actions_and_prompt_cover_decisions(self):
+        from pathlib import Path as _P
+        src = _P(nodes.__file__).read_text(encoding="utf-8")
+        assert "approving/aborting a paused" in src           # mini-LLM actions_desc
+        blk = src[src.find("## AUTOMATIONS — the tools"):src.find("## CODE FLOWS")]
+        assert "that answers YOUR question from the previous message" in blk
+        assert "NEVER treat their reply as a new or" in blk

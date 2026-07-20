@@ -1222,6 +1222,35 @@ async def _native_workflow_shape_divert(user_text: str, state: "CommandCenterSta
     return False
 
 
+def _is_checkpoint_decision_reply(user_text: str, messages: list) -> bool:
+    """AIHUB-0058 r2 (james live): the run tools' paused message literally asks
+    'Reply with approve/abort' — but a bare 'approve' matched the BUILD
+    confirm-gate's affirmative vocabulary while no automation cue claimed it,
+    so the turn routed to the build path, which reported on a nonexistent
+    build plan ('the builder did not execute any new changes'). The paused
+    message always contains the deterministic fingerprint
+    'decide_automation_checkpoint', so the pause→decision pair is decided
+    HERE, deterministically, before any classifier votes."""
+    import re as _re_cd
+    t = (user_text or "").strip()
+    if not t or len(t.split()) > 4:
+        return False
+    if not _re_cd.match(
+            r"^(approve[d]?|abort|proceed|go\s+ahead|yes|no|stop|cancel|do\s+it)"
+            r"(\s+(it|the\s+upload|the\s+run))?[.!]*$", t, _re_cd.I):
+        return False
+    # the fingerprint must be in the immediately-recent conversation (the
+    # pause message is the assistant turn right before this reply)
+    try:
+        for m in list(messages)[-3:-1]:
+            c = getattr(m, "content", "")
+            if isinstance(c, str) and "decide_automation_checkpoint" in c:
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def _authoring_marker(state: "CommandCenterState") -> dict:
     """AIHUB-0056 B: the visual_workflow continuity marker, stamped AT THE
     DIVERT — the moment a turn is classified as native visual-workflow
@@ -1413,6 +1442,24 @@ async def classify_intent(state: CommandCenterState) -> dict:
         except Exception as _cp_err:
             logger.debug(f"[classify_intent] code-process shortcut skipped: {_cp_err}")
 
+    # ── Checkpoint decision replies (AIHUB-0058 r2) ─────────────────────
+    # A run tool just paused a run and asked the user to 'Reply with
+    # approve/abort'. That reply must reach converse (which owns
+    # decide_automation_checkpoint) — deterministically, before the build
+    # confirm-gate can claim 'approve' as a build affirmation (live: the
+    # build path consumed it and reported on a nonexistent build plan).
+    if (_AUTOMATIONS_TOOLS_ENABLED and not _builder_in_flight(active)
+            and _is_checkpoint_decision_reply(user_text, messages)):
+        logger.info("[classify_intent] checkpoint decision reply → intent=chat "
+                    "(converse records it via decide_automation_checkpoint)")
+        _cd_out = {"intent": "chat", "pending_agent_selection": False}
+        _cd_m = state.get("code_flow_context")
+        _cd_out["code_flow_context"] = (_cd_m if isinstance(_cd_m, dict) and _cd_m
+                                        else {"name": "", "kind": "automation"})
+        if active:
+            _cd_out["active_delegation"] = None
+        return _cd_out
+
     # ── Code-flow authoring continuity (AIHUB-0035) ─────────────────────
     # Once a code flow is being authored in this session (marker set by
     # converse when a code-flow tool ran), keep TERSE follow-ups — "now
@@ -1515,7 +1562,8 @@ async def classify_intent(state: CommandCenterState) -> dict:
                             "promotion and scheduling)",
                             "changing its code, query, columns or inputs, "
                             "re-running or dry-running it, promoting or "
-                            "scheduling it")
+                            "scheduling it, or approving/aborting a paused "
+                            "run's checkpoint")
                     else:
                         _followup_hit = await _is_authoring_followup_llm(
                             user_text, _continuity_marker, state,
@@ -2213,10 +2261,13 @@ async def converse(state: CommandCenterState) -> dict:
             "- CHECKPOINTS PAUSE, THEY DON'T FAIL: when a run (or dry-run) hits an "
             "aihub.checkpoint(), the tool result says the run is PAUSED with the checkpoint's "
             "question. Present that question to the user verbatim and wait for their explicit "
-            "approve/abort; then call decide_automation_checkpoint. NEVER describe a paused run as "
-            "failed, timed out, or 'could not start'. Likewise, a client-side timeout on a "
-            "run/dry-run does NOT mean the run never started — the tool re-checks and tells you "
-            "the real state; report THAT.\n"
+            "approve/abort; then call decide_automation_checkpoint. When the user replies "
+            "approve/abort, that answers YOUR question from the previous message — take the "
+            "run_id and checkpoint_id from your own paused message in this conversation and call "
+            "decide_automation_checkpoint immediately; NEVER treat their reply as a new or "
+            "unclear request. NEVER describe a paused run as failed, timed out, or 'could not "
+            "start'. Likewise, a client-side timeout on a run/dry-run does NOT mean the run "
+            "never started — the tool re-checks and tells you the real state; report THAT.\n"
             "- Scheduled runs execute the PROMOTED version only; editing code never changes a "
             "schedule until you promote again.\n"
             "- Do the AUTOMATION parts with these tools (never the Builder Agent — it does not know "
