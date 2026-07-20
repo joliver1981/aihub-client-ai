@@ -443,6 +443,9 @@ async def chat(request: Request):
             # follow-ups ("now dry-run it") stay in converse across turns.
             if session_state.get("code_flow_context"):
                 graph_input["code_flow_context"] = session_state["code_flow_context"]
+            # Restore the deterministic session ledger (CC_SESSION_LEDGER).
+            if session_state.get("session_ledger"):
+                graph_input["session_ledger"] = session_state["session_ledger"]
             # A/B agent implementation for this turn (declared state channel).
             graph_input["agent_impl"] = agent_impl
 
@@ -611,6 +614,11 @@ async def chat(request: Request):
             code_flow_ctx = final_state.get("code_flow_context") or session_state.get("code_flow_context")
             if code_flow_ctx:
                 new_state["code_flow_context"] = code_flow_ctx
+            # Sticky like the marker: keep the prior ledger if this turn
+            # didn't produce an update (CC_SESSION_LEDGER).
+            _ledger = final_state.get("session_ledger") or session_state.get("session_ledger")
+            if _ledger:
+                new_state["session_ledger"] = _ledger
             _session_mgr.save_session_state(session_id, new_state)
             logger.info(f"[chat] Saved session state for {session_id}")
 

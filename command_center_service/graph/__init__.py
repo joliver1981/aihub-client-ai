@@ -75,6 +75,12 @@ class CommandCenterState(TypedDict, total=False):
     # the code-flow tools) instead of re-routing to the visual Builder. Persisted
     # across turns by chat.py's session-state save/load, like active_delegation.
     code_flow_context: Optional[Dict[str, Any]]
+    # CC_SESSION_LEDGER (docs/cc-session-ledger-design.md): deterministic
+    # hidden facts for the LLM (paused runs, saved versions, workflow rows) —
+    # written by code after tool calls, injected into converse's system
+    # prompt, persisted beside code_flow_context. DECLARED here per the
+    # undeclared-channel-drop lesson.
+    session_ledger: Optional[Dict[str, Any]]
 
     # Task decomposition
     sub_tasks: List[SubTask]

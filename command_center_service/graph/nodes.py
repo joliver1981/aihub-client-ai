@@ -171,6 +171,10 @@ def _resolve_schedule_tz(is_cron, spoken, iana_hint, user_context):
 _SFTP_ENABLED = os.getenv("SFTP_ENABLED", "true").lower() == "true"
 _SFTP_ALLOW_ALL = os.getenv("SFTP_ALLOW_ALL_USERS", "false").lower() == "true"
 
+# CC_SESSION_LEDGER (docs/cc-session-ledger-design.md): deterministic hidden
+# state injected into converse's system prompt. Default ON; instant-off knob.
+_SESSION_LEDGER_ENABLED = os.getenv("CC_SESSION_LEDGER", "true").lower() == "true"
+
 
 def _sftp_allowed(state) -> bool:
     """True if this user may transfer files over SFTP/FTP."""
@@ -2524,6 +2528,18 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
 - Do NOT wrap your response in JSON. Just return plain markdown text.
 """
 
+    # CC_SESSION_LEDGER (docs/cc-session-ledger-design.md): inject the
+    # deterministic hidden-state block — the LLM sees the technical facts
+    # (paused run ids, saved versions, workflow rows) even when its own prior
+    # replies paraphrased them away. Written by code only; PAST facts.
+    _ledger = dict(state.get("session_ledger") or {})
+    _ledger_dirty = False
+    if _SESSION_LEDGER_ENABLED and _ledger:
+        from . import session_ledger as _sl
+        _ledger_block = _sl.render(_ledger)
+        if _ledger_block:
+            system_prompt = system_prompt + _ledger_block
+
     llm_messages = [SystemMessage(content=system_prompt)] + list(messages[-20:])
 
     # Define tools the LLM can call for real data
@@ -4859,31 +4875,74 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         return "DRY-RUN (latest saved version):\n" + _at.summarize_run(res)
 
     @lc_tool
-    async def decide_automation_checkpoint(run_id: str, checkpoint_id: str,
-                                           decision: str) -> str:
+    async def decide_automation_checkpoint(decision: str, run_id: str = "",
+                                           checkpoint_id: str = "",
+                                           automation: str = "") -> str:
         """Decide a PAUSED automation run's human-approval checkpoint on the
         user's behalf — ONLY after they explicitly said approve/proceed or
-        abort. 'proceed' resumes the script; 'abort' stops the run. After
-        proceeding, waits briefly and reports the run's honest latest state.
+        abort. 'proceed' resumes the script; 'abort' stops the run. If you do
+        not have the run/checkpoint ids, leave them empty — the tool resolves
+        the automation's newest waiting run itself and reads back WHICH
+        checkpoint it decided. After proceeding, waits briefly and reports the
+        run's honest latest state.
 
         Args:
-            run_id: the paused run's id.
-            checkpoint_id: the checkpoint's id (from the paused-run message).
             decision: 'proceed' or 'abort' — the user's explicit choice.
+            run_id: the paused run's id (optional; resolved when empty).
+            checkpoint_id: the checkpoint's id (optional; resolved when empty).
+            automation: automation name or id to resolve against when ids are
+                empty (defaults to the current authoring session's automation).
         """
         if not _automations_allowed(state):
             return _AUTOMATIONS_DENIED
         decision = (decision or "").strip().lower()
         if decision not in ("proceed", "abort"):
             return "decision must be 'proceed' or 'abort' (the user's explicit choice)."
+        _resolved_question = ""
+        # AIHUB-0058 B (layer 3): ids omitted → resolve the newest WAITING run
+        # ourselves. Survives paraphrased replies, lost sessions, and restarts.
+        if not run_id.strip() or not checkpoint_id.strip():
+            ref = automation.strip()
+            if not ref:
+                _mk = state.get("code_flow_context") or {}
+                if isinstance(_mk, dict) and _mk.get("kind") == "automation":
+                    ref = str(_mk.get("name") or "")
+            if not ref:
+                return ("I need either the run_id/checkpoint_id or the automation "
+                        "name to resolve the paused run — which automation is this?")
+            aid = ref
+            listing = await asyncio.to_thread(_am, "list", {})
+            for a in (listing.get("automations") or []):
+                if str(a.get("id")) == ref or str(a.get("name", "")).lower() == ref.lower():
+                    aid = str(a.get("id"))
+                    break
+            runs_res = await asyncio.to_thread(_am, "runs",
+                                               {"automation_id": aid, "limit": 5})
+            waiting = [r for r in (runs_res.get("runs") or [])
+                       if r.get("status") == "waiting"]
+            if not waiting:
+                return (f"No paused (waiting) run found for automation '{ref}' — "
+                        f"nothing to {decision}. Check get_automation_runs; the run "
+                        f"may have finished or been cleaned up.")
+            run_id = str(waiting[0].get("run_id"))
+            ev = await asyncio.to_thread(_am, "run_events", {"run_id": run_id})
+            pc = (ev or {}).get("pending_checkpoint") or {}
+            if not pc.get("checkpoint_id"):
+                return (f"Run {run_id} is waiting but no open checkpoint was found — "
+                        f"it may already be decided. Check get_automation_runs.")
+            checkpoint_id = str(pc["checkpoint_id"])
+            _resolved_question = str(pc.get("message") or pc.get("question") or "")
         res = await asyncio.to_thread(_am, "checkpoint_decision",
                                       {"run_id": run_id, "checkpoint_id": checkpoint_id,
                                        "decision": decision})
         if not res.get("ok"):
             return f"Could not record the decision: {res.get('error') or res}"
+        _decided_note = (f" (checkpoint asked: “{_resolved_question[:160]}”)"
+                         if _resolved_question else "")
         if decision == "abort":
-            return (f"🛑 Abort recorded for run {run_id} — the script stops at the "
-                    f"checkpoint. Check get_automation_runs for the final state.")
+            return (f"🛑 Abort recorded for run {run_id}{_decided_note} — the script "
+                    f"stops at the checkpoint. Check get_automation_runs for the "
+                    f"final state.")
         # proceed → give the resumed run a bounded window, then report truth
         import time as _time
         deadline = _time.time() + 120
@@ -4898,7 +4957,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                           ("run_id", "status", "exit_code", "verify_report",
                            "output_files", "error") if run.get(k) is not None}
                 detail.setdefault("run_id", run_id)
-                return ("▶️ Proceed recorded; the run resumed and finished.\n"
+                return ("▶️ Proceed recorded" + _decided_note
+                        + "; the run resumed and finished.\n"
                         + _at.summarize_run(detail))
             await asyncio.sleep(3)
         return (f"▶️ Proceed recorded — run {run_id} resumed and is still executing "
@@ -5932,6 +5992,56 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             _workflow_ref = None
             _used_automation_tool = False  # AIHUB-0057: automation marker twin
             _automation_name = None
+            _paused_pin = None             # AIHUB-0058 A: (run_id, checkpoint_id)
+
+            def _ledger_note(tool_name, tool_args, result_text):
+                """CC_SESSION_LEDGER: deterministic recording of durable facts
+                from tool results (code-written; the LLM never writes these).
+                Also captures the paused-run ids for the visible pause pin —
+                the pin works even with the ledger flag off (layer 2 of the
+                design's degradation ladder)."""
+                nonlocal _ledger, _ledger_dirty, _paused_pin
+                import re as _re_ln
+                from . import session_ledger as _sl
+                try:
+                    txt = str(result_text or "")
+                    args = tool_args or {}
+                    if tool_name in ("dry_run_automation", "run_automation"):
+                        m = _re_ln.search(r"run_id: (\S+) \| checkpoint_id: (\S+)", txt)
+                        if m and "PAUSED" in txt:
+                            _paused_pin = (m.group(1), m.group(2))
+                            qm = _re_ln.search(r"“([^”]+)”", txt)
+                            if _SESSION_LEDGER_ENABLED:
+                                _ledger = _sl.record(_ledger, "paused_run", {
+                                    "automation_id": args.get("automation_id"),
+                                    "automation_name": _automation_name,
+                                    "run_id": m.group(1),
+                                    "checkpoint_id": m.group(2),
+                                    "question": qm.group(1) if qm else "",
+                                    "dry_run": tool_name == "dry_run_automation"})
+                                _ledger_dirty = True
+                    elif tool_name == "decide_automation_checkpoint":
+                        if _SESSION_LEDGER_ENABLED and args.get("run_id"):
+                            _ledger = _sl.clear_paused_run(_ledger, run_id=args["run_id"])
+                            _ledger_dirty = True
+                    elif tool_name in ("save_automation_code", "create_automation"):
+                        vm = _re_ln.search(r"Saved as v(\d+)", txt)
+                        if _SESSION_LEDGER_ENABLED and vm:
+                            _ledger = _sl.record(_ledger, "automation_version", {
+                                "automation_id": args.get("automation_id"),
+                                "name": _automation_name,
+                                "version": int(vm.group(1))})
+                            _ledger_dirty = True
+                    elif tool_name in _WORKFLOW_MUTATING_TOOL_NAMES and "🧾" in txt:
+                        wm = _re_ln.search(r"🧾 Read-back of the saved row \(id (\d+)\)", txt)
+                        if _SESSION_LEDGER_ENABLED:
+                            _ledger = _sl.record(_ledger, "workflow_row", {
+                                "workflow_id": wm.group(1) if wm else "",
+                                "name": _workflow_ref,
+                                "readback_head": txt[txt.find("🧾"):][:300]})
+                            _ledger_dirty = True
+                except Exception as _ln_err:  # bookkeeping must never break a turn
+                    logger.debug(f"[converse] ledger note skipped: {_ln_err}")
             # AIHUB-0048 F1: track whether a MUTATING workflow tool ran this turn
             # and stash the last 🧾 read-back so the final reply's persisted-state
             # claim is pinned to tool evidence, never LLM narration.
@@ -6097,6 +6207,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     _wf_mutated = True
                     if "🧾" in str(result):
                         _wf_last_readback = str(result)
+                _ledger_note(tool_name, tool_args, result)
                 # Log the tool RESULT preview to the service log (not just the
                 # trace, which truncates) so a tool that returns an error string
                 # — e.g. "Could not create the automation: <reason>" — is
@@ -6272,6 +6383,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 elif _used_automation_tool:
                     result["code_flow_context"] = {"name": _automation_name,
                                                    "kind": "automation"}
+                if _ledger_dirty:
+                    result["session_ledger"] = _ledger
                 return result
 
             # Send tool results back to LLM for final response
@@ -6383,6 +6496,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                         _wf_mutated = True
                         if "🧾" in str(rn):
                             _wf_last_readback = str(rn)
+                    _ledger_note(tool_name, tool_args, rn)
                     logger.info(f"[converse] Round {_round} '{tool_name}' result: {str(rn)[:300]}")
                     tool_results_n.append(ToolMessage(content=str(rn), tool_call_id=tc["id"]))
 
@@ -6429,6 +6543,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     elif _used_automation_tool:
                         result["code_flow_context"] = {"name": _automation_name,
                                                        "kind": "automation"}
+                    if _ledger_dirty:
+                        result["session_ledger"] = _ledger
                     return result
 
                 # AIHUB-0050 F1: progress bookkeeping — a round where every call was served
@@ -6517,6 +6633,20 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                         (_cur or "") + "\n\n🧩 _Code Flow authoring session: **"
                         + (_code_flow_name or "unnamed") + "**_"))
 
+            # AIHUB-0058 A: pause pin. When a run paused at a checkpoint this
+            # turn, the ids ride the VISIBLE reply deterministically — the LLM
+            # paraphrased them away live ("I don't have the paused run
+            # identifiers") and tool results don't persist into history. Also
+            # makes the r2 routing fingerprint reliably present.
+            if _paused_pin:
+                _cur = final_response.content if hasattr(final_response, "content") else ""
+                if isinstance(_cur, str) and _paused_pin[0] not in _cur:
+                    final_response = AIMessage(content=(
+                        (_cur or "")
+                        + f"\n\n⏸️ _Paused run: run_id {_paused_pin[0]} | "
+                          f"checkpoint_id {_paused_pin[1]} — reply approve or abort "
+                          f"(decide_automation_checkpoint)_"))
+
             # P5-1: if a tool returned chips inside MIXED output (e.g. a delegated
             # agent's [text, artifact]), the follow-up LLM only produced prose —
             # append the salvaged chips so the download/CTA still reaches the user
@@ -6545,6 +6675,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             elif _used_automation_tool:
                 result["code_flow_context"] = {"name": _automation_name,
                                                "kind": "automation"}
+            if _ledger_dirty:
+                result["session_ledger"] = _ledger
             return result
 
         # Sanitize even non-tool responses
