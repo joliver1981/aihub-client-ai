@@ -709,14 +709,28 @@ async def chat(request: Request):
                 # "Password: `value`" (markdown-formatted plan preview).
                 import re as _rrm
                 _QC = r"""(?:\\"|\\'|\\`|["'`])?"""
+                # AIHUB-0060: (a) the old replacement r"\1***" CONSUMED the closing
+                # quote/backtick without restoring it — an unclosed markdown code
+                # span made everything after the mask render flat (james: automation
+                # replies "read like dense text"). The trailing quote is now
+                # captured (group 3) and restored. (b) secret NAMES are displayable
+                # by the by-name doctrine (they are references, not credentials) —
+                # UPPER_SNAKE values after a 'secret:' label are left unmasked;
+                # password/api_key/token labels still mask everything.
+                def _mask_balanced(m):
+                    return m.group(1) + "***" + (m.group(3) or "")
+                def _mask_secret_ref(m):
+                    if _rrm.fullmatch(r"[A-Z][A-Z0-9_]{2,}", m.group(2)):
+                        return m.group(0)
+                    return m.group(1) + "***" + (m.group(3) or "")
                 _secret_patterns_resp = [
-                    (_rrm.compile(r"(\*{0,3}password\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC + r")([A-Za-z0-9_@.!#$%+\-]{3,})" + _QC, _rrm.IGNORECASE), r"\1***"),
+                    (_rrm.compile(r"(\*{0,3}password\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC + r")([A-Za-z0-9_@.!#$%+\-]{3,})(" + _QC + r")", _rrm.IGNORECASE), _mask_balanced),
                     (_rrm.compile(r"(\"password\"\s*:\s*\")([^\"]+)(\")", _rrm.IGNORECASE), r"\1***\3"),
-                    (_rrm.compile(r"(\bpassword\s+" + _QC + r")([A-Za-z0-9_@.!#$%+\-]{6,})" + _QC, _rrm.IGNORECASE), r"\1***"),
-                    (_rrm.compile(r"(\*{0,3}api[_-]?key\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC + r")([A-Za-z0-9_@.!#$%+\-]{3,})" + _QC, _rrm.IGNORECASE), r"\1***"),
+                    (_rrm.compile(r"(\bpassword\s+" + _QC + r")([A-Za-z0-9_@.!#$%+\-]{6,})(" + _QC + r")", _rrm.IGNORECASE), _mask_balanced),
+                    (_rrm.compile(r"(\*{0,3}api[_-]?key\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC + r")([A-Za-z0-9_@.!#$%+\-]{3,})(" + _QC + r")", _rrm.IGNORECASE), _mask_balanced),
                     (_rrm.compile(r"(\"api[_-]?key\"\s*:\s*\")([^\"]+)(\")", _rrm.IGNORECASE), r"\1***\3"),
-                    (_rrm.compile(r"(\*{0,3}secret\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC + r")([A-Za-z0-9_@.!#$%+\-]{3,})" + _QC, _rrm.IGNORECASE), r"\1***"),
-                    (_rrm.compile(r"(\*{0,3}token\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC + r")([A-Za-z0-9_@.!#$%+\-]{3,})" + _QC, _rrm.IGNORECASE), r"\1***"),
+                    (_rrm.compile(r"(\*{0,3}secret\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC + r")([A-Za-z0-9_@.!#$%+\-]{3,})(" + _QC + r")", _rrm.IGNORECASE), _mask_secret_ref),
+                    (_rrm.compile(r"(\*{0,3}token\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC + r")([A-Za-z0-9_@.!#$%+\-]{3,})(" + _QC + r")", _rrm.IGNORECASE), _mask_balanced),
                 ]
                 def _mask_resp(v):
                     if not isinstance(v, str):
@@ -768,19 +782,27 @@ async def chat(request: Request):
                 # QUOTE class matches plain quotes (", ', `) OR JSON-escaped (\", \', \`)
                 # so that patterns hit both the raw LLM JSON and markdown-formatted text.
                 _QC2 = r"""(?:\\"|\\'|\\`|["'`])?"""
+                # AIHUB-0060: same balanced-quote + secret-name-reference rules as
+                # the response masker above.
+                def _mask_balanced2(m):
+                    return m.group(1) + "***" + (m.group(3) or "")
+                def _mask_secret_ref2(m):
+                    if _re.fullmatch(r"[A-Z][A-Z0-9_]{2,}", m.group(2)):
+                        return m.group(0)
+                    return m.group(1) + "***" + (m.group(3) or "")
                 _secret_patterns = [
                     # Markdown-aware "Password: value" / "Password=value"
-                    (_re.compile(r"(\*{0,3}password\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC2 + r")([A-Za-z0-9_@.!#$%+\-]{3,})" + _QC2, _re.IGNORECASE), r"\1***"),
+                    (_re.compile(r"(\*{0,3}password\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC2 + r")([A-Za-z0-9_@.!#$%+\-]{3,})(" + _QC2 + r")", _re.IGNORECASE), _mask_balanced2),
                     # JSON "password": "value"
                     (_re.compile(r"(\"password\"\s*:\s*\")([^\"]+)(\")", _re.IGNORECASE), r"\1***\3"),
                     # Plain-prose "password value" (6+ chars to avoid matching "password" in text)
-                    (_re.compile(r"(\bpassword\s+" + _QC2 + r")([A-Za-z0-9_@.!#$%+\-]{6,})" + _QC2, _re.IGNORECASE), r"\1***"),
+                    (_re.compile(r"(\bpassword\s+" + _QC2 + r")([A-Za-z0-9_@.!#$%+\-]{6,})(" + _QC2 + r")", _re.IGNORECASE), _mask_balanced2),
                     # api_key / apikey / api-key
-                    (_re.compile(r"(\*{0,3}api[_-]?key\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC2 + r")([A-Za-z0-9_@.!#$%+\-]{3,})" + _QC2, _re.IGNORECASE), r"\1***"),
+                    (_re.compile(r"(\*{0,3}api[_-]?key\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC2 + r")([A-Za-z0-9_@.!#$%+\-]{3,})(" + _QC2 + r")", _re.IGNORECASE), _mask_balanced2),
                     (_re.compile(r"(\"api[_-]?key\"\s*:\s*\")([^\"]+)(\")", _re.IGNORECASE), r"\1***\3"),
                     # secret/token as key-value
-                    (_re.compile(r"(\*{0,3}secret\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC2 + r")([A-Za-z0-9_@.!#$%+\-]{3,})" + _QC2, _re.IGNORECASE), r"\1***"),
-                    (_re.compile(r"(\*{0,3}token\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC2 + r")([A-Za-z0-9_@.!#$%+\-]{3,})" + _QC2, _re.IGNORECASE), r"\1***"),
+                    (_re.compile(r"(\*{0,3}secret\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC2 + r")([A-Za-z0-9_@.!#$%+\-]{3,})(" + _QC2 + r")", _re.IGNORECASE), _mask_secret_ref2),
+                    (_re.compile(r"(\*{0,3}token\*{0,3}\s*[:=]\s*\*{0,3}\s*" + _QC2 + r")([A-Za-z0-9_@.!#$%+\-]{3,})(" + _QC2 + r")", _re.IGNORECASE), _mask_balanced2),
                 ]
                 def _mask(v):
                     if not isinstance(v, str):
