@@ -630,8 +630,11 @@ const CC = {
     // 5001; override via window.CC_MAIN_APP_PORT for nonstandard installs).
     openAutomations() {
         const port = window.CC_MAIN_APP_PORT || 5001;
-        window.open(location.protocol + '//' + location.hostname + ':' + port +
-                    '/automations', '_blank', 'noopener');
+        const url = location.protocol + '//' + location.hostname + ':' + port + '/automations';
+        // Two-arg form ONLY: a third 'noopener' features argument makes this a
+        // POPUP request, which browsers block silently ("nothing happens").
+        const w = window.open(url, '_blank');
+        if (w) { try { w.opener = null; } catch (e) {} }
     },
 
     // ── Sidebar (history) toggle ────────────────────────────────────────
