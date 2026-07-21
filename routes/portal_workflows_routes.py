@@ -103,6 +103,23 @@ def api_save():
     problems = store.validate_steps(steps)
     if problems:
         return jsonify({"error": "invalid steps", "problems": problems}), 400
+
+    # Duplicate-name guard: a plain CREATE whose name collides with an existing workflow must not
+    # silently overwrite it. `prev_slug` (the workflow currently open in the editor) marks a genuine
+    # UPDATE of that same workflow; `overwrite` is the user's explicit confirm-overwrite. Absent
+    # both, a collision returns 409 so the builder UI can prompt (overwrite / rename). The guard
+    # lives here (the interactive endpoint the builder UI + Import JSON funnel through); CC recording
+    # calls store.save_workflow directly and keeps its intended update-by-name behavior.
+    overwrite = bool(body.get("overwrite"))
+    prev_slug = body.get("prev_slug") or None
+    editing_same = bool(prev_slug) and store.slug(prev_slug) == store.slug(name)
+    if not overwrite and not editing_same and store.workflow_exists(_uid(), name):
+        return jsonify({
+            "error": f"A workflow named '{name}' already exists.",
+            "code": "name_exists",
+            "slug": store.slug(name),
+        }), 409
+
     try:
         saved = store.save_workflow(
             _uid(), name, steps,

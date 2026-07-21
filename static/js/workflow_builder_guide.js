@@ -2298,9 +2298,16 @@ class WorkflowBuilderGuide {
             // Remove typing indicator
             this.hideTypingIndicator();
             
+            // Surface a backend error with its ACTUAL detail instead of a generic message — the
+            // backend returns {status:'error', error:...} and logs the full cause (AIHUB-0068).
+            if (!response.ok || data.status === 'error') {
+                this.addMessage(this.friendlyError(data.error), 'error');
+                return;
+            }
+
             // Add assistant response
             this.addMessage(data.response, 'assistant');
-            
+
             // Update UI based on phase
             if (data.phase) {
                 this.updatePhase(data.phase);
@@ -2327,6 +2334,20 @@ class WorkflowBuilderGuide {
         }
     }
     
+    friendlyError(raw) {
+        const detail = (raw || '').toString().trim();
+        if (!detail) return 'Sorry, something went wrong on the server. Please try again.';
+        // Map known machine codes to actionable guidance; otherwise show the backend's message (a
+        // clean one-line reason — the full stack trace stays in the server log, never in the UI).
+        const map = {
+            'UNKNOWN_NODE_TYPE': 'That workflow includes an unsupported node type. Remove or change it, then try again.',
+            'VALIDATION_FAILED': "The workflow didn't pass validation. Check the node configuration and try again.",
+            'PERMISSION_DENIED': "You don't have permission to do that."
+        };
+        for (const code in map) { if (detail.includes(code)) return map[code]; }
+        return detail;
+    }
+
     addMessage(text, type) {
         const messagesContainer = document.getElementById('builderMessages');
         

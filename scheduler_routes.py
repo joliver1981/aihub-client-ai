@@ -231,7 +231,20 @@ def create_job():
         
         if not job_name or not job_type or not target_id:
             return jsonify({'error': 'Missing required fields (name, type, target_id)'}), 400
-        
+
+        # ScheduledJobs.TargetId is an INT column. Job types that carry their real target (a slug or
+        # GUID) in `parameters` — portal_workflow, automation — only need a numeric placeholder here;
+        # coerce so a non-numeric target can never reach the INT column as a raw string (that surfaced
+        # to the user as a raw SQL "Conversion failed … to data type int" 500 — see AIHUB-0065). For
+        # other job types a non-integer target is a client error, answered cleanly, not as a DB crash.
+        try:
+            target_id = int(target_id)
+        except (TypeError, ValueError):
+            if job_type in ("portal_workflow", "automation"):
+                target_id = 0
+            else:
+                return jsonify({'error': f"target_id must be an integer for job type '{job_type}'"}), 400
+
         # Optional fields
         description = data.get('description', '')
         created_by = data.get('created_by', 'system')
@@ -306,8 +319,10 @@ def create_job():
         }), 201
         
     except Exception as e:
-        logger.error(f"Error creating job: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        # Log the full detail (incl. any DB driver text) but never leak a raw SQL/ODBC exception to
+        # the caller — return a clean message (see AIHUB-0065).
+        logger.error(f"Error creating job: {str(e)}", exc_info=True)
+        return jsonify({'error': 'Could not create the scheduled job — please check the configuration and try again.'}), 500
 
 @scheduler_bp.route('/jobs/<int:job_id>', methods=['PUT'])
 def update_job(job_id):

@@ -218,10 +218,17 @@ async def _step_fill(session, step, creds):
 
 async def _step_wait(session, step):
     until = step.get('until')
-    timeout = float(step.get('timeout', 10))
+    # Floor at 0 so a negative timeout can't run instantly and report "waited -1.0s" (a negative
+    # wait is rejected at save; this is defense-in-depth for any legacy/imported step). The 30s
+    # ceiling still applies only to the fixed sleep, not to the 'until' polling deadline.
+    try:
+        timeout = max(0.0, float(step.get('timeout', 10)))
+    except (TypeError, ValueError):
+        timeout = 10.0
     if not until:
-        await asyncio.sleep(min(timeout, 30))
-        return ('ok', f"waited {min(timeout, 30)}s")
+        secs = min(timeout, 30)
+        await asyncio.sleep(secs)
+        return ('ok', f"waited {secs}s")
     deadline = time.time() + timeout
     while time.time() < deadline:
         if await _do(session, until, 'exists') == 'OK':

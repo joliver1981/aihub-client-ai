@@ -55,7 +55,7 @@
     <div class="form-row">
       <div class="form-group col-md-6">
         <label class="pw-muted mb-1">Start URL</label>
-        <input id="pw-start" class="form-control" placeholder="https://portal.example.com/login">
+        <input id="pw-start" type="url" class="form-control" placeholder="https://portal.example.com/login">
       </div>
       <div class="form-group col-md-6">
         <label class="pw-muted mb-1">Goal (used if the agent has to take over)</label>
@@ -131,6 +131,8 @@
 <script>
 (function(){
   var steps = [];
+  var currentSlug = null;   // slug of the workflow open in the editor (null = new/unsaved); marks a
+                            // genuine update so re-saving it isn't flagged as a duplicate-name collision.
   var DET = {goto:'pw-type-det', login:'pw-type-det', click:'pw-type-det', fill:'pw-type-det',
              wait:'pw-type-det', upload:'pw-type-det', agent:'pw-type-llm', human:'pw-type-llm',
              verify_code:'pw-type-llm', verify:'pw-type-chk'};
@@ -177,7 +179,7 @@
   }
   function fields(s, idx){
     if(s.type==='goto')
-      return '<input class="form-control form-control-sm" placeholder="https://..." data-idx="'+idx+'" data-k="url" value="'+esc(s.url||'')+'">';
+      return '<input type="url" class="form-control form-control-sm" placeholder="https://..." data-idx="'+idx+'" data-k="url" value="'+esc(s.url||'')+'">';
     if(s.type==='login')
       return anchorHeader()
            + anchorRow('Username field', s.username_anchor, 'username_anchor', idx)
@@ -192,20 +194,20 @@
            + ['','username','password','totp'].map(function(o){return '<option '+(s.secret===o?'selected':'')+' value="'+o+'">'+(o?('secret: '+o):'(literal value)')+'</option>';}).join('')
            + '</select></div></div>';
     if(s.type==='wait')
-      return '<div class="form-row"><div class="col-3"><input type="number" class="form-control form-control-sm" placeholder="seconds" data-idx="'+idx+'" data-k="timeout" value="'+esc(s.timeout||3)+'"></div>'
+      return '<div class="form-row"><div class="col-3"><input type="number" min="0" class="form-control form-control-sm" placeholder="seconds" data-idx="'+idx+'" data-k="timeout" value="'+esc(s.timeout||3)+'"></div>'
            + '<div class="col"><input class="form-control form-control-sm" placeholder="wait until CSS/text appears (optional)" data-idx="'+idx+'" data-anchor="until" data-k="css" value="'+esc((s.until||{}).css||'')+'"></div></div>';
     if(s.type==='agent')
       return '<textarea class="form-control form-control-sm" rows="2" placeholder="e.g. download the most recent invoice by date" data-idx="'+idx+'" data-k="prompt">'+esc(s.prompt||'')+'</textarea>'
-           + '<div class="form-row mt-1"><div class="col-3"><input type="number" class="form-control form-control-sm" placeholder="max steps" data-idx="'+idx+'" data-k="max_steps" value="'+esc(s.max_steps||8)+'"></div></div>';
+           + '<div class="form-row mt-1"><div class="col-3"><input type="number" min="0" class="form-control form-control-sm" placeholder="max steps" data-idx="'+idx+'" data-k="max_steps" value="'+esc(s.max_steps||8)+'"></div></div>';
     if(s.type==='human')
       return '<div class="form-row"><div class="col-3 pw-muted" style="font-size:12px;">Ask the operator to</div>'
            + '<div class="col"><input class="form-control form-control-sm" placeholder="e.g. enter the 2-step verification code" data-idx="'+idx+'" data-k="reason" value="'+esc(s.reason||'')+'"></div>'
-           + '<div class="col-3"><input type="number" class="form-control form-control-sm" placeholder="timeout (s)" data-idx="'+idx+'" data-k="timeout" value="'+esc(s.timeout||300)+'"></div></div>'
+           + '<div class="col-3"><input type="number" min="0" class="form-control form-control-sm" placeholder="timeout (s)" data-idx="'+idx+'" data-k="timeout" value="'+esc(s.timeout||300)+'"></div></div>'
            + '<div class="pw-muted">Pauses the run and pings a person to take over (e.g. for 2FA), then resumes.</div>';
     if(s.type==='verify_code')
       return '<div class="form-row"><div class="col-3 pw-muted" style="font-size:12px;">If no TOTP, ask operator to</div>'
            + '<div class="col"><input class="form-control form-control-sm" placeholder="e.g. enter the 2-step verification code" data-idx="'+idx+'" data-k="reason" value="'+esc(s.reason||'')+'"></div>'
-           + '<div class="col-3"><input type="number" class="form-control form-control-sm" placeholder="timeout (s)" data-idx="'+idx+'" data-k="timeout" value="'+esc(s.timeout||300)+'"></div></div>'
+           + '<div class="col-3"><input type="number" min="0" class="form-control form-control-sm" placeholder="timeout (s)" data-idx="'+idx+'" data-k="timeout" value="'+esc(s.timeout||300)+'"></div></div>'
            + '<div class="pw-muted">Enters the 2FA code <b>automatically</b> if the linked portal has a saved TOTP secret; otherwise pauses for a person to take over. Use this (not Human step) so the workflow can run unattended/scheduled.</div>';
     if(s.type==='verify')
       return '<label class="pw-muted mb-1"><input type="checkbox" data-idx="'+idx+'" data-k="downloaded" '+(s.downloaded?'checked':'')+'> a file downloaded</label>'
@@ -256,6 +258,7 @@
     $('#pw-oversight').prop('checked', wf.agent_oversight !== false);   // default ON
     $('#pw-takeover').val(wf.takeover_timeout||'');
     steps = (wf.steps||[]).map(function(s){ return JSON.parse(JSON.stringify(s)); }); render();
+    currentSlug = wf.slug || null;   // a loaded saved workflow (has a slug) → re-saving it is an update
   }
   function refreshSaved(){
     $.getJSON('/api/portal-workflows', function(d){
@@ -273,7 +276,7 @@
   }
   function status(msg, cls){ $('#pw-status').removeClass('text-danger text-success').addClass(cls||'').text(msg); }
 
-  $('#pw-new').on('click', function(){ steps=[]; $('#pw-name,#pw-start,#pw-goal').val(''); $('#pw-oversight').prop('checked', true); render(); status('New workflow'); });
+  $('#pw-new').on('click', function(){ steps=[]; currentSlug=null; $('#pw-name,#pw-start,#pw-goal').val(''); $('#pw-oversight').prop('checked', true); render(); status('New workflow'); });
   $('#pw-load').on('click', function(){
     var name=$('#pw-saved').val(); if(!name) return;
     $.getJSON('/api/portal-workflows/'+encodeURIComponent(name), function(d){ if(d.workflow) loadWorkflow(d.workflow); status('Loaded'); });
@@ -288,7 +291,7 @@
     var name=$('#pw-saved').val(); if(!name || !confirm('Delete '+name+'?')) return;
     $.ajax({url:'/api/portal-workflows/'+encodeURIComponent(name), type:'DELETE', success:function(){
       // clear the editor too — the thing you were viewing no longer exists
-      steps=[]; $('#pw-name,#pw-start,#pw-goal').val(''); $('#pw-saved').val(''); render();
+      steps=[]; currentSlug=null; $('#pw-name,#pw-start,#pw-goal').val(''); $('#pw-saved').val(''); render();
       refreshSaved(); status('Deleted');
     }});
   });
@@ -297,14 +300,31 @@
     return { name:$('#pw-name').val().trim(), portal_slug:$('#pw-portal').val()||null,
              start_url:$('#pw-start').val().trim()||null, goal:$('#pw-goal').val().trim()||null,
              agent_oversight:$('#pw-oversight').is(':checked'),
-             takeover_timeout:(parseInt($('#pw-takeover').val()||'0',10)||0)||null, steps:steps };
+             takeover_timeout:(parseInt($('#pw-takeover').val()||'0',10)||0)||null,
+             prev_slug: currentSlug, steps:steps };
+  }
+  function postSave(b, cb){
+    $.ajax({url:'/api/portal-workflows', type:'POST', contentType:'application/json', data:JSON.stringify(b),
+      success:function(d){ currentSlug=d.saved.slug; status('Saved', 'text-success'); refreshSaved(); $('#pw-saved').val(d.saved.slug); if(cb) cb(d.saved.slug); },
+      error:function(x){
+        var r=x.responseJSON||{};
+        // 409 name_exists: a create collided with a different existing workflow — confirm before
+        // overwriting (was a silent overwrite, AIHUB-0066), else let the user rename to keep both.
+        if(x.status===409 && r.code==='name_exists'){
+          if(confirm('A workflow named "'+b.name+'" already exists. Overwrite it?')){
+            postSave($.extend({}, b, {overwrite:true}), cb);
+          } else {
+            status('Save cancelled — rename to keep both workflows.', 'text-danger');
+          }
+          return;
+        }
+        status((r.error||'Save failed')+(r.problems?': '+r.problems.join('; '):''), 'text-danger');
+      }});
   }
   function save(cb){
     var b=body();
     if(!b.name){ status('Name is required', 'text-danger'); return; }
-    $.ajax({url:'/api/portal-workflows', type:'POST', contentType:'application/json', data:JSON.stringify(b),
-      success:function(d){ status('Saved', 'text-success'); refreshSaved(); $('#pw-saved').val(d.saved.slug); if(cb) cb(d.saved.slug); },
-      error:function(x){ var r=x.responseJSON||{}; status((r.error||'Save failed')+(r.problems?': '+r.problems.join('; '):''), 'text-danger'); }});
+    postSave(b, cb);
   }
   $('#pw-save').on('click', function(){ save(); });
 
@@ -348,9 +368,16 @@
     save(function(slug){   // ensure it's saved first (need a slug to target)
       var nm = $('#pw-name').val().trim() || slug;
       var payload = {
-        name: 'Portal: '+nm, type:'portal_workflow', target_id: slug,
+        name: 'Portal: '+nm, type:'portal_workflow',
+        // TargetId is an INT column; the workflow is identified by parameters.workflow_slug (mirrors
+        // the CC-native scheduler path). Sending the slug string as target_id caused a raw SQL
+        // varchar→int conversion error (AIHUB-0065).
+        target_id: PW_USER_ID,
         created_by: String(PW_USER_ID), description: 'Scheduled portal workflow',
-        parameters: { user_id: { value: String(PW_USER_ID), type:'string' } },
+        parameters: {
+          user_id: { value: String(PW_USER_ID), type:'string' },
+          workflow_slug: { value: slug, type:'string' }
+        },
         schedule: intervalSchedule($('#pw-sched-freq').val())
       };
       $('#pw-sched-create').prop('disabled', true);

@@ -24,6 +24,7 @@ import os
 import threading
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 _LOCK = threading.Lock()
 
@@ -76,6 +77,26 @@ def _user_workflows(data: Dict[str, Any], user_id: Any) -> Dict[str, Any]:
     return (data.get("users", {}).get(uid, {}) or {}).get("workflows", {}) or {}
 
 
+def valid_url(u: Any) -> bool:
+    """True if `u` is an absolute http(s) URL (scheme + host). Used to reject an invalid Start /
+    Navigate URL (e.g. a bare 'abc') at SAVE time — otherwise it saves fine and only fails during
+    execution when the browser tries to navigate to it."""
+    try:
+        p = urlparse(str(u).strip())
+    except Exception:
+        return False
+    return p.scheme in ("http", "https") and bool(p.netloc)
+
+
+def _is_negative(v: Any) -> bool:
+    """True if `v` is a number (or numeric string) less than zero. Non-numeric → False (a separate
+    check flags non-numeric where it matters)."""
+    try:
+        return float(v) < 0
+    except (TypeError, ValueError):
+        return False
+
+
 def validate_steps(steps: Any) -> List[str]:
     """Return a list of human-readable problems (empty == valid). Cheap structural checks only."""
     problems: List[str] = []
@@ -89,8 +110,12 @@ def validate_steps(steps: Any) -> List[str]:
         if t not in _STEP_TYPES:
             problems.append(f"step {i}: unknown type {t!r}")
             continue
-        if t == "goto" and not s.get("url"):
-            problems.append(f"step {i} (goto): missing url")
+        if t == "goto":
+            u = s.get("url")
+            if not u:
+                problems.append(f"step {i} (goto): missing url")
+            elif not valid_url(u):
+                problems.append(f"step {i} (goto): invalid url {u!r} — use a full http(s):// address")
         if t == "click" and not s.get("anchor"):
             problems.append(f"step {i} (click): missing anchor")
         if t == "fill" and not s.get("anchor"):
@@ -101,6 +126,18 @@ def validate_steps(steps: Any) -> List[str]:
             problems.append(f"step {i} (agent): missing prompt")
         if t == "human" and not s.get("reason"):
             problems.append(f"step {i} (human): missing reason")
+        # Numeric-field guards: a negative wait ran instantly and reported "waited -1.0s"; a
+        # negative timeout/max_steps is never meaningful. Reject at save (all callers funnel here).
+        if t == "wait" and s.get("timeout") is not None:
+            try:
+                if float(s.get("timeout")) < 0:
+                    problems.append(f"step {i} (wait): timeout must be 0 or greater")
+            except (TypeError, ValueError):
+                problems.append(f"step {i} (wait): timeout must be a number")
+        if t in ("human", "verify_code") and _is_negative(s.get("timeout")):
+            problems.append(f"step {i} ({t}): timeout must be 0 or greater")
+        if t == "agent" and _is_negative(s.get("max_steps")):
+            problems.append(f"step {i} (agent): max_steps must be 0 or greater")
     return problems
 
 
@@ -138,6 +175,16 @@ def get_workflow(user_id: Any, name: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def workflow_exists(user_id: Any, name: str) -> bool:
+    """True if a workflow with this EXACT slug already exists for the user (exact key match, not
+    the loose contains-match `get_workflow` uses). The save endpoint calls this to detect a
+    duplicate-name collision before it would silently overwrite a different workflow."""
+    target = slug(name)
+    if not target:
+        return False
+    return target in _user_workflows(_load(), user_id)
+
+
 def save_workflow(user_id: Any, name: str, steps: List[Dict[str, Any]],
                   portal_slug: Optional[str] = None, start_url: Optional[str] = None,
                   goal: Optional[str] = None,
@@ -152,6 +199,8 @@ def save_workflow(user_id: Any, name: str, steps: List[Dict[str, Any]],
     problems = validate_steps(steps)
     if problems:
         raise ValueError("; ".join(problems))
+    if start_url and not valid_url(start_url):
+        raise ValueError(f"invalid start_url {start_url!r} — use a full http(s):// address")
     s = slug(name)
     with _LOCK:
         data = _load()
