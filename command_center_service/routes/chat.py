@@ -449,35 +449,44 @@ async def chat(request: Request):
             # A/B agent implementation for this turn (declared state channel).
             graph_input["agent_impl"] = agent_impl
 
-            # ── Load user preferences (Layer 2: cross-session, simple DB read) ─
+            # ── Cross-chat memory injection (LEGACY — master-gated) ────────
+            # james 2026-07-20: DISABLED by default via CC_CROSS_CHAT_MEMORY.
+            # The LLM-distilled insights injected stale VOLATILE STATE into
+            # fresh chats as system-prompt fact ("still draft-only") and the
+            # agent repeated it as current truth. Within-conversation
+            # continuity is the session ledger's job; nothing is deleted —
+            # flip the flag to restore the old behavior.
             user_memory_context = ""
-            try:
-                user_id = (user_context or {}).get("user_id")
-                if user_id:
-                    from command_center.memory.user_memory import get_preferences
-                    prefs = get_preferences(int(user_id))
-                    if prefs:
-                        lines = []
-                        for key, val in prefs.items():
-                            display = val.get("value", str(val)) if isinstance(val, dict) else str(val)
-                            lines.append(f"- {key}: {display}")
-                        user_memory_context = "Your preferences:\n" + "\n".join(lines)
-            except Exception as mem_err:
-                logger.warning(f"User preference load failed (non-blocking): {mem_err}")
+            from cc_config import CROSS_CHAT_MEMORY
+            if CROSS_CHAT_MEMORY:
+                # Layer 2: user preferences (cross-session, simple DB read)
+                try:
+                    user_id = (user_context or {}).get("user_id")
+                    if user_id:
+                        from command_center.memory.user_memory import get_preferences
+                        prefs = get_preferences(int(user_id))
+                        if prefs:
+                            lines = []
+                            for key, val in prefs.items():
+                                display = val.get("value", str(val)) if isinstance(val, dict) else str(val)
+                                lines.append(f"- {key}: {display}")
+                            user_memory_context = "Your preferences:\n" + "\n".join(lines)
+                except Exception as mem_err:
+                    logger.warning(f"User preference load failed (non-blocking): {mem_err}")
 
-            # ── Load session insights (Layer 3: cross-session discovered knowledge) ─
-            try:
-                user_id = (user_context or {}).get("user_id")
-                if user_id:
-                    from command_center.memory.route_memory import get_insights_for_context
-                    insights_context = get_insights_for_context(int(user_id), limit=10)
-                    if insights_context:
-                        if user_memory_context:
-                            user_memory_context += "\n\n" + insights_context
-                        else:
-                            user_memory_context = insights_context
-            except Exception as insight_err:
-                logger.warning(f"Insight load failed (non-blocking): {insight_err}")
+                # Layer 3: session insights (cross-session discovered knowledge)
+                try:
+                    user_id = (user_context or {}).get("user_id")
+                    if user_id:
+                        from command_center.memory.route_memory import get_insights_for_context
+                        insights_context = get_insights_for_context(int(user_id), limit=10)
+                        if insights_context:
+                            if user_memory_context:
+                                user_memory_context += "\n\n" + insights_context
+                            else:
+                                user_memory_context = insights_context
+                except Exception as insight_err:
+                    logger.warning(f"Insight load failed (non-blocking): {insight_err}")
 
             graph_input["user_memory"] = user_memory_context
 
@@ -683,9 +692,11 @@ async def chat(request: Request):
 
                     # ── Session Insight Extraction (non-blocking) ──
                     # After multi-turn conversations, extract factual discoveries
-                    # and store them for future sessions.
-                    from cc_config import USE_SESSION_INSIGHTS
-                    if USE_SESSION_INSIGHTS:
+                    # and store them for future sessions. Master-gated with the
+                    # cross-chat memory feature (james 2026-07-20): when the
+                    # injection is off, writing new memories is pointless churn.
+                    from cc_config import USE_SESSION_INSIGHTS, CROSS_CHAT_MEMORY
+                    if USE_SESSION_INSIGHTS and CROSS_CHAT_MEMORY:
                         from command_center.memory.route_memory import extract_session_insights
                         asyncio.ensure_future(extract_session_insights(
                             user_id=int(user_id),

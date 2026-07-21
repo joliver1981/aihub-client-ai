@@ -353,6 +353,19 @@ extracts factual discoveries (e.g., 'Store S009 lease is doc type commercial_lea
 and stores them as reusable insights.  These surface in future conversations to avoid
 repeating the same discovery process.  Set to false to disable."""
 
+CROSS_CHAT_MEMORY = os.getenv("CC_CROSS_CHAT_MEMORY", "false").lower() == "true"
+"""MASTER switch for the legacy cross-chat memory feature (james, 2026-07-20:
+DISABLED by default). When false, NEW chats start clean: no preference/insight
+injection into the prompt, and no session-insight extraction/writing —
+regardless of USE_SESSION_INSIGHTS. Root cause for the default-off: the
+LLM-distilled insights injected VOLATILE STATE ('expense-audit is still
+draft-only') into fresh chats as authoritative-looking system text; it went
+stale and the agent repeated it as current truth (fabricated-state class).
+Within-conversation continuity is handled by the deterministic session ledger
+(CC_SESSION_LEDGER) instead. The stored memories and the Manage Memory UI are
+left intact — nothing is deleted — so a future, more sophisticated memory
+system can supersede this cleanly. Set true to restore the old behavior."""
+
 SESSION_INSIGHT_MIN_TURNS = int(os.getenv("CC_SESSION_INSIGHT_MIN_TURNS", "3"))
 """Minimum number of user turns in a session before insight extraction triggers.
 Lower values extract more aggressively; higher values wait for longer explorations."""

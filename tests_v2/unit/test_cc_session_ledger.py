@@ -142,3 +142,39 @@ class TestPausePinAndSelfResolvingDecide:
         assert "No paused (waiting) run found" in body     # honest empty case
         assert "_resolved_question" in body                # reads back what it decided
         assert "which automation is this?" in body         # honest ambiguity ask
+
+
+class TestCrossChatMemoryMasterSwitch:
+    """james 2026-07-20: the legacy cross-chat memory injected STALE volatile
+    state ('still draft-only') into fresh chats as system-prompt fact — the
+    agent repeated it as current truth. Master flag CC_CROSS_CHAT_MEMORY,
+    DEFAULT OFF: no injection, no insight writing; nothing deleted (the
+    stored memories + Manage Memory UI stay for the future memory system).
+    Within-conversation continuity remains the session ledger's job."""
+
+    def _chat_src(self):
+        return (Path(_CC) / "routes" / "chat.py").read_text(encoding="utf-8")
+
+    def test_flag_exists_and_defaults_off(self):
+        cfg = (Path(_CC) / "cc_config.py").read_text(encoding="utf-8")
+        assert 'CROSS_CHAT_MEMORY = os.getenv("CC_CROSS_CHAT_MEMORY", "false")' in cfg
+        assert "DISABLED by default" in cfg
+
+    def test_injection_fully_gated(self):
+        src = self._chat_src()
+        blk = src[src.find("Cross-chat memory injection (LEGACY"):
+                  src.find('graph_input["user_memory"] = user_memory_context')]
+        assert "if CROSS_CHAT_MEMORY:" in blk
+        # both legacy layers live INSIDE the gate
+        assert blk.find("if CROSS_CHAT_MEMORY:") < blk.find("get_preferences")
+        assert blk.find("if CROSS_CHAT_MEMORY:") < blk.find("get_insights_for_context")
+        # flag off ⇒ the empty default string reaches the graph unconditionally
+        assert 'user_memory_context = ""' in blk
+
+    def test_insight_writer_master_gated(self):
+        src = self._chat_src()
+        assert "if USE_SESSION_INSIGHTS and CROSS_CHAT_MEMORY:" in src
+
+    def test_nothing_deleted_routes_and_store_survive(self):
+        # the memory routes file must still exist untouched (view/manage only)
+        assert (Path(_CC) / "routes" / "memory.py").exists()
