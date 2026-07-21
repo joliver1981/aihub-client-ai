@@ -10083,29 +10083,30 @@ def get_approval_requests():
         
         # Build query with filters
         query = """
-            SELECT ar.*, se.node_name, se.node_type, 
-                   we.workflow_name, we.execution_id, we.started_at as execution_started_at
+            SELECT ar.*, se.node_name, se.node_type,
+                   we.workflow_name, we.execution_id, we.started_at as execution_started_at,
+                   'workflow' AS approval_type
             FROM ApprovalRequests ar
             JOIN StepExecutions se ON ar.step_execution_id = se.step_execution_id
             JOIN WorkflowExecutions we ON se.execution_id = we.execution_id
             WHERE 1=1
         """
         params = []
-        
+
         if status:
             query += " AND ar.status = ?"
             params.append(status)
-        
+
         if assignee:
             query += " AND (ar.assigned_to = ? OR ar.assigned_to IS NULL)"
             params.append(assignee)
-        
+
         # Add sorting
         query += " ORDER BY ar.requested_at DESC"
-        
+
         # Execute query
         cursor.execute(query, *params)
-        
+
         approvals = []
         for row in cursor.fetchall():
             # Convert row to dictionary
@@ -10116,9 +10117,24 @@ def get_approval_requests():
                 if isinstance(value, datetime.datetime):
                     value = value.isoformat()
                 approval[column[0]] = value
-            
+
             approvals.append(approval)
-        
+
+        # Merge automation-checkpoint approvals — bridged rows are JSON files
+        # in the tenant's _approvals/ sidecar (automations/approval_store.py).
+        try:
+            from automations import approval_store as _ap_store
+            from automations.api import _get_manager as _ap_mgr
+            for row in _ap_store.list_rows(_ap_mgr().base_path, status=status or None):
+                shaped = dict(row)
+                shaped.update(node_name=None, node_type=None, workflow_name=None,
+                              execution_id=None, execution_started_at=None,
+                              approval_type='automation')
+                approvals.append(shaped)
+            approvals.sort(key=lambda a: a.get('requested_at') or '', reverse=True)
+        except Exception as bridge_err:
+            logger.debug(f"automation approvals merge skipped: {bridge_err}")
+
         cursor.close()
         conn.close()
         
@@ -10147,17 +10163,36 @@ def get_approval_request(request_id):
         # First, get the tenant context
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
         
-        # Get approval request details
+        # Get approval request details; workflow rows first, then the
+        # automation-checkpoint sibling table (AutomationApprovalRequests).
         cursor.execute("""
-            SELECT ar.*, se.node_name, se.node_type, 
-                   we.workflow_name, we.execution_id, we.started_at as execution_started_at
+            SELECT ar.*, se.node_name, se.node_type,
+                   we.workflow_name, we.execution_id, we.started_at as execution_started_at,
+                   'workflow' AS approval_type
             FROM ApprovalRequests ar
             JOIN StepExecutions se ON ar.step_execution_id = se.step_execution_id
             JOIN WorkflowExecutions we ON se.execution_id = we.execution_id
             WHERE ar.request_id = ?
         """, request_id)
-        
+
         row = cursor.fetchone()
+        if not row:
+            # Automation-checkpoint rows live in the _approvals/ file sidecar
+            try:
+                from automations import approval_store as _ap_store
+                from automations.api import _get_manager as _ap_mgr
+                srow = _ap_store.get_row(_ap_mgr().base_path, request_id)
+            except Exception as bridge_err:
+                logger.debug(f"automation approval detail lookup skipped: {bridge_err}")
+                srow = None
+            if srow:
+                cursor.close()
+                conn.close()
+                srow = dict(srow)
+                srow.update(node_name=None, node_type=None, workflow_name=None,
+                            execution_id=None, execution_started_at=None,
+                            approval_type='automation')
+                return jsonify(srow)
         if not row:
             return jsonify({
                 "status": "error",
@@ -10214,31 +10249,87 @@ def process_approval_request(request_id):
         # First, get the tenant context
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
         
-        # Get approval request details to verify it's pending
+        # Workflow rows live in ApprovalRequests; automation-checkpoint rows
+        # in the AutomationApprovalRequests sibling table (see
+        # migrations/015_approval_bridge.sql). Check both.
         cursor.execute("""
-            SELECT ar.step_execution_id, se.execution_id
+            SELECT ar.step_execution_id
             FROM ApprovalRequests ar
-            JOIN StepExecutions se ON ar.step_execution_id = se.step_execution_id
             WHERE ar.request_id = ? AND ar.status = 'Pending'
         """, request_id)
-        
         row = cursor.fetchone()
+
+        automation_meta = None
         if not row:
+            # Automation-checkpoint rows live in the _approvals/ file sidecar
+            try:
+                from automations import approval_store as _ap_store
+                from automations.api import _get_manager as _ap_mgr
+                srow = _ap_store.get_row(_ap_mgr().base_path, request_id)
+            except Exception as bridge_err:
+                logger.debug(f"automation approval lookup skipped: {bridge_err}")
+                srow = None
+            if srow and srow.get("status") == "Pending":
+                try:
+                    automation_meta = json.loads(srow.get("approval_data") or "{}")
+                except (ValueError, TypeError):
+                    automation_meta = {}
+
+        if not row and automation_meta is None:
             return jsonify({
                 "status": "error",
                 "message": f"Approval request {request_id} not found or already processed"
             }), 404
-        
-        step_execution_id, execution_id = row
-        
+
+        if automation_meta is not None:
+            # Settle the queue row, then route the decision to the paused RUN
+            # (proceed/abort) — the same guarded path as the Mission Control
+            # gate buttons.
+            cursor.close()
+            conn.close()
+            from automations import approval_store as _ap_store
+            from automations.api import _get_manager as _ap_mgr
+            _ap_store.settle_row(_ap_mgr().base_path, request_id,
+                                 status.capitalize(), responded_by, comments)
+            from automations.api import _decide_checkpoint
+            decision = "proceed" if status == "approved" else "abort"
+            result, code = _decide_checkpoint(
+                automation_meta.get("run_id", ""),
+                automation_meta.get("checkpoint_id", ""),
+                decision, responded_by)
+            if code != 200:
+                # The queue row is settled either way; be honest that the run
+                # itself is beyond deciding (finished/aborted/cleaned up).
+                return jsonify({
+                    "status": "success",
+                    "message": (f"Approval recorded ({status}), but the automation run "
+                                f"could not be resumed: {result.get('error')} — it has "
+                                f"likely already finished or been aborted.")
+                })
+            return jsonify({
+                "status": "success",
+                "message": f"Approval request processed ({status}) — the automation run "
+                           f"{'resumes' if decision == 'proceed' else 'is aborting'}."
+            })
+
+        step_execution_id = row[0]
+
         # Update the approval request
         cursor.execute("""
             UPDATE ApprovalRequests
             SET status = ?, response_at = getutcdate(), responded_by = ?, comments = ?
             WHERE request_id = ?
         """, status.capitalize(), responded_by, comments, request_id)
-        
+
         conn.commit()
+
+        # Workflow rows: resolve the owning execution for engine notification.
+        cursor.execute("""
+            SELECT se.execution_id FROM StepExecutions se
+            WHERE se.step_execution_id = ?
+        """, step_execution_id)
+        exec_row = cursor.fetchone()
+        execution_id = exec_row[0] if exec_row else None
         
         # Notify the workflow execution engine of the approval response
         # This will cause the workflow to continue execution
@@ -10247,7 +10338,7 @@ def process_approval_request(request_id):
         else:
             message = f"Approval request {request_id} rejected by {responded_by}"
 
-        if USE_WORKFLOW_EXECUTOR_SERVICE:
+        if execution_id and USE_WORKFLOW_EXECUTOR_SERVICE:
             try:
                 workflow_client.log_event(
                     execution_id=execution_id,
@@ -10257,13 +10348,13 @@ def process_approval_request(request_id):
                 )
             except WorkflowServiceError as e:
                 logger.warning(f"Could not log to workflow service: {e.message}")
-        else:
+        elif execution_id:
             # Log the approval response
             workflow_engine.log_execution(
                 execution_id, None, "info", message,
                 {"request_id": request_id, "status": status, "comments": comments}
             )
-        
+
         cursor.close()
         conn.close()
         
@@ -15214,7 +15305,8 @@ def get_user_approvals():
                 we.workflow_name,
                 we.execution_id,
                 we.started_at as execution_started_at,
-                CASE 
+                'workflow' AS approval_type,
+                CASE
                     WHEN ar.assigned_to_type = 'user' AND ar.assigned_to_id = ? THEN 'Direct'
                     WHEN ar.assigned_to_type = 'group' THEN 'Group: ' + g.group_name
                     WHEN ar.assigned_to_type = 'unassigned' OR ar.assigned_to_type IS NULL THEN 'Available to All'
@@ -15261,26 +15353,72 @@ def get_user_approvals():
             query += " AND ar.requested_at >= DATEADD(MONTH, -1, getutcdate())"
         
         query += " ORDER BY ar.priority DESC, ar.requested_at DESC"
-        
+
         cursor.execute(query, *params)
-        
-        approvals = []
-        for row in cursor.fetchall():
-            approval = {}
-            for i, column in enumerate(cursor.description):
-                value = row[i]
-                # Fix: Use datetime.datetime instead of just datetime
-                if isinstance(value, datetime.datetime):
-                    value = value.isoformat()
-                # Handle Decimal objects
-                elif isinstance(value, Decimal):
-                    value = float(value)
-                # Handle UUID objects
-                elif hasattr(value, 'hex'):
-                    value = str(value)
-                approval[column[0]] = value
-            approvals.append(approval)
-        
+
+        def _rows_to_dicts(cur):
+            out = []
+            for row in cur.fetchall():
+                approval = {}
+                for i, column in enumerate(cur.description):
+                    value = row[i]
+                    # Fix: Use datetime.datetime instead of just datetime
+                    if isinstance(value, datetime.datetime):
+                        value = value.isoformat()
+                    # Handle Decimal objects
+                    elif isinstance(value, Decimal):
+                        value = float(value)
+                    # Handle UUID objects
+                    elif hasattr(value, 'hex'):
+                        value = str(value)
+                    approval[column[0]] = value
+                out.append(approval)
+            return out
+
+        approvals = _rows_to_dicts(cursor)
+
+        # Merge in automation-checkpoint approvals — bridged rows are JSON
+        # files in the tenant's _approvals/ sidecar (automations/approval_store
+        # .py; the Azure app login has no DDL, so no table). Filtered + shaped
+        # in Python; the workflow query above stays byte-identical.
+        automation_rows = []
+        try:
+            from automations import approval_store as _ap_store
+            from automations.api import _get_manager as _ap_mgr
+            automation_rows = _ap_store.list_rows(_ap_mgr().base_path,
+                                                  assigned_to_id=user_id)
+            if assignment_filter == 'group':
+                automation_rows = []  # automation approvals are user-assigned
+        except Exception as bridge_err:
+            logger.debug(f"automation approvals merge skipped: {bridge_err}")
+
+        def _within_date(row):
+            if date_filter not in ('today', 'week', 'month'):
+                return True
+            try:
+                ts = datetime.datetime.fromisoformat(
+                    (row.get('requested_at') or '').rstrip('Z'))
+            except ValueError:
+                return True
+            age = datetime.datetime.utcnow() - ts
+            return (age.days < 1 if date_filter == 'today'
+                    else age.days < 7 if date_filter == 'week' else age.days < 31)
+
+        for row in automation_rows:
+            if status_filter != 'all' and (row.get('status') or '').lower() != status_filter.lower():
+                continue
+            if not _within_date(row):
+                continue
+            shaped = dict(row)
+            shaped.update(node_name=None, node_type=None, workflow_name=None,
+                          execution_id=None, execution_started_at=None,
+                          approval_type='automation',
+                          assignment_type=('Direct' if row.get('assigned_to_id') == user_id
+                                           else 'Available to All'))
+            approvals.append(shaped)
+        approvals.sort(key=lambda a: ((a.get('priority') or 0),
+                                      a.get('requested_at') or ''), reverse=True)
+
         # Get statistics
         stats_query = """
             SELECT 
@@ -15306,13 +15444,34 @@ def get_user_approvals():
         
         cursor.execute(stats_query, user_id, user_id)
         stats_row = cursor.fetchone()
-        
+
         statistics = {
             'pending': int(stats_row[0] or 0),
             'approved_today': int(stats_row[1] or 0),
             'rejected_today': int(stats_row[2] or 0),
             'overdue': int(stats_row[3] or 0)
         }
+
+        # Fold in the automation-checkpoint rows (same store rows as the merge)
+        try:
+            today = datetime.datetime.utcnow().date()
+            for row in automation_rows:
+                st = (row.get('status') or '')
+                resp = (row.get('response_at') or '')
+                resp_today = False
+                try:
+                    resp_today = bool(resp) and \
+                        datetime.datetime.fromisoformat(resp.rstrip('Z')).date() == today
+                except ValueError:
+                    pass
+                if st == 'Pending':
+                    statistics['pending'] += 1
+                elif st == 'Approved' and resp_today:
+                    statistics['approved_today'] += 1
+                elif st == 'Rejected' and resp_today:
+                    statistics['rejected_today'] += 1
+        except Exception as bridge_err:
+            logger.debug(f"automation approvals stats skipped: {bridge_err}")
         
         cursor.close()
         conn.close()

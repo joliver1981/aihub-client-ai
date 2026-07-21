@@ -201,7 +201,7 @@ def _runtime_post(path, body):
         return _json.loads(resp.read().decode("utf-8"))
 
 
-def checkpoint(message, poll_seconds=2):
+def checkpoint(message, poll_seconds=2, files=None, assignee=None):
     """PAUSE the run at a human-judgment gate and wait for a decision.
 
     Shows `message` to the user in Mission Control / the Studio panel (keep it
@@ -209,6 +209,15 @@ def checkpoint(message, poll_seconds=2):
     run"). Blocks until a Developer clicks Proceed (returns True) or Abort
     (raises AutomationAborted). The automation's overall timeout still
     applies while waiting — an unanswered gate times the run out honestly.
+
+    The gate ALSO lands in the platform's My Approvals queue (same queue as
+    the workflow Human Approval node), so it can be decided from either place.
+
+    files: optional list of paths (relative to the run's working directory)
+    the approver can download while deciding — e.g. the report you are about
+    to send: aihub.checkpoint("Send this?", files=["out/report.xlsx"]).
+    assignee: optional user id (int) to route the approval to; defaults to
+    the user who started the run.
 
     Use before irreversible steps: uploads, deletions, sends, anything that
     crosses a system boundary with unusual data."""
@@ -229,9 +238,15 @@ def checkpoint(message, poll_seconds=2):
     if not token:
         raise AutomationRuntimeError(
             "checkpoint() requires the run token (AIHUB_RUN_TOKEN missing)")
+    body = {"token": token, "message": str(message)}
+    if files:
+        if not isinstance(files, (list, tuple)):
+            raise AutomationRuntimeError("checkpoint(files=...) must be a list of paths")
+        body["files"] = [str(f) for f in files]
+    if assignee is not None:
+        body["assignee"] = assignee
     try:
-        created = _runtime_post("/automations/api/runtime/checkpoint",
-                                {"token": token, "message": str(message)})
+        created = _runtime_post("/automations/api/runtime/checkpoint", body)
     except AutomationRuntimeError:
         raise
     except Exception as e:

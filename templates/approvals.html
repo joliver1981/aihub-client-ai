@@ -257,6 +257,7 @@
                 <thead>
                     <tr>
                         <th>Priority</th>
+                        <th>Type</th>
                         <th>Title</th>
                         <th>Workflow</th>
                         <th>Requested</th>
@@ -652,6 +653,18 @@
                 `;
             }
             
+            // Automation-checkpoint rows have no workflow behind them — show
+            // the automation's name (from approval_data) in the Workflow slot.
+            const isAutomation = approval.approval_type === 'automation';
+            let sourceName = approval.workflow_name;
+            if (isAutomation) {
+                try { sourceName = JSON.parse(approval.approval_data || '{}').automation_name || 'Automation'; }
+                catch (e) { sourceName = 'Automation'; }
+            }
+            const typeBadge = isAutomation
+                ? '<span class="status-badge" style="background:#0e7490;color:#eafcff">Automation</span>'
+                : '<span class="status-badge" style="background:#4a6fa5;color:#fff">Workflow</span>';
+
             return `
                 <tr data-request-id="${approval.request_id}">
                     <td>
@@ -659,10 +672,11 @@
                             ${getPriorityLabel(approval.priority)}
                         </span>
                     </td>
+                    <td>${typeBadge}</td>
                     <td>
                         <strong>${approval.title}</strong>
                     </td>
-                    <td>${approval.workflow_name}</td>
+                    <td>${sourceName || '-'}</td>
                     <td title="${requestedDate}">${requestedRelative}</td>
                     <td>${dueDate}</td>
                     <td>${timeRemainingHtml}</td>
@@ -767,9 +781,32 @@
         }
         
         function populateModal(approval) {
+            let meta = {};
+            try { meta = JSON.parse(approval.approval_data || '{}'); } catch (e) { meta = {}; }
+            const isAutomation = approval.approval_type === 'automation' || meta.source === 'automation';
             $('#modalTitle').text(approval.title);
-            $('#modalWorkflow').text(approval.workflow_name);
-            $('#modalStep').text(approval.node_name);
+            $('#modalWorkflow').text(isAutomation ? (meta.automation_name || 'Automation')
+                                                  : approval.workflow_name);
+            $('#modalStep').text(isAutomation ? 'Automation checkpoint' : approval.node_name);
+
+            // Gate attachments (automation checkpoints): download links served
+            // by the automations blueprint, names restricted server-side to
+            // what the checkpoint declared.
+            $('#modalAttachments').remove();
+            if (isAutomation && Array.isArray(meta.attachments) && meta.attachments.length
+                    && meta.run_id && meta.checkpoint_id) {
+                const links = meta.attachments.map(a => {
+                    const name = encodeURIComponent(a.name);
+                    const kb = a.size != null ? ' (' + Math.max(1, Math.round(a.size / 1024)) + ' KB)' : '';
+                    return `<a class="btn btn-sm btn-outline-primary" style="margin:2px"
+                               href="/automations/api/runs/${encodeURIComponent(meta.run_id)}/checkpoints/${encodeURIComponent(meta.checkpoint_id)}/attachments/${name}">
+                               <i class="fas fa-paperclip"></i> ${a.name}${kb}</a>`;
+                }).join(' ');
+                $('#modalData').before(
+                    `<div id="modalAttachments" style="margin:8px 0">
+                        <strong>Attachments</strong><div>${links}</div>
+                     </div>`);
+            }
             $('#modalRequested').text(TimezoneUtils.formatDate(approval.requested_at) + 
                                     ' (' + TimezoneUtils.getRelativeTime(approval.requested_at) + ')');
             

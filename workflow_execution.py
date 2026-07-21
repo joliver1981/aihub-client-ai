@@ -4439,7 +4439,18 @@ Guidelines:
             return _fail(f"Automation node: '{auto['name']}' has no promoted version — dry-run and promote it first")
 
         # Resolve inputs with workflow-variable substitution on string values.
+        # The designer's config form saves `inputs` as a JSON STRING (generic
+        # field capture) while API-authored workflows pass a dict — accept both.
         raw_inputs = config.get('inputs') or {}
+        if isinstance(raw_inputs, str):
+            raw_inputs = raw_inputs.strip()
+            if raw_inputs:
+                try:
+                    raw_inputs = json.loads(raw_inputs)
+                except ValueError:
+                    return _fail("Automation node: 'inputs' is not valid JSON")
+            else:
+                raw_inputs = {}
         run_inputs = {}
         if isinstance(raw_inputs, dict):
             for k, v in raw_inputs.items():

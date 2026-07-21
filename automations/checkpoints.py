@@ -42,7 +42,13 @@ def _now() -> str:
     return datetime.utcnow().isoformat(timespec="seconds") + "Z"
 
 
-def create_checkpoint(workdir: str, message: str) -> Dict:
+def create_checkpoint(workdir: str, message: str,
+                      attachments: Optional[List[Dict]] = None,
+                      approval_request_id: Optional[str] = None) -> Dict:
+    """attachments: [{name, relpath, size}] — files inside the run workdir the
+    approver can download from the gate/queue. approval_request_id: the
+    ApprovalRequests GUID bridging this gate into the My Approvals queue
+    (set after the row is written via set_approval_request_id)."""
     checkpoint = {
         "checkpoint_id": uuid.uuid4().hex[:12],
         "message": (message or "")[:MAX_MESSAGE_CHARS],
@@ -50,10 +56,24 @@ def create_checkpoint(workdir: str, message: str) -> Dict:
         "decision": None,
         "decided_by": None,
         "decided_at": None,
+        "attachments": attachments or [],
+        "approval_request_id": approval_request_id,
     }
     with open(_path(workdir, checkpoint["checkpoint_id"]), "w", encoding="utf-8") as f:
         json.dump(checkpoint, f, indent=2)
     return checkpoint
+
+
+def set_approval_request_id(workdir: str, checkpoint_id: str, request_id: str) -> None:
+    """Record the bridged ApprovalRequests row id on the checkpoint (written
+    after the row insert succeeds, so a queue-bridge failure leaves None and
+    the gate still works via Mission Control alone)."""
+    checkpoint = get_checkpoint(workdir, checkpoint_id)
+    if checkpoint is None:
+        return
+    checkpoint["approval_request_id"] = request_id
+    with open(_path(workdir, checkpoint_id), "w", encoding="utf-8") as f:
+        json.dump(checkpoint, f, indent=2)
 
 
 def get_checkpoint(workdir: str, checkpoint_id: str) -> Optional[Dict]:

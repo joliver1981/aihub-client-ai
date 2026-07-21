@@ -224,7 +224,11 @@ async function pollEvents(runId){
  const gate=document.getElementById('gate-'+runId);
  const p=d.pending_checkpoint;
  if(gate){ if(p&&!p.decision){gate.style.display='';
+   const atts=(p.attachments||[]).map(a=>`<a class="chip" style="text-decoration:none"
+     href="/automations/api/runs/${esc(runId)}/checkpoints/${esc(p.checkpoint_id)}/attachments/${encodeURIComponent(a.name)}"
+     >📎 ${esc(a.name)}</a>`).join(' ');
    gate.innerHTML=`<div class="msg">⏸ Waiting for you — ${esc(p.message)}</div>
+     ${atts?`<div class="chips" style="margin-bottom:8px">${atts}</div>`:''}
      <button class="go" onclick="decide('${runId}','${esc(p.checkpoint_id)}','proceed')">Proceed</button>
      <button class="stop" onclick="decide('${runId}','${esc(p.checkpoint_id)}','abort')">Abort</button>`;}
   else gate.style.display='none';}
@@ -830,7 +834,34 @@ def _decide_checkpoint(run_id, checkpoint_id, decision, decided_by):
                                   checkpoint_id=checkpoint_id, decision=decision)
     except Exception:
         pass
+    _mirror_checkpoint_decision_to_queue(checkpoint, decision, decided_by)
     return {"checkpoint": checkpoint}, 200
+
+
+@automations_bp.route("/api/runs/<run_id>/checkpoints/<checkpoint_id>/attachments/<name>",
+                      methods=["GET"])
+@automations_gate
+def checkpoint_attachment(run_id, checkpoint_id, name):
+    """Download one gate attachment. Only names the checkpoint DECLARED are
+    servable (the stored relpath was traversal-validated at declaration), so
+    this can never read outside the run's working directory."""
+    from .checkpoints import get_checkpoint
+    run = _get_runner().get_run(run_id)
+    if not run:
+        return jsonify({"error": "run not found"}), 404
+    workdir = _run_workdir(run)
+    checkpoint = get_checkpoint(workdir, checkpoint_id) if workdir else None
+    if not checkpoint:
+        return jsonify({"error": "checkpoint not found"}), 404
+    att = next((a for a in (checkpoint.get("attachments") or [])
+                if a.get("name") == name), None)
+    if not att:
+        return jsonify({"error": "no such attachment on this checkpoint"}), 404
+    full = os.path.join(workdir, att.get("relpath") or att["name"])
+    if not os.path.isfile(full):
+        return jsonify({"error": "attachment file no longer exists"}), 410
+    from flask import send_file
+    return send_file(full, as_attachment=True, download_name=att["name"])
 
 
 # --------------------------------------------- runtime checkpoint (SDK side)
@@ -872,7 +903,11 @@ def runtime_checkpoint():
             return jsonify({"error": "checkpoint not found"}), 404
         return jsonify({"decision": checkpoint.get("decision")})
 
-    checkpoint = cp.create_checkpoint(workdir, message)
+    attachments, att_err = _validate_checkpoint_files(workdir, data.get("files"))
+    if att_err:
+        return jsonify({"error": att_err}), 400
+
+    checkpoint = cp.create_checkpoint(workdir, message, attachments=attachments)
     _get_runner()._db_set_run_status(run["run_id"], "waiting", only_if_in=("running",))
     try:
         from .runner import RunEventLog
@@ -880,18 +915,122 @@ def runtime_checkpoint():
                                   message=checkpoint["message"])
     except Exception:
         pass
-    _notify_checkpoint(run, checkpoint)
-    return jsonify({"checkpoint_id": checkpoint["checkpoint_id"], "poll_seconds": 2})
+    # Bridge into the My Approvals queue (james 2026-07-21). Best-effort: a
+    # queue failure must never break the gate — Mission Control still works.
+    assignee_id = _resolve_checkpoint_assignee(run, data.get("assignee"))
+    queued = False
+    try:
+        req_id = _create_checkpoint_approval_row(run, checkpoint, assignee_id)
+        if req_id:
+            cp.set_approval_request_id(workdir, checkpoint["checkpoint_id"], req_id)
+            checkpoint["approval_request_id"] = req_id
+            queued = True
+    except Exception as e:
+        logger.warning(f"checkpoint approval-queue bridge failed (gate still live): {e}")
+    _notify_checkpoint(run, checkpoint, assignee_id)
+    return jsonify({"checkpoint_id": checkpoint["checkpoint_id"], "poll_seconds": 2,
+                    "queued_for_approval": queued})
 
 
-def _notify_checkpoint(run: Dict, checkpoint: Dict):
-    """In-app is implicit (Mission Control + Studio show 'waiting' instantly).
-    SMS/email are opt-in via env flags and go to the run's requesting user.
+def _validate_checkpoint_files(workdir: str, files) -> tuple:
+    """([{name, relpath, size}], error) for SDK-declared gate attachments.
+    Every path must resolve INSIDE the run workdir (no traversal, no
+    absolute escapes) and exist — a bad path is the script author's bug, so
+    fail the call honestly instead of silently dropping the file."""
+    if not files:
+        return [], None
+    if not isinstance(files, list) or len(files) > 10:
+        return None, "files must be a list of at most 10 workdir-relative paths"
+    root = os.path.realpath(workdir)
+    out, seen = [], set()
+    for f in files:
+        rel = str(f or "").strip().replace("\\", "/")
+        if not rel:
+            return None, "files contains an empty path"
+        full = os.path.realpath(os.path.join(root, rel))
+        if not (full == root or full.startswith(root + os.sep)):
+            return None, f"file '{rel}' is outside the run's working directory"
+        if not os.path.isfile(full):
+            return None, f"file '{rel}' does not exist in the run's working directory"
+        name = os.path.basename(full)
+        if name in seen:
+            continue
+        seen.add(name)
+        out.append({"name": name, "relpath": os.path.relpath(full, root).replace("\\", "/"),
+                    "size": os.path.getsize(full)})
+    return out, None
+
+
+def _resolve_checkpoint_assignee(run: Dict, assignee) -> Optional[int]:
+    """Optional explicit assignee (user id); defaults to the run's requesting
+    user — james 2026-07-21: 'make it optional but pick a good default like
+    current user'."""
+    try:
+        if assignee not in (None, ""):
+            return int(assignee)
+    except (TypeError, ValueError):
+        logger.warning(f"checkpoint assignee '{assignee}' is not a user id — using the run's requester")
+    try:
+        return int(run.get("requested_by")) if run.get("requested_by") is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _create_checkpoint_approval_row(run: Dict, checkpoint: Dict,
+                                    assignee_id: Optional[int]) -> Optional[str]:
+    """Create the queue row that puts this gate in My Approvals. Rows are
+    JSON files in the tenant's _approvals/ sidecar (automations/approval_store
+    .py — the third design: ApprovalRequests' NOT-NULL step FK forbids
+    automation rows, and the Azure app login has no DDL for a sibling table;
+    both verified live). The approvals APIs merge these rows in with
+    approval_type='automation'. Returns the request_id."""
+    from . import approval_store
+    auto = _get_manager().get_automation(run.get("automation_id", "")) or {}
+    auto_name = auto.get("name") or run.get("automation_id", "")
+    approval_data = json.dumps({
+        "source": "automation",
+        "run_id": run.get("run_id"),
+        "checkpoint_id": checkpoint.get("checkpoint_id"),
+        "automation_id": run.get("automation_id"),
+        "automation_name": auto_name,
+        "attachments": [{"name": a["name"], "size": a.get("size")}
+                        for a in (checkpoint.get("attachments") or [])],
+    })
+    row = approval_store.add_row(
+        _get_manager().base_path,
+        title=f"Automation checkpoint — {auto_name}",
+        description=(checkpoint.get("message") or "")[:1000],
+        assigned_to_id=assignee_id,
+        approval_data=approval_data,
+    )
+    return row["request_id"]
+
+
+def _mirror_checkpoint_decision_to_queue(checkpoint: Dict, decision: str, decided_by):
+    """A Mission Control / CC decision must also settle the bridged queue row
+    so My Approvals never shows a stale Pending item. Best-effort."""
+    req_id = (checkpoint or {}).get("approval_request_id")
+    if not req_id:
+        return
+    try:
+        from . import approval_store
+        approval_store.settle_row(
+            _get_manager().base_path, req_id,
+            "Approved" if decision == "proceed" else "Rejected", decided_by)
+    except Exception as e:
+        logger.warning(f"checkpoint decision mirror to approval store failed: {e}")
+
+
+def _notify_checkpoint(run: Dict, checkpoint: Dict, assignee_id: Optional[int] = None):
+    """In-app is implicit (Mission Control + Studio show 'waiting' instantly;
+    the gate is also in My Approvals). SMS/email are opt-in via env flags and
+    go to the approval's assignee (default: the run's requesting user).
     Never fatal — a notification failure must not affect the gate."""
     auto = _get_manager().get_automation(run.get("automation_id", "")) or {}
     text = (f"AI Hub: automation '{auto.get('name', run.get('automation_id'))}' is paused "
-            f"and waiting on you: {checkpoint.get('message')} — decide in Mission Control.")
-    user_id = run.get("requested_by")
+            f"and waiting on you: {checkpoint.get('message')} — decide in Mission Control "
+            f"or My Approvals.")
+    user_id = assignee_id if assignee_id is not None else run.get("requested_by")
     if not user_id:
         return
     email, phone = _user_contact(user_id)

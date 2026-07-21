@@ -1552,3 +1552,216 @@ class TestInternalManageDelete:
     def test_delete_still_role_gated(self, client):
         r = self._post(client, {"automation_id": "abc"}, role=1)
         assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint -> My Approvals bridge (james 2026-07-21: queue + attachments)
+# ---------------------------------------------------------------------------
+
+from pathlib import Path
+
+
+class _ApprovalConn:
+    """Fake pyodbc conn recording executes; parameterizable rowcount."""
+    def __init__(self):
+        self.executed = []          # list of (sql-normalized, params)
+        self.committed = False
+
+    def cursor(self):
+        outer = self
+
+        class C:
+            def execute(self, sql, *params):
+                outer.executed.append((" ".join(sql.split()), params))
+        return C()
+
+    def commit(self): self.committed = True
+    def rollback(self): pass
+    def close(self): pass
+
+
+class TestCheckpointApprovalBridge:
+    @pytest.fixture
+    def api_mod(self, monkeypatch, mgr):
+        import automations.api as api_mod
+        monkeypatch.setattr(api_mod, "_manager", mgr)
+        monkeypatch.setattr(api_mod, "_runner", StubRunner(mgr))
+        return api_mod
+
+    # -- file validation ----------------------------------------------------
+    def test_validate_files_accepts_workdir_relative(self, api_mod, tmp_path):
+        (tmp_path / "out").mkdir()
+        f = tmp_path / "out" / "report.csv"
+        f.write_text("a,b\n1,2\n")
+        atts, err = api_mod._validate_checkpoint_files(str(tmp_path), ["out/report.csv"])
+        assert err is None and len(atts) == 1
+        assert atts[0]["name"] == "report.csv"
+        assert atts[0]["relpath"] == "out/report.csv"
+        assert atts[0]["size"] == f.stat().st_size
+
+    def test_validate_files_rejects_traversal_and_missing(self, api_mod, tmp_path):
+        _, err = api_mod._validate_checkpoint_files(str(tmp_path), ["../evil.txt"])
+        assert "outside the run's working directory" in err
+        _, err2 = api_mod._validate_checkpoint_files(str(tmp_path), ["nope.txt"])
+        assert "does not exist" in err2
+        _, err3 = api_mod._validate_checkpoint_files(str(tmp_path), [f"f{i}" for i in range(11)])
+        assert "at most 10" in err3
+
+    # -- assignee default ---------------------------------------------------
+    def test_assignee_defaults_to_requesting_user(self, api_mod):
+        run = {"requested_by": 13}
+        assert api_mod._resolve_checkpoint_assignee(run, None) == 13
+        assert api_mod._resolve_checkpoint_assignee(run, 7) == 7
+        assert api_mod._resolve_checkpoint_assignee(run, "not-a-user") == 13
+
+    # -- queue row creation -------------------------------------------------
+    def test_bridge_row_shape(self, api_mod, mgr):
+        from automations import approval_store
+        run = {"run_id": "run-x", "automation_id": "auto-x", "requested_by": 13}
+        checkpoint = {"checkpoint_id": "abc123def456", "message": "send it?",
+                      "attachments": [{"name": "r.xlsx", "relpath": "r.xlsx", "size": 10}]}
+        req_id = api_mod._create_checkpoint_approval_row(run, checkpoint, 13)
+        # rows are JSON files in the tenant _approvals/ sidecar — the Azure
+        # app login has no DDL (ApprovalRequests FK + CREATE both refused
+        # live), so the bridge uses the same sidecar pattern as checkpoints
+        row = approval_store.get_row(mgr.base_path, req_id)
+        assert row and row["status"] == "Pending"
+        assert row["assigned_to_id"] == 13 and row["assigned_to_type"] == "user"
+        assert row["description"] == "send it?"
+        meta = json.loads(row["approval_data"])
+        assert meta["source"] == "automation" and meta["run_id"] == "run-x"
+        assert meta["checkpoint_id"] == "abc123def456"
+        assert meta["attachments"] == [{"name": "r.xlsx", "size": 10}]
+
+    # -- decision mirror ----------------------------------------------------
+    def test_mirror_updates_pending_row(self, api_mod, mgr):
+        from automations import approval_store
+        seeded = approval_store.add_row(mgr.base_path, "t", "d", 13, "{}")
+        api_mod._mirror_checkpoint_decision_to_queue(
+            {"approval_request_id": seeded["request_id"]}, "proceed", 13)
+        row = approval_store.get_row(mgr.base_path, seeded["request_id"])
+        assert row["status"] == "Approved" and row["responded_by"] == "13"
+        # first decision wins — a second mirror cannot flip it
+        api_mod._mirror_checkpoint_decision_to_queue(
+            {"approval_request_id": seeded["request_id"]}, "abort", 9)
+        assert approval_store.get_row(mgr.base_path, seeded["request_id"])["status"] == "Approved"
+
+    def test_mirror_noop_without_bridged_row(self, api_mod, mgr):
+        # no approval_request_id on the checkpoint -> nothing raises, no row
+        from automations import approval_store
+        api_mod._mirror_checkpoint_decision_to_queue({"approval_request_id": None}, "abort", 1)
+        assert approval_store.list_rows(mgr.base_path) == []
+
+    # -- checkpoint store carries the new fields ----------------------------
+    def test_checkpoint_record_attachments_and_request_id(self, tmp_path):
+        from automations import checkpoints as cp
+        c = cp.create_checkpoint(str(tmp_path), "m",
+                                 attachments=[{"name": "a.txt", "relpath": "a.txt", "size": 1}])
+        assert c["attachments"][0]["name"] == "a.txt"
+        assert c["approval_request_id"] is None
+        cp.set_approval_request_id(str(tmp_path), c["checkpoint_id"], "REQ-9")
+        assert cp.get_checkpoint(str(tmp_path), c["checkpoint_id"])["approval_request_id"] == "REQ-9"
+
+    # -- dead runs cancel their open queue rows -----------------------------
+    def test_finish_run_cancels_open_approvals(self, mgr, tmp_path, monkeypatch):
+        from automations import checkpoints as cp
+        from automations import approval_store
+        workdir = tmp_path / "wd"
+        workdir.mkdir()
+        (workdir / "run.log").write_text("")
+        open_row = approval_store.add_row(mgr.base_path, "open", "d", 13, "{}")
+        done_row = approval_store.add_row(mgr.base_path, "done", "d", 13, "{}")
+        open_cp = cp.create_checkpoint(str(workdir), "undecided")
+        cp.set_approval_request_id(str(workdir), open_cp["checkpoint_id"], open_row["request_id"])
+        done_cp = cp.create_checkpoint(str(workdir), "decided")
+        cp.set_approval_request_id(str(workdir), done_cp["checkpoint_id"], done_row["request_id"])
+        cp.decide_checkpoint(str(workdir), done_cp["checkpoint_id"], "proceed", 1)
+
+        runner = StubRunner(mgr)
+        monkeypatch.setattr(runner, "_db_get_run",
+                            lambda rid: {"run_id": rid, "log_path": str(workdir / "run.log")})
+        runner._cancel_open_checkpoint_approvals("run-z")
+        assert approval_store.get_row(mgr.base_path, open_row["request_id"])["status"] == "Cancelled"
+        # the decided checkpoint's row is untouched (still whatever it was)
+        assert approval_store.get_row(mgr.base_path, done_row["request_id"])["status"] == "Pending"
+
+    # -- SDK sends files/assignee -------------------------------------------
+    def test_sdk_checkpoint_posts_files_and_assignee(self, monkeypatch, tmp_path):
+        import importlib
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "automations" / "sdk"))
+        import aihub_runtime
+        importlib.reload(aihub_runtime)
+        captured = {}
+
+        def fake_post(path, body):
+            captured.update(body)
+            raise aihub_runtime.AutomationRuntimeError("stop here")
+        monkeypatch.setattr(aihub_runtime, "_runtime_post", fake_post)
+        monkeypatch.setenv("AIHUB_RUN_TOKEN", "tok")
+        monkeypatch.delenv("AIHUB_CHECKPOINTS_ENABLED", raising=False)
+        with pytest.raises(aihub_runtime.AutomationRuntimeError):
+            aihub_runtime.checkpoint("go?", files=["out/r.csv"], assignee=13)
+        assert captured["files"] == ["out/r.csv"]
+        assert captured["assignee"] == 13
+        assert captured["message"] == "go?"
+
+    # -- approvals endpoints (app.py) source contracts ----------------------
+    def test_app_approvals_handle_automation_rows(self):
+        src = Path(__file__).resolve().parents[2].joinpath("app.py").read_text(
+            encoding="utf-8", errors="replace")
+        # all four approval surfaces consult the file store: user list,
+        # admin list, detail, and the decide handler
+        assert src.count("from automations import approval_store") >= 4
+        assert "approval_type='automation'" in src
+        assert "'workflow' AS approval_type" in src
+        assert "from automations.api import _decide_checkpoint" in src
+        # queue decision routes to the paused run with the proceed/abort map
+        assert '"proceed" if status == "approved" else "abort"' in src
+
+    def test_approvals_ui_shows_type_and_attachments(self):
+        page = Path(__file__).resolve().parents[2].joinpath(
+            "templates", "approvals.html").read_text(encoding="utf-8", errors="replace")
+        assert "<th>Type</th>" in page
+        assert "modalAttachments" in page
+        assert "/attachments/" in page and "checkpoints/" in page
+
+    def test_mission_control_gate_renders_attachments(self, api_mod):
+        assert "p.attachments" in api_mod._RUNS_PAGE
+        assert "/attachments/${encodeURIComponent(a.name)}" in api_mod._RUNS_PAGE
+
+
+class TestAutomationNodeInDesigner:
+    """james 2026-07-21: the Automation node existed in the ENGINE since P4a
+    but never in the designer UI; Portal shipped with no palette shading."""
+
+    def _root(self):
+        return Path(__file__).resolve().parents[2]
+
+    def test_palette_has_automation_and_versioned_pins(self):
+        page = self._root().joinpath("templates", "workflow_tool.html").read_text(
+            encoding="utf-8", errors="replace")
+        assert "data-type=\"Automation\"" in page
+        assert "filename='js/workflow.js', v=3" in page
+        assert "filename='css/workflow_node_colors.css', v=3" in page
+
+    def test_css_shades_portal_and_automation(self):
+        css = self._root().joinpath("static", "css", "workflow_node_colors.css").read_text(
+            encoding="utf-8", errors="replace")
+        assert ".tool-item[data-type=\"Portal\"]" in css
+        assert ".workflow-node[data-type=\"Portal\"]" in css
+        assert ".tool-item[data-type=\"Automation\"]" in css
+        assert ".workflow-node[data-type=\"Automation\"]" in css
+
+    def test_designer_js_registers_automation(self):
+        js = self._root().joinpath("static", "js", "workflow.js").read_text(
+            encoding="utf-8", errors="replace")
+        assert "'Automation': {" in js
+        assert "name=\"automationName\"" in js
+        assert js.count("case 'Automation':") == 2  # create + load icon switches
+
+    def test_engine_accepts_json_string_inputs(self):
+        eng = self._root().joinpath("workflow_execution.py").read_text(
+            encoding="utf-8", errors="replace")
+        assert "isinstance(raw_inputs, str)" in eng
+        assert "'inputs' is not valid JSON" in eng

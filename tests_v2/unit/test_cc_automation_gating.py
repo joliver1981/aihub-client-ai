@@ -963,3 +963,25 @@ class TestDeleteAutomationToolContracts:
         src = self._src()
         assert "DELETE IS TWO-STEP" in src
         assert "NEVER pass confirmed=true on the first call" in src
+
+
+class TestCheckpointAttachmentNote:
+    """Pause replies name the files a gate attached (Mission Control / My
+    Approvals downloads) — james 2026-07-21 approvals-bridge round."""
+
+    def test_note_lists_names_and_sizes(self):
+        note = nodes._checkpoint_attachment_note(
+            {"attachments": [{"name": "r.xlsx", "size": 2048},
+                             {"name": "log.txt", "size": 10}]})
+        assert "r.xlsx (2 KB)" in note and "log.txt (1 KB)" in note
+        assert note.endswith("\n") and "My Approvals" in note
+
+    def test_note_empty_when_no_attachments(self):
+        assert nodes._checkpoint_attachment_note({}) == ""
+        assert nodes._checkpoint_attachment_note({"attachments": []}) == ""
+
+    def test_pause_branches_concatenate_note(self):
+        from pathlib import Path as _P
+        src = _P(nodes.__file__.replace(".pyc", ".py")).read_text(
+            encoding="utf-8", errors="replace")
+        assert src.count("_checkpoint_attachment_note(pc)") == 2  # run + dry-run

@@ -2191,6 +2191,70 @@ const nodeConfigTemplates = {
             completionMessage: ''
         }
     },
+    'Automation': {
+        template: `
+            <div class="alert alert-info py-2 small">
+                <i class="bi bi-cpu"></i> Runs a persisted <strong>Automation</strong> (its
+                promoted/pinned version) as a workflow step — same engine as Mission Control
+                runs: dedicated environment, credential resolution, output verification. The
+                workflow follows <em>pass</em> only on a verified success. Build automations
+                in Command Center; promote before using here.
+            </div>
+            <div class="mb-2">
+                <label class="form-label small">Automation Name <span class="text-danger">*</span></label>
+                <input type="text" class="form-control form-control-sm" name="automationName"
+                    placeholder="exact automation name (or set the ID below)">
+            </div>
+            <div class="mb-2">
+                <label class="form-label small">Automation ID (optional, wins over name)</label>
+                <input type="text" class="form-control form-control-sm" name="automationId"
+                    placeholder="GUID from Mission Control / Command Center">
+            </div>
+            <div class="mb-2">
+                <label class="form-label small">Inputs (JSON object)</label>
+                <div class="input-group input-group-sm">
+                    <textarea class="form-control" name="inputs" rows="3"
+                        placeholder='{"month": "2026-07"} — string values support \${variable}'></textarea>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="showVariableSelector(this)">
+                        <i class="bi bi-braces"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6 mb-2">
+                    <label class="form-label small">Output Variable</label>
+                    <input type="text" class="form-control form-control-sm" name="outputVariable"
+                        placeholder="e.g. automation_result">
+                </div>
+                <div class="col-md-6 mb-2">
+                    <label class="form-label small">Files Variable</label>
+                    <input type="text" class="form-control form-control-sm" name="filesVariable"
+                        placeholder="list of produced file paths">
+                </div>
+            </div>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="checkbox" name="allowUnverified" id="autoAllowUnverified">
+                <label class="form-check-label small" for="autoAllowUnverified">
+                    Treat <em>unverified</em> outcome as pass
+                </label>
+            </div>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="checkbox" name="continueOnError" id="autoContinueOnError">
+                <label class="form-check-label small" for="autoContinueOnError">
+                    Continue workflow on failure
+                </label>
+            </div>
+        `,
+        defaultConfig: {
+            automationName: '',
+            automationId: '',
+            inputs: '',
+            outputVariable: '',
+            filesVariable: '',
+            allowUnverified: false,
+            continueOnError: false
+        }
+    },
     'Execute Application': {
         template: `
             <!-- Command Configuration -->
@@ -2756,6 +2820,9 @@ function createNode(type, x, y) {
         case 'Portal':
             icon.className = 'bi bi-box-arrow-in-right';
             break;
+        case 'Automation':
+            icon.className = 'bi bi-cpu';
+            break;
         default:
             icon.className = 'bi bi-box';
     }
@@ -3237,6 +3304,9 @@ function loadWorkflow(workflow) {
                     break;
                 case 'Portal':
                     icon.className = 'bi bi-box-arrow-in-right';
+                    break;
+                case 'Automation':
+                    icon.className = 'bi bi-cpu';
                     break;
                 default:
                     icon.className = 'bi bi-box';

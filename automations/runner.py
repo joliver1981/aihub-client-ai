@@ -393,6 +393,29 @@ class AutomationRunner:
         )
         conn.commit()
         conn.close()
+        # Every finalize passes through here (the chokepoint), so this is
+        # where a dead run's still-Pending bridged approval rows get
+        # cancelled — My Approvals must never hold a gate nobody can answer.
+        try:
+            self._cancel_open_checkpoint_approvals(run_id)
+        except Exception as e:
+            logger.warning(f"open-approval cancel on finish failed for {run_id}: {e}")
+
+    def _cancel_open_checkpoint_approvals(self, run_id: str):
+        run = self._db_get_run(run_id)
+        log_path = (run or {}).get("log_path")
+        workdir = os.path.dirname(log_path) if log_path else None
+        if not workdir or not os.path.isdir(workdir):
+            return
+        from .checkpoints import list_checkpoints
+        open_ids = [c.get("approval_request_id") for c in list_checkpoints(workdir)
+                    if not c.get("decision") and c.get("approval_request_id")]
+        if not open_ids:
+            return
+        from . import approval_store
+        for rid in open_ids:
+            approval_store.settle_row(self.manager.base_path, rid,
+                                      "Cancelled", "system:run-finished")
 
     def _db_get_run(self, run_id: str) -> Optional[Dict]:
         conn = self._db_conn()

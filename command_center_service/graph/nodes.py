@@ -51,6 +51,20 @@ _AUTOMATION_TOOL_NAMES = frozenset({
     "decide_automation_checkpoint", "delete_automation",
 })
 
+
+def _checkpoint_attachment_note(pc: dict) -> str:
+    """One line naming the files a paused checkpoint attached for the approver
+    (downloadable in Mission Control / My Approvals) — empty when none, always
+    newline-terminated so callers can concatenate blindly."""
+    atts = (pc or {}).get("attachments") or []
+    if not atts:
+        return ""
+    names = ", ".join(
+        f"{a.get('name')}" + (f" ({max(1, round((a.get('size') or 0) / 1024))} KB)"
+                              if a.get("size") else "")
+        for a in atts[:10])
+    return f"Attached for review (Mission Control / My Approvals): {names}\n"
+
 # Native visual-workflow tools (the CC_AGENT="native" A/B agent). Any of these
 # running stamps the continuity marker with kind="visual_workflow" so
 # classify_intent keeps follow-up turns in converse — the visual_workflow twin
@@ -4891,7 +4905,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     f"The run is WAITING (not failed) at a checkpoint:\n"
                     f"“{pc.get('message') or pc.get('question') or 'approval requested'}”\n"
                     f"run_id: {res.get('run_id')} | checkpoint_id: {pc.get('checkpoint_id')}\n"
-                    f"Ask the user to approve or abort, then call "
+                    + _checkpoint_attachment_note(pc)
+                    + f"Ask the user to approve or abort, then call "
                     f"decide_automation_checkpoint with their decision.")
         if res.get("inline_wait_elapsed"):
             _studio(phase="dry_run", automation_id=automation_id, working=False,
@@ -5057,7 +5072,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             return (f"⏸️ RUN PAUSED — human approval required at a checkpoint:\n"
                     f"“{pc.get('message') or pc.get('question') or 'approval requested'}”\n"
                     f"run_id: {res.get('run_id')} | checkpoint_id: {pc.get('checkpoint_id')}\n"
-                    f"Ask the user to approve or abort, then call "
+                    + _checkpoint_attachment_note(pc)
+                    + f"Ask the user to approve or abort, then call "
                     f"decide_automation_checkpoint.")
         if res.get("inline_wait_elapsed"):
             return (f"⏳ Run STILL EXECUTING (run_id {res.get('run_id')}) — not a "

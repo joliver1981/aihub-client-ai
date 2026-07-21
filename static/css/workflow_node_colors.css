@@ -295,6 +295,65 @@
 }
 
 
+/* --- Portal (Data Sources category) ---
+   james 2026-07-21: Portal shipped with NO per-type rule, so the palette
+   override at the top of this file left it transparent — the only unshaded
+   item in its group. Next step in the slate-blue ramp after Integration. */
+
+.workflow-node[data-type="Portal"] {
+    background: linear-gradient(135deg, #89aede 0%, #7a9ed4 100%) !important;
+    box-shadow: 0 2px 6px rgba(122, 158, 212, 0.25);
+}
+
+.workflow-node[data-type="Portal"]:hover {
+    box-shadow: 0 4px 10px rgba(122, 158, 212, 0.35);
+}
+
+.workflow-node[data-type="Portal"] .node-content {
+    color: white !important;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.workflow-node[data-type="Portal"] .bi-box-arrow-in-right {
+    color: white !important;
+}
+
+.tool-item[data-type="Portal"] {
+    background: linear-gradient(135deg, #89aede 0%, #7a9ed4 100%) !important;
+    color: white;
+    border: none;
+}
+
+
+/* --- Automation (Variables & Processing category) ---
+   Runs a persisted Automation (pinned version) as a workflow step. Cyan —
+   the Automations family color (Mission Control / Studio). */
+
+.workflow-node[data-type="Automation"] {
+    background: linear-gradient(135deg, #22b8d4 0%, #0e7490 100%) !important;
+    box-shadow: 0 2px 6px rgba(14, 116, 144, 0.25);
+}
+
+.workflow-node[data-type="Automation"]:hover {
+    box-shadow: 0 4px 10px rgba(14, 116, 144, 0.35);
+}
+
+.workflow-node[data-type="Automation"] .node-content {
+    color: white !important;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.workflow-node[data-type="Automation"] .bi-cpu {
+    color: white !important;
+}
+
+.tool-item[data-type="Automation"] {
+    background: linear-gradient(135deg, #22b8d4 0%, #0e7490 100%) !important;
+    color: white;
+    border: none;
+}
+
+
 /* --- AI/INTELLIGENCE --- */
 
 .tool-item[data-type="AI Action"] {
