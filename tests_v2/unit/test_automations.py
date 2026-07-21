@@ -2231,3 +2231,25 @@ class TestClearStaleButton:
             "automations", "api.py").read_text(encoding="utf-8", errors="replace")
         block = src.split('@automations_bp.route("/api/reap"')[1].split("@automations_bp.route")[0]
         assert "automations_gate" in block and "reap_orphan_runs()" in block
+
+
+class TestMissionControlInlineJsParses:
+    """Regression for the 'AUTOMATIONS list vanished' bug (james 2026-07-21):
+    a confirm() string in the inline page carried a Python-interpreted
+    newline inside single quotes -> JS SyntaxError -> the WHOLE script died
+    and every JS-rendered section went blank. Pin: the served page's script
+    must actually parse."""
+
+    def test_inline_script_parses_with_node(self, tmp_path):
+        import re
+        import shutil
+        import subprocess
+        node = shutil.which("node")
+        if not node:
+            pytest.skip("node not available to parse-check the inline script")
+        import automations.api as api_mod
+        script = re.search(r"<script>(.*?)</script>", api_mod._RUNS_PAGE, re.S).group(1)
+        p = tmp_path / "mc_page.js"
+        p.write_text(script, encoding="utf-8")
+        proc = subprocess.run([node, "--check", str(p)], capture_output=True, text=True)
+        assert proc.returncode == 0, f"Mission Control inline JS is broken:\n{proc.stderr[:800]}"

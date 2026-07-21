@@ -268,10 +268,10 @@ async function abortRun(runId){
  refreshLive();
 }
 async function clearStale(){
- if(!confirm('Clear stale runs?\n\nFinalizes runs whose supervising process is no longer alive (e.g. after a service restart) and cancels their pending approvals. Genuinely LIVE runs have a heartbeat and are never touched. Runs younger than 5 minutes are skipped.'))return;
+ if(!confirm('Clear stale runs?\\n\\nFinalizes runs whose supervising process is no longer alive (e.g. after a service restart) and cancels their pending approvals. Genuinely LIVE runs have a heartbeat and are never touched. Runs younger than 5 minutes are skipped.'))return;
  let d;try{d=await j('/automations/api/reap',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});}
  catch(e){alert('Sweep failed: '+e);return;}
- alert(d.count?`${d.count} stale run(s) cleared:\n`+(d.reaped||[]).map(r=>`• ${r.run_id} (was ${r.was_status})`).join('\n')
+ alert(d.count?`${d.count} stale run(s) cleared:`+(d.reaped||[]).map(r=>`\n• ${r.run_id} (was ${r.was_status})`).join('')
               :'No stale runs — everything shown has a live supervisor. (A stuck-but-live run is what the Abort button is for.)');
  refreshLive();
 }
