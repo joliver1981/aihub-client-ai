@@ -623,6 +623,17 @@ const CC = {
         return qp.toString();
     },
 
+    // ── Automations Mission Control (james UX 2026-07-20) ───────────────
+    // The runs page (live event feed, checkpoint gates, run history) is
+    // served by the MAIN app; the CC frontend runs on the CC service port,
+    // so build the sibling URL: same host, main-app port (platform standard
+    // 5001; override via window.CC_MAIN_APP_PORT for nonstandard installs).
+    openAutomations() {
+        const port = window.CC_MAIN_APP_PORT || 5001;
+        window.open(location.protocol + '//' + location.hostname + ':' + port +
+                    '/automations', '_blank', 'noopener');
+    },
+
     // ── Sidebar (history) toggle ────────────────────────────────────────
     // Hidden by default for working room (the Studio panel docks right);
     // the History button in the chat header toggles it. Preference persists

@@ -5105,6 +5105,34 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         _studio(phase="live", automation_id=automation_id,
                 scheduled={"job_id": res.get("scheduled_job_id"),
                            "schedule_id": res.get("schedule_id")}, error=None)
+        # James UX finding 2026-07-20: the CC "Scheduled Tasks" panel lists the
+        # per-user CC schedule store — automation schedules were booked in the
+        # main-app scheduler but never registered here, so the panel (where
+        # users expect to see them) showed nothing. Register with the SAME
+        # scheduler job id: next-run, run-now, and cancel in the panel all key
+        # on job_id against the main scheduler, so they work for automations
+        # unchanged. kind='automation' + slug=automation_id for future
+        # replace-on-reschedule semantics. Registration failure never fails
+        # the (already successful) scheduling — the panel entry is UX.
+        try:
+            from scheduling import schedule_store as _sched_store
+            _uid = (state.get("user_context") or {}).get("user_id")
+            if _uid is not None and res.get("scheduled_job_id"):
+                _mk_a = state.get("code_flow_context") or {}
+                _auto_label = (_automation_name
+                               or (_mk_a.get("name") if _mk_a.get("kind") == "automation" else None)
+                               or str(automation_id))
+                _sched_store.add_task(
+                    _uid, res["scheduled_job_id"],
+                    task_name=f"Automation: {_auto_label}",
+                    prompt=f"Scheduled run of automation '{_auto_label}' ({automation_id})",
+                    schedule_desc=(cron_expression
+                                   or (f"every {every_hours}h" if every_hours
+                                       else f"every {every_days}d")),
+                    slug=str(automation_id), kind="automation")
+        except Exception as _ss_err:
+            logger.warning(f"[schedule_automation] CC schedule-store registration "
+                           f"failed (panel entry only): {_ss_err}")
         return (f"Scheduled (job #{res.get('scheduled_job_id')}, schedule #{res.get('schedule_id')}) — "
                 f"runs pinned v{res.get('pinned_version')}. {res.get('note') or ''}".strip())
 
@@ -6003,6 +6031,16 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             _automation_name = None
             _paused_pin = None             # AIHUB-0058 A: (run_id, checkpoint_id)
 
+            def _auto_display_name():
+                """Automation name for footers/markers. Tools like
+                decide_automation_checkpoint carry no 'name' arg, so turns
+                that only ran them showed 'unnamed' (james, three transcripts)
+                — fall back to the session marker's name when it is an
+                automation marker."""
+                _mk = state.get("code_flow_context") or {}
+                return (_automation_name
+                        or (_mk.get("name") if _mk.get("kind") == "automation" else None))
+
             def _ledger_note(tool_name, tool_args, result_text):
                 """CC_SESSION_LEDGER: deterministic recording of durable facts
                 from tool results (code-written; the LLM never writes these).
@@ -6390,7 +6428,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     result["code_flow_context"] = {"name": _workflow_ref,
                                                    "kind": "visual_workflow"}
                 elif _used_automation_tool:
-                    result["code_flow_context"] = {"name": _automation_name,
+                    result["code_flow_context"] = {"name": _auto_display_name(),
                                                    "kind": "automation"}
                 if _ledger_dirty:
                     result["session_ledger"] = _ledger
@@ -6550,7 +6588,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                         result["code_flow_context"] = {"name": _workflow_ref,
                                                        "kind": "visual_workflow"}
                     elif _used_automation_tool:
-                        result["code_flow_context"] = {"name": _automation_name,
+                        result["code_flow_context"] = {"name": _auto_display_name(),
                                                        "kind": "automation"}
                     if _ledger_dirty:
                         result["session_ledger"] = _ledger
@@ -6634,7 +6672,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 if isinstance(_cur, str) and "⚙️ _Automation authoring session:" not in _cur[-400:]:
                     final_response = AIMessage(content=(
                         (_cur or "") + "\n\n⚙️ _Automation authoring session: **"
-                        + (_automation_name or "unnamed") + "**_"))
+                        + (_auto_display_name() or "unnamed") + "**_"))
             elif _used_code_flow_tool:
                 _cur = final_response.content if hasattr(final_response, "content") else ""
                 if isinstance(_cur, str) and "🧩 _Code Flow authoring session:" not in _cur[-400:]:
@@ -6682,7 +6720,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 result["code_flow_context"] = {"name": _workflow_ref,
                                                "kind": "visual_workflow"}
             elif _used_automation_tool:
-                result["code_flow_context"] = {"name": _automation_name,
+                result["code_flow_context"] = {"name": _auto_display_name(),
                                                "kind": "automation"}
             if _ledger_dirty:
                 result["session_ledger"] = _ledger

@@ -723,3 +723,49 @@ class TestSecretShapeAndStylePromptLaws:
               "remote_verify.py").read_text(encoding="utf-8")
         assert "sftp://user:pass@host:2222" in rv
         assert '"host"' in rv and "json.loads" in rv
+
+
+class TestScheduledTasksPanelAndNavUX:
+    """James UX findings 2026-07-20: (1) a scheduled automation did not appear
+    in the CC 'Scheduled Tasks' panel — it was booked in the main scheduler but
+    never registered in the per-user CC schedule store the panel reads;
+    (2) no path from the CC to the automations Mission Control page;
+    (3) the session footer read 'unnamed' on turns whose tools carry no name
+    arg (decide/schedule)."""
+
+    def _src(self):
+        from pathlib import Path as _P
+        return _P(nodes.__file__).read_text(encoding="utf-8")
+
+    def test_schedule_registers_in_cc_store_with_same_job_id(self):
+        src = self._src()
+        body = src[src.find("async def schedule_automation"):]
+        body = body[:body.find("# ── Code Flows")]
+        assert "from scheduling import schedule_store" in body
+        assert '_sched_store.add_task(' in body
+        assert 'res["scheduled_job_id"]' in body          # SAME main-scheduler job id
+        assert 'kind="automation"' in body
+        assert "slug=str(automation_id)" in body
+        # registration failure must never fail the successful scheduling
+        assert "panel entry only" in body
+
+    def test_footer_and_markers_fall_back_to_marker_name(self):
+        src = self._src()
+        assert "def _auto_display_name()" in src
+        assert src.count('{"name": _auto_display_name(),') == 3   # all marker sites
+        assert '(_auto_display_name() or "unnamed")' in src        # footer
+        # the fallback only borrows the name from an AUTOMATION marker
+        helper = src[src.find("def _auto_display_name"):]
+        helper = helper[:helper.find("def _ledger_note")]
+        assert '_mk.get("kind") == "automation"' in helper
+
+    def test_cc_header_links_to_mission_control(self):
+        from pathlib import Path as _P
+        base = _P(nodes.__file__).resolve().parents[1] / "static"
+        html = (base / "index.html").read_text(encoding="utf-8", errors="replace")
+        assert 'CC.openAutomations()' in html
+        assert 'Automations Mission Control' in html
+        js = (base / "js" / "command-center.js").read_text(encoding="utf-8", errors="replace")
+        assert "openAutomations()" in js
+        assert "'/automations'" in js
+        assert "CC_MAIN_APP_PORT || 5001" in js
