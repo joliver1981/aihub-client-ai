@@ -813,3 +813,44 @@ class TestAutomationSessionDelegateGuard:
         assert "'still draft-only' with no tool call this turn is fabrication" in blk
         assert "EXECUTE the matching automation tools" in blk
         assert "never a" in blk and "reason to delegate to the builder" in blk
+
+
+class TestStudioPanelActivation:
+    """James 2026-07-21: the Studio workbench ('watch it being built') NEVER
+    opened for anyone. Live-diagnosed root cause chain, each link fixed:
+    1. `const CC` creates no window property, and cc-studio.js gated its poll
+       on `window.CC && CC.sessionId` — false for every user, always; ZERO
+       polls ever fired (counted live). command-center.js now exports
+       window.CC.
+    2. _isDev() read only localStorage.cc_user_context (absent in common
+       token flows) — now falls back to the CC JWT's own role claim, and the
+       check runs per poll tick so late-arriving tokens still activate.
+    3. The open-gate required st.automation_id, which does not exist during
+       the CREATE phase — precisely the moment the design says to open. Now
+       opens on any active authoring state (id, name, or working).
+    Backend seam was verified healthy throughout (state recorded + served)."""
+
+    def _static(self, name):
+        from pathlib import Path as _P
+        return (_P(nodes.__file__).resolve().parents[1] / "static" / name).read_text(
+            encoding="utf-8", errors="replace")
+
+    def test_cc_singleton_exported_to_window(self):
+        js = self._static("js/command-center.js")
+        assert "window.CC = CC;" in js
+
+    def test_studio_isdev_falls_back_to_jwt_claim(self):
+        js = self._static("js/cc-studio.js")
+        assert "claims.role" in js and "atob(tok.split('.')[1]" in js
+        # per-tick check inside the poll (heals late tokens); init always starts
+        assert "heals late-arriving tokens" in js
+        assert "panel is Developer-only" not in js.split("function init()")[1].split("}")[0]
+
+    def test_open_gate_accepts_create_phase_states(self):
+        js = self._static("js/cc-studio.js")
+        assert "st.automation_id || st.name || st.working" in js
+
+    def test_cache_versions_bumped(self):
+        html = self._static("index.html")
+        assert "command-center.js?v=28" in html
+        assert "cc-studio.js?v=3" in html

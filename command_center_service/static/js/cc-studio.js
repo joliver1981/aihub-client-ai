@@ -50,9 +50,19 @@ const CCStudio = (() => {
         return r.json().catch(() => ({}));
     }
     function _isDev() {
+        // james 2026-07-21: the panel NEVER opened for anyone because this
+        // gate read only localStorage.cc_user_context — which many token
+        // flows never store — so init() bailed and the poller never started
+        // (chat kept working; it only needs the token). Fall back to the CC
+        // JWT itself: its payload carries the verified role claim.
         try {
             const uc = JSON.parse(localStorage.getItem('cc_user_context') || '{}');
-            return parseInt(uc.role, 10) >= 2;
+            if (parseInt(uc.role, 10) >= 2) return true;
+        } catch (e) { /* fall through to the token claim */ }
+        try {
+            const tok = (window.CC && CC.token) || localStorage.getItem('cc_token') || '';
+            const claims = JSON.parse(atob(tok.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+            return parseInt(claims.role, 10) >= 2;
         } catch (e) { return false; }
     }
     function $(id) { return document.getElementById(id); }
@@ -63,7 +73,11 @@ const CCStudio = (() => {
 
     // ── lifecycle ───────────────────────────────────────────────────────
     function init() {
-        if (!_isDev()) return;                 // panel is Developer-only
+        // Always start the timer; the Developer check runs per-tick inside
+        // _pollState so a token that arrives AFTER page load (async
+        // bootstrap) still activates the panel. Non-developers never get
+        // studio state server-side, so the panel stays closed for them
+        // regardless.
         if (stateTimer) return;
         stateTimer = setInterval(_pollState, STATE_POLL_MS);
         document.addEventListener('visibilitychange', () => {
@@ -86,13 +100,18 @@ const CCStudio = (() => {
     // ── state poll (the build hint) ─────────────────────────────────────
     async function _pollState() {
         if (document.hidden || !(window.CC && CC.sessionId)) return;
+        if (!_isDev()) return;                 // per-tick: heals late-arriving tokens
         let data;
         try {
             data = await _get('/api/studio/state?session_id=' + encodeURIComponent(CC.sessionId));
         } catch (e) { return; }
         mainAppUrl = data.main_app_url || mainAppUrl;
         const st = data.state;
-        if (!st || !st.automation_id) return;   // nothing in flight for this session
+        // Open on ANY active authoring state — the design's Moment 1 is
+        // "watch it being BUILT": during the create phase there is a name and
+        // working=true but no automation_id yet; the old id-only gate kept
+        // the panel shut until creation finished (james: never saw it open).
+        if (!st || !(st.automation_id || st.name || st.working)) return;
         if (st.version === lastVersion) return; // no change
         if (st.version !== lastVersion && hiddenByUser && st.version > lastVersion && lastVersion !== -1) {
             hiddenByUser = false;               // new activity re-opens a dismissed panel

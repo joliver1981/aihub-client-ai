@@ -1022,3 +1022,9 @@ const CC = {
 
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => CC.init());
+
+// james 2026-07-21 (Studio root cause): `const CC` does NOT create a window
+// property, and cc-studio.js gates its poll on `window.CC && CC.sessionId` —
+// which was therefore false for EVERY user in EVERY browser, so the Studio
+// panel never polled and never opened. Export the singleton explicitly.
+window.CC = CC;
