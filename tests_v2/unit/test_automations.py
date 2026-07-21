@@ -1963,3 +1963,154 @@ class TestGetAutomationIncludesManifest:
             "automations", "api.py").read_text(encoding="utf-8", errors="replace")
         route = src.split('def get_automation(automation_id):')[1].split("@automations_bp.route")[0]
         assert 'auto["manifest"]' in route and "get_manifest" in route
+
+
+class TestPlatformAiSeam:
+    """james 2026-07-21 round 4: aihub.llm (plain prompts) + aihub.ai_extract
+    (JSON) brokered by the APP — central model resolution, no per-automation
+    key/model; assignee accepts username; input descriptions rendered."""
+
+    # -- central model resolution ------------------------------------------
+    def test_model_resolution_chain(self, monkeypatch):
+        import automations.api as api_mod
+        monkeypatch.delenv("AUTOMATIONS_AI_MODEL", raising=False)
+        monkeypatch.setattr(api_mod.cfg, "ANTHROPIC_MODEL", "claude-platform-default",
+                            raising=False)
+        assert api_mod._automations_ai_model(None) == "claude-platform-default"
+        assert api_mod._automations_ai_model("  ") == "claude-platform-default"
+        monkeypatch.setenv("AUTOMATIONS_AI_MODEL", "claude-ops-knob")
+        assert api_mod._automations_ai_model(None) == "claude-ops-knob"
+        assert api_mod._automations_ai_model("claude-explicit") == "claude-explicit"
+
+    # -- image validation ---------------------------------------------------
+    def test_ai_images_validated(self, tmp_path):
+        import automations.api as api_mod
+        (tmp_path / "p.png").write_bytes(b"\x89PNG fake")
+        blocks, err = api_mod._load_ai_images(str(tmp_path), ["p.png"])
+        assert err is None and blocks[0]["source"]["media_type"] == "image/png"
+        _, err = api_mod._load_ai_images(str(tmp_path), ["../evil.png"])
+        assert "outside the run's working directory" in err
+        _, err = api_mod._load_ai_images(str(tmp_path), ["missing.png"])
+        assert "does not exist" in err
+        (tmp_path / "x.exe").write_bytes(b"MZ")
+        _, err = api_mod._load_ai_images(str(tmp_path), ["x.exe"])
+        assert "must be png/jpg/webp/gif" in err
+
+    # -- endpoint: plain vs json modes (mocked LLM) -------------------------
+    def _ai_client(self, monkeypatch, mgr, tmp_path, replies):
+        from flask import Flask
+        import automations.api as api_mod
+        workdir = tmp_path / "wd"
+        workdir.mkdir()
+        (workdir / "run.log").write_text("")
+
+        class AiRunner(StubRunner):
+            def get_run(self, run_id):
+                if run_id != "run-ai":
+                    return None
+                return {"run_id": "run-ai", "automation_id": "auto-ai", "status": "running",
+                        "log_path": str(workdir / "run.log"), "requested_by": 13}
+        monkeypatch.setenv("CC_JWT_SECRET", "ai-secret")
+        monkeypatch.setattr(api_mod, "_manager", mgr)
+        monkeypatch.setattr(api_mod, "_runner", AiRunner(mgr))
+        monkeypatch.setattr(api_mod.cfg, "ANTHROPIC_API_KEY", "k-test", raising=False)
+
+        calls = {"n": 0}
+
+        class FakeResp:
+            status_code = 200
+            def __init__(self, text):
+                self._text = text
+            def json(self):
+                return {"content": [{"type": "text", "text": self._text}]}
+
+        def fake_post(url, headers=None, json=None, timeout=None):
+            calls["n"] += 1
+            calls["api_key"] = (headers or {}).get("x-api-key")
+            calls["last_kwargs"] = json or {}
+            assert "api.anthropic.com" in url
+            return FakeResp(replies[min(calls["n"] - 1, len(replies) - 1)])
+        import requests as _requests
+        monkeypatch.setattr(_requests, "post", fake_post)
+        app = Flask(__name__)
+        app.register_blueprint(api_mod.automations_bp)
+        from shared_auth import sign_automation_run_token
+        return app.test_client(), sign_automation_run_token("auto-ai", "run-ai", [], [], 300), calls
+
+    def test_plain_prompt_returns_text(self, monkeypatch, mgr, tmp_path):
+        client, tok, calls = self._ai_client(monkeypatch, mgr, tmp_path, ["a fine summary"])
+        r = client.post("/automations/api/runtime/ai",
+                        json={"token": tok, "prompt": "Summarize."})
+        body = r.get_json()
+        assert r.status_code == 200, body
+        assert body["text"] == "a fine summary" and "json" not in body
+        assert calls["api_key"] == "k-test"          # the APP's key, not the run's
+        assert "temperature" not in calls["last_kwargs"]  # reasoning models 400 on it
+
+    def test_json_mode_parses_with_self_repair(self, monkeypatch, mgr, tmp_path):
+        client, tok, calls = self._ai_client(monkeypatch, mgr, tmp_path,
+                                             ["not json at all", '{"a": 1}'])
+        r = client.post("/automations/api/runtime/ai",
+                        json={"token": tok, "prompt": "Extract.", "schema": {"a": "number"}})
+        body = r.get_json()
+        assert r.status_code == 200, body
+        assert body["json"] == {"a": 1}
+        assert calls["n"] == 2                       # one self-repair retry
+
+    def test_requires_prompt_and_valid_token(self, monkeypatch, mgr, tmp_path):
+        client, tok, _ = self._ai_client(monkeypatch, mgr, tmp_path, ["x"])
+        assert client.post("/automations/api/runtime/ai",
+                           json={"token": tok}).status_code == 400
+        assert client.post("/automations/api/runtime/ai",
+                           json={"token": "bad", "prompt": "x"}).status_code == 403
+
+    # -- SDK surface --------------------------------------------------------
+    def test_sdk_llm_and_ai_extract_bodies(self, monkeypatch):
+        import importlib
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "automations" / "sdk"))
+        import aihub_runtime
+        importlib.reload(aihub_runtime)
+        seen = []
+        monkeypatch.setattr(aihub_runtime, "_runtime_post",
+                            lambda p, b: (seen.append((p, b)), {"text": "T", "json": {"k": 1}})[1])
+        monkeypatch.setenv("AIHUB_RUN_TOKEN", "tok")
+        assert aihub_runtime.llm("hello", system="be brief") == "T"
+        p, b = seen[-1]
+        assert p.endswith("/runtime/ai") and b["prompt"] == "hello"
+        assert b["system"] == "be brief" and "json" not in b and "schema" not in b
+        assert aihub_runtime.ai_extract("extract", images=["a.png"],
+                                        schema={"k": "number"}) == {"k": 1}
+        p2, b2 = seen[-1]
+        assert b2["json"] is True and b2["schema"] == {"k": "number"}
+        assert b2["images"] == ["a.png"]
+
+    # -- assignee username resolution --------------------------------------
+    def test_assignee_accepts_username(self, monkeypatch, mgr):
+        import automations.api as api_mod
+        monkeypatch.setattr(api_mod, "_manager", mgr)
+
+        class UConn:
+            def cursor(self):
+                class C:
+                    def execute(self, sql, *p):
+                        self._u = p[0] if p else None
+                    def fetchone(self):
+                        return (42,) if self._u == "donnah" else None
+                return C()
+            def close(self): pass
+        monkeypatch.setattr(mgr, "_db_conn", lambda: UConn())
+        run = {"requested_by": 13}
+        assert api_mod._resolve_assignee(run, "donnah") == (42, None)
+        assert api_mod._resolve_assignee(run, 7) == (7, None)
+        assert api_mod._resolve_assignee(run, None) == (13, None)
+        uid, note = api_mod._resolve_assignee(run, "no-such-user")
+        assert uid == 13 and "could not be resolved" in note
+
+    # -- description hints rendered ----------------------------------------
+    def test_input_descriptions_rendered(self):
+        import automations.api as api_mod
+        assert "inp.description" in api_mod._RUNS_PAGE
+        mod = Path(__file__).resolve().parents[2].joinpath(
+            "static", "js", "automation_node.js").read_text(encoding="utf-8", errors="replace")
+        assert "inp.description" in mod

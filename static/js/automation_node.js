@@ -79,6 +79,7 @@ const AutomationNode = (function () {
                                 data-name="${_esc(inp.name)}"
                                 placeholder="default: ${_esc(inp.default == null ? '' : inp.default)}"
                                 value="${_esc(existing[inp.name] != null ? existing[inp.name] : '')}">
+                            ${inp.description ? `<div class="text-muted" style="font-size:11px">${_esc(inp.description)}</div>` : ''}
                         </div>
                     </div>`).join('')
                 : '<div class="text-muted small">This automation declares no inputs.</div>';

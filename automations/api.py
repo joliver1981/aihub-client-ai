@@ -286,7 +286,8 @@ async function openSettings(ev,id){
  document.getElementById('setPkgs').innerHTML=(m.packages||[]).map(chip).join('')||'<span class="muted">none</span>';
  document.getElementById('setTimeout').value=m.timeout_seconds||600;
  document.getElementById('setInputs').innerHTML=(m.inputs||[]).map((inp,i)=>
-   `<tr><td>${esc(inp.name)}</td><td><input data-idx="${i}" class="set-input" value="${esc(inp.default==null?'':String(inp.default))}"
+   `<tr><td>${esc(inp.name)}${inp.description?`<div class="muted" style="font-size:11px;max-width:260px">${esc(inp.description)}</div>`:''}</td>
+     <td><input data-idx="${i}" class="set-input" value="${esc(inp.default==null?'':String(inp.default))}"
      style="width:100%;background:var(--sf2);color:var(--tx);border:1px solid var(--ln);border-radius:6px;padding:4px 8px"></td></tr>`).join('')
    ||'<tr><td colspan="2" class="muted">no inputs declared</td></tr>';
  document.getElementById('setStatus').textContent='';
@@ -1003,8 +1004,17 @@ def runtime_checkpoint():
         pass
     # Bridge into the My Approvals queue (james 2026-07-21). Best-effort: a
     # queue failure must never break the gate — Mission Control still works.
-    assignee_id = _resolve_checkpoint_assignee(run, data.get("assignee"))
+    assignee_id, route_note = _resolve_assignee(run, data.get("assignee"))
     group = _resolve_assignee_group(data.get("assignee_group"))
+    if data.get("assignee_group") not in (None, "") and group[0] is None:
+        route_note = (f"approvals group '{data.get('assignee_group')}' not found — "
+                      + (route_note or f"routed to user {assignee_id}"))
+    if route_note:
+        try:
+            from .runner import RunEventLog
+            RunEventLog(workdir).emit("log", line=f"[aihub] ROUTING WARNING: {route_note}")
+        except Exception:
+            pass
     queued = False
     try:
         req_id = _create_checkpoint_approval_row(run, checkpoint, assignee_id, group)
@@ -1045,8 +1055,17 @@ def runtime_review_item():
     attachments, att_err = _validate_checkpoint_files(workdir, data.get("files"))
     if att_err:
         return jsonify({"error": att_err}), 400
-    assignee_id = _resolve_checkpoint_assignee(run, data.get("assignee"))
+    assignee_id, route_note = _resolve_assignee(run, data.get("assignee"))
     group_id, group_name = _resolve_assignee_group(data.get("assignee_group"))
+    if data.get("assignee_group") not in (None, "") and group_id is None:
+        route_note = (f"approvals group '{data.get('assignee_group')}' not found — "
+                      + (route_note or f"routed to user {assignee_id}"))
+    if route_note:
+        try:
+            from .runner import RunEventLog
+            RunEventLog(workdir).emit("log", line=f"[aihub] ROUTING WARNING: {route_note}")
+        except Exception:
+            pass
     auto = _get_manager().get_automation(run.get("automation_id", "")) or {}
     auto_name = auto.get("name") or run.get("automation_id", "")
     message = (data.get("message") or "Review requested")[:1000]
@@ -1068,6 +1087,147 @@ def runtime_review_item():
     except Exception:
         pass
     return jsonify({"request_id": row["request_id"], "queued_for_review": True})
+
+
+_AI_MEDIA_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                   ".webp": "image/webp", ".gif": "image/gif"}
+
+
+def _load_ai_images(workdir: str, images) -> tuple:
+    """([anthropic image blocks], error) for workdir-relative image paths —
+    same containment rule as checkpoint attachments."""
+    if not images:
+        return [], None
+    if not isinstance(images, list) or len(images) > 8:
+        return None, "images must be a list of at most 8 workdir-relative paths"
+    import base64 as _b64
+    root = os.path.realpath(workdir)
+    blocks = []
+    for f in images:
+        rel = str(f or "").strip().replace("\\", "/")
+        full = os.path.realpath(os.path.join(root, rel))
+        if not (full == root or full.startswith(root + os.sep)):
+            return None, f"image '{rel}' is outside the run's working directory"
+        if not os.path.isfile(full):
+            return None, f"image '{rel}' does not exist in the run's working directory"
+        if os.path.getsize(full) > 8 * 1024 * 1024:
+            return None, f"image '{rel}' exceeds 8MB"
+        media = _AI_MEDIA_TYPES.get(os.path.splitext(full)[1].lower())
+        if not media:
+            return None, f"image '{rel}' must be png/jpg/webp/gif"
+        with open(full, "rb") as fh:
+            blocks.append({"type": "image",
+                           "source": {"type": "base64", "media_type": media,
+                                      "data": _b64.b64encode(fh.read()).decode()}})
+    return blocks, None
+
+
+def _automations_ai_model(requested: Optional[str]) -> str:
+    """Central model resolution for automation AI calls (james 2026-07-21:
+    no per-automation model ids going stale in manifests). Explicit request
+    override > AUTOMATIONS_AI_MODEL env > the platform's ANTHROPIC_MODEL."""
+    if requested and str(requested).strip():
+        return str(requested).strip()
+    return (os.getenv("AUTOMATIONS_AI_MODEL")
+            or getattr(cfg, "ANTHROPIC_MODEL", None)
+            or "claude-opus-4-8")
+
+
+@automations_bp.route("/api/runtime/ai", methods=["POST"])
+def runtime_ai():
+    """Platform-brokered LLM call for automation runs. The APP owns model
+    resolution and the tenant Anthropic key — scripts carry neither (they
+    call aihub.llm / aihub.ai_extract with the run token). Supports PLAIN
+    text prompts and schema-guided JSON extraction, with optional workdir
+    images (vision).
+
+    Body: {token, prompt, system?, images?: [workdir-relative paths],
+           json?: bool, schema?: object, model?: override, max_tokens?}
+    Returns {text, model_used} — plus {json} when json/schema was requested
+    (server parses, one self-repair retry on invalid JSON)."""
+    if not getattr(cfg, "AUTOMATIONS_ENABLED", False):
+        return jsonify({"error": "Automations feature is disabled"}), 403
+    data = request.get_json(silent=True) or {}
+    from shared_auth import verify_automation_run_token
+    claims, err = verify_automation_run_token(data.get("token") or "")
+    if err:
+        return jsonify({"error": f"invalid run token: {err}"}), 403
+    run = _get_runner().get_run(claims.get("run_id", ""))
+    from .runner import LIVE_STATUSES
+    if (not run or run.get("automation_id") != claims.get("automation_id")
+            or run.get("status") not in LIVE_STATUSES):
+        return jsonify({"error": "run token does not match a live run"}), 403
+    workdir = _run_workdir(run)
+    if not workdir:
+        return jsonify({"error": "run has no workdir"}), 409
+
+    prompt = data.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip():
+        return jsonify({"error": "'prompt' is required"}), 400
+    if len(prompt) > 100_000:
+        return jsonify({"error": "'prompt' exceeds 100k characters"}), 400
+    image_blocks, img_err = _load_ai_images(workdir, data.get("images"))
+    if img_err:
+        return jsonify({"error": img_err}), 400
+    schema = data.get("schema")
+    json_mode = bool(data.get("json")) or schema is not None
+    model = _automations_ai_model(data.get("model"))
+    max_tokens = min(int(data.get("max_tokens") or 1500), 8000)
+
+    key = getattr(cfg, "ANTHROPIC_API_KEY", "") or ""
+    if not key:
+        return jsonify({"error": "the platform has no Anthropic API key configured"}), 503
+
+    text_prompt = prompt
+    if schema is not None:
+        text_prompt += ("\n\nReturn ONLY a JSON object matching this schema "
+                        "(no prose, no code fences):\n" + json.dumps(schema))
+    elif json_mode:
+        text_prompt += "\n\nReturn ONLY a JSON object (no prose, no code fences)."
+
+    def _call(extra_nudge=None):
+        # Raw REST (requests) — the app env deliberately has no anthropic SDK,
+        # and this needs zero new dependencies. No temperature: reasoning
+        # models reject it.
+        import requests as _requests
+        content = list(image_blocks)
+        content.append({"type": "text",
+                        "text": text_prompt + (("\n\n" + extra_nudge) if extra_nudge else "")})
+        body = {"model": model, "max_tokens": max_tokens,
+                "messages": [{"role": "user", "content": content}]}
+        if data.get("system"):
+            body["system"] = str(data["system"])[:20_000]
+        resp = _requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"x-api-key": key, "anthropic-version": "2023-06-01",
+                     "content-type": "application/json"},
+            json=body, timeout=180)
+        if resp.status_code != 200:
+            raise RuntimeError(f"Anthropic API {resp.status_code}: {resp.text[:300]}")
+        return "".join(b.get("text", "") for b in resp.json().get("content", [])
+                       if b.get("type") == "text").strip()
+
+    try:
+        text = _call()
+        payload = {"text": text, "model_used": model}
+        if json_mode:
+            def _parse(t):
+                t = t.strip()
+                if t.startswith("```"):
+                    t = t.strip("`")
+                    t = t[t.index("{"):t.rindex("}") + 1]
+                return json.loads(t)
+            try:
+                payload["json"] = _parse(text)
+            except (ValueError, IndexError):
+                text2 = _call("Your previous reply was not valid JSON. "
+                              "Reply with ONLY the JSON object.")
+                payload["json"] = _parse(text2)
+                payload["text"] = text2
+        return jsonify(payload)
+    except Exception as e:
+        logger.warning(f"runtime_ai failed (model {model}): {e}")
+        return jsonify({"error": f"AI call failed: {e}", "model_used": model}), 502
 
 
 @automations_bp.route("/api/approvals/<request_id>/attachments/<name>", methods=["GET"])
@@ -1127,19 +1287,42 @@ def _validate_checkpoint_files(workdir: str, files) -> tuple:
     return out, None
 
 
+def _resolve_assignee(run: Dict, assignee) -> tuple:
+    """(user_id, warning_note) for an approval assignee — accepts a user ID or
+    a USERNAME (james 2026-07-21: 'either should be able to resolve').
+    Unset -> the run's requesting user (no note). An unresolvable value falls
+    back to the requester WITH a note so the run log shows the misroute
+    loudly instead of silently."""
+    def _requester():
+        try:
+            return int(run.get("requested_by")) if run.get("requested_by") is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    if assignee in (None, ""):
+        return _requester(), None
+    s = str(assignee).strip()
+    if s.isdigit():
+        return int(s), None
+    try:
+        conn = _get_manager()._db_conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM [User] WHERE username = ?", s)
+            row = cursor.fetchone()
+        finally:
+            conn.close()
+        if row:
+            return int(row[0]), None
+    except Exception as e:
+        logger.warning(f"assignee username lookup failed for '{s}': {e}")
+    return _requester(), (f"approvals assignee '{s}' could not be resolved to a user — "
+                          f"routed to the run's requester instead")
+
+
 def _resolve_checkpoint_assignee(run: Dict, assignee) -> Optional[int]:
-    """Optional explicit assignee (user id); defaults to the run's requesting
-    user — james 2026-07-21: 'make it optional but pick a good default like
-    current user'."""
-    try:
-        if assignee not in (None, ""):
-            return int(assignee)
-    except (TypeError, ValueError):
-        logger.warning(f"checkpoint assignee '{assignee}' is not a user id — using the run's requester")
-    try:
-        return int(run.get("requested_by")) if run.get("requested_by") is not None else None
-    except (TypeError, ValueError):
-        return None
+    """Back-compat shim; see _resolve_assignee."""
+    return _resolve_assignee(run, assignee)[0]
 
 
 def _resolve_assignee_group(assignee_group) -> tuple:

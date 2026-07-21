@@ -189,6 +189,68 @@ def log(message):
     print(f"[aihub] {message}", flush=True)
 
 
+def _ai_call(body):
+    token = _os.environ.get("AIHUB_RUN_TOKEN")
+    if not token:
+        raise AutomationRuntimeError("aihub.llm/ai_extract require the run token "
+                                     "(AIHUB_RUN_TOKEN missing)")
+    body["token"] = token
+    try:
+        res = _runtime_post("/automations/api/runtime/ai", body)
+    except AutomationRuntimeError:
+        raise
+    except Exception as e:
+        raise AutomationRuntimeError(f"AI call failed: {e}") from None
+    if res.get("error"):
+        raise AutomationRuntimeError(f"AI call failed: {res['error']}")
+    return res
+
+
+def llm(prompt, system=None, images=None, model=None, max_tokens=1500):
+    """Ask the platform's LLM a PLAIN prompt and get the text back.
+
+    The call is brokered by the AI Hub application: it supplies the tenant's
+    API key and resolves the model centrally (override chain: this call's
+    `model` > the platform's AUTOMATIONS_AI_MODEL > the platform default), so
+    scripts carry no key and no model id that can go stale.
+
+        summary = aihub.llm("Summarize this log in two sentences:\\n" + log_text)
+
+    images: optional list of workdir-relative image paths (vision).
+    Use ai_extract() when you need structured JSON back."""
+    body = {"prompt": str(prompt), "max_tokens": max_tokens}
+    if system:
+        body["system"] = str(system)
+    if images:
+        body["images"] = [str(f) for f in images]
+    if model:
+        body["model"] = str(model)
+    return _ai_call(body).get("text", "")
+
+
+def ai_extract(prompt, images=None, schema=None, system=None, model=None, max_tokens=1500):
+    """Ask the platform's LLM for STRUCTURED data — returns a parsed dict.
+
+    Same central key/model brokering as llm(). If `schema` (a JSON-schema-ish
+    dict) is given it is enforced in the instructions; either way the server
+    parses the reply as JSON (with one self-repair retry) so you never handle
+    fences or bad JSON yourself.
+
+        data = aihub.ai_extract("Read this form page.", images=["page1.png"],
+                                schema={"employee_number": "string", "confidence": "number"})
+    """
+    body = {"prompt": str(prompt), "json": True, "max_tokens": max_tokens}
+    if schema is not None:
+        body["schema"] = schema
+    if system:
+        body["system"] = str(system)
+    if images:
+        body["images"] = [str(f) for f in images]
+    if model:
+        body["model"] = str(model)
+    return _ai_call(body).get("json")
+
+
 def review_item(message, title=None, files=None, assignee=None, assignee_group=None):
     """Send a NON-BLOCKING review item to the My Approvals queue and continue.
 
