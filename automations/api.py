@@ -430,6 +430,10 @@ def get_automation(automation_id):
     if not auto:
         return jsonify({"error": "not found"}), 404
     auto["versions"] = _get_manager().list_versions(automation_id)
+    # The Settings panel (and any client) needs the manifest with the row —
+    # it was only on the internal manage 'get', which is why the panel
+    # rendered 'no inputs declared' for an automation with nine inputs.
+    auto["manifest"] = _get_manager().get_manifest(automation_id)
     return jsonify({"automation": auto})
 
 

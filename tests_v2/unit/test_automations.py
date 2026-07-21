@@ -1952,3 +1952,14 @@ class TestGroupRoutingAndSettingsPanel:
             encoding="utf-8", errors="replace")
         assert "automation_node.js?v=1" in page
         assert "filename='js/workflow.js', v=4" in page.replace('"', "'")
+
+
+class TestGetAutomationIncludesManifest:
+    """james 2026-07-21: the Settings panel showed 'no inputs declared' — the
+    user-facing GET lacked the manifest (only internal manage 'get' had it)."""
+
+    def test_route_source_includes_manifest(self):
+        src = Path(__file__).resolve().parents[2].joinpath(
+            "automations", "api.py").read_text(encoding="utf-8", errors="replace")
+        route = src.split('def get_automation(automation_id):')[1].split("@automations_bp.route")[0]
+        assert 'auto["manifest"]' in route and "get_manifest" in route
