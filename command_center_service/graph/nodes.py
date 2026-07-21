@@ -2286,7 +2286,16 @@ async def converse(state: CommandCenterState) -> dict:
             "- Do the AUTOMATION parts with these tools (never the Builder Agent — it does not know "
             "this asset type); if the same request ALSO needs an agent/connection/knowledge/MCP or an "
             "editable workflow, use delegate_to_builder_agent for that part. Every save must be "
-            "confirmed to the user with the version number the tool returned."
+            "confirmed to the user with the version number the tool returned.\n"
+            "- STATE IS GROUNDED (non-negotiable): NEVER assert an automation's version, "
+            "promotion/live status, schedule, or run outcome without calling get_automation (and "
+            "get_automation_runs when runs are involved) THIS turn. Your memory of prior "
+            "conversations is NOT evidence — sessions reset, and other users promote/schedule "
+            "things. A claim like 'still draft-only' with no tool call this turn is fabrication.\n"
+            "- When the user answers YOUR automation question ('promote as-is?', 'schedule it?') "
+            "with an affirmative, EXECUTE the matching automation tools (promote_automation, "
+            "schedule_automation, run_automation) in that same turn — their answer is never a "
+            "reason to delegate to the builder or ask again."
         )
         _automations_prompt += (
             "\n\n## CODE FLOWS — the MULTI-STEP sibling of an Automation\n"
@@ -2721,6 +2730,31 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         # Platform mutations are Developer+ only.
         if not _build_allowed(state):
             return _BUILD_DENIED_MSG
+        # James live 2026-07-20: mid-automation-session, the model handed "yes
+        # promote it as-is and schedule it" to the BUILDER (which does not know
+        # the automations asset type) — a side chat + timezone interrogation,
+        # nothing executed. Deterministic guard: while this session is
+        # authoring an AUTOMATION and the delegation request names no
+        # builder-owned object (agent/connection/MCP/knowledge/workflow/...),
+        # the delegation is refused with a steer to the automation tools.
+        # Mixed requests that DO name a builder object still delegate.
+        _mk_d = state.get("code_flow_context") or {}
+        if _mk_d.get("kind") == "automation":
+            try:
+                from graph.build_routing import _OBJECT_BUILDER_SIGNALS
+                if not _OBJECT_BUILDER_SIGNALS.search(request or ""):
+                    logger.warning("[converse/tool] delegate_to_builder_agent REFUSED "
+                                   "mid-automation-session (no builder-object signal): "
+                                   f"{(request or '')[:80]}")
+                    return ("REFUSED — this session is authoring the automation "
+                            f"'{_mk_d.get('name') or 'in progress'}'. The Builder Agent does "
+                            "not know the automations asset type. Use the automation tools "
+                            "instead: promote_automation / schedule_automation / "
+                            "run_automation / save_automation_code. Only delegate to the "
+                            "builder for platform OBJECTS (agents, connections, MCP servers, "
+                            "knowledge bases, visual workflows).")
+            except ImportError:
+                pass
         from command_center.orchestration.delegator import delegate_to_builder
 
         cc_session_id = state.get("session_id", "cc-default")

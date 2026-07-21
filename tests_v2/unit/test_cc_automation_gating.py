@@ -772,3 +772,44 @@ class TestScheduledTasksPanelAndNavUX:
         assert "openAutomations()" in js
         assert "'/automations'" in js
         assert "CC_MAIN_APP_PORT || 5001" in js
+
+
+class TestAutomationSessionDelegateGuard:
+    """James live 2026-07-20 r2: on a fresh-restart retest, converse answered
+    'run the expense-audit automation daily' with a FABRICATED 'still
+    draft-only v9' (zero tool calls; DB shows pinned_version=9) and then
+    handed the user's 'yes promote it as-is and schedule it' to the BUILDER —
+    side chat + timezone interrogation, nothing scheduled. Routing was
+    correct (converse); the failure was converse's tool choice."""
+
+    def _src(self):
+        from pathlib import Path as _P
+        return _P(nodes.__file__).read_text(encoding="utf-8")
+
+    def test_delegate_tool_refuses_mid_automation_without_object_signal(self):
+        src = self._src()
+        body = src[src.find("async def delegate_to_builder_agent"):]
+        body = body[:body.find("from command_center.orchestration.delegator import")]
+        assert '_mk_d.get("kind") == "automation"' in body
+        assert "_OBJECT_BUILDER_SIGNALS" in body
+        assert "REFUSED" in body and "automation tools" in body
+
+    def test_object_signal_regex_lets_mixed_requests_through(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "_br_guard_test", str(Path(_CC) / "graph" / "build_routing.py"))
+        br = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(br)
+        # the live failing message has NO object signal → guard fires
+        assert not br._OBJECT_BUILDER_SIGNALS.search("yes promote it as-is and schedule it")
+        # a genuine mixed request names an object → delegation still allowed
+        assert br._OBJECT_BUILDER_SIGNALS.search("also create a data agent for AIRDB")
+        assert br._OBJECT_BUILDER_SIGNALS.search("build a visual workflow for this")
+
+    def test_prompt_grounding_and_affirmative_laws(self):
+        src = self._src()
+        blk = src[src.find("## AUTOMATIONS — the tools"):src.find("## CODE FLOWS")]
+        assert "STATE IS GROUNDED (non-negotiable)" in blk
+        assert "'still draft-only' with no tool call this turn is fabrication" in blk
+        assert "EXECUTE the matching automation tools" in blk
+        assert "never a" in blk and "reason to delegate to the builder" in blk
