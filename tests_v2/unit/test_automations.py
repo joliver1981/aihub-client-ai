@@ -1742,7 +1742,7 @@ class TestAutomationNodeInDesigner:
         page = self._root().joinpath("templates", "workflow_tool.html").read_text(
             encoding="utf-8", errors="replace")
         assert "data-type=\"Automation\"" in page
-        assert "filename='js/workflow.js', v=3" in page
+        assert "filename='js/workflow.js', v=4" in page
         assert "filename='css/workflow_node_colors.css', v=3" in page
 
     def test_css_shades_portal_and_automation(self):
@@ -1757,7 +1757,8 @@ class TestAutomationNodeInDesigner:
         js = self._root().joinpath("static", "js", "workflow.js").read_text(
             encoding="utf-8", errors="replace")
         assert "'Automation': {" in js
-        assert "name=\"automationName\"" in js
+        # the picker module supplies automationId/Name (fields carry no name attr)
+        assert 'id="autoNodeSelect"' in js
         assert js.count("case 'Automation':") == 2  # create + load icon switches
 
     def test_engine_accepts_json_string_inputs(self):
@@ -1848,3 +1849,106 @@ class TestReviewItems:
         assert "applySort" in page and "sort-ind" in page
         assert "/automations/api/approvals/" in page      # review attachment href
         assert "Automation exception review" in page
+
+
+class TestGroupRoutingAndSettingsPanel:
+    """james 2026-07-21 round 3: approvals routable to GROUPS, Mission
+    Control settings panel (additive to chat), designer Automation node
+    picker + manifest-driven inputs."""
+
+    # -- store: group visibility -------------------------------------------
+    def test_group_rows_visible_to_members_only(self, mgr):
+        from automations import approval_store
+        g = approval_store.add_row(mgr.base_path, "g", "d", 55, "{}",
+                                   assigned_to_type="group")
+        u = approval_store.add_row(mgr.base_path, "u", "d", 13, "{}")
+        anyone = approval_store.add_row(mgr.base_path, "open", "d", None, "{}")
+        member = approval_store.list_rows(mgr.base_path, assigned_to_id=13,
+                                          member_of_group_ids=[55])
+        non_member = approval_store.list_rows(mgr.base_path, assigned_to_id=13,
+                                              member_of_group_ids=[99])
+        ids = lambda rows: {r["request_id"] for r in rows}
+        assert ids(member) == {g["request_id"], u["request_id"], anyone["request_id"]}
+        assert ids(non_member) == {u["request_id"], anyone["request_id"]}
+
+    # -- api: group resolution + row shape ---------------------------------
+    def test_resolve_assignee_group_by_name_and_id(self, monkeypatch, mgr):
+        import automations.api as api_mod
+        monkeypatch.setattr(api_mod, "_manager", mgr)
+
+        class GConn:
+            def cursor(self):
+                class C:
+                    def execute(self, sql, *p):
+                        self._p = p
+                    def fetchone(self):
+                        return (7, "Payroll Administrators") if self._p else None
+                return C()
+            def close(self): pass
+        monkeypatch.setattr(mgr, "_db_conn", lambda: GConn())
+        assert api_mod._resolve_assignee_group("Payroll Administrators") == (7, "Payroll Administrators")
+        assert api_mod._resolve_assignee_group(7) == (7, "Payroll Administrators")
+        assert api_mod._resolve_assignee_group(None) == (None, None)
+
+    def test_checkpoint_row_group_routing(self, monkeypatch, mgr):
+        import automations.api as api_mod
+        from automations import approval_store
+        monkeypatch.setattr(api_mod, "_manager", mgr)
+        run = {"run_id": "r-g", "automation_id": "a-g", "requested_by": 13}
+        cp = {"checkpoint_id": "cpg", "message": "m", "attachments": []}
+        rid = api_mod._create_checkpoint_approval_row(run, cp, 13, group=(7, "Payroll Administrators"))
+        row = approval_store.get_row(mgr.base_path, rid)
+        assert row["assigned_to_type"] == "group" and row["assigned_to_id"] == 7
+        assert json.loads(row["approval_data"])["group_name"] == "Payroll Administrators"
+
+    # -- SDK: group passthrough --------------------------------------------
+    def test_sdk_group_passthrough(self, monkeypatch):
+        import importlib
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "automations" / "sdk"))
+        import aihub_runtime
+        importlib.reload(aihub_runtime)
+        captured = {}
+        monkeypatch.setattr(aihub_runtime, "_runtime_post",
+                            lambda p, b: (captured.update(b), {"request_id": "R"})[1])
+        monkeypatch.setenv("AIHUB_RUN_TOKEN", "tok")
+        monkeypatch.delenv("AIHUB_CHECKPOINTS_ENABLED", raising=False)
+        aihub_runtime.review_item("x", assignee_group="Payroll Administrators")
+        assert captured["assignee_group"] == "Payroll Administrators"
+
+    # -- app.py contracts ---------------------------------------------------
+    def test_user_approvals_include_group_membership(self):
+        src = Path(__file__).resolve().parents[2].joinpath("app.py").read_text(
+            encoding="utf-8", errors="replace")
+        assert "SELECT group_id FROM [UserGroups] WHERE user_id = ?" in src
+        assert "member_of_group_ids=my_groups" in src
+        assert 'f"Group: {gname}"' in src
+
+    # -- Mission Control settings panel ------------------------------------
+    def test_settings_panel_wired(self, monkeypatch, mgr):
+        import automations.api as api_mod
+        page = api_mod._RUNS_PAGE
+        assert "openSettings(event," in page
+        assert "Save as new version" in page and "Promote latest" in page
+        # saves go through the SAME versioned endpoint chat uses (PUT code)
+        assert "method:'PUT'" in page and "/code'" in page
+        assert "code:codeRes.code,manifest:m" in page.replace(" ", "")
+        assert "same as chat edits" in page
+
+    # -- designer node UX ---------------------------------------------------
+    def test_designer_automation_picker(self):
+        root = Path(__file__).resolve().parents[2]
+        js = root.joinpath("static", "js", "workflow.js").read_text(
+            encoding="utf-8", errors="replace")
+        assert 'id="autoNodeSelect"' in js
+        assert "AutomationNode.setup(currentConfig)" in js
+        assert "AutomationNode.getConfig()" in js
+        mod = root.joinpath("static", "js", "automation_node.js").read_text(
+            encoding="utf-8", errors="replace")
+        assert "/automations/api/list" in mod
+        assert "manifest.inputs" in mod
+        assert "auto-node-input" in mod and "data-name" in mod
+        page = root.joinpath("templates", "workflow_tool.html").read_text(
+            encoding="utf-8", errors="replace")
+        assert "automation_node.js?v=1" in page
+        assert "filename='js/workflow.js', v=4" in page.replace('"', "'")

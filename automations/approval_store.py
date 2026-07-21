@@ -55,7 +55,12 @@ def _now() -> str:
 
 def add_row(base_path: str, title: str, description: str,
             assigned_to_id: Optional[int], approval_data: str,
-            priority: int = 0) -> Dict:
+            priority: int = 0, assigned_to_type: Optional[str] = None) -> Dict:
+    """assigned_to_type: 'user' (default when assigned_to_id set), 'group'
+    (assigned_to_id is then a Groups.id — any member sees/decides the row),
+    or None (available to all)."""
+    if assigned_to_type is None and assigned_to_id is not None:
+        assigned_to_type = "user"
     row = {
         "request_id": str(uuid.uuid4()),
         "title": title,
@@ -63,7 +68,7 @@ def add_row(base_path: str, title: str, description: str,
         "status": "Pending",
         "requested_at": _now(),
         "response_at": None,
-        "assigned_to_type": "user" if assigned_to_id is not None else None,
+        "assigned_to_type": assigned_to_type,
         "assigned_to_id": assigned_to_id,
         "responded_by": None,
         "comments": None,
@@ -108,9 +113,13 @@ def settle_row(base_path: str, request_id: str, status: str,
 
 
 def list_rows(base_path: str, status: Optional[str] = None,
-              assigned_to_id: Optional[int] = None) -> List[Dict]:
-    """All rows, newest first; optional exact-status filter and assignee
-    filter (a row with no assignee matches every user — 'available to all')."""
+              assigned_to_id: Optional[int] = None,
+              member_of_group_ids=None) -> List[Dict]:
+    """All rows, newest first; optional exact-status filter and visibility
+    filter: a row is visible to a user when it has no assignee ('available to
+    all'), is assigned to that user, or is assigned to a GROUP in
+    member_of_group_ids (the caller supplies the user's memberships)."""
+    groups = set(member_of_group_ids or [])
     out = []
     try:
         names = os.listdir(_dir(base_path))
@@ -126,9 +135,12 @@ def list_rows(base_path: str, status: Optional[str] = None,
             continue
         if status and (row.get("status") or "").lower() != status.lower():
             continue
-        if assigned_to_id is not None and row.get("assigned_to_id") is not None \
-                and row.get("assigned_to_id") != assigned_to_id:
-            continue
+        if assigned_to_id is not None and row.get("assigned_to_id") is not None:
+            if row.get("assigned_to_type") == "group":
+                if row.get("assigned_to_id") not in groups:
+                    continue
+            elif row.get("assigned_to_id") != assigned_to_id:
+                continue
         out.append(row)
     out.sort(key=lambda r: r.get("requested_at") or "", reverse=True)
     return out

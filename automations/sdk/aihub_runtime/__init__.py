@@ -189,7 +189,7 @@ def log(message):
     print(f"[aihub] {message}", flush=True)
 
 
-def review_item(message, title=None, files=None, assignee=None):
+def review_item(message, title=None, files=None, assignee=None, assignee_group=None):
     """Send a NON-BLOCKING review item to the My Approvals queue and continue.
 
     Use for per-document exceptions in a batch: the run keeps going while a
@@ -198,7 +198,8 @@ def review_item(message, title=None, files=None, assignee=None):
     unavailable (the failure is logged; a review item must never break the
     batch). files are workdir-relative paths attached for the reviewer (e.g.
     the problem PDF); assignee is an optional user id (defaults to the user
-    who started the run).
+    who started the run); assignee_group is an optional platform GROUP name
+    or id — any member sees and works the item (wins over assignee).
 
     For a BLOCKING gate that pauses the run, use checkpoint() instead."""
     import os as __os
@@ -216,6 +217,8 @@ def review_item(message, title=None, files=None, assignee=None):
         body["files"] = [str(f) for f in files]
     if assignee is not None:
         body["assignee"] = assignee
+    if assignee_group is not None:
+        body["assignee_group"] = assignee_group
     try:
         res = _runtime_post("/automations/api/runtime/review_item", body)
         rid = res.get("request_id")
@@ -238,7 +241,7 @@ def _runtime_post(path, body):
         return _json.loads(resp.read().decode("utf-8"))
 
 
-def checkpoint(message, poll_seconds=2, files=None, assignee=None):
+def checkpoint(message, poll_seconds=2, files=None, assignee=None, assignee_group=None):
     """PAUSE the run at a human-judgment gate and wait for a decision.
 
     Shows `message` to the user in Mission Control / the Studio panel (keep it
@@ -254,7 +257,9 @@ def checkpoint(message, poll_seconds=2, files=None, assignee=None):
     the approver can download while deciding — e.g. the report you are about
     to send: aihub.checkpoint("Send this?", files=["out/report.xlsx"]).
     assignee: optional user id (int) to route the approval to; defaults to
-    the user who started the run.
+    the user who started the run. assignee_group: optional platform GROUP
+    name or id — any member of the group sees and can decide the approval
+    (wins over assignee when both are given).
 
     Use before irreversible steps: uploads, deletions, sends, anything that
     crosses a system boundary with unusual data."""
@@ -282,6 +287,8 @@ def checkpoint(message, poll_seconds=2, files=None, assignee=None):
         body["files"] = [str(f) for f in files]
     if assignee is not None:
         body["assignee"] = assignee
+    if assignee_group is not None:
+        body["assignee_group"] = assignee_group
     try:
         created = _runtime_post("/automations/api/runtime/checkpoint", body)
     except AutomationRuntimeError:

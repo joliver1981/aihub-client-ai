@@ -150,6 +150,28 @@ _RUNS_PAGE = """<!DOCTYPE html>
 
 <h2>Automations</h2>
 <div id="autos"></div>
+<div id="settingsWrap" style="display:none">
+ <h2 id="settingsTitle">Settings</h2>
+ <div class="card" id="settingsCard">
+  <div class="head"><span id="setName"></span><span class="muted" id="setVersions"></span></div>
+  <div class="muted" id="setDesc" style="margin:4px 0 10px"></div>
+  <div style="margin-bottom:8px"><span class="muted">Connections:</span> <span class="chips" id="setConns" style="display:inline-flex"></span>
+   <span class="muted" style="margin-left:14px">Secrets:</span> <span class="chips" id="setSecrets" style="display:inline-flex"></span>
+   <span class="muted" style="margin-left:14px">Packages:</span> <span class="chips" id="setPkgs" style="display:inline-flex"></span></div>
+  <table style="margin:8px 0"><thead><tr><th>Input</th><th>Default value</th></tr></thead><tbody id="setInputs"></tbody></table>
+  <div style="margin:8px 0"><span class="muted">Timeout (seconds):</span>
+   <input id="setTimeout" type="number" min="30" max="86400" style="width:110px;background:var(--sf2);color:var(--tx);border:1px solid var(--ln);border-radius:6px;padding:4px 8px"></div>
+  <div id="setSchedules" class="muted" style="margin:8px 0"></div>
+  <div style="margin-top:10px">
+   <button class="go" onclick="saveSettings()">Save as new version</button>
+   <button class="go" onclick="promoteLatest()" style="margin-left:6px">Promote latest</button>
+   <button class="stop" onclick="document.getElementById('settingsWrap').style.display='none'" style="margin-left:6px">Close</button>
+   <span class="muted" id="setStatus" style="margin-left:10px"></span>
+  </div>
+  <div class="muted" style="margin-top:8px;font-size:11px">Edits here create a NEW VERSION (same as chat edits — the two coexist).
+   Scheduled and manual runs execute the PROMOTED version only; dry-run before promoting. Code changes stay in Command Center chat.</div>
+ </div>
+</div>
 <h2 id="runsTitle" style="display:none">Run history</h2><div id="runs"></div>
 <h2 id="logTitle" style="display:none">Run log</h2><pre id="log" style="display:none"></pre>
 
@@ -162,7 +184,7 @@ function pill(s){return `<span class="pill ${esc(s)}">${esc(s)}</span>`;}
 async function loadAutos(){
  const d=await j('/automations/api/list');const a=d.automations||[];
  let h='<table><thead><tr><th>Name</th><th>Description</th><th>Latest</th><th>Live version</th><th></th></tr></thead><tbody>';
- for(const x of a){h+=`<tr onclick="loadRuns('${esc(x.automation_id)}','${esc(x.name)}')"><td>${esc(x.name)}</td><td>${esc(x.description||'')}</td><td>v${x.current_version}</td><td>${x.pinned_version?('v'+x.pinned_version):'—'}</td><td><button class="stop" onclick="delAuto(event,'${esc(x.automation_id)}','${esc(x.name)}')">Delete</button></td></tr>`;}
+ for(const x of a){h+=`<tr onclick="loadRuns('${esc(x.automation_id)}','${esc(x.name)}')"><td>${esc(x.name)}</td><td>${esc(x.description||'')}</td><td>v${x.current_version}</td><td>${x.pinned_version?('v'+x.pinned_version):'—'}</td><td><button class="go" onclick="openSettings(event,'${esc(x.automation_id)}')">⚙ Settings</button> <button class="stop" onclick="delAuto(event,'${esc(x.automation_id)}','${esc(x.name)}')">Delete</button></td></tr>`;}
  document.getElementById('autos').innerHTML=h+'</tbody></table>'+(a.length?'':'<p class="muted">No automations yet.</p>');}
 
 async function loadRuns(id,name){
@@ -243,6 +265,66 @@ async function abortRun(runId){
  if(!confirm('Abort this run? It stops within a few seconds and records the outcome "aborted".'))return;
  await j(`/automations/api/runs/${runId}/abort`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
  refreshLive();
+}
+// ── Settings panel (james 2026-07-21): quick visibility + tweaks without
+// chat. Saves go through the SAME versioned save endpoint chat uses.
+let settingsId=null, settingsManifest=null;
+async function openSettings(ev,id){
+ ev.stopPropagation();
+ settingsId=id;
+ const d=await j('/automations/api/'+id);
+ const auto=d.automation||{};
+ settingsManifest=auto.manifest||{};
+ const m=settingsManifest;
+ document.getElementById('settingsWrap').style.display='';
+ document.getElementById('setName').textContent=auto.name||id;
+ document.getElementById('setVersions').textContent=`latest v${auto.current_version} · live ${auto.pinned_version?('v'+auto.pinned_version):'—'}`;
+ document.getElementById('setDesc').textContent=m.description||auto.description||'';
+ const chip=s=>`<span class="chip">${esc(s)}</span>`;
+ document.getElementById('setConns').innerHTML=(m.connections||[]).map(chip).join('')||'<span class="muted">none</span>';
+ document.getElementById('setSecrets').innerHTML=(m.secrets||[]).map(chip).join('')||'<span class="muted">none</span>';
+ document.getElementById('setPkgs').innerHTML=(m.packages||[]).map(chip).join('')||'<span class="muted">none</span>';
+ document.getElementById('setTimeout').value=m.timeout_seconds||600;
+ document.getElementById('setInputs').innerHTML=(m.inputs||[]).map((inp,i)=>
+   `<tr><td>${esc(inp.name)}</td><td><input data-idx="${i}" class="set-input" value="${esc(inp.default==null?'':String(inp.default))}"
+     style="width:100%;background:var(--sf2);color:var(--tx);border:1px solid var(--ln);border-radius:6px;padding:4px 8px"></td></tr>`).join('')
+   ||'<tr><td colspan="2" class="muted">no inputs declared</td></tr>';
+ document.getElementById('setStatus').textContent='';
+ try{
+   const s=await j('/automations/api/'+id+'/schedules');
+   const scheds=(s.schedules||[]);
+   document.getElementById('setSchedules').textContent = scheds.length
+     ? ('Schedules: '+scheds.map(x=>`#${x.scheduled_job_id} ${x.cron_expression||x.schedule_type||''}${x.next_run_time?(' → next '+x.next_run_time):''}${x.job_active?'':' (inactive)'}`).join(' · '))
+     : 'Schedules: none (schedule via Command Center chat)';
+ }catch(e){document.getElementById('setSchedules').textContent='Schedules: unavailable';}
+ document.getElementById('settingsWrap').scrollIntoView({behavior:'smooth'});
+}
+async function saveSettings(){
+ if(!settingsId||!settingsManifest)return;
+ const m=JSON.parse(JSON.stringify(settingsManifest));
+ document.querySelectorAll('.set-input').forEach(el=>{
+   const i=parseInt(el.getAttribute('data-idx'),10);
+   if(m.inputs&&m.inputs[i])m.inputs[i].default=el.value;
+ });
+ m.timeout_seconds=parseInt(document.getElementById('setTimeout').value,10)||m.timeout_seconds;
+ const st=document.getElementById('setStatus');
+ st.textContent='saving…';
+ const codeRes=await j('/automations/api/'+settingsId+'/code');
+ if(!codeRes.code){st.textContent='could not load current code: '+(codeRes.error||'');return;}
+ const r=await j('/automations/api/'+settingsId+'/code',
+   {method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({code:codeRes.code,manifest:m})});
+ if(r.version){st.textContent=`saved as v${r.version} — dry-run then Promote to make it live`;settingsManifest=m;loadAutos();}
+ else st.textContent='save failed: '+(r.error||JSON.stringify(r.details||''));
+}
+async function promoteLatest(){
+ if(!settingsId)return;
+ const st=document.getElementById('setStatus');
+ if(!confirm('Promote the LATEST saved version to live? Scheduled and manual runs will execute it.'))return;
+ const r=await j('/automations/api/'+settingsId+'/promote',
+   {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+ if(r.pinned_version){st.textContent=`v${r.pinned_version} is now live`;loadAutos();}
+ else st.textContent='promote failed: '+(r.error||'');
 }
 async function delAuto(ev,id,name){
  ev.stopPropagation();
@@ -918,9 +1000,10 @@ def runtime_checkpoint():
     # Bridge into the My Approvals queue (james 2026-07-21). Best-effort: a
     # queue failure must never break the gate — Mission Control still works.
     assignee_id = _resolve_checkpoint_assignee(run, data.get("assignee"))
+    group = _resolve_assignee_group(data.get("assignee_group"))
     queued = False
     try:
-        req_id = _create_checkpoint_approval_row(run, checkpoint, assignee_id)
+        req_id = _create_checkpoint_approval_row(run, checkpoint, assignee_id, group)
         if req_id:
             cp.set_approval_request_id(workdir, checkpoint["checkpoint_id"], req_id)
             checkpoint["approval_request_id"] = req_id
@@ -959,6 +1042,7 @@ def runtime_review_item():
     if att_err:
         return jsonify({"error": att_err}), 400
     assignee_id = _resolve_checkpoint_assignee(run, data.get("assignee"))
+    group_id, group_name = _resolve_assignee_group(data.get("assignee_group"))
     auto = _get_manager().get_automation(run.get("automation_id", "")) or {}
     auto_name = auto.get("name") or run.get("automation_id", "")
     message = (data.get("message") or "Review requested")[:1000]
@@ -966,11 +1050,12 @@ def runtime_review_item():
     from . import approval_store
     row = approval_store.add_row(
         _get_manager().base_path, title=title, description=message,
-        assigned_to_id=assignee_id,
+        assigned_to_id=group_id if group_id is not None else assignee_id,
+        assigned_to_type="group" if group_id is not None else None,
         approval_data=json.dumps({
             "source": "automation", "kind": "review",
             "run_id": run.get("run_id"), "automation_id": run.get("automation_id"),
-            "automation_name": auto_name,
+            "automation_name": auto_name, "group_name": group_name,
             "attachments": attachments,  # name/size/relpath — relpath drives serving
         }))
     try:
@@ -1053,15 +1138,46 @@ def _resolve_checkpoint_assignee(run: Dict, assignee) -> Optional[int]:
         return None
 
 
+def _resolve_assignee_group(assignee_group) -> tuple:
+    """(group_id, group_name) for an approval routed to a GROUP — accepts the
+    platform group's name (friendlier in scripts/inputs) or numeric id.
+    Returns (None, None) when unset or not found (caller falls back to user
+    routing and logs)."""
+    if assignee_group in (None, ""):
+        return None, None
+    conn = _get_manager()._db_conn()
+    try:
+        cursor = conn.cursor()
+        if str(assignee_group).isdigit():
+            cursor.execute("SELECT id, group_name FROM [Groups] WHERE id = ?",
+                           int(assignee_group))
+        else:
+            cursor.execute("SELECT id, group_name FROM [Groups] WHERE group_name = ?",
+                           str(assignee_group))
+        row = cursor.fetchone()
+        if not row:
+            logger.warning(f"approval assignee_group '{assignee_group}' not found — using user routing")
+            return None, None
+        return int(row[0]), row[1]
+    except Exception as e:
+        logger.warning(f"assignee_group lookup failed for '{assignee_group}': {e}")
+        return None, None
+    finally:
+        conn.close()
+
+
 def _create_checkpoint_approval_row(run: Dict, checkpoint: Dict,
-                                    assignee_id: Optional[int]) -> Optional[str]:
+                                    assignee_id: Optional[int],
+                                    group: tuple = (None, None)) -> Optional[str]:
     """Create the queue row that puts this gate in My Approvals. Rows are
     JSON files in the tenant's _approvals/ sidecar (automations/approval_store
     .py — the third design: ApprovalRequests' NOT-NULL step FK forbids
     automation rows, and the Azure app login has no DDL for a sibling table;
     both verified live). The approvals APIs merge these rows in with
-    approval_type='automation'. Returns the request_id."""
+    approval_type='automation'. group=(id, name) routes to a platform GROUP
+    (any member sees/decides) instead of a single user. Returns request_id."""
     from . import approval_store
+    group_id, group_name = group
     auto = _get_manager().get_automation(run.get("automation_id", "")) or {}
     auto_name = auto.get("name") or run.get("automation_id", "")
     approval_data = json.dumps({
@@ -1070,6 +1186,7 @@ def _create_checkpoint_approval_row(run: Dict, checkpoint: Dict,
         "checkpoint_id": checkpoint.get("checkpoint_id"),
         "automation_id": run.get("automation_id"),
         "automation_name": auto_name,
+        "group_name": group_name,
         "attachments": [{"name": a["name"], "size": a.get("size")}
                         for a in (checkpoint.get("attachments") or [])],
     })
@@ -1077,7 +1194,8 @@ def _create_checkpoint_approval_row(run: Dict, checkpoint: Dict,
         _get_manager().base_path,
         title=f"Automation checkpoint — {auto_name}",
         description=(checkpoint.get("message") or "")[:1000],
-        assigned_to_id=assignee_id,
+        assigned_to_id=group_id if group_id is not None else assignee_id,
+        assigned_to_type="group" if group_id is not None else None,
         approval_data=approval_data,
     )
     return row["request_id"]

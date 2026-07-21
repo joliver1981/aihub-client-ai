@@ -2201,24 +2201,17 @@ const nodeConfigTemplates = {
                 in Command Center; promote before using here.
             </div>
             <div class="mb-2">
-                <label class="form-label small">Automation Name <span class="text-danger">*</span></label>
-                <input type="text" class="form-control form-control-sm" name="automationName"
-                    placeholder="exact automation name (or set the ID below)">
+                <label class="form-label small">Automation <span class="text-danger">*</span></label>
+                <select class="form-control form-control-sm" id="autoNodeSelect">
+                    <option value="">Loading…</option>
+                </select>
             </div>
             <div class="mb-2">
-                <label class="form-label small">Automation ID (optional, wins over name)</label>
-                <input type="text" class="form-control form-control-sm" name="automationId"
-                    placeholder="GUID from Mission Control / Command Center">
-            </div>
-            <div class="mb-2">
-                <label class="form-label small">Inputs (JSON object)</label>
-                <div class="input-group input-group-sm">
-                    <textarea class="form-control" name="inputs" rows="3"
-                        placeholder='{"month": "2026-07"} — string values support \${variable}'></textarea>
-                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="showVariableSelector(this)">
-                        <i class="bi bi-braces"></i>
-                    </button>
+                <label class="form-label small">Inputs <span class="text-muted">(string values support \${variable})</span></label>
+                <div id="autoNodeInputs">
+                    <div class="text-muted small">Choose an automation to see its inputs.</div>
                 </div>
+                <div class="text-muted small" id="autoNodeMeta" style="margin-top:4px"></div>
             </div>
             <div class="row">
                 <div class="col-md-6 mb-2">
@@ -2490,6 +2483,13 @@ function configureNode() {
             const modalBody = document.getElementById('nodeConfigModalBody');
             modalBody.innerHTML = configTemplate.template;
 
+            // Automation nodes: dropdown of automations + manifest-driven
+            // input fields (james 2026-07-21 — no GUID/JSON guessing)
+            if (configuredNode.getAttribute('data-type') === 'Automation'
+                    && typeof AutomationNode !== 'undefined') {
+                setTimeout(() => { AutomationNode.setup(currentConfig); }, 0);
+            }
+
             // Load user/group dropdowns for Human Approval nodes
             if (configuredNode.getAttribute('data-type') === 'Human Approval') {
                 setTimeout(() => {
@@ -2694,6 +2694,15 @@ function saveNodeConfig() {
                 config[input.name] = input.value;
             }
         });
+
+        // Special handling for Automation - the picker + dynamic input fields
+        // carry no name attributes, so the module supplies their values
+        if (nodeType === 'Automation' && typeof AutomationNode !== 'undefined') {
+            const ac = AutomationNode.getConfig();
+            config.automationId = ac.automationId;
+            config.automationName = ac.automationName;
+            config.inputs = ac.inputs;
+        }
 
         // Special handling for AI Extract - get fields from module
         if (nodeType === 'AI Extract' && typeof AIExtractNode !== 'undefined') {

@@ -15392,10 +15392,19 @@ def get_user_approvals():
         try:
             from automations import approval_store as _ap_store
             from automations.api import _get_manager as _ap_mgr
+            # group-routed rows are visible to every member of the group
+            cursor.execute("SELECT group_id FROM [UserGroups] WHERE user_id = ?", user_id)
+            my_groups = [r[0] for r in cursor.fetchall()]
             automation_rows = _ap_store.list_rows(_ap_mgr().base_path,
-                                                  assigned_to_id=user_id)
+                                                  assigned_to_id=user_id,
+                                                  member_of_group_ids=my_groups)
             if assignment_filter == 'group':
-                automation_rows = []  # automation approvals are user-assigned
+                automation_rows = [r for r in automation_rows
+                                   if r.get('assigned_to_type') == 'group']
+            elif assignment_filter == 'direct':
+                automation_rows = [r for r in automation_rows
+                                   if r.get('assigned_to_type') == 'user'
+                                   and r.get('assigned_to_id') == user_id]
         except Exception as bridge_err:
             logger.debug(f"automation approvals merge skipped: {bridge_err}")
 
@@ -15416,12 +15425,21 @@ def get_user_approvals():
                 continue
             if not _within_date(row):
                 continue
+            if row.get('assigned_to_type') == 'group':
+                try:
+                    gname = json.loads(row.get('approval_data') or '{}').get('group_name')
+                except (ValueError, TypeError):
+                    gname = None
+                assignment = f"Group: {gname}" if gname else "Group"
+            elif row.get('assigned_to_id') == user_id:
+                assignment = 'Direct'
+            else:
+                assignment = 'Available to All'
             shaped = dict(row)
             shaped.update(node_name=None, node_type=None, workflow_name=None,
                           execution_id=None, execution_started_at=None,
                           approval_type='automation',
-                          assignment_type=('Direct' if row.get('assigned_to_id') == user_id
-                                           else 'Available to All'))
+                          assignment_type=assignment)
             approvals.append(shaped)
         approvals.sort(key=lambda a: ((a.get('priority') or 0),
                                       a.get('requested_at') or ''), reverse=True)
