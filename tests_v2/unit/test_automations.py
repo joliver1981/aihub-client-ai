@@ -2114,3 +2114,104 @@ class TestPlatformAiSeam:
         mod = Path(__file__).resolve().parents[2].joinpath(
             "static", "js", "automation_node.js").read_text(encoding="utf-8", errors="replace")
         assert "inp.description" in mod
+
+
+class TestOrphanReaper:
+    """james 2026-07-21 ('Go for it'): heartbeat-based startup reaper — after
+    4 orphaned-run incidents in one day, non-terminal runs with no living
+    supervisor are finalized honestly, their open gates aborted, and their
+    approval rows cancelled; runs supervised by ANY living process are never
+    touched (fresh heartbeat)."""
+
+    def _mk_run(self, tmp_path, name, hb_age=None, started_min_ago=60):
+        import datetime
+        import time as _t
+        wd = tmp_path / name
+        wd.mkdir()
+        (wd / "run.log").write_text("")
+        if hb_age is not None:
+            hb = wd / "_heartbeat"
+            hb.write_text(str(_t.time()))
+            old = _t.time() - hb_age
+            os.utime(hb, (old, old))
+        return {"run_id": f"run-{name}", "automation_id": "auto-r", "status": "waiting",
+                "log_path": str(wd / "run.log"),
+                "started_at": datetime.datetime.utcnow()
+                - datetime.timedelta(minutes=started_min_ago)}
+
+    def test_reaps_stale_and_absent_spares_fresh_and_young(self, mgr, tmp_path, monkeypatch):
+        from automations import checkpoints as cp
+        runner = StubRunner(mgr)
+        stale = self._mk_run(tmp_path, "stale", hb_age=600)
+        fresh = self._mk_run(tmp_path, "fresh", hb_age=5)
+        absent = self._mk_run(tmp_path, "absent", hb_age=None)
+        young = self._mk_run(tmp_path, "young", hb_age=None, started_min_ago=1)
+        # an undecided gate on the stale run must be aborted by the reaper
+        gate = cp.create_checkpoint(os.path.dirname(stale["log_path"]), "pending gate")
+        monkeypatch.setattr(runner, "_db_list_nonterminal_runs",
+                            lambda: [stale, fresh, absent, young])
+        finished = []
+        monkeypatch.setattr(runner, "_db_finish_run",
+                            lambda run_id, status, *a: finished.append((run_id, status, a[-1])))
+        report = runner.reap_orphan_runs()
+        reaped_ids = {r["run_id"] for r in report}
+        assert reaped_ids == {"run-stale", "run-absent"}
+        assert {f[0] for f in finished} == {"run-stale", "run-absent"}
+        assert all(f[1] == "aborted" for f in finished)
+        assert any("stale" in (f[2] or "") for f in finished)
+        decided = cp.get_checkpoint(os.path.dirname(stale["log_path"]), gate["checkpoint_id"])
+        assert decided["decision"] == "abort" and decided["decided_by"] == "system:reaper"
+
+    def test_supervision_loop_writes_heartbeat(self):
+        src = Path(__file__).resolve().parents[2].joinpath(
+            "automations", "runner.py").read_text(encoding="utf-8", errors="replace")
+        assert src.count("self._touch_heartbeat(workdir)") == 2  # pre-loop + status-poll tick
+
+    def test_manage_reap_action(self, monkeypatch, mgr):
+        from flask import Flask
+        import automations.api as api_mod
+        monkeypatch.setenv("API_KEY", "svc-key-reap")
+        runner = StubRunner(mgr)
+        monkeypatch.setattr(runner, "reap_orphan_runs",
+                            lambda grace_s=300, stale_s=180: [{"run_id": "r1"}])
+        monkeypatch.setattr(api_mod, "_manager", mgr)
+        monkeypatch.setattr(api_mod, "_runner", runner)
+        monkeypatch.setattr(api_mod, "_tables_ensured", True)
+        app = Flask(__name__)
+        app.register_blueprint(api_mod.automations_bp)
+        r = app.test_client().post("/automations/api/internal/manage",
+                                   headers={"X-API-Key": "svc-key-reap"},
+                                   json={"action": "reap",
+                                         "user_context": {"user_id": 7, "role": 2, "username": "dev"},
+                                         "payload": {}})
+        assert r.status_code == 200 and r.get_json()["count"] == 1
+
+    def test_sdk_zombie_poll_aborts_on_dead_run(self, monkeypatch):
+        import importlib
+        import io
+        import sys as _sys
+        import urllib.error as _ue
+        _sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "automations" / "sdk"))
+        import aihub_runtime
+        importlib.reload(aihub_runtime)
+        monkeypatch.setenv("AIHUB_RUN_TOKEN", "tok")
+        monkeypatch.setenv("AIHUB_RUNTIME_URL", "http://127.0.0.1:1")
+        monkeypatch.delenv("AIHUB_CHECKPOINTS_ENABLED", raising=False)
+        monkeypatch.setattr(aihub_runtime, "_runtime_post",
+                            lambda p, b: {"checkpoint_id": "c1", "poll_seconds": 0})
+        import time as _real_time
+        monkeypatch.setattr(_real_time, "sleep", lambda s: None)
+
+        def dead_run(*a, **k):
+            raise _ue.HTTPError("u", 403, "forbidden", {},
+                                io.BytesIO(b'{"error": "run token does not match a live run"}'))
+        monkeypatch.setattr(aihub_runtime._urlrequest, "urlopen", dead_run)
+        with pytest.raises(aihub_runtime.AutomationAborted):
+            aihub_runtime.checkpoint("gate?")
+
+    def test_app_startup_hook_present(self):
+        src = Path(__file__).resolve().parents[2].joinpath("app.py").read_text(
+            encoding="utf-8", errors="replace")
+        assert "_automation_reaper_startup" in src
+        assert "reap_orphan_runs()" in src
+        assert 'name="automation-reaper"' in src

@@ -1718,6 +1718,14 @@ def internal_manage():
             resp, code = _delete_automation_impl(aid)
             return jsonify(resp), code
 
+        if action == "reap":
+            # Manual sweep of orphaned runs (the same function the startup
+            # hook runs) — ops convenience for "why is Live Now haunted?".
+            reaped = runner.reap_orphan_runs(
+                grace_s=int(payload.get("grace_s", 300)),
+                stale_s=int(payload.get("stale_s", 180)))
+            return jsonify({"reaped": reaped, "count": len(reaped)})
+
         return jsonify({"error": f"unknown action '{action}'"}), 400
     except Exception as e:
         logger.exception(f"internal_manage action={action} failed")

@@ -57,6 +57,14 @@ LIVE_STATUSES = ("running", "waiting", "aborting")
 # it pays for a DB read of the run status (abort/checkpoint signals).
 _SUPERVISE_TICK_SECONDS = 0.25
 _STATUS_POLL_SECONDS = 2.0
+# Reaper liveness (james 2026-07-21, after 4 orphaned-run incidents in one
+# day): the supervising process touches <workdir>/_heartbeat while a run is
+# live; a non-terminal DB row whose heartbeat is stale/absent has NO living
+# supervisor anywhere (main app, scheduler engine, or executor — whichever
+# process supervises writes the same file) and is safe to reap.
+_HEARTBEAT_NAME = "_heartbeat"
+_REAP_GRACE_SECONDS = 300      # never reap a run younger than this
+_REAP_STALE_SECONDS = 180      # heartbeat older than this = supervisor is dead
 
 # Declared step/automation `packages` are installed (AIHUB-0036) into a cached
 # per-package-set directory via `pip install --target` (no venv overhead) and
@@ -970,6 +978,7 @@ class AutomationRunner:
         next_status_poll = 0.0
         timed_out = aborted = False
         egress_path = os.path.join(workdir, _EGRESS_LOG_NAME)
+        self._touch_heartbeat(workdir)
 
         while proc.poll() is None:
             now = time.monotonic()
@@ -979,6 +988,7 @@ class AutomationRunner:
                 break
             if now >= next_status_poll:
                 next_status_poll = now + _STATUS_POLL_SECONDS
+                self._touch_heartbeat(workdir)
                 try:
                     if self._db_get_run_field(run_id, "status") == "aborting":
                         aborted = True
@@ -1012,6 +1022,84 @@ class AutomationRunner:
             proc.kill()
         except Exception:
             pass
+
+    # ------------------------------------------------------------- reaper
+
+    @staticmethod
+    def _touch_heartbeat(workdir):
+        try:
+            with open(os.path.join(workdir, _HEARTBEAT_NAME), "w", encoding="utf-8") as f:
+                f.write(str(time.time()))
+        except Exception:
+            pass  # a heartbeat hiccup must never affect a healthy run
+
+    def _db_list_nonterminal_runs(self) -> List[Dict]:
+        conn = self._db_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT run_id, automation_id, status, log_path, started_at
+               FROM AutomationRuns WHERE status IN ('running', 'waiting', 'aborting')""")
+        rows = cursor.fetchall()
+        conn.close()
+        return [{"run_id": r.run_id, "automation_id": r.automation_id, "status": r.status,
+                 "log_path": r.log_path, "started_at": r.started_at} for r in rows]
+
+    def reap_orphan_runs(self, grace_s: int = _REAP_GRACE_SECONDS,
+                         stale_s: int = _REAP_STALE_SECONDS) -> List[Dict]:
+        """Finalize non-terminal runs whose supervisor is dead (james
+        2026-07-21: 4 orphan incidents in one day — restarts leave runs stuck
+        in waiting/running/aborting forever, haunting Live Now and the
+        approvals trail).
+
+        Liveness = the <workdir>/_heartbeat file every supervising process
+        maintains — so a run legitimately supervised by ANOTHER process
+        (scheduler engine, executor service) has a fresh heartbeat and is
+        never touched. A run younger than grace_s is skipped (its workdir/
+        heartbeat may not exist yet). Finalizing goes through _db_finish_run,
+        the chokepoint that also cancels the run's undecided My Approvals
+        rows; undecided checkpoint files additionally get an abort decision
+        so a half-alive script polling its gate terminates itself.
+        Returns a report of the reaped runs."""
+        import datetime as _dt
+        reaped = []
+        for run in self._db_list_nonterminal_runs():
+            started = run.get("started_at")
+            if started is not None:
+                age = (_dt.datetime.utcnow() - started).total_seconds()
+                if age < grace_s:
+                    continue
+            workdir = os.path.dirname(run.get("log_path") or "") or None
+            hb_age = None
+            if workdir and os.path.isdir(workdir):
+                hb = os.path.join(workdir, _HEARTBEAT_NAME)
+                if os.path.isfile(hb):
+                    hb_age = time.time() - os.path.getmtime(hb)
+                    if hb_age < stale_s:
+                        continue  # a living supervisor owns this run — leave it
+            note = (f"orphaned run reaped: no living supervisor "
+                    f"(heartbeat {'%.0fs stale' % hb_age if hb_age is not None else 'absent'}; "
+                    f"typically a service restart mid-run)")
+            # decide any open gates as aborted so zombie scripts self-terminate
+            if workdir and os.path.isdir(workdir):
+                try:
+                    from .checkpoints import list_checkpoints, decide_checkpoint
+                    for c in list_checkpoints(workdir):
+                        if not c.get("decision"):
+                            decide_checkpoint(workdir, c["checkpoint_id"], "abort",
+                                              "system:reaper")
+                except Exception as e:
+                    logger.warning(f"reaper checkpoint-abort failed for {run['run_id']}: {e}")
+            try:
+                # the finalize chokepoint also cancels bridged approval rows
+                self._db_finish_run(run["run_id"], "aborted", None, None, None, note)
+                logger.info(f"[reaper] finalized orphaned run {run['run_id']} "
+                            f"({run['status']}) — {note}")
+                reaped.append({"run_id": run["run_id"],
+                               "automation_id": run["automation_id"],
+                               "was_status": run["status"], "note": note})
+            except Exception as e:
+                logger.error(f"reaper could not finalize {run['run_id']}: {e}")
+        return reaped
         try:
             proc.wait(timeout=10)
         except Exception:

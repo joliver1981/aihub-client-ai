@@ -373,6 +373,19 @@ def checkpoint(message, poll_seconds=2, files=None, assignee=None, assignee_grou
                     base_url + "/automations/api/runtime/checkpoint?" + query,
                     timeout=_HTTP_TIMEOUT) as resp:
                 decision = _json.loads(resp.read().decode("utf-8")).get("decision")
+        except _urlerror.HTTPError as e:
+            # If the platform says this run is no longer live (e.g. it was
+            # reaped as an orphan after a service restart), STOP — polling
+            # forever as a zombie is how ghost runs haunted Live Now.
+            try:
+                body = e.read().decode("utf-8", "replace")
+            except Exception:
+                body = ""
+            if "does not match a live run" in body:
+                log("checkpoint gate closed: the platform no longer considers this "
+                    "run live (likely reaped after a restart) — aborting")
+                raise AutomationAborted(str(message))
+            continue  # other HTTP hiccups are transient — the gate stands
         except Exception:
             continue  # transient poll failure — the gate stands; keep waiting
         if decision == "proceed":

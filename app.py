@@ -12748,6 +12748,29 @@ app.register_blueprint(environments_bp)
 from automations.api import automations_bp
 app.register_blueprint(automations_bp)
 
+# Startup reaper (james 2026-07-21): a restart strands any in-flight
+# automation run — its supervising thread dies with the process, leaving the
+# DB row stuck in waiting/running/aborting forever (ghost Live Now cards,
+# undecidable approvals). Sweep once shortly after boot; heartbeat-based
+# liveness means runs supervised by ANOTHER process are never touched.
+def _automation_reaper_startup():
+    import time as _t
+    _t.sleep(15)  # let the app (and any sibling supervisors) settle first
+    try:
+        from automations.api import _get_runner as _reap_runner
+        reaped = _reap_runner().reap_orphan_runs()
+        if reaped:
+            logger.info(f"[reaper] startup sweep finalized {len(reaped)} orphaned "
+                        f"automation run(s): {[r['run_id'] for r in reaped]}")
+        else:
+            logger.info("[reaper] startup sweep: no orphaned automation runs")
+    except Exception as _reap_err:
+        logger.warning(f"[reaper] startup sweep failed (will not affect the app): {_reap_err}")
+
+if getattr(cfg, "AUTOMATIONS_ENABLED", False):
+    threading.Thread(target=_automation_reaper_startup, daemon=True,
+                     name="automation-reaper").start()
+
 # Import code flows blueprint (multi-step Code Flows — a workflow of Code Step nodes)
 from codeflows.api import code_flows_bp
 app.register_blueprint(code_flows_bp)
