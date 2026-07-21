@@ -106,6 +106,29 @@ def remove_task(user_id: Any, job_id: Any) -> bool:
     return False
 
 
+def remove_tasks_by_slug(slug: str, kind: str) -> int:
+    """Remove every user's panel entries for one slug+kind (e.g. all Scheduled
+    Tasks rows of a deleted automation, slug=automation_id). Runs in the CC
+    process only — the store's single-writer rule is why the main app cannot
+    do this itself. Returns the number of entries removed."""
+    if not slug or not kind:
+        return 0
+    removed = 0
+    with _LOCK:
+        for p in _dir().glob("*.json"):
+            uid = p.stem
+            data = _load(uid)
+            tasks = data.get("tasks", {})
+            doomed = [jid for jid, t in tasks.items()
+                      if t.get("kind") == kind and t.get("slug") == slug]
+            for jid in doomed:
+                del tasks[jid]
+            if doomed:
+                _save(uid, data)
+                removed += len(doomed)
+    return removed
+
+
 # --- results (the "results thread") ---------------------------------------
 
 def add_result(user_id: Any, job_id: Any, task_name: str, status: str, summary: str,

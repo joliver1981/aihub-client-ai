@@ -243,31 +243,64 @@ def list_cc_schedules(user_context: Optional[Dict[str, Any]]) -> List[Dict[str, 
     return store.list_tasks((user_context or {}).get("user_id"))
 
 
-def get_next_run(job_id: Any) -> Optional[str]:
-    """Best-effort: the next scheduled fire time (ISO/UTC string) for a job, read from the
-    scheduler API, or None if unavailable (e.g. scheduler not yet restarted)."""
+def _job_state(job_id: Any):
+    """(state, next_run) for a scheduler job: 'active' (with its next fire time),
+    'inactive' (job exists but the job/all schedules are switched off), 'missing'
+    (scheduler says 404), or 'unknown' (scheduler unreachable/errored — callers
+    must treat this as no-information, NEVER as gone)."""
     if not job_id:
-        return None
+        return "unknown", None
     try:
         r = requests.get(f"{_scheduler_base()}/api/scheduler/jobs/{job_id}",
                          headers={"X-API-Key": _api_key()}, timeout=8)
+        if r.status_code == 404:
+            return "missing", None
         if r.status_code != 200:
-            return None
-        scheds = (r.json() or {}).get("schedules") or []
+            return "unknown", None
+        body = r.json() or {}
+        scheds = body.get("schedules") or []
         times = [s.get("next_run_time") for s in scheds
                  if s.get("is_active") and s.get("next_run_time")]
-        return min(times) if times else None
+        job_active = body.get("is_active")
+        if job_active is False or (scheds and not any(s.get("is_active") for s in scheds)):
+            return "inactive", None
+        return "active", (min(times) if times else None)
     except Exception:
-        return None
+        return "unknown", None
+
+
+def get_next_run(job_id: Any) -> Optional[str]:
+    """Best-effort: the next scheduled fire time (ISO/UTC string) for a job, read from the
+    scheduler API, or None if unavailable (e.g. scheduler not yet restarted)."""
+    return _job_state(job_id)[1]
 
 
 def list_cc_schedules_with_next_run(user_context: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """list_cc_schedules + a best-effort next_run per task (one scheduler call each). Used by
-    the panel and the list tool; the lightweight list_cc_schedules feeds the system prompt."""
-    tasks = store.list_tasks((user_context or {}).get("user_id"))
+    the panel and the list tool; the lightweight list_cc_schedules feeds the system prompt.
+
+    Self-heal (james 2026-07-21): automation entries whose underlying scheduler job is
+    missing or deactivated are ORPHANS — deleting an automation deactivates its jobs, and
+    a Mission Control delete happens in the main app where this store is out of reach. So
+    the panel prunes them here at read time instead of listing dead rows forever. Only on
+    definitive scheduler answers ('missing'/'inactive'); an unreachable scheduler prunes
+    nothing. Other kinds are untouched (their cancel path already removes the row)."""
+    uid = (user_context or {}).get("user_id")
+    tasks = store.list_tasks(uid)
+    kept = []
     for t in tasks:
-        t["next_run"] = get_next_run(t.get("job_id"))
-    return tasks
+        state, next_run = _job_state(t.get("job_id"))
+        if t.get("kind") == "automation" and state in ("missing", "inactive"):
+            try:
+                store.remove_task(uid, t.get("job_id"))
+                logger.info("[schedules] pruned orphaned automation task job=%s (%s)",
+                            t.get("job_id"), state)
+            except Exception as e:
+                logger.warning("[schedules] orphan prune failed job=%s: %s", t.get("job_id"), e)
+            continue
+        t["next_run"] = next_run
+        kept.append(t)
+    return kept
 
 
 def cancel_cc_schedule(user_context: Optional[Dict[str, Any]], name_or_id: str) -> Dict[str, Any]:

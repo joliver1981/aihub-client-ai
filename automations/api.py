@@ -1190,6 +1190,13 @@ def internal_manage():
                 user_id=user_id, username=username)
             return jsonify(resp), code
 
+        if action == "delete":
+            # Same guarded flow as the Mission Control button: refuse while a
+            # run is in flight, deactivate schedules FIRST, then soft delete.
+            logger.info(f"internal_manage delete automation={aid} by user {user_id}")
+            resp, code = _delete_automation_impl(aid)
+            return jsonify(resp), code
+
         return jsonify({"error": f"unknown action '{action}'"}), 400
     except Exception as e:
         logger.exception(f"internal_manage action={action} failed")

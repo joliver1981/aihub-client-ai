@@ -854,3 +854,112 @@ class TestStudioPanelActivation:
         html = self._static("index.html")
         assert "command-center.js?v=28" in html
         assert "cc-studio.js?v=3" in html
+
+
+def _import_cc_scheduling():
+    """CC's scheduling package (schedule_store + schedule_logic), forced to
+    resolve from command_center_service (same isolation dance as
+    _import_cc_nodes)."""
+    saved_path = list(sys.path)
+    saved = {k: v for k, v in sys.modules.items()
+             if k == "scheduling" or k.startswith("scheduling.")}
+    try:
+        for k in list(saved):
+            del sys.modules[k]
+        sys.path.insert(0, _CC)
+        import scheduling.schedule_store as ss  # noqa: PLC0415
+        import scheduling.schedule_logic as sl  # noqa: PLC0415
+        assert "command_center_service" in ss.__file__.replace("\\", "/")
+        return ss, sl
+    finally:
+        sys.path[:] = saved_path
+        for k in [k for k in sys.modules if k == "scheduling" or k.startswith("scheduling.")]:
+            del sys.modules[k]
+        sys.modules.update(saved)
+
+
+class TestDeletedAutomationPanelHygiene:
+    """james 2026-07-21: 'the automation will not exist anymore so why are we
+    being lazy there?' — deleting an automation must clear its Scheduled Tasks
+    panel rows. Two mechanisms, both CC-side (the store is single-writer):
+    the delete tool sweeps every user's store, and the panel listing prunes
+    orphans (job missing/inactive) for Mission-Control-side deletes."""
+
+    @pytest.fixture
+    def sched(self, monkeypatch, tmp_path):
+        ss, sl = _import_cc_scheduling()
+        monkeypatch.setattr(ss, "_dir", lambda: tmp_path)
+        return ss, sl
+
+    def test_sweep_removes_slug_across_all_users_only_that_kind(self, sched):
+        ss, _ = sched
+        ss.add_task(1, 10, "Automation: exp", "p", "daily", slug="AUTO-A", kind="automation")
+        ss.add_task(1, 11, "Portal: exp", "p", "daily", slug="AUTO-A", kind="portal")
+        ss.add_task(2, 12, "Automation: exp", "p", "daily", slug="AUTO-A", kind="automation")
+        ss.add_task(2, 13, "Automation: other", "p", "daily", slug="AUTO-B", kind="automation")
+        assert ss.remove_tasks_by_slug("AUTO-A", kind="automation") == 2
+        assert [t["job_id"] for t in ss.list_tasks(1)] == ["11"]
+        assert [t["job_id"] for t in ss.list_tasks(2)] == ["13"]
+
+    def test_sweep_noop_without_slug(self, sched):
+        ss, _ = sched
+        assert ss.remove_tasks_by_slug("", kind="automation") == 0
+
+    def test_panel_prunes_missing_and_inactive_automation_jobs(self, sched, monkeypatch):
+        ss, sl = sched
+        ss.add_task(5, 20, "Automation: dead", "p", "daily", slug="A1", kind="automation")
+        ss.add_task(5, 21, "Automation: alive", "p", "daily", slug="A2", kind="automation")
+        ss.add_task(5, 24, "Automation: off", "p", "daily", slug="A3", kind="automation")
+        ss.add_task(5, 22, "Portal: keepme", "p", "daily", slug="P1", kind="portal")
+        states = {"20": ("missing", None), "21": ("active", "2026-07-22T11:30:00"),
+                  "24": ("inactive", None), "22": ("missing", None)}
+        monkeypatch.setattr(sl, "_job_state", lambda jid: states.get(str(jid), ("unknown", None)))
+        rows = sl.list_cc_schedules_with_next_run({"user_id": 5})
+        ids = sorted(t["job_id"] for t in rows)
+        assert ids == ["21", "22"]          # automation orphans gone; portal kept
+        assert next(t for t in rows if t["job_id"] == "21")["next_run"] == "2026-07-22T11:30:00"
+        # pruned from the STORE too, not just the response
+        assert sorted(t["job_id"] for t in ss.list_tasks(5)) == ["21", "22"]
+
+    def test_panel_never_prunes_on_scheduler_unreachable(self, sched, monkeypatch):
+        ss, sl = sched
+        ss.add_task(6, 30, "Automation: net", "p", "daily", slug="A9", kind="automation")
+        monkeypatch.setattr(sl, "_job_state", lambda jid: ("unknown", None))
+        rows = sl.list_cc_schedules_with_next_run({"user_id": 6})
+        assert [t["job_id"] for t in rows] == ["30"]
+        assert [t["job_id"] for t in ss.list_tasks(6)] == ["30"]
+
+
+class TestDeleteAutomationToolContracts:
+    """The CC delete_automation tool: registered everywhere, two-step confirm
+    gate ordered BEFORE the destructive call, panel sweep wired, prompt law."""
+
+    def _src(self):
+        from pathlib import Path as _P
+        return _P(nodes.__file__.replace(".pyc", ".py")).read_text(
+            encoding="utf-8", errors="replace")
+
+    def test_in_automation_tool_names(self):
+        assert "delete_automation" in nodes._AUTOMATION_TOOL_NAMES
+
+    def test_dual_registration(self):
+        src = self._src()
+        assert "tools.append(delete_automation)" in src
+        assert '"delete_automation": delete_automation,' in src
+
+    def test_confirm_gate_precedes_destructive_call(self):
+        src = self._src()
+        body = src.split("async def delete_automation(")[1]
+        confirm_at = body.index("CONFIRMATION REQUIRED")
+        delete_at = body.index('_am, "delete"')
+        assert confirm_at < delete_at
+        assert "if not confirmed:" in body[:delete_at]
+
+    def test_panel_sweep_wired_into_tool(self):
+        body = self._src().split("async def delete_automation(")[1]
+        assert 'remove_tasks_by_slug(str(aid), kind="automation")' in body
+
+    def test_two_step_prompt_law_present(self):
+        src = self._src()
+        assert "DELETE IS TWO-STEP" in src
+        assert "NEVER pass confirmed=true on the first call" in src

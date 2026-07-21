@@ -48,7 +48,7 @@ _AUTOMATION_TOOL_NAMES = frozenset({
     "create_automation", "get_automation", "save_automation_code",
     "dry_run_automation", "promote_automation", "run_automation",
     "get_automation_runs", "schedule_automation",
-    "decide_automation_checkpoint",
+    "decide_automation_checkpoint", "delete_automation",
 })
 
 # Native visual-workflow tools (the CC_AGENT="native" A/B agent). Any of these
@@ -2233,7 +2233,7 @@ async def converse(state: CommandCenterState) -> dict:
             "export that feeds it' → agent + knowledge via the Builder, the export as an Automation.\n\n"
             "## AUTOMATIONS — the tools (create_automation / save_automation_code / dry_run_automation "
             "/ promote_automation / run_automation / schedule_automation / list_automations / "
-            "get_automation / get_automation_runs)\n"
+            "get_automation / get_automation_runs / delete_automation)\n"
             "Write the code yourself; the platform versions, runs, verifies, and schedules it.\n"
             "- EXISTING CONNECTIONS & SECRETS: automations USE the tenant's existing AI Hub "
             "connections and secrets by NAME — the code calls aihub.connection('NAME') / "
@@ -2295,7 +2295,12 @@ async def converse(state: CommandCenterState) -> dict:
             "- When the user answers YOUR automation question ('promote as-is?', 'schedule it?') "
             "with an affirmative, EXECUTE the matching automation tools (promote_automation, "
             "schedule_automation, run_automation) in that same turn — their answer is never a "
-            "reason to delegate to the builder or ask again."
+            "reason to delegate to the builder or ask again.\n"
+            "- DELETE IS TWO-STEP: on a delete request, call delete_automation (confirmed stays "
+            "false) — it returns a confirmation notice to relay verbatim, and NOTHING is deleted "
+            "yet. Only when the user then explicitly says yes, call delete_automation again with "
+            "confirmed=true in that same turn. NEVER pass confirmed=true on the first call, and "
+            "NEVER claim a deletion happened unless the tool returned '🗑️ Deleted'."
         )
         _automations_prompt += (
             "\n\n## CODE FLOWS — the MULTI-STEP sibling of an Automation\n"
@@ -5174,6 +5179,62 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         return (f"Scheduled (job #{res.get('scheduled_job_id')}, schedule #{res.get('schedule_id')}) — "
                 f"runs pinned v{res.get('pinned_version')}. {res.get('note') or ''}".strip())
 
+    @lc_tool
+    async def delete_automation(automation_id: str, confirmed: bool = False) -> str:
+        """Delete an automation (soft delete: run history and files stay on disk,
+        the name is freed for reuse). Its schedules are deactivated and its
+        Scheduled Tasks panel entries are removed for every user. DESTRUCTIVE —
+        refuses unless confirmed=true; only pass confirmed=true AFTER the user
+        has explicitly said yes to deleting THIS automation. Accepts the
+        automation id or its exact name. An in-flight run blocks deletion."""
+        if not _automations_allowed(state):
+            return _AUTOMATIONS_DENIED
+        import re as _re
+        ident = (automation_id or "").strip()
+        if not ident:
+            return "Which automation? Give me its exact name or id."
+        # Name → id, deterministically (exact case-insensitive match only).
+        aid, aname = ident, None
+        if not _re.fullmatch(r"[0-9a-fA-F][0-9a-fA-F-]{31,35}", ident):
+            res = await asyncio.to_thread(_am, "list", {})
+            if not res.get("ok"):
+                return f"Could not list automations to resolve '{ident}': {res.get('error')}"
+            matches = [a for a in (res.get("automations") or [])
+                       if (a.get("name") or "").strip().lower() == ident.lower()]
+            if not matches:
+                return (f"No automation named '{ident}' exists. Call list_automations and "
+                        f"use the exact name or id — do not guess.")
+            if len(matches) > 1:
+                return f"'{ident}' matches {len(matches)} automations — use the id instead."
+            aid, aname = matches[0]["automation_id"], matches[0].get("name")
+        if not confirmed:
+            return (f"⚠️ CONFIRMATION REQUIRED — nothing has been deleted. Deleting "
+                    f"automation '{aname or aid}' ({aid}) will: deactivate its schedules, "
+                    f"remove its Scheduled Tasks entries, and hide it everywhere (run "
+                    f"history and files are kept on disk; the name is freed). Relay this "
+                    f"to the user; ONLY on their explicit yes call delete_automation "
+                    f"again with confirmed=true.")
+        res = await asyncio.to_thread(_am, "delete", {"automation_id": aid})
+        if not res.get("ok"):
+            return f"Not deleted: {res.get('error')}"
+        # Panel hygiene (james 2026-07-21): a deleted automation must not keep
+        # rows in ANY user's Scheduled Tasks panel. The per-user store is
+        # CC-owned (single writer), so the sweep has to happen here — the
+        # main-app delete path can't reach it (the panel also self-heals at
+        # read time for Mission Control deletes).
+        panel_removed = 0
+        try:
+            from scheduling import schedule_store as _ss
+            panel_removed = _ss.remove_tasks_by_slug(str(aid), kind="automation")
+        except Exception as _pr_err:
+            logger.warning(f"[delete_automation] panel sweep failed: {_pr_err}")
+        name_note = f" '{res.get('name')}'" if res.get("name") else ""
+        return (f"🗑️ Deleted automation{name_note} ({res.get('deleted')}). "
+                f"{res.get('schedules_deactivated', 0)} schedule(s) deactivated, "
+                f"{panel_removed} Scheduled Tasks entr{'y' if panel_removed == 1 else 'ies'} "
+                f"removed. Run history and files are kept on disk; the name is free "
+                f"for reuse.")
+
     # ── Code Flows: multi-step processes = a workflow of inline Code Step nodes ──
     # Same Developer gate and family as Automations; a Code Flow is the
     # multi-step sibling (single-script → Automation; multi-step → Code Flow).
@@ -5994,6 +6055,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         tools.append(run_automation)
         tools.append(get_automation_runs)
         tools.append(schedule_automation)
+        tools.append(delete_automation)
         # Code Flows ride the same Developer gate (same family as Automations).
         tools.append(list_code_flows)
         tools.append(create_code_flow)
@@ -6198,6 +6260,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     "run_automation": run_automation,
                     "get_automation_runs": get_automation_runs,
                     "schedule_automation": schedule_automation,
+                    "delete_automation": delete_automation,
                     # Code Flows — MUST be here too (the AIHUB-0028 dual-
                     # registration trap: a tool bound to the LLM but missing
                     # from tool_map falls through to "Unknown tool" and never

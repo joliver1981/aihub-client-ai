@@ -1508,3 +1508,47 @@ class TestDeleteAutomation:
         assert "{method:'DELETE'}" in page               # hits the real endpoint
         assert "Delete automation" in page               # confirm dialog with consequences
         assert "schedules are deactivated" in page
+
+
+class TestInternalManageDelete:
+    """action='delete' rides the same guarded impl as the Mission Control
+    button (james 2026-07-21: CC needs a delete tool too)."""
+
+    @pytest.fixture
+    def client(self, monkeypatch, mgr):
+        from flask import Flask
+        import automations.api as api_mod
+        monkeypatch.setenv("API_KEY", "svc-key-test")
+        runner = StubRunner(mgr)
+        monkeypatch.setattr(runner, "list_active_runs", lambda: [])
+        monkeypatch.setattr(api_mod, "_manager", mgr)
+        monkeypatch.setattr(api_mod, "_runner", runner)
+        monkeypatch.setattr(api_mod, "_tables_ensured", True)
+        app = Flask(__name__)
+        app.register_blueprint(api_mod.automations_bp)
+        return app.test_client()
+
+    def _post(self, client, payload, role=2):
+        return client.post("/automations/api/internal/manage",
+                           headers={"X-API-Key": "svc-key-test"},
+                           json={"action": "delete",
+                                 "user_context": {"user_id": 7, "role": role, "username": "dev"},
+                                 "payload": payload})
+
+    def test_delete_dispatches_to_guarded_impl(self, client, monkeypatch, mgr):
+        import automations.api as api_mod
+        seen = {}
+        monkeypatch.setattr(api_mod, "_delete_automation_impl",
+                            lambda aid: (seen.setdefault("aid", aid),
+                                         {"deleted": aid, "name": "x",
+                                          "schedules_deactivated": 1})[1:] and
+                                        ({"deleted": aid, "name": "x",
+                                          "schedules_deactivated": 1}, 200))
+        r = self._post(client, {"automation_id": "abc-123"})
+        assert r.status_code == 200
+        assert seen["aid"] == "abc-123"
+        assert r.get_json()["schedules_deactivated"] == 1
+
+    def test_delete_still_role_gated(self, client):
+        r = self._post(client, {"automation_id": "abc"}, role=1)
+        assert r.status_code == 403
