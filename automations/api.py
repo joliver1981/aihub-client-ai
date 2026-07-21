@@ -161,8 +161,8 @@ function pill(s){return `<span class="pill ${esc(s)}">${esc(s)}</span>`;}
 
 async function loadAutos(){
  const d=await j('/automations/api/list');const a=d.automations||[];
- let h='<table><thead><tr><th>Name</th><th>Description</th><th>Latest</th><th>Live version</th></tr></thead><tbody>';
- for(const x of a){h+=`<tr onclick="loadRuns('${esc(x.automation_id)}','${esc(x.name)}')"><td>${esc(x.name)}</td><td>${esc(x.description||'')}</td><td>v${x.current_version}</td><td>${x.pinned_version?('v'+x.pinned_version):'—'}</td></tr>`;}
+ let h='<table><thead><tr><th>Name</th><th>Description</th><th>Latest</th><th>Live version</th><th></th></tr></thead><tbody>';
+ for(const x of a){h+=`<tr onclick="loadRuns('${esc(x.automation_id)}','${esc(x.name)}')"><td>${esc(x.name)}</td><td>${esc(x.description||'')}</td><td>v${x.current_version}</td><td>${x.pinned_version?('v'+x.pinned_version):'—'}</td><td><button class="stop" onclick="delAuto(event,'${esc(x.automation_id)}','${esc(x.name)}')">Delete</button></td></tr>`;}
  document.getElementById('autos').innerHTML=h+'</tbody></table>'+(a.length?'':'<p class="muted">No automations yet.</p>');}
 
 async function loadRuns(id,name){
@@ -239,6 +239,14 @@ async function abortRun(runId){
  if(!confirm('Abort this run? It stops within a few seconds and records the outcome "aborted".'))return;
  await j(`/automations/api/runs/${runId}/abort`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
  refreshLive();
+}
+async function delAuto(ev,id,name){
+ ev.stopPropagation();
+ if(!confirm(`Delete automation "${name}"?\n\nIts schedules are deactivated so it never fires again. Run history and files are kept (soft delete). An in-flight run blocks deletion — abort it first.`))return;
+ let d;try{d=await j('/automations/api/'+id,{method:'DELETE'});}catch(e){alert('Delete failed: '+e);return;}
+ if(d.error){alert('Not deleted: '+d.error);return;}
+ alert(`Deleted "${name}"`+(d.schedules_deactivated?` — ${d.schedules_deactivated} schedule(s) deactivated.`:'.'));
+ loadAutos();document.getElementById('runsTitle').style.display='none';document.getElementById('runs').innerHTML='';
 }
 
 loadAutos();refreshLive();
@@ -342,10 +350,70 @@ def get_automation(automation_id):
 @automations_bp.route("/api/<automation_id>", methods=["DELETE"])
 @automations_gate
 def delete_automation(automation_id):
+    payload, code = _delete_automation_impl(automation_id)
+    return jsonify(payload), code
+
+
+def _delete_automation_impl(automation_id):
+    """Guard → deactivate schedules → soft delete. Order matters: schedules
+    are shut off BEFORE the row is hidden, and a shut-off failure refuses the
+    delete — a soft-deleted automation with a live schedule would keep firing
+    failed runs forever."""
+    auto = _get_manager().get_automation(automation_id)
+    if not auto:
+        return {"error": "not found"}, 404
+    active = [r for r in _get_runner().list_active_runs()
+              if r.get("automation_id") == automation_id]
+    if active:
+        return {"error": f"a run is in flight ({active[0]['status']}) — "
+                         "abort it in Mission Control first",
+                "active_run_id": active[0]["run_id"]}, 409
+    try:
+        schedules_off = _deactivate_automation_schedules(automation_id)
+    except Exception as e:
+        logger.error(f"delete_automation({automation_id}): schedule deactivation failed: {e}")
+        return {"error": f"could not deactivate this automation's schedules — delete refused: {e}"}, 500
     ok, error = _get_manager().delete_automation(automation_id)
     if not ok:
-        return jsonify({"error": error}), 404
-    return jsonify({"deleted": automation_id})
+        return {"error": error}, 404
+    return {"deleted": automation_id, "name": auto["name"],
+            "schedules_deactivated": schedules_off}, 200
+
+
+def _deactivate_automation_schedules(automation_id: str) -> int:
+    """Flip IsActive=0 on every scheduler job (and its schedule rows) attached
+    to this automation. Returns the number of jobs deactivated. Rows are kept,
+    matching the soft-delete philosophy — the engine only fires active jobs."""
+    conn = _get_manager()._db_conn()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """UPDATE j SET j.IsActive = 0
+               FROM ScheduledJobs j
+               JOIN ScheduledJobParameters p
+                 ON p.ScheduledJobId = j.ScheduledJobId
+                AND p.ParameterName = 'automation_id' AND p.ParameterValue = ?
+               WHERE j.JobType = 'automation' AND j.IsActive = 1""",
+            automation_id,
+        )
+        n = cursor.rowcount or 0
+        cursor.execute(
+            """UPDATE s SET s.IsActive = 0
+               FROM ScheduleDefinitions s
+               JOIN ScheduledJobs j ON j.ScheduledJobId = s.ScheduledJobId
+               JOIN ScheduledJobParameters p
+                 ON p.ScheduledJobId = j.ScheduledJobId
+                AND p.ParameterName = 'automation_id' AND p.ParameterValue = ?
+               WHERE j.JobType = 'automation'""",
+            automation_id,
+        )
+        conn.commit()
+        return n
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------- code / manifest

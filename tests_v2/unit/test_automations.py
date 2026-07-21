@@ -1411,3 +1411,100 @@ def test_schedule_payload_carries_authoritative_automation_name():
     body = src[src.find("def _create_automation_schedule"):]
     body = body[:body.find("@automations_bp.route", 10)]
     assert '"automation_name": auto["name"]' in body
+
+
+# ---------------------------------------------------------------------------
+# Delete from Mission Control (james 2026-07-21: "easy way to delete")
+# ---------------------------------------------------------------------------
+
+class TestDeleteAutomation:
+    """_delete_automation_impl: guard -> deactivate schedules -> soft delete.
+    A soft-deleted automation with a live schedule would keep firing failed
+    runs forever, so schedule shut-off comes FIRST and its failure refuses
+    the delete."""
+
+    class _RecordingConn:
+        """Fake pyodbc conn capturing UPDATE statements; rowcount injectable."""
+        def __init__(self, rowcount=0, fail=False):
+            self.rowcount, self.fail = rowcount, fail
+            self.statements, self.committed, self.rolled_back = [], False, False
+
+        def cursor(self):
+            outer = self
+
+            class C:
+                def execute(self, sql, *params):
+                    if outer.fail:
+                        raise RuntimeError("db down")
+                    outer.statements.append(" ".join(sql.split()))
+                    self.rowcount = outer.rowcount
+            return C()
+
+        def commit(self): self.committed = True
+        def rollback(self): self.rolled_back = True
+        def close(self): pass
+
+    @pytest.fixture
+    def api_mod(self, monkeypatch, mgr):
+        import automations.api as api_mod
+        runner = StubRunner(mgr)
+        # base-class list_active_runs opens a real DB conn; quiet board default
+        monkeypatch.setattr(runner, "list_active_runs", lambda: [])
+        monkeypatch.setattr(api_mod, "_manager", mgr)
+        monkeypatch.setattr(api_mod, "_runner", runner)
+        monkeypatch.setattr(api_mod, "_tables_ensured", True)
+        return api_mod
+
+    def _make(self, mgr, name="del-me"):
+        ok, auto, err = mgr.create_automation(name, "d", owner_user_id=7)
+        assert ok, err
+        return auto["automation_id"]
+
+    def test_delete_soft_deletes_and_reports_schedules(self, api_mod, mgr, monkeypatch):
+        aid = self._make(mgr)
+        conn = self._RecordingConn(rowcount=2)
+        monkeypatch.setattr(mgr, "_db_conn", lambda: conn)
+        payload, code = api_mod._delete_automation_impl(aid)
+        assert code == 200
+        assert payload["deleted"] == aid and payload["name"] == "del-me"
+        assert payload["schedules_deactivated"] == 2
+        assert conn.committed and not conn.rolled_back
+        # both scheduler tables flipped inactive, filtered by the automation param
+        joined = " || ".join(conn.statements)
+        assert "UPDATE j SET j.IsActive = 0" in joined
+        assert "UPDATE s SET s.IsActive = 0" in joined
+        assert joined.count("ParameterName = 'automation_id'") == 2
+        # gone from every list; name freed for reuse
+        assert all(a["automation_id"] != aid for a in mgr.list_automations())
+        assert mgr.create_automation("del-me", "again", owner_user_id=7)[0]
+
+    def test_delete_refused_while_run_in_flight(self, api_mod, mgr, monkeypatch):
+        aid = self._make(mgr, "busy")
+        monkeypatch.setattr(
+            api_mod._runner, "list_active_runs",
+            lambda: [{"run_id": "r-1", "automation_id": aid, "status": "running"}])
+        payload, code = api_mod._delete_automation_impl(aid)
+        assert code == 409
+        assert "abort it" in payload["error"] and payload["active_run_id"] == "r-1"
+        # nothing touched: still listed, not deleted
+        assert any(a["automation_id"] == aid for a in mgr.list_automations())
+
+    def test_delete_refused_when_schedule_shutoff_fails(self, api_mod, mgr, monkeypatch):
+        aid = self._make(mgr, "sched-broken")
+        monkeypatch.setattr(mgr, "_db_conn", lambda: self._RecordingConn(fail=True))
+        payload, code = api_mod._delete_automation_impl(aid)
+        assert code == 500
+        assert "delete refused" in payload["error"]
+        assert any(a["automation_id"] == aid for a in mgr.list_automations())
+
+    def test_delete_unknown_id_404(self, api_mod):
+        payload, code = api_mod._delete_automation_impl("nope")
+        assert code == 404
+
+    def test_mission_control_ui_has_delete_affordance(self, api_mod):
+        page = api_mod._RUNS_PAGE
+        assert "delAuto(event," in page                  # per-row button wired
+        assert "ev.stopPropagation()" in page            # doesn't trigger the row's loadRuns
+        assert "{method:'DELETE'}" in page               # hits the real endpoint
+        assert "Delete automation" in page               # confirm dialog with consequences
+        assert "schedules are deactivated" in page
