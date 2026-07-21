@@ -744,6 +744,9 @@ class TestScheduledTasksPanelAndNavUX:
         assert "from scheduling import schedule_store" in body
         assert '_sched_store.add_task(' in body
         assert 'res["scheduled_job_id"]' in body          # SAME main-scheduler job id
+        # the panel label prefers the SERVER's authoritative name (james: the
+        # raw automation id showed in the panel when args/marker had no name)
+        assert 'res.get("automation_name")' in body
         assert 'kind="automation"' in body
         assert "slug=str(automation_id)" in body
         # registration failure must never fail the successful scheduling

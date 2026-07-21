@@ -612,6 +612,10 @@ def _create_automation_schedule(auto, schedule_data, inputs, user_id, username):
         "scheduled_job_id": job_id,
         "schedule_id": schedule_id,
         "pinned_version": auto["pinned_version"],
+        # James UX 2026-07-20: the CC-side panel registration needs the real
+        # NAME (its tool args only carry the id, and the id showed in the
+        # Scheduled Tasks panel) — the server knows it authoritatively.
+        "automation_name": auto["name"],
         "note": "the scheduler engine picks this up on its next poll "
                 "(engine restart required if it predates the 'automation' job type)",
     }, 201

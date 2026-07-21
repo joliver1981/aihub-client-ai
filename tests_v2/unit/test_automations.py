@@ -1401,3 +1401,13 @@ class TestInlineWaitCheckpointAware:
         assert payload["inline_wait_elapsed"] is True
         assert payload["run_id"] == "r9"
         assert "NOT a failure" in payload["note"]
+
+
+def test_schedule_payload_carries_authoritative_automation_name():
+    """James UX 2026-07-20: the CC panel showed the raw automation id — the
+    schedule result must carry the server-known NAME for the panel label."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[2] / "automations" / "api.py").read_text(encoding="utf-8")
+    body = src[src.find("def _create_automation_schedule"):]
+    body = body[:body.find("@automations_bp.route", 10)]
+    assert '"automation_name": auto["name"]' in body

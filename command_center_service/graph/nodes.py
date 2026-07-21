@@ -5119,7 +5119,11 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             _uid = (state.get("user_context") or {}).get("user_id")
             if _uid is not None and res.get("scheduled_job_id"):
                 _mk_a = state.get("code_flow_context") or {}
-                _auto_label = (_automation_name
+                # Prefer the server's authoritative name from the schedule
+                # result (james: the panel showed the raw id when the tool
+                # args/marker had no name on the scheduling turn).
+                _auto_label = (res.get("automation_name")
+                               or _automation_name
                                or (_mk_a.get("name") if _mk_a.get("kind") == "automation" else None)
                                or str(automation_id))
                 _sched_store.add_task(
