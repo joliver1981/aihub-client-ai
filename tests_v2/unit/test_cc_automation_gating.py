@@ -985,3 +985,48 @@ class TestCheckpointAttachmentNote:
         src = _P(nodes.__file__.replace(".pyc", ".py")).read_text(
             encoding="utf-8", errors="replace")
         assert src.count("_checkpoint_attachment_note(pc)") == 2  # run + dry-run
+
+
+class TestSdkPromptLawsCurrent:
+    """james 2026-07-21: CC's authoring prompt MUST teach the CURRENT
+    aihub_runtime surface — shipping SDK functions without updating the
+    teaching block left CC unable to use them ('a complete miss'). These
+    contracts fail the suite the next time the SDK and the prompt drift."""
+
+    def _src(self):
+        from pathlib import Path as _P
+        return _P(nodes.__file__.replace(".pyc", ".py")).read_text(
+            encoding="utf-8", errors="replace")
+
+    def test_prompt_teaches_platform_ai(self):
+        src = self._src()
+        assert "aihub.llm(prompt" in src
+        assert "aihub.ai_extract(prompt" in src
+        assert "NO API key and NO hard-coded model id" in src
+
+    def test_prompt_teaches_routing_evidence_and_review_items(self):
+        src = self._src()
+        assert "aihub.checkpoint(message, files=[...]" in src
+        assert "assignee_group='Group Name'" in src
+        assert "aihub.review_item(message" in src
+        assert "NEVER checkpoint per document" in src
+
+    def test_prompt_teaches_query_and_input_descriptions(self):
+        src = self._src()
+        assert "aihub.query('CONN_NAME', sql, params)" in src
+        assert "INPUT DESCRIPTIONS" in src
+
+    def test_sdk_and_prompt_agree_on_surface(self):
+        """The functions the prompt teaches must actually exist in the SDK
+        (and vice versa for the approval/AI family) — drift trips here."""
+        from pathlib import Path as _P
+        sdk = _P(nodes.__file__).resolve().parents[2].joinpath(
+            "automations", "sdk", "aihub_runtime", "__init__.py").read_text(
+            encoding="utf-8", errors="replace")
+        for fn in ("def llm(", "def ai_extract(", "def review_item(", "def checkpoint(",
+                   "def query(", "def connection(", "def secret(", "def input("):
+            assert fn in sdk, f"prompt teaches a function missing from the SDK: {fn}"
+        prompt_src = self._src()
+        for name in ("aihub.llm", "aihub.ai_extract", "aihub.review_item",
+                     "aihub.checkpoint", "aihub.query", "aihub.connection", "aihub.secret"):
+            assert name in prompt_src, f"SDK function not taught in the CC prompt: {name}"
