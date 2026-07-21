@@ -146,6 +146,9 @@
         @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
         
         .local-time-note { font-size: 0.75rem; color: var(--text-muted, #71717a); font-style: italic; }
+        .approval-table th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+        .approval-table th.sortable:hover { text-decoration: underline; }
+        .approval-table th .sort-ind { font-size: 10px; color: #4a6fa5; }
     </style>
     <div class="approval-container">
         <!-- Page Header with Timezone Indicator -->
@@ -256,15 +259,15 @@
             <table class="approval-table">
                 <thead>
                     <tr>
-                        <th>Priority</th>
-                        <th>Type</th>
-                        <th>Title</th>
-                        <th>Workflow</th>
-                        <th>Requested</th>
-                        <th>Due</th>
+                        <th class="sortable" data-sort="priority">Priority <span class="sort-ind"></span></th>
+                        <th class="sortable" data-sort="approval_type">Type <span class="sort-ind"></span></th>
+                        <th class="sortable" data-sort="title">Title <span class="sort-ind"></span></th>
+                        <th class="sortable" data-sort="source_name">Workflow <span class="sort-ind"></span></th>
+                        <th class="sortable" data-sort="requested_at">Requested <span class="sort-ind"></span></th>
+                        <th class="sortable" data-sort="due_date">Due <span class="sort-ind"></span></th>
                         <th>Time Remaining</th>
-                        <th>Assignment</th>
-                        <th>Status</th>
+                        <th class="sortable" data-sort="assignment_type">Assignment <span class="sort-ind"></span></th>
+                        <th class="sortable" data-sort="status">Status <span class="sort-ind"></span></th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -587,7 +590,64 @@
             $('#overdueCount').text(stats.overdue || 0);
         }
         
+        // ── column sorting (james 2026-07-21) ────────────────────────────
+        let approvalsCache = [];
+        let sortState = { key: null, dir: 1 };
+
+        function _sourceNameOf(approval) {
+            if (approval.approval_type === 'automation') {
+                try { return JSON.parse(approval.approval_data || '{}').automation_name || 'Automation'; }
+                catch (e) { return 'Automation'; }
+            }
+            return approval.workflow_name || '';
+        }
+
+        function _sortValueOf(approval, key) {
+            if (key === 'priority') return Number(approval.priority || 0);
+            if (key === 'source_name') return _sourceNameOf(approval).toLowerCase();
+            if (key === 'requested_at' || key === 'due_date') return approval[key] || '';
+            return String(approval[key] || '').toLowerCase();
+        }
+
+        function applySort(key) {
+            if (sortState.key === key) {
+                sortState.dir = -sortState.dir;
+            } else {
+                sortState.key = key;
+                sortState.dir = 1;
+            }
+            const sorted = approvalsCache.slice().sort((a, b) => {
+                const va = _sortValueOf(a, key), vb = _sortValueOf(b, key);
+                if (va < vb) return -1 * sortState.dir;
+                if (va > vb) return 1 * sortState.dir;
+                return 0;
+            });
+            renderTable(sorted);
+            $('.approval-table th.sortable .sort-ind').text('');
+            $(`.approval-table th.sortable[data-sort="${key}"] .sort-ind`)
+                .text(sortState.dir === 1 ? '▲' : '▼');
+        }
+
+        $(document).on('click', '.approval-table th.sortable', function () {
+            applySort($(this).data('sort'));
+        });
+
         function populateTable(approvals) {
+            approvalsCache = approvals || [];
+            // re-apply the active sort so a refresh doesn't scramble the view
+            if (sortState.key) {
+                const key = sortState.key, dir = sortState.dir;
+                approvalsCache = approvalsCache.slice().sort((a, b) => {
+                    const va = _sortValueOf(a, key), vb = _sortValueOf(b, key);
+                    if (va < vb) return -1 * dir;
+                    if (va > vb) return 1 * dir;
+                    return 0;
+                });
+            }
+            renderTable(approvalsCache);
+        }
+
+        function renderTable(approvals) {
             const tbody = $('#approvalsTableBody');
             tbody.empty();
             
@@ -784,22 +844,26 @@
             let meta = {};
             try { meta = JSON.parse(approval.approval_data || '{}'); } catch (e) { meta = {}; }
             const isAutomation = approval.approval_type === 'automation' || meta.source === 'automation';
+            const isReview = isAutomation && (meta.kind === 'review' || !meta.checkpoint_id);
             $('#modalTitle').text(approval.title);
             $('#modalWorkflow').text(isAutomation ? (meta.automation_name || 'Automation')
                                                   : approval.workflow_name);
-            $('#modalStep').text(isAutomation ? 'Automation checkpoint' : approval.node_name);
+            $('#modalStep').text(isAutomation
+                ? (isReview ? 'Automation exception review (non-blocking)' : 'Automation checkpoint')
+                : approval.node_name);
 
-            // Gate attachments (automation checkpoints): download links served
-            // by the automations blueprint, names restricted server-side to
-            // what the checkpoint declared.
+            // Attachments: checkpoint gates serve via run/checkpoint; review
+            // items via the approval-row endpoint. Names are restricted
+            // server-side to what was declared.
             $('#modalAttachments').remove();
-            if (isAutomation && Array.isArray(meta.attachments) && meta.attachments.length
-                    && meta.run_id && meta.checkpoint_id) {
+            if (isAutomation && Array.isArray(meta.attachments) && meta.attachments.length) {
                 const links = meta.attachments.map(a => {
                     const name = encodeURIComponent(a.name);
                     const kb = a.size != null ? ' (' + Math.max(1, Math.round(a.size / 1024)) + ' KB)' : '';
-                    return `<a class="btn btn-sm btn-outline-primary" style="margin:2px"
-                               href="/automations/api/runs/${encodeURIComponent(meta.run_id)}/checkpoints/${encodeURIComponent(meta.checkpoint_id)}/attachments/${name}">
+                    const href = (!isReview && meta.run_id && meta.checkpoint_id)
+                        ? `/automations/api/runs/${encodeURIComponent(meta.run_id)}/checkpoints/${encodeURIComponent(meta.checkpoint_id)}/attachments/${name}`
+                        : `/automations/api/approvals/${encodeURIComponent(approval.request_id)}/attachments/${name}`;
+                    return `<a class="btn btn-sm btn-outline-primary" style="margin:2px" href="${href}">
                                <i class="fas fa-paperclip"></i> ${a.name}${kb}</a>`;
                 }).join(' ');
                 $('#modalData').before(

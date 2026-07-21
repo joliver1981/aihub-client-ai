@@ -1722,7 +1722,7 @@ class TestCheckpointApprovalBridge:
     def test_approvals_ui_shows_type_and_attachments(self):
         page = Path(__file__).resolve().parents[2].joinpath(
             "templates", "approvals.html").read_text(encoding="utf-8", errors="replace")
-        assert "<th>Type</th>" in page
+        assert 'data-sort="approval_type">Type' in page
         assert "modalAttachments" in page
         assert "/attachments/" in page and "checkpoints/" in page
 
@@ -1765,3 +1765,86 @@ class TestAutomationNodeInDesigner:
             encoding="utf-8", errors="replace")
         assert "isinstance(raw_inputs, str)" in eng
         assert "'inputs' is not valid JSON" in eng
+
+
+class TestReviewItems:
+    """Non-blocking per-exception review rows (james 2026-07-21: 'kick the
+    exceptions out to the queue and move on') + My Approvals column sorting."""
+
+    def test_sdk_review_item_posts_and_never_raises(self, monkeypatch):
+        import importlib
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "automations" / "sdk"))
+        import aihub_runtime
+        importlib.reload(aihub_runtime)
+        captured = {}
+        monkeypatch.setattr(aihub_runtime, "_runtime_post",
+                            lambda p, b: (captured.update(b), {"request_id": "REQ-R"})[1])
+        monkeypatch.setenv("AIHUB_RUN_TOKEN", "tok")
+        monkeypatch.delenv("AIHUB_CHECKPOINTS_ENABLED", raising=False)
+        rid = aihub_runtime.review_item("emp not found", title="Exc — a.pdf",
+                                        files=["exceptions/a.pdf"], assignee=13)
+        assert rid == "REQ-R"
+        assert captured["files"] == ["exceptions/a.pdf"] and captured["assignee"] == 13
+        # queue failure NEVER breaks the batch
+        def boom(p, b):
+            raise RuntimeError("queue down")
+        monkeypatch.setattr(aihub_runtime, "_runtime_post", boom)
+        assert aihub_runtime.review_item("x") is None
+
+    def test_review_endpoint_creates_row_and_serves_attachment(self, monkeypatch, mgr, tmp_path):
+        from flask import Flask
+        import automations.api as api_mod
+        from automations import approval_store
+        workdir = tmp_path / "wd"
+        workdir.mkdir()
+        (workdir / "run.log").write_text("")
+        (workdir / "exceptions").mkdir()
+        (workdir / "exceptions" / "bad.pdf").write_bytes(b"%PDF-1.4 fake")
+
+        class RvRunner(StubRunner):
+            def get_run(self, run_id):
+                if run_id != "run-rv":
+                    return None
+                return {"run_id": "run-rv", "automation_id": "auto-rv", "status": "running",
+                        "log_path": str(workdir / "run.log"), "requested_by": 13}
+        monkeypatch.setenv("CC_JWT_SECRET", "rv-secret")
+        monkeypatch.setattr(api_mod, "_manager", mgr)
+        monkeypatch.setattr(api_mod, "_runner", RvRunner(mgr))
+        app = Flask(__name__)
+        app.register_blueprint(api_mod.automations_bp)
+        client = app.test_client()
+        from shared_auth import sign_automation_run_token
+        tok = sign_automation_run_token("auto-rv", "run-rv", [], [], 300)
+        r = client.post("/automations/api/runtime/review_item",
+                        json={"token": tok, "message": "emp not found",
+                              "title": "Dayforce exception — bad.pdf",
+                              "files": ["exceptions/bad.pdf"]})
+        assert r.status_code == 200, r.get_json()
+        rid = r.get_json()["request_id"]
+        assert r.get_json()["queued_for_review"] is True
+        row = approval_store.get_row(mgr.base_path, rid)
+        meta = json.loads(row["approval_data"])
+        assert row["status"] == "Pending" and meta["kind"] == "review"
+        assert meta["attachments"][0]["relpath"] == "exceptions/bad.pdf"
+        # traversal refused
+        r2 = client.post("/automations/api/runtime/review_item",
+                         json={"token": tok, "message": "x", "files": ["../evil"]})
+        assert r2.status_code == 400
+
+    def test_app_decide_settles_review_without_run_decide(self):
+        src = Path(__file__).resolve().parents[2].joinpath("app.py").read_text(
+            encoding="utf-8", errors="replace")
+        # review rows settle BEFORE the checkpoint-decide import runs
+        review_at = src.index('automation_meta.get("kind") == "review"')
+        decide_at = src.index("from automations.api import _decide_checkpoint")
+        assert review_at < decide_at
+        assert "Exception review recorded" in src
+
+    def test_approvals_page_sortable_and_review_links(self):
+        page = Path(__file__).resolve().parents[2].joinpath(
+            "templates", "approvals.html").read_text(encoding="utf-8", errors="replace")
+        assert page.count('class="sortable"') >= 8
+        assert "applySort" in page and "sort-ind" in page
+        assert "/automations/api/approvals/" in page      # review attachment href
+        assert "Automation exception review" in page

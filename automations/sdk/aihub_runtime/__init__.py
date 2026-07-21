@@ -189,6 +189,43 @@ def log(message):
     print(f"[aihub] {message}", flush=True)
 
 
+def review_item(message, title=None, files=None, assignee=None):
+    """Send a NON-BLOCKING review item to the My Approvals queue and continue.
+
+    Use for per-document exceptions in a batch: the run keeps going while a
+    human reviews each kicked-out item ("kick the exceptions to the queue and
+    move on"). Returns the queue request_id, or None if the queue is
+    unavailable (the failure is logged; a review item must never break the
+    batch). files are workdir-relative paths attached for the reviewer (e.g.
+    the problem PDF); assignee is an optional user id (defaults to the user
+    who started the run).
+
+    For a BLOCKING gate that pauses the run, use checkpoint() instead."""
+    import os as __os
+    if __os.environ.get("AIHUB_CHECKPOINTS_ENABLED") == "0":
+        log(f"review item skipped (unsupervised context): {message}")
+        return None
+    token = __os.environ.get("AIHUB_RUN_TOKEN")
+    if not token:
+        log("review item skipped: no run token")
+        return None
+    body = {"token": token, "message": str(message)}
+    if title:
+        body["title"] = str(title)
+    if files:
+        body["files"] = [str(f) for f in files]
+    if assignee is not None:
+        body["assignee"] = assignee
+    try:
+        res = _runtime_post("/automations/api/runtime/review_item", body)
+        rid = res.get("request_id")
+        log(f"review item queued for approval review: {title or message} ({rid})")
+        return rid
+    except Exception as e:
+        log(f"review item could not be queued (continuing): {e}")
+        return None
+
+
 def _runtime_post(path, body):
     base_url = (_os.environ.get("AIHUB_RUNTIME_URL") or "").rstrip("/")
     if not base_url:

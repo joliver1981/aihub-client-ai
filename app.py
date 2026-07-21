@@ -10291,6 +10291,13 @@ def process_approval_request(request_id):
             from automations.api import _get_manager as _ap_mgr
             _ap_store.settle_row(_ap_mgr().base_path, request_id,
                                  status.capitalize(), responded_by, comments)
+            # Non-blocking REVIEW items (kind='review') have no checkpoint —
+            # the run already moved on; recording the review IS the action.
+            if automation_meta.get("kind") == "review" or not automation_meta.get("checkpoint_id"):
+                return jsonify({
+                    "status": "success",
+                    "message": f"Exception review recorded ({status})."
+                })
             from automations.api import _decide_checkpoint
             decision = "proceed" if status == "approved" else "abort"
             result, code = _decide_checkpoint(

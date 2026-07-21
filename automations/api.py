@@ -932,6 +932,83 @@ def runtime_checkpoint():
                     "queued_for_approval": queued})
 
 
+@automations_bp.route("/api/runtime/review_item", methods=["POST"])
+def runtime_review_item():
+    """SDK side of a NON-BLOCKING review item (james 2026-07-21: 'kick the
+    exceptions out to the queue and move on'). Creates a My Approvals row
+    (kind='review') with optional workdir attachments and returns immediately
+    — the run does NOT pause. Deciding the row just records the review; there
+    is no checkpoint to resume. Auth: run token, like runtime/checkpoint."""
+    if not getattr(cfg, "AUTOMATIONS_ENABLED", False):
+        return jsonify({"error": "Automations feature is disabled"}), 403
+    data = request.get_json(silent=True) or {}
+    from shared_auth import verify_automation_run_token
+    claims, err = verify_automation_run_token(data.get("token") or "")
+    if err:
+        return jsonify({"error": f"invalid run token: {err}"}), 403
+    run = _get_runner().get_run(claims.get("run_id", ""))
+    from .runner import LIVE_STATUSES
+    if (not run or run.get("automation_id") != claims.get("automation_id")
+            or run.get("status") not in LIVE_STATUSES):
+        return jsonify({"error": "run token does not match a live run"}), 403
+    workdir = _run_workdir(run)
+    if not workdir:
+        return jsonify({"error": "run has no workdir"}), 409
+
+    attachments, att_err = _validate_checkpoint_files(workdir, data.get("files"))
+    if att_err:
+        return jsonify({"error": att_err}), 400
+    assignee_id = _resolve_checkpoint_assignee(run, data.get("assignee"))
+    auto = _get_manager().get_automation(run.get("automation_id", "")) or {}
+    auto_name = auto.get("name") or run.get("automation_id", "")
+    message = (data.get("message") or "Review requested")[:1000]
+    title = (data.get("title") or f"Automation exception — {auto_name}")[:490]
+    from . import approval_store
+    row = approval_store.add_row(
+        _get_manager().base_path, title=title, description=message,
+        assigned_to_id=assignee_id,
+        approval_data=json.dumps({
+            "source": "automation", "kind": "review",
+            "run_id": run.get("run_id"), "automation_id": run.get("automation_id"),
+            "automation_name": auto_name,
+            "attachments": attachments,  # name/size/relpath — relpath drives serving
+        }))
+    try:
+        from .runner import RunEventLog
+        RunEventLog(workdir).emit("review_item", request_id=row["request_id"], title=title)
+    except Exception:
+        pass
+    return jsonify({"request_id": row["request_id"], "queued_for_review": True})
+
+
+@automations_bp.route("/api/approvals/<request_id>/attachments/<name>", methods=["GET"])
+@automations_gate
+def approval_row_attachment(request_id, name):
+    """Download an attachment of a bridged approval row (review items — gates
+    use the run/checkpoint route). Only names the row DECLARED are servable;
+    relpaths were traversal-validated against the run workdir at declaration."""
+    from . import approval_store
+    row = approval_store.get_row(_get_manager().base_path, request_id)
+    if not row:
+        return jsonify({"error": "approval row not found"}), 404
+    try:
+        meta = json.loads(row.get("approval_data") or "{}")
+    except (ValueError, TypeError):
+        meta = {}
+    att = next((a for a in (meta.get("attachments") or []) if a.get("name") == name), None)
+    if not att:
+        return jsonify({"error": "no such attachment on this approval"}), 404
+    run = _get_runner().get_run(meta.get("run_id", ""))
+    workdir = _run_workdir(run) if run else None
+    if not workdir:
+        return jsonify({"error": "originating run not found"}), 410
+    full = os.path.join(workdir, att.get("relpath") or att["name"])
+    if not os.path.isfile(full):
+        return jsonify({"error": "attachment file no longer exists"}), 410
+    from flask import send_file
+    return send_file(full, as_attachment=True, download_name=att["name"])
+
+
 def _validate_checkpoint_files(workdir: str, files) -> tuple:
     """([{name, relpath, size}], error) for SDK-declared gate attachments.
     Every path must resolve INSIDE the run workdir (no traversal, no
