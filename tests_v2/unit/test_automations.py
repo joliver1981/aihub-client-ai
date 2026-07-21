@@ -2215,3 +2215,19 @@ class TestOrphanReaper:
         assert "_automation_reaper_startup" in src
         assert "reap_orphan_runs()" in src
         assert 'name="automation-reaper"' in src
+
+
+class TestClearStaleButton:
+    """james 2026-07-21: user-triggerable reap from Mission Control."""
+
+    def test_reap_route_and_button_wired(self, monkeypatch, mgr):
+        import automations.api as api_mod
+        page = api_mod._RUNS_PAGE
+        assert "clearStale()" in page and "Clear stale runs" in page
+        assert "/automations/api/reap" in page
+        assert "never touched" in page          # honest semantics in the confirm
+        # the route exists, is user-facing (gate), and returns the report
+        src = Path(__file__).resolve().parents[2].joinpath(
+            "automations", "api.py").read_text(encoding="utf-8", errors="replace")
+        block = src.split('@automations_bp.route("/api/reap"')[1].split("@automations_bp.route")[0]
+        assert "automations_gate" in block and "reap_orphan_runs()" in block

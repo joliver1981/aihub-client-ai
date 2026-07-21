@@ -145,7 +145,8 @@ _RUNS_PAGE = """<!DOCTYPE html>
 <h1><span class="dot"></span>Automations — Mission Control</h1>
 <div class="muted">Live runs update automatically. Build and manage automations in Command Center.</div>
 
-<h2>Live now</h2>
+<h2>Live now <button class="stop" style="margin-left:10px;font-size:11px;padding:3px 10px"
+  onclick="clearStale()" title="Finalize runs whose supervising process died (e.g. a service restart). Live runs are never touched.">🧹 Clear stale runs</button></h2>
 <div id="live"><p class="muted">No runs in flight.</p></div>
 
 <h2>Automations</h2>
@@ -264,6 +265,14 @@ async function decide(runId,cid,decision){
 async function abortRun(runId){
  if(!confirm('Abort this run? It stops within a few seconds and records the outcome "aborted".'))return;
  await j(`/automations/api/runs/${runId}/abort`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+ refreshLive();
+}
+async function clearStale(){
+ if(!confirm('Clear stale runs?\n\nFinalizes runs whose supervising process is no longer alive (e.g. after a service restart) and cancels their pending approvals. Genuinely LIVE runs have a heartbeat and are never touched. Runs younger than 5 minutes are skipped.'))return;
+ let d;try{d=await j('/automations/api/reap',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});}
+ catch(e){alert('Sweep failed: '+e);return;}
+ alert(d.count?`${d.count} stale run(s) cleared:\n`+(d.reaped||[]).map(r=>`• ${r.run_id} (was ${r.was_status})`).join('\n')
+              :'No stale runs — everything shown has a live supervisor. (A stuck-but-live run is what the Abort button is for.)');
  refreshLive();
 }
 // ── Settings panel (james 2026-07-21): quick visibility + tweaks without
@@ -878,6 +887,16 @@ def run_events(run_id):
 @automations_gate
 def active_runs():
     return jsonify({"active": _get_runner().list_active_runs()})
+
+
+@automations_bp.route("/api/reap", methods=["POST"])
+@automations_gate
+def reap_stale_runs():
+    """Manual 'Clear stale runs' from Mission Control (james 2026-07-21) —
+    the same heartbeat-safe sweep the startup hook runs: only runs with NO
+    living supervisor are finalized; anything genuinely live is untouched."""
+    reaped = _get_runner().reap_orphan_runs()
+    return jsonify({"reaped": reaped, "count": len(reaped)})
 
 
 @automations_bp.route("/api/runs/<run_id>/abort", methods=["POST"])
