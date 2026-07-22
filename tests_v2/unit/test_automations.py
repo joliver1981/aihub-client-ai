@@ -2293,3 +2293,70 @@ class TestGlobFileOutputs:
         outcome, report = self._verify(tmp_path, "report.csv", {"min_rows": 1})
         assert outcome == "success"
         assert report[0]["checks"][0] == {"check": "exists", "ok": True}
+
+
+class TestRemoteWildcardVerify:
+    """james 2026-07-22 round 5: the starred candidate ('flagged_invoices_
+    *.csv') was stat'ed literally — a Windows-hosted SFTP server rejects '*'
+    (WinError 123 relayed), the check returned None, and the candidate loop
+    treated None as 'server unreachable' and never tried the REAL filename.
+    Patterns now match the listing (newest wins); post-connect errors are
+    per-candidate misses (False), never loop-aborting Nones."""
+
+    class _Attr:
+        def __init__(self, name, size, mtime):
+            self.filename, self.st_size, self.st_mtime = name, size, mtime
+
+    def _fake_paramiko(self, monkeypatch, entries, stat_exc=None):
+        import sys as _sys
+        import types as _types
+        outer = self
+
+        class FakeSftp:
+            def listdir_attr(self, d):
+                return entries
+            def stat(self, path):
+                if stat_exc:
+                    raise stat_exc
+                for a in entries:
+                    if path.endswith("/" + a.filename):
+                        return a
+                raise FileNotFoundError(path)
+
+        class FakeClient:
+            def set_missing_host_key_policy(self, p): pass
+            def connect(self, *a, **k): pass
+            def open_sftp(self): return FakeSftp()
+            def close(self): pass
+        mod = _types.ModuleType("paramiko")
+        mod.SSHClient = FakeClient
+        mod.AutoAddPolicy = object
+        monkeypatch.setitem(_sys.modules, "paramiko", mod)
+
+    def test_pattern_matches_newest_remote_file(self, monkeypatch):
+        from automations.remote_verify import check_remote_output
+        self._fake_paramiko(monkeypatch, [
+            self._Attr("flagged_invoices_20260721_090000.csv", 100, 1000),
+            self._Attr("flagged_invoices_20260722_140137.csv", 123, 2000),
+            self._Attr("other.txt", 5, 3000),
+        ])
+        ok, note = check_remote_output("sftp_upload", "sftp://u:p@h:22", "/outgoing",
+                                       "flagged_invoices_*.csv", {})
+        assert ok is True
+        assert "20260722_140137" in note and "matched 2 file(s)" in note
+
+    def test_pattern_no_match_is_false_not_none(self, monkeypatch):
+        from automations.remote_verify import check_remote_output
+        self._fake_paramiko(monkeypatch, [self._Attr("other.txt", 5, 1)])
+        ok, note = check_remote_output("sftp_upload", "sftp://u:p@h:22", "/outgoing",
+                                       "flagged_invoices_*.csv", {})
+        assert ok is False and "nothing matching" in note
+
+    def test_weird_name_stat_error_is_candidate_miss(self, monkeypatch):
+        from automations.remote_verify import check_remote_output
+        self._fake_paramiko(monkeypatch, [], stat_exc=OSError(
+            "The filename, directory name, or volume label syntax is incorrect"))
+        ok, note = check_remote_output("sftp_upload", "sftp://u:p@h:22", "/outgoing",
+                                       "literal:name.csv", {})
+        # False -> the runner's candidate loop keeps trying other filenames
+        assert ok is False and "not checkable" in note
