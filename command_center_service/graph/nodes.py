@@ -5046,6 +5046,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         _decided_note = (f" (checkpoint asked: “{_resolved_question[:160]}”)"
                          if _resolved_question else "")
         if decision == "abort":
+            _studio(working=False, last_run={"run_id": run_id, "status": "aborted"})
             return (f"🛑 Abort recorded for run {run_id}{_decided_note} — the script "
                     f"stops at the checkpoint. Check get_automation_runs for the "
                     f"final state.")
@@ -5063,6 +5064,10 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                           ("run_id", "status", "exit_code", "verify_report",
                            "output_files", "error") if run.get(k) is not None}
                 detail.setdefault("run_id", run_id)
+                # overwrite the pause-time 'waiting' hint so the Studio panel
+                # shows the FINAL verdict (james 2026-07-22: panel stuck on
+                # 'waiting' after a chat-side decide too)
+                _studio(working=False, last_run=detail)
                 return ("▶️ Proceed recorded" + _decided_note
                         + "; the run resumed and finished.\n"
                         + _at.summarize_run(detail))
@@ -5165,7 +5170,8 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
     @lc_tool
     async def schedule_automation(automation_id: str, cron_expression: str = "",
                                   every_hours: int = 0, every_days: int = 0,
-                                  inputs_json: str = "") -> str:
+                                  inputs_json: str = "", timezone: str = "",
+                                  timezone_iana: str = "") -> str:
         """Schedule the LIVE (promoted) version of an automation to run automatically.
         Requires a promoted version. GROUNDING: report ONLY the real schedule the tool
         returns — never claim something was scheduled unless this tool succeeded.
@@ -5176,6 +5182,10 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             every_hours: run every N hours (interval schedule).
             every_days: run every N days (interval schedule).
             inputs_json: optional JSON object of input values used for every run.
+            timezone: zone the user NAMED for the cron time ("8am EST" -> "EST"); leave
+                empty when they named none — their browser timezone is used automatically.
+            timezone_iana: your best-guess IANA name for a named zone (e.g.
+                "America/New_York"). Never compute UTC offsets yourself.
         """
         if not _automations_allowed(state):
             return _AUTOMATIONS_DENIED
@@ -5196,9 +5206,16 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 schedule["interval_days"] = every_days
         else:
             return "Provide either cron_expression or every_hours/every_days."
-        res = await asyncio.to_thread(_am, "schedule",
-                                      {"automation_id": automation_id,
-                                       "schedule": schedule, "inputs": inputs})
+        # A cron wall-clock time fires in the USER'S zone (james 2026-07-22:
+        # 'daily at 11am' was booked as 11:00 UTC and showed 7:00 AM local) —
+        # same resolution as schedule_task: named zone wins, else browser tz.
+        tz_name, tz_note = _resolve_schedule_tz(bool(cron_expression), timezone,
+                                                timezone_iana,
+                                                state.get("user_context") or {})
+        payload = {"automation_id": automation_id, "schedule": schedule, "inputs": inputs}
+        if tz_name:
+            payload["timezone"] = tz_name
+        res = await asyncio.to_thread(_am, "schedule", payload)
         if not res.get("ok"):
             return f"Could not schedule: {res.get('error')}"
         _studio(phase="live", automation_id=automation_id,
@@ -5236,8 +5253,13 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         except Exception as _ss_err:
             logger.warning(f"[schedule_automation] CC schedule-store registration "
                            f"failed (panel entry only): {_ss_err}")
+        tz_line = ""
+        if tz_name:
+            tz_line = f" Cron fires in {tz_name}."
+        if tz_note:
+            tz_line += f" ({tz_note})"
         return (f"Scheduled (job #{res.get('scheduled_job_id')}, schedule #{res.get('schedule_id')}) — "
-                f"runs pinned v{res.get('pinned_version')}. {res.get('note') or ''}".strip())
+                f"runs pinned v{res.get('pinned_version')}.{tz_line} {res.get('note') or ''}".strip())
 
     @lc_tool
     async def delete_automation(automation_id: str, confirmed: bool = False) -> str:

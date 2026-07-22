@@ -724,11 +724,13 @@ def schedule_automation(automation_id):
         auto, data.get("schedule"), data.get("inputs") or {},
         user_id=current_user.id,
         username=str(getattr(current_user, "username", current_user.id)),
+        timezone=data.get("timezone"),
     )
     return jsonify(payload), code
 
 
-def _create_automation_schedule(auto, schedule_data, inputs, user_id, username):
+def _create_automation_schedule(auto, schedule_data, inputs, user_id, username,
+                                timezone=None):
     """Write the ScheduledJobs + params + ScheduleDefinitions rows for an
     automation schedule. Shared by the user route and the CC internal manage
     endpoint. Returns (payload_dict, http_code)."""
@@ -756,6 +758,11 @@ def _create_automation_schedule(auto, schedule_data, inputs, user_id, username):
             "inputs": (json.dumps(inputs or {}), "json"),
             "user_id": (str(user_id), "int"),
         }
+        # Cron wall-clock times fire in the USER'S zone (james 2026-07-22:
+        # '11am' booked without a zone ran at 11:00 UTC). Same job-parameter
+        # contract as portal schedules — the engine consumes it, DST-aware.
+        if timezone:
+            params["timezone"] = (str(timezone), "string")
         for name, (value, ptype) in params.items():
             cursor.execute(
                 """INSERT INTO ScheduledJobParameters
@@ -1727,7 +1734,8 @@ def internal_manage():
                 return jsonify({"error": "nothing promoted — dry-run and promote first"}), 400
             resp, code = _create_automation_schedule(
                 auto, payload.get("schedule"), payload.get("inputs") or {},
-                user_id=user_id, username=username)
+                user_id=user_id, username=username,
+                timezone=payload.get("timezone"))
             return jsonify(resp), code
 
         if action == "delete":

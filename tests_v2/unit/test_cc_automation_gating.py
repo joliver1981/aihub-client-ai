@@ -1109,4 +1109,43 @@ class TestStaleWaitingHintRefetch:
         assert js.count("/events?after=0") >= 1
         body = js.split("function _refreshIfStaleWaiting")[1].split("function _renderRunResult")[0]
         assert "run.status !== 'waiting'" in body    # only re-checks waiting claims
-        assert "_verifiedWaitingRun" in body         # once per run, no poll loop
+        assert "_waitingCheckAt" in body             # throttled, so later re-renders re-verify
+
+
+class TestScheduleTimezoneAndStudioEndState:
+    """james 2026-07-22: 'daily at 11am' was booked as 11:00 UTC (panel showed
+    7:00 AM local) — automation cron schedules now carry the user's timezone
+    like task/portal schedules; and the Studio rail/result must show the
+    journey's END state, not freeze mid-flight."""
+
+    def _src(self):
+        from pathlib import Path as _P
+        return _P(nodes.__file__.replace(".pyc", ".py")).read_text(
+            encoding="utf-8", errors="replace")
+
+    def test_schedule_automation_resolves_and_sends_timezone(self):
+        src = self._src()
+        body = src.split("async def schedule_automation(")[1].split("@lc_tool")[0]
+        assert "_resolve_schedule_tz(bool(cron_expression)" in body
+        assert 'payload["timezone"] = tz_name' in body
+        assert "Cron fires in" in body                    # surfaced to the user
+
+    def test_api_schedule_carries_timezone_param(self):
+        from pathlib import Path as _P
+        api = _P(nodes.__file__).resolve().parents[2].joinpath(
+            "automations", "api.py").read_text(encoding="utf-8", errors="replace")
+        assert 'params["timezone"] = (str(timezone), "string")' in api
+        assert 'timezone=payload.get("timezone")' in api  # manage action passes it
+
+    def test_decide_tool_updates_studio_hint_on_finish(self):
+        src = self._src()
+        body = src.split("async def decide_automation_checkpoint(")[1].split("@lc_tool")[0]
+        assert body.count("_studio(working=False, last_run=") >= 2  # abort + proceed-finished
+
+    def test_studio_rail_completes_and_waiting_check_rerenders(self):
+        from pathlib import Path as _P
+        js = _P(nodes.__file__).resolve().parents[1].joinpath(
+            "static", "js", "cc-studio.js").read_text(encoding="utf-8", errors="replace")
+        assert "journeyDone" in js and "phase === 'live' && !st.working" in js
+        assert "_waitingCheckAt" in js                    # throttle, not once-per-run
+        assert "_verifiedWaitingRun" not in js            # the once-guard is gone

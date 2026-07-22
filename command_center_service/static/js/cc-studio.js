@@ -165,12 +165,15 @@ const CCStudio = (() => {
         const mc = $('studio-mc-link');
         if (mainAppUrl) mc.href = mainAppUrl.replace(/\/$/, '') + '/automations/';
 
-        // phase rail
+        // phase rail — reaching 'live' with nothing in flight means the whole
+        // journey COMPLETED: every step (incl. Live) gets the green check
+        // (james 2026-07-22: Live showed as an in-progress blue dot forever).
         const phase = st.phase || 'gather';
         const idx = Math.max(0, PHASES.findIndex(p => p[0] === phase));
+        const journeyDone = phase === 'live' && !st.working;
         $('studio-rail').innerHTML = PHASES.map(([key, label], i) => {
-            const cls = i < idx ? 'done' : (i === idx ? 'now' : '');
-            const tick = i < idx ? '✓' : (i === idx ? '●' : String(i + 1));
+            const cls = i < idx ? 'done' : (i === idx ? (journeyDone ? 'done' : 'now') : '');
+            const tick = i < idx ? '✓' : (i === idx ? (journeyDone ? '✓' : '●') : String(i + 1));
             return `<span class="cc-studio-step ${cls}"><span class="t">${tick}</span>${label}</span>`;
         }).join('');
 
@@ -240,16 +243,18 @@ const CCStudio = (() => {
     }
 
     // ── run result (dry-run theater / final verdicts) ───────────────────
-    let _verifiedWaitingRun = null;
+    let _waitingCheckAt = 0;
     function _refreshIfStaleWaiting(run) {
         // The state hint freezes at 'waiting' when a run is decided from My
         // Approvals / Mission Control (no further CC tool call overwrites
         // it). A 'waiting' hint is therefore only a CLAIM — fetch the run's
-        // authoritative state once and render the real verdict if it has
-        // moved on (james 2026-07-22: 'why wasn't the failure reflected?').
+        // authoritative state and render the real verdict if it has moved on
+        // (james 2026-07-22). Throttled, not once-per-run: a later re-render
+        // (e.g. the schedule step re-drawing the panel) must re-verify — the
+        // once-guard was exactly how 'waiting' survived a finished run.
         if (!run || run.status !== 'waiting' || !run.run_id) return;
-        if (_verifiedWaitingRun === run.run_id) return;
-        _verifiedWaitingRun = run.run_id;
+        if (Date.now() - _waitingCheckAt < 4000) return;
+        _waitingCheckAt = Date.now();
         _get(`/api/studio/runs/${encodeURIComponent(run.run_id)}/events?after=0`)
             .then(d => {
                 const r = d && d.run;
