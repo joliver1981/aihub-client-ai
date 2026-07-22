@@ -382,7 +382,7 @@ const CCStudio = (() => {
                 link.id = 'studio-gate-appr';
                 link.target = '_blank';
                 link.rel = 'noopener';
-                link.style.cssText = 'display:block;margin-top:6px;font-size:11px;';
+                link.style.cssText = 'display:block;margin-top:6px;font-size:13px;';
                 gate.appendChild(link);
             }
             if (mainAppUrl) {
