@@ -1149,3 +1149,44 @@ class TestScheduleTimezoneAndStudioEndState:
         assert "journeyDone" in js and "phase === 'live' && !st.working" in js
         assert "_waitingCheckAt" in js                    # throttle, not once-per-run
         assert "_verifiedWaitingRun" not in js            # the once-guard is gone
+
+
+class TestCompletionNudges:
+    """james 2026-07-22: after a dry-run approval (panel/queue path especially)
+    guide the user to the journey's last mile — promote, then schedule."""
+
+    def _src(self):
+        from pathlib import Path as _P
+        return _P(nodes.__file__.replace(".pyc", ".py")).read_text(
+            encoding="utf-8", errors="replace")
+
+    def test_chat_decide_appends_dry_run_next_step(self):
+        body = self._src().split("async def decide_automation_checkpoint(")[1].split("@lc_tool")[0]
+        assert "this was a DRY-RUN" in body
+        assert 'detail["dry_run"]' in body            # the panel hint learns it too
+
+    def test_studio_strip_and_promote_route(self):
+        from pathlib import Path as _P
+        js = _P(nodes.__file__).resolve().parents[1].joinpath(
+            "static", "js", "cc-studio.js").read_text(encoding="utf-8", errors="replace")
+        assert "_renderNextSteps(run)" in js
+        assert "studio-promote-btn" in js
+        assert "not live yet" in js and "run it daily at 8am" in js
+        route = _P(nodes.__file__).resolve().parents[1].joinpath(
+            "routes", "studio.py").read_text(encoding="utf-8", errors="replace")
+        assert '"/automation/{automation_id}/promote"' in route
+        html = _P(nodes.__file__).resolve().parents[1].joinpath(
+            "static", "index.html").read_text(encoding="utf-8", errors="replace")
+        import re as _re
+        m = _re.search(r"cc-studio\.js\?v=(\d+)", html)
+        assert m and int(m.group(1)) >= 9
+
+    def test_bridge_row_carries_dry_run_and_toast_hints_promote(self):
+        from pathlib import Path as _P
+        api = _P(nodes.__file__).resolve().parents[2].joinpath(
+            "automations", "api.py").read_text(encoding="utf-8", errors="replace")
+        assert '"dry_run": run.get("trigger_source") == "dry_run"' in api
+        app_src = _P(nodes.__file__).resolve().parents[2].joinpath(
+            "app.py").read_text(encoding="utf-8", errors="replace")
+        assert 'automation_meta.get("dry_run")' in app_src
+        assert "This was a DRY-RUN" in app_src

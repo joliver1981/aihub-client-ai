@@ -10313,10 +10313,20 @@ def process_approval_request(request_id):
                                 f"could not be resumed: {result.get('error')} — it has "
                                 f"likely already finished or been aborted.")
                 })
+            next_hint = ""
+            if decision == "proceed" and automation_meta.get("dry_run"):
+                # guide to full completion (james 2026-07-22): a dry-run
+                # approval is NOT the end of the journey — promote makes it
+                # live, then it can be scheduled.
+                next_hint = (" This was a DRY-RUN — if the result looks right, promote "
+                             "the automation to make it live (Mission Control ⚙ Settings "
+                             "→ Promote, or ask in Command Center), then schedule it if "
+                             "needed.")
             return jsonify({
                 "status": "success",
                 "message": f"Approval request processed ({status}) — the automation run "
                            f"{'resumes' if decision == 'proceed' else 'is aborting'}."
+                           + next_hint
             })
 
         step_execution_id = row[0]

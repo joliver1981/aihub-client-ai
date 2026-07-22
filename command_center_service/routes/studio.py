@@ -105,6 +105,18 @@ async def studio_run_events(run_id: str, request: Request, after: int = 0):
     return _relay(res)
 
 
+@router.post("/automation/{automation_id}/promote")
+async def studio_promote(automation_id: str, request: Request):
+    """One-click promote from the workbench's next-steps strip (james
+    2026-07-22: guide the user to full completion after a dry-run). Same
+    guarded manage action Mission Control's Settings panel uses."""
+    uc, err = _dev(request)
+    if err:
+        return err
+    res = _manage("promote", uc, {"automation_id": automation_id})
+    return _relay(res)
+
+
 @router.post("/runs/{run_id}/abort")
 async def studio_abort(run_id: str, request: Request):
     uc, err = _dev(request)

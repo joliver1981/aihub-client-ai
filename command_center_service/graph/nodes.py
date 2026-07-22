@@ -5067,10 +5067,16 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 # overwrite the pause-time 'waiting' hint so the Studio panel
                 # shows the FINAL verdict (james 2026-07-22: panel stuck on
                 # 'waiting' after a chat-side decide too)
+                detail["dry_run"] = run.get("trigger_source") == "dry_run"
                 _studio(working=False, last_run=detail)
+                next_line = ""
+                if run.get("trigger_source") == "dry_run" and detail.get("status") in ("success", "unverified"):
+                    next_line = ("\n🎯 Next: this was a DRY-RUN — if the result looks right, "
+                                 "promote the automation to make it live (reply 'promote it' "
+                                 "if it isn't already), then schedule it if needed.")
                 return ("▶️ Proceed recorded" + _decided_note
                         + "; the run resumed and finished.\n"
-                        + _at.summarize_run(detail))
+                        + _at.summarize_run(detail) + next_line)
             await asyncio.sleep(3)
         return (f"▶️ Proceed recorded — run {run_id} resumed and is still executing "
                 f"(last status: {last or 'running'}). Check get_automation_runs for "

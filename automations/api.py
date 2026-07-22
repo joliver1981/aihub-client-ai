@@ -1400,6 +1400,8 @@ def _create_checkpoint_approval_row(run: Dict, checkpoint: Dict,
         "automation_id": run.get("automation_id"),
         "automation_name": auto_name,
         "group_name": group_name,
+        # lets the approvals UI nudge 'promote next' after a DRY-RUN approval
+        "dry_run": run.get("trigger_source") == "dry_run",
         "attachments": [{"name": a["name"], "size": a.get("size")}
                         for a in (checkpoint.get("attachments") or [])],
     })

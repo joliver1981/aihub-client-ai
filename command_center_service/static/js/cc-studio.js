@@ -292,6 +292,54 @@ const CCStudio = (() => {
             status === 'aborted' ? '■ Aborted by user' :
             status === 'skipped' ? '⏭ Skipped — a run was already in progress' : status
         ) + (run.exit_code != null ? ` · exit ${run.exit_code}` : '');
+        _renderNextSteps(run);
+    }
+
+    // ── next-steps strip: guide to FULL completion after a dry-run ──────
+    // (james 2026-07-22: approving from the panel/queue skips the chat reply
+    // that mentions promote+schedule — the journey's last mile was invisible)
+    async function _renderNextSteps(run) {
+        let strip = $('studio-next-steps');
+        if (!strip) {
+            strip = document.createElement('div');
+            strip.id = 'studio-next-steps';
+            strip.style.cssText = 'margin-top:8px;padding:8px 10px;border-radius:8px;' +
+                'font-size:12.5px;border:1px solid rgba(34,211,238,.35);display:none;';
+            $('studio-verify-section').appendChild(strip);
+        }
+        strip.style.display = 'none';
+        if (!run || !run.dry_run || !lastAutomationId) return;
+        if (!(run.status === 'success' || run.status === 'unverified')) return;
+        let a = {};
+        try {
+            const d = await _get('/api/studio/automation/' + encodeURIComponent(lastAutomationId));
+            a = d.automation || {};
+        } catch (e) { return; }
+        const live = (a.pinned_version || 0) >= (a.current_version || 1);
+        if (live) {
+            strip.innerHTML = `✅ <b>v${esc(a.pinned_version)} is live.</b> Want it to run on its own? ` +
+                `Just ask in chat — e.g. “run it daily at 8am”.`;
+        } else {
+            strip.innerHTML = `🎯 <b>Dry-run done — this automation is not live yet.</b> ` +
+                `Promote it so it can run for real and be scheduled. ` +
+                `<button id="studio-promote-btn" style="margin-left:8px;font-size:12px;` +
+                `padding:3px 12px;border-radius:6px;border:none;cursor:pointer;` +
+                `background:#0e7490;color:#eafcff">🚀 Promote v${esc(a.current_version)} to live</button>`;
+            const btn = strip.querySelector('#studio-promote-btn');
+            btn.onclick = async () => {
+                btn.disabled = true;
+                btn.textContent = 'Promoting…';
+                const r = await _post('/api/studio/automation/' + encodeURIComponent(lastAutomationId) + '/promote', {});
+                if (r && r.pinned_version) {
+                    strip.innerHTML = `✅ <b>v${esc(r.pinned_version)} is now live.</b> ` +
+                        `Want it to run on its own? Ask in chat — e.g. “run it daily at 8am”.`;
+                } else {
+                    strip.innerHTML = `Could not promote: ${esc((r && r.error) || 'unknown error')} — ` +
+                        `use Mission Control ⚙ Settings or ask in chat.`;
+                }
+            };
+        }
+        strip.style.display = '';
     }
 
     // ── live run: active poll → event feed → gate/abort ────────────────
