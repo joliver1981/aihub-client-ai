@@ -284,7 +284,15 @@ const CCStudio = (() => {
                 if (!hiddenByUser) _show();
                 _startEventsPoll();
             } else if (!mine && liveRun) {
-                _finishLive();
+                // The run left the active list between event polls — fetch its
+                // FINAL state once so the outcome card shows the real verdict
+                // (james 2026-07-21: panel sat on 'waiting' after a queue-side
+                // approval finished the run).
+                let fin = null;
+                try {
+                    fin = await _get(`/api/studio/runs/${encodeURIComponent(liveRun.run_id)}/events?after=${eventsCursor}`);
+                } catch (e) { /* render what we have */ }
+                _finishLive(fin);
             }
         }, ACTIVE_POLL_MS);
     }
@@ -373,11 +381,12 @@ const CCStudio = (() => {
         $('studio-gate').style.display = 'none';
         $('studio-abort').style.display = 'none';
         if (lastPayload && lastPayload.run) {
+            (lastPayload.events || []).forEach(_applyEvent);   // final log lines too
             _renderRunResult({
                 status: lastPayload.run.status,
                 exit_code: lastPayload.run.exit_code,
                 verify_report: lastPayload.run.verify_report,
-                dry_run: false,
+                dry_run: (liveRun && liveRun.trigger_source === 'dry_run') || false,
             });
         }
         liveRun = null;

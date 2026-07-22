@@ -357,7 +357,8 @@ class TestAutomationAuthoringContinuity:
         expected = {"create_automation", "get_automation", "save_automation_code",
                     "dry_run_automation", "promote_automation", "run_automation",
                     "get_automation_runs", "schedule_automation",
-                    "decide_automation_checkpoint"}  # AIHUB-0058
+                    "decide_automation_checkpoint",
+                    "delete_automation"}  # AIHUB-0058; +delete (james 2026-07-21)
         assert expected == set(nodes._AUTOMATION_TOOL_NAMES)
         # merely LISTING automations is not authoring — must NOT glue a session
         assert "list_automations" not in nodes._AUTOMATION_TOOL_NAMES
@@ -851,9 +852,14 @@ class TestStudioPanelActivation:
         assert "st.automation_id || st.name || st.working" in js
 
     def test_cache_versions_bumped(self):
+        # threshold, not exact: pins only that we never regress BELOW the
+        # 0062-era bumps (exact pins broke on every legitimate later bump)
+        import re as _re
         html = self._static("index.html")
-        assert "command-center.js?v=28" in html
-        assert "cc-studio.js?v=3" in html
+        cc = _re.search(r"command-center\.js\?v=(\d+)", html)
+        st = _re.search(r"cc-studio\.js\?v=(\d+)", html)
+        assert cc and int(cc.group(1)) >= 28
+        assert st and int(st.group(1)) >= 3
 
 
 def _import_cc_scheduling():
@@ -1058,4 +1064,31 @@ class TestApprovalsNudgeAndResizablePanel:
         assert "ew-resize" in js
         html = _P(nodes.__file__).resolve().parents[1].joinpath(
             "static", "index.html").read_text(encoding="utf-8", errors="replace")
-        assert "cc-studio.js?v=4" in html
+        import re as _re
+        m = _re.search(r"cc-studio\.js\?v=(\d+)", html)
+        assert m and int(m.group(1)) >= 4   # bumped for the gate link + resize era or later
+
+
+class TestFinalStateAndEmptyResultLaws:
+    """james 2026-07-21 (expense-audit #2): the Studio panel sat on 'waiting'
+    after a queue-side approval finished the run, and CC declared min_rows=1
+    on a legitimately-empty audit report (empty batch -> 'failed' run)."""
+
+    def test_panel_fetches_final_state_when_run_leaves_active_list(self):
+        from pathlib import Path as _P
+        js = _P(nodes.__file__).resolve().parents[1].joinpath(
+            "static", "js", "cc-studio.js").read_text(encoding="utf-8", errors="replace")
+        # the no-payload finish path must fetch the run's final events/state
+        gone_branch = js.split("else if (!mine && liveRun)")[1].split("}, ACTIVE_POLL_MS)")[0]
+        assert "/events?after=" in gone_branch
+        assert "_finishLive(fin)" in gone_branch
+        html = _P(nodes.__file__).resolve().parents[1].joinpath(
+            "static", "index.html").read_text(encoding="utf-8", errors="replace")
+        assert "cc-studio.js?v=5" in html
+
+    def test_prompt_teaches_empty_results_are_not_failures(self):
+        from pathlib import Path as _P
+        src = _P(nodes.__file__.replace(".pyc", ".py")).read_text(
+            encoding="utf-8", errors="replace")
+        assert "EMPTY RESULTS AREN'T FAILURES" in src
+        assert "declare min_rows only when emptiness is" in src
