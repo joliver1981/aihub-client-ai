@@ -29,7 +29,7 @@ import uuid
 from functools import wraps
 from typing import Dict, Optional
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, Response, jsonify, request, stream_with_context
 from flask_login import current_user, login_required
 
 import config as cfg
@@ -565,6 +565,106 @@ def promote(automation_id):
     if not ok:
         return jsonify({"error": error}), 400
     return jsonify({"pinned_version": version})
+
+
+# -------------------------------------------------- inline builder chat relay
+# james 2026-07-22: the Workflow Designer's Automation node gets a "Build new
+# with AI" drawer — an escape hatch for requirements the stock nodes can't
+# cover ("we ALSO need the image diagrams out of those PDFs"). The drawer chats
+# with the REAL Command Center automation-authoring agent (schema grounding,
+# honest verify — all of it) via this relay: same-origin for the browser, CC
+# stays bound to 127.0.0.1, and identity is the server-signed CC JWT — never
+# anything the page claims.
+
+_BUILDER_CHAT_READ_TIMEOUT_S = int(os.getenv("AUTOMATIONS_BUILDER_CHAT_TIMEOUT_S", "600"))
+
+
+def _compose_inline_build_message(message, first, skip_dry_run, workflow_name):
+    """Prefix the FIRST drawer message with the inline-build context so the
+    authoring agent builds something workflow-shaped (declared inputs, no
+    schedule) and — when the user keeps the default — skips the dry-run:
+    the workflow itself is the test harness, and the drawer promotes
+    deterministically. Later turns pass through untouched."""
+    if not first:
+        return message
+    wf = f' "{workflow_name}"' if workflow_name else ""
+    lines = [
+        "[Inline build from the Workflow Designer]",
+        f"I'm building this automation to run as an Automation node inside my visual workflow{wf}.",
+        "Keep it fast and simple: create the automation and save the code. Do NOT schedule it.",
+    ]
+    if skip_dry_run:
+        lines.append(
+            "Skip the dry-run entirely — I'll test it by running the workflow itself, and the "
+            "designer will promote it for me. Just confirm once the code is saved.")
+    else:
+        lines.append("A dry-run at the end is fine, but don't schedule anything.")
+    lines.append(
+        "Declare anything tunable as manifest inputs with sensible defaults — the workflow "
+        "supplies the values at runtime (they may arrive as strings).")
+    return "\n".join(lines) + "\n\nMy request: " + message
+
+
+@automations_bp.route("/api/builder-chat", methods=["POST"])
+@automations_gate
+def builder_chat():
+    """SSE relay: designer drawer -> CC /chat (127.0.0.1). Streams the agent's
+    events (session/status/response/done) straight through."""
+    data = request.get_json(silent=True) or {}
+    message = (data.get("message") or "").strip()
+    if not message:
+        return jsonify({"error": "message required"}), 400
+    msg = _compose_inline_build_message(
+        message,
+        bool(data.get("first")),
+        bool(data.get("skip_dry_run", True)),
+        (data.get("workflow_name") or "").strip()[:120],
+    )
+
+    import shared_auth
+    user_ctx = {
+        "user_id": current_user.id,
+        "role": current_user.role,
+        "tenant_id": getattr(current_user, "TenantId", None),
+        "username": current_user.username,
+        "name": getattr(current_user, "name", None) or current_user.username,
+    }
+    token = shared_auth.sign_cc_token(user_ctx)
+
+    body = {"message": msg, "user_context": user_ctx}
+    if data.get("session_id"):
+        body["session_id"] = data["session_id"]
+    if data.get("timezone"):
+        body["timezone"] = data["timezone"]
+
+    import requests as _rq
+    cc_port = os.environ.get("CC_SERVICE_PORT", "5091")
+    try:
+        upstream = _rq.post(
+            f"http://127.0.0.1:{cc_port}/api/chat", json=body,
+            headers={"Authorization": f"Bearer {token}"},
+            stream=True, timeout=(10, _BUILDER_CHAT_READ_TIMEOUT_S))
+    except Exception as e:
+        return jsonify({"error": f"Command Center is unreachable: {e}"}), 502
+    if upstream.status_code != 200:
+        detail = ""
+        try:
+            detail = upstream.text[:300]
+        except Exception:
+            pass
+        upstream.close()
+        return jsonify({"error": f"Command Center refused the chat ({upstream.status_code}) {detail}"}), 502
+
+    def _relay():
+        try:
+            for chunk in upstream.iter_content(chunk_size=None):
+                if chunk:
+                    yield chunk
+        finally:
+            upstream.close()
+
+    return Response(stream_with_context(_relay()), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 # --------------------------------------------------------------------- runs

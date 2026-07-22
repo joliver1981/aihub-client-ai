@@ -1950,7 +1950,7 @@ class TestGroupRoutingAndSettingsPanel:
         assert "auto-node-input" in mod and "data-name" in mod
         page = root.joinpath("templates", "workflow_tool.html").read_text(
             encoding="utf-8", errors="replace")
-        assert "automation_node.js?v=1" in page
+        assert "automation_node.js?v=" in page  # >= threshold, exact pins broke on every bump
         assert "filename='js/workflow.js', v=4" in page.replace('"', "'")
 
 
@@ -2360,3 +2360,110 @@ class TestRemoteWildcardVerify:
                                        "literal:name.csv", {})
         # False -> the runner's candidate loop keeps trying other filenames
         assert ok is False and "not checkable" in note
+
+
+class TestInlineBuilderChatRelay:
+    """james 2026-07-22: the Workflow Designer's Automation node gains a
+    'Build new with AI' drawer — chat relayed to the REAL CC authoring agent
+    through /automations/api/builder-chat. Contracts: Developer-gated, signed
+    CC JWT (never page-claimed identity), CC stays on 127.0.0.1, SSE streamed
+    through, and the first-message primer teaches the inline-build shape."""
+
+    def test_primer_first_message_skip_dry_run(self):
+        from automations.api import _compose_inline_build_message
+        out = _compose_inline_build_message("extract diagrams", True, True, "Invoice Intake")
+        assert "Workflow Designer" in out
+        assert '"Invoice Intake"' in out
+        assert "Skip the dry-run" in out
+        assert "Do NOT schedule" in out
+        assert "manifest inputs" in out
+        assert out.strip().endswith("My request: extract diagrams")
+
+    def test_primer_first_message_keep_dry_run(self):
+        from automations.api import _compose_inline_build_message
+        out = _compose_inline_build_message("extract diagrams", True, False, "")
+        assert "dry-run at the end is fine" in out
+        assert "Skip the dry-run" not in out
+
+    def test_later_turns_pass_through_untouched(self):
+        from automations.api import _compose_inline_build_message
+        assert _compose_inline_build_message("also crop them", False, True, "WF") == "also crop them"
+
+    def test_route_contracts_in_source(self):
+        import inspect
+        import automations.api as api_mod
+        src = inspect.getsource(api_mod)
+        i = src.find('def builder_chat')
+        assert i != -1
+        gate_zone = src[max(0, i - 200):i]
+        assert "@automations_gate" in gate_zone, "builder-chat must be Developer-gated"
+        body = src[i:i + 4000]
+        assert "sign_cc_token" in body, "identity must be the server-signed CC JWT"
+        assert "127.0.0.1" in body, "CC must be reached on loopback only"
+        assert "/api/chat" in body, "CC mounts chat at /api/chat (bare /chat 404s)"
+        assert "stream=True" in body
+        assert "text/event-stream" in body
+        assert "Bearer" in body
+
+
+class TestAutomationNodeBuilderDrawer:
+    """UI contracts for automation_node.js v2 (all-in-one-file by design so
+    workflow.js and the engine stay untouched)."""
+
+    def _js(self):
+        from pathlib import Path
+        return Path(__file__).resolve().parents[2].joinpath(
+            "static", "js", "automation_node.js").read_text(encoding="utf-8")
+
+    def test_js_parses_with_node(self, tmp_path):
+        import shutil
+        import subprocess
+        node = shutil.which("node")
+        if not node:
+            pytest.skip("node not available")
+        from pathlib import Path
+        src = Path(__file__).resolve().parents[2] / "static" / "js" / "automation_node.js"
+        proc = subprocess.run([node, "--check", str(src)], capture_output=True, text=True)
+        assert proc.returncode == 0, f"automation_node.js broken:\n{proc.stderr[:800]}"
+
+    def test_build_button_and_drawer_wiring(self):
+        js = self._js()
+        assert "autoNodeBuildBtn" in js
+        assert "Build new with AI" in js
+        assert "/automations/api/builder-chat" in js
+
+    def test_go_live_checkbox_defaults_checked(self):
+        js = self._js()
+        assert 'id="abdGoLive" checked' in js, "skip-dry-run/go-live must default ON (james)"
+
+    def test_bind_promotes_deterministically(self):
+        js = self._js()
+        assert "/promote" in js, "bind must promote via the API, not chat prose"
+        assert "current_version" in js  # detection keys on a SAVED version, not mere creation
+
+    def test_variable_hint_present(self):
+        js = self._js()
+        assert "variable_name" in js  # ${variable_name} guidance on inputs
+
+    def test_designer_pins_v2(self):
+        from pathlib import Path
+        html = Path(__file__).resolve().parents[2].joinpath(
+            "templates", "workflow_tool.html").read_text(encoding="utf-8", errors="replace")
+        import re
+        m = re.search(r"automation_node\.js\?v=(\d+)", html)
+        assert m and int(m.group(1)) >= 2
+
+
+class TestAutomationNodeVariableSubstitution:
+    """The engine already substitutes ${variable} references (dot paths,
+    array indices) into Automation-node string inputs — pin the wiring so it
+    can never silently regress; the drawer now advertises it in the UI."""
+
+    def test_engine_wires_substitution_into_node_inputs(self):
+        from pathlib import Path
+        src = Path(__file__).resolve().parents[2].joinpath(
+            "workflow_execution.py").read_text(encoding="utf-8", errors="replace")
+        i = src.find("def _execute_automation_node")
+        assert i != -1
+        body = src[i:i + 6000]
+        assert "_replace_variable_references" in body
