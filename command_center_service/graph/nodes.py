@@ -52,6 +52,21 @@ _AUTOMATION_TOOL_NAMES = frozenset({
 })
 
 
+def _approvals_nudge() -> str:
+    """One line pointing at WHERE the gate's attachments live and can be
+    decided (james 2026-07-21: 'Review the attached CSV' read like a chat
+    attachment). Real URLs so the chat renders clickable links; deciding in
+    either place settles both. Always newline-terminated."""
+    try:
+        from cc_config import get_base_url
+        base = get_base_url().rstrip("/")
+        return (f"Review attachments & decide in My Approvals ({base}/approvals) "
+                f"or Mission Control ({base}/automations/) — or just reply approve / abort here.\n")
+    except Exception:
+        return ("Review attachments & decide in My Approvals or Mission Control — "
+                "or just reply approve / abort here.\n")
+
+
 def _checkpoint_attachment_note(pc: dict) -> str:
     """One line naming the files a paused checkpoint attached for the approver
     (downloadable in Mission Control / My Approvals) — empty when none, always
@@ -4928,6 +4943,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     f"“{pc.get('message') or pc.get('question') or 'approval requested'}”\n"
                     f"run_id: {res.get('run_id')} | checkpoint_id: {pc.get('checkpoint_id')}\n"
                     + _checkpoint_attachment_note(pc)
+                    + _approvals_nudge()
                     + f"Ask the user to approve or abort, then call "
                     f"decide_automation_checkpoint with their decision.")
         if res.get("inline_wait_elapsed"):
@@ -5095,6 +5111,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     f"“{pc.get('message') or pc.get('question') or 'approval requested'}”\n"
                     f"run_id: {res.get('run_id')} | checkpoint_id: {pc.get('checkpoint_id')}\n"
                     + _checkpoint_attachment_note(pc)
+                    + _approvals_nudge()
                     + f"Ask the user to approve or abort, then call "
                     f"decide_automation_checkpoint.")
         if res.get("inline_wait_elapsed"):

@@ -1030,3 +1030,32 @@ class TestSdkPromptLawsCurrent:
         for name in ("aihub.llm", "aihub.ai_extract", "aihub.review_item",
                      "aihub.checkpoint", "aihub.query", "aihub.connection", "aihub.secret"):
             assert name in prompt_src, f"SDK function not taught in the CC prompt: {name}"
+
+
+class TestApprovalsNudgeAndResizablePanel:
+    """james 2026-07-21: pause messages nudge to WHERE attachments live
+    (My Approvals / Mission Control links) and the Studio panel is resizable
+    by dragging its left edge (width persisted)."""
+
+    def _src(self):
+        from pathlib import Path as _P
+        return _P(nodes.__file__.replace(".pyc", ".py")).read_text(
+            encoding="utf-8", errors="replace")
+
+    def test_pause_branches_include_the_nudge(self):
+        src = self._src()
+        assert src.count("_approvals_nudge()") >= 3   # def + run + dry-run
+        assert "/approvals" in src and "reply approve / abort here" in src
+
+    def test_studio_panel_gate_link_and_resize(self):
+        from pathlib import Path as _P
+        js = _P(nodes.__file__).resolve().parents[1].joinpath(
+            "static", "js", "cc-studio.js").read_text(encoding="utf-8", errors="replace")
+        assert "studio-gate-appr" in js
+        assert "decide in My Approvals" in js
+        assert "studio-resize-handle" in js
+        assert "cc_studio_w" in js                    # persisted width
+        assert "ew-resize" in js
+        html = _P(nodes.__file__).resolve().parents[1].joinpath(
+            "static", "index.html").read_text(encoding="utf-8", errors="replace")
+        assert "cc-studio.js?v=4" in html

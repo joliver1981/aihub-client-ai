@@ -83,6 +83,45 @@ const CCStudio = (() => {
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) return;       // timers keep running; polls no-op fast
         });
+        _initResize();
+    }
+
+    // ── resizable edge (james 2026-07-21): drag the panel's left border ──
+    function _initResize() {
+        const panel = $('studio-panel');
+        if (!panel || $('studio-resize-handle')) return;
+        const saved = parseInt(localStorage.getItem('cc_studio_w') || '', 10);
+        if (saved >= 300 && saved <= 900) {
+            panel.style.width = saved + 'px';
+            panel.style.flex = '0 0 ' + saved + 'px';
+        }
+        const handle = document.createElement('div');
+        handle.id = 'studio-resize-handle';
+        handle.title = 'Drag to resize';
+        handle.style.cssText = 'position:absolute;left:0;top:0;bottom:0;width:6px;' +
+            'cursor:ew-resize;z-index:5;';
+        if (getComputedStyle(panel).position === 'static') panel.style.position = 'relative';
+        panel.appendChild(handle);
+        let startX = 0, startW = 0;
+        function onMove(e) {
+            const w = Math.min(900, Math.max(300, startW + (startX - e.clientX)));
+            panel.style.width = w + 'px';
+            panel.style.flex = '0 0 ' + w + 'px';
+        }
+        function onUp() {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            document.body.style.userSelect = '';
+            localStorage.setItem('cc_studio_w', parseInt(panel.style.width, 10) || '');
+        }
+        handle.addEventListener('mousedown', (e) => {
+            startX = e.clientX;
+            startW = panel.getBoundingClientRect().width;
+            document.body.style.userSelect = 'none';
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+            e.preventDefault();
+        });
     }
 
     function hide() {
@@ -304,6 +343,25 @@ const CCStudio = (() => {
         if (pending && !pending.decision) {
             gate.dataset.checkpointId = pending.checkpoint_id;
             $('studio-gate-msg').textContent = pending.message || 'Checkpoint';
+            // james 2026-07-21: "attached CSV" reads like a chat attachment —
+            // nudge to where the attachments actually live. Same queue row is
+            // decidable there; deciding in either place settles both.
+            let link = $('studio-gate-appr');
+            if (!link) {
+                link = document.createElement('a');
+                link.id = 'studio-gate-appr';
+                link.target = '_blank';
+                link.rel = 'noopener';
+                link.style.cssText = 'display:block;margin-top:6px;font-size:11px;';
+                gate.appendChild(link);
+            }
+            if (mainAppUrl) {
+                link.href = mainAppUrl.replace(/\/$/, '') + '/approvals';
+                link.textContent = '📎 Review attachments & decide in My Approvals ↗';
+                link.style.display = '';
+            } else {
+                link.style.display = 'none';
+            }
             gate.style.display = '';
         } else {
             gate.style.display = 'none';
