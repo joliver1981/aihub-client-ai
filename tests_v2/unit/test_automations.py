@@ -2253,3 +2253,43 @@ class TestMissionControlInlineJsParses:
         p.write_text(script, encoding="utf-8")
         proc = subprocess.run([node, "--check", str(p)], capture_output=True, text=True)
         assert proc.returncode == 0, f"Mission Control inline JS is broken:\n{proc.stderr[:800]}"
+
+
+class TestGlobFileOutputs:
+    """james 2026-07-22: CC declared 'flagged_invoices_*.csv' for a
+    timestamped output; the literal exists-check failed a run whose upload
+    verified. Declared file outputs now support globs — the NEWEST match is
+    verified; literal paths behave exactly as before."""
+
+    def _verify(self, tmp_path, path_decl, verify=None):
+        from automations.runner import verify_outputs
+        manifest = {"outputs": [{"kind": "file", "path": path_decl,
+                                 **({"verify": verify} if verify else {})}]}
+        return verify_outputs(manifest, str(tmp_path), {})
+
+    def test_glob_matches_newest_file(self, tmp_path):
+        import os, time
+        old = tmp_path / "flagged_invoices_20260721_090000.csv"
+        old.write_text("h\r\na,1\n")
+        t = time.time() - 3600
+        os.utime(old, (t, t))
+        new = tmp_path / "flagged_invoices_20260722_172220.csv"
+        new.write_text("h\na,1\nb,2\n")
+        outcome, report = self._verify(tmp_path, "flagged_invoices_*.csv",
+                                       {"min_rows": 2})
+        assert outcome == "success", report
+        checks = report[0]["checks"]
+        assert checks[0]["ok"] and "20260722_172220" in checks[0]["note"]
+        assert checks[1] == {"check": "min_rows", "expected": 2, "actual": 2, "ok": True}
+
+    def test_glob_no_match_fails_honestly(self, tmp_path):
+        outcome, report = self._verify(tmp_path, "flagged_invoices_*.csv")
+        assert outcome == "failed"
+        assert report[0]["checks"][0]["ok"] is False
+        assert "no file matched" in report[0]["checks"][0]["note"]
+
+    def test_literal_paths_unchanged(self, tmp_path):
+        (tmp_path / "report.csv").write_text("h\nrow\n")
+        outcome, report = self._verify(tmp_path, "report.csv", {"min_rows": 1})
+        assert outcome == "success"
+        assert report[0]["checks"][0] == {"check": "exists", "ok": True}

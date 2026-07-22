@@ -220,8 +220,28 @@ def verify_outputs(manifest: Dict, workdir: str, inputs: Dict,
             rel = _substitute(out.get("path", ""), inputs)
             entry["path"] = rel
             path = os.path.join(workdir, rel)
-            exists = os.path.isfile(path)
-            entry["checks"].append({"check": "exists", "ok": exists})
+            # Glob support (james 2026-07-22): timestamped outputs are a
+            # legitimate pattern ('flagged_invoices_*.csv') — a declared path
+            # containing wildcards matches the NEWEST matching file, and the
+            # row checks run against that file. Literal paths are unchanged.
+            if any(ch in rel for ch in "*?["):
+                import glob as _glob
+                matches = [m for m in _glob.glob(os.path.join(workdir, rel))
+                           if os.path.isfile(m)]
+                if matches:
+                    path = max(matches, key=os.path.getmtime)
+                    entry["checks"].append({
+                        "check": "exists", "ok": True,
+                        "note": f"pattern matched {len(matches)} file(s); "
+                                f"checking '{os.path.relpath(path, workdir)}'"})
+                    exists = True
+                else:
+                    entry["checks"].append({"check": "exists", "ok": False,
+                                            "note": "no file matched the pattern"})
+                    exists = False
+            else:
+                exists = os.path.isfile(path)
+                entry["checks"].append({"check": "exists", "ok": exists})
             if not exists:
                 any_failed = True
             elif "min_rows" in verify:
