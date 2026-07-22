@@ -113,7 +113,25 @@ async def studio_promote(automation_id: str, request: Request):
     uc, err = _dev(request)
     if err:
         return err
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
     res = _manage("promote", uc, {"automation_id": automation_id})
+    if res.get("ok"):
+        # The phase rail follows the session hint, which only CC TOOLS write —
+        # a panel-button promote must advance it too or the rail sits on
+        # Dry-run forever (james 2026-07-22).
+        try:
+            import studio_state
+            session_id = (body or {}).get("session_id") or ""
+            if session_id:
+                studio_state.update(session_id, phase="live", working=False,
+                                    automation_id=automation_id,
+                                    pinned_version=res.get("pinned_version"), error=None)
+        except Exception as e:
+            logger.warning("[studio] promote hint update failed: %s", e)
     return _relay(res)
 
 

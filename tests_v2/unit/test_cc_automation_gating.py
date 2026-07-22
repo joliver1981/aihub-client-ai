@@ -1190,3 +1190,21 @@ class TestCompletionNudges:
             "app.py").read_text(encoding="utf-8", errors="replace")
         assert 'automation_meta.get("dry_run")' in app_src
         assert "This was a DRY-RUN" in app_src
+
+
+class TestPanelPromoteAdvancesRail:
+    """james 2026-07-22: the panel's Promote button worked but the phase rail
+    stayed on Dry-run — only CC tools wrote the session hint. The studio
+    promote route now advances the hint itself (phase=live) using the
+    session_id the button sends."""
+
+    def test_route_updates_hint_and_button_sends_session(self):
+        from pathlib import Path as _P
+        route = _P(nodes.__file__).resolve().parents[1].joinpath(
+            "routes", "studio.py").read_text(encoding="utf-8", errors="replace")
+        block = route.split('"/automation/{automation_id}/promote"')[1].split("@router.")[0]
+        assert 'studio_state.update(session_id, phase="live"' in block
+        assert 'res.get("ok")' in block               # only after a real promote
+        js = _P(nodes.__file__).resolve().parents[1].joinpath(
+            "static", "js", "cc-studio.js").read_text(encoding="utf-8", errors="replace")
+        assert "session_id: (window.CC && CC.sessionId)" in js

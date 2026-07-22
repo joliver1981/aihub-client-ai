@@ -329,7 +329,8 @@ const CCStudio = (() => {
             btn.onclick = async () => {
                 btn.disabled = true;
                 btn.textContent = 'Promoting…';
-                const r = await _post('/api/studio/automation/' + encodeURIComponent(lastAutomationId) + '/promote', {});
+                const r = await _post('/api/studio/automation/' + encodeURIComponent(lastAutomationId) + '/promote',
+                                      { session_id: (window.CC && CC.sessionId) || '' });
                 if (r && r.pinned_version) {
                     strip.innerHTML = `✅ <b>v${esc(r.pinned_version)} is now live.</b> ` +
                         `Want it to run on its own? Ask in chat — e.g. “run it daily at 8am”.`;
