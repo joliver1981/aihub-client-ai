@@ -240,7 +240,29 @@ const CCStudio = (() => {
     }
 
     // ── run result (dry-run theater / final verdicts) ───────────────────
+    let _verifiedWaitingRun = null;
+    function _refreshIfStaleWaiting(run) {
+        // The state hint freezes at 'waiting' when a run is decided from My
+        // Approvals / Mission Control (no further CC tool call overwrites
+        // it). A 'waiting' hint is therefore only a CLAIM — fetch the run's
+        // authoritative state once and render the real verdict if it has
+        // moved on (james 2026-07-22: 'why wasn't the failure reflected?').
+        if (!run || run.status !== 'waiting' || !run.run_id) return;
+        if (_verifiedWaitingRun === run.run_id) return;
+        _verifiedWaitingRun = run.run_id;
+        _get(`/api/studio/runs/${encodeURIComponent(run.run_id)}/events?after=0`)
+            .then(d => {
+                const r = d && d.run;
+                if (r && !['running', 'waiting', 'aborting'].includes(r.status)) {
+                    _renderRunResult({ status: r.status, exit_code: r.exit_code,
+                                       verify_report: r.verify_report, dry_run: run.dry_run });
+                }
+            })
+            .catch(() => {});
+    }
+
     function _renderRunResult(run) {
+        _refreshIfStaleWaiting(run);
         const sec = $('studio-verify-section');
         sec.style.display = '';
         $('studio-verify-title').textContent = run.dry_run ? 'Dry-run result' : 'Run result';

@@ -1084,7 +1084,9 @@ class TestFinalStateAndEmptyResultLaws:
         assert "_finishLive(fin)" in gone_branch
         html = _P(nodes.__file__).resolve().parents[1].joinpath(
             "static", "index.html").read_text(encoding="utf-8", errors="replace")
-        assert "cc-studio.js?v=5" in html
+        import re as _re
+        m = _re.search(r"cc-studio\.js\?v=(\d+)", html)
+        assert m and int(m.group(1)) >= 5
 
     def test_prompt_teaches_empty_results_are_not_failures(self):
         from pathlib import Path as _P
@@ -1092,3 +1094,19 @@ class TestFinalStateAndEmptyResultLaws:
             encoding="utf-8", errors="replace")
         assert "EMPTY RESULTS AREN'T FAILURES" in src
         assert "declare min_rows only when emptiness is" in src
+
+
+class TestStaleWaitingHintRefetch:
+    """james 2026-07-22: a 'waiting' state hint is only a CLAIM — the panel
+    must verify it against the run's authoritative state, because queue-side
+    decisions finish runs without any CC tool call updating the hint."""
+
+    def test_waiting_hint_triggers_authoritative_fetch(self):
+        from pathlib import Path as _P
+        js = _P(nodes.__file__).resolve().parents[1].joinpath(
+            "static", "js", "cc-studio.js").read_text(encoding="utf-8", errors="replace")
+        assert "_refreshIfStaleWaiting(run)" in js
+        assert js.count("/events?after=0") >= 1
+        body = js.split("function _refreshIfStaleWaiting")[1].split("function _renderRunResult")[0]
+        assert "run.status !== 'waiting'" in body    # only re-checks waiting claims
+        assert "_verifiedWaitingRun" in body         # once per run, no poll loop
