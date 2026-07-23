@@ -3578,7 +3578,8 @@ def populate_schema_with_claude_chunked(
     # Process each chunk
     chunk_results = []
     temp_files = []
-    
+    failed_chunks = []
+
     try:
         for chunk_idx, (start_page, end_page) in enumerate(chunk_ranges):
             logger.info(f"Processing chunk {chunk_idx + 1}/{len(chunk_ranges)}: pages {start_page + 1}-{end_page}")
@@ -3631,12 +3632,24 @@ def populate_schema_with_claude_chunked(
                 logger.info(f"Chunk {chunk_idx + 1} processed successfully")
                 
             except Exception as e:
-                logger.error(f"Error processing chunk {chunk_idx + 1}: {e}")
-                # Continue with other chunks even if one fails
+                pages_label = f"{start_page + 1}-{end_page}"
+                logger.error(f"Error processing chunk {chunk_idx + 1} (pages {pages_label}): {e}")
+                # Record the failure so it is NOT silently swallowed. We still
+                # continue so the surviving chunks are salvaged, but the merged
+                # result carries the failure list and the caller decides whether
+                # partial extraction is acceptable. Previously a failed chunk
+                # (commonly a max_tokens truncation -> "invalid JSON") was dropped
+                # here with only a log line, so the workflow reported success while
+                # silently missing that chunk's rows.
+                failed_chunks.append({
+                    "chunk": chunk_idx + 1,
+                    "pages": pages_label,
+                    "error": str(e),
+                })
                 # Add an empty result to maintain chunk indexing
                 chunk_results.append({
                     "fields": {},
-                    "global_assumptions": [f"Chunk {chunk_idx + 1} processing failed: {str(e)}"]
+                    "global_assumptions": [f"Chunk {chunk_idx + 1} (pages {pages_label}) processing failed: {str(e)}"]
                 })
     
     finally:
@@ -3657,7 +3670,15 @@ def populate_schema_with_claude_chunked(
     merged_result["chunked"] = True
     merged_result["chunk_count"] = len(chunk_ranges)
     merged_result["total_pages"] = total_pages
-    
+
+    # Surface any chunk failures so partial extraction is never silent.
+    if failed_chunks:
+        merged_result["failed_chunks"] = failed_chunks
+        logger.error(
+            f"PARTIAL EXTRACTION: {len(failed_chunks)} of {len(chunk_ranges)} chunk(s) "
+            f"failed — rows from pages {[fc['pages'] for fc in failed_chunks]} are MISSING. "
+            f"First error: {failed_chunks[0]['error'][:200]}")
+
     logger.info(
         f"Chunked processing complete: {total_pages} pages processed in {len(chunk_ranges)} chunks, "
         f"{len(merged_result.get('fields', {}))} fields extracted"

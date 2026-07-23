@@ -1179,6 +1179,34 @@ class WorkflowExecutionEngine:
                 input_data = mapped_data
                 log_execution_func(execution_id, node_id, "debug", "Applied field mapping to input data")
             
+            # ------------------------------------------------------------------
+            # Drop junk/empty rows before writing. An extraction that produced no
+            # items leaks through as an empty {} or a repeated_group container
+            # ({'Notes': None, ...}); the dict-wrapping above turns that into ONE
+            # placeholder row that carries NONE of the key columns, so it can't
+            # form a real row_key (it wrote as '|||') and shows up as a blank row
+            # that breaks sorting/filtering. Keep only rows with at least one
+            # non-empty key-column value.
+            # ------------------------------------------------------------------
+            def _row_has_key_values(row):
+                if not isinstance(row, dict):
+                    return False
+                lowered = {str(k).strip().lower(): v for k, v in row.items()}
+                for kc in key_columns:
+                    v = lowered.get(str(kc).strip().lower())
+                    if v is not None and str(v).strip() not in ('', 'None'):
+                        return True
+                return False
+
+            _before_ct = len(input_data)
+            input_data = [r for r in input_data if _row_has_key_values(r)]
+            _dropped_ct = _before_ct - len(input_data)
+            if _dropped_ct:
+                log_execution_func(
+                    execution_id, node_id, "info",
+                    f"Skipped {_dropped_ct} empty/keyless row(s) with no key-column "
+                    f"values (nothing to write)")
+
             # ================================================================
             # AI KEY MATCHING (if enabled)
             # ================================================================
@@ -2382,6 +2410,28 @@ Guidelines:
             formatting_instructions=formatting_instructions
         )
 
+        # Normalize a degenerate top-level shape. Some models return the
+        # repeated_group as a BARE top-level JSON array (the whole response IS
+        # the array) instead of {"fields": {...}} or {"<field>": [...]} — so
+        # extraction_result comes back as a list, and every .get() below would
+        # raise "'list' object has no attribute 'get'". Wrap it under the primary
+        # (first repeated_group, else first) schema field so the recovery pass
+        # further down and the rest of the pipeline see the expected dict shape.
+        if isinstance(extraction_result, list):
+            primary_field = next(
+                (f.get('name') for f in fields
+                 if isinstance(f, dict) and f.get('type') == 'repeated_group' and f.get('name')),
+                None)
+            if not primary_field:
+                primary_field = next(
+                    (f.get('name') for f in fields if isinstance(f, dict) and f.get('name')),
+                    None)
+            self.log_execution(
+                execution_id, node_id, "warning",
+                f"Extraction returned a bare top-level array ({len(extraction_result)} item(s)); "
+                f"wrapping under field '{primary_field}' so it isn't lost")
+            extraction_result = {primary_field: extraction_result} if primary_field else {}
+
         logger.debug("******************************************************************************")
         logger.debug("Result from Claude:")
         logger.debug(f"Extraction result: {to_truncated_str(extraction_result)}")
@@ -2393,6 +2443,27 @@ Guidelines:
             self.log_execution(
                 execution_id, node_id, "warning",
                 f"Document extraction assumptions: {'; '.join(global_assumptions)}")
+
+        # Surface partial extraction. The chunked extractor records any chunk that
+        # failed (commonly a max_tokens truncation surfacing as "invalid JSON") in
+        # 'failed_chunks' rather than swallowing it. Those pages' rows are missing,
+        # so do NOT let the workflow report a complete extraction — fail loudly by
+        # default. A workflow that genuinely wants best-effort output can set
+        # allowPartialExtraction=True to continue with whatever was salvaged.
+        failed_chunks = extraction_result.get('failed_chunks') or []
+        if failed_chunks:
+            pages = ", ".join(str(fc.get('pages', '?')) for fc in failed_chunks)
+            first_err = str(failed_chunks[0].get('error', ''))[:200]
+            partial_msg = (
+                f"PARTIAL EXTRACTION — {len(failed_chunks)} document chunk(s) failed "
+                f"(pages {pages}); requirements from those pages are MISSING. "
+                f"First error: {first_err}")
+            self.log_execution(execution_id, node_id, "error", partial_msg)
+            if not node_config.get('allowPartialExtraction', False):
+                raise ValueError(
+                    partial_msg + " — failing the step so this is not reported as a "
+                    "complete extraction. Set 'allowPartialExtraction' on the node to "
+                    "continue with the partial result instead.")
             
         # Log cell formatting if present
         cell_formatting = extraction_result.get('cell_formatting', {})
@@ -2418,13 +2489,34 @@ Guidelines:
                 if isinstance(recovered, (list, dict)):
                     value = recovered
             extracted_data[field_name] = value
-            
+
             # Log any field-specific assumptions
             assumptions = field_info.get('assumptions', [])
             if assumptions:
                 self.log_execution(
                     execution_id, node_id, "debug",
                     f"Field '{field_name}' assumptions: {'; '.join(assumptions)}")
+
+        # Recovery pass: some large/chunked extractions return the repeated_group /
+        # group data at the TOP LEVEL (extraction_result[field_name]) with an EMPTY
+        # or MISSING 'fields' wrapper. The loop above only iterates over 'fields',
+        # so a requested field is silently dropped in that case — observed live: a
+        # whole manual's Notes array lost, extracted_data == {} while the raw result
+        # held {"Notes": [...]}. For any requested schema field that did not come
+        # through as a non-empty list/dict, recover it from a top-level structured
+        # value of the same name so the extracted data is never thrown away.
+        for field_name in schema_fields.keys():
+            current = extracted_data.get(field_name)
+            if isinstance(current, (list, dict)) and len(current) > 0:
+                continue  # already populated by the normal path — leave it alone
+            recovered = extraction_result.get(field_name)
+            if isinstance(recovered, (list, dict)) and len(recovered) > 0:
+                extracted_data[field_name] = recovered
+                self.log_execution(
+                    execution_id, node_id, "warning",
+                    f"Recovered '{field_name}' from the top-level extraction result "
+                    f"(the 'fields' wrapper was empty/missing) — {len(recovered)} "
+                    f"item(s) that would otherwise have been dropped")
         
         self.log_execution(
             execution_id, node_id, "info",
