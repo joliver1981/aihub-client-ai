@@ -2479,6 +2479,19 @@ Guidelines:
         
         for field_name, field_info in fields_result.items():
             value = field_info.get('value')
+            # A model forced by a "value: string" output format sometimes
+            # JSON-encodes a repeated_group/group array INTO the value string
+            # (it literally says so in its assumptions). Parse it back so the
+            # array is treated as data, not opaque text.
+            if isinstance(value, str):
+                s = value.strip()
+                if s[:1] in ('[', '{'):
+                    try:
+                        parsed = json.loads(s)
+                        if isinstance(parsed, (list, dict)):
+                            value = parsed
+                    except (ValueError, TypeError):
+                        pass
             # Safety net: if a repeated_group/group field's value came back as a scalar
             # (e.g. Opus 4.8 emitting a placeholder string or null while putting the real
             # array/object under a top-level key of the same name), prefer that structured

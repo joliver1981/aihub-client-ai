@@ -3001,7 +3001,10 @@ Your job:
 - If you cannot confidently find a value, set "value": null and explain why in "assumptions".
 - Be conservative; do not hallucinate. If the document is ambiguous, call that out.
 - For each field, provide:
-  - "value": a concise string or null
+  - "value": the extracted value. Use a concise string for a normal field. If the field's
+    description says to return an ARRAY of objects, put a JSON array of those objects here (NOT
+    a string, and NOT null just because it is an array). If it says to return an object, put a
+    JSON object here. Use null ONLY when you genuinely cannot find the information.
   - "confidence": your confidence level in the extracted value - must be one of: "HIGH", "MED", or "LOW"
     - HIGH: Value is explicitly and clearly stated in the document
     - MED: Value is reasonably inferred from context or partially stated
@@ -3025,7 +3028,7 @@ Output format (STRICT JSON ONLY, no markdown, no comments):
 {{
   "fields": {{
     "<field_key>": {{
-      "value": <string or null>,
+      "value": <a concise string; OR a JSON array of objects when the field's description says to return an ARRAY; OR a JSON object when it says to return an object; OR null>,
       "confidence": "HIGH" | "MED" | "LOW",
       "assumptions": [<string>],
       "sources": [
@@ -3086,7 +3089,7 @@ Output format (STRICT JSON ONLY, no markdown, no comments):
 {{
   "fields": {{
     "<field_key>": {{
-      "value": <string or null>,
+      "value": <a concise string; OR a JSON array of objects when the field's description says to return an ARRAY; OR a JSON object when it says to return an object; OR null>,
       "confidence": "HIGH" | "MED" | "LOW",
       "assumptions": [<string>],
       "sources": [
@@ -3132,7 +3135,10 @@ Your job:
 - If you cannot confidently find a value, set "value": null and explain why in "assumptions".
 - Be conservative; do not hallucinate. If the document is ambiguous, call that out.
 - For each field, provide:
-  - "value": a concise string or null
+  - "value": the extracted value. Use a concise string for a normal field. If the field's
+    description says to return an ARRAY of objects, put a JSON array of those objects here (NOT
+    a string, and NOT null just because it is an array). If it says to return an object, put a
+    JSON object here. Use null ONLY when you genuinely cannot find the information.
   - "assumptions": an array of strings (may be empty)
   - "sources": an array of objects with:
       - "document": always the file name "{document_name}"
@@ -3149,7 +3155,7 @@ Output format (STRICT JSON ONLY, no markdown, no comments):
 {{
   "fields": {{
     "<field_key>": {{
-      "value": <string or null>,
+      "value": <a concise string; OR a JSON array of objects when the field's description says to return an ARRAY; OR a JSON object when it says to return an object; OR null>,
       "assumptions": [<string>],
       "sources": [
         {{
@@ -3484,7 +3490,7 @@ def populate_schema_with_claude_chunked(
         {
           "fields": {
             "<field_key>": {
-              "value": <string or null>,
+              "value": <a concise string; OR a JSON array of objects when the field's description says to return an ARRAY; OR a JSON object when it says to return an object; OR null>,
               "assumptions": [<string>],
               "sources": [{"document": <str>, "pages": [<int>], "notes": <str>}]
             }
@@ -3826,7 +3832,7 @@ def populate_schema_with_claude(
         {
           "fields": {
             "<field_key>": {
-              "value": <string or null>,
+              "value": <a concise string; OR a JSON array of objects when the field's description says to return an ARRAY; OR a JSON object when it says to return an object; OR null>,
               "assumptions": [<string>],
               "sources": [
                 {
