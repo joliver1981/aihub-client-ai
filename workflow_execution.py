@@ -4381,6 +4381,32 @@ Guidelines:
             return {'success': False, 'error': (result.get('error') or f"portal workflow '{slug}' did not complete"), 'data': output_obj}
         return {'success': True, 'data': output_obj}
 
+    @staticmethod
+    def _automation_stderr_tail(workdir, max_lines=6, max_chars=600):
+        """Last stderr lines from an automation/code-step run's run.log —
+        surfaced into the node error so the workflow debugger shows the ACTUAL
+        failure (e.g. the AttributeError line), not just 'exit code 1'
+        (james 2026-07-23). Single-line ('|'-joined) for the debugger UI.
+        Never raises; returns '' when there's nothing useful."""
+        try:
+            if not workdir:
+                return ''
+            log_path = os.path.join(workdir, 'run.log')
+            if not os.path.isfile(log_path):
+                return ''
+            with open(log_path, 'r', encoding='utf-8', errors='replace') as fh:
+                text = fh.read()
+            if '===== stderr =====' not in text:
+                return ''
+            section = text.split('===== stderr =====', 1)[1]
+            section = section.split('===== result =====', 1)[0]
+            lines = [ln.rstrip() for ln in section.strip().splitlines() if ln.strip()]
+            if not lines or lines == ['(empty)']:
+                return ''
+            return ' | '.join(lines[-max_lines:])[-max_chars:]
+        except Exception:
+            return ''
+
     def _execute_automation_node(self, execution_id, node, variables):
         """Run a persisted Automation (AI-generated Python solution) as a
         workflow step — the P4 composability seam of the Automations plan
@@ -4490,15 +4516,18 @@ Guidelines:
             variables[files_variable] = abs_files
 
         ok = status == 'success' or (status == 'unverified' and allow_unverified)
+        stderr_tail = '' if ok else self._automation_stderr_tail(workdir)
         self.log_execution(
             execution_id, node_id, ('info' if ok else 'warning'),
             f"Automation '{auto['name']}': outcome={status}, files={len(abs_files)}"
-            + (f", error={result.get('error')}" if result.get('error') else ''))
+            + (f", error={result.get('error')}" if result.get('error') else '')
+            + (f" — stderr: {stderr_tail}" if stderr_tail else ''))
 
         if not ok and not continue_on_error:
-            return {'success': False,
-                    'error': result.get('error') or f"automation '{auto['name']}' outcome was {status}",
-                    'data': output_obj}
+            err = result.get('error') or f"automation '{auto['name']}' outcome was {status}"
+            if stderr_tail:
+                err = f"{err} — stderr: {stderr_tail}"
+            return {'success': False, 'error': err, 'data': output_obj}
         return {'success': True, 'data': output_obj}
 
     def _execute_code_step_node(self, execution_id, node, variables):
@@ -4590,13 +4619,16 @@ Guidelines:
         # sftp_upload without remote_listing) passes only if the step opted in,
         # mirroring the Automation node's allow_unverified.
         ok = status == 'success' or (status == 'unverified' and allow_unverified)
+        stderr_tail = '' if ok else self._automation_stderr_tail(workdir)
         self.log_execution(execution_id, node_id, ('info' if ok else 'warning'),
                            f"Code Step '{step_name}': outcome={status}, files={len(abs_files)}"
-                           + (f", error={result.get('error')}" if result.get('error') else ''))
+                           + (f", error={result.get('error')}" if result.get('error') else '')
+                           + (f" — stderr: {stderr_tail}" if stderr_tail else ''))
         if not ok and not continue_on_error:
-            return {'success': False,
-                    'error': result.get('error') or f"code step '{step_name}' outcome was {status}",
-                    'data': output_obj}
+            err = result.get('error') or f"code step '{step_name}' outcome was {status}"
+            if stderr_tail:
+                err = f"{err} — stderr: {stderr_tail}"
+            return {'success': False, 'error': err, 'data': output_obj}
         return {'success': True, 'data': output_obj}
 
     def _update_workflow_variable(self, execution_id: str, variable_name: str,
