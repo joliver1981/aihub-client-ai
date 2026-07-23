@@ -1055,23 +1055,32 @@ def _populate_table(ws, mapped_data: Dict, schema: Dict, operation: str) -> Dict
             for col in range(1, ws.max_column + 1):
                 ws.cell(row=row, column=col, value=None)
         logger.debug(f"Cleared existing data from row {start_row}")
-    else:  # append
-        logger.debug(f"APPEND DEBUG: ws.max_row = {ws.max_row}")
-        logger.debug(f"APPEND DEBUG: ws.title = {ws.title}")
-        logger.debug(f"APPEND DEBUG: Row 2 Col 1 value = {ws.cell(row=2, column=1).value}")
-        
-        start_row = ws.max_row + 1
-        logger.debug(f"APPEND DEBUG: Initial start_row (max_row + 1) = {start_row}")
-        
-        # If only header row exists, start at row 2
-        if start_row == 2 and ws.cell(row=1, column=1).value is not None:
-            start_row = 2
-            logger.debug(f"APPEND DEBUG: Condition 1 matched - only headers exist")
-        elif start_row == 1:
-            start_row = 2
-            logger.debug(f"APPEND DEBUG: Condition 2 matched - empty sheet")
-        
-        logger.debug(f"APPEND DEBUG: Final start_row = {start_row}")
+    else:  # append (also the path taken by new_from_template)
+        # Find the first free row by scanning UP for the last row that actually
+        # contains data, instead of trusting ws.max_row + 1.
+        #
+        # openpyxl's ws.max_row counts trailing/phantom empty rows: a
+        # hand-authored template often carries an empty row directly under the
+        # header (or a <dimension> that spans past the last real row), so
+        # max_row came back as 2 for a header-only sheet. start_row = max_row+1
+        # then wrote the first record to row 3 and left a permanent blank row 2
+        # under the header — which breaks sorting in Excel. Scanning for the
+        # last non-empty row is robust to that.
+        last_data_row = 0
+        for r in range(ws.max_row, 0, -1):
+            if any(ws.cell(row=r, column=c).value not in (None, "")
+                   for c in range(1, ws.max_column + 1)):
+                last_data_row = r
+                break
+
+        # last_data_row == 0 -> completely empty sheet
+        # last_data_row == 1 -> only the header row is populated
+        # otherwise          -> append immediately after the last real row
+        # Row 1 is reserved for headers, so data never starts above row 2.
+        start_row = max(last_data_row + 1, 2)
+        logger.debug(
+            f"APPEND: ws.max_row={ws.max_row}, last_data_row={last_data_row}, "
+            f"start_row={start_row}")
     
     # Write rows
     rows_written = 0
