@@ -2586,17 +2586,23 @@ function configureNode() {
                         }
             
             // Fill in existing values
+            // Each entry restores inside its own guard, and every dynamic bit
+            // of a selector goes through CSS.escape(): a saved value containing
+            // quotes (e.g. the Automation node's inputs JSON) used to produce
+            // an invalid selector, querySelector THREW, and the whole config
+            // dialog could never open again (james 2026-07-22).
             Object.entries(currentConfig).forEach(([key, value]) => {
-                const input = modalBody.querySelector(`[name="${key}"]`);
+                try {
+                const input = modalBody.querySelector(`[name="${CSS.escape(key)}"]`);
                 if (input) {
                     console.log('Setting control name: ' + input.name);
                     console.log('Setting control value: ' + value);
-                    
+
                     if (input.type === 'checkbox') {
                         input.checked = value;
                     } else if (input.type === 'radio') {
                         // For radio buttons, we need to find the one with matching value
-                        const radioWithMatchingValue = modalBody.querySelector(`input[name="${key}"][value="${value}"]`);
+                        const radioWithMatchingValue = modalBody.querySelector(`input[name="${CSS.escape(key)}"][value="${CSS.escape(String(value))}"]`);
                         if (radioWithMatchingValue) {
                             radioWithMatchingValue.checked = true;
                         }
@@ -2624,10 +2630,14 @@ function configureNode() {
                     }
                 } else if (input === null) {
                     // Handle case where we're dealing with a radio group
-                    const radioInput = modalBody.querySelector(`input[type="radio"][name="${key}"][value="${value}"]`);
+                    const radioInput = modalBody.querySelector(`input[type="radio"][name="${CSS.escape(key)}"][value="${CSS.escape(String(value))}"]`);
                     if (radioInput) {
                         radioInput.checked = true;
                     }
+                }
+                } catch (e) {
+                    // One unrestorable key must never brick the dialog.
+                    console.warn('config restore skipped for "' + key + '":', e);
                 }
             });
 

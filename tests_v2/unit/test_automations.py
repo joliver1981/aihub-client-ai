@@ -1742,7 +1742,7 @@ class TestAutomationNodeInDesigner:
         page = self._root().joinpath("templates", "workflow_tool.html").read_text(
             encoding="utf-8", errors="replace")
         assert "data-type=\"Automation\"" in page
-        assert "filename='js/workflow.js', v=4" in page
+        assert "filename='js/workflow.js', v=" in page  # >= threshold, exact pins broke on every bump
         assert "filename='css/workflow_node_colors.css', v=3" in page
 
     def test_css_shades_portal_and_automation(self):
@@ -1951,7 +1951,7 @@ class TestGroupRoutingAndSettingsPanel:
         page = root.joinpath("templates", "workflow_tool.html").read_text(
             encoding="utf-8", errors="replace")
         assert "automation_node.js?v=" in page  # >= threshold, exact pins broke on every bump
-        assert "filename='js/workflow.js', v=4" in page.replace('"', "'")
+        assert "filename='js/workflow.js', v=" in page.replace('"', "'")  # >= threshold
 
 
 class TestGetAutomationIncludesManifest:
@@ -2505,3 +2505,47 @@ class TestBuilderDrawerUiRound2:
             "templates", "workflow_tool.html").read_text(encoding="utf-8", errors="replace")
         m = re.search(r"automation_node\.js\?v=(\d+)", html)
         assert m and int(m.group(1)) >= 3
+
+
+class TestConfigureNodeSelectorEscape:
+    """james 2026-07-22: after configuring an Automation node, its config
+    dialog could NEVER reopen — configureNode interpolated the saved value
+    RAW into a CSS selector, and the inputs JSON's quotes made it invalid,
+    so querySelector THREW and killed the dialog. Latent for ANY node type
+    with a quoted config value. Pin: dynamic selector parts go through
+    CSS.escape() and each key restores inside its own guard."""
+
+    def _js(self):
+        from pathlib import Path
+        return Path(__file__).resolve().parents[2].joinpath(
+            "static", "js", "workflow.js").read_text(encoding="utf-8", errors="replace")
+
+    def test_radio_selectors_are_escaped(self):
+        js = self._js()
+        assert 'input[name="${CSS.escape(key)}"][value="${CSS.escape(String(value))}"]' in js
+        assert 'input[type="radio"][name="${CSS.escape(key)}"][value="${CSS.escape(String(value))}"]' in js
+        # the raw-interpolation pattern must be gone
+        assert 'input[type="radio"][name="${key}"][value="${value}"]' not in js
+
+    def test_per_key_guard_present(self):
+        js = self._js()
+        assert "config restore skipped for" in js  # one bad key can't brick the dialog
+
+    def test_designer_pins_workflow_v5(self):
+        from pathlib import Path
+        import re
+        html = Path(__file__).resolve().parents[2].joinpath(
+            "templates", "workflow_tool.html").read_text(encoding="utf-8", errors="replace")
+        m = re.search(r"filename='js/workflow\.js', v=(\d+)", html)
+        assert m and int(m.group(1)) >= 5
+
+    def test_workflow_js_parses_with_node(self, tmp_path):
+        import shutil
+        import subprocess
+        node = shutil.which("node")
+        if not node:
+            pytest.skip("node not available")
+        from pathlib import Path
+        src = Path(__file__).resolve().parents[2] / "static" / "js" / "workflow.js"
+        proc = subprocess.run([node, "--check", str(src)], capture_output=True, text=True)
+        assert proc.returncode == 0, f"workflow.js broken:\n{proc.stderr[:800]}"
