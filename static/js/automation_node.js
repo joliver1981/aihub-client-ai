@@ -104,22 +104,36 @@ const AutomationNode = (function () {
         if (document.getElementById('autoBuilderCSS')) return;
         const st = document.createElement('style');
         st.id = 'autoBuilderCSS';
+        /* The designer is DARK (body{color:white}) — every color here is set
+           EXPLICITLY, never inherited (james 2026-07-22: white-on-white). */
         st.textContent = `
 #autoBuilderDrawer{position:fixed;top:0;right:0;height:100%;width:520px;max-width:92vw;z-index:10050;
-  background:#fff;border-left:1px solid #cfd8dc;box-shadow:-6px 0 24px rgba(0,0,0,.18);
+  background:var(--bg-card,#0e1418);color:var(--text-primary,#e8eef2);
+  border-left:1px solid var(--border-subtle,#2a3944);box-shadow:-6px 0 24px rgba(0,0,0,.5);
   display:flex;flex-direction:column;font-size:14px}
-#autoBuilderDrawer .abd-head{padding:10px 14px;border-bottom:1px solid #e3eaee;display:flex;align-items:center;gap:8px}
-#autoBuilderDrawer .abd-title{font-weight:600;flex:1}
-#autoBuilderDrawer .abd-opts{padding:8px 14px;border-bottom:1px solid #e3eaee;background:#f6fafc;font-size:13px}
-#autoBuilderDrawer .abd-msgs{flex:1;overflow-y:auto;padding:12px 14px;background:#fbfdfe}
-#autoBuilderDrawer .abd-msg{margin-bottom:10px;white-space:pre-wrap;word-break:break-word;line-height:1.45}
-#autoBuilderDrawer .abd-msg.user{background:#e7f2f7;border-radius:8px;padding:8px 10px}
-#autoBuilderDrawer .abd-msg.agent{background:#fff;border:1px solid #e8eef1;border-radius:8px;padding:8px 10px}
-#autoBuilderDrawer .abd-status{padding:4px 14px;font-size:12px;color:#6b8391;min-height:22px}
-#autoBuilderDrawer .abd-bind{display:none;margin:0 14px 8px 14px;padding:10px;border:1px solid #9fd3a8;
-  background:#eef9f0;border-radius:8px;font-size:13px}
-#autoBuilderDrawer .abd-input{display:flex;gap:8px;padding:10px 14px;border-top:1px solid #e3eaee}
-#autoBuilderDrawer textarea{flex:1;resize:none;height:64px}
+#autoBuilderDrawer .abd-resize{position:absolute;left:0;top:0;bottom:0;width:6px;cursor:ew-resize;z-index:1}
+#autoBuilderDrawer .abd-resize:hover{background:rgba(120,170,200,.25)}
+#autoBuilderDrawer .abd-head{padding:10px 14px;border-bottom:1px solid var(--border-subtle,#2a3944);
+  display:flex;align-items:center;gap:8px}
+#autoBuilderDrawer .abd-title{font-weight:600;flex:1;color:var(--text-primary,#e8eef2)}
+#autoBuilderDrawer .abd-opts{padding:8px 14px;border-bottom:1px solid var(--border-subtle,#2a3944);
+  background:rgba(255,255,255,.04);font-size:13px;color:var(--text-primary,#dbe5ea)}
+#autoBuilderDrawer .abd-opts .text-muted{color:#8aa0ac!important}
+#autoBuilderDrawer .abd-msgs{flex:1;overflow-y:auto;padding:12px 14px}
+#autoBuilderDrawer .abd-msg{margin-bottom:10px;white-space:pre-wrap;word-break:break-word;line-height:1.45;
+  color:var(--text-primary,#e2ebf0)}
+#autoBuilderDrawer .abd-msg.user{background:#173243;border-radius:8px;padding:8px 10px}
+#autoBuilderDrawer .abd-msg.agent{background:rgba(255,255,255,.05);border:1px solid var(--border-subtle,#2a3944);
+  border-radius:8px;padding:8px 10px}
+#autoBuilderDrawer .abd-status{padding:4px 14px;font-size:12px;color:#7f97a3;min-height:22px}
+#autoBuilderDrawer .abd-bind{display:none;margin:0 14px 8px 14px;padding:10px;border:1px solid #3f7a4d;
+  background:#12291a;border-radius:8px;font-size:13px;color:#cfe9d6}
+#autoBuilderDrawer .abd-bind code{color:#8fd3a8}
+#autoBuilderDrawer .abd-input{display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--border-subtle,#2a3944)}
+#autoBuilderDrawer textarea{flex:1;resize:none;height:64px;background:#0b1013;color:#e8eef2;
+  border:1px solid var(--border-subtle,#2a3944)}
+#autoBuilderDrawer textarea::placeholder{color:#607482}
+#autoBuilderDrawer textarea:focus{background:#0b1013;color:#e8eef2;border-color:#3d5866;box-shadow:none}
 `;
         document.head.appendChild(st);
     }
@@ -131,6 +145,7 @@ const AutomationNode = (function () {
         d = document.createElement('div');
         d.id = 'autoBuilderDrawer';
         d.innerHTML =
+            '<div class="abd-resize" id="abdResize" title="Drag to resize"></div>' +
             '<div class="abd-head"><span class="abd-title">🤖 Build automation with AI</span>' +
             '<button type="button" class="btn btn-sm btn-outline-secondary" id="abdClose">✕</button></div>' +
             '<div class="abd-opts"><label style="margin:0;cursor:pointer">' +
@@ -150,6 +165,36 @@ const AutomationNode = (function () {
         document.getElementById('abdSend').onclick = () => _send(cur);
         document.getElementById('abdText').addEventListener('keydown', (ev) => {
             if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); _send(cur); }
+        });
+        // The node-config dialog is a Bootstrap modal; its focus trap yanks
+        // focus back from anything "outside" the modal — which the drawer is
+        // (james 2026-07-22: "cannot type unless I close the config window").
+        // Capture-phase guard: focus events inside the drawer never reach the
+        // trap's document-level listener; focus elsewhere behaves as before.
+        document.addEventListener('focusin', (ev) => {
+            const dd = document.getElementById('autoBuilderDrawer');
+            if (dd && dd.style.display !== 'none' && dd.contains(ev.target)) {
+                ev.stopImmediatePropagation();
+            }
+        }, true);
+        // Resizable via the left edge (same UX as the Studio panel); width sticks.
+        try {
+            const saved = parseInt(localStorage.getItem('auto_builder_w') || '', 10);
+            if (saved) d.style.width = Math.min(Math.max(saved, 380), 900) + 'px';
+        } catch (e) {}
+        document.getElementById('abdResize').addEventListener('mousedown', (ev) => {
+            ev.preventDefault();
+            const move = (m) => {
+                const w = Math.min(Math.max(window.innerWidth - m.clientX, 380), 900);
+                d.style.width = w + 'px';
+                try { localStorage.setItem('auto_builder_w', String(w)); } catch (e) {}
+            };
+            const up = () => {
+                document.removeEventListener('mousemove', move);
+                document.removeEventListener('mouseup', up);
+            };
+            document.addEventListener('mousemove', move);
+            document.addEventListener('mouseup', up);
         });
         _session = null;
         _snapshot = {};

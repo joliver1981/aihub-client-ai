@@ -2467,3 +2467,41 @@ class TestAutomationNodeVariableSubstitution:
         assert i != -1
         body = src[i:i + 6000]
         assert "_replace_variable_references" in body
+
+
+class TestBuilderDrawerUiRound2:
+    """james 2026-07-22 round 2: (1) drawer text was WHITE-ON-WHITE — the
+    designer is dark (body{color:white}) and the drawer inherited it onto
+    light backgrounds; every drawer color is now explicit + dark-native.
+    (2) The node-config Bootstrap modal's focus trap stole keystrokes from
+    the drawer — capture-phase focusin guard. (3) Resizable left edge."""
+
+    def _js(self):
+        from pathlib import Path
+        return Path(__file__).resolve().parents[2].joinpath(
+            "static", "js", "automation_node.js").read_text(encoding="utf-8")
+
+    def test_colors_are_explicit_dark_native(self):
+        js = self._js()
+        assert "--text-primary" in js          # themed text color set explicitly
+        assert "abd-msg" in js and "color:var(--text-primary" in js.replace(" ", "")
+
+    def test_focus_trap_guard(self):
+        js = self._js()
+        assert "focusin" in js
+        assert "stopImmediatePropagation" in js
+        assert "}, true)" in js                # capture phase — must beat the trap
+
+    def test_resizable_edge_with_sticky_width(self):
+        js = self._js()
+        assert "abdResize" in js
+        assert "auto_builder_w" in js          # width persists in localStorage
+        assert "ew-resize" in js
+
+    def test_designer_pins_v3(self):
+        from pathlib import Path
+        import re
+        html = Path(__file__).resolve().parents[2].joinpath(
+            "templates", "workflow_tool.html").read_text(encoding="utf-8", errors="replace")
+        m = re.search(r"automation_node\.js\?v=(\d+)", html)
+        assert m and int(m.group(1)) >= 3
