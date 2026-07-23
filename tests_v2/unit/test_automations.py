@@ -2549,3 +2549,46 @@ class TestConfigureNodeSelectorEscape:
         src = Path(__file__).resolve().parents[2] / "static" / "js" / "workflow.js"
         proc = subprocess.run([node, "--check", str(src)], capture_output=True, text=True)
         assert proc.returncode == 0, f"workflow.js broken:\n{proc.stderr[:800]}"
+
+
+class TestFixWithAiButton:
+    """james 2026-07-23: one-click 'Fix with AI' on a failed Automation node
+    in the workflow debugger — opens the drawer pre-seeded with the automation
+    identity + the surfaced stderr, auto-sends the fix request (no create
+    primer), and the bar promotes the fix. Contracts across both files."""
+
+    def _js(self, name):
+        from pathlib import Path
+        return Path(__file__).resolve().parents[2].joinpath(
+            "static", "js", name).read_text(encoding="utf-8", errors="replace")
+
+    def test_workflow_js_hooks_both_failed_step_handlers(self):
+        js = self._js("workflow.js")
+        assert js.count("AutomationNode.addFixEntry") >= 3  # guard + call, twice
+        hook = "step.node_type === 'Automation'"
+        assert js.count(hook) >= 2, "both polling handlers must render the fix entry"
+
+    def test_fix_flow_contracts(self):
+        js = self._js("automation_node.js")
+        assert "function addFixEntry" in js and "function openFix" in js
+        assert "addFixEntry, openFix" in js            # exported API
+        assert "Fix \"" in js                          # button label
+        assert "SAME automation" in js                 # agent told to update, not create
+        assert "!_session && !_fixMode" in js          # create-primer suppressed in fix mode
+        assert "_fixMode = true" in js and "_fixMode = false" in js
+        assert "Promote the fix & go live" in js
+        assert "re-run your workflow to test the fix" in js
+
+    def test_fix_mode_always_promotes(self):
+        js = self._js("automation_node.js")
+        assert "_fixMode || !!(document.getElementById('abdGoLive')" in js
+
+    def test_designer_pins_current(self):
+        from pathlib import Path
+        import re
+        html = Path(__file__).resolve().parents[2].joinpath(
+            "templates", "workflow_tool.html").read_text(encoding="utf-8", errors="replace")
+        m = re.search(r"filename='js/workflow\.js', v=(\d+)", html)
+        assert m and int(m.group(1)) >= 6
+        m = re.search(r"automation_node\.js\?v=(\d+)", html)
+        assert m and int(m.group(1)) >= 4

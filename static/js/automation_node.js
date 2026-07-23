@@ -28,6 +28,7 @@ const AutomationNode = (function () {
     let _session = null;         // CC session id for the drawer conversation
     let _snapshot = {};          // automation_id -> current_version at drawer open
     let _busy = false;
+    let _fixMode = false;        // opened via "Fix with AI" on a failed node
 
     function _esc(s) {
         return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -97,7 +98,7 @@ const AutomationNode = (function () {
         if (!_devOK) row.style.display = 'none';
         sel.insertAdjacentElement('afterend', row);
         document.getElementById('autoNodeRefreshBtn').onclick = () => _loadDropdown(cur, '').catch(() => {});
-        document.getElementById('autoNodeBuildBtn').onclick = () => _openDrawer(cur);
+        document.getElementById('autoNodeBuildBtn').onclick = () => { _fixMode = false; _openDrawer(cur); };
     }
 
     function _drawerCSS() {
@@ -220,11 +221,15 @@ const AutomationNode = (function () {
     }
 
     async function _send(cur) {
-        if (_busy) return;
         const ta = document.getElementById('abdText');
         const msg = (ta.value || '').trim();
         if (!msg) return;
         ta.value = '';
+        await _sendText(cur, msg);
+    }
+
+    async function _sendText(cur, msg) {
+        if (_busy) return;
         _append('user', msg);
         _busy = true;
         document.getElementById('abdSend').disabled = true;
@@ -236,7 +241,9 @@ const AutomationNode = (function () {
                 body: JSON.stringify({
                     message: msg,
                     session_id: _session,
-                    first: !_session,
+                    // fix mode composes its own complete message — the
+                    // server's "create an automation" primer would conflict
+                    first: !_session && !_fixMode,
                     skip_dry_run: !!(document.getElementById('abdGoLive') || {}).checked,
                     workflow_name: (typeof currentWorkflowName !== 'undefined' && currentWorkflowName) || '',
                     timezone: (Intl.DateTimeFormat().resolvedOptions() || {}).timeZone || ''
@@ -308,11 +315,13 @@ const AutomationNode = (function () {
         if (!fresh.length) return;
         fresh.sort((x, y) => String(y.updated_at || '').localeCompare(String(x.updated_at || '')));
         const a = fresh[0];
-        const goLive = !!(document.getElementById('abdGoLive') || {}).checked;
+        // fix mode always promotes — that's the whole point of the click
+        const goLive = _fixMode || !!(document.getElementById('abdGoLive') || {}).checked;
         bar.style.display = 'block';
         bar.innerHTML = `⚡ <b>${_esc(a.name)}</b> v${a.current_version} is ready — ` +
             `<button type="button" class="btn btn-sm btn-success" id="abdBindBtn">` +
-            (goLive ? '🚀 Go live & bind to this node' : 'Bind to this node (promote later)') +
+            (_fixMode ? '🚀 Promote the fix & go live'
+                      : (goLive ? '🚀 Go live & bind to this node' : 'Bind to this node (promote later)')) +
             '</button>';
         document.getElementById('abdBindBtn').onclick = () => _bind(cur, a, goLive);
     }
@@ -333,14 +342,74 @@ const AutomationNode = (function () {
             }
             await _loadDropdown(cur, a.automation_id);
             if (bar) {
-                bar.innerHTML = '✅ <b>' + _esc(a.name) + '</b>' +
-                    (goLive ? ' is LIVE and bound to this node.' : ' bound (not yet promoted).') +
-                    ' Set its inputs below — values support ' +
-                    '<code>${variable_name}</code> workflow variables. You can close this panel.';
+                bar.innerHTML = _fixMode
+                    ? ('✅ <b>' + _esc(a.name) + '</b> v' + a.current_version +
+                       ' is LIVE — re-run your workflow to test the fix.')
+                    : ('✅ <b>' + _esc(a.name) + '</b>' +
+                       (goLive ? ' is LIVE and bound to this node.' : ' bound (not yet promoted).') +
+                       ' Set its inputs below — values support ' +
+                       '<code>${variable_name}</code> workflow variables. You can close this panel.');
             }
         } catch (e) {
             if (bar) bar.innerHTML = '⚠ ' + _esc(e && e.message ? e.message : String(e));
         }
+    }
+
+    /* ---------------------------------------------- Fix-with-AI (debugger) */
+
+    // Called by workflow.js when a run shows a FAILED Automation node —
+    // renders a one-click "Fix with AI" entry under the error in the debug
+    // log. Re-failures of the same node UPDATE the entry (fresh error text)
+    // instead of stacking buttons.
+    function addFixEntry(step, cfg) {
+        const logContent = document.getElementById('debug-log-content');
+        if (!logContent) return;
+        const autoId = (cfg && cfg.automationId) || '';
+        const autoName = (cfg && cfg.automationName) || (step && step.node_name) || '';
+        if (!autoId && !autoName) return;
+        const key = 'abdFix-' + ((step && step.node_id) || autoId || autoName);
+        const err = String((step && step.error_message) || 'it failed (no error text captured)');
+        let entry = document.getElementById(key);
+        if (!entry) {
+            entry = document.createElement('div');
+            entry.id = key;
+            entry.className = 'debug-log-entry log-error';
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn btn-sm btn-warning abd-fix-btn';
+            btn.style.margin = '2px 0 4px 24px';
+            entry.appendChild(btn);
+            logContent.appendChild(entry);
+            logContent.scrollTop = logContent.scrollHeight;
+        }
+        const btn = entry.querySelector('button');
+        btn.textContent = '🔧 Fix "' + (autoName || 'automation') + '" with AI';
+        btn.onclick = () => openFix(cfg || {}, autoId, autoName, err);
+    }
+
+    // One click from a failed node to the authoring agent: opens the drawer,
+    // auto-sends a complete fix request (automation identity + the stderr the
+    // debugger surfaces since fad061b). The built-detection then offers
+    // "Promote the fix"; the node always runs the pinned version, so
+    // re-running the workflow picks it up — no rebinding needed.
+    async function openFix(cfg, autoId, autoName, errText) {
+        _openDrawer(cfg || {});
+        _fixMode = true;
+        _session = null;                       // fresh conversation per fix
+        _snapshot = {};
+        try {
+            (await _fetchList()).forEach(a => { _snapshot[a.automation_id] = a.current_version || 0; });
+        } catch (e) {}
+        const bar = document.getElementById('abdBind');
+        if (bar) { bar.style.display = 'none'; bar.innerHTML = ''; }
+        const msg = 'My existing automation "' + (autoName || autoId) + '"' +
+            (autoId ? ' (id ' + autoId + ')' : '') +
+            ' just FAILED while running as a node inside my workflow. Here is the error:\n\n' +
+            errText + '\n\n' +
+            'Please look at its current code, find the problem, fix it, and save a new version of ' +
+            'this SAME automation. Do not create a new automation, do not schedule anything, and ' +
+            'no dry-run is needed — I will re-run my workflow to test the fix.';
+        _sendText(cfg || {}, msg);
     }
 
     /* --------------------------------------------------- inputs rendering */
@@ -407,5 +476,5 @@ const AutomationNode = (function () {
         };
     }
 
-    return { setup, getConfig };
+    return { setup, getConfig, addFixEntry, openFix };
 })();

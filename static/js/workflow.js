@@ -9701,6 +9701,13 @@ function visualizeWorkflowExecution(executionData) {
                             'error'
                         );
                     }
+                    // Failed Automation nodes get a one-click "Fix with AI"
+                    // entry (james 2026-07-23) — rendering + flow live in
+                    // AutomationNode (automation_node.js), zero logic here.
+                    if (step.status.toLowerCase() === 'failed' && step.node_type === 'Automation'
+                        && typeof AutomationNode !== 'undefined' && AutomationNode.addFixEntry) {
+                        try { AutomationNode.addFixEntry(step, nodeConfigs.get(step.node_id) || {}); } catch (e) {}
+                    }
                     
                     // Log duration for completed steps
                     if (step.started_at && step.completed_at) {
@@ -9958,6 +9965,13 @@ function visualizeWorkflowExecution(executionData) {
                             `   Error: ${step.error_message}`,
                             'error'
                         );
+                    }
+                    // Failed Automation nodes get a one-click "Fix with AI"
+                    // entry (james 2026-07-23) — rendering + flow live in
+                    // AutomationNode (automation_node.js), zero logic here.
+                    if (step.status.toLowerCase() === 'failed' && step.node_type === 'Automation'
+                        && typeof AutomationNode !== 'undefined' && AutomationNode.addFixEntry) {
+                        try { AutomationNode.addFixEntry(step, nodeConfigs.get(step.node_id) || {}); } catch (e) {}
                     }
                     
                     // Log duration for completed steps
