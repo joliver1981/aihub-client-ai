@@ -618,6 +618,19 @@ DOC_FAST_PDF_MIN_CHARS_PER_PAGE = 250
 # Setting to False will skip fast extraction for clearly scanned PDFs
 DOC_FAST_PDF_ALWAYS_TRY_FAST = False
 
+# Blank-page rescue for hybrid PDF extraction (fixes silent page loss on flattened/outlined text).
+# The per-page router used to send any page WITHOUT embedded images down the fast text path;
+# pages whose text is vector-outlined (e-sign platforms, some print-to-PDF and fax drivers)
+# extract to "" there and were stored empty — no error, no warning, invisible to every search
+# path. With rescue enabled, a no-image page that extracts to fewer than
+# DOC_HYBRID_BLANK_PAGE_MIN_CHARS characters while carrying at least
+# DOC_HYBRID_BLANK_PAGE_MIN_DRAWINGS vector drawing ops (i.e., the page visibly has content)
+# is routed to AI vision instead. Genuinely blank pages (no ink) still take the fast path.
+# Set DOC_HYBRID_BLANK_PAGE_RESCUE = False to restore the old routing exactly.
+DOC_HYBRID_BLANK_PAGE_RESCUE = True
+DOC_HYBRID_BLANK_PAGE_MIN_CHARS = 50
+DOC_HYBRID_BLANK_PAGE_MIN_DRAWINGS = 10
+
 # Maximum pages per PDF chunk for schema extraction
 # Claude's API has a hard limit of 100 pages per PDF document
 DOC_SCHEMA_EXTRACTION_MAX_PAGES = 100

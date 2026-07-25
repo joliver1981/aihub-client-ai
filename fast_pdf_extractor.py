@@ -322,21 +322,50 @@ def validate_extraction_quality(
     
     return True, ""
 
+def _blank_page_rescue_settings() -> Tuple[bool, int, int]:
+    """Read blank-page rescue settings from config, with safe defaults when config is
+    unavailable (e.g., unit tests importing this module standalone)."""
+    try:
+        import config as cfg
+        return (
+            bool(getattr(cfg, 'DOC_HYBRID_BLANK_PAGE_RESCUE', True)),
+            int(getattr(cfg, 'DOC_HYBRID_BLANK_PAGE_MIN_CHARS', 50)),
+            int(getattr(cfg, 'DOC_HYBRID_BLANK_PAGE_MIN_DRAWINGS', 10)),
+        )
+    except Exception:
+        return True, 50, 10
+
+
 def classify_page_needs_ai(page) -> bool:
     """
     Determine if a page needs AI extraction.
-    
-    Simple rule: if the page has ANY images, use AI.
-    
+
+    Rules:
+    1. The page embeds any images -> AI (scanned/raster content).
+    2. Blank-page rescue (DOC_HYBRID_BLANK_PAGE_RESCUE, default True): no images AND
+       effectively no extractable text AND visible vector ink -> AI. This is the
+       flattened/outlined-text class (e-sign platforms, some print-to-PDF and fax drivers):
+       get_images() returns 0 and get_text() returns "" while the page carries hundreds of
+       drawing ops. Without the rescue these pages were stored empty with no warning.
+    3. Otherwise fast extraction is sufficient (real text pages; genuinely blank pages).
+
     Args:
         page: A PyMuPDF page object
-        
+
     Returns:
         True if page needs AI extraction, False if fast extraction is sufficient
     """
     try:
-        images = page.get_images()
-        return len(images) > 0
+        if len(page.get_images()) > 0:
+            return True
+
+        rescue_enabled, min_chars, min_drawings = _blank_page_rescue_settings()
+        if rescue_enabled:
+            text_chars = len(page.get_text("text").strip())
+            if text_chars < min_chars and len(page.get_drawings()) >= min_drawings:
+                return True
+
+        return False
     except Exception:
         # If we can't determine, default to AI (safer)
         return True
@@ -381,7 +410,23 @@ class FastPDFExtractor:
             }
         else:
             self._anthropic_config = anthropic_config
-    
+
+    def _warn_blank_pages(self, file_path: str, pages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Loudly flag any page about to be returned with no usable text. A page that stores
+        empty is invisible to every downstream search path, so this must never be silent.
+        Returns the pages unchanged so it can wrap return statements."""
+        try:
+            blank = [p.get("page_number") for p in pages if len((p.get("text") or "").strip()) == 0]
+            if blank:
+                self.logger.warning(
+                    f"BLANK_PAGE_STORED: '{os.path.basename(file_path)}' extracted {len(blank)} "
+                    f"page(s) with no text; they will be stored empty and are invisible to "
+                    f"document search until re-processed: pages {blank}"
+                )
+        except Exception:
+            pass
+        return pages
+
     def extract_from_pdf(
         self,
         file_path: str,
@@ -540,14 +585,14 @@ class FastPDFExtractor:
             import fitz
         except ImportError:
             self.logger.warning("PyMuPDF not available, falling back to full AI extraction")
-            return self._extract_with_ai(
+            return self._warn_blank_pages(file_path, self._extract_with_ai(
                 file_path=file_path,
                 pdf_bytes=open(file_path, 'rb').read(),
                 document_type=document_type,
                 use_batch_processing=False,
                 batch_size=1,
                 include_page_numbers=include_page_numbers
-            )
+            ))
         
         self.logger.info(f"FastPDFExtractor hybrid processing: {file_path}")
         
@@ -576,21 +621,21 @@ class FastPDFExtractor:
         # If all pages need AI, just use the existing full AI extraction
         if text_page_count == 0:
             self.logger.info("All pages need AI, using standard AI extraction")
-            return self._extract_with_ai(
+            return self._warn_blank_pages(file_path, self._extract_with_ai(
                 file_path=file_path,
                 pdf_bytes=pdf_bytes,
                 document_type=document_type,
                 use_batch_processing=False,
                 batch_size=1,
                 include_page_numbers=include_page_numbers
-            )
-        
+            ))
+
         # If no pages need AI, use fast extraction
         if ai_page_count == 0:
             self.logger.info("No pages need AI, using fast extraction")
             fast_pages, success = extract_text_fast(pdf_bytes, include_page_numbers)
             if success:
-                return fast_pages
+                return self._warn_blank_pages(file_path, fast_pages)
         
         # Hybrid extraction: mix of fast and AI
         from LLMDocumentEngine import MultiPagePDFHandler
@@ -644,8 +689,8 @@ class FastPDFExtractor:
             f"Hybrid extraction complete: {len(pages)} pages "
             f"({text_page_count} fast, {ai_page_count} AI)"
         )
-        
-        return pages
+
+        return self._warn_blank_pages(file_path, pages)
     
     def extract_hybrid_with_details(
     self,
@@ -680,7 +725,7 @@ class FastPDFExtractor:
                 include_page_numbers=include_page_numbers
             )
             return ExtractionResult(
-                pages=pages,
+                pages=self._warn_blank_pages(file_path, pages),
                 method_used=ExtractionMethod.AI_VISION,
                 pdf_analysis=analysis,
                 fast_extraction_attempted=False,
@@ -723,7 +768,7 @@ class FastPDFExtractor:
                 include_page_numbers=include_page_numbers
             )
             return ExtractionResult(
-                pages=pages,
+                pages=self._warn_blank_pages(file_path, pages),
                 method_used=ExtractionMethod.AI_VISION,
                 pdf_analysis=analysis,
                 fast_extraction_attempted=False,
@@ -737,7 +782,7 @@ class FastPDFExtractor:
             fast_pages, success = extract_text_fast(pdf_bytes, include_page_numbers)
             if success:
                 return ExtractionResult(
-                    pages=fast_pages,
+                    pages=self._warn_blank_pages(file_path, fast_pages),
                     method_used=ExtractionMethod.PYMUPDF_DIRECT,
                     pdf_analysis=analysis,
                     fast_extraction_attempted=True,
@@ -788,7 +833,7 @@ class FastPDFExtractor:
         self.logger.info(f"Hybrid extraction complete: {len(pages)} pages ({text_page_count} fast, {ai_page_count} AI)")
         
         return ExtractionResult(
-            pages=pages,
+            pages=self._warn_blank_pages(file_path, pages),
             method_used=ExtractionMethod.HYBRID,
             pdf_analysis=analysis,
             fast_extraction_attempted=True,
