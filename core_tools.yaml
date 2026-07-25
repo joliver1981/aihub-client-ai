@@ -159,9 +159,6 @@ tools:
     description: "Search documents and return results as JSON string. Designed for AI agent analysis of document data."
     routing_hint: "PRIMARY document search tool. Use this first for any document repository query."
 
-  - name: document_intelligent_search
-    description: "Intelligent document search that automatically adapts response based on result size and question type."
-    
   - name: get_document_universe_metadata
     description: "Provides comprehensive metadata about the document universe to help AI understand document types, fields, relationships, and usage patterns."
     
@@ -323,7 +320,6 @@ categories:
       - search_documents
       - search_documents_meaning
       - document_super_search
-      - document_intelligent_search
       - list_document_types
       - list_document_fields
       - get_document_fields
@@ -385,7 +381,6 @@ visibility:
     - list_running_windows_services
     - search_documents_meaning
     - document_super_search
-    - document_intelligent_search
     - process_csv
     - show_csv
     - call_external_api
@@ -432,7 +427,6 @@ visibility:
     - list_integrations
     - get_integration_operations
     - search_documents_meaning
-    - document_intelligent_search
 
   # Tools that can be both selected by users AND added as dependencies
   dual_purpose:
@@ -588,7 +582,6 @@ dependency_groups:
     tools:
       - search_documents
       - document_super_search
-      - document_intelligent_search
       - search_documents_meaning
       - get_document_universe_metadata
       - list_document_types

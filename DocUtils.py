@@ -3602,6 +3602,103 @@ def get_document_attributes_metadata(document_type=None, return_format='dict'):
 
 
 
+def document_search_meaning(conn_string, document_type=None, search_query=None,
+                            max_results=50, allowed_document_types=None):
+    """
+    Semantic (vector) implementation behind the `search_documents_meaning` agent tool.
+
+    Runs the query through the vector engine (`search_for_ai` — the same channel the
+    super-search semantic strategy uses), scoped to the requested/allowed document
+    types, drops hits whose document no longer exists in SQL (deleted documents),
+    and formats the survivors with source citations. Falls back to the legacy SQL
+    LIKE `document_search` on any vector failure so the tool never goes dark.
+    """
+    # No query text -> semantic search is meaningless; preserve the legacy
+    # browse-by-type behavior exactly.
+    if not search_query or not str(search_query).strip():
+        return document_search(
+            conn_string,
+            document_type=document_type,
+            search_query=search_query,
+            include_metadata=False,
+            max_results=max_results,
+            allowed_document_types=allowed_document_types,
+        )
+
+    try:
+        # Scope: explicit type wins; otherwise the agent's allow list; otherwise global.
+        if document_type:
+            if allowed_document_types and document_type not in allowed_document_types:
+                return json.dumps({
+                    "results": "",
+                    "error": (
+                        f"Access denied: document_type {document_type!r} is not "
+                        f"permitted for this agent."
+                    ),
+                })
+            scoped_types = [document_type]
+        elif allowed_document_types:
+            scoped_types = list(allowed_document_types)
+        else:
+            scoped_types = None
+
+        filters = {"document_type": {"$in": scoped_types}} if scoped_types else None
+
+        from vector_engine_client import VectorEngineClient
+        vector_client = VectorEngineClient()
+        print(f"search_documents_meaning: semantic vector search (types={scoped_types or 'all'})...")
+        search_result = vector_client.search_for_ai(search_query, filters=filters)
+        hits = search_result.get("results", []) or []
+
+        deduped = deduplicate_search_results(hits, keep_best=True)
+
+        # Drop hits whose document was deleted from SQL after indexing (vector
+        # purge on delete can partially fail; never resurrect a deleted doc).
+        doc_ids = {str((h.get("metadata") or {}).get("document_id"))
+                   for h in deduped if (h.get("metadata") or {}).get("document_id")}
+        if doc_ids:
+            try:
+                conn = pyodbc.connect(conn_string, timeout=15)
+                cursor = conn.cursor()
+                tenant_key = os.getenv('API_KEY')
+                if tenant_key:
+                    cursor.execute("EXEC tenant.sp_setTenantContext ?", tenant_key)
+                placeholders = ",".join("?" for _ in doc_ids)
+                cursor.execute(
+                    f"SELECT document_id FROM Documents WHERE document_id IN ({placeholders})",
+                    list(doc_ids),
+                )
+                existing = {str(row[0]) for row in cursor.fetchall()}
+                conn.close()
+                before = len(deduped)
+                deduped = [h for h in deduped
+                           if str((h.get("metadata") or {}).get("document_id")) in existing]
+                if len(deduped) != before:
+                    print(f"search_documents_meaning: dropped {before - len(deduped)} hit(s) from deleted documents")
+            except Exception as e:
+                # Fail open: an unavailable SQL check must not kill semantic search.
+                print(f"search_documents_meaning: deleted-doc check skipped ({e})")
+
+        formatted = format_search_results_for_ai(deduped)
+        return json.dumps({
+            "search_method": "semantic_vector",
+            "result_count": len(deduped),
+            "document_types_searched": scoped_types or "all",
+            "results": formatted,
+        })
+
+    except Exception as e:
+        print(f"search_documents_meaning: vector search failed ({e}) — falling back to SQL text search")
+        return document_search(
+            conn_string,
+            document_type=document_type,
+            search_query=search_query,
+            include_metadata=False,
+            max_results=max_results,
+            allowed_document_types=allowed_document_types,
+        )
+
+
 def document_search_super_enhanced_debug(
         conn_string: str,
         user_question: Optional[str] = None,
@@ -4219,7 +4316,10 @@ def document_search_super_enhanced_debug(
             print("All fallback strategies exhausted - no results found")
             #time.sleep(2)
     # Step 6: Rank and deduplicate results
-    if combined_results and len(combined_results) > 1 and cfg.DOC_INCLUDE_SNIPPET_IN_RESULT:
+    # (rank_search_results always deduplicates and self-gates the LLM rerank via
+    # DOC_USE_LLM_RERANK — it must not be tied to the unrelated snippet flag,
+    # which silently disabled BOTH whenever snippets were turned off.)
+    if combined_results and len(combined_results) > 1:
         print('Ranking and deduping results...')
         original_count = len(combined_results)
         combined_results = rank_search_results(combined_results, user_question)

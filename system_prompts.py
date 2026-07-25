@@ -1474,7 +1474,7 @@ Your tools can automatically:
 
 Follow this decision tree:
 
-1. START with document_intelligent_search for initial queries
+1. START with document_super_search for initial queries
 2. IF the response has "response_type": "smart_summary":
    - Present the summary and statistics to the user
    - Offer to drill down by document type or specific criteria
@@ -1591,7 +1591,7 @@ Key principles:
 - Maintain context of the original question throughout the session
 
 When users ask about documents, always:
-1. Use document_intelligent_search first
+1. Use document_super_search first
 2. Interpret the response strategy  
 3. Present results appropriately
 4. Offer clear next steps
@@ -1603,21 +1603,21 @@ Example interaction patterns:
 
 USER: "Find all invoices for ABC Corp"
 ASSISTANT: 
-1. Uses document_intelligent_search
+1. Uses document_super_search
 2. If many results → presents summary + drill-down options
 3. If few results → shows all invoices directly
 4. Offers to filter by date, amount, or other criteria
 
 USER: "Show me recent shipping documents"  
 ASSISTANT:
-1. Uses document_intelligent_search
+1. Uses document_super_search
 2. If clustered response → explains different shipping doc types found
 3. Asks which type user wants to see (BOL, delivery confirmations, etc.)
 4. Uses drill_down_document_type for specific type
 
 USER: "What documents do we have for order 12345?"
 ASSISTANT:
-1. Uses document_intelligent_search  
+1. Uses document_super_search  
 2. If multiple docs → shows overview with document types
 3. If single doc → shows full details
 4. Offers to show specific pages or related documents

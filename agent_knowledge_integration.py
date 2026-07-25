@@ -1204,6 +1204,33 @@ def _normalize_search_query(query: str, max_chars: int = 200) -> str:
     return clean[:max_chars]
 
 
+def _get_active_knowledge_document_ids(agent_id: int):
+    """Document ids with an ACTIVE AgentKnowledge row for this agent.
+
+    Returns a set of str ids, or None when the lookup fails — callers treat None
+    as 'gate unavailable' and fail OPEN so retrieval availability is never lost
+    to a transient SQL problem.
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return None
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+        cursor.execute(
+            "SELECT document_id FROM AgentKnowledge WHERE agent_id = ? AND is_active = 1",
+            [agent_id],
+        )
+        ids = {str(row[0]) for row in cursor.fetchall()}
+        conn.close()
+        return ids
+    except Exception as e:
+        logging.warning(
+            f"Active-knowledge lookup failed for agent {agent_id}: {e} — inactive-vector gate skipped"
+        )
+        return None
+
+
 def search_knowledge_vectors(query: str, agent_id: int, user_id: str = None,
                               top_k: int = None,
                               forced_document_id: Optional[str] = None) -> List[Dict]:
@@ -1253,6 +1280,22 @@ def search_knowledge_vectors(query: str, agent_id: int, user_id: str = None,
                 f"Vector search hard-filtered to document_id={forced_document_id} "
                 f"(LLM doc-detector match)"
             )
+
+        # Inactive-knowledge gate: deleted/deactivated documents keep their vectors
+        # until the async purge runs (and historical orphans exist in the store), so
+        # retrieval must not serve them. FANOUT is already scoped by the caller's
+        # is_active=1 document list; this covers NEEDLE and AGGREGATE. Fails OPEN
+        # when the SQL lookup is unavailable.
+        if getattr(cfg, 'KNOWLEDGE_FILTER_INACTIVE_VECTORS', True):
+            active_ids = _get_active_knowledge_document_ids(agent_id)
+            if active_ids is not None:
+                if not active_ids:
+                    _skr_trace(
+                        f"No ACTIVE knowledge documents for agent {agent_id} — "
+                        f"returning no vector results"
+                    )
+                    return []
+                and_clauses.append({'document_id': {'$in': sorted(active_ids)}})
 
         filters = {'$and': and_clauses}
 

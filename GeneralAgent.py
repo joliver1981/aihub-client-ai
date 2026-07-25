@@ -821,21 +821,22 @@ def document_super_search(user_question: str) -> str:
 @tool
 def search_documents_meaning(document_type: Optional[str] = None, search_query: Optional[str] = None) -> str:
     """
-    Searches documents based on the meaning of the text within the search query and return results as JSON string.
+    Searches documents by the MEANING of the search query (semantic vector search,
+    not literal text matching) and returns results as a JSON string.
     Designed for AI agent analysis of document data.
 
     ### Parameters:
     document_type:  Filter by specific document type
-    search_query: Text to search for in documents
+    search_query: Text whose meaning to search for in documents
 
     ### Returns: JSON string containing:
-        - results: List of document results
-        - available_fields: Available fields for search
-        - document_types: List of available document types
-        - document_counts: Document count by type
+        - search_method: 'semantic_vector' (legacy text-search shape is returned
+          instead when the vector engine is unavailable and the tool falls back)
+        - result_count: Number of matching document excerpts
+        - results: Relevance-ranked excerpts with source citations and links
     """
     conn_str = get_db_connection_string()
-    return document_search(conn_str, document_type=document_type, search_query=search_query, include_metadata=False, max_results=cfg.DOC_SEARCH_LIMIT)
+    return document_search_meaning(conn_str, document_type=document_type, search_query=search_query, max_results=cfg.DOC_SEARCH_LIMIT)
 
 @tool
 def get_document_universe_metadata(document_types: Optional[List[str]] = None) -> str:
@@ -1889,111 +1890,6 @@ def web_search(queries: Union[str, List[str]], default_engine: str = cfg.DEFAULT
 ############################
 #from DocUtilsEnhanced import *
 
-# @tool
-# def document_intelligent_search(user_question: str, max_results: int = 50, force_strategy: Optional[str] = None) -> str:
-#     """
-#     Intelligent document search that automatically adapts response based on result size and question type.
-
-#     The function analyzes the ACTUAL results returned and decides how to present them:
-#     - Small result sets: Returns all results
-#     - Large result sets: Returns summaries with drill-down options
-#     - Token-heavy results: Automatically summarizes to fit context
-
-#     ### Parameters:
-#     user_question: User's question for context
-#     max_results: How many results you want to retrieve (you decide based on your needs)
-#     force_strategy: Force a specific presentation - 'full_results', 'smart_summary', 'clustered_summary', 'progressive_disclosure'
-
-#     ### Returns:
-#     JSON with intelligent formatting based on actual result characteristics
-#     """
-#     conn_str = get_db_connection_string()
-#     return document_search_super_enhanced_with_intelligent_sizing(
-#         conn_string=conn_str,
-#         user_question=user_question,
-#         max_results=max_results,  # AI specifies this
-#         check_completeness=cfg.DOC_CHECK_COMPLETENESS,
-#         force_strategy=force_strategy
-#     )
-
-@tool
-def document_intelligent_search(user_question: str, max_results: int = 50, force_strategy: Optional[str] = None) -> str:
-    """
-    Intelligent document search that automatically adapts response based on result size and question type.
-    NOW WITH AI POST-PROCESSING for better result relevance.
-
-    The function analyzes the ACTUAL results returned and decides how to present them:
-    - Small result sets: Returns all results (filtered for relevance)
-    - Large result sets: Returns summaries with drill-down options
-    - Token-heavy results: Automatically summarizes to fit context
-    - AI Filtering: Ensures results actually match user's intent (active vs inactive, etc.)
-
-    ### Parameters:
-    user_question: User's question for context
-    max_results: How many results you want to retrieve (you decide based on your needs)
-    force_strategy: Force a specific presentation - 'full_results', 'smart_summary', 'clustered_summary', 'progressive_disclosure'
-
-    ### Returns:
-    JSON with intelligent formatting AND AI-filtered results based on actual result characteristics
-    """
-    conn_str = get_db_connection_string()
-
-    # Get the original intelligent search results
-    original_response = document_search_super_enhanced_with_intelligent_sizing(
-        conn_string=conn_str,
-        user_question=user_question,
-        max_results=max_results,
-        check_completeness=cfg.DOC_CHECK_COMPLETENESS,
-        force_strategy=force_strategy
-    )
-
-    # Apply AI post-processing if enabled
-    if not cfg.AI_FILTER_ENABLE_BY_DEFAULT:
-        return original_response
-
-    try:
-        response_data = json.loads(original_response)
-
-        # Apply AI post-processing to results if present
-        if response_data.get("results"):
-            original_count = len(response_data["results"])
-
-            # Apply AI filtering to the results
-            filtered_results = ai_post_process_intelligent_search_results(
-                search_results=response_data["results"],
-                user_question=user_question,
-                max_results_to_analyze=cfg.AI_FILTER_MAX_RESULTS_TO_ANALYZE
-            )
-
-            # Update the response
-            response_data["results"] = filtered_results
-
-            # Add AI post-processing metadata
-            response_data["ai_post_processing"] = {
-                "applied": True,
-                "original_count": original_count,
-                "filtered_count": len(filtered_results),
-                "filtering_reason": "AI relevance analysis"
-            }
-
-            # Update any count-related metadata
-            if "response_strategy" in response_data:
-                response_data["response_strategy"]["post_ai_filtering"] = {
-                    "original_count": original_count,
-                    "filtered_count": len(filtered_results)
-                }
-        else:
-            response_data["ai_post_processing"] = {
-                "applied": False,
-                "reason": "No results to filter"
-            }
-
-        return json.dumps(response_data, default=str)
-
-    except Exception as e:
-        print(f"Error in AI post-processing: {str(e)}")
-        return original_response  # Return original results if enhancement fails
-
 @tool
 def drill_down_document_type(document_type: str, original_question: str, max_results: int = 20) -> str:
     """
@@ -2089,7 +1985,7 @@ def analyze_document_result_strategy(user_question: str, sample_results: str) ->
                 "Use drill_down_document_type for specific document types",
                 "Use drill_down_by_field for specific field values",
                 "Use get_document_page for pagination",
-                "Use document_intelligent_search with force_strategy parameter"
+                "Use document_super_search for a fresh, broader search"
             ]
         }, indent=2)
 
@@ -2714,7 +2610,7 @@ class GeneralAgent():
                 knowledge_prompt = "\n\n[Agent Knowledge Documents]\n"
                 knowledge_prompt += "You have access to the following knowledge documents:\n"
                 knowledge_prompt += "\n".join(doc_descriptions)
-                doc_search_tools = {'search_documents', 'document_super_search', 'document_intelligent_search', 'search_documents_meaning'}
+                doc_search_tools = {'search_documents', 'document_super_search', 'search_documents_meaning'}
                 has_doc_search = any(t.name in doc_search_tools for t in self.tools)
                 if has_doc_search:
                     knowledge_prompt += "\n\nIMPORTANT: Always use the search_agent_knowledge tool FIRST for any questions that could be answered by the knowledge documents listed above. These documents contain specialized information provided to you. Only fall back to document repository search tools (search_documents, etc.) if search_agent_knowledge returns no relevant results."
@@ -3173,11 +3069,10 @@ class GeneralAgent():
             if document_type and document_type not in allow_set:
                 return _denied_response('search_documents_meaning', document_type)
             conn_str = get_db_connection_string()
-            return document_search(
+            return document_search_meaning(
                 conn_str,
                 document_type=document_type,
                 search_query=search_query,
-                include_metadata=False,
                 max_results=cfg.DOC_SEARCH_LIMIT,
                 allowed_document_types=allow_list_for_log,
             )

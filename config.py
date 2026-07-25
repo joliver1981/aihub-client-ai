@@ -727,6 +727,7 @@ KNOWLEDGE_FANOUT_PARALLEL = int(os.getenv('KNOWLEDGE_FANOUT_PARALLEL', 20))     
 KNOWLEDGE_FANOUT_SKIP_SIMILARITY_THRESHOLD = float(os.getenv('KNOWLEDGE_FANOUT_SKIP_SIMILARITY_THRESHOLD', 0.4))  # Skip docs whose best chunk has similarity below this
 KNOWLEDGE_FANOUT_MAX_DOCS = int(os.getenv('KNOWLEDGE_FANOUT_MAX_DOCS', 1500))                     # Safety cap on docs per fan-out
 KNOWLEDGE_FANOUT_PER_DOC_TOP_K = int(os.getenv('KNOWLEDGE_FANOUT_PER_DOC_TOP_K', 2))              # Chunks to feed Haiku per doc
+KNOWLEDGE_FILTER_INACTIVE_VECTORS = os.getenv('KNOWLEDGE_FILTER_INACTIVE_VECTORS', 'True').lower() == 'true'  # Gate knowledge vector retrieval (NEEDLE/AGGREGATE) to documents with an ACTIVE AgentKnowledge row. Deleted/deactivated docs keep their Chroma vectors until the async purge runs (and historical orphans exist) — without the gate those chunks still surface. Fails OPEN if the SQL lookup errors.
 
 # Knowledge summary sampling — used by AGGREGATE-route summary cards.
 # 'stratified' picks ~N evenly-spaced samples across the document so buried provisions

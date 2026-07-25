@@ -488,6 +488,23 @@ to build trust is manual spot-checking, which does not scale and never fully res
 | Retrieval is `is_active`-blind — deleted documents' chunks are still retrieved | memory `agent-knowledge-vector-orphan-leak`; filter is `agent_id` + `user_id` only |
 | Single global `documents` Chroma collection, no tenant field in the vector filter — isolation relies entirely on the SQL `tenant.sp_setTenantContext` layer | `app_vector_api.py:31-34`, `search_for_ai` filters on `document_type` only |
 
+> **✅ Status update 2026-07-25 — four of the adjacent defects FIXED (same-day batch):**
+> `document_intelligent_search` **removed** (tool fn, all yaml refs, prompt references; the
+> name→function resolver logs-and-skips stale DB configs — verified graceful).
+> `search_documents_meaning` **rewired to true semantic search** — new
+> `DocUtils.document_search_meaning`: `search_for_ai` + dedupe + citation formatting +
+> deleted-doc drop, ACL-scoped, with automatic fallback to the legacy SQL LIKE path
+> (live-smoked: semantic finds HVAC results where LIKE returns zero).
+> **Reranker ungated** from `DOC_INCLUDE_SNIPPET_IN_RESULT` (that gating also silently skipped
+> deduplication; `rank_search_results` self-gates via `DOC_USE_LLM_RERANK`).
+> **`is_active` leak closed at retrieval** via `KNOWLEDGE_FILTER_INACTIVE_VECTORS` (default
+> True, fail-open on SQL errors, `SHARED` preserved; FANOUT already active-scoped by its
+> caller). Live-verified: orphan served with gate off → blocked with gate on; active-doc
+> results identical either way. **Scale discovery: 190 of 276 (agent,doc) vector sets in the
+> dev knowledge store are orphans of deleted documents (69%)** — now unservable, but the
+> one-time Chroma purge remains open backlog. `DocUtilsEnhanced.py` and
+> `document_intelligent_search_with_ai_filtering` remain as inert, unexposed dead code.
+
 ---
 
 ## 3. What changed in two years — the economics are the headline
