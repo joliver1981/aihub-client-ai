@@ -47,8 +47,15 @@ def grade_answer(item: Dict, answer: str, fanout_key: Dict[str, str] = None) -> 
         if not key:
             return 'NEEDS_REVIEW', 'no coverage key supplied'
         # Bound each store's answer window at the NEXT store mention so one store's
-        # classification never bleeds into its neighbor's sentence.
-        positions = {s: a.find(_norm(s)) for s in key}
+        # classification never bleeds into its neighbor's sentence. Store names match
+        # space-insensitively ("Market Square" == "MarketSquare" — agents often echo
+        # filename-style names).
+        def _find_store(store):
+            pattern = r'[\s_-]*'.join(re.escape(w) for w in _norm(store).split())
+            m = re.search(pattern, a)
+            return m.start() if m else -1
+
+        positions = {s: _find_store(s) for s in key}
         mentioned, correct, wrong = [], [], []
         for store, expected_cls in key.items():
             idx = positions[store]

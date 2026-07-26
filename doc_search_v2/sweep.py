@@ -27,6 +27,29 @@ _OUT_PER_MTOK = 5.00
 _EST_OUT_TOKENS_PER_DOC = 300
 _MAX_MAP_CHARS = 300_000  # per map call; longer docs are chunked, never truncated
 
+import threading
+
+_CACHE_TTL_S = 600
+_cache_lock = threading.Lock()
+_sweep_cache = {}
+
+
+def _cache_get(key):
+    with _cache_lock:
+        entry = _sweep_cache.get(key)
+        if entry and (time.time() - entry[0]) < _CACHE_TTL_S:
+            return entry[1]
+        _sweep_cache.pop(key, None)
+        return None
+
+
+def _cache_put(key, value):
+    with _cache_lock:
+        if len(_sweep_cache) > 50:
+            _sweep_cache.clear()
+        _sweep_cache[key] = (time.time(), value)
+
+
 _MAP_SYSTEM = (
     "You extract answers from ONE document. Respond with STRICT JSON only, no prose, "
     'no markdown fences: {"answer": "<concise answer from THIS document>", '
@@ -130,16 +153,6 @@ def knowledge_search_v2(query: str, agent_id, user_id=None, documents=None,
     # module never imports this package at module level, so there is no cycle.
     import agent_knowledge_integration as aki
 
-    # Route: v2 currently upgrades the exhaustive class only; needles defer to legacy.
-    doc_ids = [d['document_id'] for d in documents]
-    try:
-        route = aki.route_knowledge_query(query, len(documents), 0)
-    except Exception:
-        route = 'FANOUT'
-    if route == 'NEEDLE':
-        logging.info("doc_search_v2: NEEDLE-shaped query — deferring to legacy needle path")
-        return None
-
     started = time.time()
     deadline = started + int(getattr(cfg, 'DOC_SEARCH_V2_TIMEOUT_S', 180))
 
@@ -153,6 +166,33 @@ def knowledge_search_v2(query: str, agent_id, user_id=None, documents=None,
         return None
 
     total_chars = sum(len(t) for c in contents.values() for t in c.get('pages', {}).values())
+
+    # Route on the USER'S question, not the agent's tool paraphrase. Agents decompose
+    # portfolio questions into per-document NEEDLE-shaped tool calls ("<doc> HVAC
+    # responsibility"), which would make the sweep unreachable exactly when it matters.
+    # The latest_user_input snapshot carries the real ask; real doc/char counts inform
+    # the router the same way the legacy path does.
+    routing_question = (latest_user_input or '').strip() or query
+    try:
+        route = aki.route_knowledge_query(routing_question, len(contents), total_chars)
+    except Exception:
+        route = 'FANOUT'
+    logging.info(f"doc_search_v2: route={route} for question {routing_question[:90]!r}")
+    if route == 'NEEDLE':
+        logging.info("doc_search_v2: NEEDLE-shaped question — deferring to legacy needle path")
+        return None
+
+    # One sweep per (agent, question, document-set): agents mid-decomposition fire many
+    # per-document tool calls for the same user question — serve them all from a single
+    # sweep run. The document-id set is part of the key so knowledge adds/deletes
+    # invalidate the cache immediately (a deleted document must never be served, even
+    # from a minutes-old sweep).
+    scope_fingerprint = '|'.join(sorted(str(c) for c in contents.keys()))
+    cache_key = (str(agent_id), str(user_id), routing_question.lower(), scope_fingerprint)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        logging.info("doc_search_v2: serving sweep from cache (same question, same agent)")
+        return cached
     est = _estimate_cost_usd(total_chars, len(contents))
     confirm_at = float(getattr(cfg, 'DOC_SWEEP_COST_CONFIRM_USD', 5.00))
     if est > confirm_at:
@@ -180,7 +220,7 @@ def knowledge_search_v2(query: str, agent_id, user_id=None, documents=None,
             if time.time() > deadline:
                 skipped_timeout.append(ident)
                 continue
-            futures[pool.submit(_map_one_document, llm_call, query, ident, pages)] = ident
+            futures[pool.submit(_map_one_document, llm_call, routing_question, ident, pages)] = ident
         for fut in as_completed(futures):
             remaining = deadline - time.time()
             try:
@@ -231,5 +271,8 @@ def knowledge_search_v2(query: str, agent_id, user_id=None, documents=None,
     ledger += f" · est cost ${est:.2f} · {elapsed:.0f}s"
     lines += ["", ledger,
               "Answer the user based ONLY on the findings above, and relay the coverage "
-              "ledger so they know exactly what was and wasn't read."]
-    return "\n".join(lines)
+              "ledger so they know exactly what was and wasn't read. Every document has "
+              "already been read in full — do NOT search per document again."]
+    result = "\n".join(lines)
+    _cache_put(cache_key, result)
+    return result

@@ -13,6 +13,7 @@ from doc_search_v2 import sweep
 @pytest.fixture(autouse=True)
 def clean_factory(monkeypatch):
     factory.reset_breaker()
+    sweep._sweep_cache.clear()
     monkeypatch.setattr(cfg, 'DOC_SEARCH_ENGINE_DEFAULT', 'legacy', raising=False)
     monkeypatch.setattr(cfg, 'DOC_SEARCH_V2_AGENT_IDS', '', raising=False)
     monkeypatch.setattr(cfg, 'DOC_SEARCH_LEGACY_AGENT_IDS', '', raising=False)
@@ -111,11 +112,46 @@ class TestKnowledgeSearchV2:
     }
 
     def test_needle_defers_to_legacy(self):
-        with patch.dict(sys.modules, {'agent_knowledge_integration': _stub_aki(route='NEEDLE')}):
+        stub = _stub_aki(route='NEEDLE', docs=self.CONTENTS)
+        with patch.dict(sys.modules, {'agent_knowledge_integration': stub}):
             assert sweep.knowledge_search_v2('what is X', 1, documents=self.DOCS) is None
 
     def test_empty_scope_defers(self):
         assert sweep.knowledge_search_v2('q', 1, documents=[]) is None
+
+    def test_routes_on_user_question_not_tool_paraphrase(self, monkeypatch):
+        # Tool query looks per-document; the USER question is portfolio-shaped.
+        monkeypatch.setattr(cfg, 'DOC_SWEEP_COST_CONFIRM_USD', 5.0, raising=False)
+        seen = {}
+        stub = _stub_aki(docs=self.CONTENTS,
+                         llm_response='{"answer":"Landlord","evidence_quote":"q","page":1,"confidence":95,"not_found":false}')
+        stub.route_knowledge_query = lambda q, n, c: seen.setdefault('q', q) or 'FANOUT'
+        with patch.dict(sys.modules, {'agent_knowledge_integration': stub}):
+            out = sweep.knowledge_search_v2(
+                'DCT13_S005_CentralPlaza HVAC responsibility', 1, documents=self.DOCS,
+                latest_user_input='For each lease, who handles HVAC maintenance?')
+        assert seen['q'] == 'For each lease, who handles HVAC maintenance?'
+        assert 'COVERAGE LEDGER' in out
+
+    def test_sweep_cache_serves_repeat_calls(self, monkeypatch):
+        monkeypatch.setattr(cfg, 'DOC_SWEEP_COST_CONFIRM_USD', 5.0, raising=False)
+        calls = {'n': 0}
+
+        def counting_llm(prompt, system, max_tokens, temp):
+            calls['n'] += 1
+            return '{"answer":"Landlord","evidence_quote":"q","page":1,"confidence":95,"not_found":false}'
+
+        stub = _stub_aki(docs=self.CONTENTS)
+        stub._haiku_call_with_fallback = counting_llm
+        with patch.dict(sys.modules, {'agent_knowledge_integration': stub}):
+            first = sweep.knowledge_search_v2('q1', 7, documents=self.DOCS,
+                                              latest_user_input='who handles HVAC in each lease?')
+            after_first = calls['n']
+            second = sweep.knowledge_search_v2('q2 different paraphrase', 7, documents=self.DOCS,
+                                               latest_user_input='who handles HVAC in each lease?')
+        assert after_first > 0
+        assert calls['n'] == after_first  # no new LLM calls — served from cache
+        assert first == second
 
     def test_chaos_flag_raises(self, monkeypatch):
         monkeypatch.setattr(cfg, 'DOC_SEARCH_V2_FORCE_ERROR', True, raising=False)

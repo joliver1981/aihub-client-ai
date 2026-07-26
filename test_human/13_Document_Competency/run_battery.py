@@ -406,7 +406,7 @@ def main():
         answer = chat(sess, agent_id, item['q'])
         verdict, detail = grade_answer(item, answer, fanout_key=B.FANOUT_HVAC_KEY)
         results.append(dict(id=item['id'], phase=item['mode'], q=item['q'], verdict=verdict,
-                            detail=detail, answer=(answer or '')[:1800]))
+                            detail=detail, answer=(answer or '')[:6000]))
         print(f"  {item['id']}: {verdict} — {detail}")
 
     write_report(results, started, partial=bool(only))
