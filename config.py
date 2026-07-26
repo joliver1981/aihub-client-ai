@@ -746,6 +746,9 @@ DOC_SWEEP_MAX_DOCS = int(os.getenv('DOC_SWEEP_MAX_DOCS', 1000))                 
 DOC_SWEEP_COST_CONFIRM_USD = float(os.getenv('DOC_SWEEP_COST_CONFIRM_USD', 5.00))                 # above this estimate, SWEEP returns a confirmation request instead of running
 DOC_SWEEP_MODEL = os.getenv('DOC_SWEEP_MODEL', 'claude-haiku-4-5')                                # map-step model (per-document extraction)
 DOC_SWEEP_PARALLEL = int(os.getenv('DOC_SWEEP_PARALLEL', 8))                                      # concurrent per-document map calls
+DOC_NEEDLE_V2_ENABLED = os.getenv('DOC_NEEDLE_V2_ENABLED', 'True').lower() == 'true'              # v2 hybrid needle (BM25+dense RRF + rerank + citations) for NEEDLE-shaped queries on v2 agents; False = defer needles to the legacy path (SWEEP unaffected)
+DOC_NEEDLE_TOP_PAGES = int(os.getenv('DOC_NEEDLE_TOP_PAGES', 8))                                  # evidence pages returned after fusion + rerank
+DOC_NEEDLE_RERANK = os.getenv('DOC_NEEDLE_RERANK', 'True').lower() == 'true'                      # Haiku rerank of the fused shortlist (fails open to RRF order)
 
 # Knowledge summary sampling — used by AGGREGATE-route summary cards.
 # 'stratified' picks ~N evenly-spaced samples across the document so buried provisions

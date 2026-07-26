@@ -1,4 +1,4 @@
-"""Tests for the doc_search_v2 factory (selection + breaker) and SWEEP engine internals."""
+"""Tests for the doc_search_v2 factory (selection + breaker), SWEEP, and NEEDLE engines."""
 import sys
 import types
 from unittest.mock import patch
@@ -7,6 +7,7 @@ import pytest
 
 import config as cfg
 from doc_search_v2 import factory
+from doc_search_v2 import needle
 from doc_search_v2 import sweep
 
 
@@ -14,6 +15,7 @@ from doc_search_v2 import sweep
 def clean_factory(monkeypatch):
     factory.reset_breaker()
     sweep._sweep_cache.clear()
+    needle._index_cache.clear()
     monkeypatch.setattr(cfg, 'DOC_SEARCH_ENGINE_DEFAULT', 'legacy', raising=False)
     monkeypatch.setattr(cfg, 'DOC_SEARCH_V2_AGENT_IDS', '', raising=False)
     monkeypatch.setattr(cfg, 'DOC_SEARCH_LEGACY_AGENT_IDS', '', raising=False)
@@ -111,7 +113,8 @@ class TestKnowledgeSearchV2:
         'd2': {'filename': 'Lease B.pdf', 'pages': {1: 'This lease is about parking only.'}},
     }
 
-    def test_needle_defers_to_legacy(self):
+    def test_needle_defers_to_legacy_when_disabled(self, monkeypatch):
+        monkeypatch.setattr(cfg, 'DOC_NEEDLE_V2_ENABLED', False, raising=False)
         stub = _stub_aki(route='NEEDLE', docs=self.CONTENTS)
         with patch.dict(sys.modules, {'agent_knowledge_integration': stub}):
             assert sweep.knowledge_search_v2('what is X', 1, documents=self.DOCS) is None
@@ -186,3 +189,99 @@ class TestKnowledgeSearchV2:
             out = sweep.knowledge_search_v2('who maintains HVAC', 1, documents=self.DOCS)
         assert 'COST CONFIRMATION REQUIRED' in out
         assert 'Nothing was run' in out
+
+
+def _stub_aki_needle(contents, vector_hits=None, llm_response=None):
+    stub = types.ModuleType('agent_knowledge_integration')
+    stub._load_agent_knowledge_contents = lambda ids, documents: contents
+    stub.search_knowledge_vectors = lambda q, a, user_id=None, top_k=10: (vector_hits or [])
+    stub._haiku_call_with_fallback = lambda prompt, system, max_tokens, temp: llm_response
+    return stub
+
+
+@pytest.mark.unit
+class TestBM25:
+    def test_exact_term_page_ranks_first(self):
+        pages = [['alpha', 'beta', 'gamma'], ['deposit', 'security', 'deposit'], ['misc', 'words']]
+        bm = needle._BM25(pages)
+        scores = bm.scores(['security', 'deposit'])
+        assert scores.index(max(scores)) == 1
+
+    def test_no_match_scores_zero(self):
+        bm = needle._BM25([['alpha'], ['beta']])
+        assert all(s == 0 for s in bm.scores(['zzz']))
+
+
+@pytest.mark.unit
+class TestRRF:
+    def test_agreement_beats_single_channel(self):
+        pages = [dict(doc_id='d1', filename='a', page_number='1', text='x'),
+                 dict(doc_id='d2', filename='b', page_number='1', text='y'),
+                 dict(doc_id='d3', filename='c', page_number='1', text='z')]
+        # lexical prefers 0 then 1; dense prefers page (d2,1)=idx1 then (d3,1)=idx2
+        fused = needle._rrf_fuse(pages, [0, 1], [('d2', '1'), ('d3', '1')])
+        assert fused[0] == 1  # both channels voted for idx 1
+
+
+@pytest.mark.unit
+class TestNeedleEngine:
+    CONTENTS = {
+        'd1': {'filename': 'Lease A.pdf', 'pages': {1: 'Security Deposit: $68,000 (two months).',
+                                                    2: 'Boilerplate assignment text.'}},
+        'd2': {'filename': 'Lease B.pdf', 'pages': {1: 'HVAC handled by landlord entirely.'}},
+    }
+    DOCS = [{'document_id': 'd1'}, {'document_id': 'd2'}]
+
+    def test_hybrid_returns_citation_block(self, monkeypatch):
+        monkeypatch.setattr(cfg, 'DOC_NEEDLE_RERANK', False, raising=False)
+        hits = [{'metadata': {'document_id': 'd1', 'page_number': 1}}]
+        stub = _stub_aki_needle(self.CONTENTS, vector_hits=hits)
+        with patch.dict(sys.modules, {'agent_knowledge_integration': stub}):
+            out = needle.knowledge_needle_v2('what is the security deposit', 1,
+                                             user_id='u', documents=self.DOCS)
+        assert out is not None
+        assert 'SOURCE [Lease A.pdf p.1]' in out
+        assert '$68,000' in out
+        assert 'RETRIEVAL:' in out and 'Cite each fact' in out
+        assert out.index('Lease A.pdf p.1') < out.index('RETRIEVAL:')
+
+    def test_dense_failure_falls_back_to_lexical_only(self, monkeypatch):
+        monkeypatch.setattr(cfg, 'DOC_NEEDLE_RERANK', False, raising=False)
+        stub = _stub_aki_needle(self.CONTENTS)
+        def boom(*a, **k):
+            raise RuntimeError('vector api down')
+        stub.search_knowledge_vectors = boom
+        with patch.dict(sys.modules, {'agent_knowledge_integration': stub}):
+            out = needle.knowledge_needle_v2('security deposit amount', 1,
+                                             user_id='u', documents=self.DOCS)
+        assert out is not None and 'Lease A.pdf' in out
+
+    def test_rerank_failure_keeps_rrf_order(self, monkeypatch):
+        monkeypatch.setattr(cfg, 'DOC_NEEDLE_RERANK', True, raising=False)
+        stub = _stub_aki_needle(self.CONTENTS, llm_response='not json at all')
+        with patch.dict(sys.modules, {'agent_knowledge_integration': stub}):
+            out = needle.knowledge_needle_v2('security deposit', 1, user_id='u',
+                                             documents=self.DOCS)
+        assert out is not None and 'SOURCE [' in out
+
+    def test_no_match_defers(self, monkeypatch):
+        monkeypatch.setattr(cfg, 'DOC_NEEDLE_RERANK', False, raising=False)
+        stub = _stub_aki_needle(self.CONTENTS)
+        with patch.dict(sys.modules, {'agent_knowledge_integration': stub}):
+            out = needle.knowledge_needle_v2('zzz qqq nonexistent', 1, user_id='u',
+                                             documents=self.DOCS)
+        assert out is None
+
+    def test_empty_contents_defers(self):
+        stub = _stub_aki_needle({})
+        with patch.dict(sys.modules, {'agent_knowledge_integration': stub}):
+            assert needle.knowledge_needle_v2('q', 1, documents=self.DOCS) is None
+
+    def test_sweep_branch_kill_switch_defers_needles(self, monkeypatch):
+        monkeypatch.setattr(cfg, 'DOC_NEEDLE_V2_ENABLED', False, raising=False)
+        contents = TestNeedleEngine.CONTENTS
+        stub = _stub_aki_needle(contents)
+        stub.route_knowledge_query = lambda q, n, c: 'NEEDLE'
+        with patch.dict(sys.modules, {'agent_knowledge_integration': stub}):
+            assert sweep.knowledge_search_v2('security deposit', 1, user_id='u',
+                                             documents=self.DOCS) is None

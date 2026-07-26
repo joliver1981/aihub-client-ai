@@ -185,6 +185,13 @@ def knowledge_search_v2(query: str, agent_id, user_id=None, documents=None,
         route = 'FANOUT'
     logging.info(f"doc_search_v2: route={route} for question {routing_question[:90]!r}")
     if route == 'NEEDLE':
+        if getattr(cfg, 'DOC_NEEDLE_V2_ENABLED', True):
+            from doc_search_v2.needle import knowledge_needle_v2
+            needle_result = knowledge_needle_v2(query, agent_id, user_id=user_id,
+                                                documents=documents)
+            if needle_result is not None:
+                logging.info("doc_search_v2: served by hybrid NEEDLE")
+                return needle_result
         logging.info("doc_search_v2: NEEDLE-shaped question — deferring to legacy needle path")
         return None
 

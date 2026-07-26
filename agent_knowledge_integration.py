@@ -2911,7 +2911,10 @@ class KnowledgeTool:
                                 )
                                 if _v2_result is not None:
                                     _ds2_factory.record_v2_success()
-                                    _skr_trace("PATH: DOC_SEARCH_V2 (sweep)")
+                                    _engine = ('needle' if _v2_result.startswith('[Knowledge needle')
+                                               else 'sweep' if _v2_result.startswith('[Knowledge sweep')
+                                               else 'v2')
+                                    _skr_trace(f"PATH: DOC_SEARCH_V2 ({_engine})")
                                     return _v2_result
                                 _skr_trace("doc_search_v2 deferred — serving via legacy")
                             except Exception as _v2_err:
