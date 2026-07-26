@@ -1,3 +1,6 @@
 state.json
 fixtures/_archived/
 TEST_RUN_*_partial.md
+scale_corpus/
+scale_state.json
+scale_results.json

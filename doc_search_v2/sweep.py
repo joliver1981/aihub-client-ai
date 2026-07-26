@@ -52,11 +52,17 @@ def _cache_put(key, value):
 
 _MAP_SYSTEM = (
     "You extract answers from ONE document. Respond with STRICT JSON only, no prose, "
-    'no markdown fences: {"answer": "<concise answer from THIS document>", '
+    'no markdown fences: {"answer": "<answer from THIS document>", '
     '"evidence_quote": "<short verbatim quote>", "page": <int or null>, '
     '"confidence": <0-100>, "not_found": <true|false>}. '
-    "If the document does not address the question, set not_found=true and answer to an "
-    "empty string. Never use knowledge from outside the document."
+    "Rules: (1) The answer must state the SUBSTANCE from this document — obligations, "
+    "parties, amounts, dates — never just a name or identifier. "
+    "(2) If the question asks WHICH documents/stores/items satisfy a condition, answer for "
+    "THIS document only, and BEGIN the answer with exactly 'YES — ' (this document clearly "
+    "satisfies the condition) or 'NO — ' (it does not — including when the attribute belongs "
+    "to a different party or is split/shared), followed by what the document actually says. "
+    "Set not_found=true only when the document does not address the topic at all. "
+    "(3) Never use knowledge from outside the document."
 )
 
 

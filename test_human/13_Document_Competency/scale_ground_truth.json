@@ -1,0 +1,1202 @@
+{
+ "S101": {
+  "filename": "SCALE13_S101_LakeshoreGalleria.txt",
+  "name": "Lakeshore Galleria",
+  "city": "Phoenix",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "March 3, 2033",
+  "deposit": "$59,000 (Letter of Credit)",
+  "split_threshold": 10000
+ },
+ "S102": {
+  "filename": "SCALE13_S102_OakwoodSquare.txt",
+  "name": "Oakwood Square",
+  "city": "Dallas",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "June 10, 2031",
+  "deposit": "$280,000 (cash)",
+  "split_threshold": 5000
+ },
+ "S103": {
+  "filename": "SCALE13_S103_HarborPoint.txt",
+  "name": "Harbor Point",
+  "city": "Houston",
+  "hvac": "tenant",
+  "synonym": true,
+  "expiry": "June 18, 2034",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S104": {
+  "filename": "SCALE13_S104_OakwoodSquare.txt",
+  "name": "Oakwood Square",
+  "city": "Orlando",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "November 27, 2030",
+  "deposit": "$257,000 (Letter of Credit)",
+  "split_threshold": 10000
+ },
+ "S105": {
+  "filename": "SCALE13_S105_SummitCenter.txt",
+  "name": "Summit Center",
+  "city": "Austin",
+  "hvac": "landlord",
+  "synonym": true,
+  "expiry": "June 2, 2032",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S106": {
+  "filename": "SCALE13_S106_SummitCenter.txt",
+  "name": "Summit Center",
+  "city": "Nashville",
+  "hvac": "tenant",
+  "synonym": true,
+  "expiry": "June 18, 2033",
+  "deposit": "$188,000 (cash)",
+  "split_threshold": null
+ },
+ "S107": {
+  "filename": "SCALE13_S107_NorthgateMall.txt",
+  "name": "Northgate Mall",
+  "city": "Austin",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "March 7, 2031",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": 5000
+ },
+ "S108": {
+  "filename": "SCALE13_S108_LibertyMarketplace.txt",
+  "name": "Liberty Marketplace",
+  "city": "Nashville",
+  "hvac": "tenant",
+  "synonym": true,
+  "expiry": "September 19, 2033",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S109": {
+  "filename": "SCALE13_S109_LakeshoreGalleria.txt",
+  "name": "Lakeshore Galleria",
+  "city": "Boston",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "March 28, 2029",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": 7500
+ },
+ "S110": {
+  "filename": "SCALE13_S110_FairfieldStation.txt",
+  "name": "Fairfield Station",
+  "city": "Phoenix",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "November 27, 2030",
+  "deposit": "$139,000 (cash)",
+  "split_threshold": 10000
+ },
+ "S111": {
+  "filename": "SCALE13_S111_NorthgateMall.txt",
+  "name": "Northgate Mall",
+  "city": "Cleveland",
+  "hvac": "landlord",
+  "synonym": true,
+  "expiry": "March 18, 2032",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S112": {
+  "filename": "SCALE13_S112_GatewayPlaza.txt",
+  "name": "Gateway Plaza",
+  "city": "Boston",
+  "hvac": "landlord",
+  "synonym": true,
+  "expiry": "March 24, 2027",
+  "deposit": "$178,000 (Letter of Credit)",
+  "split_threshold": null
+ },
+ "S113": {
+  "filename": "SCALE13_S113_NorthgateMall.txt",
+  "name": "Northgate Mall",
+  "city": "Dallas",
+  "hvac": "tenant",
+  "synonym": true,
+  "expiry": "April 13, 2033",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S114": {
+  "filename": "SCALE13_S114_CedarHills.txt",
+  "name": "Cedar Hills",
+  "city": "Boston",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "September 9, 2031",
+  "deposit": "$155,000 (Letter of Credit)",
+  "split_threshold": 5000
+ },
+ "S115": {
+  "filename": "SCALE13_S115_OakwoodSquare.txt",
+  "name": "Oakwood Square",
+  "city": "Houston",
+  "hvac": "landlord",
+  "synonym": true,
+  "expiry": "June 19, 2034",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S116": {
+  "filename": "SCALE13_S116_UnionYards.txt",
+  "name": "Union Yards",
+  "city": "Raleigh",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "March 5, 2028",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S117": {
+  "filename": "SCALE13_S117_SummitCenter.txt",
+  "name": "Summit Center",
+  "city": "Orlando",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "January 18, 2027",
+  "deposit": "$118,000 (cash)",
+  "split_threshold": null
+ },
+ "S118": {
+  "filename": "SCALE13_S118_LakeshoreGalleria.txt",
+  "name": "Lakeshore Galleria",
+  "city": "Seattle",
+  "hvac": "landlord",
+  "synonym": true,
+  "expiry": "March 16, 2027",
+  "deposit": "$88,000 (Letter of Credit)",
+  "split_threshold": null
+ },
+ "S119": {
+  "filename": "SCALE13_S119_WillowCreek.txt",
+  "name": "Willow Creek",
+  "city": "Phoenix",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "September 2, 2033",
+  "deposit": "$46,000 (Letter of Credit)",
+  "split_threshold": null
+ },
+ "S120": {
+  "filename": "SCALE13_S120_WillowCreek.txt",
+  "name": "Willow Creek",
+  "city": "Austin",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "November 8, 2031",
+  "deposit": "$171,000 (cash)",
+  "split_threshold": null
+ },
+ "S121": {
+  "filename": "SCALE13_S121_GatewayPlaza.txt",
+  "name": "Gateway Plaza",
+  "city": "Charlotte",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "November 5, 2027",
+  "deposit": "$235,000 (cash)",
+  "split_threshold": null
+ },
+ "S122": {
+  "filename": "SCALE13_S122_NorthgateMall.txt",
+  "name": "Northgate Mall",
+  "city": "Nashville",
+  "hvac": "landlord",
+  "synonym": true,
+  "expiry": "September 9, 2032",
+  "deposit": "$145,000 (cash)",
+  "split_threshold": null
+ },
+ "S123": {
+  "filename": "SCALE13_S123_MetroExchange.txt",
+  "name": "Metro Exchange",
+  "city": "Memphis",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "June 10, 2027",
+  "deposit": "$239,000 (Letter of Credit)",
+  "split_threshold": null
+ },
+ "S124": {
+  "filename": "SCALE13_S124_GatewayPlaza.txt",
+  "name": "Gateway Plaza",
+  "city": "Houston",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "September 11, 2031",
+  "deposit": "$260,000 (cash)",
+  "split_threshold": null
+ },
+ "S125": {
+  "filename": "SCALE13_S125_FairfieldStation.txt",
+  "name": "Fairfield Station",
+  "city": "Dallas",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "November 5, 2028",
+  "deposit": "$237,000 (Letter of Credit)",
+  "split_threshold": null
+ },
+ "S126": {
+  "filename": "SCALE13_S126_GatewayPlaza.txt",
+  "name": "Gateway Plaza",
+  "city": "Hartford",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "March 14, 2029",
+  "deposit": "$289,000 (cash)",
+  "split_threshold": null
+ },
+ "S127": {
+  "filename": "SCALE13_S127_StonebridgeCourt.txt",
+  "name": "Stonebridge Court",
+  "city": "Hartford",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "September 27, 2029",
+  "deposit": "$258,000 (Letter of Credit)",
+  "split_threshold": null
+ },
+ "S128": {
+  "filename": "SCALE13_S128_MetroExchange.txt",
+  "name": "Metro Exchange",
+  "city": "Detroit",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "November 18, 2033",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": 5000
+ },
+ "S129": {
+  "filename": "SCALE13_S129_MetroExchange.txt",
+  "name": "Metro Exchange",
+  "city": "Seattle",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "March 26, 2030",
+  "deposit": "$91,000 (Letter of Credit)",
+  "split_threshold": null
+ },
+ "S130": {
+  "filename": "SCALE13_S130_FairfieldStation.txt",
+  "name": "Fairfield Station",
+  "city": "Detroit",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "September 14, 2029",
+  "deposit": "$159,000 (Letter of Credit)",
+  "split_threshold": null
+ },
+ "S131": {
+  "filename": "SCALE13_S131_NorthgateMall.txt",
+  "name": "Northgate Mall",
+  "city": "Dallas",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "April 15, 2027",
+  "deposit": "$40,000 (cash)",
+  "split_threshold": null
+ },
+ "S132": {
+  "filename": "SCALE13_S132_EastviewCrossing.txt",
+  "name": "Eastview Crossing",
+  "city": "Orlando",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "January 12, 2032",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": 10000
+ },
+ "S133": {
+  "filename": "SCALE13_S133_WillowCreek.txt",
+  "name": "Willow Creek",
+  "city": "Orlando",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "January 26, 2033",
+  "deposit": "$250,000 (cash)",
+  "split_threshold": null
+ },
+ "S134": {
+  "filename": "SCALE13_S134_EastviewCrossing.txt",
+  "name": "Eastview Crossing",
+  "city": "Tampa",
+  "hvac": "silent",
+  "synonym": false,
+  "expiry": "April 14, 2033",
+  "deposit": "$81,000 (Letter of Credit)",
+  "split_threshold": null
+ },
+ "S135": {
+  "filename": "SCALE13_S135_MetroExchange.txt",
+  "name": "Metro Exchange",
+  "city": "Nashville",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "June 4, 2034",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S136": {
+  "filename": "SCALE13_S136_OakwoodSquare.txt",
+  "name": "Oakwood Square",
+  "city": "Orlando",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "January 25, 2032",
+  "deposit": "$244,000 (cash)",
+  "split_threshold": null
+ },
+ "S137": {
+  "filename": "SCALE13_S137_MetroExchange.txt",
+  "name": "Metro Exchange",
+  "city": "Detroit",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "June 2, 2033",
+  "deposit": "$137,000 (cash)",
+  "split_threshold": null
+ },
+ "S138": {
+  "filename": "SCALE13_S138_FairfieldStation.txt",
+  "name": "Fairfield Station",
+  "city": "Boston",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "June 17, 2033",
+  "deposit": "$298,000 (Letter of Credit)",
+  "split_threshold": null
+ },
+ "S139": {
+  "filename": "SCALE13_S139_NorthgateMall.txt",
+  "name": "Northgate Mall",
+  "city": "Charlotte",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "September 23, 2027",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S140": {
+  "filename": "SCALE13_S140_LibertyMarketplace.txt",
+  "name": "Liberty Marketplace",
+  "city": "Memphis",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "January 14, 2027",
+  "deposit": "$295,000 (cash)",
+  "split_threshold": null
+ },
+ "S141": {
+  "filename": "SCALE13_S141_RiversideCommons.txt",
+  "name": "Riverside Commons",
+  "city": "Detroit",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "January 10, 2029",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S142": {
+  "filename": "SCALE13_S142_NorthgateMall.txt",
+  "name": "Northgate Mall",
+  "city": "Cleveland",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "January 13, 2029",
+  "deposit": "$68,000 (Letter of Credit)",
+  "split_threshold": 10000
+ },
+ "S143": {
+  "filename": "SCALE13_S143_RiversideCommons.txt",
+  "name": "Riverside Commons",
+  "city": "Nashville",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "November 20, 2029",
+  "deposit": "$79,000 (cash)",
+  "split_threshold": null
+ },
+ "S144": {
+  "filename": "SCALE13_S144_StonebridgeCourt.txt",
+  "name": "Stonebridge Court",
+  "city": "Orlando",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "March 25, 2031",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S145": {
+  "filename": "SCALE13_S145_OakwoodSquare.txt",
+  "name": "Oakwood Square",
+  "city": "Boston",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "November 25, 2034",
+  "deposit": "$40,000 (cash)",
+  "split_threshold": null
+ },
+ "S146": {
+  "filename": "SCALE13_S146_LibertyMarketplace.txt",
+  "name": "Liberty Marketplace",
+  "city": "Boston",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "November 13, 2031",
+  "deposit": "$110,000 (Letter of Credit)",
+  "split_threshold": null
+ },
+ "S147": {
+  "filename": "SCALE13_S147_NorthgateMall.txt",
+  "name": "Northgate Mall",
+  "city": "Austin",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "January 20, 2029",
+  "deposit": "$279,000 (cash)",
+  "split_threshold": null
+ },
+ "S148": {
+  "filename": "SCALE13_S148_StonebridgeCourt.txt",
+  "name": "Stonebridge Court",
+  "city": "Columbus",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "September 24, 2032",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S149": {
+  "filename": "SCALE13_S149_StonebridgeCourt.txt",
+  "name": "Stonebridge Court",
+  "city": "Houston",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "January 13, 2031",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S150": {
+  "filename": "SCALE13_S150_OakwoodSquare.txt",
+  "name": "Oakwood Square",
+  "city": "Hartford",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "January 10, 2034",
+  "deposit": "$44,000 (cash)",
+  "split_threshold": null
+ },
+ "S151": {
+  "filename": "SCALE13_S151_LibertyMarketplace.txt",
+  "name": "Liberty Marketplace",
+  "city": "Cleveland",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "April 7, 2028",
+  "deposit": "$205,000 (Letter of Credit)",
+  "split_threshold": 5000
+ },
+ "S152": {
+  "filename": "SCALE13_S152_GatewayPlaza.txt",
+  "name": "Gateway Plaza",
+  "city": "Portland",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "November 26, 2033",
+  "deposit": "$108,000 (cash)",
+  "split_threshold": null
+ },
+ "S153": {
+  "filename": "SCALE13_S153_RiversideCommons.txt",
+  "name": "Riverside Commons",
+  "city": "Austin",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "November 13, 2030",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S154": {
+  "filename": "SCALE13_S154_SummitCenter.txt",
+  "name": "Summit Center",
+  "city": "Phoenix",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "April 12, 2033",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S155": {
+  "filename": "SCALE13_S155_RiversideCommons.txt",
+  "name": "Riverside Commons",
+  "city": "Dallas",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "June 28, 2033",
+  "deposit": "$201,000 (cash)",
+  "split_threshold": null
+ },
+ "S156": {
+  "filename": "SCALE13_S156_WillowCreek.txt",
+  "name": "Willow Creek",
+  "city": "Phoenix",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "June 4, 2034",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S157": {
+  "filename": "SCALE13_S157_WillowCreek.txt",
+  "name": "Willow Creek",
+  "city": "Chicago",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "November 12, 2033",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S158": {
+  "filename": "SCALE13_S158_LibertyMarketplace.txt",
+  "name": "Liberty Marketplace",
+  "city": "Orlando",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "June 13, 2028",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S159": {
+  "filename": "SCALE13_S159_CedarHills.txt",
+  "name": "Cedar Hills",
+  "city": "Chicago",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "September 5, 2028",
+  "deposit": "$46,000 (Letter of Credit)",
+  "split_threshold": 10000
+ },
+ "S160": {
+  "filename": "SCALE13_S160_RiversideCommons.txt",
+  "name": "Riverside Commons",
+  "city": "Dallas",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "November 7, 2033",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": 7500
+ },
+ "S161": {
+  "filename": "SCALE13_S161_EastviewCrossing.txt",
+  "name": "Eastview Crossing",
+  "city": "Detroit",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "January 28, 2031",
+  "deposit": "$264,000 (Letter of Credit)",
+  "split_threshold": 7500
+ },
+ "S162": {
+  "filename": "SCALE13_S162_RiversideCommons.txt",
+  "name": "Riverside Commons",
+  "city": "Austin",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "November 10, 2032",
+  "deposit": "$133,000 (Letter of Credit)",
+  "split_threshold": null
+ },
+ "S163": {
+  "filename": "SCALE13_S163_LakeshoreGalleria.txt",
+  "name": "Lakeshore Galleria",
+  "city": "Portland",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "September 12, 2027",
+  "deposit": "$130,000 (cash)",
+  "split_threshold": null
+ },
+ "S164": {
+  "filename": "SCALE13_S164_EastviewCrossing.txt",
+  "name": "Eastview Crossing",
+  "city": "Dallas",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "January 9, 2029",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S165": {
+  "filename": "SCALE13_S165_SummitCenter.txt",
+  "name": "Summit Center",
+  "city": "Nashville",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "November 6, 2032",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S166": {
+  "filename": "SCALE13_S166_LibertyMarketplace.txt",
+  "name": "Liberty Marketplace",
+  "city": "Portland",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "January 21, 2031",
+  "deposit": "$144,000 (Letter of Credit)",
+  "split_threshold": 7500
+ },
+ "S167": {
+  "filename": "SCALE13_S167_FairfieldStation.txt",
+  "name": "Fairfield Station",
+  "city": "Nashville",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "March 12, 2034",
+  "deposit": "$279,000 (cash)",
+  "split_threshold": null
+ },
+ "S168": {
+  "filename": "SCALE13_S168_EastviewCrossing.txt",
+  "name": "Eastview Crossing",
+  "city": "Houston",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "April 21, 2027",
+  "deposit": "$290,000 (Letter of Credit)",
+  "split_threshold": 7500
+ },
+ "S169": {
+  "filename": "SCALE13_S169_EastviewCrossing.txt",
+  "name": "Eastview Crossing",
+  "city": "Detroit",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "November 2, 2034",
+  "deposit": "$45,000 (cash)",
+  "split_threshold": null
+ },
+ "S170": {
+  "filename": "SCALE13_S170_StonebridgeCourt.txt",
+  "name": "Stonebridge Court",
+  "city": "Orlando",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "January 18, 2027",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": 5000
+ },
+ "S171": {
+  "filename": "SCALE13_S171_LibertyMarketplace.txt",
+  "name": "Liberty Marketplace",
+  "city": "Denver",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "January 1, 2028",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": 7500
+ },
+ "S172": {
+  "filename": "SCALE13_S172_FairfieldStation.txt",
+  "name": "Fairfield Station",
+  "city": "Nashville",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "January 10, 2033",
+  "deposit": "$58,000 (Letter of Credit)",
+  "split_threshold": 10000
+ },
+ "S173": {
+  "filename": "SCALE13_S173_RiversideCommons.txt",
+  "name": "Riverside Commons",
+  "city": "Atlanta",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "January 1, 2032",
+  "deposit": "$53,000 (Letter of Credit)",
+  "split_threshold": 7500
+ },
+ "S174": {
+  "filename": "SCALE13_S174_HarborPoint.txt",
+  "name": "Harbor Point",
+  "city": "Phoenix",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "March 10, 2030",
+  "deposit": "$206,000 (Letter of Credit)",
+  "split_threshold": null
+ },
+ "S175": {
+  "filename": "SCALE13_S175_LakeshoreGalleria.txt",
+  "name": "Lakeshore Galleria",
+  "city": "Cleveland",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "June 16, 2031",
+  "deposit": "$69,000 (cash)",
+  "split_threshold": null
+ },
+ "S176": {
+  "filename": "SCALE13_S176_NorthgateMall.txt",
+  "name": "Northgate Mall",
+  "city": "Memphis",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "November 23, 2032",
+  "deposit": "$53,000 (cash)",
+  "split_threshold": null
+ },
+ "S177": {
+  "filename": "SCALE13_S177_RiversideCommons.txt",
+  "name": "Riverside Commons",
+  "city": "Portland",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "June 9, 2032",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": 5000
+ },
+ "S178": {
+  "filename": "SCALE13_S178_SummitCenter.txt",
+  "name": "Summit Center",
+  "city": "Raleigh",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "June 5, 2029",
+  "deposit": "$112,000 (cash)",
+  "split_threshold": null
+ },
+ "S179": {
+  "filename": "SCALE13_S179_HarborPoint.txt",
+  "name": "Harbor Point",
+  "city": "Raleigh",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "September 12, 2027",
+  "deposit": "$254,000 (cash)",
+  "split_threshold": null
+ },
+ "S180": {
+  "filename": "SCALE13_S180_CedarHills.txt",
+  "name": "Cedar Hills",
+  "city": "Hartford",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "January 19, 2033",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S181": {
+  "filename": "SCALE13_S181_WillowCreek.txt",
+  "name": "Willow Creek",
+  "city": "Houston",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "June 6, 2033",
+  "deposit": "$149,000 (cash)",
+  "split_threshold": null
+ },
+ "S182": {
+  "filename": "SCALE13_S182_WillowCreek.txt",
+  "name": "Willow Creek",
+  "city": "Nashville",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "November 24, 2030",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S183": {
+  "filename": "SCALE13_S183_CedarHills.txt",
+  "name": "Cedar Hills",
+  "city": "Dallas",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "November 12, 2032",
+  "deposit": "$271,000 (Letter of Credit)",
+  "split_threshold": 7500
+ },
+ "S184": {
+  "filename": "SCALE13_S184_MetroExchange.txt",
+  "name": "Metro Exchange",
+  "city": "Denver",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "April 13, 2029",
+  "deposit": "$279,000 (cash)",
+  "split_threshold": null
+ },
+ "S185": {
+  "filename": "SCALE13_S185_LakeshoreGalleria.txt",
+  "name": "Lakeshore Galleria",
+  "city": "Tampa",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "September 4, 2034",
+  "deposit": "$88,000 (cash)",
+  "split_threshold": null
+ },
+ "S186": {
+  "filename": "SCALE13_S186_NorthgateMall.txt",
+  "name": "Northgate Mall",
+  "city": "Nashville",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "January 15, 2033",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S187": {
+  "filename": "SCALE13_S187_CedarHills.txt",
+  "name": "Cedar Hills",
+  "city": "Portland",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "November 11, 2028",
+  "deposit": "$131,000 (cash)",
+  "split_threshold": 10000
+ },
+ "S188": {
+  "filename": "SCALE13_S188_SummitCenter.txt",
+  "name": "Summit Center",
+  "city": "Houston",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "March 19, 2029",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S189": {
+  "filename": "SCALE13_S189_HarborPoint.txt",
+  "name": "Harbor Point",
+  "city": "Dallas",
+  "hvac": "silent",
+  "synonym": false,
+  "expiry": "April 2, 2030",
+  "deposit": "$54,000 (cash)",
+  "split_threshold": null
+ },
+ "S190": {
+  "filename": "SCALE13_S190_CedarHills.txt",
+  "name": "Cedar Hills",
+  "city": "Charlotte",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "November 26, 2027",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S191": {
+  "filename": "SCALE13_S191_HarborPoint.txt",
+  "name": "Harbor Point",
+  "city": "Chicago",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "September 23, 2028",
+  "deposit": "$150,000 (cash)",
+  "split_threshold": 7500
+ },
+ "S192": {
+  "filename": "SCALE13_S192_OakwoodSquare.txt",
+  "name": "Oakwood Square",
+  "city": "Austin",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "November 8, 2034",
+  "deposit": "$64,000 (Letter of Credit)",
+  "split_threshold": null
+ },
+ "S193": {
+  "filename": "SCALE13_S193_OakwoodSquare.txt",
+  "name": "Oakwood Square",
+  "city": "Denver",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "April 22, 2034",
+  "deposit": "$194,000 (Letter of Credit)",
+  "split_threshold": null
+ },
+ "S194": {
+  "filename": "SCALE13_S194_LibertyMarketplace.txt",
+  "name": "Liberty Marketplace",
+  "city": "Dallas",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "June 21, 2028",
+  "deposit": "$278,000 (cash)",
+  "split_threshold": null
+ },
+ "S195": {
+  "filename": "SCALE13_S195_SummitCenter.txt",
+  "name": "Summit Center",
+  "city": "Seattle",
+  "hvac": "silent",
+  "synonym": false,
+  "expiry": "January 16, 2034",
+  "deposit": "$192,000 (Letter of Credit)",
+  "split_threshold": null
+ },
+ "S196": {
+  "filename": "SCALE13_S196_HarborPoint.txt",
+  "name": "Harbor Point",
+  "city": "Cleveland",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "April 19, 2030",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": 10000
+ },
+ "S197": {
+  "filename": "SCALE13_S197_NorthgateMall.txt",
+  "name": "Northgate Mall",
+  "city": "Seattle",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "September 18, 2030",
+  "deposit": "$180,000 (cash)",
+  "split_threshold": null
+ },
+ "S198": {
+  "filename": "SCALE13_S198_StonebridgeCourt.txt",
+  "name": "Stonebridge Court",
+  "city": "Tampa",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "April 27, 2029",
+  "deposit": "$209,000 (Letter of Credit)",
+  "split_threshold": null
+ },
+ "S199": {
+  "filename": "SCALE13_S199_StonebridgeCourt.txt",
+  "name": "Stonebridge Court",
+  "city": "Charlotte",
+  "hvac": "silent",
+  "synonym": false,
+  "expiry": "January 16, 2030",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S200": {
+  "filename": "SCALE13_S200_LibertyMarketplace.txt",
+  "name": "Liberty Marketplace",
+  "city": "Boston",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "June 12, 2034",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": 10000
+ },
+ "S201": {
+  "filename": "SCALE13_S201_WillowCreek.txt",
+  "name": "Willow Creek",
+  "city": "Phoenix",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "March 13, 2032",
+  "deposit": "$272,000 (Letter of Credit)",
+  "split_threshold": null
+ },
+ "S202": {
+  "filename": "SCALE13_S202_MetroExchange.txt",
+  "name": "Metro Exchange",
+  "city": "Portland",
+  "hvac": "tenant",
+  "synonym": false,
+  "expiry": "April 19, 2028",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S203": {
+  "filename": "SCALE13_S203_MetroExchange.txt",
+  "name": "Metro Exchange",
+  "city": "Raleigh",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "November 16, 2033",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S204": {
+  "filename": "SCALE13_S204_RiversideCommons.txt",
+  "name": "Riverside Commons",
+  "city": "Portland",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "September 25, 2032",
+  "deposit": "$201,000 (Letter of Credit)",
+  "split_threshold": null
+ },
+ "S205": {
+  "filename": "SCALE13_S205_WillowCreek.txt",
+  "name": "Willow Creek",
+  "city": "Detroit",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "June 8, 2027",
+  "deposit": "$130,000 (cash)",
+  "split_threshold": 7500
+ },
+ "S206": {
+  "filename": "SCALE13_S206_RiversideCommons.txt",
+  "name": "Riverside Commons",
+  "city": "Atlanta",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "November 25, 2028",
+  "deposit": "$146,000 (Letter of Credit)",
+  "split_threshold": 10000
+ },
+ "S207": {
+  "filename": "SCALE13_S207_EastviewCrossing.txt",
+  "name": "Eastview Crossing",
+  "city": "Boston",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "March 13, 2033",
+  "deposit": "$219,000 (cash)",
+  "split_threshold": 10000
+ },
+ "S208": {
+  "filename": "SCALE13_S208_HarborPoint.txt",
+  "name": "Harbor Point",
+  "city": "Nashville",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "June 20, 2033",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S209": {
+  "filename": "SCALE13_S209_MetroExchange.txt",
+  "name": "Metro Exchange",
+  "city": "Portland",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "November 2, 2030",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S210": {
+  "filename": "SCALE13_S210_CedarHills.txt",
+  "name": "Cedar Hills",
+  "city": "Atlanta",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "September 28, 2033",
+  "deposit": "$228,000 (Letter of Credit)",
+  "split_threshold": 10000
+ },
+ "S211": {
+  "filename": "SCALE13_S211_MetroExchange.txt",
+  "name": "Metro Exchange",
+  "city": "Detroit",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "November 4, 2028",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S212": {
+  "filename": "SCALE13_S212_EastviewCrossing.txt",
+  "name": "Eastview Crossing",
+  "city": "Detroit",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "January 10, 2034",
+  "deposit": "$296,000 (Letter of Credit)",
+  "split_threshold": 10000
+ },
+ "S213": {
+  "filename": "SCALE13_S213_SummitCenter.txt",
+  "name": "Summit Center",
+  "city": "Detroit",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "April 11, 2029",
+  "deposit": "$50,000 (cash)",
+  "split_threshold": null
+ },
+ "S214": {
+  "filename": "SCALE13_S214_LakeshoreGalleria.txt",
+  "name": "Lakeshore Galleria",
+  "city": "Houston",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "April 16, 2027",
+  "deposit": "$176,000 (cash)",
+  "split_threshold": 7500
+ },
+ "S215": {
+  "filename": "SCALE13_S215_UnionYards.txt",
+  "name": "Union Yards",
+  "city": "Raleigh",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "November 26, 2030",
+  "deposit": "$265,000 (cash)",
+  "split_threshold": 7500
+ },
+ "S216": {
+  "filename": "SCALE13_S216_StonebridgeCourt.txt",
+  "name": "Stonebridge Court",
+  "city": "Memphis",
+  "hvac": "silent",
+  "synonym": false,
+  "expiry": "September 24, 2034",
+  "deposit": "$179,000 (Letter of Credit)",
+  "split_threshold": null
+ },
+ "S217": {
+  "filename": "SCALE13_S217_WillowCreek.txt",
+  "name": "Willow Creek",
+  "city": "Nashville",
+  "hvac": "silent",
+  "synonym": false,
+  "expiry": "September 21, 2032",
+  "deposit": "None required (tenant creditworthiness)",
+  "split_threshold": null
+ },
+ "S218": {
+  "filename": "SCALE13_S218_HarborPoint.txt",
+  "name": "Harbor Point",
+  "city": "Houston",
+  "hvac": "split",
+  "synonym": false,
+  "expiry": "September 1, 2032",
+  "deposit": "$101,000 (Letter of Credit)",
+  "split_threshold": 7500
+ },
+ "S219": {
+  "filename": "SCALE13_S219_CedarHills.txt",
+  "name": "Cedar Hills",
+  "city": "Atlanta",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "January 8, 2028",
+  "deposit": "$47,000 (Letter of Credit)",
+  "split_threshold": null
+ },
+ "S220": {
+  "filename": "SCALE13_S220_WillowCreek.txt",
+  "name": "Willow Creek",
+  "city": "Charlotte",
+  "hvac": "landlord",
+  "synonym": false,
+  "expiry": "March 5, 2034",
+  "deposit": "$110,000 (cash)",
+  "split_threshold": null
+ }
+}
