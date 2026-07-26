@@ -2378,6 +2378,60 @@ def smart_knowledge_retrieval(query: str, agent_id: int, user_id: str = None,
                 return _format_knowledge_response(_ensure_contents(), apply_caps=True)
 
 
+def _brute_force_within_budget(total_pages: int, total_chars: int) -> bool:
+    """Brute-force routing decision: page threshold AND character budget.
+
+    The page threshold alone is a poor proxy for context size (a 51-page knowledge
+    base was measured at 1.15M chars ~= 288K tokens, sent uncapped on every
+    question). The char budget bounds the dump; KNOWLEDGE_BRUTE_FORCE_CHAR_BUDGET
+    <= 0 disables the char check.
+    """
+    threshold = cfg.KNOWLEDGE_BRUTE_FORCE_PAGE_THRESHOLD
+    char_budget = int(getattr(cfg, 'KNOWLEDGE_BRUTE_FORCE_CHAR_BUDGET', 400000))
+    if total_pages > threshold:
+        return False
+    if char_budget > 0 and total_chars > char_budget:
+        return False
+    return True
+
+
+def _measure_agent_knowledge_size(agent_id, user_id=None):
+    """
+    Cheap pre-flight (page_count, total_chars) across an agent's active knowledge
+    documents, in one query, without bulk-loading text. Mirrors the visibility
+    rules used by get_agent_knowledge_documents. Returns (0, 0) on failure —
+    same degraded behavior as the page-count preflight had.
+    """
+    try:
+        import pyodbc
+        conn = pyodbc.connect(
+            f"DRIVER={{SQL Server}};SERVER={cfg.DATABASE_SERVER};DATABASE={cfg.DATABASE_NAME};UID={cfg.DATABASE_UID};PWD={cfg.DATABASE_PWD}"
+        )
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+
+        scoped_user = 'USER' if user_id is None else str(user_id)
+        cursor.execute("""
+            SELECT COUNT(*), SUM(LEN(ISNULL(dp.full_text, '')))
+            FROM DocumentPages dp
+            JOIN AgentKnowledge ak ON dp.document_id = ak.document_id
+            WHERE ak.agent_id = ? AND ak.is_active = 1
+              AND (
+                  ISNULL(ak.added_by, 'USER') = 'USER'
+                  OR
+                  ISNULL(ak.added_by, 'USER') = ?
+              )
+        """, agent_id, scoped_user)
+        row = cursor.fetchone()
+        conn.close()
+        pages = int(row[0]) if row and row[0] is not None else 0
+        chars = int(row[1]) if row and row[1] is not None else 0
+        return pages, chars
+    except Exception as e:
+        logging.warning(f"Knowledge size preflight failed for agent {agent_id}: {e}")
+        return 0, 0
+
+
 def _count_agent_knowledge_pages(agent_id, user_id=None) -> int:
     """
     Cheap pre-flight COUNT of total pages across all of an agent's active knowledge documents.
@@ -2795,27 +2849,29 @@ class KnowledgeTool:
 
                 document_ids = [doc['document_id'] for doc in documents]
 
-                # Pre-flight: count total pages without bulk-loading any text
-                total_pages = _count_agent_knowledge_pages(self.agent_id, self.user_id)
+                # Pre-flight: pages AND chars in one query — the routing gate is
+                # measured in both (pages alone was a bad proxy for context size)
+                total_pages, total_chars = _measure_agent_knowledge_size(self.agent_id, self.user_id)
                 threshold = cfg.KNOWLEDGE_BRUTE_FORCE_PAGE_THRESHOLD
 
                 _skr_trace(
-                    f"Knowledge routing: {total_pages} pages, threshold={threshold}, "
+                    f"Knowledge routing: {total_pages} pages, {total_chars} chars, "
+                    f"threshold={threshold}, char_budget={getattr(cfg, 'KNOWLEDGE_BRUTE_FORCE_CHAR_BUDGET', 400000)}, "
                     f"smart={cfg.KNOWLEDGE_ENABLE_SMART_RETRIEVAL}"
                 )
 
-                if total_pages <= threshold:
+                if _brute_force_within_budget(total_pages, total_chars):
                     # Brute force: small enough to send everything — load and dump uncapped
-                    _skr_trace(f"PATH: BRUTE FORCE ({total_pages} pages <= {threshold})")
-                    logging.info(f"Knowledge brute force: {total_pages} pages ≤ {threshold} threshold")
+                    _skr_trace(f"PATH: BRUTE FORCE ({total_pages} pages, {total_chars} chars within budget)")
+                    logging.info(f"Knowledge brute force: {total_pages} pages / {total_chars} chars within budget")
                     document_contents = _load_agent_knowledge_contents(document_ids, documents)
                     if not document_contents:
                         return "No content found in the agent's knowledge documents."
                     return _format_knowledge_response(document_contents, apply_caps=False)
                 elif cfg.KNOWLEDGE_ENABLE_SMART_RETRIEVAL:
                     # Smart retrieval — defer text loading to fallback paths via lazy loader
-                    _skr_trace(f"PATH: SMART RETRIEVAL ({total_pages} pages > {threshold})")
-                    logging.info(f"Knowledge smart retrieval: {total_pages} pages > {threshold} threshold")
+                    _skr_trace(f"PATH: SMART RETRIEVAL ({total_pages} pages / {total_chars} chars over threshold or budget)")
+                    logging.info(f"Knowledge smart retrieval: {total_pages} pages / {total_chars} chars over threshold or budget")
                     # Snapshot chat history AND the literal user input so the
                     # LLM doc detector sees the actual user message — not just
                     # the agent's paraphrased tool query (which often strips
@@ -2875,12 +2931,12 @@ class KnowledgeTool:
 
                 document_ids = [doc['document_id'] for doc in documents]
 
-                # Pre-flight: count total pages without bulk-loading text
-                total_pages = _count_agent_knowledge_pages(self.agent_id, self.user_id)
+                # Pre-flight: pages AND chars — same dual gate as search_agent_knowledge
+                total_pages, total_chars = _measure_agent_knowledge_size(self.agent_id, self.user_id)
                 threshold = cfg.KNOWLEDGE_BRUTE_FORCE_PAGE_THRESHOLD
 
-                if total_pages <= threshold:
-                    logging.info(f"User knowledge brute force: {total_pages} pages ≤ {threshold} threshold")
+                if _brute_force_within_budget(total_pages, total_chars):
+                    logging.info(f"User knowledge brute force: {total_pages} pages / {total_chars} chars within budget")
                     document_contents = _load_agent_knowledge_contents(document_ids, documents)
                     if not document_contents:
                         return "No content found in the agent's knowledge documents."

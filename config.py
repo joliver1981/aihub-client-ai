@@ -707,6 +707,7 @@ CLOUD_API_REQUESTS_TIMEOUT = 30
 
 # Smart Knowledge Retrieval Configuration
 KNOWLEDGE_BRUTE_FORCE_PAGE_THRESHOLD = int(os.getenv('KNOWLEDGE_BRUTE_FORCE_PAGE_THRESHOLD', 500))  # If agent has <= this many total pages of knowledge: dump everything to the AI (no chunking, no caps). Above this: route via smart retrieval.
+KNOWLEDGE_BRUTE_FORCE_CHAR_BUDGET = int(os.getenv('KNOWLEDGE_BRUTE_FORCE_CHAR_BUDGET', 400000))     # Page count is a poor proxy for context size (measured: 51 pages = 1.15M chars). Brute force additionally requires total knowledge chars <= this budget (400K chars ~= 100K tokens, the code's long-standing "safe for Claude's context window" cap); over budget routes to smart retrieval even under the page threshold. <= 0 disables the char check (restores pure page-count gating).
 KNOWLEDGE_VECTOR_COLLECTION = 'agent_knowledge'          # Separate ChromaDB collection for knowledge docs (isolated from system document search)
 KNOWLEDGE_VECTOR_TOP_K = int(os.getenv('KNOWLEDGE_VECTOR_TOP_K', 10))  # Top-K chunks for needle queries
 KNOWLEDGE_SUMMARY_MAX_CHARS = int(os.getenv('KNOWLEDGE_SUMMARY_MAX_CHARS', 500))  # Per-document structured summary cap
