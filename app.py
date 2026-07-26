@@ -12843,6 +12843,16 @@ register_page_route(app)
 # Initialize BYOK configuration
 init_byok()
 
+# Register the System Prompts admin screen (view/search/filter/override every
+# LLM prompt). Guarded so that a problem in this optional admin surface can
+# never prevent the application from starting.
+try:
+    from system_prompts_admin_routes import system_prompts_admin_bp
+    app.register_blueprint(system_prompts_admin_bp)
+except Exception as _sp_err:
+    logging.getLogger(__name__).error(
+        f"System Prompts admin screen unavailable: {_sp_err}")
+
 # Import the identity provider admin blueprint
 from auth_identity_routes import identity_bp
 app.register_blueprint(identity_bp)

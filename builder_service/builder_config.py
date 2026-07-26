@@ -659,3 +659,48 @@ def get_llm_alternate():
     except Exception as e:
         _config_logger.warning(f"[get_llm_alternate] Failed to create alternate LLM: {e}")
         return None
+
+
+# ============================================================================
+# AIHUB_PROMPT_OVERRIDE_HOOK - admin system-prompt overrides (additive)
+# ----------------------------------------------------------------------------
+# Overlays admin-set prompts from data/prompt_overrides.json on top of the
+# defaults defined above, so they can be edited from the System Prompts admin
+# screen (/settings/system-prompts) without changing code.
+#
+#   * No override file  -> this is a no-op and behaviour is unchanged.
+#   * Fails open        -> any problem leaves the code defaults untouched.
+#   * Nothing above this line is modified, and reverting an override in the UI
+#     restores the shipped default exactly.
+#
+# See prompt_overrides.py for the validation rules (a value must be a string
+# and must keep every {placeholder} the default relies on).
+# ============================================================================
+try:
+    try:
+        from prompt_overrides import apply_prompt_overrides as _po_apply
+    except ImportError:
+        # The repo root is not on sys.path in this service's process. Load the
+        # module straight off disk rather than mutating sys.path, so import
+        # resolution for this process is left exactly as it was.
+        import os as _po_os
+        import importlib.util as _po_ilu
+        _po_apply = None
+        _po_dir = _po_os.path.dirname(_po_os.path.abspath(__file__))
+        for _po_i in range(6):
+            _po_file = _po_os.path.join(_po_dir, 'prompt_overrides.py')
+            if _po_os.path.isfile(_po_file):
+                _po_spec = _po_ilu.spec_from_file_location(
+                    '_aihub_prompt_overrides', _po_file)
+                _po_mod = _po_ilu.module_from_spec(_po_spec)
+                _po_spec.loader.exec_module(_po_mod)
+                _po_apply = _po_mod.apply_prompt_overrides
+                break
+            _po_parent = _po_os.path.dirname(_po_dir)
+            if _po_parent == _po_dir:
+                break
+            _po_dir = _po_parent
+    if _po_apply:
+        _po_apply(globals(), 'builder_service/builder_config.py')
+except Exception:
+    pass

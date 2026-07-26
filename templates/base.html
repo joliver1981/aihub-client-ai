@@ -1367,6 +1367,13 @@
                             <span class="nav-text">Identity & Security</span>
                         </a>
 
+                        {# Hardcoded path on purpose: blueprint registration is
+                           fault-tolerant, and url_for() would raise BuildError
+                           on every page render if it ever failed to register. #}
+                        <a href="/settings/system-prompts" class="new-nav-link">
+                            <span class="nav-text">System Prompts</span>
+                        </a>
+
                         <a href="{{ url_for('system_logs') }}" class="new-nav-link">
                             <span class="nav-text">System Logs</span>
                         </a>
@@ -1695,6 +1702,13 @@
 
                         <a href="{{ url_for('identity.identity_settings_page') }}" class="new-nav-link">
                             <span class="nav-text">Identity & Security</span>
+                        </a>
+
+                        {# Hardcoded path on purpose: blueprint registration is
+                           fault-tolerant, and url_for() would raise BuildError
+                           on every page render if it ever failed to register. #}
+                        <a href="/settings/system-prompts" class="new-nav-link">
+                            <span class="nav-text">System Prompts</span>
                         </a>
 
                         <a href="{{ url_for('system_logs') }}" class="new-nav-link">

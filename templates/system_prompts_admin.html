@@ -1,0 +1,605 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Document Pages Dark Theme -->
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<div style="position:fixed;bottom:20px;right:20px;z-index:100;">
+    <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+        <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+    </button>
+</div>
+
+<div class="container-fluid py-4">
+
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="mb-1">
+                <i class="fas fa-comment-dots text-primary mr-2"></i>
+                System Prompts
+            </h2>
+            <p class="text-muted mb-0">
+                Every LLM prompt in the platform &mdash; search it, trace it to its source line, and override it without touching code
+            </p>
+        </div>
+        <div>
+            <span class="badge badge-pill px-3 py-2" id="statsBadge" style="font-size:0.9rem;">
+                <i class="fas fa-spinner fa-spin mr-1"></i> Loading...
+            </span>
+        </div>
+    </div>
+
+    <!-- Restart required -->
+    <div id="restartWarn" class="alert alert-warning mb-3 py-2" style="display:none;">
+        <i class="fas fa-sync-alt mr-2"></i>
+        <strong>Restart required:</strong>
+        prompt overrides are read when each service starts, so pending changes
+        will not take effect until AI Hub is restarted.
+    </div>
+
+    <!-- Stale overrides -->
+    <div id="staleWarn" class="alert alert-danger mb-3 py-2" style="display:none;">
+        <i class="fas fa-exclamation-triangle mr-2"></i>
+        <strong>Stale override(s):</strong>
+        <span id="staleList"></span>
+        &mdash; these prompts no longer exist in the code (likely renamed in an
+        update). They are being ignored. Clearing them is safe.
+    </div>
+
+    <!-- How this works -->
+    <div class="alert alert-info mb-4">
+        <div class="d-flex align-items-start">
+            <i class="fas fa-info-circle mr-3 mt-1" style="font-size:1.2rem;"></i>
+            <div>
+                <strong>Overrides are additive &mdash; nothing is ever removed</strong>
+                <p class="mb-0 mt-1">
+                    Editing a prompt writes it to <code>data/prompt_overrides.json</code>,
+                    which is layered on top of the original value at startup. The code
+                    default is never modified, so <em>Revert to default</em> always
+                    restores the shipped prompt. Prompts marked
+                    <span class="badge badge-secondary">read-only</span> are built at
+                    runtime (f-strings) or live inline in code &mdash; they are listed
+                    here so you can find them, but they must be changed in code.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card shadow-sm mb-3">
+        <div class="card-body py-3">
+            <div class="form-row align-items-end">
+                <div class="col-md-4 mb-2">
+                    <label class="small text-muted mb-1">Search</label>
+                    <div class="input-group input-group-sm">
+                        <div class="input-group-prepend">
+                            <span class="input-group-text"><i class="fas fa-search"></i></span>
+                        </div>
+                        <input type="text" id="qInput" class="form-control"
+                               placeholder="Search names and full prompt text…" autocomplete="off">
+                    </div>
+                </div>
+                <div class="col-md-2 mb-2">
+                    <label class="small text-muted mb-1">Service</label>
+                    <select id="serviceSelect" class="form-control form-control-sm">
+                        <option value="">All services</option>
+                    </select>
+                </div>
+                <div class="col-md-2 mb-2">
+                    <label class="small text-muted mb-1">Status</label>
+                    <select id="scopeSelect" class="form-control form-control-sm">
+                        <option value="all">All</option>
+                        <option value="editable">Editable</option>
+                        <option value="readonly">Read-only</option>
+                        <option value="overridden">Overridden</option>
+                    </select>
+                </div>
+                <div class="col-md-2 mb-2">
+                    <label class="small text-muted mb-1">Type</label>
+                    <select id="kindSelect" class="form-control form-control-sm">
+                        <option value="">All types</option>
+                        <option value="system">System prompt</option>
+                        <option value="template">User / template</option>
+                    </select>
+                </div>
+                <div class="col-md-2 mb-2 text-right">
+                    <button class="btn btn-sm btn-outline-secondary" id="refreshBtn" title="Re-scan the source tree">
+                        <i class="fas fa-sync-alt"></i> Rescan
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" id="clearAllBtn" title="Remove all overrides">
+                        <i class="fas fa-undo"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="small text-muted" id="resultCount"></div>
+        </div>
+    </div>
+
+    <!-- Results -->
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0" id="promptTable">
+                <thead>
+                    <tr>
+                        <th style="width:26%;">Prompt</th>
+                        <th style="width:20%;">Source</th>
+                        <th style="width:12%;">Service</th>
+                        <th style="width:10%;">Status</th>
+                        <th>Preview</th>
+                    </tr>
+                </thead>
+                <tbody id="promptBody">
+                    <tr><td colspan="5" class="text-center text-muted py-4">
+                        <i class="fas fa-spinner fa-spin mr-2"></i>Scanning the source tree…
+                    </td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div><!-- /.container-fluid -->
+
+<!-- ===================== Detail / Edit overlay ===================== -->
+<div id="spOverlay" style="display:none;position:fixed;inset:0;z-index:20000;">
+    <div id="spBackdrop" style="position:absolute;inset:0;background:rgba(0,0,0,.5);"></div>
+    <div style="position:absolute;top:3vh;left:50%;transform:translateX(-50%);
+                width:min(1100px,94vw);max-height:94vh;display:flex;flex-direction:column;
+                background:var(--doc-card-bg,#fff);color:inherit;border-radius:.5rem;
+                box-shadow:0 10px 40px rgba(0,0,0,.35);overflow:hidden;">
+        <div class="d-flex justify-content-between align-items-start px-4 pt-3 pb-2"
+             style="border-bottom:1px solid rgba(128,128,128,.25);">
+            <div style="min-width:0;">
+                <h5 class="mb-1" id="spTitle" style="word-break:break-all;"></h5>
+                <div class="small text-muted" id="spSubtitle"></div>
+            </div>
+            <button type="button" class="close ml-3" id="spClose" aria-label="Close">
+                <span aria-hidden="true">&times;</span>
+            </button>
+        </div>
+
+        <div class="px-4 py-3" style="overflow:auto;flex:1 1 auto;">
+            <div id="spReadonlyNote" class="alert alert-secondary py-2 small" style="display:none;">
+                <i class="fas fa-lock mr-1"></i>
+                <strong>Read-only.</strong> <span id="spReason"></span>
+            </div>
+
+            <div id="spPlaceholderNote" class="alert alert-warning py-2 small" style="display:none;">
+                <i class="fas fa-code mr-1"></i>
+                This prompt uses placeholders that the code fills in at runtime:
+                <span id="spPlaceholders"></span>.
+                <strong>Every one must still appear in your version</strong> or the
+                edit will be rejected.
+            </div>
+
+            <label class="small text-muted mb-1" id="spEditorLabel">Prompt text</label>
+            <textarea id="spEditor" class="form-control" spellcheck="false"
+                      style="min-height:46vh;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+                             font-size:.82rem;line-height:1.45;white-space:pre;overflow-wrap:normal;
+                             overflow-x:auto;"></textarea>
+
+            <div class="d-flex justify-content-between mt-2 small text-muted">
+                <span id="spCharCount"></span>
+                <span id="spDirtyFlag"></span>
+            </div>
+
+            <details class="mt-3" id="spDefaultWrap" style="display:none;">
+                <summary class="small text-muted" style="cursor:pointer;">
+                    Show shipped default (for comparison)
+                </summary>
+                <pre id="spDefaultText" class="mt-2 p-3 small"
+                     style="background:rgba(128,128,128,.10);border-radius:.35rem;
+                            max-height:34vh;overflow:auto;white-space:pre-wrap;"></pre>
+            </details>
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center px-4 py-3"
+             style="border-top:1px solid rgba(128,128,128,.25);">
+            <div class="small text-muted" id="spFooterNote"></div>
+            <div>
+                <button class="btn btn-sm btn-outline-secondary mr-2" id="spCopyBtn">
+                    <i class="far fa-copy"></i> Copy
+                </button>
+                <button class="btn btn-sm btn-outline-danger mr-2" id="spRevertBtn" style="display:none;">
+                    <i class="fas fa-undo"></i> Revert to default
+                </button>
+                <button class="btn btn-sm btn-primary" id="spSaveBtn" style="display:none;">
+                    <i class="fas fa-save"></i> Save override
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast -->
+<div id="spToast" style="display:none;position:fixed;bottom:80px;right:20px;z-index:30000;
+     min-width:280px;max-width:460px;padding:.75rem 1rem;border-radius:.35rem;
+     box-shadow:0 6px 24px rgba(0,0,0,.3);font-size:.9rem;"></div>
+
+</div><!-- /.doc-page -->
+
+{% raw %}
+<script>
+(function () {
+    'use strict';
+
+    var API = '/settings/api/system-prompts';
+    var state = { entries: [], current: null, loading: false };
+
+    // ---------- utilities ----------
+    function esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    function el(id) { return document.getElementById(id); }
+
+    var toastTimer = null;
+    function toast(msg, type) {
+        var t = el('spToast');
+        var colors = {
+            success: ['#1e7e34', '#fff'],
+            error:   ['#a71d2a', '#fff'],
+            info:    ['#0c5460', '#fff']
+        };
+        var c = colors[type] || colors.info;
+        t.style.background = c[0];
+        t.style.color = c[1];
+        t.innerHTML = esc(msg);
+        t.style.display = 'block';
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () { t.style.display = 'none'; }, 5000);
+    }
+
+    function debounce(fn, ms) {
+        var h = null;
+        return function () {
+            var a = arguments, self = this;
+            if (h) clearTimeout(h);
+            h = setTimeout(function () { fn.apply(self, a); }, ms);
+        };
+    }
+
+    // ---------- list ----------
+    function currentQuery() {
+        var p = new URLSearchParams();
+        var q = el('qInput').value.trim();
+        if (q) p.set('q', q);
+        if (el('serviceSelect').value) p.set('service', el('serviceSelect').value);
+        if (el('kindSelect').value) p.set('kind', el('kindSelect').value);
+        var scope = el('scopeSelect').value;
+        if (scope && scope !== 'all') p.set('scope', scope);
+        return p.toString();
+    }
+
+    function load() {
+        if (state.loading) return;
+        state.loading = true;
+        fetch(API + '?' + currentQuery())
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                state.loading = false;
+                if (!data.success) {
+                    toast('Error: ' + (data.error || 'failed to load'), 'error');
+                    el('promptBody').innerHTML =
+                        '<tr><td colspan="5" class="text-center text-danger py-4">' +
+                        esc(data.error || 'Failed to load') + '</td></tr>';
+                    return;
+                }
+                state.entries = data.entries || [];
+                renderFacets(data);
+                renderStats(data);
+                renderRows(data.entries || []);
+            })
+            .catch(function (e) {
+                state.loading = false;
+                console.error(e);
+                toast('Failed to load system prompts', 'error');
+            });
+    }
+
+    var facetsBuilt = false;
+    function renderFacets(data) {
+        if (facetsBuilt) return;
+        var sel = el('serviceSelect');
+        (data.services || []).forEach(function (s) {
+            var o = document.createElement('option');
+            o.value = s; o.textContent = s;
+            sel.appendChild(o);
+        });
+        facetsBuilt = true;
+    }
+
+    function renderStats(data) {
+        var st = data.stats || {};
+        var os = data.override_status || {};
+        el('statsBadge').className = 'badge badge-pill badge-primary px-3 py-2';
+        el('statsBadge').style.fontSize = '0.9rem';
+        el('statsBadge').innerHTML =
+            '<i class="fas fa-comment-dots mr-1"></i>' +
+            st.total + ' prompts &middot; ' + st.editable + ' editable &middot; ' +
+            (os.active_count || 0) + ' overridden';
+
+        el('restartWarn').style.display = os.restart_required ? '' : 'none';
+
+        var stale = os.stale_keys || [];
+        el('staleWarn').style.display = stale.length ? '' : 'none';
+        el('staleList').textContent = stale.join(', ');
+
+        el('resultCount').textContent =
+            'Showing ' + data.returned + ' of ' + st.total + ' prompts' +
+            (os.exists ? '' : '  (no overrides file yet — everything is at its shipped default)');
+    }
+
+    function badge(txt, cls) {
+        return '<span class="badge badge-' + cls + '">' + esc(txt) + '</span>';
+    }
+
+    function renderRows(rows) {
+        if (!rows.length) {
+            el('promptBody').innerHTML =
+                '<tr><td colspan="5" class="text-center text-muted py-4">' +
+                'No prompts match these filters.</td></tr>';
+            return;
+        }
+        var html = rows.map(function (e) {
+            var status = e.is_overridden
+                ? badge('overridden', 'warning')
+                : (e.editable ? badge('default', 'success') : badge('read-only', 'secondary'));
+            var kindBadge = e.kind === 'system'
+                ? '<span class="badge badge-info">system</span>'
+                : '<span class="badge badge-light border">template</span>';
+            return '' +
+                '<tr data-key="' + esc(e.key) + '" style="cursor:pointer;">' +
+                  '<td><div style="font-weight:600;word-break:break-all;">' + esc(e.name) + '</div>' +
+                      '<div class="small">' + kindBadge + '</div></td>' +
+                  '<td class="small text-muted" style="word-break:break-all;">' +
+                      esc(e.source_path) + '<span class="text-muted">:' + e.line + '</span></td>' +
+                  '<td class="small">' + esc(e.service) + '</td>' +
+                  '<td>' + status + '</td>' +
+                  '<td class="small text-muted" style="max-width:0;">' +
+                      '<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+                      esc(e.preview) + '</div></td>' +
+                '</tr>';
+        }).join('');
+        el('promptBody').innerHTML = html;
+
+        Array.prototype.forEach.call(
+            el('promptBody').querySelectorAll('tr[data-key]'),
+            function (tr) {
+                tr.addEventListener('click', function () { openDetail(tr.getAttribute('data-key')); });
+            }
+        );
+    }
+
+    // ---------- detail / edit ----------
+    function openDetail(key) {
+        fetch(API + '/detail?key=' + encodeURIComponent(key))
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data.success) { toast('Error: ' + data.error, 'error'); return; }
+                showDetail(data.entry);
+            })
+            .catch(function (e) { console.error(e); toast('Failed to load prompt', 'error'); });
+    }
+
+    function showDetail(entry) {
+        state.current = entry;
+
+        el('spTitle').textContent = entry.name;
+        el('spSubtitle').innerHTML =
+            esc(entry.source_path) + ':' + entry.line +
+            '  &middot;  ' + esc(entry.service) +
+            '  &middot;  ' + esc(entry.kind) +
+            '  &middot;  ' + entry.char_count.toLocaleString() + ' chars';
+
+        var ro = !entry.editable;
+        el('spReadonlyNote').style.display = ro ? '' : 'none';
+        el('spReason').textContent = entry.reason || '';
+
+        var ph = entry.placeholders || [];
+        el('spPlaceholderNote').style.display = (!ro && ph.length) ? '' : 'none';
+        el('spPlaceholders').innerHTML = ph.map(function (p) {
+            return '<code>{' + esc(p) + '}</code>';
+        }).join(' ');
+
+        el('spEditor').value = entry.effective_text || '';
+        el('spEditor').readOnly = ro;
+        el('spEditorLabel').textContent = ro ? 'Prompt text (read-only)' : 'Prompt text';
+
+        el('spSaveBtn').style.display = ro ? 'none' : '';
+        el('spRevertBtn').style.display = (!ro && entry.is_overridden) ? '' : 'none';
+
+        var showDefault = entry.is_overridden;
+        el('spDefaultWrap').style.display = showDefault ? '' : 'none';
+        el('spDefaultText').textContent = entry.default_text || '';
+
+        el('spFooterNote').innerHTML = ro
+            ? 'This prompt must be changed in code.'
+            : (entry.is_overridden
+                ? '<i class="fas fa-pen mr-1"></i>Currently overridden.'
+                : 'Currently using the shipped default.');
+
+        updateDirty();
+        el('spOverlay').style.display = '';
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeDetail() {
+        el('spOverlay').style.display = 'none';
+        document.body.style.overflow = '';
+        state.current = null;
+    }
+
+    function updateDirty() {
+        var e = state.current;
+        if (!e) return;
+        var v = el('spEditor').value;
+        el('spCharCount').textContent = v.length.toLocaleString() + ' chars';
+        var baseline = e.is_overridden ? (e.override_text || '') : (e.default_text || '');
+        el('spDirtyFlag').innerHTML = (v !== baseline)
+            ? '<span class="text-warning"><i class="fas fa-circle mr-1" style="font-size:.5rem;vertical-align:middle;"></i>unsaved changes</span>'
+            : '';
+    }
+
+    function save() {
+        var e = state.current;
+        if (!e) return;
+        var text = el('spEditor').value;
+
+        // Client-side mirror of the server guard, for a fast, clear error.
+        var missing = (e.placeholders || []).filter(function (p) {
+            return text.indexOf('{' + p + '}') === -1;
+        });
+        if (missing.length) {
+            toast('Missing required placeholder(s): ' +
+                  missing.map(function (m) { return '{' + m + '}'; }).join(', '), 'error');
+            return;
+        }
+        if (text.trim() === (e.default_text || '').trim()) {
+            toast('That is identical to the default — use Revert instead.', 'info');
+            return;
+        }
+
+        el('spSaveBtn').disabled = true;
+        fetch(API + '/override', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: e.key, text: text })
+        })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                el('spSaveBtn').disabled = false;
+                if (!data.success) { toast('Error: ' + data.error, 'error'); return; }
+                toast(data.message || 'Override saved', 'success');
+                closeDetail();
+                load();
+            })
+            .catch(function (err) {
+                el('spSaveBtn').disabled = false;
+                console.error(err);
+                toast('Failed to save override', 'error');
+            });
+    }
+
+    function revert() {
+        var e = state.current;
+        if (!e) return;
+        if (!confirm('Revert "' + e.name + '" to its shipped default?\n\n' +
+                     'A restart is required for this to take effect.')) return;
+        fetch(API + '/override', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: e.key })
+        })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data.success) { toast('Error: ' + data.error, 'error'); return; }
+                toast(data.message || 'Reverted to default', 'success');
+                closeDetail();
+                load();
+            })
+            .catch(function (err) { console.error(err); toast('Failed to revert', 'error'); });
+    }
+
+    function clearAll() {
+        if (!confirm('Remove ALL prompt overrides and return every prompt to its ' +
+                     'shipped default?\n\nA restart is required for this to take effect.')) return;
+        fetch(API + '/overrides', { method: 'DELETE' })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data.success) { toast('Error: ' + data.error, 'error'); return; }
+                toast(data.message || 'All overrides cleared', 'success');
+                load();
+            })
+            .catch(function (err) { console.error(err); toast('Failed to clear overrides', 'error'); });
+    }
+
+    function rescan() {
+        var btn = el('refreshBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Rescanning';
+        fetch(API + '/refresh', { method: 'POST' })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-sync-alt"></i> Rescan';
+                if (!data.success) { toast('Error: ' + data.error, 'error'); return; }
+                toast('Rescanned: ' + data.stats.total + ' prompts found', 'success');
+                load();
+            })
+            .catch(function (err) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-sync-alt"></i> Rescan';
+                console.error(err);
+                toast('Rescan failed', 'error');
+            });
+    }
+
+    function copyText() {
+        var v = el('spEditor').value;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(v).then(
+                function () { toast('Copied to clipboard', 'success'); },
+                function () { toast('Copy failed', 'error'); }
+            );
+        } else {
+            el('spEditor').select();
+            try { document.execCommand('copy'); toast('Copied to clipboard', 'success'); }
+            catch (e) { toast('Copy failed', 'error'); }
+        }
+    }
+
+    // ---------- wire up ----------
+    document.addEventListener('DOMContentLoaded', function () {
+        el('qInput').addEventListener('input', debounce(load, 250));
+        el('serviceSelect').addEventListener('change', load);
+        el('scopeSelect').addEventListener('change', load);
+        el('kindSelect').addEventListener('change', load);
+        el('refreshBtn').addEventListener('click', rescan);
+        el('clearAllBtn').addEventListener('click', clearAll);
+
+        el('spClose').addEventListener('click', closeDetail);
+        el('spBackdrop').addEventListener('click', closeDetail);
+        el('spSaveBtn').addEventListener('click', save);
+        el('spRevertBtn').addEventListener('click', revert);
+        el('spCopyBtn').addEventListener('click', copyText);
+        el('spEditor').addEventListener('input', updateDirty);
+
+        document.addEventListener('keydown', function (ev) {
+            if (ev.key === 'Escape' && el('spOverlay').style.display !== 'none') closeDetail();
+        });
+
+        load();
+    });
+})();
+
+function toggleDocTheme() {
+    var page = document.getElementById('docPage');
+    var icon = document.getElementById('docThemeIcon');
+    var label = document.getElementById('docThemeLabel');
+    page.classList.toggle('light-mode');
+    var isLight = page.classList.contains('light-mode');
+    icon.className = isLight ? 'fas fa-sun' : 'fas fa-moon';
+    label.textContent = isLight ? 'Light' : 'Dark';
+    localStorage.setItem('docPageTheme', isLight ? 'light' : 'dark');
+}
+(function () {
+    var saved = localStorage.getItem('docPageTheme');
+    if (saved === 'light') {
+        document.addEventListener('DOMContentLoaded', function () {
+            var page = document.getElementById('docPage');
+            if (page) {
+                page.classList.add('light-mode');
+                var icon = document.getElementById('docThemeIcon');
+                var label = document.getElementById('docThemeLabel');
+                if (icon) icon.className = 'fas fa-sun';
+                if (label) label.textContent = 'Light';
+            }
+        });
+    }
+})();
+</script>
+{% endraw %}
+{% endblock %}
