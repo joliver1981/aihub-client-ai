@@ -2888,6 +2888,42 @@ class KnowledgeTool:
                             latest_user_input_snapshot = self.get_latest_user_input()
                         except Exception as e:
                             logging.debug(f"get_latest_user_input callback raised, ignoring: {e}")
+
+                    # ── Document-search re-core switch (P2) ──────────────────────
+                    # v2 runs only when the factory selects it (denylist → allowlist
+                    # → DOC_SEARCH_ENGINE_DEFAULT, default 'legacy'); any v2 failure
+                    # records into the circuit breaker and falls back to the
+                    # untouched legacy path below. v2 may also return None to defer
+                    # (e.g. NEEDLE-shaped queries) — legacy then serves the query.
+                    _v2_no_fallback_error = None
+                    try:
+                        from doc_search_v2 import factory as _ds2_factory
+                        if _ds2_factory.resolve_engine(self.agent_id) == 'v2':
+                            try:
+                                from doc_search_v2.sweep import knowledge_search_v2
+                                _v2_result = knowledge_search_v2(
+                                    query=query,
+                                    agent_id=self.agent_id,
+                                    user_id=self.user_id,
+                                    documents=documents,
+                                    chat_history=chat_history_snapshot,
+                                    latest_user_input=latest_user_input_snapshot,
+                                )
+                                if _v2_result is not None:
+                                    _ds2_factory.record_v2_success()
+                                    _skr_trace("PATH: DOC_SEARCH_V2 (sweep)")
+                                    return _v2_result
+                                _skr_trace("doc_search_v2 deferred — serving via legacy")
+                            except Exception as _v2_err:
+                                _ds2_factory.record_v2_failure()
+                                logging.warning(f"doc_search_v2 failed, falling back to legacy: {_v2_err}")
+                                if not getattr(cfg, 'DOC_SEARCH_V2_FALLBACK', True):
+                                    _v2_no_fallback_error = _v2_err
+                    except Exception as _switch_err:
+                        logging.warning(f"doc_search_v2 switch unavailable ({_switch_err}) — using legacy")
+                    if _v2_no_fallback_error is not None:
+                        raise _v2_no_fallback_error
+
                     return smart_knowledge_retrieval(
                         query=query,
                         agent_id=self.agent_id,

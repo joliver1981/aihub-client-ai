@@ -730,6 +730,23 @@ KNOWLEDGE_FANOUT_MAX_DOCS = int(os.getenv('KNOWLEDGE_FANOUT_MAX_DOCS', 1500))   
 KNOWLEDGE_FANOUT_PER_DOC_TOP_K = int(os.getenv('KNOWLEDGE_FANOUT_PER_DOC_TOP_K', 2))              # Chunks to feed Haiku per doc
 KNOWLEDGE_FILTER_INACTIVE_VECTORS = os.getenv('KNOWLEDGE_FILTER_INACTIVE_VECTORS', 'True').lower() == 'true'  # Gate knowledge vector retrieval (NEEDLE/AGGREGATE) to documents with an ACTIVE AgentKnowledge row. Deleted/deactivated docs keep their Chroma vectors until the async purge runs (and historical orphans exist) — without the gate those chunks still surface. Fails OPEN if the SQL lookup errors.
 
+# ── Document search v2 (side-by-side re-core; mirrors the NLQ engine factory) ──────────────────
+# Legacy engines are NEVER touched and remain the permanent fallback. Selection precedence:
+# per-agent denylist → per-agent allowlist → global default → legacy. Every error resolves to
+# legacy. See docs/document-search-recore-analysis.md §6 and doc_search_v2/factory.py.
+DOC_SEARCH_ENGINE_DEFAULT = os.getenv('DOC_SEARCH_ENGINE_DEFAULT', 'legacy')                      # 'legacy' | 'v2' — global engine choice
+DOC_SEARCH_V2_AGENT_IDS = os.getenv('DOC_SEARCH_V2_AGENT_IDS', '')                                # comma-separated agent ids piloted on v2
+DOC_SEARCH_LEGACY_AGENT_IDS = os.getenv('DOC_SEARCH_LEGACY_AGENT_IDS', '')                        # comma-separated agent ids pinned to legacy (wins over allowlist)
+DOC_SEARCH_V2_FALLBACK = os.getenv('DOC_SEARCH_V2_FALLBACK', 'True').lower() == 'true'            # serve the query via legacy when v2 errors (False = surface the error)
+DOC_SEARCH_V2_TIMEOUT_S = int(os.getenv('DOC_SEARCH_V2_TIMEOUT_S', 180))                          # wall-clock budget for a v2 sweep; unread docs are reported, never silently dropped
+DOC_SEARCH_V2_BREAKER_THRESHOLD = int(os.getenv('DOC_SEARCH_V2_BREAKER_THRESHOLD', 3))            # consecutive v2 failures before the breaker opens
+DOC_SEARCH_V2_BREAKER_COOLDOWN_S = int(os.getenv('DOC_SEARCH_V2_BREAKER_COOLDOWN_S', 600))        # breaker cooldown; all traffic on legacy while open
+DOC_SEARCH_V2_FORCE_ERROR = os.getenv('DOC_SEARCH_V2_FORCE_ERROR', 'False').lower() == 'true'     # chaos drill: make v2 raise to prove the fallback ladder
+DOC_SWEEP_MAX_DOCS = int(os.getenv('DOC_SWEEP_MAX_DOCS', 1000))                                   # hard scope cap — recorded in the coverage ledger when it bites
+DOC_SWEEP_COST_CONFIRM_USD = float(os.getenv('DOC_SWEEP_COST_CONFIRM_USD', 5.00))                 # above this estimate, SWEEP returns a confirmation request instead of running
+DOC_SWEEP_MODEL = os.getenv('DOC_SWEEP_MODEL', 'claude-haiku-4-5')                                # map-step model (per-document extraction)
+DOC_SWEEP_PARALLEL = int(os.getenv('DOC_SWEEP_PARALLEL', 8))                                      # concurrent per-document map calls
+
 # Knowledge summary sampling — used by AGGREGATE-route summary cards.
 # 'stratified' picks ~N evenly-spaced samples across the document so buried provisions
 # (e.g. HVAC clauses on page 17) make it into the summary. 'first_n' is the legacy behavior.
