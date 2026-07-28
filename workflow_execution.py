@@ -567,6 +567,8 @@ class WorkflowExecutionEngine:
                 result = self._execute_automation_node(execution_id, node, variables)
             elif node_type == 'Code Step':
                 result = self._execute_code_step_node(execution_id, node, variables)
+            elif node_type == 'File Transfer':
+                result = self._execute_file_transfer_node(execution_id, node, variables)
             elif node_type == 'Portal':
                 print('Executing Portal node...')
                 result = self._execute_portal_node(execution_id, node, variables)
@@ -4564,6 +4566,19 @@ Guidelines:
             return _fail("Automation node: no automation selected (set automationId or automationName)")
 
         auto = manager.get_automation(automation_id)
+        if not auto and automation_name:
+            # Stale-GUID self-heal: a workflow imported from another system (or
+            # pointing at a re-created automation) carries the ORIGIN's
+            # automation_id. The NAME is the portable reference — resolve by it
+            # before failing, and say so in the log.
+            matches = [a for a in manager.list_automations()
+                       if a['name'].lower() == automation_name.lower()]
+            if matches:
+                automation_id = matches[0]['automation_id']
+                auto = manager.get_automation(automation_id)
+                self.log_execution(execution_id, node.get('id'), 'warning',
+                                   f"Automation node: configured automationId was stale — "
+                                   f"resolved by name '{automation_name}' to {automation_id}")
         if not auto:
             return _fail(f"Automation node: automation '{automation_name or automation_id}' not found")
         if auto.get('pinned_version', 0) < 1:
@@ -4735,6 +4750,234 @@ Guidelines:
                 err = f"{err} — stderr: {stderr_tail}"
             return {'success': False, 'error': err, 'data': output_obj}
         return {'success': True, 'data': output_obj}
+
+    def _execute_file_transfer_node(self, execution_id, node, variables):
+        """Declarative SFTP/FTP/FTPS transfer step (james 2026-07-27): workflows
+        move files natively — no Code Step, no custom Python. Thin wrapper over
+        command_center/tools/sftp_transfer.py, the same tested module behind the
+        Command Center transfer tools (18 unit tests, local test server).
+
+        Config keys (string values support ${variable} substitution):
+          protocol        sftp | ftp | ftps            (default sftp)
+          host, port      server; port blank = protocol default (22/21/21)
+          username        login user
+          secretName      PLATFORM SECRET holding the password. Secret reference
+                          ONLY — never an inline password: inline values persist
+                          in the workflow-definition JSON and travel with every
+                          export/copy (the exact leak class fixed in the
+                          connections masked-password bug).
+          operation       download | upload | list      (default download)
+          remotePath      download: remote file, or dir/pattern with * ? (e.g.
+                          /drop/DF_MASTER_*.csv); upload: remote target dir;
+                          list: remote dir
+          localPath       download: local destination folder; upload: local
+                          file path or glob
+          newestOnly      bool — of the wildcard matches, transfer only the most
+                          recently modified (FTP servers without MLSD report no
+                          mtime; falls back to name order — SFTP is exact)
+          overwrite       'overwrite' (default) | 'skip' existing destination
+          zeroMatchPolicy 'fail' (default) | 'pass' when a pattern matches nothing
+          outputVariable  workflow variable for the result object
+          filesVariable   workflow variable for the transferred-path list
+          continueOnError bool — follow 'pass' even on failure
+
+        Matching is case-insensitive (client extracts drift between DF_MASTER
+        and df_master). The password is resolved at execution time and never
+        logged, stored in variables, or echoed into results.
+        """
+        import fnmatch
+        import glob as _glob
+        import posixpath
+
+        node_id = node.get('id')
+        config = node.get('config', {}) or {}
+
+        def _sub(key, default=''):
+            val = config.get(key, default)
+            return self._replace_variable_references(val, variables) if isinstance(val, str) else val
+
+        protocol = (_sub('protocol') or 'sftp').strip().lower()
+        host = (_sub('host') or '').strip()
+        port_raw = str(_sub('port') or '').strip()
+        username = (_sub('username') or '').strip()
+        secret_name = (_sub('secretName') or '').strip()
+        operation = (_sub('operation') or 'download').strip().lower()
+        remote_path = (_sub('remotePath') or '').strip()
+        local_path = (_sub('localPath') or '').strip()
+        newest_only = bool(config.get('newestOnly', False))
+        overwrite = (_sub('overwrite') or 'overwrite').strip().lower()
+        zero_match = (_sub('zeroMatchPolicy') or 'fail').strip().lower()
+        output_variable = (config.get('outputVariable') or '').strip()
+        files_variable = (config.get('filesVariable') or '').strip()
+        continue_on_error = bool(config.get('continueOnError', False))
+
+        result_obj = {'operation': operation, 'protocol': protocol, 'host': host,
+                      'matched': 0, 'transferred': 0, 'skipped': 0,
+                      'files': [], 'entries': [], 'errors': []}
+
+        def _finish(ok, error=None):
+            result_obj['status'] = 'success' if ok else 'error'
+            if error:
+                result_obj['errors'].append(error)
+            if output_variable:
+                self._update_workflow_variable(execution_id, output_variable,
+                                               self._determine_variable_type(result_obj), result_obj)
+                variables[output_variable] = result_obj
+            if files_variable:
+                self._update_workflow_variable(execution_id, files_variable,
+                                               self._determine_variable_type(result_obj['files']),
+                                               result_obj['files'])
+                variables[files_variable] = result_obj['files']
+            summary = (f"File Transfer [{operation} {protocol}://{host}] "
+                       f"matched={result_obj['matched']} transferred={result_obj['transferred']} "
+                       f"skipped={result_obj['skipped']}"
+                       + (f" — {error}" if error else ''))
+            self.log_execution(execution_id, node_id, 'info' if ok else 'error', summary)
+            if not ok and not continue_on_error:
+                return {'success': False, 'error': error or 'file transfer failed', 'data': result_obj}
+            return {'success': True, 'data': result_obj}
+
+        # ---- validation (fail loud and early; never guess at credentials)
+        if not host:
+            return _finish(False, "File Transfer: 'host' is required")
+        if operation not in ('download', 'upload', 'list'):
+            return _finish(False, f"File Transfer: unknown operation '{operation}'")
+        if not secret_name:
+            return _finish(False, "File Transfer: a password secret reference is required "
+                                  "(select one under Authentication)")
+        try:
+            from local_secrets import get_local_secret
+            password = get_local_secret(secret_name)
+        except Exception as e:
+            return _finish(False, f"File Transfer: secret store unavailable: {e}")
+        if not password:
+            return _finish(False, f"File Transfer: secret '{secret_name}' is missing or empty")
+
+        port = None
+        if port_raw:
+            try:
+                port = int(port_raw)
+            except ValueError:
+                return _finish(False, f"File Transfer: port '{port_raw}' is not a number")
+
+        try:
+            from command_center.tools import sftp_transfer as xfer
+        except Exception as e:
+            return _finish(False, f"File Transfer: transfer module unavailable: {e}")
+
+        def _list(remote_dir):
+            res = xfer.list_dir(host, username, password, remote_dir or '.',
+                                port=port, protocol=protocol)
+            if not res.get('ok'):
+                return None, res.get('error') or 'listing failed'
+            return [e for e in res.get('entries', []) if not e.get('is_dir')], None
+
+        # ---------------------------------------------------------------- list
+        if operation == 'list':
+            # Split BEFORE listing: '/dir/*.csv' must list '/dir' and filter —
+            # listing the wildcard path itself as a directory errors out.
+            rdir, base = posixpath.split(remote_path.rstrip('/')) if remote_path else ('', '')
+            if any(ch in base for ch in '*?['):
+                entries, err = _list(rdir)
+                if err:
+                    return _finish(False, f"File Transfer: {err}")
+                entries = [e for e in entries
+                           if fnmatch.fnmatch(e['name'].lower(), base.lower())]
+            else:
+                entries, err = _list(remote_path)
+                if err:
+                    return _finish(False, f"File Transfer: {err}")
+            result_obj['entries'] = entries
+            result_obj['matched'] = len(entries)
+            result_obj['files'] = [e['name'] for e in entries]
+            if not entries and zero_match == 'fail':
+                return _finish(False, "File Transfer: listing matched no files")
+            return _finish(True)
+
+        # ------------------------------------------------------------ download
+        if operation == 'download':
+            if not remote_path:
+                return _finish(False, "File Transfer: 'remotePath' is required for download")
+            if not local_path:
+                return _finish(False, "File Transfer: 'localPath' (destination folder) is required")
+            rdir, base = posixpath.split(remote_path.rstrip('/'))
+            targets = []
+            if any(ch in base for ch in '*?['):
+                entries, err = _list(rdir)
+                if err:
+                    return _finish(False, f"File Transfer: {err}")
+                matches = [e for e in entries
+                           if fnmatch.fnmatch(e['name'].lower(), base.lower())]
+                result_obj['matched'] = len(matches)
+                if not matches:
+                    ok = zero_match == 'pass'
+                    return _finish(ok, None if ok else
+                                   f"File Transfer: no remote file matches '{base}' in '{rdir or '.'}'")
+                if newest_only:
+                    # 'modified' strings are 'YYYY-MM-DD HH:MM' (sortable); FTP
+                    # fallback listings report '-', which sorts first — honest
+                    # degradation to name order rather than a silent wrong pick.
+                    matches.sort(key=lambda e: (str(e.get('modified') or '-'), e['name']))
+                    matches = [matches[-1]]
+                targets = [posixpath.join(rdir, e['name']) if rdir else e['name'] for e in matches]
+            else:
+                targets = [remote_path]
+                result_obj['matched'] = 1
+
+            os.makedirs(local_path, exist_ok=True)
+            for rpath in targets:
+                dest = os.path.join(local_path, posixpath.basename(rpath))
+                if overwrite == 'skip' and os.path.isfile(dest):
+                    result_obj['skipped'] += 1
+                    result_obj['files'].append(dest)
+                    continue
+                res = xfer.download(host, username, password, rpath, local_path,
+                                    port=port, protocol=protocol)
+                if res.get('ok'):
+                    result_obj['transferred'] += 1
+                    result_obj['files'].append(res.get('local_path') or dest)
+                else:
+                    result_obj['errors'].append(f"{posixpath.basename(rpath)}: {res.get('error')}")
+            if result_obj['errors']:
+                return _finish(False, f"File Transfer: {len(result_obj['errors'])} of "
+                                      f"{len(targets)} download(s) failed — {result_obj['errors'][0]}")
+            return _finish(True)
+
+        # -------------------------------------------------------------- upload
+        if not local_path:
+            return _finish(False, "File Transfer: 'localPath' (file or glob) is required for upload")
+        sources = sorted(_glob.glob(local_path)) if any(ch in local_path for ch in '*?[') \
+            else [local_path]
+        sources = [s for s in sources if os.path.isfile(s)]
+        result_obj['matched'] = len(sources)
+        if not sources:
+            ok = zero_match == 'pass'
+            return _finish(ok, None if ok else
+                           f"File Transfer: no local file matches '{local_path}'")
+        existing = set()
+        if overwrite == 'skip':
+            entries, err = _list(remote_path)
+            if err:
+                return _finish(False, f"File Transfer: {err}")
+            existing = {e['name'].lower() for e in entries}
+        rdir = (remote_path or '.').rstrip('/')
+        for src in sources:
+            name = os.path.basename(src)
+            if name.lower() in existing:
+                result_obj['skipped'] += 1
+                continue
+            res = xfer.upload(host, username, password, src, remote_dir=remote_path or '.',
+                              port=port, protocol=protocol)
+            if res.get('ok'):
+                result_obj['transferred'] += 1
+                result_obj['files'].append(res.get('remote_path')
+                                           or (f"{rdir}/{name}" if rdir not in ('', '.') else name))
+            else:
+                result_obj['errors'].append(f"{name}: {res.get('error')}")
+        if result_obj['errors']:
+            return _finish(False, f"File Transfer: {len(result_obj['errors'])} of "
+                                  f"{len(sources)} upload(s) failed — {result_obj['errors'][0]}")
+        return _finish(True)
 
     def _update_workflow_variable(self, execution_id: str, variable_name: str,
                                 variable_type: str, variable_value: Any):

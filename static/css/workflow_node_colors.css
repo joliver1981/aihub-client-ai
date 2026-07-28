@@ -353,6 +353,34 @@
     border: none;
 }
 
+/* File Transfer — kin to Automation (moves things), its own teal so the two
+   read as siblings, not twins. Without a rule here the node body renders
+   TRANSPARENT on the canvas (james 2026-07-27) — every type needs a block. */
+
+.workflow-node[data-type="File Transfer"] {
+    background: linear-gradient(135deg, #14b8a6 0%, #0f766e 100%) !important;
+    box-shadow: 0 2px 6px rgba(15, 118, 110, 0.25);
+}
+
+.workflow-node[data-type="File Transfer"]:hover {
+    box-shadow: 0 4px 10px rgba(15, 118, 110, 0.35);
+}
+
+.workflow-node[data-type="File Transfer"] .node-content {
+    color: white !important;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.workflow-node[data-type="File Transfer"] .bi-arrow-down-up {
+    color: white !important;
+}
+
+.tool-item[data-type="File Transfer"] {
+    background: linear-gradient(135deg, #14b8a6 0%, #0f766e 100%) !important;
+    color: white;
+    border: none;
+}
+
 
 /* --- AI/INTELLIGENCE --- */
 

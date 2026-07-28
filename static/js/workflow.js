@@ -2248,6 +2248,126 @@ const nodeConfigTemplates = {
             continueOnError: false
         }
     },
+    'File Transfer': {
+        template: `
+            <div class="alert alert-info py-2 small">
+                <i class="bi bi-arrow-down-up"></i> Moves files over <strong>SFTP / FTP / FTPS</strong>
+                declaratively — download (with wildcards), upload, or list. The password comes from a
+                <strong>platform secret</strong> (Settings &rarr; Secrets); credentials are never stored
+                in the workflow itself.
+            </div>
+            <div class="row">
+                <div class="col-md-3 mb-2">
+                    <label class="form-label small">Protocol</label>
+                    <select class="form-control form-control-sm" name="protocol">
+                        <option value="sftp">SFTP</option>
+                        <option value="ftp">FTP</option>
+                        <option value="ftps">FTPS</option>
+                    </select>
+                </div>
+                <div class="col-md-6 mb-2">
+                    <label class="form-label small">Host <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control form-control-sm" name="host"
+                        placeholder="sftp.example.com or \${variable}">
+                </div>
+                <div class="col-md-3 mb-2">
+                    <label class="form-label small">Port</label>
+                    <input type="text" class="form-control form-control-sm" name="port"
+                        placeholder="protocol default">
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6 mb-2">
+                    <label class="form-label small">Username</label>
+                    <input type="text" class="form-control form-control-sm" name="username">
+                </div>
+                <div class="col-md-6 mb-2">
+                    <label class="form-label small">Password Secret <span class="text-danger">*</span></label>
+                    <select class="form-control form-control-sm" name="secretName" id="ftSecretSelect">
+                        <option value="">Loading secrets…</option>
+                    </select>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-4 mb-2">
+                    <label class="form-label small">Operation</label>
+                    <select class="form-control form-control-sm" name="operation">
+                        <option value="download">Download (remote &rarr; local)</option>
+                        <option value="upload">Upload (local &rarr; remote)</option>
+                        <option value="list">List remote directory</option>
+                    </select>
+                </div>
+                <div class="col-md-8 mb-2">
+                    <label class="form-label small">Remote Path</label>
+                    <input type="text" class="form-control form-control-sm" name="remotePath"
+                        placeholder="/drop/DF_MASTER_*.csv (download) · /inbox (upload/list)">
+                </div>
+            </div>
+            <div class="mb-2">
+                <label class="form-label small">Local Path</label>
+                <input type="text" class="form-control form-control-sm" name="localPath"
+                    placeholder="download: destination folder · upload: local file or C:\\out\\*.csv">
+            </div>
+            <div class="row">
+                <div class="col-md-4 mb-2">
+                    <label class="form-label small">If destination exists</label>
+                    <select class="form-control form-control-sm" name="overwrite">
+                        <option value="overwrite">Overwrite</option>
+                        <option value="skip">Skip</option>
+                    </select>
+                </div>
+                <div class="col-md-4 mb-2">
+                    <label class="form-label small">If nothing matches</label>
+                    <select class="form-control form-control-sm" name="zeroMatchPolicy">
+                        <option value="fail">Fail the step</option>
+                        <option value="pass">Pass with no files</option>
+                    </select>
+                </div>
+                <div class="col-md-4 mb-2 d-flex align-items-end">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="newestOnly" id="ftNewestOnly">
+                        <label class="form-check-label small" for="ftNewestOnly">
+                            Newest match only
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6 mb-2">
+                    <label class="form-label small">Output Variable</label>
+                    <input type="text" class="form-control form-control-sm" name="outputVariable"
+                        placeholder="e.g. transfer_result">
+                </div>
+                <div class="col-md-6 mb-2">
+                    <label class="form-label small">Files Variable</label>
+                    <input type="text" class="form-control form-control-sm" name="filesVariable"
+                        placeholder="e.g. transfer_files (list of paths)">
+                </div>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="continueOnError" id="ftContinueOnError">
+                <label class="form-check-label small" for="ftContinueOnError">
+                    Continue workflow on failure
+                </label>
+            </div>
+        `,
+        defaultConfig: {
+            protocol: 'sftp',
+            host: '',
+            port: '',
+            username: '',
+            secretName: '',
+            operation: 'download',
+            remotePath: '',
+            localPath: '',
+            overwrite: 'overwrite',
+            zeroMatchPolicy: 'fail',
+            newestOnly: false,
+            outputVariable: '',
+            filesVariable: '',
+            continueOnError: false
+        }
+    },
     'Execute Application': {
         template: `
             <!-- Command Configuration -->
@@ -2488,6 +2608,52 @@ function configureNode() {
             if (configuredNode.getAttribute('data-type') === 'Automation'
                     && typeof AutomationNode !== 'undefined') {
                 setTimeout(() => { AutomationNode.setup(currentConfig); }, 0);
+            }
+
+            // File Transfer nodes: populate the password-secret dropdown
+            // (names only — values never leave the server) and re-select the
+            // saved reference once options exist: the generic restore below
+            // runs before this fetch lands. Options are built via DOM nodes,
+            // not innerHTML, so a secret name can't inject markup.
+            if (configuredNode.getAttribute('data-type') === 'File Transfer') {
+                fetch('/workflow/secrets/list')
+                    .then(r => r.json())
+                    .then(data => {
+                        const sel = document.getElementById('ftSecretSelect');
+                        if (!sel) return;
+                        const secrets = (data && data.secrets) || [];
+                        sel.innerHTML = '';
+                        const blank = document.createElement('option');
+                        blank.value = '';
+                        blank.textContent = '— select a secret —';
+                        sel.appendChild(blank);
+                        secrets.forEach(s => {
+                            const opt = document.createElement('option');
+                            opt.value = s.name;
+                            opt.textContent = s.description ? `${s.name} — ${s.description}` : s.name;
+                            sel.appendChild(opt);
+                        });
+                        const saved = (nodeConfigs.get(configuredNode.id) || {}).secretName;
+                        if (saved) {
+                            if (!secrets.some(s => s.name === saved)) {
+                                const gone = document.createElement('option');
+                                gone.value = saved;
+                                gone.textContent = `${saved} (secret not found!)`;
+                                sel.appendChild(gone);
+                            }
+                            sel.value = saved;
+                        }
+                    })
+                    .catch(() => {
+                        const sel = document.getElementById('ftSecretSelect');
+                        if (sel) {
+                            sel.innerHTML = '';
+                            const opt = document.createElement('option');
+                            opt.value = '';
+                            opt.textContent = '(could not load secrets)';
+                            sel.appendChild(opt);
+                        }
+                    });
             }
 
             // Load user/group dropdowns for Human Approval nodes
@@ -2841,6 +3007,9 @@ function createNode(type, x, y) {
             break;
         case 'Automation':
             icon.className = 'bi bi-cpu';
+            break;
+        case 'File Transfer':
+            icon.className = 'bi bi-arrow-down-up';
             break;
         default:
             icon.className = 'bi bi-box';
@@ -3326,6 +3495,9 @@ function loadWorkflow(workflow) {
                     break;
                 case 'Automation':
                     icon.className = 'bi bi-cpu';
+                    break;
+                case 'File Transfer':
+                    icon.className = 'bi bi-arrow-down-up';
                     break;
                 default:
                     icon.className = 'bi bi-box';

@@ -54,7 +54,7 @@ except Exception:  # pragma: no cover — service running outside the repo tree
         "Conditional", "Human Approval", "Alert", "Folder Selector", "File",
         "Set Variable", "Execute Application", "Excel Export", "Portal",
         "Integration", "Compliance Process", "Compliance Excel Export",
-        "Automation", "Code Step",
+        "Automation", "Code Step", "File Transfer",
     ]
 
 _NODE_TYPE_BY_LOWER = {t.lower(): t for t in VALID_WORKFLOW_NODE_TYPES}

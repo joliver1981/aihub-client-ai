@@ -9267,6 +9267,24 @@ def api_get_document_attributes_metadata():
 # FILE ROUTES
 #####################
 
+@app.route('/workflow/secrets/list', methods=['GET'])
+@login_required
+def workflow_secrets_list():
+    """Secret NAMES for the File Transfer node's auth dropdown — names and
+    metadata only, never values (list_local_secrets masks by design). Login
+    required: unlike the legacy /workflow/file/* routes this is new surface,
+    so it starts gated."""
+    try:
+        from local_secrets import list_local_secrets
+        secrets = list_local_secrets() or []
+        return jsonify({"secrets": [
+            {"name": s.get("name"), "description": s.get("description") or ""}
+            for s in secrets if s.get("name")
+        ]})
+    except Exception as e:
+        return jsonify({"secrets": [], "error": str(e)}), 200
+
+
 @app.route('/workflow/file/read', methods=['POST'])
 @cross_origin()
 def read_file():

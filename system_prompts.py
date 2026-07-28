@@ -2813,6 +2813,14 @@ Automation
 - The node does NOT contain code — it runs the automation's PROMOTED (pinned) version; the automation must already exist with a promoted version. Reference by automationId (GUID) or automationName.
 - Optional config: inputs (object of run inputs; string values support dollar-brace substitution), outputVariable (full result object: status, run_id, exit_code, output_files, workdir, error), filesVariable (list of ABSOLUTE paths of files the run produced — feed downstream File/Document nodes), allowUnverified (default false — outcomes are honest tri-state success/failed/unverified and only success passes unless this is set), continueOnError (default false)
 - Outputs: produced file paths in filesVariable; full run result in outputVariable
+
+File Transfer
+- Move files over SFTP / FTP / FTPS declaratively — download (with wildcards), upload, or list a remote directory. This is the native way a workflow reaches a file-transfer server; no Code Step or custom Python needed.
+- Required config: host, secretName (the name of a PLATFORM SECRET holding the password — never put a password itself in the workflow), operation ("download" | "upload" | "list")
+- Path config: remotePath (download: a remote file, or dir/pattern with * ? wildcards, e.g. "/drop/DF_MASTER_*.csv"; upload/list: the remote directory), localPath (download: destination folder; upload: a local file path or glob)
+- Optional config: protocol ("sftp" default | "ftp" | "ftps"), port (blank = protocol default), username, newestOnly (true = of the wildcard matches transfer only the most recently modified — ideal for date-stamped extract files), overwrite ("overwrite" default | "skip"), zeroMatchPolicy ("fail" default | "pass"), outputVariable (result object: status, matched, transferred, skipped, files, errors, entries), filesVariable (bare list of transferred paths — local paths for download, remote paths for upload; feed downstream nodes, e.g. an Automation input via dollar-brace with [0] indexing), continueOnError (default false)
+- Matching is case-insensitive. The password secret is resolved at execution time and never logged or stored in the result.
+- Outputs: transferred file paths in filesVariable; full result in outputVariable
 """
 
 # Canonical list of valid workflow node types. Must match what the workflow runtime
@@ -2825,7 +2833,7 @@ VALID_WORKFLOW_NODE_TYPES = [
     "Conditional", "Human Approval", "Alert", "Folder Selector", "File",
     "Set Variable", "Execute Application", "Excel Export", "Portal",
     "Integration", "Compliance Process", "Compliance Excel Export",
-    "Automation", "Code Step",
+    "Automation", "Code Step", "File Transfer",
 ]
 
 
