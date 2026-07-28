@@ -565,6 +565,47 @@ def _format_conversation_for_prompt(
     return "\n".join(lines)
 
 
+# ── Explicit agent-id reference resolution ───────────────────────────────
+# Users (and CC's own fallback suggestions) reference agents by id — "try
+# agent 281 instead", "ask agent #471", "use agent id 493". The name-based
+# matchers can't see these, and the LLM prompts that could are fed capped
+# agent lists (50 in decompose, 20 in the picker) and truncated transcripts,
+# so an id the user typed is often invisible to them (live failure: "good
+# idea, try agent 281 instead" decomposed into a task with no target →
+# "no agent or tool was assigned"). Regex here is format extraction only —
+# every extracted number must match a real agent in the caller-supplied
+# list or it resolves to nothing (fail-closed). The word "agent(s)" must
+# cue the number, and the digit may not be glued to a word (so "AIRDB2"
+# never yields "2").
+_AGENT_ID_REF_RE = re.compile(
+    r"(?i)\bagents?\b[^\d\n]{0,12}(?<![A-Za-z0-9_-])(\d{1,7})\b"
+)
+
+
+def _resolve_agent_id_refs(text: str, agents: list) -> list:
+    """Resolve explicit agent-id references in text to real agent records.
+
+    Returns matched agent dicts in first-mention order, deduped. Only ids
+    present in `agents` can match — unknown numbers resolve to nothing, so
+    this can never invent an agent. Callers act only on an unambiguous
+    single match.
+    """
+    if not text or not agents:
+        return []
+    by_id = {}
+    for a in agents:
+        aid = a.get("agent_id")
+        if aid is not None:
+            by_id.setdefault(str(aid), a)
+    matched, seen = [], set()
+    for _id in _AGENT_ID_REF_RE.findall(text):
+        rec = by_id.get(str(_id))
+        if rec is not None and str(_id) not in seen:
+            matched.append(rec)
+            seen.add(str(_id))
+    return matched
+
+
 async def _extract_reroute_question(
     reroute_message: str,
     delegation_history: list,
@@ -1904,15 +1945,24 @@ Reply with ONLY one word: CONTINUE, CC_CAPABLE, or REROUTE."""
             _rr_landscape = await _rr_scan()
             _rr_all_agents = _rr_landscape.get("all_agents", [])
 
-            # Simple name matching: find the longest agent name present in user text
-            _ut_lower = user_text.lower()
+            # Explicit id reference ("try agent 281 instead") resolves first —
+            # unambiguous, and it's how CC's own fallback suggestions teach
+            # users to name agents. Ambiguous multi-id mentions fall through
+            # to the name matcher / normal classification.
             _best_agent = None
-            _best_len = 0
-            for _a in _rr_all_agents:
-                _aname = (_a.get("agent_name") or "").lower()
-                if _aname and _aname in _ut_lower and len(_aname) > _best_len:
-                    _best_agent = _a
-                    _best_len = len(_aname)
+            _id_hits = _resolve_agent_id_refs(user_text, _rr_all_agents)
+            if len(_id_hits) == 1:
+                _best_agent = _id_hits[0]
+
+            # Simple name matching: find the longest agent name present in user text
+            if _best_agent is None:
+                _ut_lower = user_text.lower()
+                _best_len = 0
+                for _a in _rr_all_agents:
+                    _aname = (_a.get("agent_name") or "").lower()
+                    if _aname and _aname in _ut_lower and len(_aname) > _best_len:
+                        _best_agent = _a
+                        _best_len = len(_aname)
 
             if _best_agent:
                 # Ask a mini-LLM to identify which prior question the user
@@ -7903,6 +7953,15 @@ Respond with ONLY a JSON object, no prose:
     # 'BU2 Sales Agent'. Substring-on-full-name only (mirrors the proven
     # REROUTE matcher); token overlap would recreate the fuzzy bug.
     _exact_pick = None
+    # Explicit id reference ("ask agent 281") — deterministic, and immune to
+    # the [:20] cap on the picker prompt's agent list below.
+    _id_hits = _resolve_agent_id_refs(user_text, data_agents)
+    if len(_id_hits) == 1:
+        _exact_pick = str(_id_hits[0].get("agent_id"))
+        logger.info(
+            f"[gather_data] Explicit agent-id reference → "
+            f"{_id_hits[0].get('agent_name')} [{_exact_pick}] (skipping LLM picker)"
+        )
     _ut_norm = " ".join(user_text.lower().split())
     _name_hits = []
     for _cand in data_agents:
@@ -7915,7 +7974,7 @@ Respond with ONLY a JSON object, no prose:
             continue
         if re.search(r"(?<![\w-])" + re.escape(_aname) + r"(?![\w-])", _ut_norm):
             _name_hits.append(_cand)
-    if len(_name_hits) == 1:
+    if _exact_pick is None and len(_name_hits) == 1:
         _exact_pick = str(_name_hits[0].get("agent_id"))
         logger.info(
             f"[gather_data] Exact agent-name match → "
@@ -8102,6 +8161,25 @@ async def decompose_tasks(state: CommandCenterState) -> dict:
                 + "\n".join(agent_lines)
             )
 
+    # Deterministic grounding for explicit id references ("try agent 281"):
+    # the visible list above is capped at 50 and the conversation block
+    # truncates assistant turns, so an id the user typed may be invisible to
+    # the LLM — which then (obeying the unknown-agent rule) nulls the target
+    # and the step dies with "no agent or tool assigned". Surface every
+    # user-referenced real agent explicitly instead.
+    id_ref_agents = _resolve_agent_id_refs(user_text, all_agents)
+    if id_ref_agents:
+        _ref_lines = "\n".join(
+            f"- Agent {a.get('agent_id')}: {a.get('agent_name', 'Unknown')}"
+            f" ({'data' if a.get('is_data_agent') else 'general'} agent)"
+            for a in id_ref_agents
+        )
+        resource_hint += (
+            "\n\nAGENTS THE USER REFERENCED BY ID — these are VALID target_agent "
+            "values even if they do not appear in the Available agents list above:\n"
+            + _ref_lines
+        )
+
     _td_conv = _format_conversation_for_prompt(messages)
     _td_conv_block = (
         f"\nRecent conversation (for resolving references in the user request):\n{_td_conv}\n"
@@ -8222,6 +8300,24 @@ Only return the JSON array, nothing else."""
                 logger.info(
                     f"[decompose_tasks] resolved target_agent by name "
                     f"'{sub_task['target_agent_name']}' → {sub_task['target_agent']}"
+                )
+
+            # Last-resort deterministic repair: the task ended up with no
+            # target at all (LLM nulled it per the unknown-agent rule, or an
+            # invented id was nulled above) but the user referenced exactly
+            # one real agent by id. Assign that agent instead of letting
+            # execute_next_task fail the step. Ambiguous multi-id references
+            # stay unassigned on purpose (fail-closed).
+            if (not sub_task["target_agent"] and not sub_task.get("target_tool")
+                    and len(id_ref_agents) == 1):
+                _ref = id_ref_agents[0]
+                sub_task["target_agent"] = str(_ref.get("agent_id"))
+                sub_task["target_agent_name"] = _ref.get("agent_name")
+                sub_task["is_data_agent"] = bool(_ref.get("is_data_agent", True))
+                logger.info(
+                    f"[decompose_tasks] assigned user-referenced agent "
+                    f"{sub_task['target_agent']} ({sub_task['target_agent_name']}) "
+                    f"to untargeted task: {sub_task['description'][:80]}"
                 )
 
             # Deterministic backstop (AIHUB-0015 F1): even if the decomposer
