@@ -35,6 +35,7 @@ import urllib.error as _urlerror
 import urllib.request as _urlrequest
 
 __all__ = ["connection", "secret", "input", "inputs", "log", "checkpoint", "query",
+           "review_item", "send_email", "llm", "ai_extract",
            "AutomationRuntimeError", "AutomationAborted"]
 
 _RESOLVE_PATH = "/automations/api/runtime/resolve"
@@ -289,6 +290,46 @@ def review_item(message, title=None, files=None, assignee=None, assignee_group=N
     except Exception as e:
         log(f"review item could not be queued (continuing): {e}")
         return None
+
+
+def send_email(to, subject, body="", html_body=None, files=None):
+    """Send a notification email THROUGH the platform and continue.
+
+    The application holds the mail credentials and sends on the script's
+    behalf, so an automation never carries them (same seam as ai_extract for
+    model keys). `to` is an address, a list, or a ';'/',' separated string;
+    `files` are workdir-relative attachments (<=10 files, 8 MB total).
+
+    Returns True if the platform accepted the send, else False — delivery
+    failure is REPORTED, never fatal, because a batch that produced a good CSV
+    must not be lost to a mail outage (BRD 7.3 treats email delivery failure as
+    a reportable exception)."""
+    import os as __os
+    if isinstance(to, str):
+        to = [p.strip() for p in _re.split(r"[;,]", to) if p.strip()]
+    to = [t for t in (to or []) if t]
+    if not to:
+        log("email skipped: no recipients configured")
+        return False
+    token = __os.environ.get("AIHUB_RUN_TOKEN")
+    if not token:
+        log(f"email skipped (no run token): {subject}")
+        return False
+    payload = {"token": token, "to": to, "subject": str(subject), "body": str(body or "")}
+    if html_body:
+        payload["html_body"] = str(html_body)
+    if files:
+        payload["files"] = [str(f) for f in files]
+    try:
+        res = _runtime_post("/automations/api/runtime/notify_email", payload)
+        if res.get("sent"):
+            log(f"email sent to {len(to)} recipient(s): {subject}")
+            return True
+        log(f"email NOT sent ({res.get('error', 'unknown error')}): {subject}")
+        return False
+    except Exception as e:
+        log(f"email could not be sent (continuing): {e}")
+        return False
 
 
 def _runtime_post(path, body):

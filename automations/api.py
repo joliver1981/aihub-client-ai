@@ -23,6 +23,7 @@ are skipped (recorded as status='skipped').
 import json
 import logging
 import os
+import re
 import threading
 import time
 import uuid
@@ -1213,6 +1214,88 @@ def runtime_review_item():
     except Exception:
         pass
     return jsonify({"request_id": row["request_id"], "queued_for_review": True})
+
+
+_EMAIL_MEDIA_TYPES = {".csv": "text/csv", ".txt": "text/plain", ".json": "application/json",
+                      ".pdf": "application/pdf", ".xlsx": "application/vnd.openxmlformats-"
+                      "officedocument.spreadsheetml.sheet", ".png": "image/png"}
+_EMAIL_MAX_ATTACH_BYTES = 8 * 1024 * 1024  # provider-side limits sit well above this
+
+
+@automations_bp.route("/api/runtime/notify_email", methods=["POST"])
+def runtime_notify_email():
+    """SDK side of aihub.send_email() — the platform sends on the script's
+    behalf so an automation never carries mail credentials (same principle as
+    runtime/ai for model keys). Optional workdir-relative attachments reuse the
+    checkpoint containment rule. Auth: run token, like runtime/review_item."""
+    if not getattr(cfg, "AUTOMATIONS_ENABLED", False):
+        return jsonify({"error": "Automations feature is disabled"}), 403
+    data = request.get_json(silent=True) or {}
+    from shared_auth import verify_automation_run_token
+    claims, err = verify_automation_run_token(data.get("token") or "")
+    if err:
+        return jsonify({"error": f"invalid run token: {err}"}), 403
+    run = _get_runner().get_run(claims.get("run_id", ""))
+    from .runner import LIVE_STATUSES
+    if (not run or run.get("automation_id") != claims.get("automation_id")
+            or run.get("status") not in LIVE_STATUSES):
+        return jsonify({"error": "run token does not match a live run"}), 403
+    workdir = _run_workdir(run)
+    if not workdir:
+        return jsonify({"error": "run has no workdir"}), 409
+
+    to = data.get("to")
+    if isinstance(to, str):
+        to = [p.strip() for p in re.split(r"[;,]", to) if p.strip()]
+    to = [t for t in (to or []) if isinstance(t, str) and "@" in t]
+    if not to:
+        return jsonify({"error": "to must contain at least one email address"}), 400
+    if len(to) > 25:
+        return jsonify({"error": "to accepts at most 25 recipients"}), 400
+    subject = (data.get("subject") or "").strip()[:300]
+    if not subject:
+        return jsonify({"error": "subject is required"}), 400
+
+    declared, att_err = _validate_checkpoint_files(workdir, data.get("files"))
+    if att_err:
+        return jsonify({"error": att_err}), 400
+    attachments, total = [], 0
+    for a in declared:
+        full = os.path.join(os.path.realpath(workdir), a["relpath"])
+        total += a["size"]
+        if total > _EMAIL_MAX_ATTACH_BYTES:
+            return jsonify({"error": "attachments exceed the 8 MB total limit"}), 400
+        with open(full, "rb") as fh:
+            content = fh.read()
+        attachments.append({
+            "filename": a["name"], "content": content,
+            "content_type": _EMAIL_MEDIA_TYPES.get(
+                os.path.splitext(a["name"])[1].lower(), "application/octet-stream")})
+
+    auto = _get_manager().get_automation(run.get("automation_id", "")) or {}
+    auto_name = auto.get("name") or run.get("automation_id", "")
+    try:
+        import notification_client
+        res = notification_client.send_email_notification(
+            to=to, subject=subject, body=(data.get("body") or ""),
+            html_body=data.get("html_body") or None,
+            agent_name=f"automation:{auto_name}",
+            attachments=attachments or None)
+    except Exception as e:
+        # Notification failure must not kill the batch (BRD 7.3 lists email
+        # delivery failure as a reportable exception, not a fatal error).
+        logger.warning("automation %s: email send failed: %s", auto_name, e)
+        return jsonify({"sent": False, "error": str(e)}), 502
+    ok = bool((res or {}).get("success", True))
+    try:
+        from .runner import RunEventLog
+        RunEventLog(workdir).emit(
+            "log", line=f"[aihub] email {'sent' if ok else 'FAILED'} to "
+                        f"{len(to)} recipient(s): {subject}")
+    except Exception:
+        pass
+    return jsonify({"sent": ok, "recipients": len(to),
+                    "attachments": len(attachments), "result": res})
 
 
 _AI_MEDIA_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
