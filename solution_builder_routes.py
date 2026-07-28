@@ -283,6 +283,7 @@ def list_available_assets():
         "data_agents":  _safe_list(_list_data_agents),
         "tools":        _safe_list(_list_tools),
         "workflows":    _safe_list(_list_workflows),
+        "automations":  _safe_list(_list_automations),
         "integrations": _safe_list(_list_integrations),
         "connections": _safe_list(_list_connections),
         "environments": _safe_list(_list_environments),
@@ -488,6 +489,7 @@ def _list_workflows() -> List[Dict[str, Any]]:
         display = p.stem if name.lower().endswith(".json") else name
 
         agent_ids: List[int] = []
+        text = ""
         try:
             text = p.read_text(encoding="utf-8", errors="ignore")
             for m in _WORKFLOW_AGENT_RE.finditer(text):
@@ -500,10 +502,59 @@ def _list_workflows() -> List[Dict[str, Any]]:
         except OSError:
             pass
 
+        deps: Dict[str, Any] = {}
+        if agent_ids:
+            deps["agent_ids"] = agent_ids
+        # Automation-node references (by name — ids are origin-specific and the
+        # bundler strips them). Lets the wizard cascade-select the automation
+        # when its workflow is picked, so the pair can't ship half-complete.
+        automation_ids = _automation_ids_referenced(text)
+        if automation_ids:
+            deps["automation_ids"] = automation_ids
+
         out.append({
             "name": name,
             "display": display,
-            "deps": {"agent_ids": agent_ids} if agent_ids else {},
+            "deps": deps,
+        })
+    return out
+
+
+_WORKFLOW_AUTONAME_RE = re.compile(r'"automationName"\s*:\s*"([^"]+)"')
+
+
+def _automation_ids_referenced(workflow_text: str) -> List[str]:
+    """Automation ids for the automationName references inside a workflow's
+    JSON — resolved through the tenant registry so the wizard's cascade
+    selection carries real, currently-existing ids."""
+    names = {m.group(1).strip().lower()
+             for m in _WORKFLOW_AUTONAME_RE.finditer(workflow_text or "") if m.group(1).strip()}
+    if not names:
+        return []
+    try:
+        from automations.manager import AutomationManager
+        return [a["automation_id"] for a in AutomationManager().list_automations()
+                if (a.get("name") or "").lower() in names]
+    except Exception:
+        return []
+
+
+def _list_automations() -> List[Dict[str, Any]]:
+    """Automations with at least one saved version (there is nothing to bundle
+    before v1). Tooltip carries the promoted state — installs land unpromoted
+    either way, but authors should know if they are shipping unverified code."""
+    from automations.manager import AutomationManager
+    out: List[Dict[str, Any]] = []
+    for a in AutomationManager().list_automations():
+        version = a.get("pinned_version") or a.get("current_version") or 0
+        if version < 1:
+            continue
+        promoted = bool(a.get("pinned_version"))
+        out.append({
+            "id": a["automation_id"],
+            "display": a.get("name") or a["automation_id"],
+            "tooltip": (f"v{version}, promoted" if promoted
+                        else f"v{version}, NEVER promoted — exports latest save"),
         })
     return out
 

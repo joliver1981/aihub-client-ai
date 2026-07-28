@@ -67,6 +67,7 @@ class InstallResult:
     seed_result: Optional[SeedResult] = None
     post_install: List[Dict[str, Any]] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -77,6 +78,7 @@ class InstallResult:
             "seed_result": self.seed_result.to_dict() if self.seed_result else None,
             "post_install": list(self.post_install),
             "errors": list(self.errors),
+            "warnings": list(self.warnings),
         }
 
 
@@ -261,14 +263,19 @@ class SolutionInstaller:
                 return result
 
             # ── Dispatch per asset class ──
+            # Automations install BEFORE workflows: a workflow's Automation
+            # node references an automation by name, and the workflow installer
+            # rewrites that reference to the automation id just created here.
+            # (Was the other way round — the reference could never resolve.)
+            self._installed_automations = {}
             self._install_agents(manifest, staging_root, auth_headers, options, result)
             self._install_tools(manifest, staging_root, auth_headers, options, result)
+            self._install_automations(manifest, staging_root, auth_headers, options, result)
             self._install_workflows(manifest, staging_root, auth_headers, options, result)
             self._install_integrations(manifest, staging_root, auth_headers, options, result)
             self._install_connections(manifest, staging_root, auth_headers, options, result)
             self._install_environments(manifest, staging_root, auth_headers, options, result)
             self._install_knowledge(manifest, staging_root, auth_headers, options, result)
-            self._install_automations(manifest, staging_root, auth_headers, options, result)
             self._install_seed_data(manifest, staging_root, options, result)
 
             # ── Manifest inventory check ──
@@ -427,6 +434,36 @@ class SolutionInstaller:
                     AssetResult(kind="tool", name=final_name, status="failed", detail=str(e))
                 )
 
+    def _remap_automation_nodes(self, workflow_doc, result):
+        """Point Automation nodes at the automations THIS install just created.
+        The bundler strips origin automationIds (they are meaningless here);
+        match by original name and inject the fresh id + installed (possibly
+        suffixed) name. Unmatched references are left alone — the engine
+        resolves by name at run time, so a same-named automation already on
+        this system still works."""
+        installed = getattr(self, "_installed_automations", {}) or {}
+        wf = workflow_doc.get("workflow") if isinstance(workflow_doc.get("workflow"), dict) \
+            else workflow_doc
+        for node in (wf.get("nodes") or []):
+            if not isinstance(node, dict) or node.get("type") != "Automation":
+                continue
+            cfg = node.get("config") or {}
+            ref = (cfg.get("automationName") or "").strip().lower()
+            hit = installed.get(ref) if ref else None
+            if hit:
+                cfg["automationId"] = hit["id"]
+                cfg["automationName"] = hit["name"]
+                node["config"] = cfg
+            elif cfg.get("automationId"):
+                # A leftover origin GUID (old bundle built before id-stripping):
+                # blank it so the engine's name fallback can work.
+                cfg["automationId"] = ""
+                node["config"] = cfg
+                result.warnings.append(
+                    f"workflow references automation '{cfg.get('automationName') or '?'}' "
+                    f"not included in this bundle — left to resolve by name")
+        return workflow_doc
+
     def _install_workflows(self, manifest, root, auth, options, result):
         wf_dir = root / "workflows"
         if not wf_dir.exists():
@@ -437,11 +474,13 @@ class SolutionInstaller:
             final_name = entry.stem + options.name_suffix
             try:
                 workflow_json = entry.read_text(encoding="utf-8")
+                workflow_doc = self._remap_automation_nodes(
+                    json.loads(workflow_json), result)
                 resp = self._app.test_client().post(
                     "/api/solutions/workflows/import",
                     json={
                         "name": final_name,
-                        "workflow": json.loads(workflow_json),
+                        "workflow": workflow_doc,
                         "conflict_mode": options.conflict_mode,
                     },
                     headers=auth,
@@ -782,6 +821,11 @@ class SolutionInstaller:
                     for sample in sorted(samples.iterdir()):
                         if sample.is_file():
                             mgr.add_sample(aid, version, sample.name, sample.read_bytes())
+                # Record ORIGINAL-name -> installed identity so the workflow
+                # installer (which runs after) can rewrite Automation-node
+                # references to this fresh id/name.
+                orig_name = (meta.get("name") or name).strip().lower()
+                self._installed_automations[orig_name] = {"id": aid, "name": final_name}
                 result.assets.append(AssetResult(
                     kind="automation", name=final_name, status="installed",
                     detail=("saved as v1, NOT promoted — dry-run and promote it on this "

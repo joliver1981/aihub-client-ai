@@ -396,7 +396,12 @@ class SolutionBundler:
         return out
 
     def _pack_workflow(self, workflow_name: str) -> Optional[bytes]:
-        """Workflows live as JSON files in `workflows/`. Just copy the file."""
+        """Workflows live as JSON files in `workflows/`. Copy the file, but
+        make Automation-node references PORTABLE: strip `automationId` (a GUID
+        that only exists on the ORIGIN system) and keep `automationName` — the
+        installer remaps by name, and the engine resolves by name when the id
+        is absent or stale. Leaving origin GUIDs in would make every imported
+        workflow point at a nonexistent automation."""
         # Look up app root from the Flask app config; fall back to CWD.
         root = self._workflows_root()
         # Workflow filenames may lack `.json`; try both.
@@ -404,9 +409,35 @@ class SolutionBundler:
             p = root / candidate
             if p.is_file():
                 try:
-                    return p.read_bytes()
+                    raw = p.read_bytes()
                 except OSError:
                     return None
+                try:
+                    doc = json.loads(raw.decode("utf-8"))
+                    wf = doc.get("workflow") if isinstance(doc.get("workflow"), dict) else doc
+                    changed = False
+                    for node in (wf.get("nodes") or []):
+                        if not isinstance(node, dict) or node.get("type") != "Automation":
+                            continue
+                        cfg = node.get("config") or {}
+                        if cfg.get("automationId"):
+                            if not cfg.get("automationName"):
+                                # keep SOMETHING portable: resolve the name now
+                                try:
+                                    from automations.manager import AutomationManager
+                                    auto = AutomationManager().get_automation(cfg["automationId"])
+                                    if auto:
+                                        cfg["automationName"] = auto["name"]
+                                except Exception:
+                                    pass
+                            cfg["automationId"] = ""
+                            node["config"] = cfg
+                            changed = True
+                    if changed:
+                        return json.dumps(doc, indent=2).encode("utf-8")
+                    return raw
+                except (ValueError, UnicodeDecodeError):
+                    return raw  # not JSON we understand — ship verbatim
         return None
 
     def _pack_integration(

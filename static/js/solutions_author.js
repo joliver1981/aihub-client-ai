@@ -121,6 +121,7 @@
             assets: {},                  // server-side available assets
             selections: {                // what user picked
                 agent_ids: [], data_agent_ids: [], tool_names: [], workflow_names: [],
+                automation_ids: [],
                 integration_ids: [], connection_ids: [],
                 environment_ids: [], knowledge_document_ids: [],
             },
@@ -195,6 +196,7 @@
             this.renderPicker('pickDataAgents',   this.state.assets.data_agents  || [], 'id',   'data_agent_ids');
             this.renderPicker('pickTools',        this.state.assets.tools        || [], 'name', 'tool_names');
             this.renderPicker('pickWorkflows',    this.state.assets.workflows    || [], 'name', 'workflow_names');
+            this.renderPicker('pickAutomations',  this.state.assets.automations  || [], 'id',   'automation_ids');
             this.renderPicker('pickIntegrations', this.state.assets.integrations || [], 'id',   'integration_ids');
             this.renderPicker('pickConnections',  this.state.assets.connections  || [], 'id',   'connection_ids');
             this.renderPicker('pickEnvironments', this.state.assets.environments || [], 'id',   'environment_ids');
@@ -385,6 +387,7 @@
             };
             var sel = {
                 agent_ids: [], data_agent_ids: [], tool_names: [], workflow_names: [],
+                automation_ids: [],
                 integration_ids: [], connection_ids: [],
                 environment_ids: [], knowledge_document_ids: [],
             };

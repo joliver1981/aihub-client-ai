@@ -70,6 +70,10 @@
                 <div class="col-md-6"><label>Workflows</label><div id="pickWorkflows" class="asset-picker"></div></div>
             </div>
             <div class="form-row">
+                <div class="col-md-6"><label>Automations <small class="text-muted">(exports the promoted version; installs unpromoted)</small></label><div id="pickAutomations" class="asset-picker"></div></div>
+                <div class="col-md-6"></div>
+            </div>
+            <div class="form-row">
                 <div class="col-md-6"><label>Integrations <small class="text-muted">(configured instances)</small></label><div id="pickIntegrations" class="asset-picker"></div></div>
                 <div class="col-md-6"><label>Connections <small class="text-muted">(credentials become placeholders)</small></label><div id="pickConnections" class="asset-picker"></div></div>
             </div>
@@ -170,7 +174,7 @@
     </div>
 </div>
 
-<script src="/static/js/solutions_author.js"></script>
+<script src="/static/js/solutions_author.js?v=2"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         SolutionsAuthorWizard.init({{ draft_id | tojson }});
@@ -225,6 +229,7 @@
                     data_agents: countChecked('data_agent_ids'),
                     tools: countChecked('tool_names'),
                     workflows: countChecked('workflow_names'),
+                    automations: countChecked('automation_ids'),
                     integrations: countChecked('integration_ids'),
                     connections: countChecked('connection_ids'),
                     environments: countChecked('environment_ids'),
