@@ -25,6 +25,21 @@ logger = logging.getLogger(__name__)
 # thousands of rows would blow the context window.
 _DELEGATED_TABLE_LLM_ROW_CAP = int(os.getenv("CC_DELEGATED_TABLE_LLM_ROW_CAP", "200"))
 
+# ── Prompt-context sizing (2026-07-28 live-demo failure) ─────────────────
+# The old hardcoded caps (50-agent decompose list, 20-agent picker list,
+# 15-agent classifier summary, 200-char assistant turns, ~3K-char
+# transcripts) dated from small context windows and silently blinded the
+# routing prompts as the platform grew to ~300 agents — an agent id shown
+# to the user two turns earlier was invisible to the decomposer. Modern
+# models take these sizes trivially, so the defaults are set an order of
+# magnitude up: they act only as guards against pathological content (a
+# 50KB agent description, a multi-MB table pasted into history), never as
+# working limits. All env-overridable; service restart to apply.
+_AGENT_LIST_CAP = int(os.getenv("CC_PROMPT_AGENT_LIST_CAP", "500"))
+_AGENT_DESC_CAP = int(os.getenv("CC_PROMPT_AGENT_DESC_CAP", "300"))
+_TRANSCRIPT_TURNS = int(os.getenv("CC_PROMPT_TRANSCRIPT_TURNS", "20"))  # messages kept
+_TRANSCRIPT_MAX_CHARS = int(os.getenv("CC_PROMPT_TRANSCRIPT_MAX_CHARS", "20000"))
+
 # Minimum role for privileged CC operations (platform mutations / tool exec).
 # Role model: 1 = User, 2 = Developer, 3 = Admin.
 MIN_DEV_ROLE = 2
@@ -406,8 +421,10 @@ Question the new agent should answer:"""
 # Per-entry cap when rendering conversation history for prompts. Assistant
 # responses in this system are often multi-KB JSON blocks (tables, etc.),
 # and without a per-entry cap one giant response can eat the entire char
-# budget and drop the actual user questions we need to see.
-_TRANSCRIPT_PER_ENTRY_CAP = 400
+# budget and drop the actual user questions we need to see. Sized so a
+# normal response (including a full agent listing) survives intact — it
+# only clips genuinely pathological entries.
+_TRANSCRIPT_PER_ENTRY_CAP = int(os.getenv("CC_PROMPT_TRANSCRIPT_ENTRY_CAP", "4000"))
 
 
 def _strip_rich_blocks(content) -> str:
@@ -442,7 +459,8 @@ def _strip_rich_blocks(content) -> str:
     return content
 
 
-def _format_delegation_history(history: list, max_turns: int = 12, max_chars: int = 3000,
+def _format_delegation_history(history: list, max_turns: int = _TRANSCRIPT_TURNS,
+                               max_chars: int = _TRANSCRIPT_MAX_CHARS,
                                per_entry_cap: int = _TRANSCRIPT_PER_ENTRY_CAP) -> str:
     """Render a delegation history list (list of {role, content} dicts) as a
     role-labeled transcript for LLM prompting. Tail-biased so the most recent
@@ -474,7 +492,8 @@ def _format_delegation_history(history: list, max_turns: int = 12, max_chars: in
     return "\n".join(lines)
 
 
-def _format_messages_tail_biased(messages: list, max_turns: int = 12, max_chars: int = 3000,
+def _format_messages_tail_biased(messages: list, max_turns: int = _TRANSCRIPT_TURNS,
+                                 max_chars: int = _TRANSCRIPT_MAX_CHARS,
                                  per_entry_cap: int = _TRANSCRIPT_PER_ENTRY_CAP) -> str:
     """Render a LangGraph-style messages list as a role-labeled transcript,
     tail-biased (unlike _format_history_for_llm which is head-biased). Use
@@ -507,21 +526,24 @@ def _format_messages_tail_biased(messages: list, max_turns: int = 12, max_chars:
 
 def _format_conversation_for_prompt(
     messages: list,
-    max_turns: int = 5,
-    user_cap: int = 500,
-    assistant_cap: int = 200,
-    max_chars: int = 2500,
+    max_turns: int = _TRANSCRIPT_TURNS // 2,
+    user_cap: int = _TRANSCRIPT_PER_ENTRY_CAP,
+    assistant_cap: int = _TRANSCRIPT_PER_ENTRY_CAP,
+    max_chars: int = _TRANSCRIPT_MAX_CHARS,
     exclude_latest: bool = True,
 ) -> str:
     """Render recent conversation for context in CC-level routing/reasoning prompts.
 
-    Returns a compact transcript suitable for dropping into any prompt that
-    needs to disambiguate a terse latest-utterance ("use the other agent
+    Returns a transcript suitable for dropping into any prompt that needs
+    to disambiguate a terse latest-utterance ("use the other agent
     instead", "yes", "now get inventory") by referencing prior turns.
+    `max_turns` counts turn PAIRS (user+assistant).
 
-    Design rules (matching the user's guidance):
-      - Full user questions (they're short and carry the intent)
-      - Trimmed assistant responses (they're often multi-KB JSON tables)
+    Design rules:
+      - Generous per-entry budgets — the 200-char assistant cap this once
+        had silently dropped the id→name mapping from an agent-listing
+        turn and broke a live demo ("try agent 281"). Caps now exist only
+        to guard against pathological entries (a multi-MB pasted table).
       - Strips rich-content JSON arrays down to the human-readable parts
       - Tail-biased — the MOST RECENT turns always survive truncation
       - `exclude_latest=True` by default because the caller usually also
@@ -569,10 +591,10 @@ def _format_conversation_for_prompt(
 # Users (and CC's own fallback suggestions) reference agents by id — "try
 # agent 281 instead", "ask agent #471", "use agent id 493". The name-based
 # matchers can't see these, and the LLM prompts that could are fed capped
-# agent lists (50 in decompose, 20 in the picker) and truncated transcripts,
-# so an id the user typed is often invisible to them (live failure: "good
-# idea, try agent 281 instead" decomposed into a task with no target →
-# "no agent or tool was assigned"). Regex here is format extraction only —
+# agent lists and truncated transcripts (generous caps now, but any cap can
+# hide the one id that matters — live failure: "good idea, try agent 281
+# instead" decomposed into a task with no target → "no agent or tool was
+# assigned"). Regex here is format extraction only —
 # every extracted number must match a real agent in the caller-supplied
 # list or it resolves to nothing (fail-closed). The word "agent(s)" must
 # cue the number, and the digit may not be glued to a word (so "AIRDB2"
@@ -638,17 +660,19 @@ async def _extract_reroute_question(
         # Prefer the broader messages list when it covers the delegation
         # history; otherwise fall back to the delegation history directly.
         transcript = _format_messages_tail_biased(
-            recent_messages or [], max_turns=14, max_chars=3500
+            recent_messages or [], max_turns=_TRANSCRIPT_TURNS,
+            max_chars=_TRANSCRIPT_MAX_CHARS,
         )
         if not transcript:
             transcript = _format_delegation_history(
-                delegation_history or [], max_turns=14, max_chars=3500
+                delegation_history or [], max_turns=_TRANSCRIPT_TURNS,
+                max_chars=_TRANSCRIPT_MAX_CHARS,
             )
         if not transcript:
             transcript = "(no prior conversation)"
 
         prompt = _REROUTE_EXTRACTION_PROMPT.format(
-            reroute_message=reroute_message[:400],
+            reroute_message=reroute_message[:_TRANSCRIPT_PER_ENTRY_CAP],
             transcript=transcript,
         )
 
@@ -2118,7 +2142,7 @@ Reply with ONLY one word: CONTINUE, CC_CAPABLE, or REROUTE."""
 
     from datetime import datetime
     now = datetime.now()
-    agent_summary = format_landscape_summary(landscape, max_agents=15)
+    agent_summary = format_landscape_summary(landscape, max_agents=_AGENT_LIST_CAP)
     tool_summary = f"{len(landscape.get('mcp_servers', []))} MCP servers. Current date: {now.strftime('%Y-%m-%d')}"
 
     prompt = INTENT_CLASSIFICATION_PROMPT.format(
@@ -2216,7 +2240,7 @@ async def converse(state: CommandCenterState) -> dict:
     
     # Build system prompt with landscape data embedded directly
     from datetime import datetime
-    landscape_text = format_landscape_summary(landscape, max_agents=30)
+    landscape_text = format_landscape_summary(landscape, max_agents=_AGENT_LIST_CAP)
     n_all = len(landscape.get("all_agents", []))
     n_data = len(landscape.get("data_agents", []))
     n_gen = len(landscape.get("agents", []))
@@ -7239,13 +7263,13 @@ async def _find_alternative_agents(question: str, failed_agent_id: str, data_age
         llm = get_step_llm("alternative_agent_finder")
 
         agent_list = "\n".join([
-            f"- ID:{a.get('agent_id')} Name:{a.get('agent_name','')} Desc:{a.get('description','')[:100]}"
-            for a in candidates[:15]
+            f"- ID:{a.get('agent_id')} Name:{a.get('agent_name','')} Desc:{(a.get('description','') or '')[:_AGENT_DESC_CAP]}"
+            for a in candidates[:_AGENT_LIST_CAP]
         ])
 
         _faa_msgs = [HumanMessage(content=(
             f'Which of these data agents can best answer this question?\n\n'
-            f'Question: "{question[:200]}"\n\n'
+            f'Question: "{question[:_TRANSCRIPT_PER_ENTRY_CAP]}"\n\n'
             f'Agents:\n{agent_list}\n\n'
             f'Return a JSON array of objects with agent_id, confidence (0.0-1.0), '
             f'and reason (brief). Only include agents with confidence >= 0.3. '
@@ -7954,7 +7978,7 @@ Respond with ONLY a JSON object, no prose:
     # REROUTE matcher); token overlap would recreate the fuzzy bug.
     _exact_pick = None
     # Explicit id reference ("ask agent 281") — deterministic, and immune to
-    # the [:20] cap on the picker prompt's agent list below.
+    # any cap on the picker prompt's agent list below.
     _id_hits = _resolve_agent_id_refs(user_text, data_agents)
     if len(_id_hits) == 1:
         _exact_pick = str(_id_hits[0].get("agent_id"))
@@ -7984,8 +8008,8 @@ Respond with ONLY a JSON object, no prose:
     # Multiple data agents — use LLM to pick the best one or ask user
     await _emit_progress("selecting", f"Selecting best agent from {len(data_agents)} available...")
     agents_info = "\n".join([
-        f"- [{a.get('agent_id')}] **{a.get('agent_name')}** — {a.get('description', 'No description')[:150]}"
-        for a in data_agents[:20]
+        f"- [{a.get('agent_id')}] **{a.get('agent_name')}** — {(a.get('description') or 'No description')[:_AGENT_DESC_CAP]}"
+        for a in data_agents[:_AGENT_LIST_CAP]
     ])
 
     # Include session resources so the LLM can prefer recently created agents
@@ -8137,10 +8161,11 @@ async def decompose_tasks(state: CommandCenterState) -> dict:
 
     all_agents = landscape.get("all_agents", landscape.get("agents", []))
     agents_info = json.dumps([
-        {"id": a.get("agent_id"), "name": a.get("agent_name"), "description": a.get("description", ""),
+        {"id": a.get("agent_id"), "name": a.get("agent_name"),
+         "description": (a.get("description") or "")[:_AGENT_DESC_CAP],
          "is_data_agent": a.get("is_data_agent", False)}
         for a in all_agents if a.get("enabled", True)
-    ][:50], indent=2)  # limit to 50 to keep prompt manageable
+    ][:_AGENT_LIST_CAP], indent=2)
 
     # Build hints for recently created / session resources so the LLM
     # strongly prefers agents that were just built in this conversation.
@@ -8162,11 +8187,11 @@ async def decompose_tasks(state: CommandCenterState) -> dict:
             )
 
     # Deterministic grounding for explicit id references ("try agent 281"):
-    # the visible list above is capped at 50 and the conversation block
-    # truncates assistant turns, so an id the user typed may be invisible to
-    # the LLM — which then (obeying the unknown-agent rule) nulls the target
-    # and the step dies with "no agent or tool assigned". Surface every
-    # user-referenced real agent explicitly instead.
+    # if the referenced agent is ever absent from the visible list or the
+    # conversation block (caps are generous now but still exist), the LLM
+    # obeys the unknown-agent rule, nulls the target, and the step dies
+    # with "no agent or tool assigned". Surface every user-referenced real
+    # agent explicitly so that can't happen.
     id_ref_agents = _resolve_agent_id_refs(user_text, all_agents)
     if id_ref_agents:
         _ref_lines = "\n".join(
