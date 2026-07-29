@@ -35,7 +35,7 @@ import urllib.error as _urlerror
 import urllib.request as _urlrequest
 
 __all__ = ["connection", "secret", "input", "inputs", "log", "checkpoint", "query",
-           "review_item", "send_email", "llm", "ai_extract",
+           "review_item", "review_decisions", "send_email", "llm", "ai_extract",
            "AutomationRuntimeError", "AutomationAborted"]
 
 _RESOLVE_PATH = "/automations/api/runtime/resolve"
@@ -289,6 +289,31 @@ def review_item(message, title=None, files=None, assignee=None, assignee_group=N
         return rid
     except Exception as e:
         log(f"review item could not be queued (continuing): {e}")
+        return None
+
+
+def review_decisions(request_ids):
+    """Poll the decisions of review items THIS run created with review_item().
+
+    Returns {request_id: 'pending' | 'approved' | 'rejected' | 'cancelled' |
+    'missing'} — or None when the queue can't be reached (transport error /
+    no run token). Callers treat None as "still pending" and keep their own
+    deadline: a decision flow must fail SAFE (undecided = excluded), never
+    guess. Non-blocking — call it inside your own wait loop."""
+    import os as __os
+    ids = [str(r) for r in (request_ids or []) if r]
+    if not ids:
+        return {}
+    token = __os.environ.get("AIHUB_RUN_TOKEN")
+    if not token:
+        return None
+    try:
+        res = _runtime_post("/automations/api/runtime/review_items_status",
+                            {"token": token, "request_ids": ids})
+        statuses = res.get("statuses") or {}
+        return {rid: (statuses.get(rid) or {}).get("status", "missing") for rid in ids}
+    except Exception as e:
+        log(f"review_decisions poll failed (treating as pending): {e}")
         return None
 
 

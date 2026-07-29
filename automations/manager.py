@@ -32,7 +32,11 @@ from CommonUtils import get_app_path, get_db_connection_string
 
 logger = logging.getLogger(__name__)
 
-MAX_TIMEOUT_SECONDS = 86400
+# 7 days: decisive-review automations legitimately hold a run open across a
+# multi-day My Approvals window (james 2026-07-29) — the old 24h cap made a
+# 48h review window impossible. The supervisor treats this as a wall clock
+# for the whole run, waiting included.
+MAX_TIMEOUT_SECONDS = 604800
 DEFAULT_TIMEOUT_SECONDS = 600
 
 VALID_OUTPUT_KINDS = {"file", "sftp_upload", "ftp_upload", "http_upload"}

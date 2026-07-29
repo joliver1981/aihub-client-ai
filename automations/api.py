@@ -162,7 +162,7 @@ _RUNS_PAGE = """<!DOCTYPE html>
    <span class="muted" style="margin-left:14px">Packages:</span> <span class="chips" id="setPkgs" style="display:inline-flex"></span></div>
   <table style="margin:8px 0"><thead><tr><th>Input</th><th>Default value</th></tr></thead><tbody id="setInputs"></tbody></table>
   <div style="margin:8px 0"><span class="muted">Timeout (seconds):</span>
-   <input id="setTimeout" type="number" min="30" max="86400" style="width:110px;background:var(--sf2);color:var(--tx);border:1px solid var(--ln);border-radius:6px;padding:4px 8px"></div>
+   <input id="setTimeout" type="number" min="30" max="604800" style="width:110px;background:var(--sf2);color:var(--tx);border:1px solid var(--ln);border-radius:6px;padding:4px 8px"></div>
   <div id="setSchedules" class="muted" style="margin:8px 0"></div>
   <div style="margin-top:10px">
    <button class="go" onclick="saveSettings()">Save as new version</button>
@@ -1214,6 +1214,52 @@ def runtime_review_item():
     except Exception:
         pass
     return jsonify({"request_id": row["request_id"], "queued_for_review": True})
+
+
+@automations_bp.route("/api/runtime/review_items_status", methods=["POST"])
+def runtime_review_items_status():
+    """SDK side of aihub.review_decisions(): batch-poll the decisions of
+    review items THIS RUN created, so an automation can hold its CSV open
+    until Payroll works the queue (james 2026-07-29 decisive-review flow).
+    Rows belonging to other runs report as 'missing' — a run token only ever
+    sees its own items. Auth: run token, like runtime/review_item."""
+    if not getattr(cfg, "AUTOMATIONS_ENABLED", False):
+        return jsonify({"error": "Automations feature is disabled"}), 403
+    data = request.get_json(silent=True) or {}
+    from shared_auth import verify_automation_run_token
+    claims, err = verify_automation_run_token(data.get("token") or "")
+    if err:
+        return jsonify({"error": f"invalid run token: {err}"}), 403
+    run = _get_runner().get_run(claims.get("run_id", ""))
+    from .runner import LIVE_STATUSES
+    if (not run or run.get("automation_id") != claims.get("automation_id")
+            or run.get("status") not in LIVE_STATUSES):
+        return jsonify({"error": "run token does not match a live run"}), 403
+    ids = data.get("request_ids")
+    if not isinstance(ids, list) or not ids or len(ids) > 200:
+        return jsonify({"error": "request_ids must be a list of 1..200 ids"}), 400
+
+    from . import approval_store
+    out = {}
+    for rid in ids:
+        rid = str(rid or "").strip()
+        if not rid:
+            continue
+        row = approval_store.get_row(_get_manager().base_path, rid)
+        owned = False
+        if row:
+            try:
+                owned = (json.loads(row.get("approval_data") or "{}")
+                         .get("run_id") == run.get("run_id"))
+            except (ValueError, TypeError):
+                owned = False
+        if not row or not owned:
+            out[rid] = {"status": "missing"}
+            continue
+        out[rid] = {"status": (row.get("status") or "Pending").lower(),
+                    "responded_by": row.get("responded_by"),
+                    "response_at": row.get("response_at")}
+    return jsonify({"statuses": out})
 
 
 _EMAIL_MEDIA_TYPES = {".csv": "text/csv", ".txt": "text/plain", ".json": "application/json",
