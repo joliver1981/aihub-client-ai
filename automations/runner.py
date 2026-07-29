@@ -780,7 +780,22 @@ class AutomationRunner:
         # Signal whether human-approval gates can actually pause this run. Code
         # Flow steps have no live AutomationRuns row → checkpoint() auto-approves.
         env["AIHUB_CHECKPOINTS_ENABLED"] = "1" if checkpoints_supported else "0"
+        # The aihub_runtime SDK exists in two layouts: next to this module in
+        # the source tree (automations/sdk), and under the APP ROOT in frozen
+        # installs ({app}\automations\sdk, shipped by the installer). A frozen
+        # module's __file__ points inside the service's _internal dir where
+        # sdk/ does not exist — resolving only relative to __file__ made every
+        # client-install automation die with "No module named aihub_runtime"
+        # (james, other-server test 2026-07-28). Prefer whichever layout
+        # actually contains the package, and say so loudly when neither does.
         sdk_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sdk")
+        if not os.path.isdir(os.path.join(sdk_dir, "aihub_runtime")):
+            sdk_dir = get_app_path("automations", "sdk")
+        if not os.path.isdir(os.path.join(sdk_dir, "aihub_runtime")):
+            logger.warning(
+                "aihub_runtime SDK not found beside runner.py or under the app root "
+                "(%s) — automation runs will fail at import. The install is missing "
+                "automations\\sdk.", sdk_dir)
         env["PYTHONPATH"] = sdk_dir + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
 
         conn_names = manifest.get("connections", [])

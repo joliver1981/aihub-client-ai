@@ -46,6 +46,11 @@ Name: "{app}\integrations"
 ; Source: aihub-client-ai-dev (AI DEV build)
 ; =============================================================================
 Source: "C:\src\aihub-client-ai-dev\dist\app\*"; DestDir: "{app}\app"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Automations SDK (aihub_runtime): the runner prepends {app}\automations\sdk to
+; each run's PYTHONPATH on frozen installs (runner.py resolves __file__-relative in
+; the source tree, app-root-relative when frozen). Without this, every automation
+; dies at "import aihub_runtime" on client machines (found 2026-07-28).
+Source: "C:\src\aihub-client-ai-dev\automations\sdk\*"; DestDir: "{app}\automations\sdk"; Flags: ignoreversion recursesubdirs createallsubdirs
 ;Source: "C:\src\aihub-client-ai-dev\dist\ExecuteQuickJob\*"; DestDir: "{app}\ExecuteQuickJob"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "C:\src\aihub-client-ai-dev\dist\document_api_server\*"; DestDir: "{app}\document_api_server"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "C:\src\aihub-client-ai-dev\dist\document_job_processor\*"; DestDir: "{app}\document_job_processor"; Flags: ignoreversion recursesubdirs createallsubdirs
