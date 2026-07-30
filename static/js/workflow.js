@@ -4155,6 +4155,13 @@ window.stopWorkflow = function() {
     return originalStopWorkflow.apply(this, arguments);
 };
 
+// DEPRECATED — in-browser simulator, no live code paths reach it (confirmed 2026-07-30).
+// All workflows execute through the backend engine (workflow_execution.py), whose edge
+// semantics differ from this function (the backend follows ONLY pass/fail/complete and
+// silently ignores unknown edge types; this simulator follows unknown types on success).
+// Do not use this as a reference for engine behavior, and do not file divergence findings
+// against it. See test_human/14_Workflow_Node_Matrix/README.md ("A note on the in-browser
+// simulator").
 function shouldFollowPath(connectionType, result) {
     switch (connectionType) {
         case 'pass':
