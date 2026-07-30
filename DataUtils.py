@@ -415,6 +415,29 @@ def Add_Connection(connection_id, connection_name, server, port, database_name, 
     print('Executing Add_Connection...')
     logging.info('Executing Add_Connection...')
     try:
+        # The connections UI rebuilds the connection string from form fields,
+        # so an unchanged password arrives embedded as literal bullets
+        # (Pwd=••••••••). Stored verbatim, that string fails for every
+        # runtime consumer while Test Connection (which resolves bullets)
+        # still passes. Every save endpoint converges here, so repair it here.
+        if connection_string and '••••••••' in connection_string:
+            actual_password = None
+            try:
+                from connection_secrets import retrieve_connection_password
+                if password and '••••••••' not in password:
+                    actual_password = retrieve_connection_password(password)
+                if not actual_password and str(connection_id or '0') != '0':
+                    stored_password = get_connection_password_by_id(connection_id)
+                    if stored_password and '••••••••' not in stored_password:
+                        actual_password = retrieve_connection_password(stored_password)
+            except Exception as repair_err:
+                logging.warning(f"Add_Connection: could not resolve password for masked connection string: {repair_err}")
+            if actual_password:
+                connection_string = connection_string.replace('Pwd=••••••••', f'Pwd={actual_password}')
+                connection_string = connection_string.replace('Password=••••••••', f'Password={actual_password}')
+            if '••••••••' in connection_string:
+                logging.warning(f"Add_Connection: connection {connection_id} still contains a masked password in its connection string after repair attempt")
+
         merge_sql = dcfg.SQL_MERGE_CONNECTION.replace('{instance_url}', format_string_for_insert(instance_url or '')).replace('{token}', format_string_for_insert(token or '')).replace('{api_key}', format_string_for_insert(api_key or '')).replace('{dsn}', format_string_for_insert(dsn or '')).replace('{odbc_driver}', format_string_for_insert(odbc_driver or '')).replace('{port}', str(port or '0')).replace('{database_type}', format_string_for_insert(database_type)).replace('{connection_string}', format_string_for_insert(connection_string)).replace('{parameters}', format_string_for_insert(parameters)).replace('{connection_id}', str(connection_id)).replace('{connection_name}', format_string_for_insert(connection_name)).replace('{server}', format_string_for_insert(server)).replace('{database_name}', format_string_for_insert(database_name)).replace('{user_name}', format_string_for_insert(user_name)).replace('{password}', format_string_for_insert(password))
 
         logging.debug(str(merge_sql))
@@ -2257,6 +2280,12 @@ def get_database_connection_string(connection_id):
         
         # If connection string is empty or not provided, generate it
         logging.info(f"[get_db_conn_str] conn_id={connection_id} stored_conn_str='{conn_str}' server='{server}' port={port} db='{db_name}' driver='{odbc_driver}'")
+        # A stored string containing masked bullets is corrupt (older builds
+        # persisted Pwd=•••••••• on edit-save); fall back to regenerating
+        # from the stored fields + resolved password.
+        if conn_str and '••••••••' in conn_str:
+            logging.warning(f"[get_db_conn_str] conn_id={connection_id} stored connection string contains a masked password; regenerating from fields")
+            conn_str = None
         if not conn_str or conn_str.strip() == '' or conn_str.strip() == 'None':
             conn_str = generate_connection_string(
                 db_type, server, port, db_name, user, password, parameters, odbc_driver

@@ -3926,6 +3926,10 @@ Guidelines:
                         'rows': result['rows']
                     }
                 }
+                # Carry the failure detail through the rewrap — dropping it
+                # leaves the node with only "Unknown database error"
+                if 'error' in result:
+                    wrapped_dict['error'] = result['error']
                 return wrapped_dict
             return result
         except:
