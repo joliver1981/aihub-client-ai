@@ -663,6 +663,36 @@ def c_folder_selector(ctx):
     return nodes, [], {}, verify
 
 
+@check("portal_node_run", "Portal node: runs a saved portal workflow via browser-use, result lands in variables",
+       tier=2, needs=["portal"], slow=True)
+def c_portal_node(ctx):
+    # The Portal node runs a per-user SAVED portal workflow (slug) through the
+    # browser-use service, entirely server-side. ownerUserId is stamped into the
+    # node config by /save/workflow from the authenticated session (app.py ~6051).
+    # agentFallback off => purely deterministic steps (no LLM cost, no variance).
+    nodes = [N("node-0", "Portal", "portal probe",
+               {"portalWorkflowSlug": ctx["env"]["portal"],
+                "outputVariable": "portalResult", "filesVariable": "portalFiles",
+                "timeout": 150, "agentFallback": False, "continueOnError": False},
+               start=True)]
+
+    def verify(eid, status):
+        v = ctx["api"].variables(eid)
+        res = v.get("portalResult")
+        if isinstance(res, str):
+            try:
+                res = json.loads(res)
+            except Exception:
+                pass
+        pstatus = res.get("status") if isinstance(res, dict) else None
+        nfiles = res.get("file_count") if isinstance(res, dict) else None
+        perr = res.get("error") if isinstance(res, dict) else None
+        ok = status == "completed" and pstatus == "ok"
+        return ok, (f"status={status}; portal-status={pstatus}; files={nfiles}"
+                    + (f"; portal-error={str(perr)[:120]}" if perr else ""))
+    return nodes, [], {"timeout": 210}, verify
+
+
 @check("file_transfer_sftp_upload", "File Transfer node: SFTP upload lands on the test server",
        tier=2, needs=["sftp", "sftp_secret"])
 def c_file_transfer(ctx):
@@ -694,18 +724,21 @@ def c_file_transfer(ctx):
 # ---------------- Tier 3 — registered but skipped by default (coverage honesty) ---
 
 TIER3_PLANNED = [
-    ("alert_email", "Alert (email) node", "sends real email; enable when a safe SMTP sink exists"),
-    ("ai_extract", "AI Extract node", "LLM cost + fixture; add with --ai flag in a future rev"),
-    ("ai_action", "AI Action node", "LLM cost; planned"),
-    ("document_node", "Document node", "document pipeline dependency; planned"),
-    ("excel_update", "Excel Update node", "needs template fixture; planned"),
-    ("execute_application", "Execute Application node", "runs an arbitrary exe; needs a sandboxed fixture app"),
-    ("integration_node", "Integration node", "needs a configured integration instance"),
-    ("compliance_process", "Compliance Process node", "needs a retailer document set"),
-    ("compliance_excel_export", "Compliance Excel Export node", "needs compliance fixtures"),
-    ("automation_node", "Automation node", "needs a promoted automation; planned"),
-    ("code_step", "Code Step node", "needs a code flow; planned"),
-    ("portal_node", "Portal node", "needs browser-use + a portal; NEVER covered by any test yet"),
+    ("alert_email", "Alert (email) node",
+     "excluded by owner decision (james 2026-07-30) — do NOT automate (sends real email)"),
+    ("ai_extract", "AI Extract node",
+     "excluded by owner decision (james 2026-07-30) — do NOT automate (live LLM cost)"),
+    ("ai_action", "AI Action node",
+     "excluded by owner decision (james 2026-07-30) — do NOT automate (live LLM cost)"),
+    ("document_node", "Document node", "not automated (needs a document-pipeline fixture)"),
+    ("excel_update", "Excel Update node", "not automated (needs a template .xlsx fixture)"),
+    ("execute_application", "Execute Application node",
+     "not automated (needs a harmless fixture app to run)"),
+    ("integration_node", "Integration node", "not automated (needs a configured integration instance)"),
+    ("compliance_process", "Compliance Process node", "not automated (needs a retailer document set)"),
+    ("compliance_excel_export", "Compliance Excel Export node", "not automated (needs compliance fixtures)"),
+    ("automation_node", "Automation node", "not automated (needs a promoted automation)"),
+    ("code_step", "Code Step node", "not automated (needs a saved code flow)"),
 ]
 
 ALL_NODE_TYPES = ["Database", "Folder Selector", "Document", "AI Action", "Set Variable",
@@ -730,6 +763,7 @@ COVERAGE = {
     "human_approval_reject": ["Set Variable", "Human Approval", "File"],
     "folder_selector_count": ["Folder Selector"],
     "file_transfer_sftp_upload": ["File", "File Transfer"],
+    "portal_node_run": ["Portal"],
 }
 
 
@@ -815,6 +849,27 @@ def probe_env(api):
         env["sftp"] = None
     secrets = api.secret_names()
     env["sftp_secret"] = next((s for s in ("SFTP_TEST_PASSWORD", "AUTODEMO_SFTP") if s in secrets), None)
+    # Portal node: needs the browser-use service (:5101) AND a saved portal workflow to
+    # invoke. The probe ensures a deterministic one-step (goto the app's own login page)
+    # portal workflow exists for the current user; env["portal"] holds its slug.
+    env["portal"] = None
+    try:
+        with socket.create_connection(("127.0.0.1", 5101), timeout=2):
+            pass
+        payload = {"name": "NODEREG-portal-probe", "portal_slug": None,
+                   "start_url": f"{api.base}/login",
+                   "goal": "Open the AI Hub login page (deterministic regression probe)",
+                   "steps": [{"type": "goto", "url": f"{api.base}/login"}],
+                   "overwrite": True}
+        r = api.post("/api/portal-workflows", payload)
+        body = api.jbody(r) or {}
+        saved = body.get("saved") if isinstance(body, dict) else None
+        if r.status_code == 200 and isinstance(saved, dict) and saved.get("slug"):
+            env["portal"] = saved["slug"]
+        else:
+            env["portal_note"] = f"portal workflow save failed: HTTP {r.status_code} {str(body)[:120]}"
+    except OSError:
+        env["portal_note"] = "browser-use service 127.0.0.1:5101 unreachable"
     # admin user id (for approval assignee)
     try:
         body = api.jbody(api.get("/get/users"))

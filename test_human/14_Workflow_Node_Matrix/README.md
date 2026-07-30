@@ -70,26 +70,23 @@ Tier 1 — core engine: `setvar_file_write`, `file_write_append`, `file_check_de
 Tier 2 — integrations: `database_select_vars`, `database_fail_edge` (fail-edge honesty),
 `setvar_to_excel`, **`database_to_excel` (XFAIL — the historically-broken pairing; flips to XPASS when
 fixed)**, `human_approval_approve`, `human_approval_reject`, `folder_selector_count`,
-`file_transfer_sftp_upload`.
+`file_transfer_sftp_upload`, **`portal_node_run`** (the Portal node runs a saved one-step portal
+workflow — a `goto` to the app's own login page — through the real browser-use service, deterministic
+steps only / `agentFallback` off; the probe auto-creates the saved portal workflow
+`NODEREG-portal-probe`; needs browser-use on `:5101`).
 
-### Tier 3 — registered but not yet automated (the v2 backlog)
+### Tier 3 — registered but not automated (each SKIP row states why)
 
-These 12 node types appear in the report as SKIP so the coverage map stays honest. Each needs one
-piece of setup before it can be tested automatically; until then, **breakage in these nodes is
-invisible** — exactly the "Database node" failure mode. In plain terms:
+These node types appear in the report as SKIP so the coverage map stays honest:
 
-| Check | What's missing to automate it | What breakage it would catch |
-|---|---|---|
-| Alert (email) | The node sends a **real email** every run. We need a throwaway local mailbox (a tiny "mail catcher" server, like our local SFTP test server but for email) so runs don't spam a real inbox. | Alert is what workflows use on **fail edges** to tell you something broke. A dead Alert node = failures nobody hears about. |
-| AI Extract / AI Action | Nothing — they work today, but each run **calls the LLM** (real cost, ~30–60s, slightly variable output). Plan: include them but only when the runner is started with an opt-in flag, so the everyday run stays fast and free; before a release you run once with the flag on. | AI Extract powers invoice/onboarding extraction — some of the most demo-critical flows. Zero execution coverage today. |
-| Document | A document-pipeline fixture (upload + processing wait). | The workflow↔document-engine seam. |
-| Excel Update | A template .xlsx fixture to update. | The second Excel pathway (updates vs exports). |
-| Execute Application | A harmless fixture program (e.g. a one-line .bat that writes a file) so the test never runs anything real. | The run-an-app node. |
-| Integration | A configured integration instance to call. | The Integration node seam. |
-| Compliance ×2 | A retailer document set. | The compliance pipeline nodes. |
-| Automation | A promoted automation to invoke (pack 08 creates one — reusable). | Workflow→Automation handoff. |
-| Code Step | A saved code flow to invoke (pack 09 has one). | Workflow→Code Flow handoff. |
-| Portal | Browser-use service + a reachable portal (the localhost test portal exists). | The Portal node — **never covered by any test, anywhere**. |
+- **Excluded by owner decision (james, 2026-07-30) — do NOT automate:**
+  **Alert (email)** (would send real email every run) and **AI Extract / AI Action** (every run would
+  make live LLM calls). These stay visible in the coverage map as deliberate exclusions, not gaps
+  someone forgot.
+- **Not automated (needs a setup asset first):** Document (document-pipeline fixture), Excel Update
+  (template .xlsx), Execute Application (harmless fixture app), Integration (configured instance),
+  Compliance ×2 (retailer document set), Automation (promoted automation), Code Step (saved code
+  flow). No active plan — add only if/when the owner asks.
 
 ### A note on the in-browser "simulator" (deprecated)
 
