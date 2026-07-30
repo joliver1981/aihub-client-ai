@@ -1559,6 +1559,11 @@ function saveConnection() {
         contentType: 'application/json',
         data: JSON.stringify(connectionData),
         success: function(response) {
+            // The endpoint returns HTTP 200 with status:'error' on failure
+            if (response && response.status === 'error') {
+                showFeedback(response.response || 'Failed to update connection', false);
+                return;
+            }
             showFeedback('Connection updated successfully', true);
             // Update local data
             const existingConn = connData.find(conn => conn.id == connId);

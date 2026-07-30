@@ -3140,9 +3140,17 @@ def get_connections():
     # =========================================================================
     # NEW: Process passwords for display (BACKWARD COMPATIBLE)
     # =========================================================================
-    from connection_secrets import is_secret_reference
+    from connection_secrets import is_secret_reference, mask_connection_string_password
     from local_secrets import get_secrets_manager
-    
+
+    # Mask password values embedded in connection strings on egress — legacy
+    # rows carry plaintext passwords inside the string. DRIVER=/Server= text
+    # stays intact (discovery gating and the edit form still parse it), and
+    # the save path restores the masked indicator from the stored credential.
+    if not df.empty and 'connection_string' in df.columns:
+        df['connection_string'] = df['connection_string'].apply(
+            lambda s: mask_connection_string_password(s) if isinstance(s, str) else s)
+
     if not df.empty and 'password' in df.columns:
         manager = get_secrets_manager()
         
@@ -3860,6 +3868,10 @@ def add_update_connection():
             print('new_reference:', new_reference)
             print('new_id:', new_id)
             update_connection_password_only(new_id, new_reference)
+            # Re-point any temporary CONN_PWD_0 reference embedded in the
+            # stored connection string — the secret was just renamed above.
+            temp_reference = create_secret_reference(get_connection_secret_name(0))
+            update_connection_string_password_value(new_id, temp_reference, new_reference)
         # =====================================================================
         # END NEW CODE
         # =====================================================================

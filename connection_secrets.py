@@ -244,6 +244,67 @@ def resolve_connection_string_secrets(connection_string: str) -> str:
     return re.sub(SECRET_REF_PATTERN, replace_reference, connection_string)
 
 
+# =============================================================================
+# Connection-string password masking (egress) + restore (save round-trip)
+# =============================================================================
+
+# The masked indicator shown to the browser in place of any password value.
+MASKED_PASSWORD = '••••••••'
+
+# Password key=value inside an ODBC-style connection string. Keys Pwd/Password
+# (any case, case preserved on rewrite). Value forms, tried in order:
+#   {{LOCAL_SECRET:...}} reference | {brace-quoted, may contain ;} | bare up to ;
+_CONN_STR_PWD_PATTERN = re.compile(
+    r'(?P<key>pwd|password)\s*=\s*(?P<value>\{\{[^}]*\}\}|\{[^}]*\}|[^;]*)',
+    re.IGNORECASE,
+)
+
+
+def mask_connection_string_password(connection_string: Optional[str]) -> Optional[str]:
+    """
+    Replace every non-empty password value inside a connection string with
+    MASKED_PASSWORD for safe egress to the browser. Empty values stay empty,
+    everything else (DRIVER=, Server=, Uid=, ...) is untouched, and masking an
+    already-masked string is a no-op.
+    """
+    if not connection_string:
+        return connection_string
+
+    def _sub(m):
+        if not m.group('value'):
+            return m.group(0)
+        return f"{m.group('key')}={MASKED_PASSWORD}"
+
+    return _CONN_STR_PWD_PATTERN.sub(_sub, connection_string)
+
+
+def connection_string_has_masked_password(connection_string: Optional[str]) -> bool:
+    """True if any password value in the string is the masked indicator."""
+    if not connection_string:
+        return False
+    return any(m.group('value') == MASKED_PASSWORD
+               for m in _CONN_STR_PWD_PATTERN.finditer(connection_string))
+
+
+def swap_connection_string_password(connection_string: Optional[str],
+                                    old_value: str, new_value: str) -> Optional[str]:
+    """
+    Replace password values EQUAL to old_value with new_value. Exact-value
+    swap only — a deliberately different typed password is never clobbered.
+    Used to restore the stored credential when the browser echoes the masked
+    indicator back on save, and to swap plaintext for a secret reference.
+    """
+    if not connection_string or not old_value:
+        return connection_string
+
+    def _sub(m):
+        if m.group('value') == old_value:
+            return f"{m.group('key')}={new_value}"
+        return m.group(0)
+
+    return _CONN_STR_PWD_PATTERN.sub(_sub, connection_string)
+
+
 def mask_connection_password(connection_data: dict) -> dict:
     """
     Mask the password field for safe display/transmission.

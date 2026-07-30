@@ -132,16 +132,43 @@ def update_connection_password_only(connection_id, new_password):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         # Set tenant context for RLS
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
-        
+
         cursor.execute("UPDATE Connections SET password = ? WHERE id = ?", (new_password, connection_id))
         conn.commit()
         conn.close()
         return True
     except Exception as e:
         print(f'Error updating connection password reference. {str(e)}')
+        return False
+
+
+def update_connection_string_password_value(connection_id, old_value, new_value):
+    """Re-point a password value embedded in a stored connection string.
+
+    Needed after a NEW connection gets its real ID: the string may embed the
+    temporary {{LOCAL_SECRET:CONN_PWD_0}} reference, which dangles once the
+    secret is renamed to the final id.
+    """
+    try:
+        from connection_secrets import swap_connection_string_password
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+        cursor.execute("SELECT connection_string FROM Connections WHERE id = ?", (connection_id,))
+        row = cursor.fetchone()
+        current = row[0] if row else None
+        if current and old_value in current:
+            updated = swap_connection_string_password(current, old_value, new_value)
+            if updated != current:
+                cursor.execute("UPDATE Connections SET connection_string = ? WHERE id = ?", (updated, connection_id))
+                conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f'Error re-pointing connection string password value. {str(e)}')
         return False
     
 
@@ -417,26 +444,43 @@ def Add_Connection(connection_id, connection_name, server, port, database_name, 
     try:
         # The connections UI rebuilds the connection string from form fields,
         # so an unchanged password arrives embedded as literal bullets
-        # (Pwd=••••••••). Stored verbatim, that string fails for every
-        # runtime consumer while Test Connection (which resolves bullets)
-        # still passes. Every save endpoint converges here, so repair it here.
-        if connection_string and '••••••••' in connection_string:
-            actual_password = None
+        # (Pwd=••••••••) — and /get/connections masks string passwords on
+        # egress, so the edit form echoes the mask back too. Stored verbatim,
+        # a masked string fails for every runtime consumer while Test
+        # Connection (which resolves bullets) still passes. Every save
+        # endpoint converges here, so repair it here: restore the stored
+        # credential (keeping {{LOCAL_SECRET:...}} references at rest — all
+        # runtime consumers resolve them), and swap a freshly typed plaintext
+        # for its reference so plaintext doesn't land in the string.
+        if connection_string:
             try:
-                from connection_secrets import retrieve_connection_password
-                if password and '••••••••' not in password:
-                    actual_password = retrieve_connection_password(password)
-                if not actual_password and str(connection_id or '0') != '0':
-                    stored_password = get_connection_password_by_id(connection_id)
-                    if stored_password and '••••••••' not in stored_password:
-                        actual_password = retrieve_connection_password(stored_password)
+                from connection_secrets import (
+                    MASKED_PASSWORD,
+                    connection_string_has_masked_password,
+                    swap_connection_string_password,
+                    is_secret_reference,
+                    retrieve_connection_password,
+                )
+                if connection_string_has_masked_password(connection_string):
+                    replacement = None
+                    if password and MASKED_PASSWORD not in password:
+                        replacement = password
+                    elif str(connection_id or '0') != '0':
+                        stored_password = get_connection_password_by_id(connection_id)
+                        if stored_password and MASKED_PASSWORD not in stored_password:
+                            replacement = stored_password
+                    if replacement:
+                        connection_string = swap_connection_string_password(
+                            connection_string, MASKED_PASSWORD, replacement)
+                    if connection_string_has_masked_password(connection_string):
+                        logging.warning(f"Add_Connection: connection {connection_id} still contains a masked password in its connection string after repair attempt")
+                elif password and is_secret_reference(password):
+                    plain = retrieve_connection_password(password)
+                    if plain and plain != password and plain in connection_string:
+                        connection_string = swap_connection_string_password(
+                            connection_string, plain, password)
             except Exception as repair_err:
-                logging.warning(f"Add_Connection: could not resolve password for masked connection string: {repair_err}")
-            if actual_password:
-                connection_string = connection_string.replace('Pwd=••••••••', f'Pwd={actual_password}')
-                connection_string = connection_string.replace('Password=••••••••', f'Password={actual_password}')
-            if '••••••••' in connection_string:
-                logging.warning(f"Add_Connection: connection {connection_id} still contains a masked password in its connection string after repair attempt")
+                logging.warning(f"Add_Connection: connection-string password repair failed: {repair_err}")
 
         merge_sql = dcfg.SQL_MERGE_CONNECTION.replace('{instance_url}', format_string_for_insert(instance_url or '')).replace('{token}', format_string_for_insert(token or '')).replace('{api_key}', format_string_for_insert(api_key or '')).replace('{dsn}', format_string_for_insert(dsn or '')).replace('{odbc_driver}', format_string_for_insert(odbc_driver or '')).replace('{port}', str(port or '0')).replace('{database_type}', format_string_for_insert(database_type)).replace('{connection_string}', format_string_for_insert(connection_string)).replace('{parameters}', format_string_for_insert(parameters)).replace('{connection_id}', str(connection_id)).replace('{connection_name}', format_string_for_insert(connection_name)).replace('{server}', format_string_for_insert(server)).replace('{database_name}', format_string_for_insert(database_name)).replace('{user_name}', format_string_for_insert(user_name)).replace('{password}', format_string_for_insert(password))
 
