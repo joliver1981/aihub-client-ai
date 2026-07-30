@@ -50,6 +50,27 @@ test_human/
 ├── 07_Smoke_Tests/
 │   └── compliance_integrations_mcp_smoke.md      (CRUD smoke on remaining modules)
 │
+├── 11_Regression_Suite/                          ← PRE-RELEASE regression pass (UI, human/agent)
+│   ├── README.md                                 (start here — 9 basic features, ~2h)
+│   ├── 00_Setup … 10_Extras_Smoke.md             (one file per feature, exact prompts + expected values)
+│   ├── _ANSWER_KEY.md                            (live-DB + fixture ground truth)
+│   ├── TEST_RUN_TEMPLATE.md                       (copy per run)
+│   └── fixtures/                                  (self-contained artifacts)
+│
+├── 13_Document_Competency/                       ← DOCUMENT engine competency (ingestion + retrieval)
+│   ├── README.md                                 (start here — phases A/B/C, automated runner)
+│   ├── battery.py                                (single source of truth: fixtures, questions, grading)
+│   ├── run_battery.py                            (upload → wait → question → grade → report)
+│   ├── make_fixtures.py / fixtures/              (real lease corpus incl. flattened amendments)
+│   └── _ANSWER_KEY.md                            (derived — regenerate via gen_answer_key.py)
+│
+├── 14_Workflow_Node_Matrix/                      ← WORKFLOW ENGINE node regression matrix (runner)
+│   ├── README.md                                 (start here — per-node/pairing checks, tiers)
+│   ├── runner.py                                 (build→run→verify each node via the real engine)
+│   ├── UI_SPOT_CHECKS.md                         (browser-only legs: Designer/Monitor/CC lint)
+│   ├── REPORT_LATEST.md / results_history/       (baseline-diffed reports — PASS→FAIL = REGRESSION)
+│   └── fixtures/                                 (folder_probe files)
+│
 └── _scripts/
     ├── generate_fixtures.py                      (regenerates all 12 fixtures)
     ├── generate_master_doc.py                    (regenerates MASTER_TEST_PLAN.docx)

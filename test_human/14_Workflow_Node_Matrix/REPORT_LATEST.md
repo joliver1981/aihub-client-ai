@@ -1,0 +1,89 @@
+# Workflow Node Regression Report — 20260730_190725
+
+- Build: `1c5b558` | Base: `http://localhost:5001` | Tier <= 2 | Baseline: `results_20260730_163416.json`
+- Outputs: `C:\temp\aihub_test\nodereg\20260730_190725`
+
+## Verdict: **CLEAN** — 13 PASS / 12 SKIP / 1 XFAIL
+
+## Full matrix
+
+| check | tier | status | evidence |
+|---|---|---|---|
+| setvar_file_write | 1 | ✅ PASS | status=completed; file='value=hello-nodereg' |
+| file_write_append | 1 | ✅ PASS | status=completed; lines=['line1', 'line2'] |
+| file_check_delete | 1 | ✅ PASS | status=completed; deleted=True; steps=File:Completed,File:Completed,File:Completed |
+| conditional_true | 1 | ✅ PASS | status=completed; TRUE-file=True; FALSE-file=False |
+| conditional_false | 1 | ✅ PASS | status=completed; TRUE-file=False; FALSE-file=True |
+| loop_list_append | 1 | ✅ PASS | status=completed; lines=['alpha', 'beta', 'gamma']; continuation-ran=True |
+| database_select_vars | 2 | ✅ PASS | status=completed; dbrows type=dict; rows=10 (oracle 10) |
+| database_fail_edge | 2 | ✅ PASS | status=completed; fail-edge-file=True; pass-edge-file=False |
+| setvar_to_excel | 2 | ✅ PASS | status=completed; xlsx rows=[{'store': 'Manhattan', 'units': 1000, 'revenue': 30000}, {'store': 'Brooklyn', 'units': 770, 'revenue': 23100}] |
+| database_to_excel | 2 | ⚠️ XFAIL | status=failed; xlsx-rows=None (oracle 10x headcount=8) \| log-tail: Executing node: headcount (Database) ~ Workflow execution started: NODEREG-database_to_excel |
+| human_approval_approve | 2 | ✅ PASS | status=completed; decided=True (req=CC3B1DE9-7623-4E84-AD5F-E68D7B0D65A7, http=200); post-approval file=True |
+| human_approval_reject | 2 | ✅ PASS | status=completed; decided=True; downstream-file=False (must be False) |
+| folder_selector_count | 2 | ✅ PASS | status=completed; files-found=3 (oracle 3) |
+| file_transfer_sftp_upload | 2 | ✅ PASS | status=completed; remote-file=True (xfer_20260730_190725.txt); content-ok=True |
+| alert_email | 3 | ⏭ SKIP | not yet automated: sends real email; enable when a safe SMTP sink exists |
+| ai_extract | 3 | ⏭ SKIP | not yet automated: LLM cost + fixture; add with --ai flag in a future rev |
+| ai_action | 3 | ⏭ SKIP | not yet automated: LLM cost; planned |
+| document_node | 3 | ⏭ SKIP | not yet automated: document pipeline dependency; planned |
+| excel_update | 3 | ⏭ SKIP | not yet automated: needs template fixture; planned |
+| execute_application | 3 | ⏭ SKIP | not yet automated: runs an arbitrary exe; needs a sandboxed fixture app |
+| integration_node | 3 | ⏭ SKIP | not yet automated: needs a configured integration instance |
+| compliance_process | 3 | ⏭ SKIP | not yet automated: needs a retailer document set |
+| compliance_excel_export | 3 | ⏭ SKIP | not yet automated: needs compliance fixtures |
+| automation_node | 3 | ⏭ SKIP | not yet automated: needs a promoted automation; planned |
+| code_step | 3 | ⏭ SKIP | not yet automated: needs a code flow; planned |
+| portal_node | 3 | ⏭ SKIP | not yet automated: needs browser-use + a portal; NEVER covered by any test yet |
+
+## Node-type coverage map (all 21 engine node types)
+
+| node type | covered by |
+|---|---|
+| Database | database_select_vars:PASS; database_fail_edge:PASS; database_to_excel:XFAIL |
+| Folder Selector | folder_selector_count:PASS |
+| Document | 📋 planned (document pipeline dependency; planned) |
+| AI Action | 📋 planned (LLM cost; planned) |
+| Set Variable | setvar_file_write:PASS; conditional_true:PASS; conditional_false:PASS; loop_list_append:PASS; setvar_to_excel:PASS; human_approval_approve:PASS; human_approval_reject:PASS |
+| Alert | 📋 planned (sends real email; enable when a safe SMTP sink exists) |
+| Conditional | conditional_true:PASS; conditional_false:PASS |
+| Loop | loop_list_append:PASS |
+| End Loop | loop_list_append:PASS |
+| Execute Application | 📋 planned (runs an arbitrary exe; needs a sandboxed fixture app) |
+| File | setvar_file_write:PASS; file_write_append:PASS; file_check_delete:PASS; conditional_true:PASS; conditional_false:PASS; loop_list_append:PASS; database_fail_edge:PASS; human_approval_approve:PASS; human_approval_reject:PASS; file_transfer_sftp_upload:PASS |
+| AI Extract | 📋 planned (LLM cost + fixture; add with --ai flag in a future rev) |
+| Excel Export | setvar_to_excel:PASS; database_to_excel:XFAIL |
+| Integration | 📋 planned (needs a configured integration instance) |
+| Compliance Process | 📋 planned (needs a retailer document set) |
+| Compliance Excel Export | 📋 planned (needs compliance fixtures) |
+| Automation | 📋 planned (needs a promoted automation; planned) |
+| Code Step | 📋 planned (needs a code flow; planned) |
+| File Transfer | file_transfer_sftp_upload:PASS |
+| Portal | 📋 planned (needs browser-use + a portal; NEVER covered by any test yet) |
+| Human Approval | human_approval_approve:PASS; human_approval_reject:PASS |
+
+## Config lint (informational) — scanned ALL 240 persisted workflows
+
+- Excel Export nodes with broken config: **13**
+  - wf 1225 'test-AIHUB0016-Broken': Excel Export missing ['inputVariable', 'excelOutputPath'] invalid excelOperation=None
+  - wf 1277 'truth-native-1': Excel Export missing ['inputVariable'] invalid excelOperation='create'
+  - wf 1281 'nreg-native-1': Excel Export missing ['inputVariable'] invalid excelOperation='create'
+  - wf 1288 'n50-branch': Excel Export missing ['inputVariable'] invalid excelOperation='create'
+  - wf 1290 'n50r-branch': Excel Export missing ['inputVariable'] invalid excelOperation='create'
+  - wf 1302 'daily-store-headcount-2': Excel Export missing ['inputVariable'] invalid excelOperation='create'
+  - wf 1307 'REG-headcount': Excel Export missing ['inputVariable'] invalid excelOperation='create'
+  - wf 437 'Customer Onboarding - Global Corp (Demo)': Excel Export invalid excelOperation='update'
+  - wf 447 'Customer Onboarding - Horizon Replica (w SP)': Excel Export invalid excelOperation='update'
+  - wf 448 'Customer Onboarding - Horizon Replica (w SP v2)': Excel Export invalid excelOperation='update'
+  - wf 290 'Customer Onboarding - AI Guided v3 (w Update)': Excel Export invalid excelOperation='update'
+  - wf 292 'Customer Onboarding - AI Guided v4 (w Bulk Update)': Excel Export invalid excelOperation='update'
+  - wf 1218 'Customer Onboarding - Horizon Replica _w SP v2_ (Imported)': Excel Export invalid excelOperation='update'
+- Unknown node types: **3**
+  - wf 1225 'test-AIHUB0016-Broken': unknown node type 'Server'
+  - wf 1226 'test-AIHUB0016-InertUnknown': unknown node type 'Server'
+  - wf 382 'Inventory Record Count': unknown node type 'Database Query'
+- Dead edge types (engine follows only pass/fail/complete): **0**
+
+## XFAIL registry (known bugs the matrix tracks)
+
+- **database_to_excel** — Known defect: Database emits a columns/rows envelope Excel Export cannot consume; has never worked (verified 2026-07-25 investigation; wf 1266 + 1307 evidence)

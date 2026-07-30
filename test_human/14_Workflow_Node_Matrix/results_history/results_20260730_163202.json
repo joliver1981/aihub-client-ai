@@ -1,0 +1,297 @@
+{
+ "stamp": "20260730_163202",
+ "out_dir": "C:\\temp\\aihub_test\\nodereg\\20260730_163202",
+ "env": {
+  "airdb": "None",
+  "airdb_note": "10.0.0.6:1433 unreachable",
+  "sftp": "True",
+  "sftp_secret": "SFTP_TEST_PASSWORD",
+  "admin_id": "13"
+ },
+ "results": [
+  {
+   "id": "setvar_file_write",
+   "title": "Set Variable -> File write: variable substitution lands in the file",
+   "tier": 1,
+   "status": "PASS",
+   "evidence": "status=completed; file='value=hello-nodereg'",
+   "workflow_id": 1319,
+   "execution_id": "64667949-7088-4a68-8720-69da47e6f420",
+   "duration_s": 2.7
+  },
+  {
+   "id": "file_write_append",
+   "title": "File write + append: both contents present in order",
+   "tier": 1,
+   "status": "PASS",
+   "evidence": "status=completed; lines=['line1', 'line2']",
+   "workflow_id": 1320,
+   "execution_id": "a866e7a8-b033-420e-84e3-2918b79776f1",
+   "duration_s": 2.7
+  },
+  {
+   "id": "file_check_delete",
+   "title": "File check + delete: check passes on existing file, delete removes it",
+   "tier": 1,
+   "status": "PASS",
+   "evidence": "status=completed; deleted=True; steps=File:Completed,File:Completed,File:Completed",
+   "workflow_id": 1321,
+   "execution_id": "26a38332-53f1-4fd9-86db-9c441610c2b9",
+   "duration_s": 2.7
+  },
+  {
+   "id": "conditional_true",
+   "title": "Conditional: true edge fires (and false edge does not)",
+   "tier": 1,
+   "status": "PASS",
+   "evidence": "status=completed; TRUE-file=True; FALSE-file=False",
+   "workflow_id": 1322,
+   "execution_id": "b221ae6f-0f51-419a-9ee1-696b13af2b1c",
+   "duration_s": 2.7
+  },
+  {
+   "id": "conditional_false",
+   "title": "Conditional: false edge fires (and true edge does not)",
+   "tier": 1,
+   "status": "PASS",
+   "evidence": "status=completed; TRUE-file=False; FALSE-file=True",
+   "workflow_id": 1323,
+   "execution_id": "90da60d2-9b55-4b47-ba36-d3cd706d4397",
+   "duration_s": 2.5
+  },
+  {
+   "id": "loop_list_append",
+   "title": "Loop over JSON list -> File append per item -> End Loop",
+   "tier": 1,
+   "status": "PASS",
+   "evidence": "status=completed; lines=['alpha', 'beta', 'gamma']; continuation-ran=True",
+   "workflow_id": 1324,
+   "execution_id": "9ca8f119-356e-4bba-80ca-5f558e1c641c",
+   "duration_s": 5.7
+  },
+  {
+   "id": "database_select_vars",
+   "title": "Database (AIRDB select) -> rows land in execution variables",
+   "tier": 2,
+   "status": "SKIP",
+   "evidence": "env missing: ['airdb']"
+  },
+  {
+   "id": "database_fail_edge",
+   "title": "Database failure routes the fail edge (honest failure handling)",
+   "tier": 2,
+   "status": "SKIP",
+   "evidence": "env missing: ['airdb']"
+  },
+  {
+   "id": "setvar_to_excel",
+   "title": "Set Variable (JSON rows) -> Excel Export: xlsx with exact rows",
+   "tier": 2,
+   "status": "PASS",
+   "evidence": "status=completed; xlsx rows=[{'store': 'Manhattan', 'units': 1000, 'revenue': 30000}, {'store': 'Brooklyn', 'units': 770, 'revenue': 23100}]",
+   "workflow_id": 1327,
+   "execution_id": "8b7b5318-dea7-4330-bc26-edf79be5fed7",
+   "duration_s": 13.5
+  },
+  {
+   "id": "database_to_excel",
+   "title": "Database -> Excel Export handoff (the pairing that was silently broken)",
+   "tier": 2,
+   "status": "SKIP",
+   "evidence": "env missing: ['airdb']"
+  },
+  {
+   "id": "human_approval_approve",
+   "title": "Human Approval pauses -> approve via approvals API -> workflow resumes",
+   "tier": 2,
+   "status": "PASS",
+   "evidence": "status=completed; decided=True (req=6FA26BDE-9835-4A91-9FF8-148DF7A57275, http=200); post-approval file=True",
+   "workflow_id": 1329,
+   "execution_id": "887c9408-0a78-4ee6-a937-406c6d62b5c4",
+   "duration_s": 8.8
+  },
+  {
+   "id": "human_approval_reject",
+   "title": "Human Approval rejected -> downstream does NOT run",
+   "tier": 2,
+   "status": "PASS",
+   "evidence": "status=completed; decided=True; downstream-file=False (must be False)",
+   "workflow_id": 1330,
+   "execution_id": "8053ea94-71a1-47f9-8977-289ba22386c1",
+   "duration_s": 8.9
+  },
+  {
+   "id": "folder_selector_count",
+   "title": "Folder Selector: lists exactly the fixture files",
+   "tier": 2,
+   "status": "PASS",
+   "evidence": "status=completed; files-found=3 (oracle 3)",
+   "workflow_id": 1331,
+   "execution_id": "b83440b4-cef5-4de5-9520-91a24d4fec95",
+   "duration_s": 2.9
+  },
+  {
+   "id": "file_transfer_sftp_upload",
+   "title": "File Transfer node: SFTP upload lands on the test server",
+   "tier": 2,
+   "status": "PASS",
+   "evidence": "status=completed; remote-file=True (xfer_20260730_163202.txt); content-ok=True",
+   "workflow_id": 1332,
+   "execution_id": "d09335a7-a101-4205-a110-118050df78f6",
+   "duration_s": 2.6
+  },
+  {
+   "id": "alert_email",
+   "title": "Alert (email) node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: sends real email; enable when a safe SMTP sink exists"
+  },
+  {
+   "id": "ai_extract",
+   "title": "AI Extract node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: LLM cost + fixture; add with --ai flag in a future rev"
+  },
+  {
+   "id": "ai_action",
+   "title": "AI Action node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: LLM cost; planned"
+  },
+  {
+   "id": "document_node",
+   "title": "Document node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: document pipeline dependency; planned"
+  },
+  {
+   "id": "excel_update",
+   "title": "Excel Update node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: needs template fixture; planned"
+  },
+  {
+   "id": "execute_application",
+   "title": "Execute Application node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: runs an arbitrary exe; needs a sandboxed fixture app"
+  },
+  {
+   "id": "integration_node",
+   "title": "Integration node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: needs a configured integration instance"
+  },
+  {
+   "id": "compliance_process",
+   "title": "Compliance Process node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: needs a retailer document set"
+  },
+  {
+   "id": "compliance_excel_export",
+   "title": "Compliance Excel Export node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: needs compliance fixtures"
+  },
+  {
+   "id": "automation_node",
+   "title": "Automation node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: needs a promoted automation; planned"
+  },
+  {
+   "id": "code_step",
+   "title": "Code Step node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: needs a code flow; planned"
+  },
+  {
+   "id": "portal_node",
+   "title": "Portal node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: needs browser-use + a portal; NEVER covered by any test yet"
+  }
+ ],
+ "lint": {
+  "scanned": 240,
+  "excel_bad": [
+   "wf 1225 'test-AIHUB0016-Broken': Excel Export missing ['inputVariable', 'excelOutputPath'] invalid excelOperation=None",
+   "wf 1277 'truth-native-1': Excel Export missing ['inputVariable'] invalid excelOperation='create'",
+   "wf 1281 'nreg-native-1': Excel Export missing ['inputVariable'] invalid excelOperation='create'",
+   "wf 1288 'n50-branch': Excel Export missing ['inputVariable'] invalid excelOperation='create'",
+   "wf 1290 'n50r-branch': Excel Export missing ['inputVariable'] invalid excelOperation='create'",
+   "wf 1302 'daily-store-headcount-2': Excel Export missing ['inputVariable'] invalid excelOperation='create'",
+   "wf 1307 'REG-headcount': Excel Export missing ['inputVariable'] invalid excelOperation='create'",
+   "wf 437 'Customer Onboarding - Global Corp (Demo)': Excel Export invalid excelOperation='update'",
+   "wf 447 'Customer Onboarding - Horizon Replica (w SP)': Excel Export invalid excelOperation='update'",
+   "wf 448 'Customer Onboarding - Horizon Replica (w SP v2)': Excel Export invalid excelOperation='update'",
+   "wf 290 'Customer Onboarding - AI Guided v3 (w Update)': Excel Export invalid excelOperation='update'",
+   "wf 292 'Customer Onboarding - AI Guided v4 (w Bulk Update)': Excel Export invalid excelOperation='update'",
+   "wf 1218 'Customer Onboarding - Horizon Replica _w SP v2_ (Imported)': Excel Export invalid excelOperation='update'"
+  ],
+  "unknown_types": [
+   "wf 1225 'test-AIHUB0016-Broken': unknown node type 'Server'",
+   "wf 1226 'test-AIHUB0016-InertUnknown': unknown node type 'Server'",
+   "wf 382 'Inventory Record Count': unknown node type 'Database Query'"
+  ]
+ },
+ "created": [
+  [
+   1319,
+   "NODEREG-setvar_file_write"
+  ],
+  [
+   1320,
+   "NODEREG-file_write_append"
+  ],
+  [
+   1321,
+   "NODEREG-file_check_delete"
+  ],
+  [
+   1322,
+   "NODEREG-conditional_true"
+  ],
+  [
+   1323,
+   "NODEREG-conditional_false"
+  ],
+  [
+   1324,
+   "NODEREG-loop_list_append"
+  ],
+  [
+   1327,
+   "NODEREG-setvar_to_excel"
+  ],
+  [
+   1329,
+   "NODEREG-human_approval_approve"
+  ],
+  [
+   1330,
+   "NODEREG-human_approval_reject"
+  ],
+  [
+   1331,
+   "NODEREG-folder_selector_count"
+  ],
+  [
+   1332,
+   "NODEREG-file_transfer_sftp_upload"
+  ]
+ ]
+}

@@ -1,0 +1,15 @@
+date,store,category,units_sold,revenue
+2026-06-01,Manhattan,Bath,120,3600.00
+2026-06-02,Manhattan,Bath,95,2850.00
+2026-06-03,Manhattan,Bath,140,4200.00
+2026-06-04,Manhattan,Bath,110,3300.00
+2026-06-05,Manhattan,Bath,200,6000.00
+2026-06-06,Manhattan,Bath,175,5250.00
+2026-06-07,Manhattan,Bath,160,4800.00
+2026-06-01,Brooklyn,Bath,80,2400.00
+2026-06-02,Brooklyn,Bath,90,2700.00
+2026-06-03,Brooklyn,Bath,130,3900.00
+2026-06-04,Brooklyn,Bath,70,2100.00
+2026-06-05,Brooklyn,Bath,150,4500.00
+2026-06-06,Brooklyn,Bath,145,4350.00
+2026-06-07,Brooklyn,Bath,105,3150.00
