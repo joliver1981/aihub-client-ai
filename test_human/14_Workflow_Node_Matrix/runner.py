@@ -468,6 +468,47 @@ def c_loop(ctx):
 
 # ---------------- Tier 2 — integrations ----------------
 
+@check("setvar_expression_eval", "Set Variable evaluateAsExpression: simple expression evaluates")
+def c_setvar_expr(ctx):
+    p = os.path.join(ctx["out"], "expr.txt").replace("\\", "/")
+    nodes = [N("node-0", "Set Variable", "calc",
+               {"variableName": "n", "valueSource": "direct",
+                "valueExpression": "len([1, 2, 3]) * 7",
+                "evaluateAsExpression": True}, start=True),
+             file_node("node-1", "write", p, "n=${n}", x=320)]
+    conns = [C("node-0", "node-1")]
+
+    def verify(eid, status):
+        content = (read_file(p) or "").strip()
+        ok = status == "completed" and content == "n=21"
+        return ok, f"status={status}; file={content!r} (oracle 'n=21')"
+    return nodes, conns, {}, verify
+
+
+@check("setvar_expression_failure_honesty",
+       "Set Variable: a FAILING expression must not silently store the literal",
+       xfail="Engine Fix-3 backlog (found 2026-07-30, wf 1337): when expression evaluation "
+             "fails (e.g. f-string comprehension over a DB envelope), the engine silently "
+             "stores the LITERAL source text and the step 'Completes' — dishonest fallback")
+def c_setvar_expr_failure(ctx):
+    p = os.path.join(ctx["out"], "expr_fail.txt").replace("\\", "/")
+    nodes = [N("node-0", "Set Variable", "bad calc",
+               {"variableName": "t", "valueSource": "direct",
+                "valueExpression": "''.join([f\"{row['x']}\" for row in nonexistent_var])",
+                "evaluateAsExpression": True}, start=True),
+             file_node("node-1", "write", p, "${t}", x=320)]
+    conns = [C("node-0", "node-1")]
+
+    def verify(eid, status):
+        content = (read_file(p) or "").strip()
+        literal_leak = "join(" in content
+        # honest behavior = the Set Variable step FAILS (or the run fails);
+        # dishonest = completes and the literal expression text leaks into output
+        ok = status == "failed" and not literal_leak
+        return ok, f"status={status}; literal-leaked={literal_leak}; file={content[:80]!r}"
+    return nodes, conns, {}, verify
+
+
 @check("database_select_vars", "Database (AIRDB select) -> rows land in execution variables",
        tier=2, needs=["airdb"])
 def c_db_select(ctx):
@@ -750,6 +791,8 @@ ALL_NODE_TYPES = ["Database", "Folder Selector", "Document", "AI Action", "Set V
 # node types exercised per check id (for the coverage map)
 COVERAGE = {
     "setvar_file_write": ["Set Variable", "File"],
+    "setvar_expression_eval": ["Set Variable", "File"],
+    "setvar_expression_failure_honesty": ["Set Variable", "File"],
     "file_write_append": ["File"],
     "file_check_delete": ["File"],
     "conditional_true": ["Set Variable", "Conditional", "File"],
