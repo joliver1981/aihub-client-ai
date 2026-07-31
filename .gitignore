@@ -237,3 +237,6 @@ _build_config_client.py
 
 # Workflow Builder P2 durable session store (runtime state)
 workflow_builder_sessions/
+
+# pack-15 runner console captures (scratch)
+test_human/15_Platform_Regression/run_*.txt
