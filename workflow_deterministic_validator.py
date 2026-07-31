@@ -696,6 +696,37 @@ def detect_unknown_node_type(state: Dict) -> List[Issue]:
     return issues
 
 
+def detect_config_key_errors(state: Dict) -> List[Issue]:
+    """Schema-driven config-key contract (2026-07-30, workflow_node_schemas).
+
+    The CC-native agent shipped configs with GUESSED key names (Excel Export
+    'dataVariable', Set Variable 'useExpression'/'value', excelOperation
+    'create') — the engine reads none of them, silently defaults to empty, and
+    the workflow "completes" with 0-byte output. Missing required keys /
+    alias-matched wrong keys / invalid enum values are ERRORs (no fixer —
+    drafts the save with per-node reasons); merely-unrecognized keys are
+    WARNINGS (legacy workflows carry harmless junk keys).
+    """
+    try:
+        from workflow_node_schemas import validate_node_config
+    except Exception:
+        return []
+    issues: List[Issue] = []
+    for node in state.get("nodes", []) or []:
+        ntype = _node_type(node)
+        cfg = _config(node)
+        for found in validate_node_config(ntype, cfg):
+            issues.append(Issue(
+                severity=ERROR if found["severity"] == "error" else WARNING,
+                code="NODE_CONFIG_KEY_CONTRACT",
+                node_id=node.get("id"),
+                field_name=found.get("key"),
+                message=f"Node '{_node_label(node)}': {found['message']}",
+                extra={"node_type": ntype, "key": found.get("key")},
+            ))
+    return issues
+
+
 DETECTORS = [
     # Graph
     detect_duplicate_connections,
@@ -715,6 +746,8 @@ DETECTORS = [
     detect_file_node_config_errors,
     detect_integration_config_errors,
     detect_alert_template_expressions,
+    # Config-key contract (schema-driven; ERRORs draft, no fixer)
+    detect_config_key_errors,
     # Node-type membership (#6/#10): unknown/unimplemented type -> ERROR (no fixer)
     detect_unknown_node_type,
 ]

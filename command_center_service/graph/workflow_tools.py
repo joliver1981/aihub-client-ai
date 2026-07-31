@@ -39,6 +39,23 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+# Config-key contract (2026-07-30): shared schema of the keys each node
+# executor ACTUALLY reads (repo-root workflow_node_schemas.py — also consumed
+# by the save-time deterministic validator). Fail-open if unavailable: a
+# missing schema module must never take the authoring tools down.
+try:
+    from workflow_node_schemas import authoring_errors as _schema_errors, \
+        authoring_notes as _schema_warnings
+except Exception:  # pragma: no cover — packaging/path drift
+    logger.warning("workflow_node_schemas unavailable — node config key "
+                   "validation disabled for this process")
+
+    def _schema_errors(node_type, config):
+        return []
+
+    def _schema_warnings(node_type, config):
+        return []
+
 GET_TIMEOUT = 30
 SAVE_TIMEOUT = 60
 RUN_START_TIMEOUT = 30
@@ -315,6 +332,18 @@ def add_node(definition: Dict[str, Any], node_type: str, label: str,
         owner = (user_context or {}).get("user_id")
         if owner:
             cfg["ownerUserId"] = str(owner)
+    # Config-key contract (2026-07-30): reject configs the engine cannot read
+    # BEFORE they persist — a guessed key name (dataVariable, useExpression,
+    # excelOperation:"create") used to save "runnable" and then silently
+    # produce empty output. Erroring here lets the authoring LLM correct
+    # itself in the same turn.
+    _cfg_errors = _schema_errors(canon, cfg)
+    if _cfg_errors:
+        return {"ok": False, "error":
+                f"{canon} config rejected — nothing was added. "
+                + " ".join(_cfg_errors)
+                + " Author the config with the exact field names from the node catalog."}
+    _cfg_warnings = _schema_warnings(canon, cfg)
     node = {
         "id": node_id,
         "type": canon,
@@ -336,7 +365,10 @@ def add_node(definition: Dict[str, Any], node_type: str, label: str,
                 f"No start node was set, so '{node['label']}' ({node_id}) was "
                 f"auto-promoted to start. Use set_workflow_start to choose a "
                 f"different entry point.")
-    return {"ok": True, "node_id": node_id, "type": canon}
+    result = {"ok": True, "node_id": node_id, "type": canon}
+    if _cfg_warnings:
+        result["config_warnings"] = _cfg_warnings
+    return result
 
 
 def update_node(definition: Dict[str, Any], node_id: str,
@@ -345,12 +377,27 @@ def update_node(definition: Dict[str, Any], node_id: str,
     node = _find_node(definition, node_id)
     if not node:
         return {"ok": False, "error": f"no node '{node_id}' in this workflow"}
+    warnings: list = []
     if config_patch:
         cfg = node.setdefault("config", {})
+        # Validate the MERGED config before mutating (a patch alone can't be
+        # judged — required keys may already exist on the node).
+        merged = dict(cfg)
+        merged.update(config_patch)
+        _errs = _schema_errors(node.get("type") or "", merged)
+        if _errs:
+            return {"ok": False, "error":
+                    f"{node.get('type')} config rejected — the node was NOT changed. "
+                    + " ".join(_errs)
+                    + " Author the config with the exact field names from the node catalog."}
+        warnings = _schema_warnings(node.get("type") or "", merged)
         cfg.update(config_patch)
     if label:
         node["label"] = label.strip()
-    return {"ok": True, "node_id": node_id}
+    result = {"ok": True, "node_id": node_id}
+    if warnings:
+        result["config_warnings"] = warnings
+    return result
 
 
 def remove_node(definition: Dict[str, Any], node_id: str) -> Dict[str, Any]:

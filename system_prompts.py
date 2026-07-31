@@ -2669,7 +2669,30 @@ Common patterns:
   * continueOnError: boolean (default false).
 - Outputs:
   * <filesVariable>: list of produced file paths (absolute)
-  * <outputVariable>: { status, run_id, exit_code, output_files, workdir, verify_report, error }"""
+  * <outputVariable>: { status, run_id, exit_code, output_files, workdir, verify_report, error }""",
+    "File Transfer": """File Transfer:
+- Purpose: Native SFTP/FTP/FTPS transfer — upload local files to a remote server or download remote files, with per-file results. The ONLY node that talks to file-transfer servers.
+- Required config fields:
+  * protocol: One of sftp, ftp, ftps
+  * operation: One of upload, download
+  * host: Server hostname or IP (port defaults to the protocol standard; set port explicitly for non-standard, e.g. "2222")
+- Auth fields:
+  * username: Login user
+  * secretName: Name of a stored Local Secret holding the password — ALWAYS auth by secret name; NEVER put a raw password in the config
+- Path fields:
+  * localPath: Local file (upload) or local target directory (download)
+  * remotePath: For upload, the EXISTING remote target DIRECTORY (the file keeps its local name); for download, the remote file path or glob pattern (e.g. "drop/report_*.csv")
+- Optional config fields:
+  * port: Server port as a string
+  * overwrite: One of overwrite, skip, fail (existing-file policy)
+  * zeroMatchPolicy: One of fail, skip — what to do when a download pattern matches nothing
+  * newestOnly: Boolean — download only the newest match of the pattern
+  * outputVariable: Variable receiving the full transfer result object (entries, errors)
+  * filesVariable: Variable receiving the LIST of transferred local file paths — feed downstream nodes
+  * continueOnError: Boolean true or false
+- Outputs:
+  * <filesVariable>: list of transferred file paths
+  * <outputVariable>: { entries, errors }"""
 }
 
 WORKFLOW_NODE_TYPES = """

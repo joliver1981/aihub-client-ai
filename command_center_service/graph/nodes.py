@@ -2488,10 +2488,21 @@ async def converse(state: CommandCenterState) -> dict:
     _build_rule_5 = (
         "5. **Build/create request** (create an agent, build a workflow, set up a connection) → call delegate_to_builder_agent. NEVER pretend to create agents yourself.")
     if _native_impl(state) and _workflow_tools_allowed(state):
+        # 2026-07-30: feed the FIELD-LEVEL node reference (the same
+        # NODE_DETAIL_REFERENCE the Designer/builder path uses), not the prose
+        # catalog — the prose named zero config fields, so the LLM guessed key
+        # names (dataVariable, useExpression, excelOperation:"create") and the
+        # engine silently produced empty output. workflow_tools now also
+        # REJECTS unknown/missing config keys, so the catalog and the
+        # enforcement agree.
         try:
-            from system_prompts import WORKFLOW_NODE_TYPES as _WF_NODE_DOC
+            from system_prompts import NODE_DETAIL_REFERENCE as _WF_NODE_REF
+            _WF_NODE_DOC = "\n\n".join(_WF_NODE_REF.values())
         except Exception:
-            _WF_NODE_DOC = "(node catalog unavailable — use get_workflow_structure on an existing workflow as a reference)"
+            try:
+                from system_prompts import WORKFLOW_NODE_TYPES as _WF_NODE_DOC
+            except Exception:
+                _WF_NODE_DOC = "(node catalog unavailable — use get_workflow_structure on an existing workflow as a reference)"
         _workflow_native_prompt = (
             "## VISUAL WORKFLOWS — BUILD THEM YOURSELF (native workflow tools)\n"
             "You build and edit VISUAL WORKFLOWS directly with your own tools — NEVER delegate a "
@@ -2542,6 +2553,10 @@ async def converse(state: CommandCenterState) -> dict:
             "clarification.\n"
             "- After building, show the read-back structure so the user sees exactly what exists.\n\n"
             "### NODE CATALOG — the ONLY valid node types and their config\n"
+            "Use the EXACT config field names documented per node below — the tools REJECT "
+            "configs with unknown or missing keys (the engine silently ignores made-up keys, "
+            "which produces empty output). When a tool rejects a config, fix the named keys "
+            "and retry in the same turn.\n\n"
             + _WF_NODE_DOC
         )
         _limitations_build_line = (
