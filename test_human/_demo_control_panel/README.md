@@ -12,8 +12,15 @@ purpose (admin/admin, on-prem test SQL) so pre-flight Just Works.
 
 - **Demo cards** (categorized: Flagship / Deep dive / Feature spotlight) with a live
   readiness chip — READY / CAUTION / NOT READY — rolled up from that demo's resources.
-  Per card: ▶ Pre-flight (checks just its dependencies), 📖 Playbook (opens the docx),
-  ♻ reset actions, and quick links to the screens the demo uses.
+  Per card: ▶ Pre-flight (checks just its dependencies), 📖 Playbook (opens the **web
+  playbook** in a new tab — see below), ♻ reset actions, and quick links to the screens
+  the demo uses.
+
+**Web playbooks:** `export_playbooks.py` converts every playbook docx referenced in the
+registry to `playbooks/*.html` (Word-filtered HTML → UTF-8 + responsive wrapper, callout
+boxes and tables preserved), served at `/playbooks/…`. Re-run it (or the "Regenerate web
+playbooks" action in the Documents section) whenever a docx master is rebuilt. The docx
+files in `C:\temp\AIHub_Demo` remain the masters.
 - **Resource matrix** — every service, database server, database, seeded dataset,
   platform object (agents/workflows/portals/automations), fixture folder, and document,
   with live status, detail, **which demos need it** (traceability), and fix/start buttons.

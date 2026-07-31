@@ -422,15 +422,36 @@ def do_action(jid, aid):
 
 
 # ------------------------------------------------------------------ API
+PLAYBOOKS_DIR = os.path.join(HERE, "playbooks")
+
+
+def _web_url(doc):
+    stem = os.path.splitext(os.path.basename(doc or ""))[0]
+    if stem and os.path.isfile(os.path.join(PLAYBOOKS_DIR, stem + ".html")):
+        return f"/playbooks/{stem}.html"
+    return None
+
+
+@app.route("/playbooks/<path:fname>")
+def playbooks(fname):
+    from flask import send_from_directory
+    full = os.path.join(PLAYBOOKS_DIR, fname)
+    if not os.path.isfile(full):
+        return Response("Web playbook not generated yet — run export_playbooks.py "
+                        "(or the “Regenerate web playbooks” action).",
+                        status=404, mimetype="text/plain")
+    return send_from_directory(PLAYBOOKS_DIR, fname)
+
+
 @app.route("/api/state")
 def api_state():
     with _LOCK:
         results = dict(RESULTS)
         jobs = sorted(JOBS.values(), key=lambda j: j["started"], reverse=True)[:12]
     return jsonify({
-        "demos": REG["demos"],
+        "demos": [{**d, "web": _web_url(d.get("doc"))} for d in REG["demos"]],
         "resources": {k: {kk: v.get(kk) for kk in
-                          ("name", "group", "severity", "fix", "actions", "links")}
+                          ("name", "short", "group", "severity", "fix", "actions", "links")}
                       for k, v in REG["resources"].items()},
         "actions": {k: {"name": v.get("name"), "confirm": v.get("confirm"), "kind": v.get("kind")}
                     for k, v in REG["actions"].items()},
@@ -505,19 +526,22 @@ PAGE = r"""<!doctype html>
  h2 { font-size: 15px; color: #8fb4cf; text-transform: uppercase; letter-spacing: .8px;
       margin: 26px 0 12px; }
  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); gap: 14px; }
- .card { background: #121d29; border: 1px solid #1f3140; border-radius: 10px; padding: 16px 18px; }
+ .card { background: #121d29; border: 1px solid #1f3140; border-radius: 10px; padding: 16px 18px;
+         min-width: 0; overflow: hidden; }
  .card .top { display: flex; align-items: flex-start; gap: 10px; }
- .card h3 { font-size: 15.5px; color: #e8f0f7; }
+ .card h3 { font-size: 15.5px; color: #e8f0f7; overflow-wrap: anywhere; }
  .card .cat { font-size: 11px; color: #6d8296; }
- .card .tag { font-size: 12.5px; color: #9db4c6; font-style: italic; margin: 6px 0 10px; }
+ .card .tag { font-size: 12.5px; color: #9db4c6; font-style: italic; margin: 6px 0 10px;
+              overflow-wrap: anywhere; }
  .chip { margin-left: auto; font-size: 11.5px; font-weight: 700; padding: 3px 11px;
          border-radius: 20px; white-space: nowrap; }
  .chip.ready { background: #14402a; color: #6fe0a1; }
  .chip.caution { background: #4a3a11; color: #ecc45c; }
  .chip.notready { background: #4a1f24; color: #f08a94; }
  .chip.unknown { background: #223140; color: #8aa2b5; }
- .deps { font-size: 12px; color: #7d93a6; margin: 4px 0 10px; line-height: 1.9; }
- .deps span { white-space: nowrap; margin-right: 10px; }
+ .deps { display: flex; flex-wrap: wrap; gap: 3px 12px; font-size: 12px; color: #7d93a6;
+         margin: 4px 0 10px; line-height: 1.7; }
+ .deps span { white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
  .ok { background: #3fae6d; } .warn { background: #d9a53c; }
  .down, .error { background: #e05561; } .missing { background: #e05561; }
@@ -597,15 +621,17 @@ function render(){
   el.innerHTML = cats.map(cat => '<h2>'+cat+'</h2><div class="cards">' +
     S.demos.filter(d=>d.category===cat).map(d=>{
       const r = rollup(d);
-      const deps = d.resources.map(rid=>{ const s=st(rid);
-        return '<span title="'+(s.detail||'')+'"><i class="dot '+s.status+'"></i>'+S.resources[rid].name.split(' (')[0]+'</span>';}).join('');
+      const deps = d.resources.map(rid=>{ const s=st(rid); const rr=S.resources[rid];
+        return '<span title="'+rr.name+' — '+(s.detail||'')+'"><i class="dot '+s.status+'"></i>'+(rr.short||rr.name.split(' (')[0])+'</span>';}).join('');
       const resets = (d.reset||[]).map(a=>'<button class="btn small danger" onclick="act(\''+a+'\')">♻ '+S.actions[a].name+'</button>').join('');
       const links = (d.links||[]).map(l=>'<a class="link" target="_blank" href="'+l.url+'">'+l.label+' ↗</a>').join('');
+      const play = d.web ? '<a class="btn small ghost" style="text-decoration:none" target="_blank" href="'+d.web+'">📖 Playbook</a>'
+                         : '<button class="btn small ghost" onclick="alert(\'Web playbook not generated yet — run the Regenerate web playbooks action (Documents section).\')">📖 Playbook</button>';
       return '<div class="card"><div class="top"><div><h3>'+d.name+'</h3>'+
         '<div class="cat">'+d.duration+'</div></div><span class="chip '+r.cls+'">'+r.text+'</span></div>'+
         '<div class="tag">'+d.tagline+'</div><div class="deps">'+deps+'</div>'+
         '<div class="row"><button class="btn small" onclick="checkDemo(\''+d.id+'\')">▶ Pre-flight</button>'+
-        '<button class="btn small ghost" onclick="openDoc(\''+d.id+'\')">📖 Playbook</button>'+resets+'</div>'+
+        play+resets+'</div>'+
         '<div class="row">'+links+'</div></div>';
     }).join('') + '</div>').join('');
 
