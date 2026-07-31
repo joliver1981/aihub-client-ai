@@ -71,6 +71,12 @@ test_human/
 │   ├── REPORT_LATEST.md / results_history/       (baseline-diffed reports — PASS→FAIL = REGRESSION)
 │   └── fixtures/                                 (folder_probe files)
 │
+├── 15_Platform_Regression/                       ← ALL-AREAS pre-build gate (runs pack 14 inside)
+│   ├── README.md                                 (start here — one command, whole platform)
+│   ├── runner.py                                 (auth/pages/agents/knowledge/connections/NLQ/
+│   │                                              automations/portal/approvals/scheduler/MCP/CC…)
+│   └── REPORT_LATEST.md / results_history/       (baseline-diffed; exit 2 on regression)
+│
 └── _scripts/
     ├── generate_fixtures.py                      (regenerates all 12 fixtures)
     ├── generate_master_doc.py                    (regenerates MASTER_TEST_PLAN.docx)
