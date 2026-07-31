@@ -1,0 +1,376 @@
+{
+ "stamp": "20260731_074428",
+ "commit": "5a3e564",
+ "results": [
+  {
+   "id": "svc_ports",
+   "area": "Services",
+   "status": "PASS",
+   "evidence": "down=none of 7",
+   "duration_s": 0.0
+  },
+  {
+   "id": "auth_bad_password",
+   "area": "Auth",
+   "status": "PASS",
+   "evidence": "landed=http://localhost:5001/login",
+   "duration_s": 2.1
+  },
+  {
+   "id": "auth_anonymous_gate",
+   "area": "Auth",
+   "status": "PASS",
+   "evidence": "landed=http://localhost:5001/login?next=%2Fusers http=200",
+   "duration_s": 2.1
+  },
+  {
+   "id": "pages_render",
+   "area": "Pages",
+   "status": "PASS",
+   "evidence": "33/33 ok",
+   "duration_s": 3.0
+  },
+  {
+   "id": "agent_crud",
+   "area": "Agents",
+   "status": "PASS",
+   "evidence": "id=841, listed=True, deleted=True",
+   "duration_s": 0.4
+  },
+  {
+   "id": "agent_chat_math",
+   "area": "Agents",
+   "status": "PASS",
+   "evidence": "http=200, contains-75=True, tail=with just the number.\", \"role\": \"user\"}, {\"content\": \"75\", \"role\": \"assistant\"}], \"response\": \"75\", \"status\": \"success\"}",
+   "duration_s": 5.1
+  },
+  {
+   "id": "agent_artifact_csv",
+   "area": "Agents",
+   "status": "PASS",
+   "evidence": "http=200, file=yes, content='a,b\\n1,2'",
+   "duration_s": 4.3
+  },
+  {
+   "id": "knowledge_ingest_delete",
+   "area": "Knowledge/Docs",
+   "status": "PASS",
+   "evidence": "ingest=success, chars=2449, type=policy_document, deleted=True",
+   "duration_s": 5.8
+  },
+  {
+   "id": "connection_crud_query",
+   "area": "Connections",
+   "status": "PASS",
+   "evidence": "id=232, query-42=True, deleted=True (del http=200)",
+   "duration_s": 0.4
+  },
+  {
+   "id": "nlq_data_chat",
+   "area": "Data/NLQ",
+   "status": "PASS",
+   "evidence": "http=200, contains-15=True, tail=total.\", \"metadata\": {}, \"type\": \"text\"}], \"type\": \"rich_content\"}, \"rich_content_enabled\": true, \"special_message\": \"\"}",
+   "duration_s": 5.5
+  },
+  {
+   "id": "documents_api",
+   "area": "Knowledge/Docs",
+   "status": "PASS",
+   "evidence": "http=200, documents=20",
+   "duration_s": 0.0
+  },
+  {
+   "id": "automation_lifecycle",
+   "area": "Automations",
+   "status": "PASS",
+   "evidence": "v=1, dry-run=success, promoted=1, deleted-http=200",
+   "duration_s": 0.9
+  },
+  {
+   "id": "automation_verify_honesty",
+   "area": "Automations",
+   "status": "PASS",
+   "evidence": "liar-run status=failed (must NOT be success), exit0-but-caught=True",
+   "duration_s": 0.9
+  },
+  {
+   "id": "codeflows_registry",
+   "area": "Code Flows",
+   "status": "PASS",
+   "evidence": "http=200, flows=6",
+   "duration_s": 0.1
+  },
+  {
+   "id": "portal_wf_persist",
+   "area": "Portal WF",
+   "status": "PASS",
+   "evidence": "save=200, slug=regp_portal_temp, listed=True, dup=409 (want 409), del=200",
+   "duration_s": 0.1
+  },
+  {
+   "id": "approvals_api",
+   "area": "Approvals",
+   "status": "PASS",
+   "evidence": "http=200, pending=137",
+   "duration_s": 0.1
+  },
+  {
+   "id": "scheduler_jobs",
+   "area": "Scheduler",
+   "status": "PASS",
+   "evidence": "backend=200 {'backend': 'APScheduler', 'status': 'success', 'use_apsched, jobs-http=200, jobs=4",
+   "duration_s": 0.1
+  },
+  {
+   "id": "secrets_list",
+   "area": "Secrets",
+   "status": "PASS",
+   "evidence": "secrets=146, has-test-secret=True",
+   "duration_s": 0.0
+  },
+  {
+   "id": "users_groups",
+   "area": "Users/Groups",
+   "status": "PASS",
+   "evidence": "users=14, admin-role=3",
+   "duration_s": 0.1
+  },
+  {
+   "id": "mcp_servers_api",
+   "area": "MCP",
+   "status": "PASS",
+   "evidence": "http=200, servers=4, gw-port=True",
+   "duration_s": 0.0
+  },
+  {
+   "id": "cc_service",
+   "area": "Command Center",
+   "status": "PASS",
+   "evidence": "cc-http=200, token-http=200, token=True",
+   "duration_s": 2.1
+  },
+  {
+   "id": "builder_service",
+   "area": "Builder",
+   "status": "PASS",
+   "evidence": "http=200",
+   "duration_s": 2.1
+  },
+  {
+   "id": "wf14:setvar_file_write",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; file='value=hello-nodereg'"
+  },
+  {
+   "id": "wf14:file_write_append",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; lines=['line1', 'line2']"
+  },
+  {
+   "id": "wf14:file_check_delete",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; deleted=True; steps=File:Completed,File:Completed,File:Completed"
+  },
+  {
+   "id": "wf14:conditional_true",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; TRUE-file=True; FALSE-file=False"
+  },
+  {
+   "id": "wf14:conditional_false",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; TRUE-file=False; FALSE-file=True"
+  },
+  {
+   "id": "wf14:loop_list_append",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; lines=['alpha', 'beta', 'gamma']; continuation-ran=True"
+  },
+  {
+   "id": "wf14:setvar_expression_eval",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; file='n=21' (oracle 'n=21')"
+  },
+  {
+   "id": "wf14:setvar_expression_failure_honesty",
+   "area": "Workflow engine",
+   "status": "XFAIL",
+   "evidence": "status=completed; literal-leaked=True; file='\\'\\'.join([f\"{row[\\'x\\']}\" for row in nonexistent_var])' | log-tail: Executing node: bad calc (Set Variable) ~ Workflow execution started: NODEREG-setvar_e"
+  },
+  {
+   "id": "wf14:database_select_vars",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; dbrows type=dict; rows=10 (oracle 10)"
+  },
+  {
+   "id": "wf14:database_fail_edge",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; fail-edge-file=True; pass-edge-file=False"
+  },
+  {
+   "id": "wf14:setvar_to_excel",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; xlsx rows=[{'store': 'Manhattan', 'units': 1000, 'revenue': 30000}, {'store': 'Brooklyn', 'units': 770, 'revenue': 23100}]"
+  },
+  {
+   "id": "wf14:database_to_excel",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; xlsx-rows=10 (oracle 10x headcount=8)"
+  },
+  {
+   "id": "wf14:human_approval_approve",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; decided=True (req=3E43F3C8-E5FA-4DAB-8796-A250929AF987, http=200); post-approval file=True"
+  },
+  {
+   "id": "wf14:human_approval_reject",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; decided=True; downstream-file=False (must be False)"
+  },
+  {
+   "id": "wf14:folder_selector_count",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; files-found=3 (oracle 3)"
+  },
+  {
+   "id": "wf14:portal_node_run",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; portal-status=ok; files=0"
+  },
+  {
+   "id": "wf14:file_transfer_sftp_upload",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; remote-file=True (xfer_20260731_074508.txt); content-ok=True"
+  },
+  {
+   "id": "wf14:alert_email",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: excluded by owner decision (james 2026-07-30) \u2014 do NOT automate (sends real email)"
+  },
+  {
+   "id": "wf14:ai_extract",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: excluded by owner decision (james 2026-07-30) \u2014 do NOT automate (live LLM cost)"
+  },
+  {
+   "id": "wf14:ai_action",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: excluded by owner decision (james 2026-07-30) \u2014 do NOT automate (live LLM cost)"
+  },
+  {
+   "id": "wf14:document_node",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a document-pipeline fixture)"
+  },
+  {
+   "id": "wf14:excel_update",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a template .xlsx fixture)"
+  },
+  {
+   "id": "wf14:execute_application",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a harmless fixture app to run)"
+  },
+  {
+   "id": "wf14:integration_node",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a configured integration instance)"
+  },
+  {
+   "id": "wf14:compliance_process",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a retailer document set)"
+  },
+  {
+   "id": "wf14:compliance_excel_export",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs compliance fixtures)"
+  },
+  {
+   "id": "wf14:automation_node",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a promoted automation)"
+  },
+  {
+   "id": "wf14:code_step",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a saved code flow)"
+  },
+  {
+   "id": "wf14:baseline",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "pack-14 exit=0 (0=clean, 1=failures, 2=regressions)"
+  },
+  {
+   "id": "email_inbound",
+   "area": "Email",
+   "status": "SKIP",
+   "evidence": "not automated: inbound email pipeline needs a mail fixture/sink (owner decision: no email automation)"
+  },
+  {
+   "id": "integrations_api",
+   "area": "Integrations",
+   "status": "SKIP",
+   "evidence": "not automated: API is internal-token only; the page render is covered under Pages"
+  },
+  {
+   "id": "compliance_pipeline",
+   "area": "Compliance",
+   "status": "SKIP",
+   "evidence": "not automated: needs a retailer document set; page render covered under Pages"
+  },
+  {
+   "id": "solutions_install",
+   "area": "Solutions",
+   "status": "SKIP",
+   "evidence": "not automated: installing a bundle mutates shared tenant assets; gallery page covered under Pages"
+  },
+  {
+   "id": "environments_provision",
+   "area": "Environments",
+   "status": "SKIP",
+   "evidence": "not automated: conda env provisioning is minutes-slow; page render covered under Pages"
+  },
+  {
+   "id": "data_explorer_battery",
+   "area": "Data/NLQ",
+   "status": "SKIP",
+   "evidence": "not automated: deep NLQ competency lives in pack 12 (battery.py); one live probe runs here"
+  },
+  {
+   "id": "document_qa_battery",
+   "area": "Documents",
+   "status": "SKIP",
+   "evidence": "not automated: deep doc-QA competency lives in pack 13; ingest+API-list run here"
+  }
+ ]
+}

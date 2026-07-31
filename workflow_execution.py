@@ -93,6 +93,29 @@ def to_truncated_str(obj, max_chars=MAX_LOG_CHARS, suffix="... [TRUNCATED]"):
     return s
 
 
+def unpack_database_envelope(value):
+    """Recognize the Database node's grid envelope and zip it into record rows.
+
+    The Database node stores query results as
+    ``{'columns': [names...], 'rows': [[values...], ...]}`` while row-consuming
+    nodes (Excel Export) expect a list of dicts — a mismatch that made the
+    obvious "query DB -> export Excel" pairing fail for its entire history
+    (fixed 2026-07-31; regression-guarded by pack 14 ``database_to_excel``).
+
+    Returns ``(value_or_records, was_envelope, was_empty_envelope)``. Values
+    pass through UNCHANGED — deliberately no numeric coercion so leading zeros
+    in IDs/zip codes survive. Non-envelope values return untouched.
+    """
+    if (isinstance(value, dict)
+            and isinstance(value.get('columns'), list)
+            and isinstance(value.get('rows'), list)
+            and all(isinstance(r, (list, tuple)) for r in value['rows'])):
+        cols = [str(c) for c in value['columns']]
+        records = [dict(zip(cols, r)) for r in value['rows']]
+        return records, True, not records
+    return value, False, False
+
+
 class WorkflowExecutionEngine:
     """Engine for executing workflows with pause/resume support and human approvals"""
     
@@ -2034,7 +2057,22 @@ Guidelines:
                         self.log_execution(
                             execution_id, node_id, "debug",
                             "Input looks like JSON but failed to parse, keeping as string")
-            
+
+            # Database-node grid envelope -> records (2026-07-31): the Database
+            # node stores query results as {'columns': [names...], 'rows':
+            # [[values...], ...]} — a shape this executor never accepted, so the
+            # obvious "query DB -> export Excel" pairing NEVER worked (the
+            # envelope fell into the single-dict branch and wrote one junk row).
+            # Recognize the envelope and zip it into the list-of-dicts row model
+            # everything below already handles. Values pass through UNCHANGED —
+            # no numeric coercion (leading zeros in IDs/zips must survive).
+            input_data, _was_envelope, _empty_db_envelope = unpack_database_envelope(input_data)
+            if _was_envelope:
+                self.log_execution(
+                    execution_id, node_id, "info",
+                    f"Unpacked Database result envelope into "
+                    f"{len(input_data)} record row(s)")
+
             # Get flatten option
             flatten_array = node_config.get('flattenArray', False)
             
@@ -2149,6 +2187,7 @@ Guidelines:
             # Write each row to Excel
             total_rows_written = 0
             last_result = None
+            last_write_error = None
             
             for i, row_data in enumerate(rows_to_write):
                 # Convert row to extraction_result format
@@ -2181,10 +2220,11 @@ Guidelines:
                         operation = 'append'
                         excel_template_path = excel_output_path  # Use output file as template for appends
                 else:
+                    last_write_error = result.get('error', 'Unknown error')
                     self.log_execution(
                         execution_id, node_id, "warning",
-                        f"Failed to write row {i+1}: {result.get('error', 'Unknown error')}")
-            
+                        f"Failed to write row {i+1}: {last_write_error}")
+
             if last_result and last_result.get('success'):
                 self.log_execution(
                     execution_id, node_id, "info",
@@ -2199,7 +2239,20 @@ Guidelines:
                     }
                 }
             else:
-                error_msg = last_result.get('error', 'No rows written') if last_result else 'No data to write'
+                # Honest failure reporting (2026-07-31): the generic "No data to
+                # write" used to MASK the real per-row error (it lived only in a
+                # warning-level log line) — surface the actual cause instead.
+                if last_write_error:
+                    error_msg = (f"no rows could be written — last write error: "
+                                 f"{last_write_error}")
+                elif _empty_db_envelope:
+                    error_msg = ("the Database result contained 0 rows — the query "
+                                 "returned an empty result set, nothing to export")
+                elif not rows_to_write:
+                    error_msg = "input resolved to no rows — nothing to export"
+                else:
+                    error_msg = (last_result.get('error', 'No rows written')
+                                 if last_result else 'No data to write')
                 raise ValueError(error_msg)
                 
         except Exception as e:

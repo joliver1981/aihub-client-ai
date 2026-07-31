@@ -592,9 +592,11 @@ def c_setvar_excel(ctx):
 
 
 @check("database_to_excel", "Database -> Excel Export handoff (the pairing that was silently broken)",
-       tier=2, needs=["airdb"],
-       xfail="Known defect: Database emits a columns/rows envelope Excel Export cannot consume; "
-             "has never worked (verified 2026-07-25 investigation; wf 1266 + 1307 evidence)")
+       tier=2, needs=["airdb"])
+# History: XFAIL until 2026-07-31 — the Database node's {'columns','rows'} envelope
+# was a shape Excel Export never accepted, so this pairing had NEVER worked (wf
+# 1266/1307 evidence). Fixed by unpack_database_envelope in workflow_execution.py
+# (+ honest error propagation); flipped XPASS same day and is now a permanent guard.
 def c_db_excel(ctx):
     p = os.path.join(ctx["out"], "db_excel.xlsx").replace("\\", "/")
     q = ("SELECT l.store_id, l.store_name, COUNT(e.employee_id) AS headcount "

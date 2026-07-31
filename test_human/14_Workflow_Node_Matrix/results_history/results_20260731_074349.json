@@ -1,0 +1,31 @@
+{
+ "stamp": "20260731_074349",
+ "out_dir": "C:\\temp\\aihub_test\\nodereg\\20260731_074349",
+ "env": {
+  "airdb": "58",
+  "sftp": "True",
+  "sftp_secret": "SFTP_TEST_PASSWORD",
+  "portal": "nodereg_portal_probe",
+  "admin_id": "13"
+ },
+ "results": [
+  {
+   "id": "database_to_excel",
+   "title": "Database -> Excel Export handoff (the pairing that was silently broken)",
+   "tier": 2,
+   "status": "XPASS",
+   "evidence": "status=completed; xlsx-rows=10 (oracle 10x headcount=8)",
+   "workflow_id": 1328,
+   "execution_id": "816654fe-d6a5-46f9-923a-c5ca2b307dad",
+   "duration_s": 18.6,
+   "xfail_reason": "Known defect: Database emits a columns/rows envelope Excel Export cannot consume; has never worked (verified 2026-07-25 investigation; wf 1266 + 1307 evidence)"
+  }
+ ],
+ "lint": null,
+ "created": [
+  [
+   1328,
+   "NODEREG-database_to_excel"
+  ]
+ ]
+}
