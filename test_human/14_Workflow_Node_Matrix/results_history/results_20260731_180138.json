@@ -1,0 +1,238 @@
+{
+ "stamp": "20260731_180138",
+ "out_dir": "C:\\temp\\aihub_test\\nodereg\\20260731_180138",
+ "env": {
+  "remote_disk": "False",
+  "airdb": "None",
+  "sftp": "True",
+  "sftp_secret": "SFTP_TEST_PASSWORD",
+  "portal": "nodereg_portal_probe",
+  "admin_id": "1"
+ },
+ "results": [
+  {
+   "id": "setvar_file_write",
+   "title": "Set Variable -> File write: variable substitution lands in the file",
+   "tier": 1,
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "file_write_append",
+   "title": "File write + append: both contents present in order",
+   "tier": 1,
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "file_check_delete",
+   "title": "File check + delete: check passes on existing file, delete removes it",
+   "tier": 1,
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "conditional_true",
+   "title": "Conditional: true edge fires (and false edge does not)",
+   "tier": 1,
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "conditional_false",
+   "title": "Conditional: false edge fires (and true edge does not)",
+   "tier": 1,
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "loop_list_append",
+   "title": "Loop over JSON list -> File append per item -> End Loop",
+   "tier": 1,
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "setvar_expression_eval",
+   "title": "Set Variable evaluateAsExpression: simple expression evaluates",
+   "tier": 1,
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "setvar_expression_failure_honesty",
+   "title": "Set Variable: a FAILING expression must not silently store the literal",
+   "tier": 1,
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "database_select_vars",
+   "title": "Database (AIRDB select) -> rows land in execution variables",
+   "tier": 2,
+   "status": "SKIP",
+   "evidence": "env missing: ['airdb']"
+  },
+  {
+   "id": "database_fail_edge",
+   "title": "Database failure routes the fail edge (honest failure handling)",
+   "tier": 2,
+   "status": "SKIP",
+   "evidence": "env missing: ['airdb']"
+  },
+  {
+   "id": "setvar_to_excel",
+   "title": "Set Variable (JSON rows) -> Excel Export: xlsx with exact rows",
+   "tier": 2,
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "database_to_excel",
+   "title": "Database -> Excel Export handoff (the pairing that was silently broken)",
+   "tier": 2,
+   "status": "SKIP",
+   "evidence": "env missing: ['airdb']"
+  },
+  {
+   "id": "human_approval_approve",
+   "title": "Human Approval pauses -> approve via approvals API -> workflow resumes",
+   "tier": 2,
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "human_approval_reject",
+   "title": "Human Approval rejected -> downstream does NOT run",
+   "tier": 2,
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "folder_selector_count",
+   "title": "Folder Selector: lists exactly the fixture files",
+   "tier": 2,
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "portal_node_run",
+   "title": "Portal node: runs a saved portal workflow via browser-use, result lands in variables",
+   "tier": 2,
+   "status": "PASS",
+   "evidence": "status=completed; portal-status=ok; files=0",
+   "workflow_id": 2007,
+   "execution_id": "cfa35f7d-6eb2-4d50-8286-c94a0d37ba32",
+   "duration_s": 14.1
+  },
+  {
+   "id": "file_transfer_sftp_upload",
+   "title": "File Transfer node: SFTP upload lands on the test server",
+   "tier": 2,
+   "status": "FAIL",
+   "evidence": "status=failed; remote-file=False (xfer_20260731_180138.txt); content-ok=False | log-tail: Executing node: file write (File) ~ Workflow execution started: NODEREG-file_transfer_sftp_upload",
+   "workflow_id": 2006,
+   "execution_id": "efa43876-1065-488e-999e-fdb22ba3bed5",
+   "duration_s": 1.6
+  },
+  {
+   "id": "alert_email",
+   "title": "Alert (email) node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: excluded by owner decision (james 2026-07-30) \u2014 do NOT automate (sends real email)"
+  },
+  {
+   "id": "ai_extract",
+   "title": "AI Extract node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: excluded by owner decision (james 2026-07-30) \u2014 do NOT automate (live LLM cost)"
+  },
+  {
+   "id": "ai_action",
+   "title": "AI Action node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: excluded by owner decision (james 2026-07-30) \u2014 do NOT automate (live LLM cost)"
+  },
+  {
+   "id": "document_node",
+   "title": "Document node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a document-pipeline fixture)"
+  },
+  {
+   "id": "excel_update",
+   "title": "Excel Update node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a template .xlsx fixture)"
+  },
+  {
+   "id": "execute_application",
+   "title": "Execute Application node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a harmless fixture app to run)"
+  },
+  {
+   "id": "integration_node",
+   "title": "Integration node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a configured integration instance)"
+  },
+  {
+   "id": "compliance_process",
+   "title": "Compliance Process node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a retailer document set)"
+  },
+  {
+   "id": "compliance_excel_export",
+   "title": "Compliance Excel Export node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs compliance fixtures)"
+  },
+  {
+   "id": "automation_node",
+   "title": "Automation node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a promoted automation)"
+  },
+  {
+   "id": "code_step",
+   "title": "Code Step node",
+   "tier": 3,
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a saved code flow)"
+  }
+ ],
+ "lint": {
+  "scanned": 9,
+  "excel_bad": [
+   "wf 2 'Customer Onboarding - AI Guided v4 _w Bulk Update_': Excel Export invalid excelOperation='update'",
+   "wf 1002 'Customer Onboarding - Horizon Replica _w SP v2_ (Imported) (Imported)': Excel Export invalid excelOperation='update'",
+   "wf 1003 'Customer Onboarding - Horizon Replica _w SP v2_ _Imported_': Excel Export invalid excelOperation='update'",
+   "wf 1004 'Customer Onboarding - Horizon Replica _w SP v2_ _Imported__2': Excel Export invalid excelOperation='update'",
+   "wf 1005 'Customer Onboarding - Horizon Replica _w SP v2_ _Imported_GOOD_': Excel Export invalid excelOperation='update'"
+  ],
+  "unknown_types": [],
+  "dead_edges": []
+ },
+ "created": [
+  [
+   2007,
+   "NODEREG-portal_node_run"
+  ],
+  [
+   2006,
+   "NODEREG-file_transfer_sftp_upload"
+  ]
+ ]
+}

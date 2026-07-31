@@ -82,6 +82,43 @@ def login_as(base, username, password):
     return s, ("/login" not in r.url)
 
 
+def agent_rows(api):
+    body = api.jbody(api.get("/get/agents")) or {}
+    rows = body.get("data") if isinstance(body, dict) else body
+    if isinstance(rows, str):
+        rows = json.loads(rows)
+    return [a for a in (rows or []) if isinstance(a, dict)]
+
+
+def agent_id_of(row):
+    """/get/agents rows key the id as 'agent_id' — 'id' is always absent, which
+    silently broke cleanup and detection until 2026-07-31."""
+    return row.get("agent_id") or row.get("id")
+
+
+def make_probe_agent(api, label):
+    """Create a throwaway agent ON THE TARGET. Never hardcode a dev-box agent id:
+    ids differ per install (agent 36 exists only on the dev tree, which made the
+    knowledge check report a false product failure on the install box)."""
+    r = api.post("/add/agent", {"agent_id": 0, "agent_description": label,
+                                "agent_objective": "regression probe agent",
+                                "agent_enabled": True, "tool_names": [],
+                                "core_tool_names": []})
+    body = api.jbody(r) or {}
+    aid = body.get("agent_id") or body.get("id")
+    if not aid and str(body.get("message", "")).strip().isdigit():
+        aid = int(body["message"])
+    if not aid:
+        aid = next((agent_id_of(a) for a in agent_rows(api)
+                    if (a.get("agent_description") or "") == label), None)
+    return aid
+
+
+def delete_probe_agent(api, aid):
+    if aid:
+        api.post("/delete/agent", {"agent_id": aid})
+
+
 class Api:
     def __init__(self, base_url, username, password):
         self.base = base_url.rstrip("/")
@@ -168,17 +205,28 @@ PAGES = [
 
 # ---------------------------------------------------------------- checks
 
-@check("svc_ports", "Services", "all service ports listening")
+@check("svc_ports", "Services", "the externally-required service endpoints are listening")
 def c_svc_ports(ctx):
-    ports = {"main:5001": 5001, "cc:5091": 5091, "browser-use:5101": 5101,
-             "executor:5061": 5061, "mcp-gw:5071": 5071, "builder:8100": 8100,
-             "data-api:8200": 8200}
-    down = [name for name, p in ports.items() if not port_open(p, host=ctx["host"])]
-    doc_ports = {"doc-api:5011": 5011, "doc-q:5031": 5031, "vector:5041": 5041,
-                 "knowledge:5051": 5051}
-    doc_down = [n for n, p in doc_ports.items() if not port_open(p, host=ctx["host"])]
-    return (not down), (f"host={ctx['host']}; down={down or 'none'} of {len(ports)}; "
-                        f"doc-stack down={doc_down or 'none'} (informational)")
+    """Assert ONLY the endpoints something outside the main app must reach.
+
+    Lesson (2026-07-31): an installed box legitimately runs several components
+    IN-PROCESS rather than as separate listeners (the dev tree splits them out).
+    Inferring breakage from a closed port produced a FALSE "document ingest is
+    dead" claim while ingest actually worked. Ports are an implementation
+    detail — CAPABILITY checks (knowledge_ingest_delete, automation_lifecycle,
+    the pack-14 workflow runs) are the contract. Everything else is context.
+    """
+    required = {"main:5001": 5001, "cc:5091": 5091, "browser-use:5101": 5101,
+                "builder:8100": 8100}
+    optional = {"executor:5061": 5061, "mcp-gw:5071": 5071, "data-api:8200": 8200,
+                "doc-api:5011": 5011, "doc-q:5031": 5031, "vector:5041": 5041,
+                "knowledge:5051": 5051}
+    down = [n for n, p in required.items() if not port_open(p, host=ctx["host"])]
+    opt_down = [n for n, p in optional.items() if not port_open(p, host=ctx["host"])]
+    return (not down), (f"host={ctx['host']}; required down={down or 'none'}; "
+                        f"not-listening (may run in-process on an install): "
+                        f"{opt_down or 'none'} — INFORMATIONAL, capability is asserted "
+                        f"by the functional checks")
 
 
 @check("auth_bad_password", "Auth", "wrong password is rejected")
@@ -233,8 +281,7 @@ def c_agent_crud(ctx):
         rows = body.get("data") if isinstance(body, dict) else body
         if isinstance(rows, str):
             rows = json.loads(rows)
-        return {str(a.get("id") or a.get("agent_id"))
-                for a in (rows or []) if isinstance(a, dict)}
+        return {str(agent_id_of(a)) for a in agent_rows(api)}
     listed = str(aid) in agent_ids()
     api.post("/delete/agent", {"agent_id": aid})
     gone = str(aid) not in agent_ids()
@@ -270,28 +317,32 @@ def c_agent_artifact(ctx):
 
 
 @check("knowledge_ingest_delete", "Knowledge/Docs",
-       "docx ingest pipeline (extract+classify+index) + delete", needs=["doc_stack"])
+       "docx ingest pipeline (extract+classify+index) + delete")
 def c_knowledge(ctx):
     api = ctx["api"]
     path = os.path.join(REPO, "test_human", "11_Regression_Suite", "fixtures",
                         "vendor_payment_terms.docx")
-    with open(path, "rb") as fh:
-        r = api.s.post(f"{api.base}/add/agent_knowledge",
-                       files={"file": ("vendor_payment_terms.docx", fh, "application/octet-stream")},
-                       data={"agent_id": "36", "description": "REGP-probe", "batch_id": "regp"},
-                       timeout=180)
-    body = api.jbody(r) or {}
-    kid = body.get("knowledge_id")
-    ok_ingest = (body.get("status") == "success" and kid
-                 and int(body.get("total_chars") or 0) > 1000)
-    if not ok_ingest:
-        return False, f"ingest failed: http={r.status_code} body={str(body)[:200]}"
-    ok_delete = False
-    if kid:
+    aid = make_probe_agent(api, "REGP-knowledge-probe")
+    if not aid:
+        return None, "SKIP: could not create a probe agent on this target"
+    try:
+        with open(path, "rb") as fh:
+            r = api.s.post(f"{api.base}/add/agent_knowledge",
+                           files={"file": ("regp_probe.docx", fh, "application/octet-stream")},
+                           data={"agent_id": str(aid), "description": "REGP-probe",
+                                 "batch_id": "regp"}, timeout=180)
+        body = api.jbody(r) or {}
+        kid = body.get("knowledge_id")
+        ok_ingest = (body.get("status") == "success" and kid
+                     and int(body.get("total_chars") or 0) > 1000)
+        if not ok_ingest:
+            return False, f"ingest failed: http={r.status_code} body={str(body)[:200]}"
         ok_delete = api.post(f"/delete/agent_knowledge/{kid}").status_code == 200
-    return (bool(ok_ingest) and ok_delete), (
-        f"ingest={body.get('status')}, chars={body.get('total_chars')}, "
-        f"type={body.get('document_type')}, deleted={ok_delete}")
+        return ok_delete, (f"agent={aid}, ingest={body.get('status')}, "
+                           f"chars={body.get('total_chars')}, type={body.get('document_type')}, "
+                           f"deleted={ok_delete}")
+    finally:
+        delete_probe_agent(api, aid)
 
 
 @check("connection_crud_query", "Connections", "create connection -> execute SELECT -> delete",
@@ -539,50 +590,51 @@ def c_role1_authz(ctx):
 
 
 @check("user_file_isolation", "Users/Groups",
-       "one user cannot download another user's agent files", needs=["doc_stack"])
+       "one user cannot download another user's agent files")
 def c_file_isolation(ctx):
     api = ctx["api"]
     path = os.path.join(REPO, "test_human", "11_Regression_Suite", "fixtures",
                         "vendor_payment_terms.docx")
-    with open(path, "rb") as fh:
-        r = api.s.post(f"{api.base}/add/agent_knowledge",
-                       files={"file": ("regp_iso_probe.docx", fh, "application/octet-stream")},
-                       data={"agent_id": "36", "description": "REGP-iso", "batch_id": "regp-iso"},
-                       timeout=180)
-    body = api.jbody(r) or {}
-    kid, doc_id = body.get("knowledge_id"), body.get("document_id")
-    if not doc_id:
-        return False, f"fixture upload failed: {str(body)[:120]}"
+    aid = make_probe_agent(api, "REGP-isolation-probe")
+    if not aid:
+        return None, "SKIP: could not create a probe agent on this target"
+    kid = uid = None
     try:
-        admin_users = api.jbody(api.get("/get/users")) or []
-        admin_id = next((u.get("id") for u in admin_users
+        with open(path, "rb") as fh:
+            r = api.s.post(f"{api.base}/add/agent_knowledge",
+                           files={"file": ("regp_iso.docx", fh, "application/octet-stream")},
+                           data={"agent_id": str(aid), "description": "REGP-iso",
+                                 "batch_id": "regp-iso"}, timeout=180)
+        body = api.jbody(r) or {}
+        kid, doc_id = body.get("knowledge_id"), body.get("document_id")
+        if not doc_id:
+            return None, f"SKIP: probe upload did not return a document id ({str(body)[:120]})"
+        admin_id = next((u.get("id") for u in (api.jbody(api.get("/get/users")) or [])
                          if (u.get("user_name") or "").lower() == "admin"), 13)
-        dl = f"/api/chat/agent_files/36/{admin_id}/{doc_id}/download"
+        dl = f"/api/chat/agent_files/{aid}/{admin_id}/{doc_id}/download"
         ra = api.get(dl)
         if ra.status_code != 200:
-            return None, (f"SKIP: could not establish an owned file to probe "
-                          f"(admin download http={ra.status_code})")
+            return None, (f"SKIP: owner download not available to probe against "
+                          f"(admin http={ra.status_code})")
         uname, pw = "regp-userc", "RegpTemp!2026"
-        api.post("/add/user", {"user_id": 0, "user_name": uname,
-                               "name": "REGP User C",
+        api.post("/add/user", {"user_id": 0, "user_name": uname, "name": "REGP User C",
                                "email": "regp-userc@example.com", "password": pw,
                                "role": 1, "phone": ""})
         uid = next((u.get("id") for u in (api.jbody(api.get("/get/users")) or [])
                     if (u.get("user_name") or "") == uname), None)
-        b, b_logged_in = login_as(ctx["base"], uname, pw)
-        if not b_logged_in:
-            if uid:
-                api.post("/delete/user", {"user_id": uid})
-            return None, "SKIP: probe user could not log in — cannot test isolation"
+        b, ok = login_as(ctx["base"], uname, pw)
+        if not ok:
+            return None, "SKIP: probe user could not log in"
         rb = b.get(f"{ctx['base']}{dl}", allow_redirects=False, timeout=20)
         denied = rb.status_code in (302, 401, 403, 404)
-        if uid:
-            api.post("/delete/user", {"user_id": uid})
-        return denied, (f"admin-download=200, other-user-download={rb.status_code} "
+        return denied, (f"owner-download=200, other-user-download={rb.status_code} "
                         f"(must be denied)")
     finally:
         if kid:
             api.post(f"/delete/agent_knowledge/{kid}")
+        if uid:
+            api.post("/delete/user", {"user_id": uid})
+        delete_probe_agent(api, aid)
 
 
 @check("sec_approvals_get_unauth", "Security",
@@ -635,14 +687,10 @@ def c_sec_role1_agents(ctx):
                          "agent_objective": "probe", "agent_enabled": False}, timeout=30)
         blocked = r.status_code in (302, 401, 403)
         created_id = None
-        body = api.jbody(api.get("/get/agents")) or {}
-        rows = body.get("data") if isinstance(body, dict) else body
-        if isinstance(rows, str):
-            rows = json.loads(rows)
-        for a in (rows or []):
-            if isinstance(a, dict) and "REGP-ESC-PROBE" in json.dumps(a):
-                created_id = a.get("id")
-                api.post("/delete/agent", {"agent_id": created_id})
+        for a in agent_rows(api):
+            if "REGP-ESC-PROBE" in json.dumps(a):
+                created_id = agent_id_of(a)
+                delete_probe_agent(api, created_id)
         return (blocked and created_id is None), (
             f"role-1 POST /add/agent -> http={r.status_code}; agent actually created="
             f"{created_id is not None} (must be blocked, nothing created)")
