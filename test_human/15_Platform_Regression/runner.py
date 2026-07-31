@@ -155,8 +155,12 @@ def c_svc_ports(ctx):
     ports = {"main:5001": 5001, "cc:5091": 5091, "browser-use:5101": 5101,
              "executor:5061": 5061, "mcp-gw:5071": 5071, "builder:8100": 8100,
              "data-api:8200": 8200}
-    down = [name for name, p in ports.items() if not port_open(p)]
-    return (not down), f"down={down or 'none'} of {len(ports)}"
+    down = [name for name, p in ports.items() if not port_open(p, host=ctx["host"])]
+    doc_ports = {"doc-api:5011": 5011, "doc-q:5031": 5031, "vector:5041": 5041,
+                 "knowledge:5051": 5051}
+    doc_down = [n for n, p in doc_ports.items() if not port_open(p, host=ctx["host"])]
+    return (not down), (f"host={ctx['host']}; down={down or 'none'} of {len(ports)}; "
+                        f"doc-stack down={doc_down or 'none'} (informational)")
 
 
 @check("auth_bad_password", "Auth", "wrong password is rejected")
@@ -230,7 +234,8 @@ def c_agent_chat(ctx):
     return ok, f"http={r.status_code}, contains-75={'75' in text}, tail={text[-120:]}"
 
 
-@check("agent_artifact_csv", "Agents", "agent creates a real CSV artifact server-side (UI chat path)", llm=True)
+@check("agent_artifact_csv", "Agents", "agent creates a real CSV artifact server-side (UI chat path)",
+       llm=True, needs=["local_disk"])
 def c_agent_artifact(ctx):
     # Artifact tools bind to UI chat conversations — use the UI's own endpoint
     # (/chat/general creates the conversation and tees outputs to chat_files).
@@ -259,6 +264,8 @@ def c_knowledge(ctx):
     kid = body.get("knowledge_id")
     ok_ingest = (body.get("status") == "success" and kid
                  and int(body.get("total_chars") or 0) > 1000)
+    if not ok_ingest:
+        return False, f"ingest failed: http={r.status_code} body={str(body)[:200]}"
     ok_delete = False
     if kid:
         ok_delete = api.post(f"/delete/agent_knowledge/{kid}").status_code == 200
@@ -295,6 +302,15 @@ def c_connection(ctx):
 @check("nlq_data_chat", "Data/NLQ", "NL->SQL data chat answers a deterministic question",
        needs=["db"], llm=True)
 def c_nlq(ctx):
+    body = ctx["api"].jbody(ctx["api"].get("/get/data_agents")) or []
+    rows = body.get("data") if isinstance(body, dict) else body
+    if isinstance(rows, str):
+        rows = json.loads(rows)
+    has_281 = any(str(a.get("id") or a.get("agent_id")) == "281"
+                  for a in (rows or []) if isinstance(a, dict))
+    if not has_281:
+        return None, ("SKIP: known NLQ oracle agent (id 281, AIRDB2) not present "
+                      "on this target — no deterministic oracle available")
     r = ctx["api"].post("/chat/data",
                         {"agent_id": "281", "question": "How many stores are there in total?",
                          "history": [], "format_table_as_json": False,
@@ -377,8 +393,9 @@ def c_codeflows(ctx):
     flows = body if isinstance(body, list) else ((body or {}).get("flows")
                                                  or (body or {}).get("code_flows")
                                                  or (body or {}).get("workflows") or [])
-    ok = r.status_code == 200 and isinstance(flows, list) and len(flows) >= 1
-    return ok, f"http={r.status_code}, flows={len(flows) if isinstance(flows, list) else '?'}"
+    ok = r.status_code == 200 and isinstance(flows, list)
+    return ok, (f"http={r.status_code}, flows={len(flows) if isinstance(flows, list) else '?'} "
+                f"(count informational — fresh installs legitimately have 0)")
 
 
 @check("portal_wf_persist", "Portal WF", "save -> persisted -> duplicate-name 409 -> delete")
@@ -448,7 +465,7 @@ def c_mcp(ctx):
 
 @check("cc_service", "Command Center", "CC service up + auto-token endpoint issues a token")
 def c_cc(ctx):
-    r1 = requests.get("http://localhost:5091/", timeout=15)
+    r1 = requests.get(f"http://{ctx['host']}:5091/", timeout=15)
     r2 = ctx["api"].get("/api/cc-auto-token")
     body = ctx["api"].jbody(r2) or {}
     has_token = bool(body.get("token") or body.get("cc_token") or body.get("access_token"))
@@ -458,20 +475,151 @@ def c_cc(ctx):
 
 @check("builder_service", "Builder", "builder service responds")
 def c_builder(ctx):
-    r = requests.get("http://localhost:8100/", timeout=15)
+    r = requests.get(f"http://{ctx['host']}:8100/", timeout=15)
     return r.status_code == 200, f"http={r.status_code}"
+
+
+
+@check("users_role1_authz", "Users/Groups",
+       "role-1 user is blocked from admin/developer surfaces (create->probe->delete)")
+def c_role1_authz(ctx):
+    api = ctx["api"]
+    uname, pw = "regp-userb", "RegpTemp!2026"
+    _r_add = api.post("/add/user", {"user_name": uname, "name": "REGP User B",
+                                    "email": "regp-userb@example.com", "password": pw,
+                                    "role": 1, "phone": ""})
+    users = api.jbody(api.get("/get/users")) or []
+    uid = next((u.get("id") for u in users
+                if (u.get("user_name") or "") == uname), None)
+    if not uid:
+        return False, f"could not create role-1 probe user (add-user http={_r_add.status_code} body={str(ctx['api'].jbody(_r_add))[:160]})"
+    b = requests.Session()
+    r = b.get(f"{ctx['base']}/login", timeout=15)
+    hidden = dict(re.findall(r'<input[^>]*type="hidden"[^>]*name="([^"]+)"[^>]*value="([^"]*)"', r.text))
+    data = {"username": uname, "password": pw, "submit": "Login"}
+    data.update(hidden)
+    r = b.post(f"{ctx['base']}/login", data=data, allow_redirects=True, timeout=20)
+    logged_in = "/login" not in r.url
+    blocked = {}
+    if logged_in:
+        pr = b.get(f"{ctx['base']}/users", allow_redirects=True, timeout=15)
+        blocked["users_page"] = ("/login" in pr.url or pr.status_code in (302, 401, 403)
+                                 or "User Management" not in pr.text)
+        wr = b.post(f"{ctx['base']}/save/workflow",
+                    json={"filename": "regp-b-probe.json",
+                          "workflow": {"nodes": [], "connections": []}}, timeout=20)
+        wbody = wr.text[:80]
+        blocked["save_workflow"] = wr.status_code in (302, 401, 403) or "login" in wbody.lower()
+        ar = b.post(f"{ctx['base']}/automations/api/create",
+                    json={"name": "regp-b-probe", "provision_environment": False}, timeout=20)
+        blocked["automations_create"] = ar.status_code in (302, 401, 403)
+        gr = b.post(f"{ctx['base']}/add/agent",
+                    json={"agent_id": 0, "agent_description": "regp-b-probe",
+                          "agent_objective": "x", "agent_enabled": False}, timeout=20)
+        blocked["add_agent"] = gr.status_code in (302, 401, 403)
+    api.post("/delete/user", {"user_id": uid})
+    gone = not any((u.get("user_name") or "") == uname
+                   for u in (api.jbody(api.get("/get/users")) or []))
+    all_blocked = logged_in and all(blocked.values()) and len(blocked) == 4
+    return (all_blocked and gone), (
+        f"login={logged_in}, blocked={blocked}, user-deleted={gone}")
+
+
+@check("user_file_isolation", "Users/Groups",
+       "one user cannot download another user's agent files")
+def c_file_isolation(ctx):
+    api = ctx["api"]
+    path = os.path.join(REPO, "test_human", "11_Regression_Suite", "fixtures",
+                        "vendor_payment_terms.docx")
+    with open(path, "rb") as fh:
+        r = api.s.post(f"{api.base}/add/agent_knowledge",
+                       files={"file": ("regp_iso_probe.docx", fh, "application/octet-stream")},
+                       data={"agent_id": "36", "description": "REGP-iso", "batch_id": "regp-iso"},
+                       timeout=180)
+    body = api.jbody(r) or {}
+    kid, doc_id = body.get("knowledge_id"), body.get("document_id")
+    if not doc_id:
+        return False, f"fixture upload failed: {str(body)[:120]}"
+    try:
+        admin_users = api.jbody(api.get("/get/users")) or []
+        admin_id = next((u.get("id") for u in admin_users
+                         if (u.get("user_name") or "").lower() == "admin"), 13)
+        dl = f"/api/chat/agent_files/36/{admin_id}/{doc_id}/download"
+        ra = api.get(dl)
+        if ra.status_code != 200:
+            return None, (f"SKIP: could not establish an owned file to probe "
+                          f"(admin download http={ra.status_code})")
+        uname, pw = "regp-userc", "RegpTemp!2026"
+        api.post("/add/user", {"user_name": uname, "name": "REGP User C",
+                               "email": "regp-userc@example.com", "password": pw,
+                               "role": 1, "phone": ""})
+        uid = next((u.get("id") for u in (api.jbody(api.get("/get/users")) or [])
+                    if (u.get("user_name") or "") == uname), None)
+        b = requests.Session()
+        r = b.get(f"{ctx['base']}/login", timeout=15)
+        hidden = dict(re.findall(r'<input[^>]*type="hidden"[^>]*name="([^"]+)"[^>]*value="([^"]*)"', r.text))
+        data = {"username": uname, "password": pw, "submit": "Login"}
+        data.update(hidden)
+        b.post(f"{ctx['base']}/login", data=data, allow_redirects=True, timeout=20)
+        rb = b.get(f"{ctx['base']}{dl}", allow_redirects=False, timeout=20)
+        denied = rb.status_code in (302, 401, 403, 404)
+        if uid:
+            api.post("/delete/user", {"user_id": uid})
+        return denied, (f"admin-download=200, other-user-download={rb.status_code} "
+                        f"(must be denied)")
+    finally:
+        if kid:
+            api.post(f"/delete/agent_knowledge/{kid}")
+
+
+@check("sec_approvals_get_unauth", "Security",
+       "approvals list API must require authentication",
+       xfail="FOUND 2026-07-31: GET /api/workflow/approvals has no auth decorator — "
+             "anonymous users can read approval titles/descriptions (business data). "
+             "Fix pending; flips XPASS when auth is added.")
+def c_sec_approvals_get(ctx):
+    r = requests.get(f"{ctx['base']}/api/workflow/approvals?status=pending",
+                     allow_redirects=False, timeout=15)
+    ok = r.status_code in (302, 401, 403)
+    return ok, f"anonymous GET -> http={r.status_code} (must be 302/401/403)"
+
+
+@check("sec_approvals_decide_unauth", "Security",
+       "approvals decide API must require authentication",
+       xfail="FOUND 2026-07-31: POST /api/workflow/approvals/<id> has no auth decorator — "
+             "anonymous users can approve/reject workflow approvals (and bridged "
+             "automation checkpoints). Fix pending; flips XPASS when auth is added.")
+def c_sec_approvals_post(ctx):
+    r = requests.post(f"{ctx['base']}/api/workflow/approvals/regp-bogus-id",
+                      json={"status": "approved", "comments": "regp-probe"},
+                      allow_redirects=False, timeout=15)
+    ok = r.status_code in (302, 401, 403)
+    return ok, (f"anonymous POST -> http={r.status_code} (must be 302/401/403; "
+                f"404 means the request REACHED business logic unauthenticated)")
 
 
 # ---------------------------------------------------------------- pack-14 leg
 
-def run_pack14(args):
+def run_pack14(args, remote=False, host="localhost"):
     """Execute the workflow-engine matrix and fold its rows in."""
     if args.skip_wf14:
         return [{"id": "wf14", "area": "Workflow engine", "status": "SKIP",
                  "evidence": "--skip-wf14"}]
     log("running pack-14 workflow node matrix ...")
+    cmd = [PYTHON, "runner.py", "--tier", "2", "--base-url", args.base_url]
+    if remote:
+        # SFTP checks: the engine box must dial BACK to this dev machine's
+        # server — learn our outbound IP toward the target
+        try:
+            probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            probe.connect((host, 1))
+            my_ip = probe.getsockname()[0]
+            probe.close()
+        except OSError:
+            my_ip = "127.0.0.1"
+        cmd += ["--remote", "--sftp-host", my_ip]
     try:
-        proc = subprocess.run([PYTHON, "runner.py", "--tier", "2"], cwd=PACK14,
+        proc = subprocess.run(cmd, cwd=PACK14,
                               capture_output=True, text=True, timeout=900)
         files = sorted(glob.glob(os.path.join(PACK14, "results_history", "results_*.json")))
         run = json.load(open(files[-1], encoding="utf-8"))
@@ -505,7 +653,11 @@ def probe_env(base):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--base-url", default=os.environ.get("REGP_BASE", "http://localhost:5001"))
+    ap.add_argument("--base-url", default=None,
+                    help="explicit base URL; usually derived from --host")
+    ap.add_argument("--host", default=None,
+                    help="target machine for a POST-INSTALL gate run, e.g. 10.0.0.6 "
+                         "(derives all service URLs; omit for the local dev app)")
     ap.add_argument("--user", default="admin")
     ap.add_argument("--password", default="admin")
     ap.add_argument("--only")
@@ -514,11 +666,22 @@ def main():
     ap.add_argument("--timeout", type=int, default=120)
     args = ap.parse_args()
 
+    host = args.host or "localhost"
+    if not args.base_url:
+        args.base_url = os.environ.get("REGP_BASE") or f"http://{host}:5001"
+    remote = args.host is not None and args.host not in ("localhost", "127.0.0.1")
+
     stamp = now_stamp()
+    global HISTORY_DIR
+    if remote:
+        # an installed box is a DIFFERENT environment — never diff it against
+        # the dev-tree baseline (that produced bogus "REGRESSIONS")
+        HISTORY_DIR = os.path.join(HERE, "results_history", f"host_{host}")
     api = Api(args.base_url, args.user, args.password)
     env = probe_env(args.base_url)
-    log(f"env: db-reachable={bool(env['db'])}")
-    ctx = {"api": api, "base": args.base_url, "stamp": stamp, "env": env}
+    env["local_disk"] = not remote
+    log(f"env: target={host} remote={remote} db-reachable={bool(env['db'])}")
+    ctx = {"api": api, "base": args.base_url, "stamp": stamp, "env": env, "host": host}
 
     results = []
     for spec in CHECKS:
@@ -537,6 +700,11 @@ def main():
         t0 = time.time()
         try:
             ok, evidence = spec["fn"](ctx)
+            if ok is None:
+                results.append({"id": cid, "area": spec["area"], "status": "SKIP",
+                                "evidence": evidence})
+                log(f"SKIP   {cid} — {evidence[:120]}")
+                continue
             if spec["xfail"]:
                 st = "XPASS" if ok else "XFAIL"
             else:
@@ -550,7 +718,7 @@ def main():
             log(f"ERROR  {cid} — {e}")
 
     if not args.only:
-        results.extend(run_pack14(args))
+        results.extend(run_pack14(args, remote=remote, host=host))
         for cid, area, reason in NOT_AUTOMATED:
             results.append({"id": cid, "area": area, "status": "SKIP",
                             "evidence": f"not automated: {reason}"})
@@ -581,7 +749,8 @@ def main():
     except Exception:
         commit = "?"
 
-    lines = [f"# Platform Regression Report — {stamp}", "",
+    target_label = f"INSTALLED {host}" if remote else "local dev"
+    lines = [f"# Platform Regression Report — {stamp} ({target_label})", "",
              f"- Build: `{commit}` | Base: `{args.base_url}` | Baseline: "
              f"`{baseline_name or 'none (first run)'}`", "",
              f"## Verdict: **{verdict}** — "
@@ -605,7 +774,8 @@ def main():
     lines.append("")
     report = "\n".join(lines)
 
-    run_doc = {"stamp": stamp, "commit": commit, "results": results}
+    run_doc = {"stamp": stamp, "commit": commit,
+               "target": (host if remote else "local"), "results": results}
     with open(os.path.join(HISTORY_DIR, f"results_{stamp}.json"), "w", encoding="utf-8") as fh:
         json.dump(run_doc, fh, indent=1, default=str)
     with open(os.path.join(HISTORY_DIR, f"REPORT_{stamp}.md"), "w", encoding="utf-8") as fh:

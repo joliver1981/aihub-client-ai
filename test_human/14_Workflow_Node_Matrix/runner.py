@@ -50,6 +50,25 @@ PREFIX = "NODEREG-"          # every workflow this runner creates is named PREFI
 OUT_ROOT = r"C:\temp\aihub_test\nodereg"
 SFTP_ROOT = os.path.join(REPO, "test_human", "_sftp_test_server", "runtime", "server_root")
 
+# Remote (post-install) mode: --remote points the runner at an INSTALLED app on
+# another machine. Node configs still use engine-local paths (C:\temp\...);
+# disk verification then goes through the admin share \\<host>\c$\... when it
+# is reachable — otherwise disk-dependent checks SKIP with the reason recorded.
+REMOTE_UNC = None            # e.g. //10.0.0.6/c$ (set in main when --remote)
+SFTP_HOST = "127.0.0.1"      # host the ENGINE box dials for the SFTP checks
+
+
+def hostpath(path):
+    """Translate an engine-local Windows path for verification on THIS machine."""
+    p = str(path).replace("/", "\\")
+    if REMOTE_UNC and len(p) > 2 and p[1] == ":":
+        return (REMOTE_UNC + p[2:]).replace("\\", "/")
+    return p
+
+
+def fexists(path):
+    return os.path.exists(hostpath(path))
+
 # ---------------------------------------------------------------------------- helpers
 
 def now_stamp():
@@ -301,7 +320,7 @@ def file_node(nid, op, path, content=None, x=100, y=100, extra=None):
 
 def read_file(path):
     try:
-        with open(path, "r", encoding="utf-8-sig") as fh:
+        with open(hostpath(path), "r", encoding="utf-8-sig") as fh:
             return fh.read()
     except Exception:
         return None
@@ -335,17 +354,19 @@ def read_xlsx_rows(path):
 CHECKS = []
 
 
-def check(id, title, tier=1, needs=(), xfail=None, slow=False):
+def check(id, title, tier=1, needs=(), xfail=None, slow=False, disk=False):
+    """disk=True -> verification reads the ENGINE box's filesystem; in --remote
+    mode these run only when the admin share (\host\c$) is reachable."""
     def deco(fn):
         CHECKS.append({"id": id, "title": title, "tier": tier, "needs": list(needs),
-                       "xfail": xfail, "fn": fn, "slow": slow})
+                       "xfail": xfail, "fn": fn, "slow": slow, "disk": disk})
         return fn
     return deco
 
 
 # ---------------- Tier 1 — core engine ----------------
 
-@check("setvar_file_write", "Set Variable -> File write: variable substitution lands in the file")
+@check("setvar_file_write", "Set Variable -> File write: variable substitution lands in the file", disk=True)
 def c_setvar_file(ctx):
     p = os.path.join(ctx["out"], "setvar.txt").replace("\\", "/")
     nodes = [set_var("node-0", "greeting", "hello-nodereg", start=True),
@@ -359,7 +380,7 @@ def c_setvar_file(ctx):
     return nodes, conns, {}, verify
 
 
-@check("file_write_append", "File write + append: both contents present in order")
+@check("file_write_append", "File write + append: both contents present in order", disk=True)
 def c_file_append(ctx):
     p = os.path.join(ctx["out"], "append.txt").replace("\\", "/")
     nodes = [file_node("node-0", "write", p, "line1\n", x=100),
@@ -375,7 +396,7 @@ def c_file_append(ctx):
     return nodes, conns, {}, verify
 
 
-@check("file_check_delete", "File check + delete: check passes on existing file, delete removes it")
+@check("file_check_delete", "File check + delete: check passes on existing file, delete removes it", disk=True)
 def c_file_check_delete(ctx):
     p = os.path.join(ctx["out"], "victim.txt").replace("\\", "/")
     nodes = [file_node("node-0", "write", p, "temp\n", x=100),
@@ -385,7 +406,7 @@ def c_file_check_delete(ctx):
     conns = [C("node-0", "node-1"), C("node-1", "node-2")]
 
     def verify(eid, status):
-        gone = not os.path.exists(p.replace("/", "\\"))
+        gone = not fexists(p)
         ok = status == "completed" and gone
         return ok, f"status={status}; deleted={gone}; steps={steps_summary(ctx['api'], eid)}"
     return nodes, conns, {}, verify
@@ -413,25 +434,25 @@ def _conditional_wf(ctx, xval, suffix):
     return nodes, conns, pt, pf
 
 
-@check("conditional_true", "Conditional: true edge fires (and false edge does not)")
+@check("conditional_true", "Conditional: true edge fires (and false edge does not)", disk=True)
 def c_cond_true(ctx):
     nodes, conns, pt, pf = _conditional_wf(ctx, "10", "t")
 
     def verify(eid, status):
-        t_exists = os.path.exists(pt.replace("/", "\\"))
-        f_exists = os.path.exists(pf.replace("/", "\\"))
+        t_exists = fexists(pt)
+        f_exists = fexists(pf)
         ok = status == "completed" and t_exists and not f_exists
         return ok, f"status={status}; TRUE-file={t_exists}; FALSE-file={f_exists}"
     return nodes, conns, {}, verify
 
 
-@check("conditional_false", "Conditional: false edge fires (and true edge does not)")
+@check("conditional_false", "Conditional: false edge fires (and true edge does not)", disk=True)
 def c_cond_false(ctx):
     nodes, conns, pt, pf = _conditional_wf(ctx, "3", "f")
 
     def verify(eid, status):
-        t_exists = os.path.exists(pt.replace("/", "\\"))
-        f_exists = os.path.exists(pf.replace("/", "\\"))
+        t_exists = fexists(pt)
+        f_exists = fexists(pf)
         # FALSE rides the exception path: the Conditional step is marked Failed and the
         # fail edge continues — overall status may be completed or failed; the oracle is
         # WHICH branch file exists.
@@ -440,7 +461,7 @@ def c_cond_false(ctx):
     return nodes, conns, {}, verify
 
 
-@check("loop_list_append", "Loop over JSON list -> File append per item -> End Loop")
+@check("loop_list_append", "Loop over JSON list -> File append per item -> End Loop", disk=True)
 def c_loop(ctx):
     p = os.path.join(ctx["out"], "loop.txt").replace("\\", "/")
     nodes = [set_var("node-0", "items", '["alpha","beta","gamma"]', start=True),
@@ -468,7 +489,7 @@ def c_loop(ctx):
 
 # ---------------- Tier 2 — integrations ----------------
 
-@check("setvar_expression_eval", "Set Variable evaluateAsExpression: simple expression evaluates")
+@check("setvar_expression_eval", "Set Variable evaluateAsExpression: simple expression evaluates", disk=True)
 def c_setvar_expr(ctx):
     p = os.path.join(ctx["out"], "expr.txt").replace("\\", "/")
     nodes = [N("node-0", "Set Variable", "calc",
@@ -489,7 +510,7 @@ def c_setvar_expr(ctx):
        "Set Variable: a FAILING expression must not silently store the literal",
        xfail="Engine Fix-3 backlog (found 2026-07-30, wf 1337): when expression evaluation "
              "fails (e.g. f-string comprehension over a DB envelope), the engine silently "
-             "stores the LITERAL source text and the step 'Completes' — dishonest fallback")
+             "stores the LITERAL source text and the step 'Completes' — dishonest fallback", disk=True)
 def c_setvar_expr_failure(ctx):
     p = os.path.join(ctx["out"], "expr_fail.txt").replace("\\", "/")
     nodes = [N("node-0", "Set Variable", "bad calc",
@@ -540,7 +561,7 @@ def c_db_select(ctx):
 
 
 @check("database_fail_edge", "Database failure routes the fail edge (honest failure handling)",
-       tier=2, needs=["airdb"])
+       tier=2, needs=["airdb"], disk=True)
 def c_db_fail_edge(ctx):
     p_ok = os.path.join(ctx["out"], "db_ok.txt").replace("\\", "/")
     p_fail = os.path.join(ctx["out"], "db_failed.txt").replace("\\", "/")
@@ -555,8 +576,8 @@ def c_db_fail_edge(ctx):
     conns = [C("node-0", "node-1", "pass"), C("node-0", "node-2", "fail")]
 
     def verify(eid, status):
-        okf = os.path.exists(p_ok.replace("/", "\\"))
-        failf = os.path.exists(p_fail.replace("/", "\\"))
+        okf = fexists(p_ok)
+        failf = fexists(p_fail)
         ok = failf and not okf and status in ("completed", "failed")
         return ok, f"status={status}; fail-edge-file={failf}; pass-edge-file={okf}"
     return nodes, conns, {}, verify
@@ -566,7 +587,7 @@ ROWS_JSON = ('[{"store":"Manhattan","units":1000,"revenue":30000},'
              '{"store":"Brooklyn","units":770,"revenue":23100}]')
 
 
-@check("setvar_to_excel", "Set Variable (JSON rows) -> Excel Export: xlsx with exact rows", tier=2)
+@check("setvar_to_excel", "Set Variable (JSON rows) -> Excel Export: xlsx with exact rows", tier=2, disk=True)
 def c_setvar_excel(ctx):
     p = os.path.join(ctx["out"], "setvar_excel.xlsx").replace("\\", "/")
     nodes = [set_var("node-0", "rows", ROWS_JSON, start=True),
@@ -577,7 +598,7 @@ def c_setvar_excel(ctx):
     conns = [C("node-0", "node-1")]
 
     def verify(eid, status):
-        rows = read_xlsx_rows(p.replace("/", "\\"))
+        rows = read_xlsx_rows(hostpath(p))
         want = {("Manhattan", 1000, 30000), ("Brooklyn", 770, 23100)}
         got = set()
         if rows:
@@ -592,7 +613,7 @@ def c_setvar_excel(ctx):
 
 
 @check("database_to_excel", "Database -> Excel Export handoff (the pairing that was silently broken)",
-       tier=2, needs=["airdb"])
+       tier=2, needs=["airdb"], disk=True)
 # History: XFAIL until 2026-07-31 — the Database node's {'columns','rows'} envelope
 # was a shape Excel Export never accepted, so this pairing had NEVER worked (wf
 # 1266/1307 evidence). Fixed by unpack_database_envelope in workflow_execution.py
@@ -613,7 +634,7 @@ def c_db_excel(ctx):
     conns = [C("node-0", "node-1")]
 
     def verify(eid, status):
-        rows = read_xlsx_rows(p.replace("/", "\\"))
+        rows = read_xlsx_rows(hostpath(p))
         ok = (status == "completed" and rows is not None and len(rows) == 10
               and all(int(r.get("headcount", -1)) == 8 for r in rows))
         return ok, f"status={status}; xlsx-rows={None if rows is None else len(rows)} (oracle 10x headcount=8)"
@@ -651,7 +672,7 @@ def _decide_when_pending(ctx, eid, approve, seen):
 
 
 @check("human_approval_approve", "Human Approval pauses -> approve via approvals API -> workflow resumes",
-       tier=2, slow=True)
+       tier=2, slow=True, disk=True)
 def c_approval_approve(ctx):
     nodes, conns, p = _approval_wf(ctx, "ok")
     seen = {"done": False}
@@ -660,7 +681,7 @@ def c_approval_approve(ctx):
         _decide_when_pending(ctx, ctx["_eid"], True, seen)
 
     def verify(eid, status):
-        wrote = os.path.exists(p.replace("/", "\\"))
+        wrote = fexists(p)
         ok = status == "completed" and wrote and seen["done"]
         return ok, (f"status={status}; decided={seen.get('done')} "
                     f"(req={seen.get('request_id', '?')}, http={seen.get('http', '?')}); "
@@ -669,7 +690,7 @@ def c_approval_approve(ctx):
 
 
 @check("human_approval_reject", "Human Approval rejected -> downstream does NOT run",
-       tier=2, slow=True)
+       tier=2, slow=True, disk=True)
 def c_approval_reject(ctx):
     nodes, conns, p = _approval_wf(ctx, "no")
     seen = {"done": False}
@@ -678,16 +699,27 @@ def c_approval_reject(ctx):
         _decide_when_pending(ctx, ctx["_eid"], False, seen)
 
     def verify(eid, status):
-        wrote = os.path.exists(p.replace("/", "\\"))
+        wrote = fexists(p)
         ok = (not wrote) and seen["done"] and status in ("failed", "cancelled", "canceled", "completed")
         return ok, (f"status={status}; decided={seen.get('done')}; "
                     f"downstream-file={wrote} (must be False)")
     return nodes, conns, {"on_tick": on_tick, "timeout": 150}, verify
 
 
-@check("folder_selector_count", "Folder Selector: lists exactly the fixture files", tier=2)
+@check("folder_selector_count", "Folder Selector: lists exactly the fixture files", tier=2, disk=True)
 def c_folder_selector(ctx):
-    fix = os.path.join(HERE, "fixtures", "folder_probe").replace("\\", "/")
+    if REMOTE_UNC:
+        # seed the probe files onto the ENGINE box via the admin share and point
+        # the node at the engine-local path
+        fix = "C:/temp/aihub_test/nodereg_folder_probe"
+        unc_dir = hostpath(fix)
+        os.makedirs(unc_dir, exist_ok=True)
+        for name, body in (("probe1.txt", "one"), ("probe2.txt", "two"),
+                           ("probe3.txt", "three"), ("decoy.pdf", "decoy")):
+            with open(os.path.join(unc_dir, name), "w", encoding="utf-8") as fh:
+                fh.write(body)
+    else:
+        fix = os.path.join(HERE, "fixtures", "folder_probe").replace("\\", "/")
     nodes = [N("node-0", "Folder Selector", "probe",
                {"folderPath": fix, "filePattern": "*.txt", "selectionMode": "all",
                 "failIfEmpty": True, "outputVariable": "found"}, start=True)]
@@ -746,7 +778,7 @@ def c_file_transfer(ctx):
              # remotePath is the target DIRECTORY (must exist); uploads keep the local
              # basename — the node errors "Remote directory ... does not exist" otherwise.
              N("node-1", "File Transfer", "upload",
-               {"protocol": "sftp", "host": "127.0.0.1", "port": "2222",
+               {"protocol": "sftp", "host": SFTP_HOST, "port": "2222",
                 "username": "testuser", "secretName": ctx["env"]["sftp_secret"],
                 "operation": "upload", "localPath": local,
                 "remotePath": "outgoing",
@@ -874,6 +906,15 @@ def lint_workflows(api):
 
 def probe_env(api):
     env = {}
+    if REMOTE_UNC:
+        try:
+            env["remote_disk"] = os.path.isdir(REMOTE_UNC + "/temp") or os.path.isdir(REMOTE_UNC)
+        except Exception:
+            env["remote_disk"] = False
+        if not env["remote_disk"]:
+            log(f"admin share {REMOTE_UNC} NOT reachable — disk-verified checks will SKIP")
+    else:
+        env["remote_disk"] = True
     env["airdb"] = api.connection_id("AIRDB")
     # A registered connection isn't enough — the DB server must actually be reachable,
     # otherwise DB checks would FAIL for environmental reasons. Probe TCP 1433 and
@@ -899,7 +940,9 @@ def probe_env(api):
     # portal workflow exists for the current user; env["portal"] holds its slug.
     env["portal"] = None
     try:
-        with socket.create_connection(("127.0.0.1", 5101), timeout=2):
+        # browser-use runs on the TARGET box (the engine calls it in-process)
+        _target = re.sub(r"^https?://", "", api.base).split(":")[0].split("/")[0]
+        with socket.create_connection((_target, 5101), timeout=2):
             pass
         payload = {"name": "NODEREG-portal-probe", "portal_slug": None,
                    "start_url": f"{api.base}/login",
@@ -934,8 +977,11 @@ def probe_env(api):
 def run_checks(api, args):
     stamp = now_stamp()
     out_dir = os.path.join(OUT_ROOT, stamp)
-    os.makedirs(out_dir, exist_ok=True)
     env = probe_env(api)
+    if not REMOTE_UNC:
+        os.makedirs(out_dir, exist_ok=True)
+    elif env.get("remote_disk"):
+        os.makedirs(hostpath(out_dir), exist_ok=True)
     log(f"env probe: AIRDB conn id={env['airdb']}, sftp-up={bool(env['sftp'])}, "
         f"sftp-secret={env['sftp_secret']}, admin_id={env['admin_id']}")
 
@@ -953,6 +999,11 @@ def run_checks(api, args):
         if missing:
             results.append({"id": cid, "title": spec["title"], "tier": spec["tier"],
                             "status": "SKIP", "evidence": f"env missing: {missing}"})
+            continue
+        if spec.get("disk") and REMOTE_UNC and not env.get("remote_disk"):
+            results.append({"id": cid, "title": spec["title"], "tier": spec["tier"],
+                            "status": "SKIP", "evidence":
+                            f"remote mode: engine-box disk not reachable via {REMOTE_UNC}"})
             continue
 
         ctx = {"api": api, "out": out_dir, "env": env, "stamp": stamp}
@@ -1175,7 +1226,21 @@ def main():
     ap.add_argument("--timeout", type=int, default=90, help="per-check execution timeout (s)")
     ap.add_argument("--cleanup", action="store_true", help="delete NODEREG workflows afterwards")
     ap.add_argument("--list", action="store_true", help="list checks and exit")
+    ap.add_argument("--remote", action="store_true",
+                    help="target is an INSTALLED app on another machine (derive host "
+                         "from --base-url; verify engine-box files via \host\c$)")
+    ap.add_argument("--sftp-host", default=None,
+                    help="host the ENGINE box dials for SFTP checks (remote mode: "
+                         "this dev machine's LAN IP; default 127.0.0.1)")
     args = ap.parse_args()
+
+    global REMOTE_UNC, SFTP_HOST
+    if args.remote:
+        _host = re.sub(r"^https?://", "", args.base_url).split(":")[0].split("/")[0]
+        REMOTE_UNC = f"//{_host}/c$"
+        log(f"remote mode: target={_host}, disk via {REMOTE_UNC}")
+    if args.sftp_host:
+        SFTP_HOST = args.sftp_host
 
     if args.list:
         for spec in CHECKS:
