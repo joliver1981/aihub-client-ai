@@ -1,0 +1,408 @@
+{
+ "stamp": "20260731_170426",
+ "commit": "57f6356",
+ "target": "10.0.0.6",
+ "results": [
+  {
+   "id": "svc_ports",
+   "area": "Services",
+   "status": "FAIL",
+   "evidence": "host=10.0.0.6; down=['executor:5061', 'mcp-gw:5071', 'data-api:8200'] of 7; doc-stack down=['doc-api:5011', 'doc-q:5031', 'vector:5041', 'knowledge:5051'] (informational)",
+   "duration_s": 14.1
+  },
+  {
+   "id": "auth_bad_password",
+   "area": "Auth",
+   "status": "PASS",
+   "evidence": "landed=http://10.0.0.6:5001/login, rejection-flash=True",
+   "duration_s": 0.3
+  },
+  {
+   "id": "auth_anonymous_gate",
+   "area": "Auth",
+   "status": "PASS",
+   "evidence": "landed=http://10.0.0.6:5001/login?next=%2Fusers http=200",
+   "duration_s": 0.0
+  },
+  {
+   "id": "pages_render",
+   "area": "Pages",
+   "status": "PASS",
+   "evidence": "33/33 ok",
+   "duration_s": 1.6
+  },
+  {
+   "id": "agent_crud",
+   "area": "Agents",
+   "status": "PASS",
+   "evidence": "id=6012, listed=True, deleted=True",
+   "duration_s": 0.1
+  },
+  {
+   "id": "agent_chat_math",
+   "area": "Agents",
+   "status": "PASS",
+   "evidence": "http=200, contains-75=True, tail={\"agent_type\": \"general\", \"artifacts\": null, \"chat_history\": [], \"response\": \"75\", \"status\": \"success\"}",
+   "duration_s": 1.7
+  },
+  {
+   "id": "agent_artifact_csv",
+   "area": "Agents",
+   "status": "SKIP",
+   "evidence": "env missing: ['local_disk']"
+  },
+  {
+   "id": "knowledge_ingest_delete",
+   "area": "Knowledge/Docs",
+   "status": "SKIP",
+   "evidence": "env missing: ['doc_stack']"
+  },
+  {
+   "id": "connection_crud_query",
+   "area": "Connections",
+   "status": "PASS",
+   "evidence": "id=34, query-42=True, deleted=True (del http=200)",
+   "duration_s": 0.2
+  },
+  {
+   "id": "nlq_data_chat",
+   "area": "Data/NLQ",
+   "status": "SKIP",
+   "evidence": "SKIP: known NLQ oracle agent (id 281, AIRDB2) not present on this target \u2014 no deterministic oracle available"
+  },
+  {
+   "id": "documents_api",
+   "area": "Knowledge/Docs",
+   "status": "PASS",
+   "evidence": "http=200, documents=13",
+   "duration_s": 0.0
+  },
+  {
+   "id": "automation_lifecycle",
+   "area": "Automations",
+   "status": "PASS",
+   "evidence": "v=1, dry-run=success, promoted=1, deleted-http=200",
+   "duration_s": 0.8
+  },
+  {
+   "id": "automation_verify_honesty",
+   "area": "Automations",
+   "status": "PASS",
+   "evidence": "liar-run status=failed (must NOT be success), exit0-but-caught=True",
+   "duration_s": 0.5
+  },
+  {
+   "id": "codeflows_registry",
+   "area": "Code Flows",
+   "status": "PASS",
+   "evidence": "http=200, flows=0 (count informational \u2014 fresh installs legitimately have 0)",
+   "duration_s": 0.0
+  },
+  {
+   "id": "portal_wf_persist",
+   "area": "Portal WF",
+   "status": "PASS",
+   "evidence": "save=200, slug=regp_portal_temp, listed=True, dup=409 (want 409), del=200",
+   "duration_s": 0.1
+  },
+  {
+   "id": "approvals_api",
+   "area": "Approvals",
+   "status": "PASS",
+   "evidence": "http=200, pending=0",
+   "duration_s": 0.0
+  },
+  {
+   "id": "scheduler_jobs",
+   "area": "Scheduler",
+   "status": "PASS",
+   "evidence": "backend=200 {'backend': 'APScheduler', 'status': 'success', 'use_apsched, jobs-http=200, jobs=0",
+   "duration_s": 0.0
+  },
+  {
+   "id": "secrets_list",
+   "area": "Secrets",
+   "status": "PASS",
+   "evidence": "secrets=9, has-test-secret=True",
+   "duration_s": 0.0
+  },
+  {
+   "id": "users_groups",
+   "area": "Users/Groups",
+   "status": "PASS",
+   "evidence": "users=2, admin-role=3",
+   "duration_s": 0.0
+  },
+  {
+   "id": "mcp_servers_api",
+   "area": "MCP",
+   "status": "PASS",
+   "evidence": "http=200, servers=0, gw-port=False",
+   "duration_s": 2.0
+  },
+  {
+   "id": "cc_service",
+   "area": "Command Center",
+   "status": "PASS",
+   "evidence": "cc-http=200, token-http=200, token=True",
+   "duration_s": 0.0
+  },
+  {
+   "id": "builder_service",
+   "area": "Builder",
+   "status": "PASS",
+   "evidence": "http=200",
+   "duration_s": 0.0
+  },
+  {
+   "id": "users_role1_authz",
+   "area": "Users/Groups",
+   "status": "PASS",
+   "evidence": "login=True, blocked={'users_page': True, 'save_workflow': True, 'automations_create': True}, user-deleted=True",
+   "duration_s": 0.8
+  },
+  {
+   "id": "user_file_isolation",
+   "area": "Users/Groups",
+   "status": "SKIP",
+   "evidence": "env missing: ['doc_stack']"
+  },
+  {
+   "id": "sec_approvals_get_unauth",
+   "area": "Security",
+   "status": "XFAIL",
+   "evidence": "anonymous GET -> http=200 (must be 302/401/403)",
+   "duration_s": 0.0
+  },
+  {
+   "id": "sec_approvals_decide_unauth",
+   "area": "Security",
+   "status": "XFAIL",
+   "evidence": "anonymous POST -> http=500 (must be 302/401/403; 404 means the request REACHED business logic unauthenticated)",
+   "duration_s": 0.0
+  },
+  {
+   "id": "sec_role1_can_create_agents",
+   "area": "Security",
+   "status": "XFAIL",
+   "evidence": "role-1 POST /add/agent -> http=200; agent actually created=False (must be blocked, nothing created)",
+   "duration_s": 0.7
+  },
+  {
+   "id": "wf14:setvar_file_write",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "wf14:file_write_append",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "wf14:file_check_delete",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "wf14:conditional_true",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "wf14:conditional_false",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "wf14:loop_list_append",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "wf14:setvar_expression_eval",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "wf14:setvar_expression_failure_honesty",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "wf14:database_select_vars",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "env missing: ['airdb']"
+  },
+  {
+   "id": "wf14:database_fail_edge",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "env missing: ['airdb']"
+  },
+  {
+   "id": "wf14:setvar_to_excel",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "wf14:database_to_excel",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "env missing: ['airdb']"
+  },
+  {
+   "id": "wf14:human_approval_approve",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "wf14:human_approval_reject",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "wf14:folder_selector_count",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "remote mode: engine-box disk not reachable via //10.0.0.6/c$"
+  },
+  {
+   "id": "wf14:portal_node_run",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; portal-status=ok; files=0"
+  },
+  {
+   "id": "wf14:file_transfer_sftp_upload",
+   "area": "Workflow engine",
+   "status": "FAIL",
+   "evidence": "status=failed; remote-file=False (xfer_20260731_170452.txt); content-ok=False | log-tail: Executing node: file write (File) ~ Workflow execution started: NODEREG-file_transfer_sftp_upload"
+  },
+  {
+   "id": "wf14:alert_email",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: excluded by owner decision (james 2026-07-30) \u2014 do NOT automate (sends real email)"
+  },
+  {
+   "id": "wf14:ai_extract",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: excluded by owner decision (james 2026-07-30) \u2014 do NOT automate (live LLM cost)"
+  },
+  {
+   "id": "wf14:ai_action",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: excluded by owner decision (james 2026-07-30) \u2014 do NOT automate (live LLM cost)"
+  },
+  {
+   "id": "wf14:document_node",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a document-pipeline fixture)"
+  },
+  {
+   "id": "wf14:excel_update",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a template .xlsx fixture)"
+  },
+  {
+   "id": "wf14:execute_application",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a harmless fixture app to run)"
+  },
+  {
+   "id": "wf14:integration_node",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a configured integration instance)"
+  },
+  {
+   "id": "wf14:compliance_process",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a retailer document set)"
+  },
+  {
+   "id": "wf14:compliance_excel_export",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs compliance fixtures)"
+  },
+  {
+   "id": "wf14:automation_node",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a promoted automation)"
+  },
+  {
+   "id": "wf14:code_step",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a saved code flow)"
+  },
+  {
+   "id": "wf14:baseline",
+   "area": "Workflow engine",
+   "status": "FAIL",
+   "evidence": "pack-14 exit=1 (0=clean, 1=failures, 2=regressions)"
+  },
+  {
+   "id": "email_inbound",
+   "area": "Email",
+   "status": "SKIP",
+   "evidence": "not automated: inbound email pipeline needs a mail fixture/sink (owner decision: no email automation)"
+  },
+  {
+   "id": "integrations_api",
+   "area": "Integrations",
+   "status": "SKIP",
+   "evidence": "not automated: API is internal-token only; the page render is covered under Pages"
+  },
+  {
+   "id": "compliance_pipeline",
+   "area": "Compliance",
+   "status": "SKIP",
+   "evidence": "not automated: needs a retailer document set; page render covered under Pages"
+  },
+  {
+   "id": "solutions_install",
+   "area": "Solutions",
+   "status": "SKIP",
+   "evidence": "not automated: installing a bundle mutates shared tenant assets; gallery page covered under Pages"
+  },
+  {
+   "id": "environments_provision",
+   "area": "Environments",
+   "status": "SKIP",
+   "evidence": "not automated: conda env provisioning is minutes-slow; page render covered under Pages"
+  },
+  {
+   "id": "data_explorer_battery",
+   "area": "Data/NLQ",
+   "status": "SKIP",
+   "evidence": "not automated: deep NLQ competency lives in pack 12 (battery.py); one live probe runs here"
+  },
+  {
+   "id": "document_qa_battery",
+   "area": "Documents",
+   "status": "SKIP",
+   "evidence": "not automated: deep doc-QA competency lives in pack 13; ingest+API-list run here"
+  }
+ ]
+}

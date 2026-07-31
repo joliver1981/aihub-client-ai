@@ -62,15 +62,33 @@ def port_open(port, host="127.0.0.1", timeout=2):
         return False
 
 
+def hidden_fields(html):
+    """Scrape hidden form inputs (csrf_token etc.). BOTH attribute orderings —
+    the login page renders name-first, and missing the token makes Flask-WTF's
+    validate_on_submit() fail SILENTLY (re-renders /login with no flash), which
+    is indistinguishable from a bad password unless you check for the flash."""
+    out = dict(re.findall(r'<input[^>]*type="hidden"[^>]*name="([^"]+)"[^>]*value="([^"]*)"', html))
+    out.update(dict(re.findall(r'<input[^>]*name="([^"]+)"[^>]*type="hidden"[^>]*value="([^"]*)"', html)))
+    return out
+
+
+def login_as(base, username, password):
+    """Log a fresh session in the way the browser does. Returns (session, ok)."""
+    s = requests.Session()
+    r = s.get(f"{base}/login", timeout=15)
+    data = {"username": username, "password": password, "submit": "Login"}
+    data.update(hidden_fields(r.text))
+    r = s.post(f"{base}/login", data=data, allow_redirects=True, timeout=20)
+    return s, ("/login" not in r.url)
+
+
 class Api:
     def __init__(self, base_url, username, password):
         self.base = base_url.rstrip("/")
         self.s = requests.Session()
         r = self.s.get(f"{self.base}/login", timeout=20)
-        hidden = dict(re.findall(r'<input[^>]*type="hidden"[^>]*name="([^"]+)"[^>]*value="([^"]*)"', r.text))
-        hidden.update(dict(re.findall(r'<input[^>]*name="([^"]+)"[^>]*type="hidden"[^>]*value="([^"]*)"', r.text)))
         data = {"username": username, "password": password, "submit": "Login"}
-        data.update(hidden)
+        data.update(hidden_fields(r.text))
         r = self.s.post(f"{self.base}/login", data=data, allow_redirects=True, timeout=30)
         if "/login" in r.url:
             raise RuntimeError(f"admin login failed (landed on {r.url})")
@@ -166,14 +184,15 @@ def c_svc_ports(ctx):
 @check("auth_bad_password", "Auth", "wrong password is rejected")
 def c_auth_bad(ctx):
     s = requests.Session()
-    r = s.get(f"{ctx['base']}/login", timeout=15)
-    hidden = dict(re.findall(r'<input[^>]*type="hidden"[^>]*name="([^"]+)"[^>]*value="([^"]*)"', r.text))
-    data = {"username": "admin", "password": "definitely-wrong-password-xyz"}
-    data.update(hidden)
+    r0 = s.get(f"{ctx['base']}/login", timeout=15)
+    data = {"username": "admin", "password": "definitely-wrong-password-xyz",
+            "submit": "Login"}
+    data.update(hidden_fields(r0.text))
     r = s.post(f"{ctx['base']}/login", data=data, allow_redirects=True, timeout=20)
-    rejected = "/login" in r.url or "Invalid" in r.text or "login" in r.text.lower()
-    ok = rejected and "/dashboard" not in r.url
-    return ok, f"landed={r.url}"
+    # a VALID form with a bad password must produce the explicit rejection flash
+    # (a silent re-render would mean the form never validated — a false pass)
+    ok = "/dashboard" not in r.url and "Login Unsuccessful" in r.text
+    return ok, f"landed={r.url}, rejection-flash={'Login Unsuccessful' in r.text}"
 
 
 @check("auth_anonymous_gate", "Auth", "admin page redirects anonymous users to login")
@@ -250,7 +269,8 @@ def c_agent_artifact(ctx):
     return ok, f"http={r.status_code}, file={'yes' if hits else 'NO'}, content={content[:60]!r}"
 
 
-@check("knowledge_ingest_delete", "Knowledge/Docs", "docx ingest pipeline (extract+classify+index) + delete")
+@check("knowledge_ingest_delete", "Knowledge/Docs",
+       "docx ingest pipeline (extract+classify+index) + delete", needs=["doc_stack"])
 def c_knowledge(ctx):
     api = ctx["api"]
     path = os.path.join(REPO, "test_human", "11_Regression_Suite", "fixtures",
@@ -460,7 +480,8 @@ def c_mcp(ctx):
     rows = body if isinstance(body, list) else ((body or {}).get("servers")
                                                 or (body or {}).get("data") or [])
     ok = r.status_code == 200 and isinstance(rows, list)
-    return ok, f"http={r.status_code}, servers={len(rows) if isinstance(rows, list) else '?'}, gw-port={port_open(5071)}"
+    return ok, (f"http={r.status_code}, servers={len(rows) if isinstance(rows, list) else '?'}, "
+                f"gw-port={port_open(5071, host=ctx['host'])}")
 
 
 @check("cc_service", "Command Center", "CC service up + auto-token endpoint issues a token")
@@ -481,11 +502,12 @@ def c_builder(ctx):
 
 
 @check("users_role1_authz", "Users/Groups",
-       "role-1 user is blocked from admin/developer surfaces (create->probe->delete)")
+       "role-1 user is blocked from users page / save-workflow / automations-create")
 def c_role1_authz(ctx):
     api = ctx["api"]
     uname, pw = "regp-userb", "RegpTemp!2026"
-    _r_add = api.post("/add/user", {"user_name": uname, "name": "REGP User B",
+    _r_add = api.post("/add/user", {"user_id": 0, "user_name": uname,
+                                    "name": "REGP User B",
                                     "email": "regp-userb@example.com", "password": pw,
                                     "role": 1, "phone": ""})
     users = api.jbody(api.get("/get/users")) or []
@@ -493,13 +515,7 @@ def c_role1_authz(ctx):
                 if (u.get("user_name") or "") == uname), None)
     if not uid:
         return False, f"could not create role-1 probe user (add-user http={_r_add.status_code} body={str(ctx['api'].jbody(_r_add))[:160]})"
-    b = requests.Session()
-    r = b.get(f"{ctx['base']}/login", timeout=15)
-    hidden = dict(re.findall(r'<input[^>]*type="hidden"[^>]*name="([^"]+)"[^>]*value="([^"]*)"', r.text))
-    data = {"username": uname, "password": pw, "submit": "Login"}
-    data.update(hidden)
-    r = b.post(f"{ctx['base']}/login", data=data, allow_redirects=True, timeout=20)
-    logged_in = "/login" not in r.url
+    b, logged_in = login_as(ctx["base"], uname, pw)
     blocked = {}
     if logged_in:
         pr = b.get(f"{ctx['base']}/users", allow_redirects=True, timeout=15)
@@ -513,20 +529,17 @@ def c_role1_authz(ctx):
         ar = b.post(f"{ctx['base']}/automations/api/create",
                     json={"name": "regp-b-probe", "provision_environment": False}, timeout=20)
         blocked["automations_create"] = ar.status_code in (302, 401, 403)
-        gr = b.post(f"{ctx['base']}/add/agent",
-                    json={"agent_id": 0, "agent_description": "regp-b-probe",
-                          "agent_objective": "x", "agent_enabled": False}, timeout=20)
-        blocked["add_agent"] = gr.status_code in (302, 401, 403)
+
     api.post("/delete/user", {"user_id": uid})
     gone = not any((u.get("user_name") or "") == uname
                    for u in (api.jbody(api.get("/get/users")) or []))
-    all_blocked = logged_in and all(blocked.values()) and len(blocked) == 4
+    all_blocked = logged_in and all(blocked.values()) and len(blocked) == 3
     return (all_blocked and gone), (
         f"login={logged_in}, blocked={blocked}, user-deleted={gone}")
 
 
 @check("user_file_isolation", "Users/Groups",
-       "one user cannot download another user's agent files")
+       "one user cannot download another user's agent files", needs=["doc_stack"])
 def c_file_isolation(ctx):
     api = ctx["api"]
     path = os.path.join(REPO, "test_human", "11_Regression_Suite", "fixtures",
@@ -550,17 +563,17 @@ def c_file_isolation(ctx):
             return None, (f"SKIP: could not establish an owned file to probe "
                           f"(admin download http={ra.status_code})")
         uname, pw = "regp-userc", "RegpTemp!2026"
-        api.post("/add/user", {"user_name": uname, "name": "REGP User C",
+        api.post("/add/user", {"user_id": 0, "user_name": uname,
+                               "name": "REGP User C",
                                "email": "regp-userc@example.com", "password": pw,
                                "role": 1, "phone": ""})
         uid = next((u.get("id") for u in (api.jbody(api.get("/get/users")) or [])
                     if (u.get("user_name") or "") == uname), None)
-        b = requests.Session()
-        r = b.get(f"{ctx['base']}/login", timeout=15)
-        hidden = dict(re.findall(r'<input[^>]*type="hidden"[^>]*name="([^"]+)"[^>]*value="([^"]*)"', r.text))
-        data = {"username": uname, "password": pw, "submit": "Login"}
-        data.update(hidden)
-        b.post(f"{ctx['base']}/login", data=data, allow_redirects=True, timeout=20)
+        b, b_logged_in = login_as(ctx["base"], uname, pw)
+        if not b_logged_in:
+            if uid:
+                api.post("/delete/user", {"user_id": uid})
+            return None, "SKIP: probe user could not log in — cannot test isolation"
         rb = b.get(f"{ctx['base']}{dl}", allow_redirects=False, timeout=20)
         denied = rb.status_code in (302, 401, 403, 404)
         if uid:
@@ -596,6 +609,46 @@ def c_sec_approvals_post(ctx):
     ok = r.status_code in (302, 401, 403)
     return ok, (f"anonymous POST -> http={r.status_code} (must be 302/401/403; "
                 f"404 means the request REACHED business logic unauthenticated)")
+
+
+
+@check("sec_role1_can_create_agents", "Security",
+       "role-1 user must NOT be able to create agents",
+       xfail="FOUND 2026-07-31 on the shipped 1.8.1 build: POST /add/agent carries "
+             "@api_key_or_session_required() with NO min_role (compare /save/workflow "
+             "min_role=2), so a basic role-1 User can create agents — VERIFIED live "
+             "(agent id 6011 persisted). Flips XPASS when a min_role gate is added.")
+def c_sec_role1_agents(ctx):
+    api = ctx["api"]
+    uname, pw = "regp-escprobe", "RegpTemp!2026"
+    api.post("/add/user", {"user_id": 0, "user_name": uname, "name": "REGP Esc",
+                           "email": "regp-esc@example.com", "password": pw,
+                           "role": 1, "phone": ""})
+    uid = next((u.get("id") for u in (api.jbody(api.get("/get/users")) or [])
+                if (u.get("user_name") or "") == uname), None)
+    try:
+        b, ok = login_as(ctx["base"], uname, pw)
+        if not ok:
+            return None, "SKIP: probe user could not log in"
+        r = b.post(f"{ctx['base']}/add/agent",
+                   json={"agent_id": 0, "agent_description": "REGP-ESC-PROBE",
+                         "agent_objective": "probe", "agent_enabled": False}, timeout=30)
+        blocked = r.status_code in (302, 401, 403)
+        created_id = None
+        body = api.jbody(api.get("/get/agents")) or {}
+        rows = body.get("data") if isinstance(body, dict) else body
+        if isinstance(rows, str):
+            rows = json.loads(rows)
+        for a in (rows or []):
+            if isinstance(a, dict) and "REGP-ESC-PROBE" in json.dumps(a):
+                created_id = a.get("id")
+                api.post("/delete/agent", {"agent_id": created_id})
+        return (blocked and created_id is None), (
+            f"role-1 POST /add/agent -> http={r.status_code}; agent actually created="
+            f"{created_id is not None} (must be blocked, nothing created)")
+    finally:
+        if uid:
+            api.post("/delete/user", {"user_id": uid})
 
 
 # ---------------------------------------------------------------- pack-14 leg
@@ -640,7 +693,7 @@ def run_pack14(args, remote=False, host="localhost"):
 
 # ---------------------------------------------------------------- engine
 
-def probe_env(base):
+def probe_env(base, host="localhost"):
     env = {"db": port_open("10.0.0.6", timeout=3) if False else None}
     # db probe: TCP 1433 on the test SQL host
     try:
@@ -648,6 +701,8 @@ def probe_env(base):
             env["db"] = True
     except OSError:
         env["db"] = None
+    # document pipeline: ingest requires the doc/vector/knowledge services
+    env["doc_stack"] = all(port_open(pt, host=host) for pt in (5011, 5031, 5041, 5051))
     return env
 
 
@@ -678,7 +733,7 @@ def main():
         # the dev-tree baseline (that produced bogus "REGRESSIONS")
         HISTORY_DIR = os.path.join(HERE, "results_history", f"host_{host}")
     api = Api(args.base_url, args.user, args.password)
-    env = probe_env(args.base_url)
+    env = probe_env(args.base_url, host=host)
     env["local_disk"] = not remote
     log(f"env: target={host} remote={remote} db-reachable={bool(env['db'])}")
     ctx = {"api": api, "base": args.base_url, "stamp": stamp, "env": env, "host": host}
