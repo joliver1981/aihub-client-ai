@@ -227,6 +227,13 @@
       "links": [ { "label": "Command Center", "url": "http://localhost:5091" },
                  { "label": "My Approvals", "url": "http://localhost:5001/approvals" } ] },
 
+    { "id": "agent-to-agent", "name": "Agents talking to agents \u2014 multi-agent orchestration", "category": "Feature spotlight",
+      "duration": "6 min", "doc": "C:\\temp\\AIHub_Demo\\AI_Hub_WOW_Demo_Playbook.docx",
+      "tagline": "Command Center acts as a manager of specialists: it consults the retail data agent (real SQL over 3.7M rows) and the Finance Library document agent, shows the inter-agent conversations on screen, and writes one combined CFO briefing.",
+      "resources": [ "svc-main", "svc-cc", "sql-server", "db-airdb2", "agent-281", "agent-finance", "fx-finance" ],
+      "reset": [],
+      "links": [ { "label": "Command Center", "url": "http://localhost:5091" } ] },
+
     { "id": "encore", "name": "Technical encore \u2014 human + AI co-build", "category": "Feature spotlight",
       "duration": "5 min", "doc": "C:\\temp\\AIHub_Demo\\AI_Hub_WOW_Demo_Playbook.docx",
       "tagline": "For engineers: drop an AI-built automation into a visual workflow as a single node, re-configure it from a form, and hand-edit steps around it \u2014 proof that technical teams keep full control of what the AI builds.",
