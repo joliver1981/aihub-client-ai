@@ -383,12 +383,14 @@ def do_action(jid, aid):
             target = None
             for row in _rows(body, "automations"):
                 if isinstance(row, dict) and (row.get("name") or row.get("id")) == a["automation"]:
-                    target = row.get("id") or row.get("name")
+                    # List rows key the id as `automation_id` (a UUID) — the DELETE route
+                    # takes that, never the name (name → 404).
+                    target = row.get("automation_id") or row.get("id")
             if not target:
                 out, status = "already absent — nothing to delete", "done"
             else:
                 r = HUB.call("DELETE", f"/automations/api/{target}")
-                out = f"DELETE {target}: HTTP {r.status_code} {r.text[:300]}"
+                out = f"DELETE {a['automation']} ({target}): HTTP {r.status_code} {r.text[:300]}"
                 status = "done" if r.status_code < 400 else "error"
         elif kind == "restore_scans":
             src, dst, pat = a["src"], a["dst"], a.get("pattern", "*.pdf")
