@@ -1,0 +1,13 @@
+{
+ "stamp": "20260801_134858",
+ "tier": "AB",
+ "results": [
+  {
+   "id": "b6_sftp_uses_file_transfer_node",
+   "cls": "capability",
+   "status": "PASS",
+   "evidence": "persisted nodes=['Database', 'Excel Export', 'Set Variable', 'File Transfer']; File-Transfer-node-used=True; falsely-denied-capability=False",
+   "duration_s": 47.2
+  }
+ ]
+}

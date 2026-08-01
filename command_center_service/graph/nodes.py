@@ -136,6 +136,10 @@ def _has_dev_role(state) -> bool:
 # This is the EARLY UX gate; the builder service enforces the authoritative
 # check regardless of how a request reaches it.
 _BUILD_ALLOW_ALL = os.getenv("CC_BUILD_ALLOW_ALL_USERS", "false").lower() == "true"
+# Keep a referent-less destructive turn ("delete it") conversational instead of
+# letting it enter a build pipeline (pack 16 b16). Instant-off without a code change.
+_AMBIGUOUS_DESTRUCTIVE_GUARD = os.getenv(
+    "CC_AMBIGUOUS_DESTRUCTIVE_GUARD", "true").lower() == "true"
 
 # Polite refusal shown to a non-Developer who tries to build/create resources.
 _BUILD_DENIED_MSG = (
@@ -626,6 +630,49 @@ def _resolve_agent_id_refs(text: str, agents: list) -> list:
             matched.append(rec)
             seen.add(str(_id))
     return matched
+
+
+async def _is_ambiguous_destructive_llm(user_text: str,
+                                        state: "CommandCenterState") -> bool:
+    """Mini-LLM: is this a DESTRUCTIVE instruction that does not identify WHAT
+    to act on?
+
+    Used only to keep such a turn conversational rather than let it enter a
+    build pipeline (pack 16 b16: a bare "delete it" classified as intent=build
+    and was delegated to the Builder — ~7-19s and an orphan builder session
+    before it eventually asked what to delete; one observed run never clearly
+    asked). Nothing was ever destroyed, so this is a coherence/latency guard,
+    not a safety net.
+
+    No keyword list decides this (james's directive: never regex natural
+    language). Fail-open: NO, an ambiguous reply, a timeout or any error
+    returns False and the turn falls through to normal classification, so the
+    guard can only ever keep a turn conversational — never block a real
+    request."""
+    try:
+        from cc_config import get_step_llm
+        llm = get_step_llm("workflow_continuity")
+        _msgs = [HumanMessage(content=(
+            'Does the following message instruct deletion, removal or '
+            'cancellation of something WITHOUT identifying what to act on '
+            '(no name, no id, no resource type)?\n'
+            'Examples: "delete it" -> YES; "remove that one" -> YES; '
+            '"get rid of them" -> YES; '
+            '"delete the ACME-import workflow" -> NO (it names the target); '
+            '"cancel schedule 12" -> NO (it identifies the target); '
+            '"what did you delete?" -> NO (a question, not an instruction).\n'
+            f'Message: "{user_text}"\n'
+            'Reply with ONLY "YES" or "NO".'))]
+        _t0 = _trace_time.perf_counter()
+        resp = await llm.ainvoke(_msgs)
+        trace_llm_call(state, node="classify_intent", step="ambiguous_destructive",
+                       messages=_msgs, response=resp,
+                       elapsed_ms=int((_trace_time.perf_counter() - _t0) * 1000),
+                       model_hint="mini")
+        return str(getattr(resp, "content", "")).strip().upper().startswith("YES")
+    except Exception as e:
+        logger.debug(f"[classify_intent] ambiguous-destructive mini-LLM skipped: {e}")
+        return False
 
 
 async def _extract_reroute_question(
@@ -2057,6 +2104,24 @@ Reply with ONLY one word: CONTINUE, CC_CAPABLE, or REROUTE."""
                 f"confidence={_conf:.2f} (threshold {_thresh:.2f})"
             )
 
+    # ── Ambiguous-destructive guard ─────────────────────────────────────
+    # A referent-less destructive instruction belongs in conversation, not in a
+    # build pipeline (pack 16 b16). The LANGUAGE judgement is a mini-LLM call;
+    # the SESSION side is deterministic — if this conversation already has an
+    # object in hand (an authoring marker), "it" HAS a referent the LLM cannot
+    # see, so the guard must not fire. Skipped entirely while a builder
+    # delegation is in flight. Fails open in every direction.
+    if _AMBIGUOUS_DESTRUCTIVE_GUARD and not _builder_in_flight(active):
+        _adg_marker = state.get("code_flow_context") or {}
+        _adg_has_referent = bool(
+            isinstance(_adg_marker, dict) and _adg_marker.get("name"))
+        if not _adg_has_referent and await _is_ambiguous_destructive_llm(
+                user_text, state):
+            logger.info(
+                "[classify_intent] destructive instruction with no resolvable "
+                "referent — keeping the turn conversational (no build pipeline)")
+            return _intent_result({"intent": "chat"})
+
     # ── Keyword heuristic shortcuts (optional, off by default) ──────────
     # LEGACY: retained behind CC_INTENT_HEURISTICS=true for operators who
     # still rely on the hardcoded keyword matches. Prefer the
@@ -2531,7 +2596,7 @@ async def converse(state: CommandCenterState) -> dict:
             "- SLOT RULE: a node gets ONE outgoing 'pass' OR 'complete' edge (+ at most ONE 'fail'). "
             "Competing edges are rejected — when inserting a node between two wired nodes, wire the "
             "two new edges AND unwire the old direct edge.\n"
-            "- CAPABILITY HONESTY: there is NO node for SFTP/FTP/API pushes or custom Python. If a "
+            "- CAPABILITY HONESTY: there is NO node for API pushes or custom Python. If a "
             "requested step has no node in the catalog, SAY SO and offer the real homes — a CODE FLOW "
             "(or single AUTOMATION), or an Automation node running a promoted Automation as a workflow "
             "step. NEVER silently drop a requested step.\n"
@@ -5868,9 +5933,9 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         of the catalog types in your system prompt (Database, AI Action, AI
         Extract, Document, Loop, End Loop, Conditional, Human Approval, Alert,
         Folder Selector, File, Set Variable, Execute Application, Excel Export,
-        Portal, Integration, Automation, …) — there is NO node for SFTP/FTP/API
-        pushes or custom Python; offer a Code Flow or an Automation node instead
-        of silently substituting. Configure per the catalog: e.g. a Database
+        Portal, Integration, Automation, File Transfer (SFTP/FTP/FTPS), …) —
+        there is NO node for API pushes or custom Python; offer a Code Flow or
+        an Automation node instead of silently substituting. Configure per the catalog: e.g. a Database
         node needs {"connection": "<numeric id as string>", "query": "...",
         "saveToVariable": true, "outputVariable": "rows"}.
 

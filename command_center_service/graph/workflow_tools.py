@@ -321,7 +321,7 @@ def add_node(definition: Dict[str, Any], node_type: str, label: str,
         return {"ok": False, "error":
                 f"'{node_type}' is not a valid node type. Valid types: "
                 + ", ".join(VALID_WORKFLOW_NODE_TYPES)
-                + ". There is NO node for SFTP/FTP/HTTP-API pushes or custom code — "
+                + ". There is NO node for HTTP-API pushes or custom code — "
                   "use a Code Flow, or an Automation node running a promoted Automation."}
     nodes = definition.setdefault("nodes", [])
     node_id = f"n_{uuid.uuid4().hex[:8]}"

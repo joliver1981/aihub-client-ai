@@ -670,8 +670,8 @@ CREDENTIALS — reference existing connections BY NAME/ID, never ask for raw sec
   (get_available_database_connections, etc.) and use its ID in the plan. NEVER ask the user to paste
   a database or SFTP username, password, host, or port for a connection that already exists — those
   are stored securely and bound server-side by name/ID.
-- The visual builder has NO node for SFTP/file-transfer or arbitrary custom code. If the process
-  needs one of those (e.g. "upload the CSV to our SFTP", "run this Python"), do NOT start collecting
+- The visual builder has NO node for arbitrary custom code. If the process
+  needs that (e.g. "run this Python"), do NOT start collecting
   credentials — tell the user that part is better built as a Code Flow / Automation (which references
   the same connections and secrets by name), and continue with the parts the builder CAN do.
 
