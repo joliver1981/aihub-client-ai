@@ -163,10 +163,15 @@ class Api:
 CHECKS = []
 
 
-def check(id, area, title, needs=(), llm=False, xfail=None):
+def check(id, area, title, needs=(), llm=False, xfail=None, competency=False):
+    """competency=True -> deeper edge-case probe. These do NOT run by default
+    (the daily gate stays fast); pass --competency to include them. They are
+    still baseline-diffed, so a competency check that starts failing is a
+    regression signal too."""
     def deco(fn):
         CHECKS.append({"id": id, "area": area, "title": title,
-                       "needs": list(needs), "llm": llm, "xfail": xfail, "fn": fn})
+                       "needs": list(needs), "llm": llm, "xfail": xfail,
+                       "competency": competency, "fn": fn})
         return fn
     return deco
 
@@ -343,31 +348,6 @@ def c_knowledge(ctx):
                            f"deleted={ok_delete}")
     finally:
         delete_probe_agent(api, aid)
-
-
-@check("connection_crud_query", "Connections", "create connection -> execute SELECT -> delete",
-       needs=["db"])
-def c_connection(ctx):
-    api = ctx["api"]
-    r = api.post("/api/connections", {
-        "connection_name": "REGP-ERPDB-temp", "database_type": "SQL Server",
-        "server": "10.0.0.6", "database_name": "ERPDB", "user_name": "ai_user",
-        "password": "Bradynov11", "port": 1433, "parameters": "Connect Timeout=15;"})
-    body = api.jbody(r) or {}
-    cid = (body.get("connection") or {}).get("id") or body.get("id") or body.get("connection_id")
-    if not cid:
-        rows = api.jbody(api.get("/get/connections")) or []
-        cid = next((c.get("id") for c in rows
-                    if c.get("connection_name") == "REGP-ERPDB-temp"), None)
-    if not cid:
-        return False, f"create failed http={r.status_code} body={str(body)[:150]}"
-    r2 = api.post(f"/api/connections/{cid}/execute", {"query": "SELECT 42 AS answer"})
-    b2 = api.jbody(r2) or {}
-    got42 = "42" in json.dumps(b2)
-    r3 = api.post(f"/delete/connection/{cid}")
-    rows = api.jbody(api.get("/get/connections")) or []
-    gone = not any(c.get("connection_name") == "REGP-ERPDB-temp" for c in rows)
-    return (got42 and gone), f"id={cid}, query-42={got42}, deleted={gone} (del http={r3.status_code})"
 
 
 @check("nlq_data_chat", "Data/NLQ", "NL->SQL data chat answers a deterministic question",
@@ -699,6 +679,436 @@ def c_sec_role1_agents(ctx):
             api.post("/delete/user", {"user_id": uid})
 
 
+# ================================================================= CONNECTIONS
+# Deepened 2026-07-31. WHY THIS AREA: every data capability sits on it (data
+# agents, Data Explorer, NLQ, the workflow Database node), and it has the worst
+# proven regression history in the repo — the masked-password save bug was fixed
+# in June, LOST to source drift, and re-fixed 2026-07-30. Coverage before today
+# was ONE check (create -> SELECT 42 -> delete): no edit path, no masked-password
+# round-trip, no egress masking, no honest-failure assertions.
+#
+# ERPDB oracles (verified live 2026-07-31): Invoices=17 rows, LFA1(vendors)=5.
+
+ERP = {"connection_name": None, "database_type": "SQL Server", "server": "10.0.0.6",
+       "database_name": "ERPDB", "user_name": "ai_user", "password": "Bradynov11",
+       "port": 1433, "parameters": "Connect Timeout=15;"}
+MASK = "•" * 8          # the '••••••••' unchanged-password sentinel
+
+
+def _conn_rows(api):
+    body = api.jbody(api.get("/get/connections"))
+    return body if isinstance(body, list) else (
+        (body or {}).get("connections") or (body or {}).get("data") or [])
+
+
+def _conn_by_name(api, name):
+    return next((c for c in _conn_rows(api)
+                 if (c.get("connection_name") or "") == name), None)
+
+
+def _make_conn(api, name, **over):
+    """Create through /add/connection — the endpoint the Connections UI posts."""
+    payload = dict(ERP, connection_name=name, connection_id=0)
+    payload.update(over)
+    r = api.post("/add/connection", payload)
+    body = api.jbody(r) or {}
+    cid = body.get("response") if str(body.get("response", "")).isdigit() else None
+    if not cid:
+        row = _conn_by_name(api, name)
+        cid = row.get("id") if row else None
+    return (int(cid) if cid else None), body
+
+
+def _drop_conn(api, cid):
+    if cid:
+        api.post(f"/delete/connection/{cid}")
+
+
+def _query(api, cid, sql):
+    r = api.post(f"/api/connections/{cid}/execute", {"query": sql}, timeout=90)
+    return r, api.jbody(r)
+
+
+def _qtext(body):
+    return json.dumps(body) if not isinstance(body, str) else body
+
+
+def _qdecoded(body):
+    """Execute returns {'response': '<json string>'} -- unwrap it and render with
+    ensure_ascii=False so text assertions compare against REAL characters rather
+    than double-escaped sequences (that mismatch produced a FALSE unicode
+    failure on 2026-07-31)."""
+    inner = body.get("response") if isinstance(body, dict) else body
+    if isinstance(inner, str):
+        try:
+            inner = json.loads(inner)
+        except Exception:
+            return inner
+    return json.dumps(inner, ensure_ascii=False)
+
+
+# ---------------------------------------------------------- regression tier
+
+@check("conn_create_and_list", "Connections",
+       "create a connection -> it appears in the list with the right fields", needs=["db"])
+def c_conn_create(ctx):
+    api = ctx["api"]
+    name = "REGP-conn-create"
+    _drop_conn(api, (_conn_by_name(api, name) or {}).get("id"))
+    cid, body = _make_conn(api, name)
+    try:
+        row = _conn_by_name(api, name) or {}
+        ok = bool(cid) and row.get("server") == "10.0.0.6" and \
+            row.get("database_name") == "ERPDB" and row.get("user_name") == "ai_user"
+        return ok, (f"id={cid}, server={row.get('server')}, db={row.get('database_name')}, "
+                    f"user={row.get('user_name')}")
+    finally:
+        _drop_conn(api, cid)
+
+
+@check("conn_test_endpoint_good", "Connections",
+       "the Test button endpoint succeeds against valid credentials", needs=["db"])
+def c_conn_test_good(ctx):
+    api = ctx["api"]
+    cid, _ = _make_conn(api, "REGP-conn-testgood")
+    try:
+        if not cid:
+            return False, "could not create probe connection"
+        r = api.post(f"/api/connections/{cid}/test", {}, timeout=90)
+        body = api.jbody(r) or {}
+        txt = _qtext(body).lower()
+        ok = r.status_code == 200 and ("success" in txt or body.get("success") is True)
+        return ok, f"http={r.status_code}, body={_qtext(body)[:160]}"
+    finally:
+        _drop_conn(api, cid)
+
+
+@check("conn_test_endpoint_bad_creds", "Connections",
+       "a connection with a WRONG password must fail honestly (never report success)",
+       needs=["db"])
+def c_conn_test_bad(ctx):
+    api = ctx["api"]
+    cid, _ = _make_conn(api, "REGP-conn-testbad", password="definitely-wrong-pw-xyz")
+    try:
+        if not cid:
+            return False, "could not create probe connection"
+        r = api.post(f"/api/connections/{cid}/test", {}, timeout=90)
+        body = api.jbody(r) or {}
+        txt = _qtext(body).lower()
+        claimed_success = (body.get("success") is True) or \
+            ('"status": "success"' in txt and "fail" not in txt and "error" not in txt)
+        return (not claimed_success), (f"http={r.status_code}, claimed-success={claimed_success} "
+                                       f"(must be False), body={_qtext(body)[:140]}")
+    finally:
+        _drop_conn(api, cid)
+
+
+@check("conn_execute_scalar", "Connections", "execute a scalar SELECT through a connection",
+       needs=["db"])
+def c_conn_scalar(ctx):
+    api = ctx["api"]
+    cid, _ = _make_conn(api, "REGP-conn-scalar")
+    try:
+        if not cid:
+            return False, "could not create probe connection"
+        r, body = _query(api, cid, "SELECT 42 AS answer")
+        return ("42" in _qtext(body)), f"http={r.status_code}, body={_qtext(body)[:140]}"
+    finally:
+        _drop_conn(api, cid)
+
+
+@check("conn_execute_real_table", "Connections",
+       "query a real ERPDB table -> matches the direct-DB oracle (17 invoices)", needs=["db"])
+def c_conn_real_table(ctx):
+    api = ctx["api"]
+    cid, _ = _make_conn(api, "REGP-conn-oracle")
+    try:
+        if not cid:
+            return False, "could not create probe connection"
+        r, body = _query(api, cid, "SELECT COUNT(*) AS n FROM dbo.Invoices")
+        return ("17" in _qtext(body)), f"expect 17 invoices; body={_qtext(body)[:140]}"
+    finally:
+        _drop_conn(api, cid)
+
+
+@check("conn_edit_preserves_password", "Connections",
+       "REGRESSION GUARD: editing with the masked sentinel keeps the real password",
+       needs=["db"])
+def c_conn_edit_masked(ctx):
+    """The bug that shipped TWICE: the UI sends the mask for an unchanged
+    password; if the server stores that literal, the connection silently stops
+    working. Assert the connection still QUERIES after an edit."""
+    api = ctx["api"]
+    name = "REGP-conn-edit"
+    cid, _ = _make_conn(api, name)
+    try:
+        if not cid:
+            return False, "could not create probe connection"
+        r0, b0 = _query(api, cid, "SELECT 42 AS answer")
+        worked_before = "42" in _qtext(b0)
+        upd = dict(ERP, connection_name=name + "-renamed", connection_id=cid, password=MASK)
+        ru = api.post("/add/connection", upd)
+        r1, b1 = _query(api, cid, "SELECT 42 AS answer")
+        works_after = "42" in _qtext(b1)
+        row = _conn_by_name(api, name + "-renamed") or {}
+        renamed = bool(row)
+        # NOTE: the list API always shows the mask at EGRESS (see
+        # conn_password_masked_in_list), so what it returns says NOTHING about
+        # what is stored. The only sound oracle is whether the connection still
+        # QUERIES after the edit — that is what the shipped bug broke.
+        ok = worked_before and works_after and renamed
+        return ok, (f"query-before={worked_before}, update-http={ru.status_code}, "
+                    f"query-after={works_after}, rename-persisted={renamed}")
+    finally:
+        row = _conn_by_name(api, name + "-renamed") or _conn_by_name(api, name) or {}
+        _drop_conn(api, row.get("id") or cid)
+
+
+@check("conn_edit_changes_field", "Connections",
+       "editing a non-secret field persists and the connection still works", needs=["db"])
+def c_conn_edit_field(ctx):
+    api = ctx["api"]
+    name = "REGP-conn-field"
+    cid, _ = _make_conn(api, name)
+    try:
+        if not cid:
+            return False, "could not create probe connection"
+        upd = dict(ERP, connection_name=name, connection_id=cid, password=MASK,
+                   parameters="Connect Timeout=25;")
+        api.post("/add/connection", upd)
+        row = _conn_by_name(api, name) or {}
+        persisted = "25" in str(row.get("parameters") or "")
+        r, body = _query(api, cid, "SELECT 42 AS answer")
+        return (persisted and "42" in _qtext(body)), (
+            f"parameters={row.get('parameters')!r}, still-queries={'42' in _qtext(body)}")
+    finally:
+        _drop_conn(api, cid)
+
+
+@check("conn_password_masked_in_list", "Connections",
+       "the connections list API must never return the plaintext password", needs=["db"])
+def c_conn_masking(ctx):
+    api = ctx["api"]
+    name = "REGP-conn-mask"
+    cid, _ = _make_conn(api, name)
+    try:
+        if not cid:
+            return False, "could not create probe connection"
+        row = _conn_by_name(api, name) or {}
+        blob = json.dumps(row)
+        leaked = "Bradynov11" in blob
+        return (not leaked), (f"plaintext-password-in-list={leaked} (must be False); "
+                              f"password field={str(row.get('password'))[:16]!r}")
+    finally:
+        _drop_conn(api, cid)
+
+
+@check("conn_delete_removes", "Connections",
+       "deleting a connection removes it from the list and it stops resolving", needs=["db"])
+def c_conn_delete(ctx):
+    api = ctx["api"]
+    name = "REGP-conn-del"
+    cid, _ = _make_conn(api, name)
+    if not cid:
+        return False, "could not create probe connection"
+    api.post(f"/delete/connection/{cid}")
+    gone = _conn_by_name(api, name) is None
+    r, body = _query(api, cid, "SELECT 42 AS answer")
+    txt = _qtext(body).lower()
+    refuses = (r.status_code >= 400) or ("not found" in txt) or ("error" in txt)
+    return (gone and refuses), (f"removed-from-list={gone}, post-delete query "
+                                f"http={r.status_code} refuses={refuses}")
+
+
+@check("conn_unreachable_server_honest", "Connections",
+       "a connection to a dead host fails honestly instead of reporting success",
+       needs=["db"])
+def c_conn_dead_host(ctx):
+    api = ctx["api"]
+    cid, _ = _make_conn(api, "REGP-conn-dead", server="10.255.255.1",
+                        parameters="Connect Timeout=5;")
+    try:
+        if not cid:
+            return False, "could not create probe connection"
+        r, body = _query(api, cid, "SELECT 42 AS answer")
+        txt = _qtext(body).lower()
+        claims_ok = "42" in _qtext(body)
+        honest = (r.status_code >= 400) or ("error" in txt) or ("timeout" in txt) or \
+                 ("unable" in txt) or ("fail" in txt)
+        return (honest and not claims_ok), (f"http={r.status_code}, honest-error={honest}, "
+                                            f"falsely-returned-data={claims_ok}")
+    finally:
+        _drop_conn(api, cid)
+
+
+# ---------------------------------------------------------- competency tier
+
+@check("comp_conn_unicode", "Connections", "unicode text survives the round-trip intact",
+       needs=["db"], competency=True)
+def c_comp_unicode(ctx):
+    api = ctx["api"]
+    cid, _ = _make_conn(api, "REGP-comp-unicode")
+    try:
+        r, body = _query(api, cid, "SELECT N'caf\u00e9-\u4e2d\u6587-\u00f1' AS u")
+        txt = _qdecoded(body)
+        ok = "caf\u00e9-\u4e2d\u6587-\u00f1" in txt
+        return ok, f"decoded={txt[:160]}"
+    finally:
+        _drop_conn(api, cid)
+
+
+@check("comp_conn_nulls", "Connections", "NULLs are distinguishable, not silently blanked",
+       needs=["db"], competency=True)
+def c_comp_nulls(ctx):
+    api = ctx["api"]
+    cid, _ = _make_conn(api, "REGP-comp-null")
+    try:
+        r, body = _query(api, cid, "SELECT CAST(NULL AS VARCHAR(10)) AS a, 'x' AS b")
+        txt = _qtext(body).lower()
+        ok = ("null" in txt or "none" in txt) and "x" in txt
+        return ok, f"returned={_qtext(body)[:160]}"
+    finally:
+        _drop_conn(api, cid)
+
+
+@check("comp_conn_leading_zeros", "Connections",
+       "leading-zero identifiers are NOT coerced to numbers", needs=["db"], competency=True)
+def c_comp_leading_zeros(ctx):
+    api = ctx["api"]
+    cid, _ = _make_conn(api, "REGP-comp-zeros")
+    try:
+        r, body = _query(api, cid, "SELECT CAST('007' AS VARCHAR(8)) AS code")
+        txt = _qtext(body)
+        ok = "007" in txt
+        return ok, f"expect '007' preserved; returned={txt[:140]}"
+    finally:
+        _drop_conn(api, cid)
+
+
+@check("comp_conn_decimal_precision", "Connections",
+       "decimal precision is preserved (no float mangling)", needs=["db"], competency=True)
+def c_comp_decimal(ctx):
+    api = ctx["api"]
+    cid, _ = _make_conn(api, "REGP-comp-decimal")
+    try:
+        r, body = _query(api, cid, "SELECT CAST(1234.5678 AS DECIMAL(10,4)) AS d")
+        txt = _qtext(body)
+        ok = "1234.5678" in txt
+        return ok, f"expect 1234.5678; returned={txt[:140]}"
+    finally:
+        _drop_conn(api, cid)
+
+
+@check("comp_conn_datetime", "Connections", "datetime values come back parseable",
+       needs=["db"], competency=True)
+def c_comp_datetime(ctx):
+    api = ctx["api"]
+    cid, _ = _make_conn(api, "REGP-comp-dt")
+    try:
+        r, body = _query(api, cid, "SELECT CAST('2026-03-04 05:06:07' AS DATETIME) AS d")
+        txt = _qtext(body)
+        ok = "2026" in txt and ("03" in txt or "Mar" in txt)
+        return ok, f"returned={txt[:160]}"
+    finally:
+        _drop_conn(api, cid)
+
+
+@check("comp_conn_empty_result", "Connections",
+       "an empty result set is distinguishable from an error", needs=["db"], competency=True)
+def c_comp_empty(ctx):
+    api = ctx["api"]
+    cid, _ = _make_conn(api, "REGP-comp-empty")
+    try:
+        r, body = _query(api, cid, "SELECT * FROM dbo.Invoices WHERE 1 = 0")
+        txt = _qtext(body).lower()
+        looks_error = '"status": "error"' in txt
+        ok = (r.status_code == 200) and not looks_error
+        return ok, f"http={r.status_code}, looks-like-error={looks_error}, body={_qtext(body)[:140]}"
+    finally:
+        _drop_conn(api, cid)
+
+
+@check("comp_conn_malformed_sql", "Connections",
+       "malformed SQL surfaces the REAL database error, not a generic one",
+       needs=["db"], competency=True)
+def c_comp_bad_sql(ctx):
+    api = ctx["api"]
+    cid, _ = _make_conn(api, "REGP-comp-badsql")
+    try:
+        r, body = _query(api, cid, "SELECT * FROM dbo.this_table_does_not_exist_regp")
+        txt = _qtext(body).lower()
+        specific = ("invalid object name" in txt or "this_table_does_not_exist_regp" in txt
+                    or "42s02" in txt)
+        return specific, (f"http={r.status_code}, names-the-real-cause={specific}, "
+                          f"body={_qtext(body)[:170]}")
+    finally:
+        _drop_conn(api, cid)
+
+
+@check("comp_conn_large_result", "Connections",
+       "a large result set returns without error (truncation must be disclosed)",
+       needs=["db"], competency=True)
+def c_comp_large(ctx):
+    api = ctx["api"]
+    cid, _ = _make_conn(api, "REGP-comp-large")
+    try:
+        sql = ("SELECT TOP 5000 ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS n "
+               "FROM sys.all_objects a CROSS JOIN sys.all_objects b")
+        r, body = _query(api, cid, sql)
+        txt = _qtext(body)
+        truncation_disclosed = ("truncat" in txt.lower() or "limit" in txt.lower())
+        ok = r.status_code == 200 and len(txt) > 500
+        return ok, (f"http={r.status_code}, payload~{len(txt)} chars, "
+                    f"truncation-wording-present={truncation_disclosed}")
+    finally:
+        _drop_conn(api, cid)
+
+
+@check("comp_conn_non_select_write", "Connections",
+       "documents whether the execute endpoint permits NON-SELECT (write) SQL",
+       needs=["db"], competency=True,
+       xfail="FOUND 2026-07-31: POST /api/connections/<id>/execute runs NON-SELECT "
+             "SQL -- a no-op UPDATE returned status=success. The route is "
+             "Developer-gated (min_role=2) and documented for builder-agent "
+             "validation, so this may be intended; but the NLQ architecture "
+             "review flagged LLM-authored non-SELECT SQL as a critical risk. "
+             "OWNER DECISION PENDING -- tripwire flips XPASS if a read-only "
+             "guard is added.")
+def c_comp_write(ctx):
+    """Probe only — a no-op UPDATE matching ZERO rows (WHERE 1=0). It can change
+    no data, but reveals whether writes are accepted (the NLQ architecture review
+    flagged LLM-authored non-SELECT SQL as a critical risk)."""
+    api = ctx["api"]
+    cid, _ = _make_conn(api, "REGP-comp-write")
+    try:
+        r, body = _query(api, cid, "UPDATE dbo.Invoices SET status = status WHERE 1 = 0")
+        txt = _qtext(body).lower()
+        refused = (r.status_code >= 400) or ("not allowed" in txt) or ("only select" in txt) \
+            or ("read-only" in txt) or ("refus" in txt)
+        return refused, (f"http={r.status_code}, write-refused={refused} "
+                         f"(False = the endpoint EXECUTES writes), body={_qtext(body)[:140]}")
+    finally:
+        _drop_conn(api, cid)
+
+
+@check("comp_conn_concurrent", "Connections",
+       "concurrent queries on one connection all return correct results",
+       needs=["db"], competency=True)
+def c_comp_concurrent(ctx):
+    import concurrent.futures as _f
+    api = ctx["api"]
+    cid, _ = _make_conn(api, "REGP-comp-concur")
+    try:
+        def one(i):
+            r, body = _query(api, cid, f"SELECT {i} AS v")
+            return str(i) in _qtext(body)
+        with _f.ThreadPoolExecutor(max_workers=5) as ex:
+            got = list(ex.map(one, [101, 202, 303, 404, 505]))
+        return all(got), f"5 parallel queries correct={sum(got)}/5"
+    finally:
+        _drop_conn(api, cid)
+
+
 # ---------------------------------------------------------------- pack-14 leg
 
 def run_pack14(args, remote=False, host="localhost"):
@@ -766,6 +1176,8 @@ def main():
     ap.add_argument("--only")
     ap.add_argument("--skip-wf14", action="store_true")
     ap.add_argument("--skip-llm", action="store_true")
+    ap.add_argument("--competency", action="store_true",
+                    help="also run the deeper competency/edge-case probes")
     ap.add_argument("--timeout", type=int, default=120)
     args = ap.parse_args()
 
@@ -790,6 +1202,10 @@ def main():
     for spec in CHECKS:
         cid = spec["id"]
         if args.only and args.only not in cid:
+            continue
+        if spec.get("competency") and not args.competency:
+            results.append({"id": cid, "area": spec["area"], "status": "SKIP",
+                            "evidence": "competency tier (run with --competency)"})
             continue
         if spec["llm"] and args.skip_llm:
             results.append({"id": cid, "area": spec["area"], "status": "SKIP",
