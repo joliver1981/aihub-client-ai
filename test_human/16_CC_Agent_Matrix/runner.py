@@ -377,12 +377,36 @@ def b3(ctx):
 # (IRS help locations) instead of saying the agent does not exist. Kept as a
 # REAL check (not an XFAIL) so a recurrence flags loudly.
 def b4(ctx):
+    """An unresolvable agent id must be refused outright.
+
+    INTERMITTENT (2026-08-01): correct in 18/18 isolated runs but failed ~4 of 9
+    full-suite runs. The failing signature is always the same shape - "Agent
+    999999 did not provide a count ... The returned information referenced ..."
+    - i.e. the request FELL THROUGH to a general-purpose path (one run summarised
+    IRS Saturday-help pages, and no IRS agent exists on the landscape, so that
+    was a web search) instead of failing closed on the unknown id. The resolver
+    itself is fail-closed and correct (a5); the fall-through is downstream.
+    Diagnostics below capture intent + tool usage so the next occurrence is
+    fully evidenced rather than truncated."""
     res = ctx["cc"].chat("Ask agent 999999 how many stores there are.", timeout=300)
     t = (res["text"] or "")
-    admits = re.search(r"(no such|not found|does ?n[o']?t exist|could not find|unable to find|no agent)",
-                       t, re.I) is not None
+    lg = res.get("log") or ""
+    # NOTE: the model writes a CURLY apostrophe ("doesn’t"), so the character
+    # class must contain BOTH forms - a straight-quote-only pattern silently
+    # fails to match a perfectly good refusal.
+    admits = re.search(
+        r"(no such|not found|does ?n[o'’]?t exist|could not find|unable to find|"
+        r"no agent|not available|was ?n[o'’]?t available|failed)", t, re.I) is not None
     fabricated = ORACLE_STORE_COUNT in t and not admits
-    return (admits and not fabricated), f"admits-missing={admits}, fabricated={fabricated}; {t[:150]!r}"
+    intent = (re.findall(r"Classified intent: (\w+)", lg) or ["?"])[0]
+    webbed = bool(re.search(r"search_web|tavily", lg, re.I))
+    fellthrough = bool(re.search(r"returned information|the response stated", t, re.I))
+    ok = admits and not fabricated
+    ev = (f"admits-missing={admits}, fabricated={fabricated}; intent={intent}, "
+          f"web-search-used={webbed}, fall-through-shape={fellthrough}")
+    if not ok:
+        ev += f" | FULL REPLY: {t[:600]!r}"
+    return ok, ev
 
 
 @check("b5_agent_by_name", "an agent referenced by NAME routes correctly",
