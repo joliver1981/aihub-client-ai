@@ -8059,9 +8059,11 @@ Respond with ONLY a JSON object, no prose:
     _exact_pick = None
     # Explicit id reference ("ask agent 281") — deterministic, and immune to
     # any cap on the picker prompt's agent list below.
+    _picked_by_id_ref = False
     _id_hits = _resolve_agent_id_refs(user_text, data_agents)
     if len(_id_hits) == 1:
         _exact_pick = str(_id_hits[0].get("agent_id"))
+        _picked_by_id_ref = True
         logger.info(
             f"[gather_data] Explicit agent-id reference → "
             f"{_id_hits[0].get('agent_name')} [{_exact_pick}] (skipping LLM picker)"
@@ -8165,8 +8167,37 @@ Respond with ONLY the agent_id number OR "ASK: <brief question listing 2-3 optio
 
             logger.info(f"[gather_data] Delegating to {agent_name} [{agent_id}]")
             await _emit_progress("delegating", f"Asking {agent_name}...")
+
+            # A turn that NAMES the agent ("good idea, try agent 281 instead —
+            # how many stores?") carries a routing phrase that is NOT part of
+            # the data question. Forwarding it verbatim made the agent answer
+            # ABOUT the other agent ("I don't have the details from agent 281")
+            # instead of running the query — pack 16 b2, which failed on every
+            # observed 'query'-intent run while the 'delegate' path (which
+            # decomposes into a clean sub-question) always passed. The REROUTE
+            # path already solves this; reuse its extractor rather than adding
+            # new logic. Fail-open: an empty/failed extraction sends the raw
+            # text exactly as before.
+            _agent_question = user_text
+            if _picked_by_id_ref:
+                try:
+                    _extracted = await _extract_reroute_question(
+                        user_text,
+                        (state.get("active_delegation") or {}).get("history") or [],
+                        state.get("messages") or [],
+                        state=state,
+                    )
+                    if _extracted and _extracted.strip():
+                        _agent_question = _extracted.strip()
+                        logger.info(
+                            f"[gather_data] Stripped routing phrase from an "
+                            f"id-referenced question → {_agent_question[:120]!r}")
+                except Exception as _eq_err:
+                    logger.debug(
+                        f"[gather_data] question extraction skipped: {_eq_err}")
+
             result = await _delegate_to_agent(
-                agent_id=agent_id, question=user_text,
+                agent_id=agent_id, question=_agent_question,
                 is_data_agent=True, session_id=state.get("session_id", "cc-default"),
             )
             
