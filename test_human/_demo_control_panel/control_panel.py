@@ -266,11 +266,17 @@ def check_portal_workflow(c):
 def check_portal_registration(c):
     data = _portal_store("portal_registry.json")
     portals = (data.get("users", {}).get(str(c.get("user", "13")), {}) or {}).get("portals", {}) or {}
-    if c["slug"] in portals:
-        has_totp = bool(portals[c["slug"]].get("totp_secret"))
-        return _ok("registered" + (" with TOTP seed" if has_totp else "")) if has_totp \
-            else ("warn", "registered but NO TOTP seed — 2FA would need human takeover")
-    return ("missing", "portal not registered")
+    if c["slug"] not in portals:
+        return ("missing", "portal not registered")
+    has_totp = bool(portals[c["slug"]].get("totp_secret"))
+    if c.get("expect_totp") is False:
+        # A takeover-demo portal must NOT have a seed, or the pause never happens.
+        if has_totp:
+            return ("warn", "has a TOTP seed — the 2FA-takeover demo would auto-pass; remove the seed")
+        return _ok("registered, manual 2FA (no seed) — as intended")
+    if has_totp:
+        return _ok("registered with TOTP seed")
+    return ("warn", "registered but NO TOTP seed — 2FA would need human takeover")
 
 
 def check_files(c):
@@ -398,6 +404,34 @@ def do_action(jid, aid):
             status = "done" if n >= 3 else "error"
             if n < 3 and not os.path.isdir(src):
                 out += f" — source folder missing: {src}"
+        elif kind == "delete_portal_jobs":
+            body = None
+            for attempt in (0, 1):
+                r = HUB.call("GET", "/api/scheduler/jobs")
+                try:
+                    body = r.json()
+                    body = json.loads(body) if isinstance(body, str) else body
+                    break
+                except Exception:
+                    continue
+            rows = []
+            if isinstance(body, list):
+                rows = body
+            elif isinstance(body, dict):
+                for v in body.values():
+                    if isinstance(v, list):
+                        rows.extend(v)
+            hits = [j for j in rows if isinstance(j, dict)
+                    and "portal_workflow" in json.dumps(j, default=str)]
+            deleted = []
+            for j in hits:
+                jid = j.get("id") or j.get("job_id")
+                if jid is not None:
+                    dr = HUB.call("DELETE", f"/api/scheduler/jobs/{jid}")
+                    deleted.append(f"#{jid} (http={dr.status_code})")
+            out = (f"deleted {len(deleted)} portal-workflow schedule(s): {', '.join(deleted)}"
+                   if deleted else "no portal-workflow schedules found")
+            status = "done"
         elif kind == "curate_dir":
             d, keep, aside = a["dir"], a["keep"], a["aside"]
             os.makedirs(aside, exist_ok=True)
