@@ -20,18 +20,50 @@ import logging
 from typing import Dict, List, Optional, Tuple
 
 from CommonUtils import get_cloud_db_connection
-from config import MAX_ATTACHMENT_CHARS
+import config as _cfg
 
 logger = logging.getLogger("AgentEmailAttachments")
 
 
-def _default_max_chars(max_chars: Optional[int]) -> int:
-    if max_chars is not None:
-        return max_chars
+def _coerce_cap(value, default: int) -> Optional[int]:
+    """Coerce a cap to a positive int, or return None if it isn't usable.
+
+    Deliberately type-checks BEFORE calling int(): caps arrive either as a
+    literal or as an env-var string, and anything else is a misconfiguration.
+    This also blocks a nasty failure mode — int(MagicMock()) returns 1 without
+    raising, so a test harness that mocks `config` wholesale would silently cap
+    every attachment at ONE character instead of falling back.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        return None
     try:
-        return int(MAX_ATTACHMENT_CHARS)
+        parsed = int(value)
     except (TypeError, ValueError):
-        return 500000
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _resolve_cap(max_chars: Optional[int], setting: str, default: int) -> int:
+    """Explicit argument wins; otherwise the named config cap, else `default`."""
+    explicit = _coerce_cap(max_chars, default)
+    if explicit is not None:
+        return explicit
+    configured = _coerce_cap(getattr(_cfg, setting, None), default)
+    return configured if configured is not None else default
+
+
+def _default_max_chars(max_chars: Optional[int]) -> int:
+    """Per-FILE extraction cap."""
+    return _resolve_cap(max_chars, 'MAX_ATTACHMENT_CHARS', 500000)
+
+
+def _default_combined_max_chars(max_chars: Optional[int]) -> int:
+    """Cap for ALL attachments joined together.
+
+    Deliberately a separate knob: this used to reuse the per-file cap, so an
+    email with five attachments squeezed all of them into one file's budget.
+    """
+    return _resolve_cap(max_chars, 'MAX_ATTACHMENT_COMBINED_CHARS', 2000000)
 
 
 def _cloud_cursor():
@@ -149,8 +181,8 @@ def get_attachment_texts_for_event(event_id, max_chars: Optional[int] = None) ->
 
 
 def build_combined_attachment_text(items: List[Dict], max_chars: Optional[int] = None) -> str:
-    """Join per-attachment text with filename headers, capped at max_chars."""
-    max_chars = _default_max_chars(max_chars)
+    """Join per-attachment text with filename headers, capped at the COMBINED cap."""
+    max_chars = _default_combined_max_chars(max_chars)
     parts = []
     for item in items:
         name = item.get("filename") or "(unknown)"

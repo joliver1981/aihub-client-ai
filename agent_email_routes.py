@@ -1397,7 +1397,8 @@ def extract_attachment_text(attachment_id):
     Extract text content from an attachment.
     
     Query params:
-        max_chars: Maximum characters to return (default: 50000)
+        max_chars: Maximum characters to return (default: the MAX_ATTACHMENT_CHARS
+            setting, 500,000 unless overridden)
         allow_ocr: Whether to use OCR for scanned PDFs (default: true)
     
     Returns JSON with extracted text.

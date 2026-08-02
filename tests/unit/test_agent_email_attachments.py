@@ -159,3 +159,39 @@ class TestBuildCombined:
         out = aea.build_combined_attachment_text(items, max_chars=100)
         assert len(out) <= 100 + 80  # cap + truncation marker
         assert "truncated" in out
+
+
+class TestCapSeparation:
+    """The combined cap is its own knob. It used to reuse the per-file cap, so an
+    email with N attachments squeezed all of them into ONE file's budget."""
+
+    def test_combined_is_not_bounded_by_the_per_file_cap(self):
+        items = [{"filename": f"f{i}.txt", "text": "A" * 400, "error": None}
+                 for i in range(5)]
+        with patch.object(aea._cfg, "MAX_ATTACHMENT_CHARS", 500), \
+             patch.object(aea._cfg, "MAX_ATTACHMENT_COMBINED_CHARS", 100000):
+            out = aea.build_combined_attachment_text(items)
+
+        assert "truncated" not in out
+        for i in range(5):
+            assert f"f{i}.txt" in out
+
+    def test_combined_still_caps_at_its_own_setting(self):
+        items = [{"filename": "big.txt", "text": "A" * 5000, "error": None}]
+        with patch.object(aea._cfg, "MAX_ATTACHMENT_COMBINED_CHARS", 1000):
+            out = aea.build_combined_attachment_text(items)
+        assert "truncated" in out
+
+    def test_per_file_cap_reads_its_own_setting(self):
+        with patch.object(aea._cfg, "MAX_ATTACHMENT_CHARS", 1234):
+            assert aea._default_max_chars(None) == 1234
+
+    def test_explicit_argument_wins_over_config(self):
+        assert aea._default_max_chars(88) == 88
+        assert aea._default_combined_max_chars(77) == 77
+
+    def test_garbage_setting_falls_back_to_default(self):
+        with patch.object(aea._cfg, "MAX_ATTACHMENT_COMBINED_CHARS", "not-a-number"):
+            assert aea._default_combined_max_chars(None) == 2000000
+        with patch.object(aea._cfg, "MAX_ATTACHMENT_CHARS", None):
+            assert aea._default_max_chars(None) == 500000

@@ -31,7 +31,32 @@ import json
 import requests
 from datetime import datetime, timedelta
 from CommonUtils import rotate_logs_on_startup, get_cloud_db_connection as get_db_connection, get_log_path
-from config import MAX_ATTACHMENT_CHARS
+import config as _cfg
+
+
+def _int_config(value, default: int) -> int:
+    """Coerce a config value to a positive int, falling back when it is unset,
+    garbage, or the wrong type.
+
+    Caps are env-overridable (so they arrive as strings) and this module is
+    imported under harnesses that mock `config` wholesale. The type check comes
+    BEFORE int() on purpose: int(MagicMock()) returns 1 without raising, which
+    would silently clamp every attachment to a single character.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+# Per-file text cap. This is the authoritative ceiling for read_attachment —
+# see MAX_ATTACHMENT_CHARS in config.py.
+MAX_ATTACHMENT_CHARS = _int_config(getattr(_cfg, 'MAX_ATTACHMENT_CHARS', None), 500000)
+# Largest attachment handed to a CC delegation as a real artifact.
+MAX_ATTACHMENT_ARTIFACT_MB = _int_config(getattr(_cfg, 'MAX_ATTACHMENT_ARTIFACT_MB', None), 50)
 
 
 # Configure logging
@@ -1097,8 +1122,72 @@ def _can_extract_locally(filename: str, content_type: str) -> bool:
     for t in extractable_types:
         if t in ct:
             return True
-    
+
     return False
+
+
+# Attachment extension -> the shared artifact store's type string (the VALUE of
+# ArtifactType, not the enum — the registration side does ArtifactType(str) and
+# falls back to TEXT on anything it doesn't recognise).
+_ARTIFACT_TYPE_BY_EXT = {
+    '.csv': 'csv', '.tsv': 'csv',
+    '.xlsx': 'excel', '.xlsm': 'excel', '.xls': 'excel',
+    '.pdf': 'pdf',
+    '.docx': 'docx', '.doc': 'docx',
+    '.json': 'json',
+    '.pptx': 'pptx', '.ppt': 'pptx',
+    '.png': 'image', '.jpg': 'image', '.jpeg': 'image',
+    '.gif': 'image', '.bmp': 'image', '.webp': 'image',
+}
+
+
+def _artifact_type_for(filename: str) -> str:
+    """Artifact-store type string for an attachment filename (default 'text')."""
+    ext = os.path.splitext(str(filename or ''))[1].lower()
+    return _ARTIFACT_TYPE_BY_EXT.get(ext, 'text')
+
+
+def _offer_attachment_as_artifact(filename: str, file_bytes: bytes) -> bool:
+    """Hand the ORIGINAL attachment bytes to a Command Center delegation, if one
+    is capturing. Returns True when the file was captured.
+
+    This is what makes "get the emailed report from agent X and summarize it"
+    work without having to tell the agent to re-save the file first: CC receives
+    the actual PDF/XLSX instead of an LLM-retyped rendition of the extracted
+    text, so nothing is lost to truncation or transcription. The delegated chat
+    route re-registers whatever lands in the sink into the shared artifact store
+    (scoped to the caller's session) and returns real download handles.
+
+    No-op on the normal agent-UI path, where no capture is active — that path
+    behaves exactly as before. See docs/agent-artifact-sharing-plan.md Phase 3.
+    """
+    try:
+        from command_center.artifacts import produced_sink
+    except Exception:
+        return False
+
+    try:
+        if not produced_sink.is_active():
+            return False
+    except Exception:
+        return False
+
+    limit_bytes = MAX_ATTACHMENT_ARTIFACT_MB * 1024 * 1024
+    size = len(file_bytes or b'')
+    if size > limit_bytes:
+        logger.info(
+            f"Attachment '{filename}' ({size} bytes) exceeds the "
+            f"{MAX_ATTACHMENT_ARTIFACT_MB}MB artifact limit - returning extracted text only.")
+        return False
+
+    try:
+        produced_sink.capture(filename, _artifact_type_for(filename),
+                              bytes(file_bytes), source='email_attachment')
+        logger.info(f"Captured attachment '{filename}' ({size} bytes) for the delegating caller.")
+        return True
+    except Exception as e:
+        logger.warning(f"Could not capture attachment '{filename}' as an artifact: {e}")
+        return False
 
 
 @tool
@@ -1111,11 +1200,15 @@ def read_attachment(attachment_id: str, max_length: int = int(MAX_ATTACHMENT_CHA
     
     ### Parameters:
     - attachment_id: The attachment ID (from list_email_attachments)
-    - max_length: Maximum characters to return (default: 50000)
-    
+    - max_length: Maximum characters to return. Defaults to the MAX_ATTACHMENT_CHARS
+      setting (500,000 unless overridden), which is also the ceiling.
+
     ### Returns:
     The extracted text content of the attachment, or an error if extraction fails.
-    
+    When another agent asked for this file, the ORIGINAL attachment is also handed
+    back to them as a downloadable file automatically - you do not need to re-save
+    or re-create it.
+
     ### Supported File Types:
     - PDF (.pdf) - Text extraction from PDF documents
     - Word (.docx, .doc) - Microsoft Word documents
@@ -1145,9 +1238,12 @@ def read_attachment(attachment_id: str, max_length: int = int(MAX_ATTACHMENT_CHA
         
         attachment_id_int = int(attachment_id_str)
         
-        # Validate max_length
-        max_length = min(max(1000, max_length), 500000)  # Between 1K and 500K
-        
+        # Clamp to the configured ceiling. This used to be a hardcoded 500000,
+        # which silently capped the result even when MAX_ATTACHMENT_CHARS was
+        # raised — config is the single authority now.
+        max_length = min(max(1000, _int_config(max_length, MAX_ATTACHMENT_CHARS)),
+                         MAX_ATTACHMENT_CHARS)
+
         # Get attachment info and bytes from local database
         try:
             conn = get_db_connection()
@@ -1185,11 +1281,21 @@ def read_attachment(attachment_id: str, max_length: int = int(MAX_ATTACHMENT_CHA
         
         if not file_bytes:
             return f"❌ Attachment '{filename}' content not available. It may not have been stored."
-        
+
+        # Hand the ORIGINAL bytes to a delegating caller (e.g. Command Center)
+        # before extraction, so the file still reaches them for the file types
+        # text extraction can't handle — which is exactly when the real file
+        # matters most.
+        _delivered = _offer_attachment_as_artifact(filename, file_bytes)
+        _delivery_note = (
+            f"\n\n📎 The original file '{filename}' has been attached for the requester "
+            f"to download — no need to re-create it."
+        ) if _delivered else ""
+
         # Extract text locally
         try:
             from attachment_text_extractor import extract_text_from_attachment
-            
+
             result = extract_text_from_attachment(
                 file_bytes=file_bytes,
                 filename=filename,
@@ -1197,16 +1303,16 @@ def read_attachment(attachment_id: str, max_length: int = int(MAX_ATTACHMENT_CHA
                 max_chars=max_length,
                 allow_ocr_fallback=True
             )
-            
+
             if not result['success']:
                 error = result.get('error', 'Unknown error')
                 if 'not installed' in error.lower() or 'import' in error.lower():
-                    return f"❌ Cannot extract text from '{filename}': Required library not installed. {error}"
+                    return f"❌ Cannot extract text from '{filename}': Required library not installed. {error}{_delivery_note}"
                 elif 'not supported' in error.lower() or 'not fully supported' in error.lower():
-                    return f"❌ Cannot extract text from '{filename}': {error}"
+                    return f"❌ Cannot extract text from '{filename}': {error}{_delivery_note}"
                 else:
-                    return f"❌ Could not extract text from '{filename}': {error}"
-            
+                    return f"❌ Could not extract text from '{filename}': {error}{_delivery_note}"
+
             text = result.get('text', '')
             
             # Format output
@@ -1226,18 +1332,21 @@ def read_attachment(attachment_id: str, max_length: int = int(MAX_ATTACHMENT_CHA
             
             if result.get('truncated'):
                 lines.append(f"⚠️ Content truncated (showing first {max_length:,} of {original_length:,} characters)")
-            
+                if _delivered:
+                    lines.append("   The COMPLETE file is attached for the requester — untruncated.")
+
             lines.append("-" * 60)
             lines.append("")
             lines.append(text)
             lines.append("")
             lines.append("=" * 60)
-            
-            return '\n'.join(lines)
-            
+
+            return '\n'.join(lines) + _delivery_note
+
         except ImportError as e:
-            return f"❌ Text extraction module not available: {e}. Please install: pip install PyMuPDF python-docx openpyxl"
-        
+            return (f"❌ Text extraction module not available: {e}. "
+                    f"Please install: pip install PyMuPDF python-docx openpyxl{_delivery_note}")
+
     except Exception as e:
         logger.error(f"Error reading attachment: {e}", exc_info=True)
         return f"Error reading attachment: {str(e)}"

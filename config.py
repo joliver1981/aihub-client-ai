@@ -370,8 +370,10 @@ MAX_GENERAL_AGENT_ITERATIONS = 10                       # Prevents runaway tool 
 # client gives up.
 CHAT_LLM_DEADLINE_S = int(os.getenv('CHAT_LLM_DEADLINE_S', '600'))
 WORKFLOW_EXECUTION_TIMEOUT = 3600                       # Timeout for workflow executions over API
-MAX_ATTACHMENT_SIZE_MB = 100                            # Max size of email attachment for text extraction
-MAX_ATTACHMENT_CHARS = 500000                           # Max characters returned from text extraction for email attachments
+MAX_ATTACHMENT_SIZE_MB = int(os.getenv('MAX_ATTACHMENT_SIZE_MB', '100'))                        # Max size of email attachment for text extraction
+MAX_ATTACHMENT_CHARS = int(os.getenv('MAX_ATTACHMENT_CHARS', '500000'))                         # Max characters returned from text extraction for ONE email attachment. Authoritative ceiling: read_attachment clamps to this, so raising the env var actually raises the limit (it used to hit a hardcoded 500000 and silently clamp back).
+MAX_ATTACHMENT_COMBINED_CHARS = int(os.getenv('MAX_ATTACHMENT_COMBINED_CHARS', '2000000'))      # Max chars for ALL attachments joined into ${email_attachment_text}. Separate from the per-file cap on purpose: sharing one budget meant 5 attachments each got a fifth of it.
+MAX_ATTACHMENT_ARTIFACT_MB = int(os.getenv('MAX_ATTACHMENT_ARTIFACT_MB', '50'))                 # Largest attachment handed to a Command Center delegation as a real artifact (original bytes). Above this the agent still returns extracted text, just no file.
 SMART_RENDER_HYBRID_ENABLED = True                      # Enable smart render with both deterministic and AI generated output
 SMART_RENDER_HYBRID_USE_MINI_MODEL = True               # Use mini or full models
 SMART_RENDER_HYBRID_ENABLE_AI_INSIGHTS = True           # Include AI insights (increases response time)
