@@ -240,3 +240,6 @@ workflow_builder_sessions/
 
 # pack-15 runner console captures (scratch)
 test_human/15_Platform_Regression/run_*.txt
+
+# Dev-machine provisioning: machine-specific facts stay local (public repo)
+docs/dev_machine/*.local.*
