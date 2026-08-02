@@ -16,9 +16,24 @@ and is now FAIL is reported as a REGRESSION and the exit code is non-zero. Known
 are registered as XFAIL — when one starts passing it is flagged XPASS ("fix landed,
 update the matrix / close the task"), never silently absorbed.
 
+TIERS (--tier N runs everything up to N; default 2):
+  1  core engine      — Set Variable, File, Conditional, Loop
+  2  integrations     — Database, Excel, Approvals, Folder, Portal, File Transfer
+  3  COMPETENCY       — opt-in. Tiers 1-2 ask "does the node execute?"; every check
+                        there is a happy path with a shape assertion. Tier 3 asks what
+                        the user actually cares about: is the OUTPUT correct, does a
+                        FAILURE report itself honestly, and do the edge cases (empty
+                        loop, NULLs, unicode, big result, throughput) survive the
+                        engine? It exists because this pack's standing bug —
+                        setvar_expression_failure_honesty — is a SILENT SUCCESS that
+                        tiers 1-2 structurally could not find. Adds ~4 min.
+
 Run (aihub2.1 env):
-  C:\\Users\\james\\miniconda3\\envs\\aihub2.1\\python.exe runner.py [--tier 2] [--only substr]
+  C:\\Users\\james\\miniconda3\\envs\\aihub2.1\\python.exe runner.py [--tier 3] [--only substr]
       [--cleanup] [--list] [--base-url http://localhost:5001] [--timeout 90]
+
+  Run tier 3 on an IDLE executor. A busy worker stretches the slow Excel checks and
+  a half-written file looks exactly like data loss (that misfired once on 2026-08-02).
 
 Statuses: PASS / FAIL / XFAIL (known bug, still failing) / XPASS (known bug now passing!)
           / SKIP (environment dependency missing — reason recorded) / ERROR (runner fault)
@@ -341,6 +356,40 @@ def read_xlsx_rows(path):
         df = pd.read_excel(path)
         return df.to_dict(orient="records")
     except Exception as e:
+        return None
+
+
+def read_xlsx_cells(path):
+    """First data row as {header: (value, cell_type)} using openpyxl.
+
+    NOT pandas: pd.read_excel re-parses cell TEXT into python types, so a text
+    cell holding '007' comes back as int 7 and a text '2026-03-04' as a
+    Timestamp. That made comp_type_fidelity report a false product bug on
+    2026-08-02 — the xlsx was correct all along. Anything asserting on how a
+    value is STORED must read the cell, not a dataframe."""
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(path)
+        ws = wb.active
+        hdr = [c.value for c in ws[1]]
+        out = {}
+        for h, c in zip(hdr, ws[2]):
+            out[str(h)] = (c.value, c.data_type)
+        wb.close()
+        return out
+    except Exception:
+        return None
+
+
+def xlsx_row_count(path):
+    """Row count excluding the header, or None."""
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(path, read_only=True)
+        n = wb.active.max_row
+        wb.close()
+        return max(0, n - 1)
+    except Exception:
         return None
 
 
@@ -798,7 +847,7 @@ def c_file_transfer(ctx):
 
 # ---------------- Tier 3 — registered but skipped by default (coverage honesty) ---
 
-TIER3_PLANNED = [
+PLANNED_COVERAGE = [
     ("alert_email", "Alert (email) node",
      "excluded by owner decision (james 2026-07-30) — do NOT automate (sends real email)"),
     ("ai_extract", "AI Extract node",
@@ -842,6 +891,298 @@ COVERAGE = {
     "file_transfer_sftp_upload": ["File", "File Transfer"],
     "portal_node_run": ["Portal"],
 }
+
+
+# ---------------- Tier 3 — COMPETENCY (opt-in: --tier 3) ----------------
+#
+# Tiers 1-2 ask "does the node execute?". Every check there is a happy path with
+# a shape assertion. Tier 3 asks what a user actually cares about:
+#   is the OUTPUT correct, does a FAILURE report itself honestly, and do the
+#   edge cases (empty loop, nulls, unicode, big result) survive the engine?
+# This tier exists because the one standing bug in this pack —
+# setvar_expression_failure_honesty — is a SILENT SUCCESS: the step "completes"
+# while writing garbage. Tier 1/2 could never have found it; only asking
+# "is the answer right?" does. Assume there are more of them.
+
+@check("comp_midchain_failure_honesty",
+       "COMPETENCY: a mid-chain failure must fail the RUN and stop downstream work",
+       tier=3, needs=["airdb"], disk=True)
+def c_comp_midchain_failure(ctx):
+    """No fail edge on purpose. A node that dies with nowhere to go must abort
+    the run, not let the engine sail on and report 'completed'."""
+    p1 = os.path.join(ctx["out"], "mid_step1.txt").replace("\\", "/")
+    p3 = os.path.join(ctx["out"], "mid_step3.txt").replace("\\", "/")
+    nodes = [file_node("node-0", "write", p1, "step1\n", x=100),
+             N("node-1", "Database", "boom",
+               {"connection": str(ctx["env"]["airdb"]), "dbOperation": "query",
+                "query": "SELECT * FROM TS.no_such_table_comp3",
+                "saveToVariable": True, "outputVariable": "x",
+                "continueOnError": False}, x=320),
+             file_node("node-2", "write", p3, "step3\n", x=540)]
+    nodes[0]["isStart"] = True
+    conns = [C("node-0", "node-1"), C("node-1", "node-2")]
+
+    def verify(eid, status):
+        ran1, ran3 = fexists(p1), fexists(p3)
+        ok = status == "failed" and ran1 and not ran3
+        return ok, (f"status={status} (want failed); step1-ran={ran1}; "
+                    f"step3-ran-after-failure={ran3} (must be False)")
+    return nodes, conns, {}, verify
+
+
+@check("comp_real_error_text_propagates",
+       "COMPETENCY: the REAL database error reaches the run record, not a generic message",
+       tier=3, needs=["airdb"])
+def c_comp_error_text(ctx):
+    """Guards the honest-error work in workflow_execution.py: a generic
+    'No data to write' style message hides the actual cause from the user."""
+    nodes = [N("node-0", "Database", "boom",
+               {"connection": str(ctx["env"]["airdb"]), "dbOperation": "query",
+                "query": "SELECT * FROM TS.no_such_table_comp3b",
+                "saveToVariable": True, "outputVariable": "x",
+                "continueOnError": False}, start=True)]
+
+    def verify(eid, status):
+        blob = " ".join(ctx["api"].logs_tail(eid, 30) or []).lower()
+        blob += " " + json.dumps(ctx["api"].steps(eid), default=str).lower()
+        names_cause = ("invalid object name" in blob
+                       or "no_such_table_comp3b" in blob)
+        ok = status == "failed" and names_cause
+        return ok, (f"status={status}; run record names the real SQL cause="
+                    f"{names_cause}")
+    return nodes, [], {}, verify
+
+
+@check("comp_variable_survives_long_chain",
+       "COMPETENCY: a variable set at step 1 is still intact five nodes later",
+       tier=3, disk=True)
+def c_comp_long_chain(ctx):
+    p = os.path.join(ctx["out"], "chain_end.txt").replace("\\", "/")
+    nodes = [set_var("node-0", "carried", "carried-value-9f3", start=True)]
+    conns = []
+    for i in range(1, 5):
+        nodes.append(file_node(f"node-{i}", "write",
+                               os.path.join(ctx["out"], f"chain_{i}.txt").replace("\\", "/"),
+                               f"hop{i}\n", x=100 + 220 * i))
+        conns.append(C(f"node-{i-1}", f"node-{i}"))
+    nodes.append(file_node("node-5", "write", p, "${carried}", x=1200))
+    conns.append(C("node-4", "node-5"))
+
+    def verify(eid, status):
+        got = (read_file(p) or "").strip()
+        ok = status == "completed" and got == "carried-value-9f3"
+        return ok, f"status={status}; value after 5 hops={got!r} (oracle 'carried-value-9f3')"
+    return nodes, conns, {}, verify
+
+
+@check("comp_loop_zero_items",
+       "COMPETENCY: an EMPTY loop runs the body zero times and still continues",
+       tier=3, disk=True)
+def c_comp_loop_zero(ctx):
+    body = os.path.join(ctx["out"], "loop0_body.txt").replace("\\", "/")
+    done = os.path.join(ctx["out"], "loop0_done.txt").replace("\\", "/")
+    nodes = [set_var("node-0", "items", "[]", start=True),
+             N("node-1", "Loop", "each item",
+               {"sourceType": "variable", "loopSource": "${items}",
+                "itemVariable": "currentItem", "indexVariable": "itemIndex",
+                "maxIterations": "10", "emptyBehavior": "skip"}, x=320),
+             file_node("node-2", "append", body, "SHOULD-NOT-APPEAR\n", x=540),
+             N("node-3", "End Loop", "end", {"loopNodeId": "node-1"}, x=760),
+             file_node("node-4", "write", done, "done\n", x=980)]
+    conns = [C("node-0", "node-1"), C("node-1", "node-2"), C("node-2", "node-3"),
+             C("node-3", "node-4")]
+
+    def verify(eid, status):
+        body_ran, continued = fexists(body), fexists(done)
+        ok = status == "completed" and not body_ran and continued
+        return ok, (f"status={status}; body-executed={body_ran} (must be False); "
+                    f"continuation-ran={continued}")
+    return nodes, conns, {}, verify
+
+
+@check("comp_loop_single_item",
+       "COMPETENCY: a ONE-item loop runs exactly once (off-by-one guard)",
+       tier=3, disk=True)
+def c_comp_loop_one(ctx):
+    p = os.path.join(ctx["out"], "loop1.txt").replace("\\", "/")
+    nodes = [set_var("node-0", "items", '["only"]', start=True),
+             N("node-1", "Loop", "each item",
+               {"sourceType": "variable", "loopSource": "${items}",
+                "itemVariable": "currentItem", "indexVariable": "itemIndex",
+                "maxIterations": "10", "emptyBehavior": "skip"}, x=320),
+             file_node("node-2", "append", p, "${currentItem}\n", x=540),
+             N("node-3", "End Loop", "end", {"loopNodeId": "node-1"}, x=760)]
+    conns = [C("node-0", "node-1"), C("node-1", "node-2"), C("node-2", "node-3")]
+
+    def verify(eid, status):
+        lines = [l for l in (read_file(p) or "").splitlines() if l.strip()]
+        ok = status == "completed" and lines == ["only"]
+        return ok, f"status={status}; iterations={len(lines)} (oracle 1); lines={lines}"
+    return nodes, conns, {}, verify
+
+
+@check("comp_conditional_boundary",
+       "COMPETENCY: '>' at the exact boundary (5 > 5) is FALSE, not true",
+       tier=3, disk=True)
+def c_comp_cond_boundary(ctx):
+    nodes, conns, pt, pf = _conditional_wf(ctx, "5", "boundary")
+
+    def verify(eid, status):
+        t, f = fexists(pt), fexists(pf)
+        ok = f and not t
+        return ok, (f"status={status}; 5>5 took TRUE branch={t} (must be False); "
+                    f"FALSE branch={f}")
+    return nodes, conns, {}, verify
+
+
+@check("comp_type_fidelity_db_to_excel",
+       "COMPETENCY: decimals, leading zeros, dates and NULLs survive Database -> Excel",
+       tier=3, needs=["airdb"], disk=True,
+       xfail="FOUND 2026-08-02: a SQL NULL arrives in the spreadsheet as the literal "
+             "four-character text 'None' - the user sees the word None in the cell "
+             "instead of an empty one, and any downstream SUM/filter treats it as "
+             "data. Related but milder: Excel Export writes EVERY value as a text "
+             "cell (data_type 's'), so numbers cannot be summed and dates cannot be "
+             "sorted without the user converting the column first. Values themselves "
+             "are correct - '007' really is preserved. OWNER DECISION PENDING.")
+def c_comp_types(ctx):
+    """Where silent corruption actually bites a user: they open the xlsx and the
+    part number 007 has become 7. Mirrors pack 15's connection-level type tier,
+    but through the WORKFLOW path, which marshals the data twice more.
+
+    Reads CELLS, not a dataframe - see read_xlsx_cells for why that matters."""
+    p = os.path.join(ctx["out"], "types.xlsx").replace("\\", "/")
+    q = ("SELECT CAST(1234.5678 AS DECIMAL(10,4)) AS dec_val, "
+         "'007' AS code, CAST('2026-03-04' AS DATE) AS dt, "
+         "CAST(NULL AS VARCHAR(10)) AS nullcol")
+    nodes = [N("node-0", "Database", "types",
+               {"connection": str(ctx["env"]["airdb"]), "dbOperation": "query",
+                "query": q, "saveToVariable": True, "outputVariable": "dbrows",
+                "continueOnError": False}, start=True),
+             N("node-1", "Excel Export", "export",
+               {"inputVariable": "${dbrows}", "excelOperation": "new",
+                "excelOutputPath": p, "excelSheetName": "Types",
+                "flattenArray": True, "outputVariable": "excelResult"}, x=320)]
+    conns = [C("node-0", "node-1")]
+
+    def verify(eid, status):
+        cells = read_xlsx_cells(hostpath(p))
+        if not cells:
+            return False, f"status={status}; no xlsx cells read"
+        val = {k: v for k, (v, _t) in cells.items()}
+        typ = {k: _t for k, (_v, _t) in cells.items()}
+        dec_ok = abs(float(str(val.get("dec_val")).strip()) - 1234.5678) < 0.00005
+        code_ok = str(val.get("code")).strip() == "007"      # preserved, verified
+        dt_ok = "2026-03-04" in str(val.get("dt"))
+        # The defect: a SQL NULL must not become the four-character word "None".
+        null_ok = val.get("nullcol") in (None, "") or str(val.get("nullcol")).strip() == ""
+        all_text = all(t == "s" for t in typ.values())
+        ok = status == "completed" and dec_ok and code_ok and dt_ok and null_ok
+        return ok, (f"status={status}; decimal={val.get('dec_val')!r}({dec_ok}); "
+                    f"leading-zeros={val.get('code')!r}({code_ok}); "
+                    f"date={val.get('dt')!r}({dt_ok}); "
+                    f"NULL={val.get('nullcol')!r}({null_ok}); "
+                    f"every-cell-written-as-text={all_text}")
+    return nodes, conns, {}, verify
+
+
+@check("comp_unicode_through_chain",
+       "COMPETENCY: non-ASCII text survives Database -> Excel intact",
+       tier=3, needs=["airdb"], disk=True)
+def c_comp_unicode(ctx):
+    p = os.path.join(ctx["out"], "unicode.xlsx").replace("\\", "/")
+    nodes = [N("node-0", "Database", "unicode",
+               {"connection": str(ctx["env"]["airdb"]), "dbOperation": "query",
+                "query": "SELECT N'café-中文-ñ' AS u",
+                "saveToVariable": True, "outputVariable": "dbrows",
+                "continueOnError": False}, start=True),
+             N("node-1", "Excel Export", "export",
+               {"inputVariable": "${dbrows}", "excelOperation": "new",
+                "excelOutputPath": p, "excelSheetName": "U",
+                "flattenArray": True, "outputVariable": "excelResult"}, x=320)]
+    conns = [C("node-0", "node-1")]
+
+    def verify(eid, status):
+        rows = read_xlsx_rows(hostpath(p))
+        got = str(rows[0].get("u")) if rows else None
+        want = "café-中文-ñ"
+        ok = status == "completed" and got == want
+        return ok, f"status={status}; got={got!r} (oracle {want!r})"
+    return nodes, conns, {}, verify
+
+
+EXPORT_ROWS = 120          # see comp_excel_export_throughput for why not 1000
+EXPORT_MIN_ROWS_PER_SEC = 5.0
+
+
+def _db_to_excel_nodes(ctx, path, top):
+    q = (f"SELECT TOP {top} e1.employee_id AS a, e2.employee_id AS b "
+         "FROM TS.employee_data e1 CROSS JOIN TS.employee_data e2 "
+         "ORDER BY e1.employee_id, e2.employee_id")
+    return [N("node-0", "Database", "big",
+              {"connection": str(ctx["env"]["airdb"]), "dbOperation": "query",
+               "query": q, "saveToVariable": True, "outputVariable": "dbrows",
+               "continueOnError": False}, start=True),
+            N("node-1", "Excel Export", "export",
+              {"inputVariable": "${dbrows}", "excelOperation": "new",
+               "excelOutputPath": path, "excelSheetName": "Big",
+               "flattenArray": True, "outputVariable": "excelResult"}, x=320)]
+
+
+@check("comp_large_result_no_truncation",
+       "COMPETENCY: a multi-row result reaches Excel with every row intact",
+       tier=3, needs=["airdb"], disk=True, slow=True)
+def c_comp_large(ctx):
+    """Silent truncation is the worst kind of wrong: the file opens, the numbers
+    look plausible, and a tenth of the data is missing.
+
+    Sized at 120 rows, not 1000. At the measured 0.66 rows/sec (see the
+    throughput check) 1000 rows takes ~25 minutes, so the first draft timed out
+    at 180s holding a half-written file and reported a truncation bug that does
+    not exist. Completeness and speed are now asked separately.
+
+    ALSO: run this on an IDLE executor. A second draft read 117/120 while an
+    earlier runaway 1000-row export was still competing for the worker; on a
+    quiet box it is 120/120 every time. Contention looks exactly like data loss
+    from the outside - check for running executions before believing a shortfall."""
+    p = os.path.join(ctx["out"], "large.xlsx").replace("\\", "/")
+    conns = [C("node-0", "node-1")]
+
+    def verify(eid, status):
+        n = xlsx_row_count(hostpath(p))
+        ok = status == "completed" and n == EXPORT_ROWS
+        return ok, f"status={status}; xlsx data rows={n} (oracle exactly {EXPORT_ROWS})"
+    return _db_to_excel_nodes(ctx, p, EXPORT_ROWS), conns, {"timeout": 420}, verify
+
+
+@check("comp_excel_export_throughput",
+       "COMPETENCY: Excel Export sustains a usable rows-per-second",
+       tier=3, needs=["airdb"], disk=True, slow=True,
+       xfail="FOUND 2026-08-02: Database -> Excel Export sustains 0.66 ROWS/SEC "
+             "(~1.5 s/row), linear in row count. Three independent measurements on "
+             "an IDLE executor agree to two decimals: 40 rows/60.6s, 120 "
+             "rows/182.9s, and a live sample of a 1000-row export = 0.66-0.67 "
+             "rows/sec; the small tier-1/2 exports fit the same line (1 row 3.1s, "
+             "2 rows 5.3s, 10 rows 15.7-17.2s). So 1,000 rows takes ~25 minutes and "
+             "10,000 rows ~4 hours - a realistic export is effectively unusable. "
+             "Correctness is fine: a 1000-row export DID write all 1000 rows, it "
+             "just took ~30 min. Tiers 1-2 never saw this because they only ever "
+             "export 2 or 10 rows. OWNER DECISION PENDING.")
+def c_comp_throughput(ctx):
+    p = os.path.join(ctx["out"], "throughput.xlsx").replace("\\", "/")
+    rows = 40
+    conns = [C("node-0", "node-1")]
+    t0 = time.time()
+
+    def verify(eid, status):
+        elapsed = max(0.001, time.time() - t0)
+        n = xlsx_row_count(hostpath(p)) or 0
+        rate = n / elapsed
+        ok = status == "completed" and rate >= EXPORT_MIN_ROWS_PER_SEC
+        return ok, (f"status={status}; {n} rows in {round(elapsed,1)}s = "
+                    f"{round(rate,2)} rows/sec (want >= {EXPORT_MIN_ROWS_PER_SEC}); "
+                    f"1000 rows would take ~{round((1000/rate)/60,1) if rate else '?'} min")
+    return _db_to_excel_nodes(ctx, p, rows), conns, {"timeout": 300}, verify
 
 
 # ------------------------------------------------------------------- lint checks
@@ -1039,11 +1380,12 @@ def run_checks(api, args):
                             "status": "ERROR", "evidence": f"runner error: {e}"})
             log(f"ERROR  {cid} — {e}")
 
-    # Tier-3 planned entries (coverage honesty)
-    for cid, title, reason in TIER3_PLANNED:
+    # Planned-coverage entries (tier 0 = not a runnable tier; emitted every run so
+# the coverage map stays honest about node types nothing exercises yet)
+    for cid, title, reason in PLANNED_COVERAGE:
         if args.only and args.only not in cid:
             continue
-        results.append({"id": cid, "title": title, "tier": 3, "status": "SKIP",
+        results.append({"id": cid, "title": title, "tier": 0, "status": "SKIP",
                         "evidence": f"not yet automated: {reason}"})
 
     lint = lint_workflows(api) if not args.only else None
@@ -1100,7 +1442,7 @@ def coverage_map(results):
         elif nt in skipped:
             rows.append((nt, f"check exists, SKIPPED this run: {', '.join(skipped[nt])}"))
         else:
-            planned = next((f"planned ({reason})" for cid, t, reason in TIER3_PLANNED
+            planned = next((f"planned ({reason})" for cid, t, reason in PLANNED_COVERAGE
                             if nt.lower().replace(" ", "_") in cid or cid in nt.lower()), None)
             rows.append((nt, planned or "NOT COVERED"))
     return rows
@@ -1221,7 +1563,9 @@ def main():
     ap.add_argument("--base-url", default=os.environ.get("NODEREG_BASE", "http://localhost:5001"))
     ap.add_argument("--user", default=os.environ.get("NODEREG_USER", "admin"))
     ap.add_argument("--password", default=os.environ.get("NODEREG_PASS", "admin"))
-    ap.add_argument("--tier", type=int, default=2, help="run checks up to this tier (default 2)")
+    ap.add_argument("--tier", type=int, default=2,
+                    help="run checks up to this tier (default 2; 3 = competency, "
+                         "adds ~4 min - run it on an idle executor)")
     ap.add_argument("--only", help="run only checks whose id contains this substring")
     ap.add_argument("--timeout", type=int, default=90, help="per-check execution timeout (s)")
     ap.add_argument("--cleanup", action="store_true", help="delete NODEREG workflows afterwards")
@@ -1246,7 +1590,7 @@ def main():
         for spec in CHECKS:
             flag = " [XFAIL]" if spec["xfail"] else ""
             print(f"T{spec['tier']}  {spec['id']:<28} {spec['title']}{flag}")
-        for cid, title, reason in TIER3_PLANNED:
+        for cid, title, reason in PLANNED_COVERAGE:
             print(f"T3  {cid:<28} {title}  [planned: {reason}]")
         return 0
 

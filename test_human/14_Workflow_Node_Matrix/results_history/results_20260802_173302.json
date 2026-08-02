@@ -1,0 +1,31 @@
+{
+ "stamp": "20260802_173302",
+ "out_dir": "C:\\temp\\aihub_test\\nodereg\\20260802_173302",
+ "env": {
+  "remote_disk": "True",
+  "airdb": "58",
+  "sftp": "True",
+  "sftp_secret": "SFTP_TEST_PASSWORD",
+  "portal": "nodereg_portal_probe",
+  "admin_id": "13"
+ },
+ "results": [
+  {
+   "id": "comp_large_result_no_truncation",
+   "title": "COMPETENCY: a multi-row result reaches Excel with every row intact",
+   "tier": 3,
+   "status": "PASS",
+   "evidence": "status=completed; xlsx data rows=120 (oracle exactly 120)",
+   "workflow_id": 1390,
+   "execution_id": "f9d7e504-5137-4191-ac28-2b5fc1efee31",
+   "duration_s": 182.9
+  }
+ ],
+ "lint": null,
+ "created": [
+  [
+   1390,
+   "NODEREG-comp_large_result_no_truncation"
+  ]
+ ]
+}

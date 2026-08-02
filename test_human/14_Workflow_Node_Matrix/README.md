@@ -26,6 +26,7 @@ Useful flags:
 | Flag | Meaning |
 |---|---|
 | `--tier 1` | core engine only (no AIRDB/SFTP/approvals deps); `--tier 2` (default) adds integrations |
+| `--tier 3` | **competency tier** (opt-in, ~4 min) — see below. Run it on an **idle executor**. |
 | `--only substr` | run only checks whose id contains the substring |
 | `--cleanup` | delete the `NODEREG-*` workflows afterwards (default: keep & reuse by name) |
 | `--list` | print the check catalog and exit |
@@ -75,7 +76,22 @@ workflow — a `goto` to the app's own login page — through the real browser-u
 steps only / `agentFallback` off; the probe auto-creates the saved portal workflow
 `NODEREG-portal-probe`; needs browser-use on `:5101`).
 
-### Tier 3 — registered but not automated (each SKIP row states why)
+Tier 3 — **competency** (opt-in, `--tier 3`, ~4 min): `comp_midchain_failure_honesty` (a node that
+dies with no fail edge must fail the RUN and stop downstream work), `comp_real_error_text_propagates`
+(the actual SQL error reaches the run record, not a generic message), `comp_variable_survives_long_chain`,
+`comp_loop_zero_items` (empty loop runs the body zero times and still continues),
+`comp_loop_single_item` (off-by-one), `comp_conditional_boundary` (`5 > 5` is FALSE),
+**`comp_type_fidelity_db_to_excel` (XFAIL — a SQL NULL lands as the literal text `None`)**,
+`comp_unicode_through_chain`, `comp_large_result_no_truncation` (120 rows, exact),
+**`comp_excel_export_throughput` (XFAIL — 0.66 rows/sec)**.
+
+Tiers 1-2 ask *"does the node execute?"* — every check is a happy path with a shape assertion.
+Tier 3 asks *"is the answer right, and does failure report itself honestly?"* It exists because this
+pack's standing bug (`setvar_expression_failure_honesty`) is a **silent success**, which tiers 1-2 are
+structurally incapable of finding. Run it on an **idle executor**: a busy worker stretches the slow
+Excel checks and a half-written file looks exactly like data loss.
+
+### Planned coverage — registered but not automated (each SKIP row states why)
 
 These node types appear in the report as SKIP so the coverage map stays honest:
 

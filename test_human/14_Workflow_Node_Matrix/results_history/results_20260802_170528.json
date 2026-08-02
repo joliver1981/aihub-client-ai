@@ -1,0 +1,143 @@
+{
+ "stamp": "20260802_170528",
+ "out_dir": "C:\\temp\\aihub_test\\nodereg\\20260802_170528",
+ "env": {
+  "remote_disk": "True",
+  "airdb": "58",
+  "sftp": "True",
+  "sftp_secret": "SFTP_TEST_PASSWORD",
+  "portal": "nodereg_portal_probe",
+  "admin_id": "13"
+ },
+ "results": [
+  {
+   "id": "comp_midchain_failure_honesty",
+   "title": "COMPETENCY: a mid-chain failure must fail the RUN and stop downstream work",
+   "tier": 3,
+   "status": "PASS",
+   "evidence": "status=failed (want failed); step1-ran=True; step3-ran-after-failure=False (must be False)",
+   "workflow_id": 1382,
+   "execution_id": "7435d0ac-6689-4f21-ab47-8e5626d20a9b",
+   "duration_s": 1.9
+  },
+  {
+   "id": "comp_real_error_text_propagates",
+   "title": "COMPETENCY: the REAL database error reaches the run record, not a generic message",
+   "tier": 3,
+   "status": "PASS",
+   "evidence": "status=failed; run record names the real SQL cause=True",
+   "workflow_id": 1383,
+   "execution_id": "553718f8-67d0-431a-9bde-e02c50dfee1d",
+   "duration_s": 1.9
+  },
+  {
+   "id": "comp_variable_survives_long_chain",
+   "title": "COMPETENCY: a variable set at step 1 is still intact five nodes later",
+   "tier": 3,
+   "status": "PASS",
+   "evidence": "status=completed; value after 5 hops='carried-value-9f3' (oracle 'carried-value-9f3')",
+   "workflow_id": 1384,
+   "execution_id": "cf5395ec-e40c-4d69-ab3d-64002feb5112",
+   "duration_s": 1.9
+  },
+  {
+   "id": "comp_loop_zero_items",
+   "title": "COMPETENCY: an EMPTY loop runs the body zero times and still continues",
+   "tier": 3,
+   "status": "PASS",
+   "evidence": "status=completed; body-executed=False (must be False); continuation-ran=True",
+   "workflow_id": 1385,
+   "execution_id": "6bf64464-175b-4357-a214-55050b44064e",
+   "duration_s": 1.8
+  },
+  {
+   "id": "comp_loop_single_item",
+   "title": "COMPETENCY: a ONE-item loop runs exactly once (off-by-one guard)",
+   "tier": 3,
+   "status": "PASS",
+   "evidence": "status=completed; iterations=1 (oracle 1); lines=['only']",
+   "workflow_id": 1386,
+   "execution_id": "c58c77db-254e-47fe-a32b-397187ec425d",
+   "duration_s": 1.9
+  },
+  {
+   "id": "comp_conditional_boundary",
+   "title": "COMPETENCY: '>' at the exact boundary (5 > 5) is FALSE, not true",
+   "tier": 3,
+   "status": "PASS",
+   "evidence": "status=completed; 5>5 took TRUE branch=False (must be False); FALSE branch=True",
+   "workflow_id": 1387,
+   "execution_id": "5ffbfa05-5d37-4ead-a12f-9f3c753be02d",
+   "duration_s": 1.9
+  },
+  {
+   "id": "comp_type_fidelity_db_to_excel",
+   "title": "COMPETENCY: decimals, leading zeros, dates and NULLs survive Database -> Excel",
+   "tier": 3,
+   "status": "FAIL",
+   "evidence": "status=completed; decimal=1234.5678(True); leading-zeros=7(False); date=2026-03-04(True); null=nan(True) | log-tail: Executing node: types (Database) ~ Workflow execution started: NODEREG-comp_type_fidelity_db_to_excel",
+   "workflow_id": 1388,
+   "execution_id": "e37cbf5e-eca7-44a7-b2db-0c466ab4fef3",
+   "duration_s": 3.1
+  },
+  {
+   "id": "comp_unicode_through_chain",
+   "title": "COMPETENCY: non-ASCII text survives Database -> Excel intact",
+   "tier": 3,
+   "status": "PASS",
+   "evidence": "status=completed; got='caf\u00e9-\u4e2d\u6587-\u00f1' (oracle 'caf\u00e9-\u4e2d\u6587-\u00f1')",
+   "workflow_id": 1389,
+   "execution_id": "9eac1073-2a7a-429b-8068-0a71de100427",
+   "duration_s": 2.0
+  },
+  {
+   "id": "comp_large_result_no_truncation",
+   "title": "COMPETENCY: a 1000-row result reaches Excel with every row intact",
+   "tier": 3,
+   "status": "FAIL",
+   "evidence": "status=running; xlsx rows=115 (oracle exactly 1000) | log-tail: Executing node: big (Database) ~ Workflow execution started: NODEREG-comp_large_result_no_truncation",
+   "workflow_id": 1390,
+   "execution_id": "51619d09-a361-4409-b570-89cf39269eb9",
+   "duration_s": 180.5
+  }
+ ],
+ "lint": null,
+ "created": [
+  [
+   1382,
+   "NODEREG-comp_midchain_failure_honesty"
+  ],
+  [
+   1383,
+   "NODEREG-comp_real_error_text_propagates"
+  ],
+  [
+   1384,
+   "NODEREG-comp_variable_survives_long_chain"
+  ],
+  [
+   1385,
+   "NODEREG-comp_loop_zero_items"
+  ],
+  [
+   1386,
+   "NODEREG-comp_loop_single_item"
+  ],
+  [
+   1387,
+   "NODEREG-comp_conditional_boundary"
+  ],
+  [
+   1388,
+   "NODEREG-comp_type_fidelity_db_to_excel"
+  ],
+  [
+   1389,
+   "NODEREG-comp_unicode_through_chain"
+  ],
+  [
+   1390,
+   "NODEREG-comp_large_result_no_truncation"
+  ]
+ ]
+}
