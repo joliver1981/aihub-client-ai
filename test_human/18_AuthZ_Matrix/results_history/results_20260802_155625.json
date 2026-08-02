@@ -1,0 +1,226 @@
+{
+ "stamp": "20260802_155625",
+ "tier": "AB",
+ "results": [
+  {
+   "id": "a1_global_auth_middleware_wired",
+   "status": "XFAIL",
+   "evidence": "middleware-module-present=True, init_auth_middleware called by=NOBODY, anon GET /api/scheduler/jobs -> 200 31635b (reachable=True)",
+   "duration_s": 9.5
+  },
+  {
+   "id": "a2_allowlist_contract",
+   "status": "PASS",
+   "evidence": "allowlist=11 (pinned 11); ADDED=none; removed=none",
+   "duration_s": 0.0
+  },
+  {
+   "id": "a3_dry_run_disabled",
+   "status": "XFAIL",
+   "evidence": "env='true', .env=unset (must not be true)",
+   "duration_s": 0.0
+  },
+  {
+   "id": "a4_login_rejects_bad_password",
+   "status": "PASS",
+   "evidence": "authenticated-with-wrong-password=False (must be False)",
+   "duration_s": 2.5
+  },
+  {
+   "id": "a5_anonymous_browser_redirects",
+   "status": "PASS",
+   "evidence": "landed=http://localhost:5001/login?next=%2Fusers, http=200",
+   "duration_s": 2.1
+  },
+  {
+   "id": "a6_anonymous_api_401",
+   "status": "PASS",
+   "evidence": "http=401 (want 401/403)",
+   "duration_s": 2.0
+  },
+  {
+   "id": "a7_session_cookie_flags",
+   "status": "PASS",
+   "evidence": "HttpOnly=True, SameSite=False, hdr='session=.eJwljktqBDEMBe_idRaSZeszl2kkSyYhkED3zCrk7mnIqni1eNRPO_ZZ13t7PM9XvbXjI9ujdTLJBPVME'",
+   "duration_s": 2.4
+  },
+  {
+   "id": "a8_logout_invalidates_session",
+   "status": "PASS",
+   "evidence": "pre-logout http=200, post-logout http=401, still-readable=False",
+   "duration_s": 3.5
+  },
+  {
+   "id": "a9_role1_blocked_from_admin",
+   "status": "PASS",
+   "evidence": "blocked={'users_page': True, 'save_workflow': True, 'automations_create': True}",
+   "duration_s": 3.1
+  },
+  {
+   "id": "a10_bad_api_key_rejected",
+   "status": "PASS",
+   "evidence": "http=401 (want 401/403)",
+   "duration_s": 2.0
+  },
+  {
+   "id": "a11_anonymous_get_sweep_ratchet",
+   "status": "PASS",
+   "evidence": "probed=229, ANONYMOUSLY REACHABLE=29 vs pinned 29 (ratchet: must not grow - PASS is NOT 'no problem'), errors=0, cleaned-up-minted-rows=0; first: /, /admin/caution-settings, /api/available-icons, /api/caution/level, /api/caution/levels, /api/caution/user",
+   "duration_s": 65.3
+  },
+  {
+   "id": "b1_role1_cannot_escalate_own_role",
+   "status": "PASS",
+   "evidence": "role after self-escalation attempt=1 (want 1)",
+   "duration_s": 3.1
+  },
+  {
+   "id": "b2_no_horizontal_agent_access",
+   "status": "PASS",
+   "evidence": "A reading B's agent 867 -> http=404, leaked=False",
+   "duration_s": 6.3
+  },
+  {
+   "id": "b3_anonymous_write_actually_persists",
+   "status": "XFAIL",
+   "evidence": "anon POST http=201, id=316, visible to an authenticated reader=True",
+   "duration_s": 2.2
+  },
+  {
+   "id": "b4_unauth_sensitive_reads",
+   "status": "XFAIL",
+   "evidence": "/get/users=401/122b/leak=False; /get/connections=401/122b/leak=False; /get/agents=302/241b/leak=False; /api/scheduler/jobs=200/31635b/leak=True; /api/workflow/approvals=200/307739b/leak=True; LEAKING=2",
+   "duration_s": 10.3
+  },
+  {
+   "id": "b5_role1_write_sweep",
+   "status": "XFAIL",
+   "evidence": "add_agent=http200/created=True; scheduler_job=http201/created=True; add_connection=http403/created=None; PRIVILEGED WRITES THAT LANDED=2",
+   "duration_s": 3.4
+  },
+  {
+   "id": "b6_sweep_reachable_are_harmless",
+   "status": "XFAIL",
+   "evidence": "reachable=29, sensitive-looking=3: /admin/caution-settings, /api/caution/user, /api/connection-types",
+   "duration_s": 0.0
+  }
+ ],
+ "sweep": [
+  [
+   "/",
+   "200 20459b"
+  ],
+  [
+   "/admin/caution-settings",
+   "200 24974b"
+  ],
+  [
+   "/api/available-icons",
+   "200 587b"
+  ],
+  [
+   "/api/caution/level",
+   "200 72b"
+  ],
+  [
+   "/api/caution/levels",
+   "200 73b"
+  ],
+  [
+   "/api/caution/user",
+   "200 94b"
+  ],
+  [
+   "/api/connection-types",
+   "200 3438b"
+  ],
+  [
+   "/api/setup/status",
+   "200 133b"
+  ],
+  [
+   "/api/workflow/analytics",
+   "200 22755b"
+  ],
+  [
+   "/api/workflow/approvals",
+   "200 307739b"
+  ],
+  [
+   "/api/workflow/assistant/history",
+   "200 142b"
+  ],
+  [
+   "/api/workflow/builder/training-stats",
+   "200 129b"
+  ],
+  [
+   "/api/workflow/logs",
+   "200 16115b"
+  ],
+  [
+   "/api/workflow/stats/counts",
+   "200 166b"
+  ],
+  [
+   "/api_check",
+   "200 557b"
+  ],
+  [
+   "/chat/data",
+   "200 199b"
+  ],
+  [
+   "/chat/data/explain",
+   "200 19b"
+  ],
+  [
+   "/chat/email",
+   "200 93b"
+  ],
+  [
+   "/document/config",
+   "200 83b"
+  ],
+  [
+   "/export_results",
+   "200 3b"
+  ],
+  [
+   "/get/odbc_drivers",
+   "200 467b"
+  ],
+  [
+   "/get_results",
+   "200 44b"
+  ],
+  [
+   "/index",
+   "200 55569b"
+  ],
+  [
+   "/landing",
+   "200 20459b"
+  ],
+  [
+   "/login",
+   "200 56525b"
+  ],
+  [
+   "/test",
+   "200 32b"
+  ],
+  [
+   "/test-bare",
+   "200 44b"
+  ],
+  [
+   "/test-crash",
+   "200 21b"
+  ],
+  [
+   "/test-template",
+   "200 53185b"
+  ]
+ ]
+}
