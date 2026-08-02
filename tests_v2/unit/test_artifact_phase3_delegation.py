@@ -172,7 +172,7 @@ def _src(rel):
 def test_app_route_captures_and_registers():
     s = _src("app.py")
     assert "def _register_delegated_artifacts(" in s
-    assert "produced_sink" in s and "begin_capture()" in s
+    assert "delegated_capture" in s
     assert "'artifacts': artifacts or None" in s
     # capture only when a CC session is supplied (normal UI path untouched)
     assert "cc_session_id = data.get('session_id')" in s
@@ -180,10 +180,46 @@ def test_app_route_captures_and_registers():
 
 def test_app_helper_matches_test_double():
     """Guard: the real helper must map unknown types to TEXT and scope by
-    {user}/{session} exactly like the tested double above."""
-    s = _src("app.py")
+    {user}/{session} exactly like the tested double above. That logic now lives
+    in the shared delegated_capture module (app.py and the agent-API service
+    both use it, and they MUST agree on the scope or the store-diff misses
+    files)."""
+    s = _src("command_center/artifacts/delegated_capture.py")
     assert "except ValueError:" in s and "ArtifactType.TEXT" in s
     assert '{caller_user_id}/{cc_session_id}' in s
+
+
+def test_agent_api_service_captures_on_its_own_side_of_the_hop():
+    """THE regression guard for the bug this suite previously missed.
+
+    With USE_AGENT_API=True (the default) the agent and its tools run in the
+    agent-API service, not in app.py. produced_sink is a ContextVar, so a
+    capture started in app.py alone can never see those tool calls and every
+    delegated file was silently dropped. The agent service must start its own
+    capture and register the results.
+    """
+    s = _src("app_agent_api.py")
+    assert "cc_session_id = data.get('cc_session_id')" in s
+    assert "delegated_capture" in s
+    assert "'artifacts': artifacts or None" in s
+
+
+def test_adapter_forwards_the_delegation_context_over_http():
+    """The ContextVar cannot cross the hop, so the session id must travel in the
+    request body instead."""
+    s = _src("agent_api_client.py")
+    assert "cc_session_id" in s and "cc_user_id" in s
+    assert "data['cc_session_id'] = cc_session_id" in s
+    # Adapter instances are shared across concurrent requests - per-run state
+    # must never be stashed on self.
+    assert "self.last_artifacts" not in s
+
+
+def test_general_agent_run_stays_signature_compatible_with_the_adapter():
+    """app.py swaps GeneralAgent and AgentAPIAdapter based on USE_AGENT_API and
+    calls run() with the delegation kwargs either way."""
+    s = _src("GeneralAgent.py")
+    assert "cc_session_id=None, cc_user_id=None" in s
 
 
 def test_delegator_sends_session_id_for_general():

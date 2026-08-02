@@ -3796,10 +3796,15 @@ class GeneralAgent():
 
         return structured_output
 
-    def run(self, input_prompt, use_smart_render=False, user_id=None):
+    def run(self, input_prompt, use_smart_render=False, user_id=None,
+            cc_session_id=None, cc_user_id=None):
         #########################
         # Run the agent
         #########################
+        # cc_session_id / cc_user_id are accepted for signature parity with
+        # AgentAPIAdapter (app.py swaps the two based on USE_AGENT_API) and are
+        # deliberately unused here: when the agent runs in-process the caller
+        # already holds the produced_sink capture, so there is no hop to cross.
         try:
             if use_smart_render:
                 self._append_date_to_agent_log()

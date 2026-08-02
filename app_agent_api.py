@@ -518,6 +518,13 @@ def chat():
         use_smart_render_str = data.get('use_smart_render', 'false')
         use_smart_render = str(use_smart_render_str).lower() == 'true'
         user_id = data.get('user_id', None)
+        # Cross-agent delegation (CC). The orchestrator runs in the MAIN app
+        # process; the agent and every tool it calls run HERE. produced_sink is
+        # a ContextVar, so a capture started over there can never see these tool
+        # calls — the capture has to happen on this side of the HTTP hop.
+        # docs/agent-artifact-sharing-plan.md Phase 3.
+        cc_session_id = data.get('cc_session_id')
+        cc_user_id = data.get('cc_user_id')
 
         if not agent_id or not prompt:
             logger.error(f"AGENT API: ERROR - Agent id or prompt not provided.")
@@ -539,17 +546,40 @@ def chat():
         
         # Run agent
         logger.info(f"Processing chat for agent {agent_id}: {prompt[:100]}...")
-        response = agent.run(prompt, use_smart_render=use_smart_render, user_id=user_id)
-        
+
+        _cap_token = None
+        if cc_session_id:
+            from command_center.artifacts import delegated_capture as _dc
+            _cap_token = _dc.begin(cc_session_id)
+            logger.info(f"AGENT API: delegated run for session {cc_session_id} "
+                        f"(capture {'active' if _cap_token is not None else 'UNAVAILABLE'})")
+
+        artifacts = []
+        try:
+            response = agent.run(prompt, use_smart_render=use_smart_render, user_id=user_id)
+        finally:
+            if _cap_token is not None:
+                try:
+                    from command_center.artifacts import delegated_capture as _dc
+                    # Registered into the SHARED store here, in this process. The
+                    # orchestrator picks them up by diffing that store, so the
+                    # bytes never cross the wire.
+                    artifacts = _dc.finish(_cap_token, agent_id, cc_session_id, cc_user_id)
+                except Exception as _e:
+                    logger.warning(f"AGENT API: delegated artifact capture failed: {_e}")
+                    artifacts = []
+
         # Get updated chat history
         updated_history = agent.get_chat_history()
-        
+
         return jsonify({
             'status': 'success',
             'response': response,
-            'chat_history': updated_history
+            'chat_history': updated_history,
+            'artifacts': artifacts or None
         })
-    
+
+
     except Exception as e:
         logger.error(f"Error in chat: {str(e)}")
         logger.error(traceback.format_exc())

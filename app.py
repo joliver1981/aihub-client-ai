@@ -2520,39 +2520,19 @@ def list_agents_summary():
 def _register_delegated_artifacts(produced, agent_id, cc_session_id, caller_user_id):
     """Re-register files a delegated general agent produced into the SHARED
     artifact store, scoped to the CC session so CC can serve them. Returns a
-    list of artifact content blocks (empty on nothing/failure — never raises)."""
-    if not produced or not cc_session_id:
-        return []
+    list of artifact content blocks (empty on nothing/failure — never raises).
+
+    Thin wrapper: the implementation moved to
+    command_center.artifacts.delegated_capture so the main app and the agent-API
+    service share ONE copy. They must agree on the storage scope or the
+    orchestrator's store-diff would miss what the agent service registered.
+    """
     try:
-        from command_center.artifacts.artifact_manager import get_shared_artifact_manager
-        from command_center.artifacts.artifact_models import ArtifactType
+        from command_center.artifacts import delegated_capture as _dc
     except Exception as e:
         logger.warning(f'[api_agent_chat] artifact store unavailable: {e}')
         return []
-
-    mgr = get_shared_artifact_manager()
-    scope = f"{caller_user_id}/{cc_session_id}" if caller_user_id is not None else str(cc_session_id)
-    blocks = []
-    for p in produced:
-        try:
-            try:
-                atype = ArtifactType(p.get('type', 'text'))
-            except ValueError:
-                atype = ArtifactType.TEXT
-            meta = mgr.create(
-                p.get('name', 'file'),
-                atype,
-                p.get('bytes', b''),
-                scope,
-                producing_agent=f"agent:{agent_id}",
-                source=p.get('source'),
-            )
-            blocks.append(meta.to_content_block())
-        except Exception as e:
-            logger.warning(f'[api_agent_chat] could not register delegated artifact: {e}')
-    if blocks:
-        logger.info(f'[api_agent_chat] Registered {len(blocks)} delegated artifact(s) for agent {agent_id}')
-    return blocks
+    return _dc.register(produced, agent_id, cc_session_id, caller_user_id)
 
 
 @app.route('/api/agents/<int:agent_id>/chat', methods=['POST'])
@@ -2624,30 +2604,42 @@ def api_agent_chat(agent_id):
             # agent-UI calls (no session_id). docs/agent-artifact-sharing-plan.md P3
             cc_session_id = data.get('session_id')
             caller_user_id = data.get('user_id')
-            _psink_token = None
+
+            # The agent may run HERE (USE_AGENT_API=False -> a real GeneralAgent)
+            # or in the agent-API service (the default -> an AgentAPIAdapter, an
+            # HTTP proxy). produced_sink is a ContextVar and cannot cross that
+            # hop, so cover both: hold a local capture for the in-process case,
+            # and diff the shared store afterwards to pick up anything the agent
+            # service registered on its own side. merge_blocks de-dupes.
+            _cap_token = None
+            _before_ids = set()
             if cc_session_id:
-                try:
-                    from command_center.artifacts import produced_sink as _psink
-                    _psink_token = _psink.begin_capture()
-                except Exception:
-                    _psink_token = None
+                from command_center.artifacts import delegated_capture as _dc
+                _cap_token = _dc.begin(cc_session_id)
+                _before_ids = _dc.snapshot_ids(cc_session_id, caller_user_id)
 
             try:
-                response_text = agent_instance.run(prompt, use_smart_render=False)
+                response_text = agent_instance.run(
+                    prompt, use_smart_render=False,
+                    cc_session_id=cc_session_id, cc_user_id=caller_user_id)
             finally:
-                produced_artifacts = []
-                if _psink_token is not None:
+                local_blocks = []
+                if _cap_token is not None:
                     try:
-                        from command_center.artifacts import produced_sink as _psink
-                        produced_artifacts = _psink.collected()
-                        _psink.end_capture(_psink_token)
+                        from command_center.artifacts import delegated_capture as _dc
+                        local_blocks = _dc.finish(
+                            _cap_token, agent_id, cc_session_id, caller_user_id)
                     except Exception:
-                        produced_artifacts = []
+                        local_blocks = []
 
             chat_history = agent_instance.get_chat_history()
 
-            artifacts = _register_delegated_artifacts(
-                produced_artifacts, agent_id, cc_session_id, caller_user_id) if cc_session_id else []
+            artifacts = []
+            if cc_session_id:
+                from command_center.artifacts import delegated_capture as _dc
+                remote_blocks = _dc.new_blocks_since(
+                    _before_ids, cc_session_id, caller_user_id)
+                artifacts = _dc.merge_blocks(local_blocks, remote_blocks)
 
             return jsonify({
                 'status': 'success',

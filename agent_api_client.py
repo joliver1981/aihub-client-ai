@@ -186,23 +186,29 @@ class AgentAPIClient:
             return True
         raise Exception(response.get('message', 'Failed to unload agent'))
     
-    def chat(self, agent_id: int, prompt: str, chat_history: List[Dict] = None, use_smart_render: bool = False, user_id: int = None) -> Dict:
+    def chat(self, agent_id: int, prompt: str, chat_history: List[Dict] = None, use_smart_render: bool = False, user_id: int = None,
+             cc_session_id: str = None, cc_user_id: Any = None) -> Dict:
         """
         Send a chat message to an agent (stateless)
-        
+
         Args:
             agent_id: ID of the agent
             prompt: User message/prompt
             chat_history: Previous chat history
-        
+            cc_session_id: delegating orchestrator's session id. Forwarded so the
+                agent service can capture files the agent produces — the capture
+                MUST happen there, since the agent runs in that process and
+                produced_sink is a ContextVar that cannot cross the HTTP hop.
+            cc_user_id: delegating user, used to scope the stored artifacts.
+
         Returns:
-            Dictionary with response and updated chat history
+            Dictionary with response, updated chat history, and any artifacts
         """
         if use_smart_render:
             use_smart_render = 'true'
         else:
             use_smart_render = 'false'
-            
+
         data = {
             'agent_id': agent_id,
             'prompt': prompt,
@@ -210,22 +216,27 @@ class AgentAPIClient:
             'use_smart_render': use_smart_render,
             'user_id': user_id
         }
-        
+        if cc_session_id:
+            data['cc_session_id'] = cc_session_id
+            data['cc_user_id'] = cc_user_id
+
         logger.info("AgentAPIClient - Making chat request via POST...")
         response = self._make_request('POST', '/chat', json=data)
-        
+
         if response.get('status') == 'success':
             return {
                 'response': response.get('response'),
-                'chat_history': response.get('chat_history', [])
+                'chat_history': response.get('chat_history', []),
+                'artifacts': response.get('artifacts') or []
             }
-        
+
         # Return error response in expected format
         return {
             'response': response.get('response', 'An error occurred'),
-            'chat_history': response.get('chat_history', chat_history or [])
+            'chat_history': response.get('chat_history', chat_history or []),
+            'artifacts': []
         }
-    
+
     def create_session(self, agent_id: int, user_id: Optional[str] = None) -> str:
         """
         Create a new chat session
@@ -371,15 +382,25 @@ class AgentAPIAdapter:
         """Clear chat history"""
         self.chat_history = []
     
-    def run(self, input_prompt: str, use_smart_render=False, user_id=None) -> str:
+    def run(self, input_prompt: str, use_smart_render=False, user_id=None,
+            cc_session_id=None, cc_user_id=None) -> str:
         """
         Run the agent with a prompt (compatible with existing code)
-        
+
         Args:
             input_prompt: User message/prompt
-        
+            cc_session_id: delegating orchestrator's session id, forwarded so the
+                agent service captures produced files on its own side of the hop.
+            cc_user_id: delegating user, scopes the stored artifacts.
+
         Returns:
             Agent response
+
+        Files the agent produced are NOT returned here — they are registered into
+        the shared artifact store by the agent service and the caller discovers
+        them by diffing that store (delegated_capture.new_blocks_since). Adapter
+        instances are shared across concurrent requests, so per-run state must
+        never be stashed on self.
         """
         logger.info(f"AGENT API CLIENT: Request to run agent {self.agent_id} user id {user_id}")
 
@@ -388,14 +409,16 @@ class AgentAPIAdapter:
             input_prompt,
             self.chat_history,
             use_smart_render=use_smart_render,
-            user_id=user_id
+            user_id=user_id,
+            cc_session_id=cc_session_id,
+            cc_user_id=cc_user_id,
         )
-        
+
         # Update chat history
         self.chat_history = result.get('chat_history', [])
-        
+
         return result.get('response', '')
-    
+
     def handle_agent_request(self, message: str, context: Dict = None) -> Dict:
         """
         Handle inter-agent request (compatible with existing code)
