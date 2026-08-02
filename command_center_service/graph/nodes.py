@@ -8338,11 +8338,12 @@ Command Center tools (set target_tool to the tool name, leave target_agent null)
 User request: {user_text}
 
 Return a JSON array of tasks IN EXECUTION ORDER:
-[{{"description": "what to do", "agent_input": "clean standalone question to send to the agent", "target_agent": "agent_id or null", "target_agent_name": "name or null", "is_data_agent": true_or_false, "target_tool": "tool_name or null"}}]
+[{{"description": "what to do", "agent_input": "clean standalone question to send to the agent", "target_agent": "agent_id or null", "target_agent_name": "name or null", "is_data_agent": true_or_false, "target_tool": "tool_name or null", "condition": "predicate or null"}}]
 
 RULES:
 - Each task must have EITHER target_agent OR target_tool — not both, not neither.
 - "description" is a short human-readable summary of the step (shown in the UI).
+- "condition" is for steps the user asked for ONLY IF something is true ("if the total is over X, email me", "only send it when there are overdue invoices"). COPY that requirement into "condition" as a standalone statement that can be judged true or false — e.g. "the invoice total exceeds $200,000". Leave "description" EXACTLY as you would have written it anyway, still including the qualifier: "condition" is an addition, never a rewrite. Set "condition" to null for steps the user wants done unconditionally — which is most steps. A condition may only depend on results an EARLIER task produces, never a later one.
 - "agent_input" is the EXACT question to send to the target agent, phrased as if the end user asked that agent directly. It MUST NOT mention agent names/IDs, "route to", "using ... agent", or "return the results to the user" — those are orchestration details the agent must never see. Example: description "Query sales by state for last year using retail data agent ID 391" → agent_input "What were sales by state for last year?". For target_tool tasks, set agent_input equal to description.
 - Set is_data_agent to match the agent's type from the list above. General agents are NOT data agents.
 - Order matters: if Task 2 needs Task 1's results (e.g., search then export), Task 1 must come first. Results from earlier tasks are automatically passed to later tasks.
@@ -8402,6 +8403,15 @@ Only return the JSON array, nothing else."""
                 "target_agent_name": t.get("target_agent_name"),
                 "is_data_agent": bool(t.get("is_data_agent", True)),
                 "target_tool": t.get("target_tool"),
+                # Predicate that must hold before this task runs, COPIED (not
+                # moved) out of the description by the decomposer. null on the
+                # overwhelming majority of tasks, and a null condition means
+                # the pipeline behaves exactly as it did before this existed.
+                # Authority split: `condition` decides WHETHER the task runs,
+                # `description` still decides WHAT it does — so the two texts
+                # differing in wording is harmless by construction.
+                "condition": (str(t.get("condition")).strip()
+                              if t.get("condition") not in (None, "", "null") else None),
                 "status": "pending",
                 "inputs": {},
                 "outputs": {},
@@ -9001,6 +9011,161 @@ async def execute_next_task(state: CommandCenterState) -> dict:
 
 # ─── Node: aggregate ──────────────────────────────────────────────────────
 
+_CONDITION_OPS = {
+    ">": lambda a, b: a > b,
+    ">=": lambda a, b: a >= b,
+    "<": lambda a, b: a < b,
+    "<=": lambda a, b: a <= b,
+    "==": lambda a, b: a == b,
+    "!=": lambda a, b: a != b,
+}
+
+
+def _coerce_number(value):
+    """Best-effort number from what the extractor returned ('$87,432.50' → 87432.5).
+
+    Format-cleanup only — the mini-LLM does all the language interpretation and
+    tells us WHICH number and WHICH operator. This just strips presentation so
+    Python can do the comparison, because asking an LLM to answer
+    '87,432.50 > 200,000' is exactly the arithmetic we do not want to trust.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if not isinstance(value, str):
+        return None
+    cleaned = re.sub(r"[^0-9.\-]", "", value.replace(",", ""))
+    if cleaned in ("", "-", ".", "-."):
+        return None
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+async def evaluate_next_condition(state: CommandCenterState) -> dict:
+    """Decide whether the NEXT pending task is allowed to run.
+
+    Sits between execute_next_task and the task-loop router so a task that must
+    not run is pruned from the queue BEFORE it reaches an executor. That keeps
+    execute_next_task and every tool handler dumb: by the time work arrives
+    there it is unconditional by construction, and no future tool handler has to
+    remember to re-check anything.
+
+    Two tiers:
+      * numeric  — the mini-LLM reports which value, operator and threshold it
+        found; PYTHON does the comparison (deterministic, no LLM arithmetic).
+      * judgment — genuinely qualitative predicates ("mentions overdue
+        invoices") fall back to the model's verdict.
+
+    Fail CLOSED: an unevaluable condition skips the task. The user asked for
+    something conditional; acting when we cannot confirm the condition holds is
+    the exact bug this node exists to prevent. Skips are always recorded and
+    reported, so an over-skip is visible and retryable — an over-send is not.
+    """
+    sub_tasks = list(state.get("sub_tasks", []))
+    idx = state.get("current_task_index", 0)
+    results = dict(state.get("delegation_results", {}))
+    changed = False
+
+    # Loop: consecutive conditional tasks must EACH be judged, otherwise a task
+    # sitting immediately after a skipped one would reach the executor without
+    # ever being checked. Stops at the first task allowed to run (or the end).
+    while idx < len(sub_tasks):
+        task = sub_tasks[idx]
+        condition = task.get("condition")
+        if not condition:
+            break  # Unconditional — byte-identical to the pre-existing pipeline.
+
+        allowed, detail, kind = await _judge_task_condition(state, sub_tasks, idx, results, condition)
+
+        # Both fields logged together: if the decomposer ever invents a condition
+        # with no basis in the description, it is visible here rather than silent.
+        logger.info(f"[evaluate_next_condition] task={task.get('id')} allowed={allowed} | "
+                    f"condition={condition!r} | description={task.get('description', '')!r} | {detail}")
+        from graph.tracing import trace_log
+        trace_log(state, event_type="condition_evaluated", node="evaluate_next_condition",
+                  payload={"task_id": task.get("id"), "condition": condition,
+                           "description": task.get("description", ""), "kind": kind,
+                           "allowed": allowed, "detail": detail})
+
+        if allowed:
+            break
+
+        skipped = dict(task)
+        skipped["status"] = "skipped"
+        skipped["skip_reason"] = f"condition not met — {detail}"
+        sub_tasks[idx] = skipped
+        idx += 1
+        changed = True
+
+    if not changed:
+        return {}
+    return {"sub_tasks": sub_tasks, "current_task_index": idx}
+
+
+async def _judge_task_condition(state, sub_tasks, idx, results, condition):
+    """Evaluate one task's condition. Returns (allowed, detail, kind)."""
+    prior_context = _build_prior_task_context(sub_tasks[:idx], results)
+
+    from cc_config import get_step_llm
+    llm = get_step_llm("task_condition_evaluator")
+    msgs = [HumanMessage(content=(
+        "Decide whether a planned step is allowed to run.\n\n"
+        f"Condition that must hold: {condition}\n\n"
+        f"Results from completed steps:\n{(prior_context or '(nothing has run yet)')[:8000]}\n\n"
+        "If the condition is a NUMERIC comparison, do NOT do the arithmetic yourself — just "
+        'report what you found:\n'
+        '{"kind":"numeric","left":<number from the results>,"op":"> | >= | < | <= | == | !=",'
+        '"right":<number from the condition>,"quote":"<the exact text you read the left value from>"}\n\n'
+        "If it is not numeric, judge it:\n"
+        '{"kind":"judgment","verdict":"true|false|unknown","reason":"<one sentence>"}\n\n'
+        "Use verdict \"unknown\" if the results do not contain what you need. "
+        "Return ONLY the JSON object."
+    ))]
+
+    _t0 = _trace_time.perf_counter()
+    try:
+        resp = await llm.ainvoke(msgs)
+        trace_llm_call(state, node="evaluate_next_condition", step="task_condition_evaluator",
+                       messages=msgs, response=resp,
+                       elapsed_ms=int((_trace_time.perf_counter() - _t0) * 1000),
+                       model_hint="mini")
+        raw = resp.content.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        verdict_obj = json.loads(raw)
+    except Exception as e:
+        logger.warning(f"[evaluate_next_condition] evaluation failed: {e}")
+        verdict_obj = {"kind": "judgment", "verdict": "unknown",
+                       "reason": f"the condition could not be evaluated ({e})"}
+
+    kind = str(verdict_obj.get("kind", "judgment")).lower()
+    allowed = False
+    detail = ""
+
+    if kind == "numeric":
+        left = _coerce_number(verdict_obj.get("left"))
+        right = _coerce_number(verdict_obj.get("right"))
+        op = str(verdict_obj.get("op", "")).strip()
+        fn = _CONDITION_OPS.get(op)
+        if left is None or right is None or fn is None:
+            detail = (f"could not read a numeric comparison from the results "
+                      f"(left={verdict_obj.get('left')!r}, op={op!r}, right={verdict_obj.get('right')!r})")
+        else:
+            allowed = bool(fn(left, right))          # <- Python decides, not the LLM
+            detail = f"{left:,.2f} {op} {right:,.2f} is {allowed}"
+    else:
+        verdict = str(verdict_obj.get("verdict", "unknown")).lower()
+        allowed = (verdict == "true")
+        detail = str(verdict_obj.get("reason") or verdict)
+
+    return allowed, detail, kind
+
+
 async def aggregate(state: CommandCenterState) -> dict:
     """Combine results from multiple delegations into a coherent response.
 
@@ -9074,6 +9239,11 @@ async def aggregate(state: CommandCenterState) -> dict:
                     block_placeholder = f"[FILE: {_art.get('name', 'file')} — attached below, do NOT reproduce]"
 
         display_result = block_placeholder or str(result_text)[:500]
+        # A task pruned by evaluate_next_condition never ran, so it has no
+        # result — carry the REASON instead. Reporting the skip is what keeps
+        # withholding an action honest rather than silent.
+        if task.get("status") == "skipped":
+            display_result = task.get("skip_reason", "condition not met")
         results_summary.append({
             "task": task.get("description", ""),
             "agent": task.get("target_agent_name", task.get("target_agent", "self")),
@@ -9096,6 +9266,7 @@ Synthesize these results into a clear, unified response for the user.
 HONESTY RULES (mandatory):
 - NEVER state or imply that a platform resource (agent, connection, workflow, tool, schedule, MCP server) was created, configured, or modified — delegated agents cannot do that, and no step here was verified against the platform. If an agent's reply claims it built something, report it as an unconfirmed claim, not a completed action.
 - Steps with status "failed" MUST be reported as failed. Do not soften, omit, or reframe them as successes.
+- Steps with status "skipped" DID NOT HAPPEN. The user asked for them conditionally and the condition was not met. Say plainly that you did not do it and give the reason from the result field (e.g. "I did not send the email — the total was $87,432.50, below the $200,000 threshold"). NEVER describe a skipped step as done, and never omit it.
 - Do not use blanket success language ("everything was set up successfully") unless every step has status "completed".
 {"NOTE: Some results contain rich content (artifacts, maps, etc.) that will be attached automatically. Do NOT try to recreate download links, artifact blocks, or map data — just reference them naturally (e.g., 'The Excel file is available for download below')." if preserved_blocks else ""}
 {STRUCTURED_RESPONSE_FORMAT}"""

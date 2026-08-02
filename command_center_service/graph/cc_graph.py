@@ -17,6 +17,7 @@ from graph.nodes import (
     analyze,
     decompose_tasks,
     execute_next_task,
+    evaluate_next_condition,
     aggregate,
     render_response,
     build,
@@ -62,6 +63,7 @@ def create_command_center_graph():
     graph.add_node("analyze", wrap_node("analyze", analyze))
     graph.add_node("decompose_tasks", wrap_node("decompose_tasks", decompose_tasks))
     graph.add_node("execute_next_task", wrap_node("execute_next_task", execute_next_task))
+    graph.add_node("evaluate_next_condition", wrap_node("evaluate_next_condition", evaluate_next_condition))
     graph.add_node("aggregate", wrap_node("aggregate", aggregate))
     graph.add_node("render_response", wrap_node("render_response", render_response))
     graph.add_node("build", wrap_node("build", build))
@@ -106,16 +108,23 @@ def create_command_center_graph():
 
     # ── Delegation flow: scan → decompose → [task loop] → aggregate → render → END
     graph.add_edge("scan_landscape", "decompose_tasks")
+    # Enter the loop through the condition check, not the executor — otherwise
+    # the FIRST task would run without its condition ever being judged.
     graph.add_conditional_edges(
         "decompose_tasks",
         wrap_router("route_after_decompose", route_after_decompose),
         {
-            "execute_next_task": "execute_next_task",
+            "execute_next_task": "evaluate_next_condition",
             "converse": "converse",
         },
     )
+    # A conditional task is pruned BEFORE it can reach an executor, so
+    # execute_next_task and every tool handler stay unconditional-by-construction.
+    # The check is its own node rather than logic inside the router because an
+    # edge function must stay a cheap pure predicate and cannot write state.
+    graph.add_edge("execute_next_task", "evaluate_next_condition")
     graph.add_conditional_edges(
-        "execute_next_task",
+        "evaluate_next_condition",
         wrap_router("route_task_loop", route_task_loop),
         {
             "execute_next_task": "execute_next_task",

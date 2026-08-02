@@ -451,6 +451,10 @@ MINI_LLM_STEPS: dict = {
     "builder_affirmative_detector": os.getenv("CC_MINI_BUILDER_AFFIRMATIVE_DETECTOR", "true").lower() == "true",
     "answer_quality_gate":          os.getenv("CC_MINI_ANSWER_QUALITY_GATE", "true").lower() == "true",
     "capability_router":            os.getenv("CC_MINI_CAPABILITY_ROUTER", "true").lower() == "true",
+    # Reads which value/operator/threshold a conditional task refers to. The
+    # COMPARISON itself is done in Python, so this step only has to identify the
+    # numbers — well within mini. Qualitative predicates fall back to its verdict.
+    "task_condition_evaluator":     os.getenv("CC_MINI_TASK_CONDITION_EVALUATOR", "true").lower() == "true",
     "export_intent_detector":       os.getenv("CC_MINI_EXPORT_INTENT_DETECTOR", "true").lower() == "true",
     # native A/B agent: YES/NO continuity check for visual-workflow follow-ups
     # (consulted only when the deterministic cues miss; fail-open)
