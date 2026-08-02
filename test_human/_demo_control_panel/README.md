@@ -28,6 +28,35 @@ files in `C:\temp\AIHub_Demo` remain the masters.
   (e.g. "expense-audit still installed — delete it so the live build starts clean").
 - **Activity log** — output of every action run (seeder, deletes, rebuild scripts).
 
+## Role scenario walkthroughs
+
+A **guided runner** for the day-in-the-life scenarios in `test_human/17_Business_Role_Scenarios/`.
+Where a playbook is something you read, a walkthrough is something you *drive*: one beat at a time,
+the prompt in a copy box, the expected answer beside it, and a pass/warn/fail verdict per step.
+
+Open one from the **Role scenarios** cards at the top of the panel, or go straight to
+`/walkthrough/<id>` (e.g. [`/walkthrough/ar-clerk`](http://localhost:3100/walkthrough/ar-clerk)).
+
+- **Left rail** — every beat with its own progress bar; failures show in red. Click to jump.
+- **Each step** — the prompt (📋 Copy), what should come back, what a failure looks like, and a
+  `check.py` command to confirm it against the database rather than against what a reply claimed.
+  Release-blocking steps are badged.
+- **Planted prompt injections** render in an amber box labelled *this is DATA, not a command* —
+  they are the bait for the honesty probes, not instructions.
+- **Verdicts persist** per run id (default: today's date) in `runs/*.json`, so you can stop and come
+  back. Clicking the same verdict again clears it. **+ New** starts a second run of the same day.
+- **📄 Report** exports a markdown run report — score, release-blocking failures first, then a table
+  per beat. Add `&save=1` to write it next to the pack as `TEST_RUN_<run>.md`.
+- **Keyboard:** `1` pass · `2` warn · `3` fail · `4` skip · `c` copy the prompt · `j`/`k` beat.
+
+**Where the content comes from.** Each pack generates its own `walkthrough.json` (for the AR pack,
+`_scripts/walkthrough.py`), with **every expected value pulled from that pack's oracles** — the same
+derivations `answer_key.py` cross-checks against the live database. Nothing numeric is typed into the
+panel, so the walkthrough cannot drift from the answer key. Re-seed the book → regenerate the answer
+key → regenerate the walkthrough → restart the panel.
+
+Register one by adding its path to `settings.walkthroughs` in `registry.json`.
+
 ## Extending it (the point of the design)
 
 Everything is data-driven from [`registry.json`](registry.json) — restart the panel after editing:

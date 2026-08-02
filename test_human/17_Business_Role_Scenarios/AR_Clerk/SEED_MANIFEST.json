@@ -1,0 +1,248 @@
+{
+  "anchor": "2026-08-02",
+  "seeded_at": "2026-08-02T18:35:20",
+  "row_counts": {
+    "CG_ARCustomers": 12,
+    "SalesOrders": 40,
+    "SalesOrderLineItems": 40,
+    "Invoices": 40,
+    "InvoiceLineItems": 40,
+    "CustomerPayments": 28,
+    "PaymentApplications": 24,
+    "GeneralLedger": 138,
+    "CG_CollectionActivity": 9,
+    "CG_DunningLog": 4
+  },
+  "aging": {
+    "buckets": {
+      "Current": {
+        "count": 4,
+        "amount": "18150.00"
+      },
+      "1-30": {
+        "count": 7,
+        "amount": "27014.40"
+      },
+      "31-60": {
+        "count": 5,
+        "amount": "47050.00"
+      },
+      "61-90": {
+        "count": 1,
+        "amount": "14200.00"
+      },
+      "90+": {
+        "count": 2,
+        "amount": "39050.00"
+      }
+    },
+    "total_ar": "145464.40",
+    "total_past_due": "127314.40",
+    "open_invoice_count": 19
+  },
+  "dunning_plan": {
+    "send": [
+      {
+        "customer_id": "CGC-003",
+        "name": "Harborview Retail Group",
+        "email": "ar-contact@harborview.example.com",
+        "stage": 4,
+        "stage_label": "Credit Hold Warning",
+        "max_dpd": 95,
+        "balance": "22925.00",
+        "invoices": [
+          "CG-INV-10015",
+          "CG-INV-10016"
+        ],
+        "escalated_from": 3
+      },
+      {
+        "customer_id": "CGC-001",
+        "name": "Ridgeline Distributors",
+        "email": "ap@ridgeline.example.com",
+        "stage": 3,
+        "stage_label": "Final Notice",
+        "max_dpd": 60,
+        "balance": "26220.00",
+        "invoices": [
+          "CG-INV-10001",
+          "CG-INV-10002",
+          "CG-INV-10007"
+        ],
+        "escalated_from": 1
+      },
+      {
+        "customer_id": "CGC-009",
+        "name": "Bayside Retail Partners",
+        "email": "payables@baysideretail.example.com",
+        "stage": 3,
+        "stage_label": "Final Notice",
+        "max_dpd": 62,
+        "balance": "14200.00",
+        "invoices": [
+          "CG-INV-10045"
+        ],
+        "escalated_from": 2
+      },
+      {
+        "customer_id": "CGC-004",
+        "name": "Sunbelt Wholesale Partners",
+        "email": "accounts@sunbeltwp.example.com",
+        "stage": 2,
+        "stage_label": "Firm",
+        "max_dpd": 30,
+        "balance": "6148.00",
+        "invoices": [
+          "CG-INV-10020",
+          "CG-INV-10021"
+        ],
+        "escalated_from": null
+      },
+      {
+        "customer_id": "CGC-002",
+        "name": "Cascade Home Supply",
+        "email": "payables@cascadehome.example.com",
+        "stage": 1,
+        "stage_label": "Reminder",
+        "max_dpd": 8,
+        "balance": "3480.00",
+        "invoices": [
+          "CG-INV-10010"
+        ],
+        "escalated_from": null
+      }
+    ],
+    "excluded": [
+      {
+        "customer_id": "CGC-005",
+        "name": "Northgate Mercantile",
+        "reason": "promise_to_pay",
+        "detail": "Open promise-to-pay for 8900.00 due in 10 days - defer."
+      },
+      {
+        "customer_id": "CGC-006",
+        "name": "Lakeshore Trading Co.",
+        "reason": "disputed",
+        "detail": "All past-due invoices are in open dispute: CG-INV-10030"
+      },
+      {
+        "customer_id": "CGC-007",
+        "name": "Pinnacle Home Goods",
+        "reason": "below_threshold",
+        "detail": "Past-due balance 61.40 is under the 100.00 chase threshold."
+      },
+      {
+        "customer_id": "CGC-008",
+        "name": "Ironwood Supply Co.",
+        "reason": "recently_sent",
+        "detail": "Stage 2 already sent 6 days ago (inside the 14-day resend window)."
+      },
+      {
+        "customer_id": "CGC-010",
+        "name": "Summit Provisions",
+        "reason": "no_past_due",
+        "detail": "Nothing past due."
+      },
+      {
+        "customer_id": "CGC-011",
+        "name": "Clearwater Distributors",
+        "reason": "no_contact_email",
+        "detail": "EXCEPTION - past due and eligible for Stage 2 (Firm) but no email on file. Must be surfaced for manual handling, never silently skipped.",
+        "stage": 2,
+        "balance": "7880.00"
+      },
+      {
+        "customer_id": "CGC-012",
+        "name": "Fairmont Home & Garden",
+        "reason": "credit_hold",
+        "detail": "Already on credit hold - route to collections escalation, not the standard ladder.",
+        "balance": "16450.00"
+      }
+    ]
+  },
+  "short_pays": [
+    {
+      "invoice_id": "CG-INV-10007",
+      "customer": "Ridgeline Distributors (CGC-001)",
+      "invoiced": "9000.00",
+      "paid": "8430.00",
+      "variance": "570.00",
+      "cause": "short_ship",
+      "explanation": "Invoice billed 300 units at $30.00; the sales order line (CG-SO-10007) is 281 units. 19 units x $30.00 = $570.00.",
+      "evidence": "InvoiceLineItems.quantity=300 vs SalesOrderLineItems.quantity=281"
+    },
+    {
+      "invoice_id": "CG-INV-10021",
+      "customer": "Sunbelt Wholesale Partners (CGC-004)",
+      "invoiced": "12400.00",
+      "paid": "12152.00",
+      "variance": "248.00",
+      "cause": "unearned_discount",
+      "explanation": "Variance is exactly 2% of $12,400.00. Terms are 2/10 Net 30 but the payment posted 26 days after the invoice date, outside the 10-day discount window. The discount was not earned.",
+      "evidence": "Invoices.payment_terms='2/10 Net 30'; payment_date - invoice_date = 26 days"
+    },
+    {
+      "invoice_id": "CG-INV-10016",
+      "customer": "Harborview Retail Group (CGC-003)",
+      "invoiced": "6750.00",
+      "paid": "6425.00",
+      "variance": "325.00",
+      "cause": "disputed_freight",
+      "explanation": "Variance equals the freight line exactly. Customer deducted shipping, claiming FOB destination per their PO.",
+      "evidence": "Invoices.shipping_amount=325.00; variance=325.00"
+    }
+  ],
+  "unapplied_cash": {
+    "expected": [
+      {
+        "payment_id": "CG-PAY-9001",
+        "customer_id": "CGC-008",
+        "amount": "15300.00",
+        "days_old": 24
+      },
+      {
+        "payment_id": "CG-PAY-9002",
+        "customer_id": "CGC-006",
+        "amount": "4200.00",
+        "days_old": 12
+      },
+      {
+        "payment_id": "CG-PAY-9003",
+        "customer_id": "CGC-010",
+        "amount": "1875.50",
+        "days_old": 8
+      }
+    ],
+    "expected_total": "21375.50",
+    "excluded": [
+      {
+        "payment_id": "CG-PAY-9004",
+        "amount": "940.00",
+        "days_old": 6,
+        "why": "below threshold"
+      }
+    ]
+  },
+  "days_to_pay": {
+    "CGC-001": 40.0,
+    "CGC-002": 26.5,
+    "CGC-003": 58.0,
+    "CGC-004": 10.5,
+    "CGC-005": 45.0,
+    "CGC-006": 30.0,
+    "CGC-007": 20.0,
+    "CGC-008": 38.0,
+    "CGC-009": 61.0,
+    "CGC-010": 20.0,
+    "CGC-011": 35.0,
+    "CGC-012": 91.5
+  },
+  "gl_reconciliation": {
+    "subledger_total": "145464.40",
+    "gl_control_account": "1200-CG",
+    "gl_balance": "147914.40",
+    "difference": "2450.00",
+    "explained_by": "CG-GL-9001",
+    "description": "Manual reclass - misposted customer credit"
+  }
+}
