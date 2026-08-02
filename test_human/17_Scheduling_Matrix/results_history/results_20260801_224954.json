@@ -1,0 +1,120 @@
+{
+ "stamp": "20260801_224954",
+ "tier": "AB",
+ "results": [
+  {
+   "id": "s1_backend_healthy",
+   "status": "PASS",
+   "evidence": "backend=APScheduler, use_apscheduler=True",
+   "duration_s": 0.0
+  },
+  {
+   "id": "s2_job_type_contract",
+   "status": "PASS",
+   "evidence": "implemented=['agent', 'automation', 'command_center', 'document', 'portal_workflow', 'workflow']; missing=none; new=none",
+   "duration_s": 0.0
+  },
+  {
+   "id": "s3_job_crud",
+   "status": "PASS",
+   "evidence": "http=201, id=277, type=workflow, target=1",
+   "duration_s": 0.2
+  },
+  {
+   "id": "s4_target_id_contract",
+   "status": "PASS",
+   "evidence": "portal_workflow slug -> http=201 target_id=0 (want 0); workflow slug -> http=400 rejected=True; no-raw-sql-error=True",
+   "duration_s": 0.3
+  },
+  {
+   "id": "s5_missing_fields_rejected",
+   "status": "PASS",
+   "evidence": "http=400, error='Missing required fields (name, type, target_id)'",
+   "duration_s": 0.0
+  },
+  {
+   "id": "s6_interval_schedule_persists",
+   "status": "PASS",
+   "evidence": "schedule-http=201, schedules=1, job-type=workflow, target=1354 (want workflow/1354)",
+   "duration_s": 0.4
+  },
+  {
+   "id": "s7_cron_schedule_persists",
+   "status": "PASS",
+   "evidence": "schedule-http=201, schedules-on-job=1",
+   "duration_s": 0.4
+  },
+  {
+   "id": "s8_invalid_schedule_type_rejected",
+   "status": "PASS",
+   "evidence": "http=500, schedules-created=0 (must be 0)",
+   "duration_s": 0.4
+  },
+  {
+   "id": "s9_list_by_type",
+   "status": "PASS",
+   "evidence": "http=200, workflow-schedules=38",
+   "duration_s": 0.0
+  },
+  {
+   "id": "s10_delete_removes_job_and_schedules",
+   "status": "PASS",
+   "evidence": "schedules-before=1, job-removed=True, schedules-still-listed=0 (want 0)",
+   "duration_s": 0.5
+  },
+  {
+   "id": "s11_unknown_job_type_handled",
+   "status": "XFAIL",
+   "evidence": "http=201, row-created=True, error='None'",
+   "duration_s": 0.1
+  },
+  {
+   "id": "s12_scheduler_writes_require_auth",
+   "status": "XFAIL",
+   "evidence": "anon: POST /jobs=201, PUT /jobs/<id>=200, POST /jobs/<id>/schedules=201, DELETE /jobs/<id>=200; guarded twin /types/workflow/schedules=401; UNAUTH WRITES=4",
+   "duration_s": 2.3
+  },
+  {
+   "id": "s13_get_schedules_has_no_write_side_effect",
+   "status": "XFAIL",
+   "evidence": "GET http=200, jobs 125->126, rows created by a READ=1 (Document Job 987653, type=document)",
+   "duration_s": 0.3
+  },
+  {
+   "id": "c1_schedule_actually_fires",
+   "status": "PASS",
+   "evidence": "schedule-http=201, job=287/workflow, next_run_time=2026-08-02T02:53:11.287000, executions 0->1 after 130.4s (interval 60s)",
+   "duration_s": 131.0
+  },
+  {
+   "id": "c2_disabled_schedule_stays_silent",
+   "status": "PASS",
+   "evidence": "executions 0->0 after 180s (inactive schedule must NOT fire)",
+   "duration_s": 180.6
+  },
+  {
+   "id": "c3_deleted_job_stops_firing",
+   "status": "PASS",
+   "evidence": "after delete, executions 0->0 over 180s (must not grow)",
+   "duration_s": 182.7
+  },
+  {
+   "id": "c4_invalid_cron_rejected",
+   "status": "PASS",
+   "evidence": "http=500, schedules-created=0; body=\"{'error': 'Failed to create schedule'}\"",
+   "duration_s": 0.4
+  },
+  {
+   "id": "c5_schedule_listing_consistent",
+   "status": "PASS",
+   "evidence": "by-job=1, visible-in-by-type-listing=True",
+   "duration_s": 0.5
+  },
+  {
+   "id": "c6_many_schedules_one_job",
+   "status": "PASS",
+   "evidence": "schedules created=3, retrieved=3",
+   "duration_s": 0.5
+  }
+ ]
+}
