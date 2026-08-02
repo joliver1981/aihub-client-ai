@@ -1,0 +1,534 @@
+{
+ "stamp": "20260802_130402",
+ "commit": "c0c0d46",
+ "target": "local",
+ "results": [
+  {
+   "id": "svc_ports",
+   "area": "Services",
+   "status": "PASS",
+   "evidence": "host=localhost; required down=none; not-listening (may run in-process on an install): none \u2014 INFORMATIONAL, capability is asserted by the functional checks",
+   "duration_s": 22.1
+  },
+  {
+   "id": "auth_bad_password",
+   "area": "Auth",
+   "status": "PASS",
+   "evidence": "landed=http://localhost:5001/login, rejection-flash=True",
+   "duration_s": 2.4
+  },
+  {
+   "id": "auth_anonymous_gate",
+   "area": "Auth",
+   "status": "PASS",
+   "evidence": "landed=http://localhost:5001/login?next=%2Fusers http=200",
+   "duration_s": 2.1
+  },
+  {
+   "id": "pages_render",
+   "area": "Pages",
+   "status": "PASS",
+   "evidence": "33/33 ok",
+   "duration_s": 3.8
+  },
+  {
+   "id": "agent_crud",
+   "area": "Agents",
+   "status": "PASS",
+   "evidence": "id=847, listed=True, deleted=True",
+   "duration_s": 0.4
+  },
+  {
+   "id": "agent_chat_math",
+   "area": "Agents",
+   "status": "PASS",
+   "evidence": "http=200, contains-75=True, tail=with just the number.\", \"role\": \"user\"}, {\"content\": \"75\", \"role\": \"assistant\"}], \"response\": \"75\", \"status\": \"success\"}",
+   "duration_s": 3.1
+  },
+  {
+   "id": "agent_artifact_csv",
+   "area": "Agents",
+   "status": "PASS",
+   "evidence": "http=200, file=yes, content='a,b\\n1,2'",
+   "duration_s": 5.8
+  },
+  {
+   "id": "knowledge_ingest_delete",
+   "area": "Knowledge/Docs",
+   "status": "PASS",
+   "evidence": "agent=848, ingest=success, chars=2449, type=policy_document, deleted=True",
+   "duration_s": 8.1
+  },
+  {
+   "id": "nlq_data_chat",
+   "area": "Data/NLQ",
+   "status": "PASS",
+   "evidence": "http=200, contains-15=True, tail=total.\", \"metadata\": {}, \"type\": \"text\"}], \"type\": \"rich_content\"}, \"rich_content_enabled\": true, \"special_message\": \"\"}",
+   "duration_s": 5.8
+  },
+  {
+   "id": "documents_api",
+   "area": "Knowledge/Docs",
+   "status": "PASS",
+   "evidence": "http=200, documents=20",
+   "duration_s": 0.0
+  },
+  {
+   "id": "automation_lifecycle",
+   "area": "Automations",
+   "status": "PASS",
+   "evidence": "v=1, dry-run=success, promoted=1, deleted-http=200",
+   "duration_s": 0.9
+  },
+  {
+   "id": "automation_verify_honesty",
+   "area": "Automations",
+   "status": "PASS",
+   "evidence": "liar-run status=failed (must NOT be success), exit0-but-caught=True",
+   "duration_s": 0.8
+  },
+  {
+   "id": "codeflows_registry",
+   "area": "Code Flows",
+   "status": "PASS",
+   "evidence": "http=200, flows=6 (count informational \u2014 fresh installs legitimately have 0)",
+   "duration_s": 0.0
+  },
+  {
+   "id": "portal_wf_persist",
+   "area": "Portal WF",
+   "status": "PASS",
+   "evidence": "save=200, slug=regp_portal_temp, listed=True, dup=409 (want 409), del=200",
+   "duration_s": 0.1
+  },
+  {
+   "id": "approvals_api",
+   "area": "Approvals",
+   "status": "PASS",
+   "evidence": "http=200, pending=229",
+   "duration_s": 3.7
+  },
+  {
+   "id": "scheduler_jobs",
+   "area": "Scheduler",
+   "status": "PASS",
+   "evidence": "backend=200 {'backend': 'APScheduler', 'status': 'success', 'use_apsched, jobs-http=200, jobs=4",
+   "duration_s": 0.1
+  },
+  {
+   "id": "secrets_list",
+   "area": "Secrets",
+   "status": "PASS",
+   "evidence": "secrets=151, has-test-secret=True",
+   "duration_s": 0.0
+  },
+  {
+   "id": "users_groups",
+   "area": "Users/Groups",
+   "status": "PASS",
+   "evidence": "users=14, admin-role=3",
+   "duration_s": 0.0
+  },
+  {
+   "id": "mcp_servers_api",
+   "area": "MCP",
+   "status": "PASS",
+   "evidence": "http=200, servers=4, gw-port=True",
+   "duration_s": 2.1
+  },
+  {
+   "id": "cc_service",
+   "area": "Command Center",
+   "status": "PASS",
+   "evidence": "cc-http=200, token-http=200, token=True",
+   "duration_s": 2.1
+  },
+  {
+   "id": "builder_service",
+   "area": "Builder",
+   "status": "PASS",
+   "evidence": "http=200",
+   "duration_s": 2.1
+  },
+  {
+   "id": "users_role1_authz",
+   "area": "Users/Groups",
+   "status": "PASS",
+   "evidence": "login=True, blocked={'users_page': True, 'save_workflow': True, 'automations_create': True}, user-deleted=True",
+   "duration_s": 3.3
+  },
+  {
+   "id": "user_file_isolation",
+   "area": "Users/Groups",
+   "status": "SKIP",
+   "evidence": "SKIP: owner download not available to probe against (admin http=404)"
+  },
+  {
+   "id": "sec_approvals_get_unauth",
+   "area": "Security",
+   "status": "XFAIL",
+   "evidence": "anonymous GET -> http=200 (must be 302/401/403)",
+   "duration_s": 2.2
+  },
+  {
+   "id": "sec_approvals_decide_unauth",
+   "area": "Security",
+   "status": "XFAIL",
+   "evidence": "anonymous POST -> http=500 (must be 302/401/403; 404 means the request REACHED business logic unauthenticated)",
+   "duration_s": 2.0
+  },
+  {
+   "id": "sec_role1_can_create_agents",
+   "area": "Security",
+   "status": "XFAIL",
+   "evidence": "role-1 POST /add/agent -> http=200; agent actually created=True (must be blocked, nothing created)",
+   "duration_s": 3.2
+  },
+  {
+   "id": "conn_create_and_list",
+   "area": "Connections",
+   "status": "PASS",
+   "evidence": "id=303, server=10.0.0.6, db=ERPDB, user=ai_user",
+   "duration_s": 0.4
+  },
+  {
+   "id": "conn_test_endpoint_good",
+   "area": "Connections",
+   "status": "PASS",
+   "evidence": "http=200, body={\"message\": \"Connection successful\", \"status\": \"success\"}",
+   "duration_s": 0.3
+  },
+  {
+   "id": "conn_test_endpoint_bad_creds",
+   "area": "Connections",
+   "status": "PASS",
+   "evidence": "http=200, claimed-success=False (must be False), body={\"message\": \"ODBC Error: ('28000', \\\"[28000] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Login failed for user 'ai_user'. (18456) ",
+   "duration_s": 0.3
+  },
+  {
+   "id": "conn_execute_scalar",
+   "area": "Connections",
+   "status": "PASS",
+   "evidence": "http=200, body={\"response\": \"{\\n  \\\"status\\\": \\\"success\\\",\\n  \\\"columns\\\": [\\n    \\\"answer\\\"\\n  ],\\n  \\\"rows\\\": [\\n    [\\n      \\\"42\\\"\\n    ]\\n  ]\\n}\", \"st",
+   "duration_s": 0.4
+  },
+  {
+   "id": "conn_execute_real_table",
+   "area": "Connections",
+   "status": "FAIL",
+   "evidence": "expect 17 invoices; body={\"response\": \"{\\n  \\\"status\\\": \\\"success\\\",\\n  \\\"columns\\\": [\\n    \\\"n\\\"\\n  ],\\n  \\\"rows\\\": [\\n    [\\n      \\\"57\\\"\\n    ]\\n  ]\\n}\", \"status\"",
+   "duration_s": 0.3
+  },
+  {
+   "id": "conn_edit_preserves_password",
+   "area": "Connections",
+   "status": "PASS",
+   "evidence": "query-before=True, update-http=200, query-after=True, rename-persisted=True",
+   "duration_s": 0.6
+  },
+  {
+   "id": "conn_edit_changes_field",
+   "area": "Connections",
+   "status": "PASS",
+   "evidence": "parameters='Connect Timeout=25;', still-queries=True",
+   "duration_s": 0.5
+  },
+  {
+   "id": "conn_password_masked_in_list",
+   "area": "Connections",
+   "status": "PASS",
+   "evidence": "plaintext-password-in-list=False (must be False); password field='\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'",
+   "duration_s": 0.3
+  },
+  {
+   "id": "conn_delete_removes",
+   "area": "Connections",
+   "status": "PASS",
+   "evidence": "removed-from-list=True, post-delete query http=404 refuses=True",
+   "duration_s": 0.4
+  },
+  {
+   "id": "conn_unreachable_server_honest",
+   "area": "Connections",
+   "status": "PASS",
+   "evidence": "http=200, honest-error=True, falsely-returned-data=False",
+   "duration_s": 15.5
+  },
+  {
+   "id": "comp_conn_unicode",
+   "area": "Connections",
+   "status": "SKIP",
+   "evidence": "competency tier (run with --competency)"
+  },
+  {
+   "id": "comp_conn_nulls",
+   "area": "Connections",
+   "status": "SKIP",
+   "evidence": "competency tier (run with --competency)"
+  },
+  {
+   "id": "comp_conn_leading_zeros",
+   "area": "Connections",
+   "status": "SKIP",
+   "evidence": "competency tier (run with --competency)"
+  },
+  {
+   "id": "comp_conn_decimal_precision",
+   "area": "Connections",
+   "status": "SKIP",
+   "evidence": "competency tier (run with --competency)"
+  },
+  {
+   "id": "comp_conn_datetime",
+   "area": "Connections",
+   "status": "SKIP",
+   "evidence": "competency tier (run with --competency)"
+  },
+  {
+   "id": "comp_conn_empty_result",
+   "area": "Connections",
+   "status": "SKIP",
+   "evidence": "competency tier (run with --competency)"
+  },
+  {
+   "id": "comp_conn_malformed_sql",
+   "area": "Connections",
+   "status": "SKIP",
+   "evidence": "competency tier (run with --competency)"
+  },
+  {
+   "id": "comp_conn_large_result",
+   "area": "Connections",
+   "status": "SKIP",
+   "evidence": "competency tier (run with --competency)"
+  },
+  {
+   "id": "comp_conn_non_select_write",
+   "area": "Connections",
+   "status": "SKIP",
+   "evidence": "competency tier (run with --competency)"
+  },
+  {
+   "id": "comp_conn_concurrent",
+   "area": "Connections",
+   "status": "SKIP",
+   "evidence": "competency tier (run with --competency)"
+  },
+  {
+   "id": "wf14:setvar_file_write",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; file='value=hello-nodereg'"
+  },
+  {
+   "id": "wf14:file_write_append",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; lines=['line1', 'line2']"
+  },
+  {
+   "id": "wf14:file_check_delete",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; deleted=True; steps=File:Completed,File:Completed,File:Completed"
+  },
+  {
+   "id": "wf14:conditional_true",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; TRUE-file=True; FALSE-file=False"
+  },
+  {
+   "id": "wf14:conditional_false",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; TRUE-file=False; FALSE-file=True"
+  },
+  {
+   "id": "wf14:loop_list_append",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; lines=['alpha', 'beta', 'gamma']; continuation-ran=True"
+  },
+  {
+   "id": "wf14:setvar_expression_eval",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; file='n=21' (oracle 'n=21')"
+  },
+  {
+   "id": "wf14:setvar_expression_failure_honesty",
+   "area": "Workflow engine",
+   "status": "XFAIL",
+   "evidence": "status=completed; literal-leaked=True; file='\\'\\'.join([f\"{row[\\'x\\']}\" for row in nonexistent_var])' | log-tail: Executing node: bad calc (Set Variable) ~ Workflow execution started: NODEREG-setvar_e"
+  },
+  {
+   "id": "wf14:database_select_vars",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; dbrows type=dict; rows=10 (oracle 10)"
+  },
+  {
+   "id": "wf14:database_fail_edge",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; fail-edge-file=True; pass-edge-file=False"
+  },
+  {
+   "id": "wf14:setvar_to_excel",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; xlsx rows=[{'store': 'Manhattan', 'units': 1000, 'revenue': 30000}, {'store': 'Brooklyn', 'units': 770, 'revenue': 23100}]"
+  },
+  {
+   "id": "wf14:database_to_excel",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; xlsx-rows=10 (oracle 10x headcount=8)"
+  },
+  {
+   "id": "wf14:human_approval_approve",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; decided=True (req=6BFEBDE7-120C-4601-91AC-22A8996D4E8B, http=200); post-approval file=True"
+  },
+  {
+   "id": "wf14:human_approval_reject",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; decided=True; downstream-file=False (must be False)"
+  },
+  {
+   "id": "wf14:folder_selector_count",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; files-found=3 (oracle 3)"
+  },
+  {
+   "id": "wf14:portal_node_run",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; portal-status=ok; files=0"
+  },
+  {
+   "id": "wf14:file_transfer_sftp_upload",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "status=completed; remote-file=True (xfer_20260802_130609.txt); content-ok=True"
+  },
+  {
+   "id": "wf14:alert_email",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: excluded by owner decision (james 2026-07-30) \u2014 do NOT automate (sends real email)"
+  },
+  {
+   "id": "wf14:ai_extract",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: excluded by owner decision (james 2026-07-30) \u2014 do NOT automate (live LLM cost)"
+  },
+  {
+   "id": "wf14:ai_action",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: excluded by owner decision (james 2026-07-30) \u2014 do NOT automate (live LLM cost)"
+  },
+  {
+   "id": "wf14:document_node",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a document-pipeline fixture)"
+  },
+  {
+   "id": "wf14:excel_update",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a template .xlsx fixture)"
+  },
+  {
+   "id": "wf14:execute_application",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a harmless fixture app to run)"
+  },
+  {
+   "id": "wf14:integration_node",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a configured integration instance)"
+  },
+  {
+   "id": "wf14:compliance_process",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a retailer document set)"
+  },
+  {
+   "id": "wf14:compliance_excel_export",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs compliance fixtures)"
+  },
+  {
+   "id": "wf14:automation_node",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a promoted automation)"
+  },
+  {
+   "id": "wf14:code_step",
+   "area": "Workflow engine",
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a saved code flow)"
+  },
+  {
+   "id": "wf14:baseline",
+   "area": "Workflow engine",
+   "status": "PASS",
+   "evidence": "pack-14 exit=0 (0=clean, 1=failures, 2=regressions)"
+  },
+  {
+   "id": "email_inbound",
+   "area": "Email",
+   "status": "SKIP",
+   "evidence": "not automated: inbound email pipeline needs a mail fixture/sink (owner decision: no email automation)"
+  },
+  {
+   "id": "integrations_api",
+   "area": "Integrations",
+   "status": "SKIP",
+   "evidence": "not automated: API is internal-token only; the page render is covered under Pages"
+  },
+  {
+   "id": "compliance_pipeline",
+   "area": "Compliance",
+   "status": "SKIP",
+   "evidence": "not automated: needs a retailer document set; page render covered under Pages"
+  },
+  {
+   "id": "solutions_install",
+   "area": "Solutions",
+   "status": "SKIP",
+   "evidence": "not automated: installing a bundle mutates shared tenant assets; gallery page covered under Pages"
+  },
+  {
+   "id": "environments_provision",
+   "area": "Environments",
+   "status": "SKIP",
+   "evidence": "not automated: conda env provisioning is minutes-slow; page render covered under Pages"
+  },
+  {
+   "id": "data_explorer_battery",
+   "area": "Data/NLQ",
+   "status": "SKIP",
+   "evidence": "not automated: deep NLQ competency lives in pack 12 (battery.py); one live probe runs here"
+  },
+  {
+   "id": "document_qa_battery",
+   "area": "Documents",
+   "status": "SKIP",
+   "evidence": "not automated: deep doc-QA competency lives in pack 13; ingest+API-list run here"
+  }
+ ]
+}

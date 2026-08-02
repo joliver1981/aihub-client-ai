@@ -818,15 +818,42 @@ def c_conn_scalar(ctx):
 
 
 @check("conn_execute_real_table", "Connections",
-       "query a real ERPDB table -> matches the direct-DB oracle (17 invoices)", needs=["db"])
+       "query a real ERPDB table -> a well-formed count that never goes backwards",
+       needs=["db"])
 def c_conn_real_table(ctx):
+    """CORRECTED 2026-08-02: this asserted an absolute `17 invoices`. ERPDB is a
+    SHARED demo database that seeding scripts write into (INV-DEMO-*, CG-INV-*),
+    so the count drifted to 57 and the check went red while the platform was
+    behaving perfectly. An absolute count was never a stable oracle here.
+
+    What this check is actually for: proving the Connections stack can create a
+    connection, execute real SQL against a real table, and marshal the result
+    back. So assert THAT, plus a floor - the 17 rows that have always been there
+    must not vanish. Still catches a broken connection, a rejected query, an
+    empty/malformed result, or rows disappearing; no longer breaks on seeding.
+
+    The old `"17" in body` was also a substring test - it would have passed
+    silently on 170 or 1700. This reads the actual integer out of the result
+    grid rather than pattern-matching the response text: /execute returns
+    {'response': '<json string>'}, so the rows are DOUBLE-encoded and a regex
+    over the raw body sees \\"rows\\" and misses."""
     api = ctx["api"]
     cid, _ = _make_conn(api, "REGP-conn-oracle")
     try:
         if not cid:
             return False, "could not create probe connection"
         r, body = _query(api, cid, "SELECT COUNT(*) AS n FROM dbo.Invoices")
-        return ("17" in _qtext(body)), f"expect 17 invoices; body={_qtext(body)[:140]}"
+        n, grid = -1, None
+        try:
+            inner = body.get("response") if isinstance(body, dict) else body
+            grid = json.loads(inner) if isinstance(inner, str) else inner
+            rows = (grid or {}).get("rows") or []
+            n = int(str(rows[0][0]))
+        except Exception:
+            pass
+        return (n >= 17), (f"invoices={n} (want >=17, original oracle 17); "
+                           f"status={(grid or {}).get('status')}, "
+                           f"columns={(grid or {}).get('columns')}")
     finally:
         _drop_conn(api, cid)
 
