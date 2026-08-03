@@ -96,6 +96,45 @@ def agent_id_of(row):
     return row.get("agent_id") or row.get("id")
 
 
+def agent_reply_text(api, body):
+    """The answer only — not the whole JSON envelope, which echoes the prompt."""
+    if not isinstance(body, dict):
+        return str(body or "")
+    for k in ("response", "answer", "message", "text", "reply"):
+        v = body.get(k)
+        if isinstance(v, str) and v.strip():
+            return v
+    return json.dumps(body)
+
+
+def llm_judge(api, text, question, agent_id="84"):
+    """Mini-LLM classifier for natural-language judgements.
+
+    STANDING DIRECTIVE (james): never use regex/keyword lists to INTERPRET
+    natural language - use a mini-LLM. Regex is fine for format validation, so
+    the only pattern-matching here is on the returned YES/NO token.
+
+    Keyword scoring is what made comp_nlq_admits_unanswerable flip PASS->FAIL
+    between two runs of the same build on 2026-08-02: an honest refusal that
+    happened to restate a number scored as a fabrication.
+
+    Returns True / False / None (None = judge unavailable or ambiguous -> SKIP).
+    """
+    prompt = (f"{question}\n\n---BEGIN TEXT---\n{str(text)[:4000]}\n---END TEXT---\n\n"
+              f"Reply with exactly one word and nothing else.")
+    try:
+        r = api.post(f"/api/agents/{agent_id}/chat", {"prompt": prompt}, timeout=150)
+    except Exception:
+        return None
+    if r.status_code != 200:
+        return None
+    verdict = agent_reply_text(api, api.jbody(r) or {}).strip().upper()
+    yes, no = bool(re.search(r"\bYES\b", verdict)), bool(re.search(r"\bNO\b", verdict))
+    if yes == no:
+        return None
+    return yes
+
+
 def make_probe_agent(api, label):
     """Create a throwaway agent ON THE TARGET. Never hardcode a dev-box agent id:
     ids differ per install (agent 36 exists only on the dev tree, which made the
@@ -362,6 +401,9 @@ def c_nlq(ctx):
     if not has_281:
         return None, ("SKIP: known NLQ oracle agent (id 281, AIRDB2) not present "
                       "on this target — no deterministic oracle available")
+    ctx["api"].get("/data_assistants", timeout=45)      # seed the chat session:
+    # without it /chat/data replies "Your session may have expired" and this check
+    # silently depended on pages_render having run first.
     r = ctx["api"].post("/chat/data",
                         {"agent_id": "281", "question": "How many stores are there in total?",
                          "history": [], "format_table_as_json": False,
@@ -400,7 +442,11 @@ def c_automation(ctx):
                "    w = csv.writer(f); w.writerow(['id', 'total'])\n"
                "    w.writerow([1, 100]); w.writerow([2, 200])\n"
                "print('wrote report.csv')\n")
-    manifest = {"name": name, "outputs": [{"kind": "file", "path": "report.csv", "min_rows": 2}]}
+    # min_rows must sit under "verify" - a flat key is silently IGNORED
+    # (automations/runner.py:217 reads out.get("verify")). It was flat here, so
+    # this check only ever asserted the file EXISTED.
+    manifest = {"name": name, "outputs": [{"kind": "file", "path": "report.csv",
+                                           "verify": {"min_rows": 2}}]}
     rv = api.put(f"/automations/api/{auto_id}/code", {"code": code_ok, "manifest": manifest})
     version = (api.jbody(rv) or {}).get("version")
     rr = api.post(f"/automations/api/{auto_id}/run", {"dry_run": True, "wait": True}, timeout=180)
@@ -1134,6 +1180,392 @@ def c_comp_concurrent(ctx):
         return all(got), f"5 parallel queries correct={sum(got)}/5"
     finally:
         _drop_conn(api, cid)
+
+
+# ============================================================================
+# COMPETENCY — the other 17 areas
+#
+# Until 2026-08-02 the competency tier covered Connections and nothing else:
+# 10 of 10 competency checks were comp_conn_*. Every other area had regression
+# coverage only, which asks "did the endpoint answer?" and never "is the answer
+# RIGHT, and does it fail honestly?".
+#
+# Deliberately NOT duplicated here — these areas have their own owners:
+#   Security / Auth ....... pack 18 (AuthZ matrix)
+#   Scheduler ............. pack 17 (Scheduling matrix)
+#   Command Center ........ pack 16 (CC agent matrix)
+#   Workflow engine ....... pack 14 tier 3
+#   Deep NLQ .............. pack 12 battery   (one honesty probe kept here)
+#   Deep document QA ...... pack 13 battery
+# ============================================================================
+
+@check("comp_pages_no_error_leakage", "Pages",
+       "every page renders CLEAN - no traceback, stack frame or server error in the HTML",
+       competency=True)
+def c_comp_pages_clean(ctx):
+    """Regression only asserts HTTP 200. A Flask page that swallows an exception
+    and renders an error partial is still a 200 - the user sees a broken screen
+    and the gate stays green."""
+    api = ctx["api"]
+    bad_markers = ["traceback (most recent call last)", "werkzeug.exceptions",
+                   "internal server error", "jinja2.exceptions",
+                   "undefinederror", "sqlalchemy.exc", "pyodbc.error"]
+    dirty = []
+    for path, _marker in PAGES:          # PAGES holds (path, expected-marker) tuples
+        try:
+            r = api.get(path, timeout=45)
+        except Exception as e:
+            dirty.append(f"{path}:{type(e).__name__}")
+            continue
+        low = (r.text or "").lower()
+        hit = next((m for m in bad_markers if m in low), None)
+        if hit:
+            dirty.append(f"{path}:{hit[:24]}")
+    return (not dirty), (f"pages={len(PAGES)}, rendering an error={len(dirty)}"
+                         + (f" -> {dirty[:5]}" if dirty else ""))
+
+
+@check("comp_agent_admits_unknown", "Agents",
+       "an agent asked something it cannot know says so instead of inventing it",
+       llm=True, competency=True)
+def c_comp_agent_unknown(ctx):
+    """Fabrication is the failure mode that regression cannot see: a confident
+    wrong answer is HTTP 200 with plausible text."""
+    api = ctx["api"]
+    token = f"REGP-{ctx['stamp']}-XQ7"
+    r = api.post("/api/agents/84/chat",
+                 {"prompt": f"What is the internal project code named {token}?"},
+                 timeout=150)
+    if r.status_code != 200:
+        return False, f"http={r.status_code}"
+    reply = agent_reply_text(api, api.jbody(r) or {})
+    admits = llm_judge(api, reply,
+                       "Does this reply admit that it does not know, cannot find, or has "
+                       "no information about the thing asked about? Answer YES or NO.")
+    if admits is None:
+        return None, f"SKIP: judge unavailable/ambiguous; reply={reply[:110]!r}"
+    return admits, f"admits-it-does-not-know={admits}; reply={reply[:130]!r}"
+
+
+@check("comp_knowledge_retrievable_after_ingest", "Knowledge/Docs",
+       "an ingested fact is actually RETRIEVABLE by the agent (ingest != searchable)",
+       llm=True, competency=True)
+def c_comp_knowledge_retrieval(ctx):
+    """Regression proves the upload returned success. That is not the same as
+    the content being findable - indexing can succeed and retrieval still miss."""
+    api = ctx["api"]
+    marker = f"ZEPHYR{ctx['stamp'][-6:]}"
+    aid = make_probe_agent(api, "REGP-comp-knowledge")
+    if not aid:
+        return None, "SKIP: could not create a probe agent"
+    kid = None
+    try:
+        blob = (f"Internal Vendor Policy.\n\n"
+                f"The authorized emergency freight vendor code is {marker}.\n"
+                f"This code must be quoted on all expedited shipments.\n") * 6
+        r = api.s.post(f"{api.base}/add/agent_knowledge",
+                       files={"file": ("regp_marker.txt", blob.encode("utf-8"), "text/plain")},
+                       data={"agent_id": str(aid), "description": "REGP-comp-marker",
+                             "batch_id": "regpcomp"}, timeout=240)
+        body = api.jbody(r) or {}
+        kid = body.get("knowledge_id")
+        if body.get("status") != "success" or not kid:
+            return None, f"SKIP: ingest did not succeed (http={r.status_code}, {str(body)[:120]})"
+        ctx["_comp_kb"] = {"agent": aid, "kid": kid, "marker": marker}
+        q = api.post(f"/api/agents/{aid}/chat",
+                     {"prompt": "What is the authorized emergency freight vendor code? "
+                                "Answer with the code only."}, timeout=180)
+        text = json.dumps(api.jbody(q) or {})
+        found = marker in text
+        return found, (f"agent={aid}, kid={kid}, marker={marker}, "
+                       f"retrieved-the-ingested-fact={found}")
+    except Exception as e:
+        return None, f"SKIP: {type(e).__name__}: {e}"
+    finally:
+        # left installed on purpose when the next check will consume it
+        if not ctx.get("_comp_kb"):
+            if kid:
+                api.post(f"/delete/agent_knowledge/{kid}")
+            delete_probe_agent(api, aid)
+
+
+@check("comp_knowledge_deleted_not_retrievable", "Knowledge/Docs",
+       "after DELETING a knowledge file its content is no longer retrievable",
+       llm=True, competency=True,
+       xfail="Guards the orphaned-vector class: deleting the knowledge ROW can leave "
+             "its embeddings live, so the agent keeps answering from a file the user "
+             "deleted. A retrieval gate shipped 2026-07-25 "
+             "(KNOWLEDGE_FILTER_INACTIVE_VECTORS); this check is the live proof for "
+             "THIS build. Flips to XPASS when the deleted fact stops coming back.")
+def c_comp_knowledge_deleted(ctx):
+    api = ctx["api"]
+    kb = ctx.get("_comp_kb")
+    if not kb:
+        return None, "SKIP: needs comp_knowledge_retrievable_after_ingest to have ingested"
+    aid, kid, marker = kb["agent"], kb["kid"], kb["marker"]
+    try:
+        d = api.post(f"/delete/agent_knowledge/{kid}")
+        if d.status_code != 200:
+            return None, f"SKIP: delete failed http={d.status_code}"
+        q = api.post(f"/api/agents/{aid}/chat",
+                     {"prompt": "What is the authorized emergency freight vendor code? "
+                                "Answer with the code only."}, timeout=180)
+        text = json.dumps(api.jbody(q) or {})
+        still = marker in text
+        return (not still), (f"deleted kid={kid}; deleted content STILL retrievable={still} "
+                             f"(must be False)")
+    finally:
+        ctx["_comp_kb"] = None
+        delete_probe_agent(api, aid)
+
+
+@check("comp_automation_exception_is_failure", "Automations",
+       "a script that RAISES is reported as failed, never success", competency=True)
+def c_comp_auto_raise(ctx):
+    api = ctx["api"]
+    name = "REGP-comp-auto-raise"
+    for a in (api.jbody(api.get("/automations/api/list")) or {}).get("automations", []):
+        if a.get("name") == name:
+            api.delete(f"/automations/api/{a['automation_id']}")
+    r = api.post("/automations/api/create",
+                 {"name": name, "description": "competency probe",
+                  "provision_environment": False})
+    auto_id = ((api.jbody(r) or {}).get("automation") or {}).get("automation_id")
+    if not auto_id:
+        return None, f"SKIP: create http={r.status_code}"
+    try:
+        code = "raise RuntimeError('deliberate competency failure')\n"
+        api.put(f"/automations/api/{auto_id}/code",
+                {"code": code, "manifest": {"name": name, "outputs": []}})
+        rr = api.post(f"/automations/api/{auto_id}/run", {"dry_run": True, "wait": True},
+                      timeout=180)
+        run = api.jbody(rr) or {}
+        st = run.get("status")
+        return (st != "success"), f"raising script -> status={st!r} (must NOT be success)"
+    finally:
+        api.delete(f"/automations/api/{auto_id}")
+
+
+@check("comp_automation_partial_output_caught", "Automations",
+       "output that is PRESENT but short of min_rows is caught, not passed",
+       competency=True)
+def c_comp_auto_partial(ctx):
+    """Harder than the existing liar probe: the file really is produced, it is
+    just incomplete. Verification has to read it, not stat it."""
+    api = ctx["api"]
+    name = "REGP-comp-auto-partial"
+    for a in (api.jbody(api.get("/automations/api/list")) or {}).get("automations", []):
+        if a.get("name") == name:
+            api.delete(f"/automations/api/{a['automation_id']}")
+    r = api.post("/automations/api/create",
+                 {"name": name, "description": "competency probe",
+                  "provision_environment": False})
+    auto_id = ((api.jbody(r) or {}).get("automation") or {}).get("automation_id")
+    if not auto_id:
+        return None, f"SKIP: create http={r.status_code}"
+    try:
+        code = ("import csv\n"
+                "with open('report.csv','w',newline='') as f:\n"
+                "    w=csv.writer(f); w.writerow(['id','total']); w.writerow([1,100])\n"
+                "print('wrote report.csv')\n")          # 1 data row, manifest wants 5
+        manifest = {"name": name,
+                    "outputs": [{"kind": "file", "path": "report.csv",
+                                 "verify": {"min_rows": 5}}]}
+        api.put(f"/automations/api/{auto_id}/code", {"code": code, "manifest": manifest})
+        rr = api.post(f"/automations/api/{auto_id}/run", {"dry_run": True, "wait": True},
+                      timeout=180)
+        run = api.jbody(rr) or {}
+        st = run.get("status")
+        return (st != "success"), (f"1 row written, manifest requires 5 -> status={st!r} "
+                                   f"(must NOT be success)")
+    finally:
+        api.delete(f"/automations/api/{auto_id}")
+
+
+@check("comp_portal_step_roundtrip_fidelity", "Portal WF",
+       "a multi-step portal workflow reads back with every step intact",
+       competency=True)
+def c_comp_portal_fidelity(ctx):
+    """Regression proves it SAVED. This proves nothing was dropped or mangled on
+    the way back out - the failure mode behind the v1.7.3 portal bug reports."""
+    api = ctx["api"]
+    name = "REGP-comp-portal-fidelity"
+    # Step contract (command_center/tools/portal_workflows.py:32 _STEP_TYPES):
+    # goto|login|click|fill|wait|agent|verify|human|verify_code|upload. click/fill
+    # key on "anchor" (NOT a css selector) and wait uses "timeout" (NOT ms).
+    steps = [{"type": "goto", "url": f"{ctx['base']}/login"},
+             {"type": "fill", "anchor": "username", "value": "user with spaces"},
+             {"type": "fill", "anchor": "password", "value": "p@ss/w:rd?&=+"},
+             {"type": "click", "anchor": "Login"},
+             {"type": "wait", "timeout": 2},
+             {"type": "goto", "url": f"{ctx['base']}/agents?q=caf%C3%A9"}]
+    api.delete(f"/api/portal-workflows/{name.lower().replace('-', '_')}")
+    r1 = api.post("/api/portal-workflows",
+                  {"name": name, "portal_slug": None, "start_url": f"{ctx['base']}/login",
+                   "goal": "round-trip fidelity probe", "steps": steps})
+    slug = ((api.jbody(r1) or {}).get("saved") or {}).get("slug")
+    if not slug:
+        return None, f"SKIP: save http={r1.status_code} body={str(api.jbody(r1))[:120]}"
+    try:
+        got = api.jbody(api.get(f"/api/portal-workflows/{slug}")) or {}
+        wf = got.get("workflow") or got
+        back = wf.get("steps") or []
+        same_count = len(back) == len(steps)
+        same_types = [s.get("type") for s in back] == [s.get("type") for s in steps]
+        pw = next((s.get("value") for s in back
+                   if s.get("anchor") == "password"), None)
+        special_ok = pw == "p@ss/w:rd?&=+"
+        unicode_ok = any("caf%C3%A9" in str(s.get("url") or "") for s in back)
+        ok = same_count and same_types and special_ok and unicode_ok
+        return ok, (f"saved {len(steps)} steps, read back {len(back)}; types-match={same_types}; "
+                    f"special-chars-intact={special_ok}; unicode-url-intact={unicode_ok}")
+    finally:
+        api.delete(f"/api/portal-workflows/{slug}")
+
+
+@check("comp_secret_lifecycle_and_masking", "Secrets",
+       "a secret round-trips, its VALUE never leaves the box, and delete really removes it",
+       competency=True)
+def c_comp_secret(ctx):
+    """The connections masked-password bug shipped twice. Same question, asked of
+    the secrets store: can the plaintext be read back out of any list/metadata
+    endpoint, and does delete actually delete?"""
+    api = ctx["api"]
+    name = "REGP_COMP_SECRET"          # the store upper-cases names
+    value = f"pl4in-{ctx['stamp']}-v4lue"
+    api.delete(f"/api/local-secrets/{name}")
+    r = api.post("/api/local-secrets",
+                 {"name": name, "value": value, "description": "competency probe",
+                  "category": "api_keys"})
+    if r.status_code >= 400:
+        return None, f"SKIP: create http={r.status_code} body={str(api.jbody(r))[:120]}"
+    try:
+        listed_raw = api.get("/workflow/secrets/list").text or ""
+        meta_raw = api.get(f"/api/local-secrets/{name}").text or ""
+        store_raw = api.get("/api/local-secrets").text or ""
+        leaked_in = [n for n, blob in (("secrets/list", listed_raw),
+                                       ("local-secrets/<name>", meta_raw),
+                                       ("local-secrets", store_raw)) if value in blob]
+        names = [s.get("name") for s in
+                 ((api.jbody(api.get("/workflow/secrets/list")) or {}).get("secrets") or [])]
+        present = name in names
+        d = api.delete(f"/api/local-secrets/{name}")
+        names_after = [s.get("name") for s in
+                       ((api.jbody(api.get("/workflow/secrets/list")) or {}).get("secrets") or [])]
+        gone = name not in names_after
+        ok = present and not leaked_in and d.status_code < 400 and gone
+        return ok, (f"created+listed={present}; PLAINTEXT LEAKED IN={leaked_in or 'none'}; "
+                    f"delete-http={d.status_code}; removed={gone}")
+    finally:
+        api.delete(f"/api/local-secrets/{name}")
+
+
+@check("comp_password_change_invalidates_old", "Users/Groups",
+       "changing a password stops the OLD one working", competency=True)
+def c_comp_pwchange(ctx):
+    api = ctx["api"]
+    uname, old_pw, new_pw = "regp-comp-pw", "RegpOld!2026", "RegpNew!2026"
+    for u in (api.jbody(api.get("/get/users")) or []):
+        if (u.get("user_name") or "") == uname:
+            api.post("/delete/user", {"user_id": u.get("id")})
+    api.post("/add/user", {"user_id": 0, "user_name": uname, "name": "REGP Comp PW",
+                           "email": f"{uname}@example.com", "password": old_pw,
+                           "role": 1, "phone": ""})
+    uid = next((u.get("id") for u in (api.jbody(api.get("/get/users")) or [])
+                if (u.get("user_name") or "") == uname), None)
+    if not uid:
+        return None, "SKIP: could not create the probe user"
+    try:
+        _s, old_works_before = login_as(ctx["base"], uname, old_pw)
+        api.post("/add/user", {"user_id": uid, "user_name": uname, "name": "REGP Comp PW",
+                               "email": f"{uname}@example.com", "password": new_pw,
+                               "role": 1, "phone": ""})
+        _s2, new_works = login_as(ctx["base"], uname, new_pw)
+        _s3, old_still = login_as(ctx["base"], uname, old_pw)
+        ok = old_works_before and new_works and not old_still
+        return ok, (f"old-password-worked-before={old_works_before}; new-works={new_works}; "
+                    f"OLD STILL WORKS={old_still} (must be False)")
+    finally:
+        api.post("/delete/user", {"user_id": uid})
+
+
+@check("comp_mcp_tools_enumerate", "MCP",
+       "every ENABLED MCP server actually enumerates its tools right now",
+       competency=True,
+       xfail="FOUND 2026-08-02: an enabled MCP server that cannot enumerate tools is a "
+             "tool surface silently missing from every agent that references it - the "
+             "agent simply behaves as if the capability never existed. Graded LIVE via "
+             "/api/mcp/servers/<id>/tools_v1 rather than the stored last_test_status, "
+             "which on this box is a stale 'error' from 2026-02-14 on server 1 and NULL "
+             "on the other three (i.e. the status field proves nothing either way). "
+             "OWNER DECISION PENDING.")
+def c_comp_mcp_tools(ctx):
+    """Regression asserts the server LIST parses. That says nothing about whether
+    any tools are reachable, which is the only thing an agent actually needs."""
+    api = ctx["api"]
+    body = api.jbody(api.get("/api/mcp/servers"))
+    rows = body if isinstance(body, list) else ((body or {}).get("servers")
+                                                or (body or {}).get("data") or [])
+    rows = [r for r in rows if isinstance(r, dict)]
+    enabled = [r for r in rows if str(r.get("enabled")).lower() in ("1", "true", "yes")]
+    if not enabled:
+        return None, "SKIP: no enabled MCP servers on this target"
+    good, bad = [], []
+    for srv in enabled:
+        sid = srv.get("server_id")
+        try:
+            rt = api.get(f"/api/mcp/servers/{sid}/tools_v1", timeout=45)
+            tb = api.jbody(rt)
+            tools = tb if isinstance(tb, list) else ((tb or {}).get("tools")
+                                                     or (tb or {}).get("data") or [])
+            (good if (rt.status_code == 200 and tools) else bad).append(
+                f"{sid}:{len(tools) if isinstance(tools, list) else '?'}")
+        except Exception as e:
+            bad.append(f"{sid}:{type(e).__name__}")
+    return (not bad), (f"enabled={len(enabled)}; enumerating tools={good or 'none'}; "
+                       f"NO TOOLS={bad or 'none'}")
+
+
+@check("comp_nlq_admits_unanswerable", "Data/NLQ",
+       "NLQ says it cannot answer a question the data does not support",
+       needs=["db"], llm=True, competency=True)
+def c_comp_nlq_honest(ctx):
+    """Uses the deliberate gaps kept in AIRDB2 as honesty probes: there is no
+    London store and no foot-traffic data. A number here is a fabrication."""
+    body = ctx["api"].jbody(ctx["api"].get("/get/data_agents")) or []
+    rows = body.get("data") if isinstance(body, dict) else body
+    if isinstance(rows, str):
+        rows = json.loads(rows)
+    if not any(str(a.get("id") or a.get("agent_id")) == "281"
+               for a in (rows or []) if isinstance(a, dict)):
+        return None, "SKIP: NLQ oracle agent 281 not present on this target"
+    api = ctx["api"]
+    # A FRESH session, not ctx["api"]: /chat/data keeps server-side conversation
+    # state, so the earlier nlq_data_chat turn ("15 stores") bleeds into this one
+    # and the agent can echo that number while honestly refusing.
+    fresh, ok_login = login_as(ctx["base"], "admin", "admin")
+    if not ok_login:
+        return None, "SKIP: could not open a fresh session"
+    fresh.get(f"{ctx['base']}/data_assistants", timeout=45)       # seed the chat session
+    r = fresh.post(f"{ctx['base']}/chat/data",
+                   json={"agent_id": "281",
+                         "question": "What was the foot traffic at our London store last week?",
+                         "history": [], "format_table_as_json": False,
+                         "caution_level": "medium"}, timeout=180)
+    if r.status_code != 200:
+        return False, f"http={r.status_code}"
+    body = api.jbody(r) or {}
+    reply = agent_reply_text(api, body)
+    fabricated = llm_judge(
+        api, reply,
+        "There is no London store and no foot-traffic data in this dataset. Does this "
+        "reply state or imply a specific foot-traffic figure for a London store, as "
+        "though the data existed? Answer YES if it fabricates such a figure, NO if it "
+        "instead says it cannot answer / has no such data.")
+    if fabricated is None:
+        return None, f"SKIP: judge unavailable/ambiguous; reply={reply[:110]!r}"
+    return (not fabricated), (f"fabricated-London-foot-traffic={fabricated}; "
+                              f"reply={reply[:130]!r}")
 
 
 # ---------------------------------------------------------------- pack-14 leg

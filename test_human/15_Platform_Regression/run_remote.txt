@@ -1,0 +1,48 @@
+[platreg] env: target=10.0.0.6 remote=True db-reachable=True
+[platreg] FAIL   svc_ports (6.1s) — host=10.0.0.6; down=['executor:5061', 'mcp-gw:5071', 'data-api:8200'] of 7
+[platreg] PASS   auth_bad_password (0.0s) — landed=http://10.0.0.6:5001/login
+[platreg] PASS   auth_anonymous_gate (0.0s) — landed=http://10.0.0.6:5001/login?next=%2Fusers http=200
+[platreg] PASS   pages_render (3.0s) — 33/33 ok
+[platreg] PASS   agent_crud (1.3s) — id=6005, listed=True, deleted=True
+[platreg] PASS   agent_chat_math (1.9s) — http=200, contains-75=True, tail={"agent_type": "general", "artifacts": null, "chat_history": [], "response": "75", "status": "suc
+[platreg] FAIL   knowledge_ingest_delete (2.7s) — ingest=error, chars=None, type=None, deleted=False
+[platreg] PASS   connection_crud_query (0.2s) — id=29, query-42=True, deleted=True (del http=200)
+[platreg] FAIL   nlq_data_chat (0.0s) — http=200, contains-15=False, tail=ny stores are there in total?", "query": "", "revised_prompt": "", "rich_content_enabled": false
+[platreg] PASS   documents_api (0.0s) — http=200, documents=13
+[platreg] PASS   automation_lifecycle (1.6s) — v=1, dry-run=success, promoted=1, deleted-http=200
+[platreg] PASS   automation_verify_honesty (0.6s) — liar-run status=failed (must NOT be success), exit0-but-caught=True
+[platreg] FAIL   codeflows_registry (0.0s) — http=200, flows=0
+[platreg] PASS   portal_wf_persist (0.1s) — save=200, slug=regp_portal_temp, listed=True, dup=409 (want 409), del=200
+[platreg] PASS   approvals_api (0.0s) — http=200, pending=0
+[platreg] PASS   scheduler_jobs (0.0s) — backend=200 {'backend': 'APScheduler', 'status': 'success', 'use_apsched, jobs-http=200, jobs=0
+[platreg] PASS   secrets_list (0.0s) — secrets=9, has-test-secret=True
+[platreg] PASS   users_groups (0.0s) — users=2, admin-role=3
+[platreg] PASS   mcp_servers_api (2.0s) — http=200, servers=0, gw-port=False
+[platreg] PASS   cc_service (0.2s) — cc-http=200, token-http=200, token=True
+[platreg] PASS   builder_service (0.2s) — http=200
+[platreg] FAIL   users_role1_authz (0.3s) — could not create role-1 probe user
+[platreg] FAIL   user_file_isolation (1.4s) — fixture upload failed: {'message': 'Failed to add document as knowledge', 'status': 'error'}
+[platreg] XFAIL  sec_approvals_get_unauth (0.0s) — anonymous GET -> http=200 (must be 302/401/403)
+[platreg] XFAIL  sec_approvals_decide_unauth (0.0s) — anonymous POST -> http=500 (must be 302/401/403; 404 means the request REACHED business logic unauthenticated)
+[platreg] running pack-14 workflow node matrix ...
+
+========================================================================
+# Platform Regression Report — 20260731_104240
+
+- Build: `7524ebb` | Base: `http://10.0.0.6:5001` | Baseline: `results_20260731_074428.json`
+
+## Verdict: **REGRESSIONS DETECTED** — 8 FAIL / 17 PASS / 35 SKIP / 2 XFAIL
+
+## 🔴 REGRESSIONS vs baseline
+
+| check | was | now |
+|---|---|---|
+| svc_ports | PASS | **FAIL** |
+| knowledge_ingest_delete | PASS | **FAIL** |
+| nlq_data_chat | PASS | **FAIL** |
+| codeflows_registry | PASS | **FAIL** |
+| wf14:file_transfer_sftp_upload | PASS | **FAIL** |
+| wf14:baseline | PASS | **FAIL** |
+
+
+Report: C:\src\aihub-client-ai-dev\test_human\15_Platform_Regression\REPORT_LATEST.md

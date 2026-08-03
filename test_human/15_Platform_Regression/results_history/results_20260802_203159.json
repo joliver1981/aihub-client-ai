@@ -1,0 +1,154 @@
+{
+ "stamp": "20260802_203159",
+ "commit": "db844c3",
+ "target": "local",
+ "results": [
+  {
+   "id": "comp_conn_unicode",
+   "area": "Connections",
+   "status": "PASS",
+   "evidence": "decoded={\"status\": \"success\", \"columns\": [\"u\"], \"rows\": [[\"caf\u00e9-\u4e2d\u6587-\u00f1\"]]}",
+   "duration_s": 2.2
+  },
+  {
+   "id": "comp_conn_nulls",
+   "area": "Connections",
+   "status": "PASS",
+   "evidence": "returned={\"response\": \"{\\n  \\\"status\\\": \\\"success\\\",\\n  \\\"columns\\\": [\\n    \\\"a\\\",\\n    \\\"b\\\"\\n  ],\\n  \\\"rows\\\": [\\n    [\\n      \\\"None\\\",\\n      \\\"x\\\"\\n    ]\\n  ]\\n}\", ",
+   "duration_s": 0.4
+  },
+  {
+   "id": "comp_conn_leading_zeros",
+   "area": "Connections",
+   "status": "PASS",
+   "evidence": "expect '007' preserved; returned={\"response\": \"{\\n  \\\"status\\\": \\\"success\\\",\\n  \\\"columns\\\": [\\n    \\\"code\\\"\\n  ],\\n  \\\"rows\\\": [\\n    [\\n      \\\"007\\\"\\n    ]\\n  ]\\n}\", \"sta",
+   "duration_s": 0.4
+  },
+  {
+   "id": "comp_conn_decimal_precision",
+   "area": "Connections",
+   "status": "PASS",
+   "evidence": "expect 1234.5678; returned={\"response\": \"{\\n  \\\"status\\\": \\\"success\\\",\\n  \\\"columns\\\": [\\n    \\\"d\\\"\\n  ],\\n  \\\"rows\\\": [\\n    [\\n      \\\"1234.5678\\\"\\n    ]\\n  ]\\n}\", \"",
+   "duration_s": 0.4
+  },
+  {
+   "id": "comp_conn_datetime",
+   "area": "Connections",
+   "status": "PASS",
+   "evidence": "returned={\"response\": \"{\\n  \\\"status\\\": \\\"success\\\",\\n  \\\"columns\\\": [\\n    \\\"d\\\"\\n  ],\\n  \\\"rows\\\": [\\n    [\\n      \\\"2026-03-04 05:06:07\\\"\\n    ]\\n  ]\\n}\", \"status\": \"",
+   "duration_s": 0.4
+  },
+  {
+   "id": "comp_conn_empty_result",
+   "area": "Connections",
+   "status": "PASS",
+   "evidence": "http=200, looks-like-error=False, body={\"response\": \"{\\n  \\\"status\\\": \\\"success\\\",\\n  \\\"columns\\\": [\\n    \\\"invoice_id\\\",\\n    \\\"invoice_date\\\",\\n    \\\"due_date\\\",\\n    \\\"customer",
+   "duration_s": 0.4
+  },
+  {
+   "id": "comp_conn_malformed_sql",
+   "area": "Connections",
+   "status": "PASS",
+   "evidence": "http=200, names-the-real-cause=True, body={\"response\": \"{\\n  \\\"status\\\": \\\"error\\\",\\n  \\\"error\\\": \\\"('42S02', \\\\\\\"[42S02] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid object name 'dbo.this_table_",
+   "duration_s": 0.4
+  },
+  {
+   "id": "comp_conn_large_result",
+   "area": "Connections",
+   "status": "PASS",
+   "evidence": "http=200, payload~154016 chars, truncation-wording-present=False",
+   "duration_s": 0.4
+  },
+  {
+   "id": "comp_conn_non_select_write",
+   "area": "Connections",
+   "status": "XFAIL",
+   "evidence": "http=200, write-refused=False (False = the endpoint EXECUTES writes), body={\"response\": \"{\\n  \\\"status\\\": \\\"success\\\",\\n  \\\"columns\\\": \\\"\\\",\\n  \\\"rows\\\": \\\"\\\"\\n}\", \"status\": \"success\"}",
+   "duration_s": 0.3
+  },
+  {
+   "id": "comp_conn_concurrent",
+   "area": "Connections",
+   "status": "PASS",
+   "evidence": "5 parallel queries correct=5/5",
+   "duration_s": 2.6
+  },
+  {
+   "id": "comp_pages_no_error_leakage",
+   "area": "Pages",
+   "status": "PASS",
+   "evidence": "pages=33, rendering an error=0",
+   "duration_s": 6.3
+  },
+  {
+   "id": "comp_agent_admits_unknown",
+   "area": "Agents",
+   "status": "PASS",
+   "evidence": "http=200, admits-unknown=True, fabricated=False",
+   "duration_s": 2.5
+  },
+  {
+   "id": "comp_knowledge_retrievable_after_ingest",
+   "area": "Knowledge/Docs",
+   "status": "PASS",
+   "evidence": "agent=878, kid=1705, marker=ZEPHYR203159, retrieved-the-ingested-fact=True",
+   "duration_s": 8.1
+  },
+  {
+   "id": "comp_knowledge_deleted_not_retrievable",
+   "area": "Knowledge/Docs",
+   "status": "XPASS",
+   "evidence": "deleted kid=1705; deleted content STILL retrievable=False (must be False)",
+   "duration_s": 2.8
+  },
+  {
+   "id": "comp_automation_exception_is_failure",
+   "area": "Automations",
+   "status": "PASS",
+   "evidence": "raising script -> status='failed' (must NOT be success)",
+   "duration_s": 0.8
+  },
+  {
+   "id": "comp_automation_partial_output_caught",
+   "area": "Automations",
+   "status": "PASS",
+   "evidence": "1 row written, manifest requires 5 -> status='failed' (must NOT be success)",
+   "duration_s": 0.8
+  },
+  {
+   "id": "comp_portal_step_roundtrip_fidelity",
+   "area": "Portal WF",
+   "status": "PASS",
+   "evidence": "saved 6 steps, read back 6; types-match=True; special-chars-intact=True; unicode-url-intact=True",
+   "duration_s": 0.1
+  },
+  {
+   "id": "comp_secret_lifecycle_and_masking",
+   "area": "Secrets",
+   "status": "PASS",
+   "evidence": "created+listed=True; PLAINTEXT LEAKED IN=none; delete-http=200; removed=True",
+   "duration_s": 0.2
+  },
+  {
+   "id": "comp_password_change_invalidates_old",
+   "area": "Users/Groups",
+   "status": "PASS",
+   "evidence": "old-password-worked-before=True; new-works=True; OLD STILL WORKS=False (must be False)",
+   "duration_s": 8.4
+  },
+  {
+   "id": "comp_mcp_tools_enumerate",
+   "area": "MCP",
+   "status": "XFAIL",
+   "evidence": "enabled=4; enumerating tools=none; NO TOOLS=['1:0', '30:0', '29:0', '5:0']",
+   "duration_s": 0.2
+  },
+  {
+   "id": "comp_nlq_admits_unanswerable",
+   "area": "Data/NLQ",
+   "status": "PASS",
+   "evidence": "http=200, admits-no-data=True, fabricated-a-number=False",
+   "duration_s": 10.7
+  }
+ ]
+}
