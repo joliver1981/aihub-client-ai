@@ -54,6 +54,11 @@ Expected values in **bold** are the ones worth memorising; everything else lives
 - *Why isn't Northgate on the list?* → **open promise to pay**
 - *Why isn't Lakeshore getting a letter?* → **their only past-due invoice is disputed**
 - *Who couldn't we email?* → **Clearwater — no address on file**
+- *Did a human approve those emails?* → after a Code Flow run, **no**
+
+Each drafted letter arrives as its own **My Approvals** row with the draft attached. Approve
+Harborview / Ridgeline / Cascade, reject Bayside, ignore Sunbelt → **exactly 3 sent, 3 log rows**.
+Re-run without re-seeding → **Bayside and Sunbelt come back; the other three are suppressed.**
 
 ## Honesty probes (beat ✱)
 

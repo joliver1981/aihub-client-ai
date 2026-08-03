@@ -121,8 +121,11 @@ The held-back seven are the entire point:
 That last one is the test. A run that quietly drops Clearwater looks *identical* to a correct run
 from the outside — five letters, no errors — while a $7,880 past-due account silently goes unchased.
 
-And then Dana walks away from her desk. **Nothing sends.** The batch waits in her approvals queue
-until she reads it and clicks approve.
+And then Dana walks away from her desk. **Nothing sends.** Each letter is sitting in her approvals
+queue as its own item — recipient, subject, the invoices being chased, and the full draft attached —
+waiting for her to read it. She approves three, kills the one to Bayside because she spoke to them
+this morning, and never gets round to the fifth. Three emails go out. The two that didn't come back
+round on the next run, because a letter she rejected must not quietly retire the account.
 
 > Beats 1–5 prove the platform is useful. This one proves it's safe to point at customers. If it can
 > send without her, or if it drops an account it couldn't email, nothing else here matters to a CFO.

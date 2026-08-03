@@ -1,6 +1,6 @@
 # 17 / AR Clerk — Answer Key
 
-**Generated:** 2026-08-02 18:35 · **Anchor date:** `2026-08-02` · **Source:** live `ERPDB` on `10.0.0.6`
+**Generated:** 2026-08-02 20:13 · **Anchor date:** `2026-08-02` · **Source:** live `ERPDB` on `10.0.0.6`
 
 > Regenerate with `_scripts/answer_key.py`. Every figure below is derived from live SQL
 > and cross-checked against `_scripts/ar_book.py`. **Do not hand-edit this file** — if a
