@@ -16212,6 +16212,80 @@ def _data_dictionary_for_table(connection_id, table):
         return None
 
 
+@app.route('/api/discover/query/<int:connection_id>', methods=['POST'])
+@api_key_or_session_required(min_role=2)
+def discover_query_api(connection_id):
+    """AIHUB-0064: let the code-authoring agent RUN a read-only query while it is
+    writing SQL, so it can verify its own work before the code is ever saved.
+
+    Schema grounding gives names; value enumeration gives the contents of code
+    columns. Neither lets the model answer "does the query I just wrote actually
+    match anything?" — which is the question that would have caught the live
+    failure this exists for: a dunning automation filtered
+    `activity_type = 'promise_to_pay'` against a column holding 'ptp', matched
+    zero rows, raised nothing, and silently disabled a promise-to-pay hold.
+
+    Deliberately bounded. Not because the deployment is hostile — these are
+    trusted on-prem installs — but because an unbounded result makes the model
+    WORSE at its job: a thousand rows of free text buries the answer it was
+    looking for and burns the context it needs to write the code. Same reason the
+    NLQ agent's run_sql is capped.
+
+      - sql_gate.gate_sql enforces a single read-only SELECT (no DML/DDL/EXEC,
+        no stacked statements) and applies the row cap in the right dialect.
+      - rows capped, and each cell truncated, so a wide text column cannot
+        dominate the reply.
+
+    Same Developer-family gate as the rest of /api/discover/*."""
+    body = request.get_json(silent=True) or {}
+    sql = (body.get('sql') or '').strip()
+    if not sql:
+        return jsonify({'success': False, 'error': "missing required field 'sql'"}), 400
+    try:
+        row_cap = max(1, min(int(body.get('row_cap') or cfg.DISCOVER_QUERY_ROW_CAP),
+                             cfg.DISCOVER_QUERY_ROW_CAP))
+    except (TypeError, ValueError):
+        row_cap = cfg.DISCOVER_QUERY_ROW_CAP
+    try:
+        from sql_gate import gate_sql
+        target_conn_str, _cid, db_type = get_database_connection_string(connection_id)
+        if not target_conn_str:
+            return jsonify({'success': False,
+                            'error': 'Connection not found or no connection string'}), 404
+
+        gate = gate_sql(sql, database_type=db_type, row_cap=row_cap)
+        if not gate.ok:
+            # Rejection is an ANSWER, not a server error — the agent should read
+            # the reason and revise, so keep it a 200 with success=False.
+            return jsonify({'success': False, 'rejected': True, 'error': gate.reason})
+
+        df, err = execute_sql_query_v2(gate.sql, target_conn_str)
+        if df is None:
+            return jsonify({'success': False, 'sql_error': True,
+                            'error': err or 'query failed'})
+
+        cols = [str(c) for c in df.columns][:cfg.DISCOVER_QUERY_MAX_COLS]
+        rows = []
+        for rec in df.head(row_cap).to_dict('records'):
+            out = {}
+            for c in cols:
+                v = rec.get(c)
+                s = '' if v is None else str(v)
+                out[c] = (s if len(s) <= cfg.DISCOVER_QUERY_MAX_CELL
+                          else s[:cfg.DISCOVER_QUERY_MAX_CELL] + '…')
+            rows.append(out)
+        return jsonify({
+            'success': True, 'columns': cols, 'rows': rows,
+            'row_count': int(len(df)),
+            'truncated_columns': max(0, len(df.columns) - len(cols)),
+            'cap_applied': bool(gate.cap_applied), 'row_cap': row_cap,
+            'sql': gate.sql,
+        })
+    except Exception as e:
+        logger.error(f"[discover/query] {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/discover/schema/<int:connection_id>')
 @api_key_or_session_required(min_role=2)
 def discover_table_schema_api(connection_id):

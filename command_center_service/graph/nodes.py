@@ -2425,6 +2425,11 @@ async def converse(state: CommandCenterState) -> dict:
             "A guessed literal is the WORST failure mode there is: the SQL reads perfectly, no "
             "error is raised, the query silently matches nothing, and the rule it implements is "
             "dead. Never assume a value; look it up.\n"
+            "- PROVE THE QUERY (do this, don't skip it): before you write a filtering query into "
+            "an automation, run it with probe_connection_query and look at the row count. 0 rows "
+            "means the filter matches nothing — fix it BEFORE saving, rather than shipping a rule "
+            "that quietly never fires. Use it to prove joins match and WHERE clauses hit. It is "
+            "read-only and capped, so it is cheap to check and expensive to skip.\n"
             "- BUILD FLOW (follow in order): 1) confirm the process + the connection/secret NAMES to "
             "use, 2) ground the schema (get_connection_schema) for any SQL, 3) create_automation, "
             "4) save_automation_code with a manifest declaring "
@@ -6212,6 +6217,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         if not r.get("ok") or not data.get("success"):
             return (f"❌ Table discovery failed on connection {conn_id}: "
                     f"{data.get('error') or r.get('error') or 'unknown error'}")
+        # (table listing continues below)
         tables = data.get("tables") or []
         if not tables:
             return f"Connection {conn_id}: no tables discovered."
@@ -6220,6 +6226,81 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                  for t in tables[:200]]
         return (f"Tables on connection {conn_id} (call again with table=<name> for columns):\n"
                 + "\n".join(lines))
+
+    @lc_tool
+    async def probe_connection_query(connection: str, sql: str) -> str:
+        """Run a read-only SELECT against a connection to CHECK YOUR OWN SQL
+        before you save it into an automation. Use this to confirm a query
+        actually returns rows, that a join produces matches, and that the
+        literals in a WHERE clause are real.
+
+        A filter comparing against a value that does not exist returns zero rows,
+        raises no error, and silently disables whatever rule it implements — so
+        run the query here and look at the row count BEFORE writing it into code.
+
+        Read-only and bounded: a single SELECT (no INSERT/UPDATE/DELETE/DDL/EXEC,
+        no stacked statements), a capped number of rows, and long cell values
+        truncated.
+
+        Args:
+            connection: the connection's name (e.g. 'ERPDB') or numeric id.
+            sql: one SELECT statement.
+        """
+        if not (_automations_allowed(state) or _workflow_tools_allowed(state)):
+            return "Query probing is available to Developer/Admin users only."
+        from . import workflow_tools as _wt
+        ref = str(connection or "").strip()
+        if not str(sql or "").strip():
+            return "❌ No SQL provided."
+        conn_id = None
+        if ref.isdigit():
+            conn_id = ref
+        else:
+            res = _wt.list_connections()
+            if not res.get("ok"):
+                return f"❌ Could not resolve connection '{ref}': {res.get('error')}"
+            matches = [c for c in (res.get("connections") or [])
+                       if c["name"].lower() == ref.lower()]
+            if not matches:
+                names = ", ".join(c["name"] for c in (res.get("connections") or [])[:15])
+                return (f"❌ No connection named '{ref}' (exact match). "
+                        f"Existing connections: {names or 'none'}")
+            conn_id = matches[0]["id"]
+
+        r = _wt._post(f"/api/discover/query/{conn_id}", {"sql": str(sql).strip()})
+        data = r.get("data") if isinstance(r.get("data"), dict) else r
+        if data.get("rejected"):
+            return (f"❌ QUERY REJECTED: {data.get('error')}. Only a single read-only SELECT "
+                    f"is permitted — no INSERT/UPDATE/DELETE/DDL/EXEC and no multiple "
+                    f"statements. Revise and try again.")
+        if data.get("sql_error"):
+            return (f"❌ SQL ERROR: {data.get('error')}\nThe query did not run. Use "
+                    f"get_connection_schema to confirm the real table and column names, "
+                    f"then correct it.")
+        if not data.get("success"):
+            return (f"❌ Query probe failed on connection {conn_id}: "
+                    f"{data.get('error') or r.get('error') or 'unknown error'}")
+
+        n = data.get("row_count", 0)
+        cols = data.get("columns") or []
+        rows = data.get("rows") or []
+        if not n:
+            return ("⚠ 0 ROWS. This query matches nothing. That is almost always a filter "
+                    "value that does not exist in the data — check every literal in the "
+                    "WHERE clause with get_connection_schema (it lists the real values of "
+                    "code columns). Do NOT save this query into the automation until it "
+                    "returns rows or you are certain empty is correct.")
+        head = [" | ".join(cols)]
+        for rec in rows[:15]:
+            head.append(" | ".join(str(rec.get(c, "")) for c in cols))
+        note = ""
+        if data.get("cap_applied"):
+            note += f"\n(capped at {data.get('row_cap')} rows)"
+        if data.get("truncated_columns"):
+            note += f"\n(+{data['truncated_columns']} more columns not shown)"
+        if n > 15:
+            note += f"\n(showing first 15 of {n} rows)"
+        return f"OK — {n} row(s):\n" + "\n".join(head) + note
 
     @lc_tool
     async def unwire_workflow_nodes(workflow: str, from_node: str, to_node: str,
@@ -6395,6 +6476,10 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
     if ((_AUTOMATIONS_TOOLS_ENABLED and _automations_allowed(state))
             or (_native_impl(state) and _workflow_tools_allowed(state))):
         tools.append(get_connection_schema)
+        # AIHUB-0064: schema grounding answers "what is this column called"; the
+        # probe answers "does the query I just wrote match anything" — the one a
+        # dead filter fails, silently. Same gate, bound alongside.
+        tools.append(probe_connection_query)
     if _PORTAL_FETCH_ENABLED:
         tools.append(fetch_from_portal)
         tools.append(check_portal_download)
@@ -6598,6 +6683,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     "check_workflow_run": check_workflow_run,
                     "list_data_connections": list_data_connections,
                     "get_connection_schema": get_connection_schema,
+                    "probe_connection_query": probe_connection_query,
                 }
 
                 tool_fn = tool_map.get(tool_name)

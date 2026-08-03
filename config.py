@@ -432,6 +432,14 @@ SQL_QUERY_ROW_SAFETY_CAP = int(os.getenv('SQL_QUERY_ROW_SAFETY_CAP', '1000000'))
 ARTIFACT_EXPORT_ROW_THRESHOLD = int(os.getenv('ARTIFACT_EXPORT_ROW_THRESHOLD', '5000'))  # Data-agent results with more rows than this are ALSO persisted as a full-fidelity CSV artifact in the shared store (preview + download chip in CC; 0 disables). MUST stay BELOW the engines' SQL row caps (live NLQ SQL is capped at 10k rows) — at the old 10000 default the strict len>threshold gate could NEVER fire (AIHUB-0023). docs/agent-artifact-sharing-plan.md
 DISPLAY_ROW_LIMIT = 100
 DISPLAY_COLUMN_LIMIT = 20
+
+# Authoring-time query probe (/api/discover/query) — the code-generating agent
+# verifying its own SQL before the code is saved. Bounded so a wide free-text
+# result cannot swamp the authoring context: a thousand rows of notes buries the
+# answer the model was looking for and burns the room it needs to write code.
+DISCOVER_QUERY_ROW_CAP = int(os.getenv('DISCOVER_QUERY_ROW_CAP', '50'))
+DISCOVER_QUERY_MAX_COLS = int(os.getenv('DISCOVER_QUERY_MAX_COLS', '25'))
+DISCOVER_QUERY_MAX_CELL = int(os.getenv('DISCOVER_QUERY_MAX_CELL', '200'))
 GENERAL_CHAT_AI_PROCESSING_ROW_LIMIT = 50               # AI processing row limit - beyond this datasets will be injected directly and bypass LLM (using data agents via general agent communication)
 REFINE_TABLE_SELECTION = True
 CHECK_FOR_MISSING_HEADERS = True
