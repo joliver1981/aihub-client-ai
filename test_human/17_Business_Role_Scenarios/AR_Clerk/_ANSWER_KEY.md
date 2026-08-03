@@ -1,6 +1,6 @@
 # 17 / AR Clerk — Answer Key
 
-**Generated:** 2026-08-02 20:13 · **Anchor date:** `2026-08-02` · **Source:** live `ERPDB` on `10.0.0.6`
+**Generated:** 2026-08-03 16:42 · **Anchor date:** `2026-08-03` · **Source:** live `ERPDB` on `10.0.0.6`
 
 > Regenerate with `_scripts/answer_key.py`. Every figure below is derived from live SQL
 > and cross-checked against `_scripts/ar_book.py`. **Do not hand-edit this file** — if a
@@ -49,7 +49,7 @@ Stage ladder — Stage 1 Reminder (1–15 dpd) · Stage 2 Firm (16–45) · Stag
 
 | Customer | Reason | Detail |
 |---|---|---|
-| CGC-005 Northgate Mercantile | `promise_to_pay` | Open promise-to-pay 8,900.00 due 2026-08-12. |
+| CGC-005 Northgate Mercantile | `promise_to_pay` | Open promise-to-pay 8,900.00 due 2026-08-13. |
 | CGC-006 Lakeshore Trading Co. | `disputed` | All past-due invoices in open dispute: CG-INV-10030 |
 | CGC-007 Pinnacle Home Goods | `below_threshold` | Past-due balance 61.40 is under the 100.00 chase threshold. |
 | CGC-008 Ironwood Supply Co. | `recently_sent` | Stage 2 already sent 6 days ago (inside the 14-day window). |
@@ -116,7 +116,7 @@ Prompt asks for **unapplied payments over $1,000 in the last 30 days, oldest fir
 | GL control account `1200-CG` | $147,914.40 |
 | **Difference to explain** | **$2,450.00** |
 
-Explained by **`CG-GL-9001`** (2026-07-24, $2,450.00, posted by `j.kowal`): "Manual reclass - misposted customer credit" — a journal entry against the AR control account with no invoice behind it.
+Explained by **`CG-GL-9001`** (2026-07-25, $2,450.00, posted by `j.kowal`): "Manual reclass - misposted customer credit" — a journal entry against the AR control account with no invoice behind it.
 
 > Finding the difference is half marks. Naming the entry is the pass.
 
