@@ -16228,8 +16228,15 @@ def discover_table_schema_api(connection_id):
     table = (request.args.get('table') or '').strip()
     if not table:
         return jsonify({'success': False, 'error': "missing required query param 'table'"}), 400
+    # AIHUB-0064: optionally enumerate the VALUES of short code-like columns.
+    # Schema grounding fixed invented column NAMES; it never covered invented
+    # filter VALUES (live failure: `activity_type = 'promise_to_pay'` against a
+    # column holding 'ptp' — zero rows, no error, a safety rule silently dead).
+    # `column=` asks for one named column and skips the payload budget.
+    want_values = (request.args.get('values') or '1').strip().lower() not in ('0', 'false', 'no')
+    only_column = (request.args.get('column') or '').strip() or None
     try:
-        from ai_metadata_generator import get_table_schema_from_database
+        from ai_metadata_generator import get_table_schema_from_database, get_column_value_sets
         target_conn_str, _cid, db_type = get_database_connection_string(connection_id)
         if not target_conn_str:
             return jsonify({'success': False, 'error': 'Connection not found or no connection string'}), 404
@@ -16251,6 +16258,24 @@ def discover_table_schema_api(connection_id):
                         c['is_foreign_key'] = d.get('is_foreign_key')
                         c['foreign_key_table'] = d.get('foreign_key_table') or ''
                         c['foreign_key_column'] = d.get('foreign_key_column') or ''
+            # Additive and best-effort: a probe failure leaves the schema exactly
+            # as it was before this existed.
+            if want_values:
+                vsets = get_column_value_sets(
+                    execute_sql_query_v2, table, target_conn_str, columns,
+                    only_column=only_column) or {}
+                for c in columns:
+                    v = vsets.get(c.get('COLUMN_NAME') or c.get('column_name'))
+                    if not v:
+                        continue
+                    if v.get('values') is not None:
+                        c['column_values'] = v['values']
+                        c['distinct_count'] = v.get('distinct_count')
+                    elif v.get('too_many'):
+                        c['distinct_count'] = v.get('distinct_count')
+                        c['values_too_many'] = True
+                    elif v.get('deferred'):
+                        c['values_deferred'] = True
             return jsonify({
                 'success': True, 'table': table, 'columns': columns,
                 'source': 'live+dictionary' if dictionary else 'live_only',

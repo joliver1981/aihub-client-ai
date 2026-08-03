@@ -27,6 +27,7 @@ enabled, credentials are also present as AIHUB_CONN_<NAME>/AIHUB_SECRET_<NAME>
 env vars; this SDK prefers those when set (no HTTP round-trip).
 """
 
+import atexit as _atexit
 import json as _json
 import os as _os
 import re as _re
@@ -120,6 +121,68 @@ def secret(name):
     return _resolve("secret", name)
 
 
+# --- dead-predicate detection -------------------------------------------------
+# A filter written against a value that does not exist returns zero rows forever,
+# raises nothing, and silently disables whatever rule it implements. Live failure:
+# a dunning automation filtered `activity_type = 'promise_to_pay'` on a column
+# holding 'ptp'; the promise-to-pay hold never fired and a customer who had
+# already promised to pay was sent a dunning letter.
+#
+# Schema/value grounding prevents that at authoring time. This catches it at RUN
+# time, which is the half grounding cannot reach: values discovered once, months
+# ago, go stale when someone adds a new code.
+#
+# Signal, not noise: one execution returning nothing is ordinary ("any exceptions
+# today? none"). The same statement returning nothing on EVERY one of several
+# executions is a filter that cannot match.
+#
+# The verdict is deliberately deferred to END OF RUN. Warning inline the moment a
+# statement crosses the run threshold would fire on a per-row loop whose first
+# three iterations legitimately find nothing and whose fourth hits -- a false
+# positive, and false positives are how a warning gets ignored. Only once every
+# execution is in can "never matched" be asserted.
+_QUERY_STATS = {}
+_DEAD_QUERY_MIN_RUNS = 3
+
+
+def _note_query_result(sql, row_count):
+    try:
+        key = " ".join(str(sql).split())[:400]
+        st = _QUERY_STATS.setdefault(key, {"runs": 0, "hits": 0})
+        st["runs"] += 1
+        if row_count:
+            st["hits"] += 1
+    except Exception:
+        pass  # instrumentation must never break a run
+
+
+def _report_dead_queries():
+    """Emit the end-of-run verdict. Registered with atexit, so it lands in the
+    run log after the script's own output and is visible in the dry-run."""
+    try:
+        dead = [(k, s) for k, s in _QUERY_STATS.items()
+                if s["hits"] == 0 and s["runs"] >= _DEAD_QUERY_MIN_RUNS]
+        if not dead:
+            return
+        log(f"WARNING: {len(dead)} quer{'y' if len(dead) == 1 else 'ies'} ran repeatedly "
+            f"and matched NOTHING, every time. A filter comparing against a value that "
+            f"does not exist raises no error and silently disables the rule it implements "
+            f"— check these literals against the column's real values "
+            f"(get_connection_schema lists them):")
+        for key, st in dead:
+            log(f"  - {st['runs']}x, 0 rows every time: {key[:240]}")
+    except Exception:
+        pass
+
+
+# Guard the registration: a reload (tests, or any host that re-imports the SDK)
+# re-executes this module in its existing namespace, and an unguarded register()
+# would stack a duplicate reporter on every pass.
+if not globals().get("_DEAD_QUERY_REPORTER_REGISTERED"):
+    _atexit.register(_report_dead_queries)
+    _DEAD_QUERY_REPORTER_REGISTERED = True
+
+
 def query(connection_name, sql, params=None):
     """Run SQL against a platform Connection BY NAME and return the rows as a
     list of dicts (column name -> value). Use this instead of hand-rolling
@@ -156,7 +219,9 @@ def query(connection_name, sql, params=None):
             cn.commit()
             return []
         cols = [d[0] for d in cur.description]
-        return [dict(zip(cols, row)) for row in cur.fetchall()]
+        rows = [dict(zip(cols, row)) for row in cur.fetchall()]
+        _note_query_result(sql, len(rows))
+        return rows
     except Exception as e:
         raise AutomationRuntimeError(
             f"aihub.query failed on '{connection_name}': {e}") from None

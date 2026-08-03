@@ -895,6 +895,148 @@ def get_sample_data(execute_query_func, table_name: str, connection_string: str,
         return []
 
 
+# Columns whose values are worth enumerating: short strings that behave as codes.
+_VALUE_ENUM_TYPES = {
+    'varchar', 'nvarchar', 'char', 'nchar',
+    'character varying', 'character', 'text', 'string',
+}
+# Column names come from INFORMATION_SCHEMA, but these go into SQL by name, so
+# whitelist the shape rather than trusting the source.
+_SAFE_IDENT = re.compile(r'^[A-Za-z_][A-Za-z0-9_ ]{0,127}$')
+
+
+def _qualify(table_name: str, db_type: str) -> str:
+    """Bracket/quote a possibly schema-qualified table name for the dialect."""
+    parts = table_name.split('.', 1)
+    if db_type == 'sqlserver':
+        return '.'.join(f"[{p}]" for p in parts)
+    if db_type in ('postgresql', 'oracle'):
+        return '.'.join(f'"{p}"' for p in parts)
+    return '.'.join(f"`{p}`" for p in parts) if db_type == 'mysql' else table_name
+
+
+def _quote_col(col: str, db_type: str) -> str:
+    if db_type == 'sqlserver':
+        return f"[{col}]"
+    if db_type in ('postgresql', 'oracle'):
+        return f'"{col}"'
+    if db_type == 'mysql':
+        return f"`{col}`"
+    return col
+
+
+def _top_clause(db_type: str, n: int):
+    """(prefix, suffix) for a row-limited SELECT in this dialect."""
+    if db_type == 'sqlserver':
+        return f"TOP {n} ", ""
+    if db_type == 'oracle':
+        return "", f" AND ROWNUM <= {n}"
+    return "", f" LIMIT {n}"
+
+
+def get_column_value_sets(execute_query_func, table_name: str, connection_string: str,
+                          columns: List[Dict], max_values: int = 25,
+                          max_value_len: int = 80, payload_budget: int = 3000,
+                          max_probe_columns: int = 30,
+                          only_column: Optional[str] = None) -> Dict[str, Dict]:
+    """Distinct values for the short code-like columns of a table.
+
+    Schema grounding gives a model column NAMES; this gives it the VALUES a
+    filter can legitimately compare against. Live failure that motivated it: a
+    generated dunning automation wrote `activity_type = 'promise_to_pay'` -- the
+    readable phrase from the user's own request -- when the column holds 'ptp'.
+    The query returned zero rows forever, a promise-to-pay hold never fired, and
+    a customer who had already promised to pay was sent a dunning letter. The SQL
+    read perfectly and no error was ever raised.
+
+    Returns {column_name: verdict}, where verdict is exactly one of:
+        {'values': [...], 'distinct_count': n}   enumerated in full
+        {'distinct_count': n, 'too_many': True}  too many to enumerate
+        {'deferred': True}                       budget/probe cap hit; ask per-column
+
+    A column is NEVER partially enumerated. Handing back 25 of 200 values invites
+    exactly the failure this exists to prevent -- the model concludes the value it
+    wants is absent and invents one anyway. Over the cap it gets a count and
+    nothing else.
+
+    Best-effort by contract: any failure returns {} so schema grounding keeps
+    working unchanged. `only_column` skips the budget for a single named lookup.
+    """
+    try:
+        db_type = detect_database_type(connection_string)
+        qualified = _qualify(table_name, db_type)
+
+        candidates = []
+        for c in columns or []:
+            name = c.get('COLUMN_NAME') or c.get('column_name')
+            dtype = (c.get('DATA_TYPE') or c.get('data_type') or '').lower().strip()
+            maxlen = c.get('CHARACTER_MAXIMUM_LENGTH')
+            if not name or not _SAFE_IDENT.match(str(name)):
+                continue
+            if dtype not in _VALUE_ENUM_TYPES:
+                continue
+            # -1 is SQL Server's MAX. Long free-text columns are prose, not codes.
+            if isinstance(maxlen, (int, float)) and (maxlen < 0 or maxlen > 100):
+                continue
+            candidates.append(str(name))
+
+        if only_column:
+            candidates = [c for c in candidates if c.lower() == only_column.lower()]
+            if not candidates:
+                return {}
+        if not candidates:
+            return {}
+
+        out: Dict[str, Dict] = {}
+        probing = candidates
+        if not only_column and len(candidates) > max_probe_columns:
+            probing = candidates[:max_probe_columns]
+            for name in candidates[max_probe_columns:]:
+                out[name] = {'deferred': True}
+
+        # One round trip for every cardinality, rather than one per column.
+        union = " UNION ALL ".join(
+            f"SELECT '{n}' AS col_name, COUNT(DISTINCT {_quote_col(n, db_type)}) AS n "
+            f"FROM {qualified}" for n in probing)
+        df, err = execute_query_func(union, connection_string)
+        if err or df is None or getattr(df, 'empty', True):
+            logging.info(f"[value-sets] cardinality probe unavailable for {table_name}: {err}")
+            return {}
+        counts = {str(r['col_name']): int(r['n'] or 0) for r in df.to_dict('records')}
+
+        # Cheapest first: a two-value column is both the cheapest to render and the
+        # most likely to be an enum somebody filters on.
+        enumerable = sorted((n for n in probing if 0 < counts.get(n, 0) <= max_values),
+                            key=lambda n: counts[n])
+        for name in probing:
+            if counts.get(name, 0) > max_values:
+                out[name] = {'distinct_count': counts[name], 'too_many': True}
+
+        spent = 0
+        pre, suf = _top_clause(db_type, max_values + 1)
+        for name in enumerable:
+            if not only_column and spent >= payload_budget:
+                out[name] = {'deferred': True}
+                continue
+            q = (f"SELECT DISTINCT {pre}{_quote_col(name, db_type)} FROM {qualified} "
+                 f"WHERE {_quote_col(name, db_type)} IS NOT NULL{suf}")
+            vdf, verr = execute_query_func(q, connection_string)
+            if verr or vdf is None or getattr(vdf, 'empty', True):
+                continue
+            vals = []
+            for row in vdf.to_dict('records'):
+                v = list(row.values())[0]
+                s = str(v)
+                vals.append(s if len(s) <= max_value_len else s[:max_value_len] + '…')
+            vals.sort()
+            out[name] = {'values': vals, 'distinct_count': counts[name]}
+            spent += sum(len(v) + 3 for v in vals) + len(name) + 4
+        return out
+    except Exception as e:
+        logging.warning(f"[value-sets] skipped for {table_name}: {e}")
+        return {}
+
+
 def get_table_row_count(execute_query_func, table_name: str, connection_string: str) -> int:
     """
     Get approximate row count for a table.

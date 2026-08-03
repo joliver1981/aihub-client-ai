@@ -2416,6 +2416,15 @@ async def converse(state: CommandCenterState) -> dict:
             "names. NEVER invent table, column, or join names; an invented join key fails the "
             "dry-run and wastes the user's time. If discovery itself fails, say exactly that and "
             "ask ONE focused question.\n"
+            "- VALUE GROUNDING (same rule, for the right-hand side): NEVER invent a filter VALUE "
+            "either. get_connection_schema lists the actual values of short code columns; use one "
+            "of those literals verbatim. Tables abbreviate — a column meaning 'promise to pay' may "
+            "hold 'ptp', and a yes/no column may hold 'Y','N','Yes' AND 'No' at once, so match all "
+            "the forms that are really there. If a column's values were not listed, call "
+            "get_connection_schema(connection=..., table=..., column=...) before filtering on it. "
+            "A guessed literal is the WORST failure mode there is: the SQL reads perfectly, no "
+            "error is raised, the query silently matches nothing, and the rule it implements is "
+            "dead. Never assume a value; look it up.\n"
             "- BUILD FLOW (follow in order): 1) confirm the process + the connection/secret NAMES to "
             "use, 2) ground the schema (get_connection_schema) for any SQL, 3) create_automation, "
             "4) save_automation_code with a manifest declaring "
@@ -6077,15 +6086,20 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         return "Data connections (use the numeric id in a Database node's config):\n" + "\n".join(lines)
 
     @lc_tool
-    async def get_connection_schema(connection: str, table: str = "") -> str:
+    async def get_connection_schema(connection: str, table: str = "",
+                                    column: str = "") -> str:
         """Discover the REAL schema of a data connection before authoring any
         SQL against it. With no table: lists the connection's tables. With a
-        table (e.g. 'TS.employee_data'): returns its actual columns and types.
-        ALWAYS ground table/column/join names in this — NEVER invent them.
+        table (e.g. 'TS.employee_data'): returns its actual columns, types, and
+        — for short code-like columns — the actual VALUES stored in them.
+        ALWAYS ground table/column/join names AND filter values in this.
+        NEVER invent them.
 
         Args:
             connection: the connection's name (e.g. 'AIRDB') or numeric id.
             table: optional qualified table name to get column-level schema.
+            column: optional single column to look up values for, when the
+                table view reported them as available-on-request.
         """
         # Developer-family gate: available on automation/code-flow AND native
         # workflow turns; both families require the same role.
@@ -6109,7 +6123,10 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                         f"Existing connections: {names or 'none'}")
             conn_id = matches[0]["id"]
         if table.strip():
-            r = _wt._get(f"/api/discover/schema/{conn_id}?table={_quote(table.strip())}")
+            url = f"/api/discover/schema/{conn_id}?table={_quote(table.strip())}"
+            if column.strip():
+                url += f"&column={_quote(column.strip())}"
+            r = _wt._get(url)
             data = r.get("data") or {}
             if not r.get("ok") or not data.get("success"):
                 return (f"❌ Schema discovery failed for {table} on connection {conn_id}: "
@@ -6120,8 +6137,33 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                         f"the table may not exist under that exact name; list tables first."
                         + (f" (live schema error: {data.get('live_error')})"
                            if data.get("live_error") else ""))
+
+            # Single-column value lookup — the escape hatch for a wide table whose
+            # value lists didn't fit the table-level budget.
+            if column.strip():
+                want = column.strip().lower()
+                hit = next((c for c in cols
+                            if str(c.get("COLUMN_NAME") or c.get("column_name") or "").lower()
+                            == want), None)
+                if not hit:
+                    return (f"❌ No column '{column}' on {table}. Call get_connection_schema "
+                            f"with just the table to see its real column names.")
+                cn = hit.get("COLUMN_NAME") or hit.get("column_name")
+                if hit.get("column_values"):
+                    vals = ", ".join(repr(str(v)) for v in hit["column_values"])
+                    return (f"{table}.{cn} holds exactly these {hit.get('distinct_count')} "
+                            f"values — filter using ONLY these:\n{vals}")
+                if hit.get("values_too_many"):
+                    return (f"{table}.{cn} has {hit.get('distinct_count')} distinct values — "
+                            f"this is an identifier, not a category. Do NOT filter it against "
+                            f"a guessed literal; join to it, or take the value from an input.")
+                return (f"{table}.{cn} is not a short code column, so its values were not "
+                        f"enumerated (type "
+                        f"{hit.get('DATA_TYPE') or hit.get('data_type') or 'unknown'}).")
+
             lines = []
-            for c in cols[:120]:
+            shown = cols[:120]
+            for c in shown:
                 cn = c.get("COLUMN_NAME") or c.get("column_name") or "?"
                 ct = c.get("DATA_TYPE") or c.get("data_type") or ""
                 line = f"- {cn}" + (f" ({ct})" if ct else "")
@@ -6133,8 +6175,25 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                              + "]")
                 if c.get("column_description"):
                     line += f" — {str(c['column_description'])[:140]}"
+                # The VALUE half of schema grounding. A model that knows a column is
+                # `varchar(20)` still has to guess what goes in it; this is where
+                # `activity_type = 'promise_to_pay'` came from when the column holds
+                # 'ptp'. Never a partial list: full set, or a count, or ask-me.
+                if c.get("column_values"):
+                    vals = ", ".join(repr(str(v)) for v in c["column_values"])
+                    line += f"\n    values ({c.get('distinct_count')}): {vals}"
+                elif c.get("values_too_many"):
+                    line += (f"\n    {c.get('distinct_count')} distinct values — not a category; "
+                             f"do not filter on a guessed literal")
+                elif c.get("values_deferred"):
+                    line += ("\n    values available — call get_connection_schema("
+                             f"connection='{connection}', table='{table}', column='{cn}')")
                 lines.append(line)
             header = f"REAL columns of {table} (connection {conn_id}) — use ONLY these names:"
+            if len(cols) > len(shown):
+                header += (f"\n⚠ Showing {len(shown)} of {len(cols)} columns. The rest were NOT "
+                           f"dropped silently — call get_connection_schema(connection='{connection}', "
+                           f"table='{table}', column='<name>') for any column not listed.")
             if data.get("table_description"):
                 header += f"\nTable: {str(data['table_description'])[:200]}"
             if data.get("primary_key_columns"):
