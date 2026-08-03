@@ -339,7 +339,8 @@ def azureChatPrompt(messages, use_alternate_api=False):
     if config.get('reasoning_effort'):
         kwargs["reasoning_effort"] = config['reasoning_effort']
 
-    chat_completion = client.chat.completions.create(**kwargs)
+    chat_completion = call_dropping_unknown_kwargs(
+        client.chat.completions.create, **kwargs)
     return chat_completion
 
 
@@ -384,9 +385,61 @@ def quickPrompt(prompt, system="You are an assistant.", use_alternate_api=False,
     if response_format is not None:
         kwargs["response_format"] = response_format
 
-    chat_completion = client.chat.completions.create(**kwargs)
+    chat_completion = call_dropping_unknown_kwargs(
+        client.chat.completions.create, **kwargs)
     response = str(chat_completion.choices[0].message.content)
     return response
+
+
+_UNEXPECTED_KWARG_RE = re.compile(r"unexpected keyword argument ['\"]([^'\"]+)['\"]")
+
+
+def call_dropping_unknown_kwargs(fn, *args, _max_drops=4, **kwargs):
+    """Call `fn`; if it rejects a keyword argument by NAME, drop it and retry.
+
+    WHY THIS EXISTS: AI providers and their SDKs churn parameter names
+    constantly — a reasoning model that stops accepting `temperature`, an SDK
+    that renames or removes a field. Every one of those breaks a call site that
+    was correct yesterday, and the failure is always the same shape:
+
+        TypeError: f() got an unexpected keyword argument 'temperature'
+
+    This only runs AFTER a call has already raised, so there is nothing to lose:
+    the alternative to retrying is the exception we already have. Worst case we
+    re-raise the identical error.
+
+    Safety properties (this never guesses):
+      * it drops ONLY the parameter the error names, never a guess;
+      * it drops only a parameter that is actually in OUR kwargs, so it cannot
+        strip something the callee itself passed on internally;
+      * it re-raises untouched if the message is any other TypeError, so a real
+        bug (wrong positional count, bad type) still surfaces immediately;
+      * it stops after _max_drops so a pathological callee cannot loop.
+
+    Regex here parses a fixed Python/SDK error FORMAT, not natural language.
+
+    Returns fn's return value. Raises whatever fn raised if it is not a
+    droppable-kwarg error.
+    """
+    dropped = []
+    while True:
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            m = _UNEXPECTED_KWARG_RE.search(str(e))
+            if not m:
+                raise
+            bad = m.group(1)
+            if bad not in kwargs or len(dropped) >= _max_drops:
+                raise
+            kwargs.pop(bad)
+            dropped.append(bad)
+            logger.warning(
+                "[kwarg-fallback] %s rejected %r — retrying without it "
+                "(dropped so far: %s). This is provider/SDK drift, not a caller "
+                "bug; the call now succeeds without that parameter.",
+                getattr(fn, "__qualname__", getattr(fn, "__name__", repr(fn))),
+                bad, dropped)
 
 
 def azureQuickPrompt(prompt, system="You are an assistant.", use_alternate_api=False, temp=0.0, provider="openai"):
@@ -411,7 +464,8 @@ def azureQuickPrompt(prompt, system="You are an assistant.", use_alternate_api=F
     else:
         kwargs["temperature"] = temp
 
-    chat_completion = client.chat.completions.create(**kwargs)
+    chat_completion = call_dropping_unknown_kwargs(
+        client.chat.completions.create, **kwargs)
     response = str(chat_completion.choices[0].message.content)
     response = response.replace('```json', '').replace('```sql', '').replace('python```', '').replace('```', '')
     return response
@@ -438,7 +492,8 @@ def azureMiniQuickPrompt(prompt, system="You are an assistant.", temp=0.0, provi
     else:
         kwargs["temperature"] = temp
 
-    chat_completion = client.chat.completions.create(**kwargs)
+    chat_completion = call_dropping_unknown_kwargs(
+        client.chat.completions.create, **kwargs)
     response = str(chat_completion.choices[0].message.content)
     response = response.replace('```json', '').replace('```sql', '').replace('python```', '').replace('```', '')
     return response

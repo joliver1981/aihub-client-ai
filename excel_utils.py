@@ -160,6 +160,17 @@ Sample data (first few rows and columns):
 
 Based on this structure, is this a TABLE or FORM layout? Respond with only "table" or "form"."""
 
+    # ⚠ DO NOT "fix" this kwarg on its own — measured 2026-08-03.
+    # `temperature=` has never been a parameter of azureMiniQuickPrompt (it takes
+    # `temp`), so this call has ALWAYS raised TypeError and fallen back to the
+    # heuristic below. It is called ONCE PER EXPORTED ROW, from the append loop in
+    # workflow_execution.py:_execute_excel_export_node.
+    #   failing  (today):        ~1.40 s/row
+    #   succeeding (kwarg fixed): ~2.98 s/row   <- correcting the name alone
+    #                                             DOUBLES export time
+    # The real fix is to detect the layout ONCE per export instead of per row;
+    # only then is making this call work an improvement. Deliberately NOT wrapped
+    # in AppUtils.call_dropping_unknown_kwargs for the same reason.
     response = azureMiniQuickPrompt(
         user_prompt,
         system_prompt,
