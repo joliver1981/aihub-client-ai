@@ -1492,16 +1492,23 @@ def c_comp_pwchange(ctx):
 @check("comp_mcp_tools_enumerate", "MCP",
        "every ENABLED MCP server actually enumerates its tools right now",
        competency=True,
-       xfail="FOUND 2026-08-02: an enabled MCP server that cannot enumerate tools is a "
-             "tool surface silently missing from every agent that references it - the "
-             "agent simply behaves as if the capability never existed. Graded LIVE via "
-             "/api/mcp/servers/<id>/tools_v1 rather than the stored last_test_status, "
-             "which on this box is a stale 'error' from 2026-02-14 on server 1 and NULL "
-             "on the other three (i.e. the status field proves nothing either way). "
+       xfail="FOUND 2026-08-03 (CORRECTED): 2 of 4 enabled servers fail to enumerate - "
+             "'AI Hub Test MCP Server' (id 1) and 'Test MCP Server' (id 5), both HTTP "
+             "500. The two REAL servers are healthy: EveriAI Graph exposes 4 tools "
+             "(get_my_profile, list_recent_emails, send_email, list_upcoming_meetings) "
+             "and Microsoft Learn exposes 3. Both dead entries are stale test rows left "
+             "enabled; the likely fix is to disable or delete them, not a code change. "
              "OWNER DECISION PENDING.")
 def c_comp_mcp_tools(ctx):
-    """Regression asserts the server LIST parses. That says nothing about whether
-    any tools are reachable, which is the only thing an agent actually needs."""
+    """CORRECTED 2026-08-03. The first version called /tools_v1 and reported that
+    ALL FOUR servers exposed zero tools. That was wrong twice over:
+      - /tools_v1 is a DEAD ROUTE: it queries a table `UserMCPServers` that does
+        not exist, so it returns HTTP 500 for every server regardless of health.
+      - the check counted a 500 as "no tools", collapsing "the endpoint is
+        broken" and "this server has nothing" into one verdict.
+    The UI calls /api/mcp/servers/<id>/tools (mcp_servers.html:684) and shows the
+    tools correctly. Graded on that endpoint now, and endpoint errors are
+    reported separately from genuinely-empty servers."""
     api = ctx["api"]
     body = api.jbody(api.get("/api/mcp/servers"))
     rows = body if isinstance(body, list) else ((body or {}).get("servers")
@@ -1510,20 +1517,26 @@ def c_comp_mcp_tools(ctx):
     enabled = [r for r in rows if str(r.get("enabled")).lower() in ("1", "true", "yes")]
     if not enabled:
         return None, "SKIP: no enabled MCP servers on this target"
-    good, bad = [], []
+    healthy, empty, errored = [], [], []
     for srv in enabled:
         sid = srv.get("server_id")
+        label = f"{sid}({str(srv.get('server_name') or srv.get('name') or '')[:18]})"
         try:
-            rt = api.get(f"/api/mcp/servers/{sid}/tools_v1", timeout=45)
+            rt = api.get(f"/api/mcp/servers/{sid}/tools", timeout=120)
             tb = api.jbody(rt)
             tools = tb if isinstance(tb, list) else ((tb or {}).get("tools")
                                                      or (tb or {}).get("data") or [])
-            (good if (rt.status_code == 200 and tools) else bad).append(
-                f"{sid}:{len(tools) if isinstance(tools, list) else '?'}")
+            if rt.status_code != 200:
+                errored.append(f"{label}:http{rt.status_code}")
+            elif tools:
+                healthy.append(f"{label}:{len(tools)}")
+            else:
+                empty.append(label)
         except Exception as e:
-            bad.append(f"{sid}:{type(e).__name__}")
-    return (not bad), (f"enabled={len(enabled)}; enumerating tools={good or 'none'}; "
-                       f"NO TOOLS={bad or 'none'}")
+            errored.append(f"{label}:{type(e).__name__}")
+    return (not errored and not empty), (
+        f"enabled={len(enabled)}; healthy={healthy or 'none'}; "
+        f"empty={empty or 'none'}; UNREACHABLE={errored or 'none'}")
 
 
 @check("comp_nlq_admits_unanswerable", "Data/NLQ",

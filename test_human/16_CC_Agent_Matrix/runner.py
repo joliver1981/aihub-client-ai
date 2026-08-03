@@ -460,10 +460,23 @@ def b6(ctx):
     used_ft = "File Transfer" in node_types
     denied = any(k in t for k in ["no node", "not a node", "no workflow node",
                                   "cannot upload", "can't upload", "no sftp node"])
+    # UPDATED 2026-08-03 (james): asking first is a CORRECT outcome, not a failure.
+    # The prompt says "queries a database" without naming one. CC used to pick a
+    # connection itself and build; after the code-generator grounding change
+    # (95228f7 / 3ebc24b) it now stops and asks which connection and what SQL.
+    # Guessing a customer's database is exactly the silent-wrong-answer class this
+    # suite exists to catch, so the honest ask is the better behaviour and this
+    # check accepts it. What is still a FAIL: falsely denying the capability, or
+    # building a workflow that omits the File Transfer node.
+    asked_for_target = bool(re.search(r"which (database|connection)|what (sql|query)|"
+                                      r"connection should|need one essential detail|"
+                                      r"before I create the database node", t))
+    built_something = bool(node_types)
+    ok = (not denied) and (used_ft if built_something else asked_for_target)
     try:
-        return (used_ft and not denied), (f"persisted nodes={node_types}; "
-                                          f"File-Transfer-node-used={used_ft}; "
-                                          f"falsely-denied-capability={denied}")
+        return ok, (f"persisted nodes={node_types}; File-Transfer-node-used={used_ft}; "
+                    f"asked-for-connection-instead-of-guessing={asked_for_target}; "
+                    f"falsely-denied-capability={denied}")
     finally:
         wf2 = find_wf()
         if wf2:
