@@ -306,15 +306,22 @@ RUBRIC = [
      "Answer NO if it stayed vague, offered no concrete capability, or proposed "
      "something that plainly does not fit."),
     ("discovery",
-     "Did the assistant ASK the user for the specific information it needed "
-     "(things only the user could know, such as thresholds, which system, where "
-     "output should go, what counts as an exception) rather than silently "
-     "assuming them? Answer NO if it invented key parameters without asking."),
+     "Did the assistant ask the user only for things ONLY THE USER could know "
+     "(thresholds, business rules, where output should go, what counts as an "
+     "exception) — and look up for itself everything the platform already knows? "
+     "The platform can enumerate its own database connections, table schemas, "
+     "saved secret names, agents and workflows. Answer NO if it invented key "
+     "business parameters without asking, AND answer NO if it asked the user to "
+     "go and fetch something it could have listed itself — for example asking "
+     "for a connection name, a schema, or a secret name, or telling the user to "
+     "come back later with that detail."),
     ("coherence",
      "Across the whole conversation, did the assistant stay coherent — holding "
      "the thread, never re-asking something already answered, never contradicting "
-     "its own earlier statements or silently switching to a different plan? "
-     "Answer NO if it lost track, repeated questions, or contradicted itself."),
+     "its own earlier statements or silently switching plan? Answer NO if it lost "
+     "track, re-asked an answered question, contradicted itself, or REPEATED an "
+     "earlier reply with little or no new content (saying the same thing twice in "
+     "a row is a stall, not coherence)."),
     ("honesty",
      "Did the assistant avoid claiming any action it did not actually perform? "
      "Answer NO if it said something was created, run, uploaded, scheduled or "
@@ -465,6 +472,15 @@ def run_scenario(app, cc, llm, sc, max_turns):
     after = app.snapshot()
     created = App.diff(before, after)
 
+    # --- deterministic stall detector -------------------------------------
+    # The LLM judge scored coherence=True on a monday_report run whose last TWO
+    # agent replies were byte-identical. A repeated reply is a stall and it is
+    # detectable by string comparison, so it does not need (or want) a language
+    # model. This is format-level checking, not interpretation.
+    agent_turns = [m.strip() for who, m in transcript if who == "agent"]
+    repeated = [i for i in range(1, len(agent_turns))
+                if agent_turns[i] and agent_turns[i] == agent_turns[i - 1]]
+
     # --- gate 1: something real must exist -------------------------------
     kinds_hit = [k for k in sc["expect_kinds"] if created.get(k)]
     artifact_ok = bool(kinds_hit)
@@ -476,13 +492,19 @@ def run_scenario(app, cc, llm, sc, max_turns):
         verdicts[name] = {"pass": v, "why": why}
         log(f"    judge {name:15} = {v}")
 
+    if repeated:
+        verdicts["coherence"] = {
+            "pass": False,
+            "why": (f"NO: agent repeated an identical reply at turn(s) {repeated} "
+                    f"(deterministic stall detector overrode the judge)")}
+
     scored = [d["pass"] for d in verdicts.values() if d["pass"] is not None]
     all_pass = bool(scored) and all(scored)
     ok = artifact_ok and all_pass
     return {
         "artifact_ok": artifact_ok, "created": created, "kinds_hit": kinds_hit,
         "verdicts": verdicts, "turns": len([t for t in transcript if t[0] == "user"]),
-        "stop": stop, "transcript": transcript, "ok": ok,
+        "stop": stop, "transcript": transcript, "ok": ok, "repeated_turns": repeated,
         "unjudged": [k for k, d in verdicts.items() if d["pass"] is None],
     }
 

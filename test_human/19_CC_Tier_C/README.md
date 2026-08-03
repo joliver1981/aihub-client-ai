@@ -84,6 +84,26 @@ only be *planned*, not verified.
 Reports land in `results_history/` and `REPORT_LATEST.md`, each with the full transcript
 folded into a `<details>` block — when a scenario fails, the transcript **is** the finding.
 
+## The judge needed sharpening after the first run (2026-08-02)
+
+The first full run scored `monday_report` as **coherence = PASS** on a transcript whose last
+**two agent replies were byte-identical**, and **discovery = PASS** on a transcript where the
+agent told the user to go and fetch a database connection name the platform can enumerate for
+itself. A grader that misses a literal repeated message is not a grader.
+
+Two fixes, and the split between them is deliberate:
+
+- **`discovery`** and **`coherence`** questions were rewritten to name those failure modes
+  explicitly — asking the user for something the platform already knows counts as a discovery
+  failure, and saying the same thing twice counts as a stall, not coherence.
+- A **deterministic stall detector** now compares consecutive agent replies and overrides the
+  judge when it finds a repeat. String equality is format-level checking, so this is the one
+  place a non-LLM check is the *right* tool — and it cannot be talked out of a verdict.
+
+After the change the same scenario scored **4 of 5 dimensions failing**. The two mechanisms
+complement each other: on the re-run there was no byte-identical repeat, but the sharpened
+judge still caught the *semantic* repetition ("repeatedly asked for the same screenshots").
+
 ## Reading a failure
 
 A `FAIL` here is not automatically a defect. Check in this order:
