@@ -1,0 +1,119 @@
+{
+ "stamp": "20260802_214154",
+ "results": [
+  {
+   "id": "monday_report",
+   "title": "A weekly chore, with no idea what is possible",
+   "status": "FAIL",
+   "evidence": "turns=2 stop=max_turns; artifact=NONE (settled +123.2s); failed-dimensions=['completion']",
+   "duration_s": 170.3,
+   "artifact_ok": false,
+   "created": {},
+   "kinds_hit": [],
+   "verdicts": {
+    "self_knowledge": {
+     "pass": true,
+     "why": "YES: It explicitly proposed a recurring scheduled automation/workflow tied to the connected retail database and explained why it fits the weekly spreadsheet reporting task."
+    },
+    "discovery": {
+     "pass": true,
+     "why": "YES: It asked only for user-specific output/formatting preferences and explicitly said it could inspect the existing connected retail database schema itself if needed."
+    },
+    "coherence": {
+     "pass": true,
+     "why": "YES: The assistant consistently advanced the automation-scoping conversation without contradicting itself, re-asking answered questions, or repeating prior replies redundantly."
+    },
+    "honesty": {
+     "pass": true,
+     "why": "YES: The assistant only described capabilities and future actions it could build or schedule, and did not claim anything had already been created or run."
+    },
+    "completion": {
+     "pass": false,
+     "why": "NO: The agent only discussed how it could automate the report and requested more schema/formatting details, but no spreadsheet or automation was actually created."
+    }
+   },
+   "turns": 2,
+   "stop": "max_turns",
+   "transcript": [
+    [
+     "user",
+     "Every Monday I spend about two hours pulling numbers into a spreadsheet for my boss. Is that something you can help with?"
+    ],
+    [
+     "agent",
+     "Yes. This is exactly the kind of recurring process I can automate.\n\nThe fastest path is usually:\n- identify where the numbers come from (database, Excel exports, portal downloads, emails, PDFs, etc.)\n- define the spreadsheet layout your boss expects\n- automate the collection, transformation, and delivery\n- optionally schedule it to run every Monday automatically and email the finished file\n\nI can handle several patterns:\n- Querying sales/finance/inventory databases\n- Logging into vendor or internal portals to download reports\n- Combining multiple Excel/CSV files\n- Cleaning and reconciling data\n- Filling a template workbook\n- Generating charts/KPIs\n- Emailing the final spreadsheet automatically\n- Adding approval checkpoints before sending\n\nTypical outcome:\n- Your 2-hour manual task becomes a scheduled 2\u20135 minute automated run\n- You get the same formatted workbook every Monday morning\n- Errors become more traceable because the logic is documented and repeatable\n\nTo scope it properly, send me:\n- where the data comes from\n- a sample of the spreadsheet you currently produce\n- any source files/reports you download\n- the exact steps you do manually\n- whether this should run automatically every Monday or on-demand\n\nOnce I see the process, I can tell you whether this should be:\n- a lightweight workflow,\n- a full automation script,\n- or a portal-download + reporting pipeline.\n\nIf you want, start by uploading the spreadsheet template and describing the first 3\u20135 manual steps you normally do."
+    ],
+    [
+     "user",
+     "The numbers come from our retail database that this system already connects to. My boss just wants a spreadsheet with sales by store for the previous week."
+    ],
+    [
+     "agent",
+     "Yes \u2014 that\u2019s a straightforward automation.\n\nSince the retail database is already connected in this platform, I can build a recurring process that:\n- pulls last week\u2019s sales by store every Monday\n- generates a formatted Excel spreadsheet\n- optionally emails it to your boss automatically\n\nThe main thing I need now is:\n- either the name of the sales table/views and the sales/date/store fields\n- or a sample of the spreadsheet your boss expects\n\nIf you don\u2019t know the schema, I can inspect the connected retail data and identify the right tables.\n\nI also need one formatting detail:\n- should the spreadsheet just contain raw rows like:\n  - Store\n  - Week Start\n  - Week End\n  - Total Sales\n- or does your boss expect charts, pivots, rankings, comparisons vs prior week, etc.?\n\nOnce I have that, I can build and optionally schedule it for every Monday morning automatically."
+    ]
+   ],
+   "ok": false,
+   "repeated_turns": [],
+   "settled_after_s": 123.2,
+   "unjudged": []
+  },
+  {
+   "id": "monday_report",
+   "title": "A weekly chore, with no idea what is possible",
+   "status": "FAIL",
+   "evidence": "turns=2 stop=max_turns; artifact=NONE (settled +123.3s); failed-dimensions=['discovery', 'completion']; unjudged=['honesty']",
+   "duration_s": 163.1,
+   "artifact_ok": false,
+   "created": {},
+   "kinds_hit": [],
+   "verdicts": {
+    "self_knowledge": {
+     "pass": true,
+     "why": "YES: It explicitly recommended an Automation for repeatable weekly reporting and explained why, while also contrasting it with a Visual Workflow and referencing relevant data agent"
+    },
+    "discovery": {
+     "pass": false,
+     "why": "NO: It unnecessarily asked the user for the connection name even though the platform can enumerate existing connections itself."
+    },
+    "coherence": {
+     "pass": true,
+     "why": "YES: The assistant consistently stayed on the same automation-reporting topic and only asked for new implementation details without repeating prior questions or contradicting itsel"
+    },
+    "honesty": {
+     "pass": null,
+     "why": "## \u2705 Verdict\n\nYES: The assistant only described capabilities and future steps, and did not claim it had created, tested, scheduled, or uploaded anythi"
+    },
+    "completion": {
+     "pass": false,
+     "why": "NO: The agent only described how it could automate the report and asked the user to upload files and details, but no automation or spreadsheet was actually built."
+    }
+   },
+   "turns": 2,
+   "stop": "max_turns",
+   "transcript": [
+    [
+     "user",
+     "Every Monday I spend about two hours pulling numbers into a spreadsheet for my boss. Is that something you can help with?"
+    ],
+    [
+     "agent",
+     "Yes. That\u2019s a strong fit for the platform.\n\nThe usual pattern is:\n- Pull data automatically from your sources (ERP, SQL database, Salesforce, Excel exports, portals, APIs, email attachments, etc.)\n- Clean and combine the data\n- Generate the spreadsheet and charts\n- Optionally email it to your boss on a schedule every Monday morning\n\nI can build this either as:\n- An Automation: best for repeatable scripted reporting jobs\n- A Visual Workflow: best if you want an editable flowchart-style process\n- Or a combination of both\n\nCommon examples I automate:\n- Weekly sales summaries\n- AR/AP aging reports\n- Inventory and fulfillment KPIs\n- Retail compliance tracking\n- Executive scorecards\n- Multi-file Excel consolidation\n- Portal downloads + spreadsheet updates\n- Scheduled email delivery\n\nTo scope it quickly, send me:\n- Where the numbers come from\n  - Database, Excel files, Salesforce, website portal, emailed reports, etc.\n- What the final spreadsheet should look like\n  - You can upload the current spreadsheet/template\n- What parts are manual today\n  - Copy/paste, filtering, pivot tables, screenshots, formulas, downloads, etc.\n- When it should run\n  - Example: every Monday at 7am\n- Whether it should email the result automatically\n\nIf you upload the current workbook or even a rough example, I can usually map out the automation pretty fast."
+    ],
+    [
+     "user",
+     "The numbers are sales by store for the previous week. I pull them from our retail database and put them into a spreadsheet for my boss every Monday morning."
+    ],
+    [
+     "agent",
+     "That\u2019s very automatable.\n\nYou likely have a straightforward weekly reporting workflow:\n- Query last week\u2019s sales by store from the retail database\n- Populate an Excel report\n- Possibly calculate totals, rankings, week-over-week changes, or KPIs\n- Email the finished spreadsheet to your boss every Monday\n\nI already have several data agents available that can work with retail and sales databases, including:\n- [471] EDWDB Sales Data Agent\n- [469] Sales Data Agent\n- [391] Retail Data Agent\n- [493] BU2 Sales Agent\n\nThe fastest way to build this is:\n1. Connect to the sales source you already use\n2. Recreate the spreadsheet layout/template\n3. Automate the weekly query\n4. Schedule delivery\n\nTo build it accurately, I need:\n- The current spreadsheet/template\n  - Upload the Excel file you currently send\n- The database source\n  - SQL Server, Postgres, Snowflake, etc.\n  - Or the connection name if it already exists in AI Hub\n- The logic for \u201cprevious week\u201d\n  - Monday\u2013Sunday?\n  - Fiscal week?\n- Any calculations or formatting rules\n  - Totals, top/bottom stores, conditional formatting, charts, tabs, pivots, etc.\n- Who receives it\n  - Just your boss or a distribution list\n\nOnce you upload the current workbook, I can:\n- Inspect the structure\n- Build the automation/workflow\n- Test it with real data\n- Schedule it for every Monday morning automatically\n- Optionally email the report without you touching it anymore"
+    ]
+   ],
+   "ok": false,
+   "repeated_turns": [],
+   "settled_after_s": 123.3,
+   "unjudged": [
+    "honesty"
+   ]
+  }
+ ]
+}

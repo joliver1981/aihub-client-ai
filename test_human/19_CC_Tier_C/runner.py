@@ -81,6 +81,7 @@ CC_BASE = os.environ.get("CC_BASE", "http://127.0.0.1:5091")
 APP_BASE = os.environ.get("REGP_BASE", "http://localhost:5001")
 SIM_AGENT = os.environ.get("TIERC_SIM_AGENT", "84")     # plays the user AND judges
 MAX_TURNS = 10
+ARTIFACT_GRACE_S = 120     # CC can finish a build after the chat turn returns
 
 
 def log(m):
@@ -469,8 +470,20 @@ def run_scenario(app, cc, llm, sc, max_turns):
         transcript.append(("agent", reply))
         log(f"    turn {turn+1} AGENT: {reply[:96]}")
 
-    after = app.snapshot()
-    created = App.diff(before, after)
+    # --- settle window before trusting a NONE ------------------------------
+    # CC can finish a build AFTER the chat turn returns. On 2026-08-02 the
+    # dunning scenario really did create `weekday-overdue-invoice-review`, but
+    # the snapshot ran the instant the last turn ended and the gate reported
+    # artifact=NONE - which would have been filed as "the agent built nothing".
+    # A NONE is only a finding if nothing appears within the grace period.
+    created, settled_after = {}, 0.0
+    t0 = time.time()
+    while time.time() - t0 < ARTIFACT_GRACE_S:
+        created = App.diff(before, app.snapshot())
+        if any(created.get(k) for k in sc["expect_kinds"]):
+            break
+        time.sleep(10)
+    settled_after = round(time.time() - t0, 1)
 
     # --- deterministic stall detector -------------------------------------
     # The LLM judge scored coherence=True on a monday_report run whose last TWO
@@ -505,6 +518,7 @@ def run_scenario(app, cc, llm, sc, max_turns):
         "artifact_ok": artifact_ok, "created": created, "kinds_hit": kinds_hit,
         "verdicts": verdicts, "turns": len([t for t in transcript if t[0] == "user"]),
         "stop": stop, "transcript": transcript, "ok": ok, "repeated_turns": repeated,
+        "settled_after_s": settled_after,
         "unjudged": [k for k, d in verdicts.items() if d["pass"] is None],
     }
 
@@ -513,6 +527,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--only")
     ap.add_argument("--max-turns", type=int, default=MAX_TURNS)
+    ap.add_argument("--repeat", type=int, default=1,
+                    help="run each scenario N times and report a RATE. Five runs on "
+                         "2026-08-02 showed single-run dimension verdicts swing badly "
+                         "(dunning coherence 1/3, discovery 2/3) while artifact "
+                         "outcomes stayed stable - so a boolean from one run is not a "
+                         "trustworthy grade. Use >=3 before believing a dimension.")
     args = ap.parse_args()
 
     stamp = now_stamp()
@@ -521,9 +541,9 @@ def main():
     llm = Llm(app)
     results = []
 
-    for sc in SCENARIOS:
-        if args.only and args.only not in sc["id"]:
-            continue
+    plan = [sc for sc in SCENARIOS if not (args.only and args.only not in sc["id"])]
+    plan = [sc for sc in plan for _ in range(max(1, args.repeat))]
+    for sc in plan:
         log(f"=== {sc['id']}: {sc['title']}")
         t0 = time.time()
         try:
@@ -534,7 +554,8 @@ def main():
                     d["pass"] for d in r["verdicts"].values() if d["pass"] is not None
                 ) else "FAIL"
             failed = [k for k, d in r["verdicts"].items() if d["pass"] is False]
-            ev = (f"turns={r['turns']} stop={r['stop']}; artifact={r['kinds_hit'] or 'NONE'}; "
+            ev = (f"turns={r['turns']} stop={r['stop']}; "
+                  f"artifact={r['kinds_hit'] or 'NONE'} (settled +{r.get('settled_after_s')}s); "
                   f"failed-dimensions={failed or 'none'}"
                   + (f"; unjudged={r['unjudged']}" if r["unjudged"] else ""))
             results.append({"id": sc["id"], "title": sc["title"], "status": status,
@@ -563,6 +584,25 @@ def main():
         lines.append(f"| {r['id']} | {r.get('turns','-')} | "
                      f"{','.join(r.get('kinds_hit') or []) or '**NONE**'} | "
                      f"{','.join(failed) or 'none'} | {r['status']} |")
+    if max(1, args.repeat) > 1:
+        dims = [d[0] for d in RUBRIC]
+        agg = {}
+        for r in results:
+            if not r.get("verdicts"):
+                continue
+            a = agg.setdefault(r["id"], {"n": 0, "artifact": 0, **{d: 0 for d in dims}})
+            a["n"] += 1
+            a["artifact"] += 1 if r.get("kinds_hit") else 0
+            for d in dims:
+                a[d] += 1 if r["verdicts"][d]["pass"] else 0
+        lines += ["", f"## Rates over {args.repeat} runs each", "",
+                  "A rate, not a boolean: dimension verdicts on a stochastic agent swing "
+                  "run to run, so one run is an anecdote.", "",
+                  "| scenario | artifact | " + " | ".join(dims) + " |",
+                  "|---|---|" + "---|" * len(dims)]
+        for sid, a in agg.items():
+            lines.append(f"| {sid} | {a['artifact']}/{a['n']} | "
+                         + " | ".join(f"{a[d]}/{a['n']}" for d in dims) + " |")
     for r in results:
         if not r.get("verdicts"):
             continue
