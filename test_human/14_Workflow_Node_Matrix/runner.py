@@ -1157,17 +1157,17 @@ def c_comp_large(ctx):
 
 @check("comp_excel_export_throughput",
        "COMPETENCY: Excel Export sustains a usable rows-per-second",
-       tier=3, needs=["airdb"], disk=True, slow=True,
-       xfail="FOUND 2026-08-02: Database -> Excel Export sustains 0.66 ROWS/SEC "
-             "(~1.5 s/row), linear in row count. Three independent measurements on "
-             "an IDLE executor agree to two decimals: 40 rows/60.6s, 120 "
-             "rows/182.9s, and a live sample of a 1000-row export = 0.66-0.67 "
-             "rows/sec; the small tier-1/2 exports fit the same line (1 row 3.1s, "
-             "2 rows 5.3s, 10 rows 15.7-17.2s). So 1,000 rows takes ~25 minutes and "
-             "10,000 rows ~4 hours - a realistic export is effectively unusable. "
-             "Correctness is fine: a 1000-row export DID write all 1000 rows, it "
-             "just took ~30 min. Tiers 1-2 never saw this because they only ever "
-             "export 2 or 10 rows. OWNER DECISION PENDING.")
+       tier=3, needs=["airdb"], disk=True, slow=True)
+# HISTORY: XFAIL 2026-08-02 -> XPASS 2026-08-03, now a PERMANENT GUARD.
+# Was 0.66 rows/sec (~1.5 s/row), measured three ways on an idle executor, making
+# 1,000 rows a ~25-minute job. cProfile showed 97% of each row was ONE network LLM
+# call in excel_utils.map_data_to_schema asking how to map fields onto columns -
+# per row - when row 1 had CREATED those columns from the same field names, so the
+# model was asked 1,000 times to map a->a. Fixed by _direct_table_mapping: an exact
+# field/column name match maps directly and skips the AI (james approved
+# 2026-08-03). Measured after: 8.15 rows/sec, 1,000 rows ~2 min. The floor below
+# stays deliberately low (5/sec vs the 8+ observed) so this guards against the
+# per-row-LLM class returning, without going red on ordinary machine variance.
 def c_comp_throughput(ctx):
     p = os.path.join(ctx["out"], "throughput.xlsx").replace("\\", "/")
     rows = 40

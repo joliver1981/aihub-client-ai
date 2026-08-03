@@ -654,6 +654,52 @@ Rules:
         raise
 
 
+def _direct_table_mapping(raw_data: Any, schema: Dict):
+    """Map records to table columns WITHOUT the AI, or return None to fall through.
+
+    Returns {"rows": [...]} only when the mapping is forced — i.e. every record's
+    field names are exactly the set of target column names (case/whitespace
+    insensitive). In that situation the AI mapper can only echo the input back,
+    so calling it is a pure round-trip cost.
+
+    Returns None — deliberately conservative — for anything else:
+      * form-style schemas (cells, not columns)
+      * no columns, or duplicate column names after normalising (ambiguous)
+      * records that are not dicts
+      * a record missing a column, or carrying a field the sheet does not have
+    Every one of those still goes to the unchanged AI path, so semantic mapping
+    (e.g. "company" -> "Customer Name") is completely unaffected.
+    """
+    if (schema or {}).get("type", "table") != "table":
+        return None
+    cols = (schema or {}).get("columns") or []
+    col_names = [c.get("name", c) if isinstance(c, dict) else c for c in cols]
+    col_names = [str(c) for c in col_names if c is not None and str(c).strip() != ""]
+    if not col_names:
+        return None
+
+    norm_to_col = {}
+    for c in col_names:
+        key = c.strip().lower()
+        if key in norm_to_col:
+            return None                      # duplicate columns -> ambiguous
+        norm_to_col[key] = c
+
+    records = raw_data if isinstance(raw_data, list) else [raw_data]
+    if not records or not all(isinstance(r, dict) for r in records):
+        return None
+
+    rows = []
+    for rec in records:
+        keyed = {}
+        for k, v in rec.items():
+            keyed[str(k).strip().lower()] = v
+        if len(keyed) != len(rec) or set(keyed) != set(norm_to_col):
+            return None                      # not an exact match -> let the AI do it
+        rows.append({norm_to_col[k]: v for k, v in keyed.items()})
+    return {"rows": rows}
+
+
 def map_data_to_schema(
     raw_data: Any,
     schema: Dict,
@@ -690,7 +736,25 @@ def map_data_to_schema(
     logger.info("Mapping data to schema using AI...")
     logger.debug(f"Schema type: {schema.get('type', 'unknown')}")
     logger.debug(f"Input data type: {type(raw_data)}")
-    
+
+    # FAST PATH (2026-08-03, approved by james). Skip the AI when it has nothing
+    # to decide. Profiling showed 97% of a Database -> Excel export's wall clock
+    # was ONE LLM call PER ROW asking how to map fields onto columns - and on an
+    # append the columns were themselves created from those field names on row 1,
+    # so the model was asked 1,000 times to map a->a, b->b. ~1.4s/row of nothing.
+    # Fires only on an EXACT field-name/column-name set match, which is precisely
+    # the case where the answer is forced; anything else (document extraction ->
+    # a customer's template, missing or extra fields, duplicate column names)
+    # returns None and falls through to the unchanged AI mapper.
+    direct = _direct_table_mapping(raw_data, schema)
+    if direct is not None:
+        logger.info(
+            "Field names match the target columns exactly (%d cols, %d row(s)) - "
+            "mapped directly, skipping the AI call",
+            len(direct.get("rows", [{}])[0]) if direct.get("rows") else 0,
+            len(direct.get("rows", [])))
+        return direct
+
     if not quickPrompt:
         raise RuntimeError("AI features unavailable - quickPrompt not imported")
     
