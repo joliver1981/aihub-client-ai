@@ -160,21 +160,17 @@ Sample data (first few rows and columns):
 
 Based on this structure, is this a TABLE or FORM layout? Respond with only "table" or "form"."""
 
-    # ⚠ DO NOT "fix" this kwarg on its own — measured 2026-08-03.
-    # `temperature=` has never been a parameter of azureMiniQuickPrompt (it takes
-    # `temp`), so this call has ALWAYS raised TypeError and fallen back to the
-    # heuristic below. It is called ONCE PER EXPORTED ROW, from the append loop in
-    # workflow_execution.py:_execute_excel_export_node.
-    #   failing  (today):        ~1.40 s/row
-    #   succeeding (kwarg fixed): ~2.98 s/row   <- correcting the name alone
-    #                                             DOUBLES export time
-    # The real fix is to detect the layout ONCE per export instead of per row;
-    # only then is making this call work an improvement. Deliberately NOT wrapped
-    # in AppUtils.call_dropping_unknown_kwargs for the same reason.
+    # FIXED 2026-08-03: this passed `temperature=0`, which azureMiniQuickPrompt has
+    # never accepted (its parameter is `temp`), so the call raised TypeError every
+    # single time and silently fell back to the heuristic below — AI template
+    # detection has never actually run. Correcting the name alone would have been a
+    # REGRESSION while this ran once per exported row (measured 1.40 -> 2.98 s/row);
+    # it is safe now only because detect_template_schema is memoised per
+    # (file, sheet, header signature), so it runs ONCE per export instead of per row.
     response = azureMiniQuickPrompt(
         user_prompt,
         system_prompt,
-        temperature=0
+        temp=0
     )
     
     if response:
@@ -239,7 +235,54 @@ def _heuristic_detect_template_type(ws, max_row: int, max_col: int) -> str:
         return "table"
 
 
+_SCHEMA_CACHE = {}
+_SCHEMA_CACHE_MAX = 64
+
+
+def _header_signature(template_path: str, sheet_name: str = None):
+    """Cheap fingerprint of a sheet's SHAPE: its header row plus column count.
+
+    Deliberately not mtime/size — an append changes both on every row, which would
+    make the cache miss every time, which is the bug we are fixing. What matters
+    is whether the LAYOUT changed, and appending rows never changes the header.
+    Returns None if the file cannot be read, which disables caching for that call.
+    """
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(template_path, read_only=True, data_only=True)
+        ws = wb[sheet_name] if (sheet_name and sheet_name in wb.sheetnames) else wb.active
+        header = tuple(str(c.value) for c in next(ws.iter_rows(min_row=1, max_row=1)))
+        sig = (ws.title, header, ws.max_column)
+        wb.close()
+        return sig
+    except Exception:
+        return None
+
+
 def detect_template_schema(template_path: str, sheet_name: str = None) -> Dict:
+    """Memoised wrapper — see _detect_template_schema_uncached for the real work.
+
+    WHY (2026-08-03): this was called once PER EXPORTED ROW from the Excel Export
+    append loop, and it performs an AI call to classify the sheet as table-vs-form.
+    The answer cannot change while you are appending rows to your own output file,
+    so it is computed once per (file, sheet, header-shape) and reused. Cache is
+    keyed on the header signature rather than the file's mtime precisely because
+    appending mutates mtime on every row.
+    """
+    key = (os.path.abspath(template_path or ""), sheet_name,
+           _header_signature(template_path, sheet_name))
+    if key[2] is not None and key in _SCHEMA_CACHE:
+        logger.debug("Template schema cache HIT for %s", template_path)
+        return _SCHEMA_CACHE[key]
+    schema = _detect_template_schema_uncached(template_path, sheet_name)
+    if key[2] is not None:
+        if len(_SCHEMA_CACHE) >= _SCHEMA_CACHE_MAX:
+            _SCHEMA_CACHE.clear()
+        _SCHEMA_CACHE[key] = schema
+    return schema
+
+
+def _detect_template_schema_uncached(template_path: str, sheet_name: str = None) -> Dict:
     """
     Analyze an Excel template and extract its schema.
     Auto-detects whether template is table-style or form-style.
