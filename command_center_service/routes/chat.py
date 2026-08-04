@@ -34,6 +34,103 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
+
+# ── Stall guard state ───────────────────────────────────────────────────────
+# Per-session memory of the last (user message, reply) pair. Bounded so a long
+# running service cannot grow it without limit.
+_LAST_TURN: "dict[str, tuple[str, str]]" = {}
+_LAST_TURN_MAX = 500
+# Threshold MEASURED from real Tier C transcripts (2026-08-03), not guessed:
+#   the actual stall (dunning, user hit [[GIVING_UP]]) repeated at 0.747 / 0.778
+#   the highest NON-stall consecutive pair across 11 scenario runs was 0.551
+# 0.70 sits in that gap: it catches the real stall on its FIRST repetition
+# (turn 8, before the user had to endure two more) and leaves 0.551 alone.
+STALL_SIMILARITY = float(os.getenv("CC_STALL_SIMILARITY", "0.70"))
+# The same threshold on the USER side decides "did they move the conversation
+# on?". In the real stall the user's messages scored 0.372 and 0.604 — clearly
+# new messages — while the agent sat at 0.747/0.778.
+STALL_GUARD_ENABLED = os.getenv("CC_STALL_GUARD", "true").strip().lower() != "false"
+
+_STALL_NOTICE = (
+    "I've just repeated myself, which means I'm stuck rather than making "
+    "progress — so let me be straight with you instead of saying the same "
+    "thing again.\n\n"
+    "{prev}\n\n"
+    "**I'm blocked on the same point as my previous message.** Rather than ask "
+    "again, here are the ways forward:\n"
+    "- **Tell me to proceed anyway** — I'll build what I can and clearly mark "
+    "anything I had to leave as a placeholder for you to fill in.\n"
+    "- **Point me at it** — if the detail I'm missing exists somewhere on the "
+    "platform (a connection, an agent, a saved secret), name it and I'll look "
+    "it up myself.\n"
+    "- **Change the approach** — tell me to solve this a different way.\n"
+    "- **Stop here** — say so and I'll leave it, with nothing half-built."
+)
+
+
+def _reply_text(blocks) -> str:
+    """Concatenate the user-visible text of a response's blocks."""
+    if not isinstance(blocks, list):
+        return ""
+    return " ".join(
+        b["content"] for b in blocks
+        if isinstance(b, dict) and isinstance(b.get("content"), str)
+    ).strip()
+
+
+def _norm(s: str) -> str:
+    return " ".join((s or "").split()).lower()
+
+
+def _near_duplicate(a: str, b: str) -> bool:
+    """String similarity only — no language model, no keyword lists.
+
+    This is a FORMAT-level check ("did we emit the same text twice"), which is
+    exactly where deterministic comparison belongs; it cannot be argued out of
+    its verdict the way a judge can.
+    """
+    from difflib import SequenceMatcher
+    na, nb = _norm(a), _norm(b)
+    if not na or not nb:
+        return False
+    if na == nb:
+        return True
+    return SequenceMatcher(None, na, nb).ratio() >= STALL_SIMILARITY
+
+
+def _apply_stall_guard(session_id, user_message, blocks):
+    """Replace a repeated reply with an honest escalation.
+
+    Returns the blocks to send (unchanged in the normal case).
+    """
+    if not STALL_GUARD_ENABLED or not session_id:
+        return blocks
+    text = _reply_text(blocks)
+    if not text:
+        return blocks
+    prev = _LAST_TURN.get(session_id)
+    if len(_LAST_TURN) >= _LAST_TURN_MAX:
+        _LAST_TURN.clear()
+    _LAST_TURN[session_id] = (user_message or "", text)
+
+    if not prev:
+        return blocks
+    prev_user, prev_reply = prev
+    # The stall signature: the USER moved on, the REPLY did not.
+    if _near_duplicate(prev_user, user_message or ""):
+        return blocks                       # same question -> same answer is fine
+    if not _near_duplicate(prev_reply, text):
+        return blocks
+
+    logger.warning(
+        "[stall-guard] session=%s repeated a near-identical reply to a NEW user "
+        "message — replacing with an escalation instead of stalling again",
+        session_id)
+    # Keep the substance, drop the repetition: quote the previous answer once,
+    # then offer concrete ways out.
+    quoted = "> " + "\n> ".join(text.splitlines()[:12])
+    return [{"type": "text", "content": _STALL_NOTICE.format(prev=quoted)}]
+
 # AIHUB-0047: max SSE silence before a heartbeat status event is emitted while
 # the graph is running (long builder delegations stream nothing for minutes and
 # idle proxies/fetch drop the connection). Tunable for tests/deployments.
@@ -753,6 +850,22 @@ async def chat(request: Request):
                     for _b in blocks:
                         if isinstance(_b, dict) and isinstance(_b.get("content"), str):
                             _b["content"] = _mask_resp(_b["content"])
+
+                # ── Stall guard (change 3, 2026-08-03) ───────────────────────
+                # Tier C caught CC sending THREE near-identical replies in a row
+                # ("Nothing has been created yet because the ERP schema details
+                # are still pending from IT") until the user gave up. Repeating
+                # yourself is never the right answer: it reads as progress while
+                # nothing advances.
+                #
+                # Fires ONLY when the user moved the conversation on but the
+                # reply did not. Asking the same question twice SHOULD give the
+                # same answer, so a repeated reply to a repeated question is
+                # left alone — that is a correct response, not a stall.
+                try:
+                    blocks = _apply_stall_guard(session_id, user_message, blocks)
+                except Exception as _sg_err:      # never break a reply over this
+                    logger.debug(f"[stall-guard] skipped: {_sg_err}")
 
                 resp_payload = {"blocks": blocks, "session_id": session_id}
                 if trace_meta is not None:
