@@ -2489,15 +2489,25 @@ def list_agents_summary():
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("EXEC tenant.sp_setTenantContext ?", (os.getenv('API_KEY'),))
+            # connection_names: which connection(s) a data agent queries, via
+            # the AgentConnections junction (STUFF/FOR XML rather than
+            # STRING_AGG for pre-2017 SQL Server compatibility). This is what
+            # lets a caller resolve "ERPDB" to the agent that actually queries
+            # it instead of guessing.
             cursor.execute("""
                 SELECT
-                    id             AS agent_id,
-                    description    AS agent_name,
-                    enabled,
-                    create_date,
-                    is_data_agent
-                FROM Agents
-                ORDER BY description
+                    a.id             AS agent_id,
+                    a.description    AS agent_name,
+                    a.enabled,
+                    a.create_date,
+                    a.is_data_agent,
+                    STUFF((SELECT ', ' + c.[connection_name]
+                             FROM [dbo].[AgentConnections] t
+                             JOIN [dbo].[Connections] c ON c.id = t.connection_id
+                            WHERE t.agent_id = a.id
+                              FOR XML PATH('')), 1, 2, '') AS connection_names
+                FROM [dbo].[Agents] a
+                ORDER BY a.description
             """)
             allowed_ids = _agent_visibility_filter()
             agents = []
@@ -2510,6 +2520,7 @@ def list_agents_summary():
                     'enabled': bool(row.enabled) if row.enabled is not None else True,
                     'created_date': row.create_date.isoformat() if row.create_date else None,
                     'is_data_agent': bool(row.is_data_agent) if row.is_data_agent is not None else False,
+                    'connection_names': row.connection_names or None,
                 })
             return jsonify({'status': 'success', 'agents': agents})
     except Exception as e:
@@ -9272,12 +9283,13 @@ def api_get_document_attributes_metadata():
 #####################
 
 @app.route('/workflow/secrets/list', methods=['GET'])
-@login_required
+@api_key_or_session_required()
 def workflow_secrets_list():
-    """Secret NAMES for the File Transfer node's auth dropdown — names and
-    metadata only, never values (list_local_secrets masks by design). Login
-    required: unlike the legacy /workflow/file/* routes this is new surface,
-    so it starts gated."""
+    """Secret NAMES for the File Transfer node's auth dropdown and the CC
+    agent's list_secret_names tool — names and metadata only, never values
+    (list_local_secrets masks by design). api_key_or_session: browser sessions
+    keep working exactly as under login_required, and platform services (the
+    Command Center) can now call it with X-API-Key."""
     try:
         from local_secrets import list_local_secrets
         secrets = list_local_secrets() or []

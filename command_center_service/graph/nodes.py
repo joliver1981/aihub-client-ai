@@ -236,6 +236,21 @@ def _sftp_allowed(state) -> bool:
 # this gate is UX, not the security boundary.
 _AUTOMATIONS_TOOLS_ENABLED = os.getenv("CC_AUTOMATIONS_TOOLS_ENABLED", "true").lower() == "true"
 _AUTOMATIONS_ALLOW_ALL = os.getenv("CC_AUTOMATIONS_ALLOW_ALL_USERS", "false").lower() == "true"
+
+# Read-only environment inspection (change 3 of the Tier C remediation).
+# Routes "what exists / how is it configured" questions (tables, columns,
+# schemas, agents, secrets, MCP servers) to converse's OWN read-only tools
+# instead of delegating to a data agent that would describe a DIFFERENT
+# database with a grounded-looking [Source: ...] footer. Kill switch
+# CC_INSPECT_ENVIRONMENT=false (default on) — same pattern as CC_STALL_GUARD
+# and BUILDER_TABLE_CONTEXT; flag off must leave every turn byte-identical.
+_INSPECT_ENV_ENABLED = os.getenv("CC_INSPECT_ENVIRONMENT", "true").strip().lower() != "false"
+
+# Agent-picker connection linkage: show each data agent's connection in the
+# picker prompt (and landscape summary) so a named connection ("ERPDB")
+# resolves to the agent that actually queries it, instead of "when in doubt,
+# pick the first data agent". Separate seam, separate kill switch.
+_PICKER_CONNECTIONS_ENABLED = os.getenv("CC_PICKER_CONNECTIONS", "true").strip().lower() != "false"
 # When true (default), CC proactively proposes an aihub.checkpoint() gate
 # before irreversible steps (uploads, deletes, sends) while writing automation
 # code. Turn off to only add checkpoints when the user asks.
@@ -774,6 +789,7 @@ Capabilities:
 - run_tool: running a specific custom/generated tool — tool names that may be mentioned: {tool_names}
 - portal: a BROWSER / web-automation task on an external website or portal — logging in to UPLOAD or DOWNLOAD a file (RPA), running a SAVED portal workflow, SAVING a portal login for reuse, or SCHEDULING a recurring portal login-and-upload/download. ONE task even when the user spells out the steps (open the site, sign in, upload/download, verify).
 - build: creating, configuring, or modifying PLATFORM resources — agents, the platform's own Workflows (Workflow Designer), connections, custom tools. NOTE: a portal login-and-upload/download (even "save it and schedule it daily") is NOT a platform workflow — that is "portal".
+- inspect_environment: READ-ONLY questions about THIS PLATFORM's own setup and contents — what data connections, tables, columns, schemas, agents, workflows, automations, code flows, schedules, secrets or MCP servers EXIST; how something is configured; what a table or column means. This path NEVER creates, modifies, runs or deletes anything. Use it to answer a question about the environment, OR to gather facts before planning a build.
 - none: does NOT cleanly match any of the above — includes database queries, delegations to data/general agents, multi-step requests, ambiguous requests, and ordinary chat
 
 {recent_conversation}User message: "{user_text}"
@@ -787,7 +803,24 @@ Rules:
 - BUT a portal / browser-automation task (log in to a website/portal and upload or download a file, an "Upload Bay", a saved portal workflow) is ONE capability — classify it as "portal" even when the user lists the individual steps; do NOT treat it as a multi-step "none".
 - A terse follow-up to a PORTAL interaction in the recent conversation — "yes save it", "save it and run it every day at 10am", "schedule it daily", "run it every morning" — is "portal" (saving/scheduling a portal login is done in chat via save_portal / schedule_portal_workflow), NOT "build".
 - For ambiguous requests ("show me sales" could be a database query or a dashboard), use "none".
-- Database/data-agent queries (sales, revenue, orders, headcount, inventory metrics) → "none"."""
+- Database/data-agent queries (sales, revenue, orders, headcount, inventory metrics) → "none".
+- CONTAINER vs CONTENTS: a question about what a connection or table CONTAINS structurally — its tables, columns, schema ("what tables are in ERPDB", "what does the ERPDB connection have", "what's in the invoices table") → "inspect_environment". A question about the DATA ITSELF — rows, totals, metrics, values ("how many invoices are overdue", "show me the sales data") → "none".
+- A READ-ONLY environment question is "inspect_environment" even if a build might follow later; only an instruction to CREATE or CHANGE something is "build"."""
+
+
+def _strip_inspect_capability(prompt_body: str) -> str:
+    """Kill switch CC_INSPECT_ENVIRONMENT=false: remove the inspect_environment
+    capability line AND its two rules from a formatted router prompt, so the
+    prompt is byte-identical to the pre-change prompt (the parser also refuses
+    the label as a second net). Pure — unit-tested against the prompt template
+    so the literals here can never silently drift from it."""
+    for _frag in (
+        "- inspect_environment: READ-ONLY questions about THIS PLATFORM's own setup and contents — what data connections, tables, columns, schemas, agents, workflows, automations, code flows, schedules, secrets or MCP servers EXIST; how something is configured; what a table or column means. This path NEVER creates, modifies, runs or deletes anything. Use it to answer a question about the environment, OR to gather facts before planning a build.\n",
+        "\n- CONTAINER vs CONTENTS: a question about what a connection or table CONTAINS structurally — its tables, columns, schema (\"what tables are in ERPDB\", \"what does the ERPDB connection have\", \"what's in the invoices table\") → \"inspect_environment\". A question about the DATA ITSELF — rows, totals, metrics, values (\"how many invoices are overdue\", \"show me the sales data\") → \"none\".",
+        "\n- A READ-ONLY environment question is \"inspect_environment\" even if a build might follow later; only an instruction to CREATE or CHANGE something is \"build\".",
+    ):
+        prompt_body = prompt_body.replace(_frag, "")
+    return prompt_body
 
 
 def _parse_capability_router_response(resp) -> dict:
@@ -829,6 +862,16 @@ def _parse_capability_router_response(resp) -> dict:
     cc_native_chat = {"document_search", "web_search", "map", "image_generation", "run_tool", "portal"}
     if cap == "build":
         intent = "build"
+    elif cap == "inspect_environment":
+        # Read-only environment inspection: converse answers with its own
+        # discovery tools. With CC_INSPECT_ENVIRONMENT=false the label is
+        # refused here too (not only stripped from the prompt), so a stale
+        # or hallucinated label can never activate the disabled path.
+        if _INSPECT_ENV_ENABLED:
+            intent = "chat"
+        else:
+            cap = "none"
+            intent = None
     elif cap in cc_native_chat:
         intent = "chat"
     else:
@@ -901,6 +944,8 @@ async def _run_capability_router(
             "- portal: a BROWSER / web-automation task on an external website or portal — logging in to UPLOAD or DOWNLOAD a file (RPA), running a SAVED portal workflow, SAVING a portal login for reuse, or SCHEDULING a recurring portal login-and-upload/download. ONE task even when the user spells out the steps (open the site, sign in, upload/download, verify).\n",
             "",
         )
+    if not _INSPECT_ENV_ENABLED:
+        prompt_body = _strip_inspect_capability(prompt_body)
 
     msgs = [HumanMessage(content=prompt_body)]
 
@@ -2214,6 +2259,22 @@ Reply with ONLY one word: CONTINUE, CC_CAPABLE, or REROUTE."""
         agent_summary=agent_summary,
         tool_summary=tool_summary,
     )
+    # Second net for schema-of-a-connection questions (CC_INSPECT_ENVIRONMENT):
+    # when the capability router falls through on confidence, the main
+    # classifier must draw the same CONTAINER vs CONTENTS boundary — appended
+    # at classify time (not edited into the static prompt) so the kill switch
+    # reverts it too.
+    if _INSPECT_ENV_ENABLED:
+        prompt += (
+            '\n\nADDITIONAL DISTINCTION — schema questions are platform metadata, not data queries:\n'
+            '- Asking what TABLES or COLUMNS a connection/database contains, or what a table/column '
+            'means ("what tables are in ERPDB", "what does the ERPDB connection have", "describe the '
+            'invoices table", "what\'s in the invoices table") → "chat". The chat handler answers from '
+            'the REAL schema with its own read-only discovery tools; a data agent would describe its '
+            'own (possibly different) database.\n'
+            '- Only a request for the DATA ITSELF — rows, totals, metrics ("how many invoices are '
+            'overdue", "show me the sales data") → "query".'
+        )
     prompt += _preferences_block(state)
 
     _ic_conv = _format_conversation_for_prompt(messages)
@@ -2557,6 +2618,51 @@ async def converse(state: CommandCenterState) -> dict:
                 "unattended."
             )
 
+    # ── Environment inspection prompt (CC_INSPECT_ENVIRONMENT) ─────────────
+    # Schema/configuration questions must be answered from CC's OWN read-only
+    # tools, never delegated: a data agent describes ITS OWN database, so its
+    # answer to "what tables are in ERPDB" looks grounded while being wrong
+    # (the AIRDB5_Wizard defect). Overrides MESSAGE CLASSIFICATION rule 2 for
+    # schema questions. Non-Developer users get the honest-refusal variant —
+    # their turns have no discovery tools bound (AIHUB-0028 F2 discipline:
+    # say what's unavailable rather than substituting other data).
+    _inspect_prompt = ""
+    if _INSPECT_ENV_ENABLED:
+        if _automations_allowed(state) or _workflow_tools_allowed(state):
+            _inspect_prompt = (
+                "## ENVIRONMENT INSPECTION (read-only): list_data_connections / get_connection_schema / "
+                "probe_connection_query / list_platform_agents / list_secret_names / list_mcp_servers\n"
+                "For questions about what exists on THIS platform and how it is configured — connections, "
+                "tables, columns, schemas, agents, workflows, automations, secrets, MCP servers — answer "
+                "from your OWN read-only tools, grounded in what they actually return:\n"
+                "- \"what tables are in <connection>\" / \"what's in the <X> table\" / \"what does <column> "
+                "mean\" → get_connection_schema (no table= for the table list; with table= for its REAL "
+                "columns, descriptions, and example values).\n"
+                "- \"what connections exist\" → list_data_connections. \"what agents do I have\" / \"which "
+                "agent queries <connection>\" → list_platform_agents. \"is there a secret named X\" → "
+                "list_secret_names (names and descriptions ONLY — values are never available to you). "
+                "\"what integrations / MCP servers are set up\" → list_mcp_servers.\n"
+                "- NEVER delegate a schema or configuration question to a data agent (query_data_agent): "
+                "a data agent answers about ITS OWN database — which may not be the one asked about — and "
+                "its answer will look grounded while being wrong. MESSAGE CLASSIFICATION rule 2 (data "
+                "query → query_data_agent) applies to the DATA ITSELF (rows, totals, metrics), never to "
+                "schema or configuration.\n"
+                "- NEVER invent or guess table, column, agent, secret, or server names. If a tool errors "
+                "or returns nothing, say exactly that.\n"
+                "These tools never create, modify, run, or delete anything."
+            )
+        else:
+            _inspect_prompt = (
+                "## ENVIRONMENT INSPECTION (read-only) — LIMITED FOR THIS USER\n"
+                "You can name the platform's connections, agents, workflows, and MCP servers from the "
+                "PLATFORM SCAN RESULTS above. But SCHEMA discovery (which tables/columns a connection "
+                "contains) requires a Developer role on this instance and THIS user does not have it. If "
+                "asked what tables or columns a connection has: say schema discovery requires a Developer "
+                "role — do NOT guess or invent table names, and do NOT delegate the schema question to a "
+                "data agent (its answer would describe its own database and look grounded while being "
+                "wrong)."
+            )
+
     # ── Native visual-workflow prompt (CC_AGENT="native" A/B agent) ─────────
     # On classic turns these three hold the historical text verbatim; on a
     # native Developer turn they teach the LLM to build visual workflows with
@@ -2734,6 +2840,7 @@ If the user asks to use a tool that was previously created, use run_generated_to
 {_schedule_prompt}
 {_sftp_prompt}
 {_automations_prompt}
+{_inspect_prompt}
 {_workflow_native_prompt}
 
 ## WEB SEARCH — REAL-TIME INFORMATION
@@ -6303,6 +6410,118 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         return f"OK — {n} row(s):\n" + "\n".join(head) + note
 
     @lc_tool
+    async def list_platform_agents() -> str:
+        """List ALL agents on this platform — data agents and general agents —
+        with id, enabled state, and, for data agents, the data CONNECTION each
+        one queries. Use this to answer 'what agents exist' and to identify
+        WHICH agent covers a named connection/database before delegating a
+        data question. Read-only; never guess an agent's connection.
+        """
+        if not (_automations_allowed(state) or _workflow_tools_allowed(state)):
+            return "Agent inspection detail is available to Developer/Admin users only."
+        from . import workflow_tools as _wt
+        r = _wt._get("/api/agents/summary")
+        data = r.get("data") or {}
+        agents = data.get("agents") if isinstance(data, dict) else None
+        if not r.get("ok") or agents is None:
+            return f"❌ Could not list agents: {data.get('message') or r.get('error') or 'unknown error'}"
+        if not agents:
+            return "No agents exist on this platform yet."
+        data_lines, gen_lines = [], []
+        for a in agents:
+            line = f"- [{a.get('agent_id')}] {a.get('agent_name')}"
+            if not a.get("enabled", True):
+                line += " (DISABLED)"
+            if a.get("is_data_agent"):
+                conns = a.get("connection_names")
+                line += (f" — queries connection: {conns}" if conns
+                         else " — no connection configured")
+                data_lines.append(line)
+            else:
+                gen_lines.append(line)
+        out = []
+        if data_lines:
+            out.append("Data agents (each answers ONLY about its own connection):")
+            out.extend(data_lines)
+        if gen_lines:
+            out.append("General agents:")
+            out.extend(gen_lines)
+        return "\n".join(out)
+
+    @lc_tool
+    async def list_secret_names() -> str:
+        """List the NAMES and descriptions of the platform's stored secrets —
+        values are never returned or visible. Use this to confirm whether a
+        secret (e.g. 'AUTODEMO_SFTP') exists before referencing it in an
+        automation manifest, instead of asking the user. Read-only.
+        """
+        if not (_automations_allowed(state) or _workflow_tools_allowed(state)):
+            return "Secret name listing is available to Developer/Admin users only."
+        from . import workflow_tools as _wt
+        r = _wt._get("/workflow/secrets/list")
+        data = r.get("data") or {}
+        secrets = data.get("secrets") if isinstance(data, dict) else None
+        if not r.get("ok") or secrets is None:
+            return f"❌ Could not list secrets: {data.get('error') or r.get('error') or 'unknown error'}"
+        if not secrets:
+            return "No secrets are stored on this platform yet."
+        lines = [f"- {s.get('name')}" + (f" — {s.get('description')}" if s.get("description") else "")
+                 for s in secrets if s.get("name")]
+        return ("Stored secret NAMES (values are never accessible — reference by "
+                "name, e.g. aihub.secret('NAME')):\n" + "\n".join(lines))
+
+    @lc_tool
+    async def list_mcp_servers(server: str = "") -> str:
+        """List the platform's MCP servers (external tool integrations): name,
+        type, enabled state, tool count, and connection status. Pass server=
+        (name or numeric id) to also list THAT server's individual tools. Use
+        this to answer 'what integrations are set up'. Read-only.
+        """
+        if not (_automations_allowed(state) or _workflow_tools_allowed(state)):
+            return "MCP server inspection is available to Developer/Admin users only."
+        from . import workflow_tools as _wt
+        r = _wt._get("/api/mcp/servers")
+        data = r.get("data") or {}
+        servers = (data.get("servers") if isinstance(data, dict) else None) or \
+                  (data if isinstance(data, list) else None)
+        if not r.get("ok") or servers is None:
+            return f"❌ Could not list MCP servers: {r.get('error') or 'unknown error'}"
+        if not servers:
+            return "No MCP servers are configured on this platform."
+        ref = str(server or "").strip()
+        if ref:
+            hit = next((s for s in servers
+                        if str(s.get("server_id")) == ref
+                        or str(s.get("server_name", "")).lower() == ref.lower()), None)
+            if not hit:
+                names = ", ".join(str(s.get("server_name")) for s in servers[:15])
+                return f"❌ No MCP server named '{ref}'. Existing servers: {names}"
+            rt = _wt._get(f"/api/mcp/servers/{hit.get('server_id')}/tools_v1")
+            tdata = rt.get("data") or {}
+            tool_list = tdata.get("tools") if isinstance(tdata, dict) else tdata
+            if not rt.get("ok") or not isinstance(tool_list, list):
+                return (f"MCP server '{hit.get('server_name')}' exists but its tool list "
+                        f"could not be read: {rt.get('error') or 'unknown error'}")
+            tl = [f"- {t.get('name') or t.get('tool_name')}"
+                  + (f": {str(t.get('description') or '')[:120]}" if t.get("description") else "")
+                  for t in tool_list]
+            return (f"MCP server '{hit.get('server_name')}' — {len(tl)} tool(s):\n"
+                    + ("\n".join(tl) if tl else "(none reported)"))
+        lines = []
+        for s in servers:
+            line = (f"- [{s.get('server_id')}] {s.get('server_name')} "
+                    f"({s.get('server_type') or 'local'})")
+            if not s.get("enabled", True):
+                line += " (DISABLED)"
+            if s.get("tool_count") is not None:
+                line += f" — {s.get('tool_count')} tools"
+            if s.get("status"):
+                line += f" — {s.get('status')}"
+            lines.append(line)
+        return ("MCP servers (pass server=<name or id> for a server's tools):\n"
+                + "\n".join(lines))
+
+    @lc_tool
     async def unwire_workflow_nodes(workflow: str, from_node: str, to_node: str,
                                     on: str = "") -> str:
         """Remove an edge between two nodes, then save. Leave `on` empty to
@@ -6480,6 +6699,24 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         # probe answers "does the query I just wrote match anything" — the one a
         # dead filter fails, silently. Same gate, bound alongside.
         tools.append(probe_connection_query)
+    # Environment inspection (CC_INSPECT_ENVIRONMENT): the discovery trio must
+    # be available on ANY Developer chat turn — not only automation/workflow
+    # authoring turns — or a schema question routed to converse has no tool to
+    # answer with and the LLM falls back to delegating/guessing (the defect
+    # this flag exists to fix). Classic-impl Developer turns previously had NO
+    # list_data_connections at all (it was native-only). Same Developer-family
+    # gate, re-checked inside each tool; flag off leaves the binding list
+    # exactly as it was.
+    if _INSPECT_ENV_ENABLED and (_automations_allowed(state) or _workflow_tools_allowed(state)):
+        if list_data_connections not in tools:
+            tools.append(list_data_connections)
+        if get_connection_schema not in tools:
+            tools.append(get_connection_schema)
+        if probe_connection_query not in tools:
+            tools.append(probe_connection_query)
+        tools.append(list_platform_agents)
+        tools.append(list_secret_names)
+        tools.append(list_mcp_servers)
     if _PORTAL_FETCH_ENABLED:
         tools.append(fetch_from_portal)
         tools.append(check_portal_download)
@@ -6684,6 +6921,9 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     "list_data_connections": list_data_connections,
                     "get_connection_schema": get_connection_schema,
                     "probe_connection_query": probe_connection_query,
+                    "list_platform_agents": list_platform_agents,
+                    "list_secret_names": list_secret_names,
+                    "list_mcp_servers": list_mcp_servers,
                 }
 
                 tool_fn = tool_map.get(tool_name)
@@ -8235,7 +8475,10 @@ Respond with ONLY a JSON object, no prose:
     # Multiple data agents — use LLM to pick the best one or ask user
     await _emit_progress("selecting", f"Selecting best agent from {len(data_agents)} available...")
     agents_info = "\n".join([
-        f"- [{a.get('agent_id')}] **{a.get('agent_name')}** — {(a.get('description') or 'No description')[:_AGENT_DESC_CAP]}"
+        f"- [{a.get('agent_id')}] **{a.get('agent_name')}**"
+        + (f" (queries connection: {a.get('connection_names')})"
+           if _PICKER_CONNECTIONS_ENABLED and a.get("connection_names") else "")
+        + f" — {(a.get('description') or 'No description')[:_AGENT_DESC_CAP]}"
         for a in data_agents[:_AGENT_LIST_CAP]
     ])
 
@@ -8251,6 +8494,20 @@ Respond with ONLY a JSON object, no prose:
         if _ap_conv else ""
     )
 
+    # Connection-grounded pick rule (CC_PICKER_CONNECTIONS): the agent lines
+    # above carry "queries connection: X" — a named connection must resolve to
+    # the agent that actually queries it, and to an honest NONE when no agent
+    # does, never to "when in doubt, pick the first" (the AIRDB5_Wizard
+    # mis-pick: an ERPDB question answered from a different database).
+    _conn_rule = ""
+    if _PICKER_CONNECTIONS_ENABLED:
+        _conn_rule = (
+            "\n- If the user names a specific CONNECTION or database (e.g. \"in ERPDB\"), pick the "
+            "agent whose \"queries connection\" matches it. If NO listed agent queries that "
+            "connection, do NOT substitute an agent for a different database — respond exactly: "
+            "NONE: no data agent is configured for connection '<name>'."
+        )
+
     pick_prompt = f"""Select the BEST data agent for this query. Be DECISIVE — auto-pick unless truly impossible.
 {_ap_conv_block}
 User request: {user_text}
@@ -8262,7 +8519,7 @@ RULES:
 - If any agent clearly matches the query topic (sales, inventory, customers, etc.), respond with ONLY its agent_id number (e.g., "14")
 - If the user explicitly names an agent (e.g., "use AIRDB", "ask agent 281"), respond with that agent's id
 - If the user's request is a short follow-up ("try another one", "use a different agent"), infer the intended TOPIC from the recent conversation above and pick the agent that matches that topic.
-- Pick the most specifically relevant agent. When in doubt, pick the first data agent.
+- Pick the most specifically relevant agent. When in doubt, pick the first data agent.{_conn_rule}
 - If the user explicitly names an agent and NO agent in the list has that name, do NOT substitute a similar-sounding agent — respond exactly: NONE: I don't have an agent named '<name>'.
 - Only respond "ASK: <question>" if there are multiple agents with IDENTICAL scope and you truly cannot determine which is right
 - NEVER ask the user to pick if only 1-2 agents exist or if the query clearly maps to one agent

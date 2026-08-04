@@ -7,6 +7,7 @@ Uses REAL API endpoints from the main Flask app.
 """
 
 import logging
+import os
 import time
 from typing import Any, Dict
 
@@ -16,6 +17,12 @@ logger = logging.getLogger(__name__)
 _cache: Dict[str, Any] = {}
 _cache_time: float = 0
 _CACHE_TTL = 60  # seconds
+
+# Show each data agent's connection in landscape summaries so a named
+# connection resolves to the agent that actually queries it. Same env var as
+# the gather_data picker enrichment (one seam: agent→connection linkage
+# surfaced to LLMs); kill switch CC_PICKER_CONNECTIONS=false, default on.
+_AGENT_CONNECTIONS_ENABLED = os.getenv("CC_PICKER_CONNECTIONS", "true").strip().lower() != "false"
 
 
 async def scan_platform(user_context=None) -> Dict[str, Any]:
@@ -102,6 +109,11 @@ async def scan_platform(user_context=None) -> Dict[str, Any]:
                             "description": detail.get("description", ""),
                             "enabled": enabled,
                             "is_data_agent": is_data,
+                            # Which connection(s) a data agent queries — lets the
+                            # agent picker resolve a named connection ("ERPDB")
+                            # to the right agent. Absent on older platform
+                            # builds; consumers must treat "" as unknown.
+                            "connection_names": a.get("connection_names") or "",
                         }
 
                         landscape["all_agents"].append(agent_info)
@@ -210,6 +222,12 @@ def format_landscape_summary(landscape: Dict[str, Any], max_agents: int = 0) -> 
                 desc = a.get("description", "")
                 aid = a.get("agent_id", "?")
                 line = f"- [{aid}] **{name}**"
+                # Connection linkage (CC_PICKER_CONNECTIONS): a data agent
+                # answers ONLY about this connection — routing a question
+                # about a different connection to it produces a confidently
+                # wrong, grounded-looking answer.
+                if _AGENT_CONNECTIONS_ENABLED and a.get("connection_names"):
+                    line += f" (queries connection: {a['connection_names']})"
                 if desc:
                     desc_short = desc[:120] + "..." if len(desc) > 120 else desc
                     line += f" — {desc_short}"
