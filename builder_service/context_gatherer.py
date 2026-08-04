@@ -11,11 +11,17 @@ This solves the "brittle hardcoding" problem by:
 """
 
 import logging
+import os
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 
 logger = logging.getLogger(__name__)
+
+# Kill switch (james 2026-08-03): same pattern as CC_STALL_GUARD — on by
+# default, flip to "false" in production if table context ever causes trouble.
+# Disabling it returns the builder to knowing only that connections EXIST.
+BUILDER_TABLE_CONTEXT = os.getenv("BUILDER_TABLE_CONTEXT", "true").strip().lower() != "false"
 
 
 @dataclass
@@ -32,6 +38,13 @@ class SystemContext:
 
     # Connections (for data agents)
     connections: List[Dict[str, Any]] = field(default_factory=list)
+
+    # Documented tables per connection id -> [{"name", "description"}, ...]
+    # (2026-08-03) Without this the builder knew only that a connection EXISTED,
+    # never what was in it, so it asked the user for "the ERP table/view name and
+    # column mappings" — information sitting in the platform's own data
+    # dictionary — and stalled until they gave up.
+    tables_by_connection: Dict[int, List[Dict[str, Any]]] = field(default_factory=dict)
 
     # Knowledge bases
     knowledge_bases: List[Dict[str, Any]] = field(default_factory=list)
@@ -299,6 +312,35 @@ class SystemContext:
 
         return "\n".join(lines)
 
+    def get_tables_for_prompt(self, max_per_connection: int = 40) -> str:
+        """Format each connection's DOCUMENTED tables for the planning prompt.
+
+        Table names + descriptions only — deliberately NOT columns. ERPDB alone
+        is 36 tables x ~16 columns; sending every column on every turn would
+        bloat each prompt for information the planner rarely needs. Columns are
+        fetched on demand via connections.discover_tables / a schema lookup for
+        the specific tables a plan actually touches.
+        """
+        if not self.tables_by_connection:
+            return ""
+        name_by_id = {c.get("id"): c.get("name", "") for c in self.connections}
+        lines = ["DOCUMENTED TABLES (ground table names in these — do NOT ask the "
+                 "user for table names that appear here):"]
+        for conn_id, tables in self.tables_by_connection.items():
+            if not tables:
+                continue
+            cname = name_by_id.get(conn_id) or name_by_id.get(str(conn_id)) or conn_id
+            lines.append(f'  Connection {conn_id} "{cname}":')
+            for t in tables[:max_per_connection]:
+                nm = t.get("name") or ""
+                desc = (t.get("description") or "").strip()
+                desc = (desc[:110] + "…") if len(desc) > 110 else desc
+                lines.append(f"    - {nm}" + (f" — {desc}" if desc else ""))
+            if len(tables) > max_per_connection:
+                lines.append(f"    … and {len(tables) - max_per_connection} more "
+                             f"(use connections.discover_tables for the full list)")
+        return "\n".join(lines) if len(lines) > 1 else ""
+
     def get_workflows_for_prompt(self) -> str:
         """Format workflows for inclusion in the planning prompt."""
         if not self.workflows:
@@ -427,6 +469,7 @@ class SystemContext:
 
         # Only include sections that have data
         for getter in [
+            self.get_tables_for_prompt,
             self.get_workflows_for_prompt,
             self.get_schedules_for_prompt,
             self.get_integrations_for_prompt,
@@ -480,6 +523,11 @@ class ContextGatherer:
         # Fetch connections if data agents might be involved
         if "connections" in domains_needed:
             await self._fetch_connections(context)
+            # …and what is INSIDE them. Knowing a connection exists is not enough
+            # to author SQL against it; without this the planner asks the user
+            # for table names the platform already has.
+            if BUILDER_TABLE_CONTEXT:
+                await self._fetch_tables(context)
 
         # Fetch workflows if workflow operations are involved
         if "workflows" in domains_needed or "schedules" in domains_needed:
@@ -573,6 +621,58 @@ class ContextGatherer:
 
         except Exception as e:
             logger.error(f"  [context] Error fetching agents: {e}")
+
+    async def _fetch_tables(self, context: SystemContext, max_connections: int = 6):
+        """Fetch each connection's DOCUMENTED tables into the planning context.
+
+        Runs after _fetch_connections. Bounded to a handful of connections so a
+        tenant with dozens does not turn every planning prompt into a catalogue;
+        the planner can still call connections.list_tables for any others.
+        Failures are per-connection and non-fatal — a connection that cannot be
+        read simply contributes nothing, exactly as before this existed.
+        """
+        import json
+        for conn in (context.connections or [])[:max_connections]:
+            conn_id = conn.get("id")
+            if conn_id in (None, ""):
+                continue
+            try:
+                result = await self.executor.execute_step(
+                    domain="connections", action="list_tables",
+                    parameters={"connection_id": conn_id},
+                    description=f"Read documented tables for connection {conn_id}",
+                )
+                if not (result.is_success and result.data):
+                    continue
+                raw = result.data
+                if isinstance(raw, dict):
+                    raw = raw.get("tables", raw.get("data", raw))
+                parses = 3
+                while isinstance(raw, str) and parses > 0:
+                    try:
+                        raw = json.loads(raw)
+                        parses -= 1
+                    except (json.JSONDecodeError, ValueError):
+                        raw = []
+                        break
+                if not isinstance(raw, list):
+                    continue
+                tables = []
+                for t in raw:
+                    if not isinstance(t, dict):
+                        continue
+                    nm = t.get("table_name") or t.get("name")
+                    if not nm:
+                        continue
+                    tables.append({
+                        "name": nm,
+                        "description": t.get("table_description") or t.get("description") or "",
+                    })
+                if tables:
+                    context.tables_by_connection[conn_id] = tables
+                    logger.info(f"  [context] {len(tables)} documented tables for connection {conn_id}")
+            except Exception as e:
+                logger.debug(f"  [context] table fetch skipped for connection {conn_id}: {e}")
 
     async def _fetch_connections(self, context: SystemContext):
         """Fetch database connections from the system."""

@@ -586,6 +586,19 @@ def _connections_domain() -> DomainDefinition:
                 tags=["connection", "discover", "tables", "schema"],
             ),
             CapabilityDefinition(
+                id="connections.list_tables",
+                name="List Documented Tables",
+                description=(
+                    "Read the data dictionary for a connection — the tables "
+                    "already documented, with their curated descriptions. Use "
+                    "this BEFORE asking a user for table names."
+                ),
+                category="read",
+                required_context=["connection_id"],
+                required_role=2,
+                tags=["connection", "tables", "dictionary", "schema", "read"],
+            ),
+            CapabilityDefinition(
                 id="connections.manage_dictionary",
                 name="Manage Data Dictionary",
                 description="Add, update, or AI-analyze tables and columns",

@@ -1284,7 +1284,58 @@ def _connection_actions() -> list:
             notes=(
                 "Returns tables with TABLE_NAME, TABLE_SCHEMA, TABLE_TYPE, "
                 "column_count, and is_documented flag. Present the table list "
-                "to the user and let them choose which tables to analyze."
+                "to the user and let them choose which tables to analyze. "
+                "Prefer connections.list_tables first — if the data dictionary "
+                "already documents the tables you need, you do not need to hit "
+                "the live database at all."
+            ),
+        ),
+
+        ActionDefinition(
+            capability_id="connections.list_tables",
+            domain_id="connections",
+            description=(
+                "Read the DOCUMENTED tables (data dictionary) for a connection — "
+                "names plus their curated descriptions"
+            ),
+            required_role=2,
+            primary_route=RouteMapping(
+                method="GET",
+                # /api/tables/<id>, NOT /get/tables/<id>: the latter is a
+                # session-only browser route that 302s an API-key caller to
+                # /login, so the builder's fetch silently returned an HTML
+                # redirect and no tables at all (measured 2026-08-03).
+                path="/api/tables/<connection_id>",
+                encoding=PayloadEncoding.NONE,
+                path_params=["connection_id"],
+                description="List the tables already documented for this connection",
+                is_idempotent=True,
+                input_fields=[
+                    FieldSchema(
+                        "connection_id", FieldType.REFERENCE, required=True,
+                        reference_domain="connections",
+                        description="Connection whose documented tables to read",
+                    ),
+                ],
+                response_mappings=[
+                    ResponseMapping(
+                        "tables", "tables",
+                        description="Documented tables with table_name and table_description",
+                        field_type=FieldType.LIST,
+                        is_list=True,
+                    ),
+                ],
+                success_indicator="success",
+            ),
+            suggested_followups=["connections.discover_tables"],
+            notes=(
+                "ALWAYS try this before asking the user for table or column "
+                "names. Added 2026-08-03 after the builder repeatedly asked a "
+                "user to get 'the ERP table/view name and column mappings' from "
+                "IT while 36 documented tables for that very connection sat in "
+                "the data dictionary. Empty result => the connection has not "
+                "been documented yet; fall back to connections.discover_tables "
+                "(live database) and optionally connections.analyze_tables."
             ),
         ),
 
