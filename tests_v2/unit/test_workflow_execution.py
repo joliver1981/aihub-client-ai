@@ -916,17 +916,23 @@ class TestExecuteNodeDispatch:
             "variables": {},
         }
 
-    def test_unknown_node_type_succeeds_and_follows_pass(self, engine):
-        """Unimplemented node types log a warning and follow the 'pass'
-        connection (engine treats them as a success no-op)."""
+    def test_unknown_node_type_fails_and_does_not_follow_pass(self, engine):
+        """CONTRACT CHANGE (32a5ae1, silent-success remediation #6/#10):
+        an unimplemented node type FAILS honestly instead of no-op'ing down
+        the 'pass' edge. With only a pass edge wired there is no failure
+        path, so the error propagates and the workflow fails loudly.
+
+        (This test previously asserted the pre-remediation contract — that
+        unknown types 'succeed' and follow pass — which was the silent
+        success the remediation removed.)"""
         nodes = [
             {"id": "n1", "type": "Mystery", "config": {}},
             {"id": "n2", "type": "Mystery", "config": {}},
         ]
         connections = [{"source": "n1", "target": "n2", "type": "pass"}]
         self._seed(engine, nodes, connections)
-        nxt = engine._execute_node("exec1", nodes[0], {})
-        assert nxt == "n2"
+        with pytest.raises(ValueError, match="is not implemented by the workflow engine"):
+            engine._execute_node("exec1", nodes[0], {})
 
     def test_set_variable_dispatches(self, engine):
         nodes = [
@@ -946,13 +952,16 @@ class TestExecuteNodeDispatch:
         assert variables.get("foo") == "bar"
         assert nxt is None  # no outgoing connection
 
-    def test_no_pass_connection_returns_none(self, engine):
+    def test_failed_node_follows_wired_fail_edge(self, engine):
+        """CONTRACT CHANGE (32a5ae1): a failing node (here: an unimplemented
+        type) follows its wired 'fail' edge — the designed failure path —
+        rather than returning None as if nothing happened. The step itself is
+        still marked Failed; only the routing honors the fail wire."""
         nodes = [{"id": "n1", "type": "Mystery", "config": {}}]
         connections = [{"source": "n1", "target": "n2", "type": "fail"}]
         self._seed(engine, nodes, connections)
         nxt = engine._execute_node("exec1", nodes[0], {})
-        # Only fail connection exists; default path returns None
-        assert nxt is None
+        assert nxt == "n2"
 
 
 # =============================================================================
