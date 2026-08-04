@@ -647,6 +647,34 @@ def _resolve_agent_id_refs(text: str, agents: list) -> list:
     return matched
 
 
+def _route_memory_yields_to_id_ref(user_text: str, route_match: dict) -> bool:
+    """True when an explicit agent-id reference in the message must override a
+    remembered route.
+
+    Pack 16 b4 live failure: "ask agent 999999 how many stores are there"
+    normalized to "store count", matched a confident learned route, and CC
+    answered from agent 281 "(learned route)" instead of failing closed on the
+    unknown id — the shortcut ran BEFORE any id resolution could. A learned
+    route is a statistical guess about a TOPIC; an explicit id is an
+    instruction about a TARGET, and the instruction wins.
+
+    Deterministic and landscape-free: the regex is format extraction only
+    (same _AGENT_ID_REF_RE contract — "agent(s)" must cue the number, digits
+    glued to words never match), and the decision is a plain comparison. Any
+    referenced id that is not exactly the remembered route's agent — unknown,
+    different, several at once, or any id against a remembered CC-tool route —
+    sends the turn through normal classification, whose delegate/REROUTE paths
+    already resolve ids fail-closed. Never guesses; can only ever fall back to
+    the full (correct) path.
+    """
+    ids = set(_AGENT_ID_REF_RE.findall(user_text or ""))
+    if not ids:
+        return False
+    if route_match.get("is_cc_tool", False):
+        return True
+    return ids != {str(route_match.get("agent_id"))}
+
+
 async def _is_ambiguous_destructive_llm(user_text: str,
                                         state: "CommandCenterState") -> bool:
     """Mini-LLM: is this a DESTRUCTIVE instruction that does not identify WHAT
@@ -1817,6 +1845,17 @@ async def classify_intent(state: CommandCenterState) -> dict:
                 if _rm_user_id:
                     from command_center.memory.route_memory import find_route, CC_TOOL_PREFIX
                     route_match = await find_route(int(_rm_user_id), user_text)
+                    if (route_match and route_match.get("success_rate", 0) >= 0.7
+                            and _route_memory_yields_to_id_ref(user_text, route_match)):
+                        # Pack 16 b4: an explicit agent-id reference beats a
+                        # learned topic route. Fall through to normal
+                        # classification, which resolves ids fail-closed.
+                        logger.info(
+                            f"[classify_intent] Route memory match SKIPPED — message "
+                            f"references explicit agent id(s) that are not the "
+                            f"remembered route's agent ({route_match.get('agent_id')})"
+                        )
+                        route_match = None
                     if route_match and route_match.get("success_rate", 0) >= 0.7:
                         is_cc_tool = route_match.get("is_cc_tool", False)
                         logger.info(
@@ -3143,18 +3182,23 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                         pref_lines.append(f"- **{key}**: {display}")
                     parts.append("**Saved preferences:**\n" + "\n".join(pref_lines))
 
-                # Route memory stats
-                from command_center.memory.route_memory import get_route_stats
-                stats = get_route_stats(uid)
-                if stats.get("total_routes", 0) > 0:
-                    route_lines = [
-                        f"- Total logged routes: {stats['total_routes']}",
-                        f"- Unique query patterns: {stats['unique_canonical_forms']}",
-                        f"- Average success rate: {int(stats.get('avg_success_rate', 0) * 100)}%",
-                    ]
-                    if stats.get("top_routes"):
-                        route_lines.append(f"- Top patterns: {', '.join(stats['top_routes'])}")
-                    parts.append("**Learned routes:**\n" + "\n".join(route_lines))
+                # Route memory stats — only while the system is enabled.
+                # With CC_ROUTE_MEMORY=false, advertising "learned routes"
+                # in the memory recall claims a capability that is switched
+                # off (the historical rows still exist but are never used).
+                from cc_config import USE_ROUTE_MEMORY as _RM_ON
+                if _RM_ON:
+                    from command_center.memory.route_memory import get_route_stats
+                    stats = get_route_stats(uid)
+                    if stats.get("total_routes", 0) > 0:
+                        route_lines = [
+                            f"- Total logged routes: {stats['total_routes']}",
+                            f"- Unique query patterns: {stats['unique_canonical_forms']}",
+                            f"- Average success rate: {int(stats.get('avg_success_rate', 0) * 100)}%",
+                        ]
+                        if stats.get("top_routes"):
+                            route_lines.append(f"- Top patterns: {', '.join(stats['top_routes'])}")
+                        parts.append("**Learned routes:**\n" + "\n".join(route_lines))
 
                 if not parts:
                     return "No saved preferences or learned routes found for this user."
