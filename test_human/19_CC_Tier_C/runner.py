@@ -81,6 +81,11 @@ CC_BASE = os.environ.get("CC_BASE", "http://127.0.0.1:5091")
 APP_BASE = os.environ.get("REGP_BASE", "http://localhost:5001")
 SIM_AGENT = os.environ.get("TIERC_SIM_AGENT", "84")     # plays the user AND judges
 MAX_TURNS = 10
+# Hard wall-clock cap per conversational turn. Distinct from the requests
+# timeout, which only measures gaps BETWEEN bytes and is defeated by SSE
+# keepalives. A real turn takes 10-60s; 420s is generous headroom that still
+# fails fast instead of hanging the suite for an hour.
+TURN_DEADLINE_S = int(os.getenv("TIERC_TURN_DEADLINE", "420"))
 ARTIFACT_GRACE_S = 120     # CC can finish a build after the chat turn returns
 
 
@@ -198,9 +203,25 @@ class CC:
         except Exception as e:
             return {"text": "", "session_id": session_id, "http": 0, "error": str(e)}
         parts, sid = [], session_id
+        timed_out = False
+        # ABSOLUTE per-turn deadline (added 2026-08-04). requests' `timeout` is
+        # an INACTIVITY gap, not a wall-clock cap: CC's SSE emits periodic
+        # status/keepalive events, so each one resets the clock and the stream
+        # can hang forever while looking alive. On 2026-08-04 a turn wedged in
+        # the builder's planning call and this loop sat in it for over an HOUR,
+        # stranding the whole suite until the process was killed manually.
+        # Nothing anywhere had an upper bound. This is that upper bound.
+        deadline = time.time() + TURN_DEADLINE_S
         if r.status_code == 200:
             cur = None
             for line in r.iter_lines(decode_unicode=True):
+                if time.time() > deadline:
+                    timed_out = True
+                    try:
+                        r.close()
+                    except Exception:
+                        pass
+                    break
                 if not line:
                     continue
                 if line.startswith("event:"):
@@ -215,7 +236,11 @@ class CC:
                         for b in (d.get("blocks") or []):
                             if isinstance(b, dict) and b.get("content"):
                                 parts.append(str(b["content"]))
+        if timed_out:
+            log(f"    !! turn exceeded the {TURN_DEADLINE_S}s hard deadline — "
+                f"abandoning this turn (CC/builder never completed it)")
         return {"text": "\n".join(parts).strip(), "session_id": sid,
+                "timed_out": timed_out,
                 "http": r.status_code}
 
 
@@ -283,6 +308,13 @@ RULES — follow these exactly:
   for that information. Never volunteer it.
 - If the assistant asks something you genuinely would not know, say so plainly
   ("I'm not sure — what do you recommend?").
+- YOU CAN ONLY TYPE. You cannot upload a file, attach a document, share a
+  screenshot, email anything, or put a file anywhere. NEVER say you have done
+  any of those things — nothing you claim to send actually arrives, so claiming
+  it deadlocks the conversation forever. If the assistant asks for a file or an
+  upload, say you cannot provide one here and ask whether it can work from what
+  is already in the system. Everything you know is in your hidden brief and can
+  only be conveyed by typing it.
 - Keep it to 1-3 sentences. Write only the user's message, no narration, no
   quotation marks, no labels.
 - If the assistant has DELIVERED a finished, working solution and there is
@@ -391,7 +423,16 @@ SCENARIOS = [
             "server, in the /outgoing folder. Someone told you the platform already has "
             "the login saved under a name like AUTODEMO_SFTP.\n"
             "- You would like it to run itself every weekday morning, around 8am.",
-        "expect_kinds": ["automations"],
+        # WIDENED 2026-08-04. Was ["automations"] only, which scored a REAL
+        # success as a failure: CC built "Collections Vendor Export Approval
+        # Workflow" (id 1418) plus its scheduler job, and the gate reported
+        # artifact=NONE because a workflow is not an automation. The scenario
+        # asks for an outcome, not an implementation — an automation, a visual
+        # workflow and a code flow are all legitimate ways to deliver it, and
+        # picking among them is exactly the self-knowledge this tier rewards.
+        # Only caught because the agent's "Workflow created" claim contradicted
+        # my own gate and I checked which was telling the truth.
+        "expect_kinds": ["automations", "workflows", "codeflows"],
     },
     {
         "id": "reconciliation",
@@ -463,6 +504,10 @@ def run_scenario(app, cc, llm, sc, max_turns):
         resp = cc.chat(user_msg, session_id=sid)
         sid = resp.get("session_id") or sid
         reply = strip_agent_header(resp.get("text") or "")
+        if resp.get("timed_out"):
+            transcript.append(("agent", "(no reply — turn exceeded the hard deadline)"))
+            stop = "turn_deadline_exceeded"
+            break
         if resp.get("http") != 200 or not reply:
             transcript.append(("agent", f"(no reply, http={resp.get('http')})"))
             stop = f"cc_http_{resp.get('http')}"
