@@ -85,7 +85,18 @@ NODE_CONFIG_SCHEMAS: Dict[str, Dict[str, Any]] = {
                   "aiMappingInstructions", "allowPartialExtraction",
                   "carryForwardFields", "failOnMissingRequired",
                   "formattingInstructions", "includeAssumptions",
-                  "includeConfidence", "includeSources", "specialInstructions"},
+                  "includeConfidence", "includeSources", "specialInstructions",
+                  # excelOperation='update' key family (2026-08-05) — read by the
+                  # ExcelUpdate path in workflow_execution/excel update executor;
+                  # the original table predates update mode and flagged ALL of
+                  # these on every legacy update workflow. manualFields is
+                  # Designer-written (excel_export_node.js).
+                  "keyColumns", "useAIKeyMatching", "aiKeyMatchingInstructions",
+                  "manualFields", "addNewRecords", "addChangeTimestamp",
+                  "useSmartChangeDetection", "smartChangeStrictness",
+                  "highlightChanges", "changeHighlightColor", "newRowColor",
+                  "deletedRowColor", "markDeletedAs", "trackDeletedRows",
+                  "changeLogSheet", "timestampColumn"},
     },
     "Database": {
         # Required/op-specific fields (connection, query for dbOperation=query,
@@ -101,11 +112,16 @@ NODE_CONFIG_SCHEMAS: Dict[str, Dict[str, Any]] = {
     "File": {
         # filePath/operation presence is owned by detect_file_node_config_errors.
         "required": [],
-        "enums": {"operation": {"write", "append", "read", "check", "delete"}},
+        # 2026-08-05: copy/move were missing although _execute_file_node has
+        # supported them all along (filePath = source, destinationPath = target)
+        # — every Designer copy/move node was flagged with a false error.
+        "enums": {"operation": {"write", "append", "read", "check", "delete",
+                                "copy", "move"}},
         "aliases": {"path": "filePath", "fileOperation": "operation",
                     "fileName": "filePath", "text": "content"},
         "known": {"filePath", "operation", "content", "contentSource", "encoding",
-                  "overwrite"},
+                  "overwrite", "sourcePath", "destinationPath", "contentPath",
+                  "contentVariable"},
     },
     "Loop": {
         "enums": {"sourceType": {"auto", "variable", "split", "path", "folderFiles"}},
@@ -115,9 +131,11 @@ NODE_CONFIG_SCHEMAS: Dict[str, Dict[str, Any]] = {
             "variable": ["loopSource"], "split": ["loopSource"], "path": ["loopSource"]}},
         "aliases": {"listVariable": "loopSource", "sourceVariable": "loopSource",
                     "loopVariable": "itemVariable"},
+        # defaultArray is written by the Designer's Loop config panel (workflow.js)
+        # on every Loop node — a key the Designer itself writes must not warn.
         "known": {"sourceType", "loopSource", "itemVariable", "indexVariable",
                   "maxIterations", "emptyBehavior", "splitDelimiter", "outputMode",
-                  "arrayInfoVariable"},
+                  "arrayInfoVariable", "defaultArray"},
     },
     "End Loop": {
         "known": {"loopNodeId"},

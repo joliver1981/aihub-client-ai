@@ -199,3 +199,80 @@ def test_validator_clean_on_good_shapes_and_registered():
     assert [i for i in wdv.detect_config_key_errors(state)
             if i.severity == wdv.ERROR] == []
     assert wdv.detect_config_key_errors in wdv.DETECTORS
+
+
+# ------------------------------------------------------- Horizon live shapes
+# 2026-08-05 regression (wf 1218 "Customer Onboarding - Horizon Replica"):
+# the contract tables understated the engine, so a WORKING imported workflow
+# lit up with false warnings/errors — File copy/move flagged as invalid
+# operations, destinationPath/contentPath/contentVariable as unknown keys,
+# Loop defaultArray (Designer-written) as unknown, and the entire Excel
+# excelOperation='update' key family as unknown. These configs are
+# byte-for-byte from wf 1218 and must stay CLEAN.
+
+LIVE_HORIZON_FILE_COPY = {
+    "content": "", "contentPath": "", "contentSource": "direct",
+    "contentVariable": "", "continueOnError": False,
+    "destinationPath": "C:/temp/x/output/${customerFolder.name}_Template.xlsx",
+    "filePath": "C:/temp/x/template/Empty_Template.xlsx",
+    "operation": "copy", "outputVariable": "", "saveToVariable": False,
+}
+
+LIVE_HORIZON_LOOP = {
+    "arrayInfoVariable": "", "defaultArray": "[]", "emptyBehavior": "skip",
+    "indexVariable": "fileIdx", "itemVariable": "documentFile",
+    "loopSource": "${documentFiles.data.items}", "maxIterations": "100",
+    "outputMode": "array", "sourceType": "auto", "splitDelimiter": ",",
+}
+
+LIVE_HORIZON_EXCEL_UPDATE = {
+    "addChangeTimestamp": True, "addNewRecords": True,
+    "aiKeyMatchingInstructions": "match on core requirement",
+    "aiMappingInstructions": "", "carryForwardFields": "",
+    "changeHighlightColor": "#ffff00", "changeLogSheet": "Change History",
+    "deletedRowColor": "#ffb6c1", "excelOperation": "update",
+    "excelOutputPath": "${templatePath}", "excelSheetName": "Requirements_Notes",
+    "excelTemplatePath": "C:/temp/x/Master Template.xlsx",
+    "fieldMapping": None, "flattenArray": False, "highlightChanges": True,
+    "inputVariable": "${extractedNotes.Notes}",
+    "keyColumns": "customer,program_type,topic,requirement",
+    "manualFields": "customer,program_type,requirement",
+    "mappingMode": "ai", "markDeletedAs": "strikethrough",
+    "newRowColor": "#90ee90", "smartChangeStrictness": "lenient",
+    "timestampColumn": "Last Updated", "trackDeletedRows": False,
+    "useAIKeyMatching": True, "useSmartChangeDetection": True,
+}
+
+
+def test_horizon_file_copy_and_move_are_clean():
+    assert validate_node_config("File", LIVE_HORIZON_FILE_COPY) == []
+    move_cfg = dict(LIVE_HORIZON_FILE_COPY, operation="move",
+                    sourcePath="C:/temp/x/a.pdf")
+    assert validate_node_config("File", move_cfg) == []
+
+
+def test_horizon_loop_default_array_is_clean():
+    assert validate_node_config("Loop", LIVE_HORIZON_LOOP) == []
+
+
+def test_horizon_excel_update_family_is_clean():
+    assert validate_node_config("Excel Export", LIVE_HORIZON_EXCEL_UPDATE) == []
+
+
+def test_validator_clean_on_horizon_workflow_shapes():
+    state = _state([
+        {"id": "n1", "type": "File", "label": "Copy New Template",
+         "config": LIVE_HORIZON_FILE_COPY},
+        {"id": "n2", "type": "Loop", "label": "Start Loop Files",
+         "config": LIVE_HORIZON_LOOP},
+        {"id": "n3", "type": "Excel Export", "label": "Update Template",
+         "config": LIVE_HORIZON_EXCEL_UPDATE},
+    ])
+    assert wdv.detect_config_key_errors(state) == []
+
+
+def test_wrong_keys_still_error_after_widening():
+    # Widening `known` must not have dulled the contract's real purpose.
+    assert config_errors("Excel Export", LIVE_EXCEL_BAD)
+    assert config_errors("Set Variable", LIVE_SET_VARIABLE_BAD)
+    assert config_errors("File", {"operation": "shred", "filePath": "x"})

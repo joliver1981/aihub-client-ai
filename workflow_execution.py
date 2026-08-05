@@ -609,7 +609,40 @@ class WorkflowExecutionEngine:
             
             # Store the output for potential use by subsequent nodes
             variables['_previousStepOutput'] = result.get('data', {})
-            
+
+            # Conditional nodes signal their branch via success (False = the
+            # fail/false edge) — that is ROUTING, not a failure. Without this,
+            # every FALSE evaluation fell into the generic failure handler:
+            # step marked Failed, "Node execution failed: Conditional" in the
+            # run log, counted in the run's failed total — while routing then
+            # proceeded correctly down the fail edge. A false condition with a
+            # connected branch is a completed step. Genuine evaluation errors
+            # (result carries 'error') still take the failure path, as does a
+            # FALSE outcome with no fail/complete edge to follow (preserving
+            # the legacy dead-end contract).
+            if node_type == 'Conditional' and not result.get('error'):
+                condition_result = bool(result.get('success', False))
+                wanted_edge = 'pass' if condition_result else 'fail'
+                _wf_data = self._active_executions[execution_id]['workflow_data']
+                _out_edges = [c for c in _wf_data.get('connections', [])
+                              if c['source'] == node_id]
+                _target = next((c['target'] for c in _out_edges
+                                if c.get('type', 'pass') == wanted_edge), None)
+                if _target is None:
+                    _target = next((c['target'] for c in _out_edges
+                                    if c.get('type') == 'complete'), None)
+                if condition_result or _target is not None:
+                    self._update_step_status(execution_id, node_id, 'Completed',
+                                             output_data=result.get('data', {}))
+                    self.log_execution(
+                        execution_id, node_id, "info",
+                        f"Conditional {'TRUE' if condition_result else 'FALSE'} — "
+                        f"following the {wanted_edge} branch"
+                        + ("" if _target else " (no outgoing connection; branch ends)"))
+                    return _target
+                # FALSE with no fail/complete edge: fall through to the generic
+                # failure handling below (unchanged legacy behavior).
+
             # Check if the node execution was successful
             if not result.get('success', False):
                 raise ValueError(result.get('error', f"Node execution failed: {node_type}"))
