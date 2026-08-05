@@ -2977,6 +2977,16 @@ Your task is to extract information from source data and map it to specific form
 You must return ONLY valid JSON with no additional text or explanation."""
 
 
+WORKFLOW_EXCEL_MAPPING_SPEC_SYSTEM = """You are an expert at mapping structured records onto Excel spreadsheet columns.
+You will be shown the target column names and a few sample records.
+Your task is to produce a REUSABLE MAPPING SPECIFICATION - not mapped data.
+The spec will be applied programmatically to every record, so it must reference
+only the exact source field names and target column names you are given.
+For each mapping choose one transform from the allowed list; when no listed
+transform fits, use "none" - the raw value will be written unchanged.
+You must return ONLY valid JSON with no additional text or explanation."""
+
+
 ############################
 ##### OVERRIDE PROMPTS #####
 ############################

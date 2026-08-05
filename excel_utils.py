@@ -27,6 +27,9 @@ from openpyxl.utils import get_column_letter, column_index_from_string
 from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.styles import PatternFill, Font
 import re
+import threading
+from collections import OrderedDict
+from datetime import datetime, date
 from CommonUtils import rotate_logs_on_startup, get_log_path
 import system_prompts as sysprompts
 
@@ -167,6 +170,7 @@ Based on this structure, is this a TABLE or FORM layout? Respond with only "tabl
     # REGRESSION while this ran once per exported row (measured 1.40 -> 2.98 s/row);
     # it is safe now only because detect_template_schema is memoised per
     # (file, sheet, header signature), so it runs ONCE per export instead of per row.
+    _count_llm_call("template_type_detection")
     response = azureMiniQuickPrompt(
         user_prompt,
         system_prompt,
@@ -664,6 +668,7 @@ Rules:
 - Return valid JSON only, no markdown or explanation"""
 
     try:
+        _count_llm_call("schema_generation")
         response = quickPrompt(user_prompt, system=system_prompt, temp=0.0)
         logger.debug(f"AI schema generation response: {response[:500]}...")
         
@@ -743,6 +748,415 @@ def _direct_table_mapping(raw_data: Any, schema: Dict):
     return {"rows": rows}
 
 
+# ---------------------------------------------------------------------------
+# Mapping-spec path (2026-08-05, approved by james).
+#
+# The semantic mapping between a record's field names and a sheet's columns is
+# a function of the SCHEMA, not the row — yet the legacy path pays one
+# primary-model call per row re-deriving it (a 1,000-row export on the
+# semantic path ≈ 1M+ tokens). Here the mini model is asked ONCE per distinct
+# (field set, column set) for a reusable mapping spec — which source field
+# feeds which column, with one transform from a closed vocabulary — and the
+# spec is applied to every row in pure Python. The model chooses the mapping;
+# deterministic code executes it, failing closed to the raw value per cell.
+#
+# Trust boundary: the model's output is never executed as-is. The response is
+# schema-constrained (strict json_schema with enums over the ACTUAL field
+# names, column names, and transform ids), then re-validated deterministically
+# (unknown source/target dropped, unknown transform -> "none"), so an
+# off-vocabulary answer can cost polish, never correctness.
+# ---------------------------------------------------------------------------
+
+_LLM_CALL_STATS_LOCK = threading.Lock()
+_LLM_CALL_STATS: Dict[str, int] = {}
+
+
+def _count_llm_call(kind: str) -> int:
+    """Count every model call this module makes, by kind. Returns the new
+    module-lifetime total so call sites can log it."""
+    with _LLM_CALL_STATS_LOCK:
+        _LLM_CALL_STATS[kind] = _LLM_CALL_STATS.get(kind, 0) + 1
+        total = sum(_LLM_CALL_STATS.values())
+    logger.info(f"excel_utils LLM call #{total} (kind={kind})")
+    return total
+
+
+def get_llm_call_stats() -> Dict[str, int]:
+    """Snapshot of {kind: count} for this module. Used by ops logging and the
+    per-export call-count tripwire tests."""
+    with _LLM_CALL_STATS_LOCK:
+        return dict(_LLM_CALL_STATS)
+
+
+def reset_llm_call_stats() -> None:
+    with _LLM_CALL_STATS_LOCK:
+        _LLM_CALL_STATS.clear()
+
+
+def _transform_none(value):
+    return value
+
+
+def _transform_text(value):
+    if value is None:
+        return None
+    return str(value)
+
+
+def _transform_number(value):
+    """Numeric coercion: strips currency symbols/thousands separators, handles
+    accounting negatives '(1,234.56)'. Raises on anything it cannot parse —
+    the applier writes the raw value instead."""
+    if isinstance(value, bool):
+        raise ValueError("boolean is not a number")
+    if isinstance(value, (int, float)):
+        return value
+    if not isinstance(value, str):
+        raise ValueError(f"cannot coerce {type(value).__name__} to number")
+    s = value.strip()
+    negative = False
+    if s.startswith("(") and s.endswith(")"):
+        negative = True
+        s = s[1:-1].strip()
+    s = re.sub(r"[$€£¥,\s]", "", s)
+    if s == "":
+        raise ValueError("empty numeric string")
+    number = int(s) if re.fullmatch(r"[+-]?\d+", s) else float(s)
+    return -number if negative else number
+
+
+# Ordered, fixed date formats tried before the generic parser. Ambiguous
+# numeric dates resolve month-first (US convention) — documented policy, not
+# a guess made per row.
+_DATE_FORMATS = (
+    "%Y-%m-%d",
+    "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%d %H:%M:%S",
+    "%m/%d/%Y",
+    "%m/%d/%y",
+    "%d-%b-%Y",
+    "%d %b %Y",
+    "%b %d, %Y",
+    "%B %d, %Y",
+    "%Y%m%d",
+)
+
+
+def _transform_date_iso(value):
+    """ISO date rendering. datetime/date objects convert directly; strings go
+    through the fixed format list then dateutil (month-first). Raises when the
+    value cannot be parsed — the applier writes the raw value instead."""
+    if isinstance(value, datetime):
+        if value.hour == 0 and value.minute == 0 and value.second == 0:
+            return value.date().isoformat()
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    if isinstance(value, date):
+        return value.isoformat()
+    if not isinstance(value, str):
+        raise ValueError(f"cannot parse {type(value).__name__} as date")
+    s = value.strip()
+    if not s:
+        raise ValueError("empty date string")
+    for fmt in _DATE_FORMATS:
+        try:
+            parsed = datetime.strptime(s, fmt)
+            return _transform_date_iso(parsed)
+        except ValueError:
+            continue
+    from dateutil import parser as _dateutil_parser
+    parsed = _dateutil_parser.parse(s, dayfirst=False)
+    return _transform_date_iso(parsed)
+
+
+# The single source of truth for the transform vocabulary. The json_schema
+# enum, the prompt's ALLOWED TRANSFORMS list, and the validator all derive
+# from these keys — adding a transform means adding a tested function here.
+_MAPPING_TRANSFORMS = {
+    "none": _transform_none,
+    "text": _transform_text,
+    "number": _transform_number,
+    "date_iso": _transform_date_iso,
+}
+
+_TRANSFORM_DESCRIPTIONS = {
+    "none": "write the value unchanged (use when unsure)",
+    "text": "convert the value to plain text",
+    "number": "numeric value; strips currency symbols and thousands separators",
+    "date_iso": "date rendered as ISO YYYY-MM-DD",
+}
+
+
+def _normalize_transform_name(name) -> Optional[str]:
+    """Fold formatting variants ('date-iso', 'Date ISO') onto the canonical
+    id. Returns None when the name is not in the vocabulary even after
+    folding — the caller degrades it to 'none'. Format normalisation only;
+    no semantic guessing."""
+    if not isinstance(name, str):
+        return None
+    key = re.sub(r"[\s\-]+", "_", name.strip().lower())
+    return key if key in _MAPPING_TRANSFORMS else None
+
+
+# Spec cache: one generation per distinct (field set, column set, instructions,
+# context) per process. Failed generations are cached too, so a persistently
+# failing schema degrades to the legacy path without re-paying a model call
+# per row.
+_SPEC_FAILED = object()
+_MAPPING_SPEC_CACHE: "OrderedDict[tuple, Any]" = OrderedDict()
+_MAPPING_SPEC_CACHE_LOCK = threading.Lock()
+_MAPPING_SPEC_CACHE_MAX = 128
+
+
+def _mapping_spec_enabled() -> bool:
+    return os.getenv("EXCEL_AI_MAPPING_SPEC", "true").strip().lower() in (
+        "true", "1", "t", "y", "yes")
+
+
+def _spec_cache_get(key):
+    with _MAPPING_SPEC_CACHE_LOCK:
+        return _MAPPING_SPEC_CACHE.get(key)
+
+
+def _spec_cache_put(key, value):
+    with _MAPPING_SPEC_CACHE_LOCK:
+        _MAPPING_SPEC_CACHE[key] = value
+        while len(_MAPPING_SPEC_CACHE) > _MAPPING_SPEC_CACHE_MAX:
+            _MAPPING_SPEC_CACHE.popitem(last=False)
+
+
+def clear_mapping_spec_cache() -> None:
+    with _MAPPING_SPEC_CACHE_LOCK:
+        _MAPPING_SPEC_CACHE.clear()
+
+
+def _build_mapping_spec_response_format(field_names: List[str], column_names: List[str]) -> Dict:
+    """Strict json_schema whose enums are the ACTUAL field/column names and
+    transform ids — constrained decoding cannot emit a variant spelling."""
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "excel_mapping_spec",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "mappings": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "source": {"type": "string", "enum": list(field_names)},
+                                "target": {"type": "string", "enum": list(column_names)},
+                                "transform": {"type": "string",
+                                              "enum": list(_MAPPING_TRANSFORMS.keys())},
+                            },
+                            "required": ["source", "target", "transform"],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                "required": ["mappings"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+def _validate_mapping_spec(raw: Any, field_names: List[str], column_names: List[str]):
+    """Deterministic re-validation of the model's spec (defense in depth
+    behind the constrained decoding). Unknown sources/targets are dropped,
+    unknown transforms degrade to 'none', duplicate targets keep the first —
+    every repair is recorded as a warning."""
+    warnings: List[str] = []
+    fields_lower = {str(f).lower(): str(f) for f in field_names}
+    cols_lower = {str(c).lower(): str(c) for c in column_names}
+
+    entries = raw.get("mappings") if isinstance(raw, dict) else None
+    if not isinstance(entries, list):
+        return [], ["mapping spec response had no 'mappings' list"]
+
+    mappings: List[Dict[str, str]] = []
+    seen_targets = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            warnings.append(f"dropped non-object mapping entry: {entry!r}")
+            continue
+        source = fields_lower.get(str(entry.get("source", "")).lower())
+        target = cols_lower.get(str(entry.get("target", "")).lower())
+        if source is None or target is None:
+            warnings.append(
+                f"dropped mapping with unknown source/target: {entry.get('source')!r} -> {entry.get('target')!r}")
+            continue
+        if target in seen_targets:
+            warnings.append(f"duplicate target column {target!r} - kept the first mapping")
+            continue
+        transform = _normalize_transform_name(entry.get("transform"))
+        if transform is None:
+            warnings.append(
+                f"unknown transform {entry.get('transform')!r} for {target!r} - value will be written unchanged")
+            transform = "none"
+        seen_targets.add(target)
+        mappings.append({"source": source, "target": target, "transform": transform})
+
+    if not mappings:
+        warnings.append("mapping spec validation left no usable mappings")
+    return mappings, warnings
+
+
+def _generate_mapping_spec(sample_records: List[Dict], field_names: List[str],
+                           column_names: List[str], ai_instructions: str,
+                           source_context: str):
+    """ONE mini-model call producing the reusable mapping spec. Tries strict
+    json_schema first (constrained decoding); falls back to json_object once.
+    Returns (mappings, warnings) or (None, warnings) on failure."""
+    transforms_doc = "\n".join(
+        f"- {name}: {_TRANSFORM_DESCRIPTIONS[name]}" for name in _MAPPING_TRANSFORMS)
+    samples = sample_records[:3]
+
+    user_prompt = f"""Create a mapping specification from source record fields to Excel columns.
+
+SOURCE FIELD NAMES:
+{json.dumps(field_names)}
+
+TARGET COLUMNS:
+{json.dumps(column_names)}
+
+SAMPLE RECORDS (for context only - map FIELD NAMES, not these values):
+{json.dumps(samples, indent=2, default=str)[:3000]}
+
+ALLOWED TRANSFORMS:
+{transforms_doc}
+
+{f"SOURCE CONTEXT: {source_context}" if source_context else ""}
+{f"ADDITIONAL INSTRUCTIONS: {ai_instructions}" if ai_instructions else ""}
+
+Rules:
+1. Map semantically equivalent fields (e.g. "company" -> "Customer Name", "amt" -> "Amount")
+2. Use each target column at most once; omit source fields that have no suitable column
+3. Choose the transform from ALLOWED TRANSFORMS that fits the sample values; use "none" when unsure
+
+Return ONLY a JSON object in this exact format:
+{{"mappings": [{{"source": "field_name", "target": "Column Name", "transform": "none"}}]}}"""
+
+    system_prompt = sysprompts.WORKFLOW_EXCEL_MAPPING_SPEC_SYSTEM
+    mini = globals().get("azureMiniQuickPrompt")
+    if mini is None:
+        return None, ["azureMiniQuickPrompt unavailable - mapping spec disabled"]
+
+    response = None
+    attempts = [_build_mapping_spec_response_format(field_names, column_names),
+                {"type": "json_object"}]
+    for response_format in attempts:
+        try:
+            _count_llm_call("mapping_spec")
+            response = mini(user_prompt, system_prompt, temp=0,
+                            response_format=response_format)
+            break
+        except Exception as e:
+            logger.warning(
+                f"Mapping spec call failed with response_format="
+                f"{response_format.get('type')}: {e}")
+    if response is None:
+        return None, ["mapping spec generation failed on both response formats"]
+
+    try:
+        cleaned = response.strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```json?\s*", "", cleaned)
+            cleaned = re.sub(r"\s*```$", "", cleaned)
+        parsed = json.loads(cleaned)
+    except (json.JSONDecodeError, AttributeError) as e:
+        logger.warning(f"Mapping spec response was not valid JSON: {e}")
+        return None, [f"mapping spec response was not valid JSON: {e}"]
+
+    mappings, warnings = _validate_mapping_spec(parsed, field_names, column_names)
+    if not mappings:
+        return None, warnings
+    logger.info(
+        f"Mapping spec generated: {len(mappings)} mapping(s) for "
+        f"{len(field_names)} field(s) -> {len(column_names)} column(s)")
+    return mappings, warnings
+
+
+def _apply_mapping_spec(records: List[Dict], mappings: List[Dict[str, str]]) -> Dict:
+    """Apply a validated spec to every record in pure Python. A transform that
+    raises writes the RAW value for that cell (fail closed) and is counted in
+    the warnings."""
+    rows: List[Dict[str, Any]] = []
+    failed_cells = 0
+    for rec in records:
+        rec_lower = {str(k).lower(): v for k, v in rec.items()}
+        row: Dict[str, Any] = {}
+        for m in mappings:
+            value = rec[m["source"]] if m["source"] in rec else rec_lower.get(m["source"].lower())
+            if isinstance(value, dict) and "value" in value:
+                # write_extraction_to_excel's field-definition context shape:
+                # {field: {"value": ..., "description": ...}} - the cell gets
+                # the value, same as the legacy AI mapper produced.
+                value = value["value"]
+            if value is None:
+                row[m["target"]] = None
+                continue
+            try:
+                row[m["target"]] = _MAPPING_TRANSFORMS[m["transform"]](value)
+            except Exception:
+                row[m["target"]] = value
+                failed_cells += 1
+        rows.append(row)
+    warnings = []
+    if failed_cells:
+        warnings.append(
+            f"{failed_cells} value(s) failed their transform and were written unchanged")
+    return {"rows": rows, "warnings": warnings}
+
+
+def _map_via_spec(raw_data: Any, schema: Dict, ai_instructions: str,
+                  source_context: str) -> Optional[Dict]:
+    """Table mapping via a cached spec. Returns the mapped rows, or None to
+    fall through to the legacy per-call AI mapper (unstructured input, spec
+    disabled, or generation failure)."""
+    if not _mapping_spec_enabled():
+        return None
+    records = raw_data if isinstance(raw_data, list) else [raw_data]
+    if not records or not all(isinstance(r, dict) and r for r in records):
+        return None                          # unstructured input -> legacy path
+    cols = (schema or {}).get("columns") or []
+    column_names = [c.get("name", c) if isinstance(c, dict) else c for c in cols]
+    column_names = [str(c) for c in column_names if c is not None and str(c).strip() != ""]
+    if not column_names:
+        return None
+    field_names = sorted({str(k) for rec in records for k in rec.keys()})
+    if not field_names:
+        return None
+
+    cache_key = (frozenset(field_names), tuple(column_names),
+                 ai_instructions or "", source_context or "")
+    cached = _spec_cache_get(cache_key)
+    if cached is _SPEC_FAILED:
+        return None
+    if cached is not None:
+        result = _apply_mapping_spec(records, cached)
+        logger.debug(
+            f"Mapping spec cache hit: applied {len(cached)} mapping(s) to "
+            f"{len(records)} record(s) without a model call")
+        return result
+
+    mappings, gen_warnings = _generate_mapping_spec(
+        records, field_names, column_names, ai_instructions, source_context)
+    if not mappings:
+        _spec_cache_put(cache_key, _SPEC_FAILED)
+        logger.warning(
+            "Mapping spec generation failed - falling back to legacy AI "
+            f"mapping for this schema: {gen_warnings}")
+        return None
+    _spec_cache_put(cache_key, mappings)
+    result = _apply_mapping_spec(records, mappings)
+    result["warnings"] = gen_warnings + result.get("warnings", [])
+    for warning in result["warnings"]:
+        logger.warning(f"Mapping spec warning: {warning}")
+    return result
+
+
 def map_data_to_schema(
     raw_data: Any,
     schema: Dict,
@@ -797,6 +1211,17 @@ def map_data_to_schema(
             len(direct.get("rows", [{}])[0]) if direct.get("rows") else 0,
             len(direct.get("rows", [])))
         return direct
+
+    # MAPPING-SPEC PATH (2026-08-05, approved by james). For structured (dict)
+    # records whose names DON'T match the columns, ask the mini model ONCE per
+    # distinct schema for a reusable mapping spec and apply it in Python -
+    # replacing the legacy one-primary-model-call-PER-ROW below. Returns None
+    # (unstructured input, disabled via EXCEL_AI_MAPPING_SPEC=false, or spec
+    # generation failure) to fall through to the unchanged legacy mapper.
+    if (schema or {}).get("type", "table") == "table":
+        spec_result = _map_via_spec(raw_data, schema, ai_instructions, source_context)
+        if spec_result is not None:
+            return spec_result
 
     if not quickPrompt:
         raise RuntimeError("AI features unavailable - quickPrompt not imported")
@@ -863,6 +1288,7 @@ Return ONLY a JSON object in this exact format:
 Return valid JSON only, no markdown or explanation."""
 
     try:
+        _count_llm_call("legacy_table_mapping")
         response = quickPrompt(user_prompt, system=system_prompt, temp=0.0)
         logger.debug(f"AI mapping response: {response[:500]}...")
         
@@ -946,6 +1372,7 @@ Return ONLY a JSON object in this exact format:
 Return valid JSON only, no markdown or explanation."""
 
     try:
+        _count_llm_call("legacy_form_mapping")
         response = quickPrompt(user_prompt, system=system_prompt, temp=0.0)
         logger.debug(f"AI form mapping response: {response[:500]}...")
         

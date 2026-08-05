@@ -470,11 +470,16 @@ def azureQuickPrompt(prompt, system="You are an assistant.", use_alternate_api=F
     response = response.replace('```json', '').replace('```sql', '').replace('python```', '').replace('```', '')
     return response
 
-def azureMiniQuickPrompt(prompt, system="You are an assistant.", temp=0.0, provider="openai"):
+def azureMiniQuickPrompt(prompt, system="You are an assistant.", temp=0.0, provider="openai",
+                         response_format=None):
     """
     Args:
         provider: "openai" (default) or "anthropic" to use Claude models.
                   When "anthropic", uses ANTHROPIC_MINI (Sonnet) model.
+        response_format: optional OpenAI response_format (e.g. {"type": "json_object"}
+                         or a strict json_schema) for guaranteed-parseable output.
+                         Only applied on the OpenAI/Azure path; ignored for the
+                         anthropic provider.
     """
     if provider == "anthropic":
         return _anthropic_quick_prompt(prompt, system=system, temp=temp, model=cfg.ANTHROPIC_MINI)
@@ -491,6 +496,9 @@ def azureMiniQuickPrompt(prompt, system="You are an assistant.", temp=0.0, provi
         kwargs["temperature"] = 1.0
     else:
         kwargs["temperature"] = temp
+
+    if response_format is not None:
+        kwargs["response_format"] = response_format
 
     chat_completion = call_dropping_unknown_kwargs(
         client.chat.completions.create, **kwargs)
