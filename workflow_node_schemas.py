@@ -121,7 +121,7 @@ NODE_CONFIG_SCHEMAS: Dict[str, Dict[str, Any]] = {
                     "fileName": "filePath", "text": "content"},
         "known": {"filePath", "operation", "content", "contentSource", "encoding",
                   "overwrite", "sourcePath", "destinationPath", "contentPath",
-                  "contentVariable"},
+                  "contentVariable", "allowOverwrite"},
     },
     "Loop": {
         "enums": {"sourceType": {"auto", "variable", "split", "path", "folderFiles"}},
@@ -138,7 +138,9 @@ NODE_CONFIG_SCHEMAS: Dict[str, Dict[str, Any]] = {
                   "arrayInfoVariable", "defaultArray"},
     },
     "End Loop": {
-        "known": {"loopNodeId"},
+        # completionMessage: written by the Designer's End Loop panel and read
+        # by the engine (2026-08-05 full-DB sweep — it warned on 20 nodes).
+        "known": {"loopNodeId", "completionMessage"},
         "aliases": {"loopId": "loopNodeId", "loopNode": "loopNodeId"},
     },
     "Conditional": {

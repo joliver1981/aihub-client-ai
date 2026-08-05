@@ -247,8 +247,24 @@ LIVE_HORIZON_EXCEL_UPDATE = {
 def test_horizon_file_copy_and_move_are_clean():
     assert validate_node_config("File", LIVE_HORIZON_FILE_COPY) == []
     move_cfg = dict(LIVE_HORIZON_FILE_COPY, operation="move",
-                    sourcePath="C:/temp/x/a.pdf")
+                    sourcePath="C:/temp/x/a.pdf", allowOverwrite=True)
     assert validate_node_config("File", move_cfg) == []
+
+
+def test_end_loop_completion_message_is_clean():
+    # Designer writes completionMessage on End Loop panels (2026-08-05 sweep:
+    # 20 nodes warned); the engine reads it.
+    cfg = {"loopNodeId": "node-35", "completionMessage": "All files processed"}
+    assert validate_node_config("End Loop", cfg) == []
+
+
+def test_legacy_alert_subject_still_errors():
+    # Deliberate: 104 legacy Alert nodes carry 'subject' with NO emailSubject —
+    # the engine has never read it, so the wrong-key error is truthful and must
+    # not be silenced by contract widening.
+    errs = config_errors("Alert", {"alertType": "email", "subject": "Done",
+                                   "recipients": "a@b.c"})
+    assert any("emailSubject" in e for e in errs)
 
 
 def test_horizon_loop_default_array_is_clean():
