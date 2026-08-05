@@ -373,7 +373,7 @@
         { key: 'openai_mini',       label: 'OpenAI Mini Model',      help: 'Fast, low-cost model used for short internal prompts and the alternate Azure mini deployment.' },
         { key: 'openai_vision',     label: 'OpenAI Vision Model',    help: 'Used only when Claude Vision fails AND BYOK OpenAI direct is active.' },
         { key: 'openai_embedding',  label: 'OpenAI Embedding Model', help: 'Used for RAG / vector search. Changing this may break existing vector indexes.' },
-        { key: 'openai_image',      label: 'OpenAI Image Model',     help: 'Used by the Command Center generate_image tool. Default dall-e-3.' },
+        { key: 'openai_image',      label: 'OpenAI Image Model',     help: 'Used by the Command Center generate_image tool. Default gpt-image-2.' },
         { key: 'anthropic_primary', label: 'Anthropic Primary Model', help: 'Default Claude model and "advanced" Claude for strong prompts.' },
         { key: 'anthropic_mini',    label: 'Anthropic Mini Model',    help: 'Fast Claude used for short internal prompts.' },
     ];
@@ -402,10 +402,18 @@
         const defaults  = state.defaults || {};
         const dropdowns = state.dropdowns || {};
 
+        // Platform OpenAI chat traffic is served by exactly one path (Azure
+        // deployment vs OpenAI direct); label the chat roles with it so the
+        // shown value can't be mistaken for the other path's model.
+        const openaiPathLabel = (state.platform_openai_path === 'openai_direct')
+            ? 'OpenAI direct' : 'Azure deployment';
+
         MODEL_ROLE_LABELS.forEach(role => {
             const currentValue = overrides[role.key] || '';
             const effectiveVal = effective[role.key] || defaults[role.key] || '';
             const options = dropdowns[role.key] || [];
+            const isOpenAiChatRole = (role.key === 'openai_primary' || role.key === 'openai_mini');
+            const pathNote = isOpenAiChatRole ? (' — served via ' + openaiPathLabel) : '';
 
             // Decide initial select state:
             //   "" = use default (no override)
@@ -441,7 +449,7 @@
               + '    <i class="fas fa-exclamation-triangle mr-1"></i>Unknown models may fail'
               + '  </small>'
               + '  <small class="form-text text-muted">' + escapeHtml(role.help) + '</small>'
-              + '  <small class="form-text text-muted">Current effective value: <code>' + escapeHtml(effectiveVal || '(unset)') + '</code></small>'
+              + '  <small class="form-text text-muted">Current effective value: <code>' + escapeHtml(effectiveVal || '(unset)') + '</code>' + escapeHtml(pathNote) + '</small>'
               + '</div>';
             container.insertAdjacentHTML('beforeend', html);
         });

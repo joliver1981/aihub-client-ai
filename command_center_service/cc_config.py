@@ -23,6 +23,17 @@ _env_path = os.path.join(PARENT_DIR, '.env')
 if os.path.isfile(_env_path):
     load_dotenv(_env_path)
 
+# Apply admin-UI model overrides (data/model_overrides.json) before any
+# module-level os.getenv model read below (e.g. CC_IMAGE_MODEL). The main app
+# does this in config.py, but this process reads its model vars before its
+# first lazy `import config`, so it must apply them itself or the admin
+# screen's openai_image/anthropic settings never reach the CC service.
+try:
+    from model_overrides import apply_overrides_to_env
+    apply_overrides_to_env()
+except Exception:
+    pass  # Overrides are optional; a failure here must not block startup.
+
 # Load API_KEY from Windows Registry and credentials from encrypted store
 try:
     from secure_config import load_secure_config

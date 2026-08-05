@@ -172,6 +172,29 @@ def apply_overrides_to_env() -> Dict[str, str]:
 # -----------------------------------------------------------------------------
 # Status — used by the admin UI.
 # -----------------------------------------------------------------------------
+def _representative_env_var(key: str, env_vars: List[str]) -> Optional[str]:
+    """Pick the env var whose current value reflects what this role actually
+    resolves to on the path serving platform traffic. For the OpenAI chat
+    roles that is the AZURE_* deployment var unless USE_OPENAI_API is True —
+    reading OPENAI_MODEL while the platform calls Azure reports a model no
+    request ever uses. Overrides set every var in the mapping identically,
+    so this choice only matters for values that arrived via .env/Windows env.
+    """
+    if not env_vars:
+        return None
+    if key in ('openai_primary', 'openai_mini'):
+        try:
+            import config as _cfg
+            use_direct = bool(getattr(_cfg, 'USE_OPENAI_API', False))
+        except Exception:
+            use_direct = False
+        if not use_direct:
+            for v in env_vars:
+                if v.startswith('AZURE_'):
+                    return v
+    return env_vars[0]
+
+
 def get_override_status() -> Dict[str, Any]:
     """Return the payload the admin UI needs:
         - overrides:        the JSON file contents (user intent)
@@ -189,12 +212,12 @@ def get_override_status() -> Dict[str, Any]:
 
     overrides = load_overrides()
 
-    # Look up the "effective" value for each role by reading the first env
-    # var in its mapping. If not set, report blank (config default will fill in).
+    # Look up the "effective" value for each role by reading its representative
+    # env var. If not set, report blank (config default will fill in).
     effective: Dict[str, str] = {}
     restart_required = False
     for key, env_vars in KEY_TO_ENV_VARS.items():
-        first_env = env_vars[0] if env_vars else None
+        first_env = _representative_env_var(key, env_vars)
         current = os.environ.get(first_env, '') if first_env else ''
         effective[key] = current
         # If the file disagrees with what's live, a restart is needed.
@@ -220,6 +243,14 @@ def get_override_status() -> Dict[str, Any]:
         byok_openai = False
         byok_anthropic = False
 
+    # Which branch serves platform (non-BYOK) OpenAI traffic right now, so the
+    # UI can label the primary/mini values with the path they belong to.
+    try:
+        import config as _cfg
+        platform_openai_path = 'openai_direct' if getattr(_cfg, 'USE_OPENAI_API', False) else 'azure'
+    except Exception:
+        platform_openai_path = 'azure'
+
     return {
         'overrides': overrides,
         'effective_values': effective,
@@ -227,6 +258,7 @@ def get_override_status() -> Dict[str, Any]:
         'dropdowns': DROPDOWNS,
         'byok_openai_enabled': byok_openai,
         'byok_anthropic_enabled': byok_anthropic,
+        'platform_openai_path': platform_openai_path,
         'restart_required': restart_required,
         'any_override_active': any(bool(v) for v in overrides.values()),
     }
@@ -255,9 +287,22 @@ def _read_config_defaults() -> Dict[str, str]:
     except Exception:
         cc_image_model = os.environ.get('CC_IMAGE_MODEL', '')
 
+    # Platform (non-BYOK) OpenAI traffic goes to Azure unless USE_OPENAI_API
+    # is True (see api_keys_config.get_openai_config), so the value shown as
+    # "current" must come from the branch that actually serves requests —
+    # OPENAI_DEPLOYMENT_NAME always has a code default, so an unconditional
+    # `or` chain starting with it would display a model the platform never
+    # calls (that's exactly how gpt-5.2 traffic hid behind a gpt-5.4 display).
+    if getattr(cfg, 'USE_OPENAI_API', False):
+        openai_primary = getattr(cfg, 'OPENAI_DEPLOYMENT_NAME', '')
+        openai_mini = getattr(cfg, 'OPENAI_DEPLOYMENT_NAME_MINI', '')
+    else:
+        openai_primary = getattr(cfg, 'AZURE_OPENAI_DEPLOYMENT_NAME', '') or getattr(cfg, 'OPENAI_DEPLOYMENT_NAME', '')
+        openai_mini = getattr(cfg, 'AZURE_OPENAI_DEPLOYMENT_NAME_MINI', '') or getattr(cfg, 'OPENAI_DEPLOYMENT_NAME_MINI', '')
+
     return {
-        'openai_primary':    getattr(cfg, 'OPENAI_DEPLOYMENT_NAME', '') or getattr(cfg, 'AZURE_OPENAI_DEPLOYMENT_NAME', ''),
-        'openai_mini':       getattr(cfg, 'OPENAI_DEPLOYMENT_NAME_MINI', '') or getattr(cfg, 'AZURE_OPENAI_DEPLOYMENT_NAME_MINI', ''),
+        'openai_primary':    openai_primary,
+        'openai_mini':       openai_mini,
         'openai_vision':     getattr(cfg, 'OPENAI_VISION_MODEL', ''),
         'openai_embedding':  getattr(cfg, 'AZURE_OPENAI_DEPLOYMENT_NAME_EMBEDDING', ''),
         'openai_image':      cc_image_model,
