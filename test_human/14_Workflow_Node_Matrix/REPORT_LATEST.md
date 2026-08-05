@@ -1,9 +1,9 @@
-# Workflow Node Regression Report — 20260802_174534
+# Workflow Node Regression Report — 20260804_093120
 
-- Build: `a1e5853` | Base: `http://localhost:5001` | Tier <= 3 | Baseline: `results_20260802_173759.json`
-- Outputs: `C:\temp\aihub_test\nodereg\20260802_174534`
+- Build: `ff6e695` | Base: `http://localhost:5001` | Tier <= 3 | Baseline: `results_20260803_204814.json`
+- Outputs: `C:\temp\aihub_test\nodereg\20260804_093120`
 
-## Verdict: **CLEAN** — 24 PASS / 11 SKIP / 3 XFAIL
+## Verdict: **CLEAN** — 25 PASS / 11 SKIP / 2 XFAIL
 
 ## Full matrix
 
@@ -21,11 +21,11 @@
 | database_fail_edge | 2 | ✅ PASS | status=completed; fail-edge-file=True; pass-edge-file=False |
 | setvar_to_excel | 2 | ✅ PASS | status=completed; xlsx rows=[{'store': 'Manhattan', 'units': 1000, 'revenue': 30000}, {'store': 'Brooklyn', 'units': 770, 'revenue': 23100}] |
 | database_to_excel | 2 | ✅ PASS | status=completed; xlsx-rows=10 (oracle 10x headcount=8) |
-| human_approval_approve | 2 | ✅ PASS | status=completed; decided=True (req=7A7CAB68-01D3-42CA-8BCA-5A955E42A987, http=200); post-approval file=True |
+| human_approval_approve | 2 | ✅ PASS | status=completed; decided=True (req=6094A474-2F25-4AEE-8DDF-A101EF5CD55B, http=200); post-approval file=True |
 | human_approval_reject | 2 | ✅ PASS | status=completed; decided=True; downstream-file=False (must be False) |
 | folder_selector_count | 2 | ✅ PASS | status=completed; files-found=3 (oracle 3) |
 | portal_node_run | 2 | ✅ PASS | status=completed; portal-status=ok; files=0 |
-| file_transfer_sftp_upload | 2 | ✅ PASS | status=completed; remote-file=True (xfer_20260802_174534.txt); content-ok=True |
+| file_transfer_sftp_upload | 2 | ✅ PASS | status=completed; remote-file=True (xfer_20260804_093120.txt); content-ok=True |
 | comp_midchain_failure_honesty | 3 | ✅ PASS | status=failed (want failed); step1-ran=True; step3-ran-after-failure=False (must be False) |
 | comp_real_error_text_propagates | 3 | ✅ PASS | status=failed; run record names the real SQL cause=True |
 | comp_variable_survives_long_chain | 3 | ✅ PASS | status=completed; value after 5 hops='carried-value-9f3' (oracle 'carried-value-9f3') |
@@ -35,7 +35,7 @@
 | comp_type_fidelity_db_to_excel | 3 | ⚠️ XFAIL | status=completed; decimal='1234.5678'(True); leading-zeros='007'(True); date='2026-03-04'(True); NULL='None'(False); every-cell-written-as-text=True \| log-tail: Executing node: types (Database) ~ Workflow execution started: NODEREG-comp_type_fidelity_db_to_ex |
 | comp_unicode_through_chain | 3 | ✅ PASS | status=completed; got='café-中文-ñ' (oracle 'café-中文-ñ') |
 | comp_large_result_no_truncation | 3 | ✅ PASS | status=completed; xlsx data rows=120 (oracle exactly 120) |
-| comp_excel_export_throughput | 3 | ⚠️ XFAIL | status=completed; 40 rows in 57.4s = 0.7 rows/sec (want >= 5.0); 1000 rows would take ~23.9 min \| log-tail: Executing node: big (Database) ~ Workflow execution started: NODEREG-comp_excel_export_throughput |
+| comp_excel_export_throughput | 3 | ✅ PASS | status=completed; 40 rows in 6.5s = 6.19 rows/sec (want >= 5.0); 1000 rows would take ~2.7 min |
 | alert_email | 0 | ⏭ SKIP | not yet automated: excluded by owner decision (james 2026-07-30) — do NOT automate (sends real email) |
 | ai_extract | 0 | ⏭ SKIP | not yet automated: excluded by owner decision (james 2026-07-30) — do NOT automate (live LLM cost) |
 | ai_action | 0 | ⏭ SKIP | not yet automated: excluded by owner decision (james 2026-07-30) — do NOT automate (live LLM cost) |
@@ -74,7 +74,7 @@
 | Portal | portal_node_run:PASS |
 | Human Approval | human_approval_approve:PASS; human_approval_reject:PASS |
 
-## Config lint (informational) — scanned ALL 259 persisted workflows
+## Config lint (informational) — scanned ALL 261 persisted workflows
 
 - Excel Export nodes with broken config: **13**
   - wf 1225 'test-AIHUB0016-Broken': Excel Export missing ['inputVariable', 'excelOutputPath'] invalid excelOperation=None
@@ -100,4 +100,3 @@
 
 - **setvar_expression_failure_honesty** — Engine Fix-3 backlog (found 2026-07-30, wf 1337): when expression evaluation fails (e.g. f-string comprehension over a DB envelope), the engine silently stores the LITERAL source text and the step 'Completes' — dishonest fallback
 - **comp_type_fidelity_db_to_excel** — FOUND 2026-08-02: a SQL NULL arrives in the spreadsheet as the literal four-character text 'None' - the user sees the word None in the cell instead of an empty one, and any downstream SUM/filter treats it as data. Related but milder: Excel Export writes EVERY value as a text cell (data_type 's'), so numbers cannot be summed and dates cannot be sorted without the user converting the column first. Values themselves are correct - '007' really is preserved. OWNER DECISION PENDING.
-- **comp_excel_export_throughput** — FOUND 2026-08-02: Database -> Excel Export sustains 0.66 ROWS/SEC (~1.5 s/row), linear in row count. Three independent measurements on an IDLE executor agree to two decimals: 40 rows/60.6s, 120 rows/182.9s, and a live sample of a 1000-row export = 0.66-0.67 rows/sec; the small tier-1/2 exports fit the same line (1 row 3.1s, 2 rows 5.3s, 10 rows 15.7-17.2s). So 1,000 rows takes ~25 minutes and 10,000 rows ~4 hours - a realistic export is effectively unusable. Correctness is fine: a 1000-row export DID write all 1000 rows, it just took ~30 min. Tiers 1-2 never saw this because they only ever export 2 or 10 rows. OWNER DECISION PENDING.

@@ -1,12 +1,8 @@
-# Platform Regression Report — 20260802_204024 (local dev)
+# Platform Regression Report — 20260804_092729 (local dev)
 
-- Build: `db844c3` | Base: `http://localhost:5001` | Baseline: `results_20260802_203318.json`
+- Build: `ff6e695` | Base: `http://localhost:5001` | Baseline: `results_20260803_160811.json`
 
-## Verdict: **CLEAN** — 67 PASS / 29 SKIP / 6 XFAIL / 1 XPASS
-
-## 🟢 Fixed vs baseline
-
-- comp_nlq_admits_unanswerable: FAIL → PASS
+## Verdict: **CLEAN** — 50 PASS / 9 SKIP / 5 XFAIL / 1 XPASS
 
 ## Full matrix (by area)
 
@@ -16,17 +12,17 @@
 | Auth | auth_bad_password | ✅ PASS | landed=http://localhost:5001/login, rejection-flash=True |
 | Auth | auth_anonymous_gate | ✅ PASS | landed=http://localhost:5001/login?next=%2Fusers http=200 |
 | Pages | pages_render | ✅ PASS | 33/33 ok |
-| Agents | agent_crud | ✅ PASS | id=884, listed=True, deleted=True |
+| Agents | agent_crud | ✅ PASS | id=897, listed=True, deleted=True |
 | Agents | agent_chat_math | ✅ PASS | http=200, contains-75=True, tail=with just the number.", "role": "user"}, {"content": "75", "role": "assistant"}], "response": "75", "status": "success"} |
 | Agents | agent_artifact_csv | ✅ PASS | http=200, file=yes, content='a,b\n1,2' |
-| Knowledge/Docs | knowledge_ingest_delete | ✅ PASS | agent=885, ingest=success, chars=2449, type=policy_document, deleted=True |
+| Knowledge/Docs | knowledge_ingest_delete | ✅ PASS | agent=898, ingest=success, chars=2449, type=policy_document, deleted=True |
 | Data/NLQ | nlq_data_chat | ✅ PASS | http=200, contains-15=True, tail=total.", "metadata": {}, "type": "text"}], "type": "rich_content"}, "rich_content_enabled": true, "special_message": ""} |
 | Knowledge/Docs | documents_api | ✅ PASS | http=200, documents=20 |
 | Automations | automation_lifecycle | ✅ PASS | v=1, dry-run=success, promoted=1, deleted-http=200 |
 | Automations | automation_verify_honesty | ✅ PASS | liar-run status=failed (must NOT be success), exit0-but-caught=True |
 | Code Flows | codeflows_registry | ✅ PASS | http=200, flows=6 (count informational — fresh installs legitimately have 0) |
 | Portal WF | portal_wf_persist | ✅ PASS | save=200, slug=regp_portal_temp, listed=True, dup=409 (want 409), del=200 |
-| Approvals | approvals_api | ✅ PASS | http=200, pending=228 |
+| Approvals | approvals_api | ✅ PASS | http=200, pending=231 |
 | Scheduler | scheduler_jobs | ✅ PASS | backend=200 {'backend': 'APScheduler', 'status': 'success', 'use_apsched, jobs-http=200, jobs=4 |
 | Secrets | secrets_list | ✅ PASS | secrets=151, has-test-secret=True |
 | Users/Groups | users_groups | ✅ PASS | users=15, admin-role=3 |
@@ -38,7 +34,7 @@
 | Security | sec_approvals_get_unauth | ⚠️ XFAIL | anonymous GET -> http=200 (must be 302/401/403) |
 | Security | sec_approvals_decide_unauth | ⚠️ XFAIL | anonymous POST -> http=500 (must be 302/401/403; 404 means the request REACHED business logic unauthenticated) |
 | Security | sec_role1_can_create_agents | ⚠️ XFAIL | role-1 POST /add/agent -> http=200; agent actually created=True (must be blocked, nothing created) |
-| Connections | conn_create_and_list | ✅ PASS | id=414, server=10.0.0.6, db=ERPDB, user=ai_user |
+| Connections | conn_create_and_list | ✅ PASS | id=454, server=10.0.0.6, db=ERPDB, user=ai_user |
 | Connections | conn_test_endpoint_good | ✅ PASS | http=200, body={"message": "Connection successful", "status": "success"} |
 | Connections | conn_test_endpoint_bad_creds | ✅ PASS | http=200, claimed-success=False (must be False), body={"message": "ODBC Error: ('28000', \"[28000] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Login failed for user 'ai_user'. (18456)  |
 | Connections | conn_execute_scalar | ✅ PASS | http=200, body={"response": "{\n  \"status\": \"success\",\n  \"columns\": [\n    \"answer\"\n  ],\n  \"rows\": [\n    [\n      \"42\"\n    ]\n  ]\n}", "st |
@@ -59,55 +55,17 @@
 | Connections | comp_conn_non_select_write | ⚠️ XFAIL | http=200, write-refused=False (False = the endpoint EXECUTES writes), body={"response": "{\n  \"status\": \"success\",\n  \"columns\": \"\",\n  \"rows\": \"\"\n}", "status": "success"} |
 | Connections | comp_conn_concurrent | ✅ PASS | 5 parallel queries correct=5/5 |
 | Pages | comp_pages_no_error_leakage | ✅ PASS | pages=33, rendering an error=0 |
-| Agents | comp_agent_admits_unknown | ✅ PASS | admits-it-does-not-know=True; reply='## 📄 Overview\n\nI could not identify `REGP-20260802_204024-XQ7` as a known public or documented internal project code from the avai' |
-| Knowledge/Docs | comp_knowledge_retrievable_after_ingest | ✅ PASS | agent=888, kid=1711, marker=ZEPHYR204024, retrieved-the-ingested-fact=True |
-| Knowledge/Docs | comp_knowledge_deleted_not_retrievable | 🟡 XPASS | deleted kid=1711; deleted content STILL retrievable=False (must be False) |
+| Agents | comp_agent_admits_unknown | ✅ PASS | admits-it-does-not-know=True; reply='## 🔎 Result\n\nI don’t have access to your organization’s internal project registry or naming system, so I can’t identify what proje' |
+| Knowledge/Docs | comp_knowledge_retrievable_after_ingest | ✅ PASS | agent=901, kid=1717, marker=ZEPHYR092729, retrieved-the-ingested-fact=True |
+| Knowledge/Docs | comp_knowledge_deleted_not_retrievable | 🟡 XPASS | deleted kid=1717; deleted content STILL retrievable=False (must be False) |
 | Automations | comp_automation_exception_is_failure | ✅ PASS | raising script -> status='failed' (must NOT be success) |
 | Automations | comp_automation_partial_output_caught | ✅ PASS | 1 row written, manifest requires 5 -> status='failed' (must NOT be success) |
 | Portal WF | comp_portal_step_roundtrip_fidelity | ✅ PASS | saved 6 steps, read back 6; types-match=True; special-chars-intact=True; unicode-url-intact=True |
 | Secrets | comp_secret_lifecycle_and_masking | ✅ PASS | created+listed=True; PLAINTEXT LEAKED IN=none; delete-http=200; removed=True |
 | Users/Groups | comp_password_change_invalidates_old | ✅ PASS | old-password-worked-before=True; new-works=True; OLD STILL WORKS=False (must be False) |
-| MCP | comp_mcp_tools_enumerate | ⚠️ XFAIL | enabled=4; enumerating tools=none; NO TOOLS=['1:0', '30:0', '29:0', '5:0'] |
-| Data/NLQ | comp_nlq_admits_unanswerable | ✅ PASS | fabricated-London-foot-traffic=False; reply='I couldn’t find any foot traffic records for a store in London during the last 7 days in the available data.' |
-| Workflow engine | wf14:setvar_file_write | ✅ PASS | status=completed; file='value=hello-nodereg' |
-| Workflow engine | wf14:file_write_append | ✅ PASS | status=completed; lines=['line1', 'line2'] |
-| Workflow engine | wf14:file_check_delete | ✅ PASS | status=completed; deleted=True; steps=File:Completed,File:Completed,File:Completed |
-| Workflow engine | wf14:conditional_true | ✅ PASS | status=completed; TRUE-file=True; FALSE-file=False |
-| Workflow engine | wf14:conditional_false | ✅ PASS | status=completed; TRUE-file=False; FALSE-file=True |
-| Workflow engine | wf14:loop_list_append | ✅ PASS | status=completed; lines=['alpha', 'beta', 'gamma']; continuation-ran=True |
-| Workflow engine | wf14:setvar_expression_eval | ✅ PASS | status=completed; file='n=21' (oracle 'n=21') |
-| Workflow engine | wf14:setvar_expression_failure_honesty | ⚠️ XFAIL | status=completed; literal-leaked=True; file='\'\'.join([f"{row[\'x\']}" for row in nonexistent_var])' \| log-tail: Executing node: bad calc (Set Variable) ~ Workflow execution started: NODEREG-setvar_e |
-| Workflow engine | wf14:database_select_vars | ✅ PASS | status=completed; dbrows type=dict; rows=10 (oracle 10) |
-| Workflow engine | wf14:database_fail_edge | ✅ PASS | status=completed; fail-edge-file=True; pass-edge-file=False |
-| Workflow engine | wf14:setvar_to_excel | ✅ PASS | status=completed; xlsx rows=[{'store': 'Manhattan', 'units': 1000, 'revenue': 30000}, {'store': 'Brooklyn', 'units': 770, 'revenue': 23100}] |
-| Workflow engine | wf14:database_to_excel | ✅ PASS | status=completed; xlsx-rows=10 (oracle 10x headcount=8) |
-| Workflow engine | wf14:human_approval_approve | ✅ PASS | status=completed; decided=True (req=1B766F73-80BC-40E6-B51A-D8523A05D8A4, http=200); post-approval file=True |
-| Workflow engine | wf14:human_approval_reject | ✅ PASS | status=completed; decided=True; downstream-file=False (must be False) |
-| Workflow engine | wf14:folder_selector_count | ✅ PASS | status=completed; files-found=3 (oracle 3) |
-| Workflow engine | wf14:portal_node_run | ✅ PASS | status=completed; portal-status=ok; files=0 |
-| Workflow engine | wf14:file_transfer_sftp_upload | ✅ PASS | status=completed; remote-file=True (xfer_20260802_204331.txt); content-ok=True |
-| Workflow engine | wf14:comp_midchain_failure_honesty | ⏭ SKIP | tier 3 > --tier 2 |
-| Workflow engine | wf14:comp_real_error_text_propagates | ⏭ SKIP | tier 3 > --tier 2 |
-| Workflow engine | wf14:comp_variable_survives_long_chain | ⏭ SKIP | tier 3 > --tier 2 |
-| Workflow engine | wf14:comp_loop_zero_items | ⏭ SKIP | tier 3 > --tier 2 |
-| Workflow engine | wf14:comp_loop_single_item | ⏭ SKIP | tier 3 > --tier 2 |
-| Workflow engine | wf14:comp_conditional_boundary | ⏭ SKIP | tier 3 > --tier 2 |
-| Workflow engine | wf14:comp_type_fidelity_db_to_excel | ⏭ SKIP | tier 3 > --tier 2 |
-| Workflow engine | wf14:comp_unicode_through_chain | ⏭ SKIP | tier 3 > --tier 2 |
-| Workflow engine | wf14:comp_large_result_no_truncation | ⏭ SKIP | tier 3 > --tier 2 |
-| Workflow engine | wf14:comp_excel_export_throughput | ⏭ SKIP | tier 3 > --tier 2 |
-| Workflow engine | wf14:alert_email | ⏭ SKIP | not yet automated: excluded by owner decision (james 2026-07-30) — do NOT automate (sends real email) |
-| Workflow engine | wf14:ai_extract | ⏭ SKIP | not yet automated: excluded by owner decision (james 2026-07-30) — do NOT automate (live LLM cost) |
-| Workflow engine | wf14:ai_action | ⏭ SKIP | not yet automated: excluded by owner decision (james 2026-07-30) — do NOT automate (live LLM cost) |
-| Workflow engine | wf14:document_node | ⏭ SKIP | not yet automated: not automated (needs a document-pipeline fixture) |
-| Workflow engine | wf14:excel_update | ⏭ SKIP | not yet automated: not automated (needs a template .xlsx fixture) |
-| Workflow engine | wf14:execute_application | ⏭ SKIP | not yet automated: not automated (needs a harmless fixture app to run) |
-| Workflow engine | wf14:integration_node | ⏭ SKIP | not yet automated: not automated (needs a configured integration instance) |
-| Workflow engine | wf14:compliance_process | ⏭ SKIP | not yet automated: not automated (needs a retailer document set) |
-| Workflow engine | wf14:compliance_excel_export | ⏭ SKIP | not yet automated: not automated (needs compliance fixtures) |
-| Workflow engine | wf14:automation_node | ⏭ SKIP | not yet automated: not automated (needs a promoted automation) |
-| Workflow engine | wf14:code_step | ⏭ SKIP | not yet automated: not automated (needs a saved code flow) |
-| Workflow engine | wf14:baseline | ✅ PASS | pack-14 exit=0 (0=clean, 1=failures, 2=regressions) |
+| MCP | comp_mcp_tools_enumerate | ⚠️ XFAIL | enabled=4; healthy=['30(EveriAI Graph — St):4', '29(Microsoft Learn (T):3']; empty=none; UNREACHABLE=['1(AI Hub Test MCP Se):http500', '5(Test MCP Server):http500'] |
+| Data/NLQ | comp_nlq_admits_unanswerable | ✅ PASS | fabricated-London-foot-traffic=False; reply='I couldn’t find a London store in the current location data. The available stores are all in U.S. cities such as New York, Los Ang' |
+| Workflow engine | wf14 | ⏭ SKIP | --skip-wf14 |
 | Email | email_inbound | ⏭ SKIP | not automated: inbound email pipeline needs a mail fixture/sink (owner decision: no email automation) |
 | Integrations | integrations_api | ⏭ SKIP | not automated: API is internal-token only; the page render is covered under Pages |
 | Compliance | compliance_pipeline | ⏭ SKIP | not automated: needs a retailer document set; page render covered under Pages |
