@@ -52,13 +52,31 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _heal_empty_slugs(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Rename entries stored under an EMPTY slug key to a reachable one ('unnamed', suffixed on
+    collision). An all-special-character name (e.g. '<') slugged to '' before save_workflow
+    rejected those; an empty key is unreachable from the UI/API (empty dropdown value,
+    un-routable URL path, get_workflow refuses '') and hijacks the loose contains-match for
+    every OTHER name ('' is a substring of everything). In-memory repair on every load; the
+    healed shape persists on the next write."""
+    for u in (data.get("users") or {}).values():
+        wfs = (u or {}).get("workflows")
+        if not isinstance(wfs, dict) or "" not in wfs:
+            continue
+        new_key, n = "unnamed", 2
+        while new_key in wfs:
+            new_key, n = f"unnamed_{n}", n + 1
+        wfs[new_key] = wfs.pop("")
+    return data
+
+
 def _load() -> Dict[str, Any]:
     p = _store_path()
     if not os.path.isfile(p):
         return {"users": {}}
     try:
         with open(p, "r", encoding="utf-8") as fh:
-            return json.load(fh) or {"users": {}}
+            return _heal_empty_slugs(json.load(fh) or {"users": {}})
     except Exception:
         return {"users": {}}
 
@@ -170,6 +188,8 @@ def get_workflow(user_id: Any, name: str) -> Optional[Dict[str, Any]]:
     if target in wfs:
         return {"slug": target, **wfs[target]}
     for k, v in wfs.items():
+        if not k:
+            continue  # '' would contains-match EVERY name; unreachable after _heal_empty_slugs
         if target in k or k in target:
             return {"slug": k, **v}
     return None
@@ -202,6 +222,11 @@ def save_workflow(user_id: Any, name: str, steps: List[Dict[str, Any]],
     if start_url and not valid_url(start_url):
         raise ValueError(f"invalid start_url {start_url!r} — use a full http(s):// address")
     s = slug(name)
+    if not s:
+        # A name made entirely of special characters (e.g. '<') slugs to '' — it would save
+        # under an unreachable key the UI/API can never load or delete again.
+        raise ValueError(
+            f"invalid name {name!r} — a workflow name needs at least one letter or number")
     with _LOCK:
         data = _load()
         wfs = data.setdefault("users", {}).setdefault(
