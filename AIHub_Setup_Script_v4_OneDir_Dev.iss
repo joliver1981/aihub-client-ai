@@ -99,6 +99,17 @@ Source: "C:\src\aihub-client-ai-dev\seed_credentials.py"; DestDir: "{app}"; Flag
 Source: "C:\src\aihub-client-ai-dev\encrypt.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "C:\src\aihub-client-ai-dev\local_secrets.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "C:\src\aihub-client-ai-dev\_build_config_client.py"; DestDir: "{app}"; DestName: "_build_config.py"; Flags: ignoreversion
+; shared_auth.py: browser_use_service verifies the co-browse/take-over JWT with it
+; (main.py _verify_cobrowse). Without it every co-browse endpoint on a client 403s with
+; "auth unavailable: No module named 'shared_auth'". PyJWT ships inside browser_use_env.
+Source: "C:\src\aihub-client-ai-dev\shared_auth.py"; DestDir: "{app}"; Flags: ignoreversion
+; command_center.tools.portal_workflows (stdlib-only, plus its two trivial __init__.py
+; parents): the co-browse "save recorded steps as a workflow" endpoint
+; (/runs/{id}/save_workflow) imports it; without these a client 500s with
+; "No module named 'command_center'". Same loose-module pattern as above.
+Source: "C:\src\aihub-client-ai-dev\command_center\__init__.py"; DestDir: "{app}\command_center"; Flags: ignoreversion
+Source: "C:\src\aihub-client-ai-dev\command_center\tools\__init__.py"; DestDir: "{app}\command_center\tools"; Flags: ignoreversion
+Source: "C:\src\aihub-client-ai-dev\command_center\tools\portal_workflows.py"; DestDir: "{app}\command_center\tools"; Flags: ignoreversion
 
 [Registry]
 ; Store API key securely in the registry (ACL restricted to Administrators + SYSTEM)
