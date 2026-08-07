@@ -52,8 +52,9 @@ async def _get(path: str):
         return _unwrap(r.json())
 
 
-async def _post(path: str, body: dict):
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+async def _post(path: str, body: dict, timeout: float | None = None):
+    t = httpx.Timeout(30.0, read=timeout) if timeout else _TIMEOUT
+    async with httpx.AsyncClient(timeout=t) as client:
         r = await client.post(f"{get_base_url()}{path}", json=body, headers=_headers())
         # Probe/manage endpoints return structured errors with 200; other 4xx/5xx
         # should surface as readable text, not exceptions.
@@ -395,4 +396,5 @@ AIHUB_TOOLS = [
     list_recent_runs,
 ]
 
-aihub_server = create_sdk_mcp_server(name="aihub", version="0.1.0", tools=AIHUB_TOOLS)
+# The combined MCP server (read + authoring tools) is assembled in brain.py to
+# avoid a circular import with authoring_tools.
