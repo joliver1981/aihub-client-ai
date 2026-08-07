@@ -29,6 +29,10 @@ from claude_agent_sdk import (
     ClaudeAgentOptions, query, create_sdk_mcp_server,
     AssistantMessage, SystemMessage, ResultMessage,
 )
+try:  # tool results ride on UserMessage blocks; import defensively across SDK versions
+    from claude_agent_sdk import UserMessage, ToolResultBlock
+except ImportError:  # pragma: no cover
+    UserMessage = ToolResultBlock = None
 
 aihub_server = create_sdk_mcp_server(
     name="aihub", version="0.3.0",
@@ -160,8 +164,26 @@ async def run_turn(prompt: str, session_id: Optional[str],
                     if hasattr(block, "text") and getattr(block, "text", None):
                         yield {"type": "text", "text": block.text}
                     elif hasattr(block, "name"):
-                        yield {"type": "tool", "name": getattr(block, "name", "?"),
+                        yield {"type": "tool",
+                               "id": getattr(block, "id", "") or "",
+                               "name": getattr(block, "name", "?"),
                                "input": getattr(block, "input", {}) or {}}
+            elif UserMessage is not None and isinstance(message, UserMessage):
+                # Tool results: surface completion + honest ok/failed per call
+                for block in (getattr(message, "content", None) or []):
+                    if ToolResultBlock is not None and isinstance(block, ToolResultBlock):
+                        parts = getattr(block, "content", None)
+                        preview = ""
+                        if isinstance(parts, str):
+                            preview = parts
+                        elif isinstance(parts, list):
+                            preview = " ".join(
+                                p.get("text", "") if isinstance(p, dict)
+                                else str(getattr(p, "text", "")) for p in parts)
+                        yield {"type": "tool_result",
+                               "id": getattr(block, "tool_use_id", "") or "",
+                               "ok": not bool(getattr(block, "is_error", False)),
+                               "preview": preview.strip()[:600]}
             elif isinstance(message, ResultMessage):
                 new_session_id = getattr(message, "session_id", None) or new_session_id
                 subtype = getattr(message, "subtype", "")

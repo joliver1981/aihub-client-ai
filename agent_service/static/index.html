@@ -77,6 +77,21 @@
             border-radius:7px;padding:4px 10px;background:var(--raised);max-width:88%;
             overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .toolchip .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
+  .toolchip .dot.running{background:var(--amber);animation:dotpulse 1s ease-in-out infinite}
+  @media (prefers-reduced-motion:reduce){.toolchip .dot.running{animation:none;opacity:.8}}
+  @keyframes dotpulse{0%,100%{opacity:.3;transform:scale(.85)}50%{opacity:1;transform:scale(1.15)}}
+  .toolchip .dot.ok{background:var(--green)}
+  .toolchip .dot.fail{background:var(--red)}
+  .toolchip .dot.stale{background:var(--text3)}
+  .toolchip.fail{border-color:rgba(224,113,107,.4)}
+  .toolchip .dur{color:var(--text3);flex:none}
+  .toolchip.expandable{cursor:pointer}
+  .toolchip.expandable:hover{border-color:var(--accent-line);color:var(--text2)}
+  .toolout{font-family:var(--mono);font-size:10.5px;color:var(--text2);
+           background:var(--raised);border:1px solid var(--line-soft);border-radius:7px;
+           padding:8px 11px;margin:2px 0 2px 14px;max-width:85%;max-height:180px;
+           overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+  .toolout.fail{border-color:rgba(224,113,107,.4);color:var(--red)}
   .meta{font-family:var(--mono);font-size:9.5px;color:var(--text3)}
   .meta.err{color:var(--red)}
   .thinking{display:inline-flex;gap:5px;padding:12px 15px}
@@ -524,6 +539,17 @@
     const think = el("div", "thinking"); think.append(el("i"), el("i"), el("i"));
     container.appendChild(think); scroll();
     let bubble = null;
+    const chips = {};   // tool_use_id -> chip element (lifecycle: running->ok/fail)
+
+    function finalizeChips(cls) {
+      for (const id of Object.keys(chips)) {
+        const dot = chips[id].querySelector(".dot");
+        if (dot && dot.classList.contains("running")) {
+          dot.classList.remove("running"); dot.classList.add(cls || "stale");
+          chips[id].title = "no result received";
+        }
+      }
+    }
     try {
       const resp = await fetch("/api/chat", { method: "POST", headers: H(),
         body: JSON.stringify({ message: text, session_id: sessionId }) });
@@ -552,17 +578,43 @@
           } else if (ev.type === "tool") {
             bubble = null;
             const chip = el("div", "toolchip");
-            chip.appendChild(el("span", "dot"));
+            const dot = el("span", "dot running");
+            chip.appendChild(dot);
             chip.appendChild(document.createTextNode(
               (ev.name || "").replace("mcp__aihub__", "") + " " +
               JSON.stringify(ev.input || {})));
+            chip._t0 = performance.now();
+            if (ev.id) chips[ev.id] = chip;
             container.appendChild(chip);
+          } else if (ev.type === "tool_result") {
+            const chip = chips[ev.id];
+            if (chip) {
+              const dot = chip.querySelector(".dot");
+              dot.classList.remove("running");
+              dot.classList.add(ev.ok ? "ok" : "fail");
+              if (!ev.ok) chip.classList.add("fail");
+              const secs = ((performance.now() - chip._t0) / 1000).toFixed(1);
+              chip.appendChild(el("span", "dur", ` · ${secs}s`));
+              if (ev.preview) {
+                chip.classList.add("expandable");
+                chip.title = "click to see the tool result";
+                const out = el("div", "toolout" + (ev.ok ? "" : " fail"), ev.preview);
+                out.style.display = "none";
+                chip.after(out);
+                chip.onclick = () => {
+                  out.style.display = out.style.display === "none" ? "" : "none";
+                  scroll();
+                };
+              }
+            }
           } else if (ev.type === "result") {
             if (ev.session_id) { sessionId = ev.session_id;
               sessionStorage.setItem("agent_session", sessionId); }
+            finalizeChips(ev.ok ? "stale" : "fail");
             if (!ev.ok) container.appendChild(el("span", "meta err",
               "turn ended: " + ev.subtype));
           } else if (ev.type === "error") {
+            finalizeChips("fail");
             container.appendChild(el("span", "meta err", "error: " + ev.error));
           }
           scroll();
@@ -572,6 +624,7 @@
       think.remove();
       container.appendChild(el("span", "meta err", "connection error: " + e.message));
     } finally {
+      finalizeChips();   // any chip still pulsing never got a result — say so
       busy = false; send.disabled = false; input.focus(); scroll();
       refreshWorkCount();
     }
