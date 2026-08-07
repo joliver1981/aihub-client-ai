@@ -871,6 +871,46 @@
                         <strong>Attachments</strong><div>${links}</div>
                      </div>`);
             }
+
+            // BRD §10 fix-and-approve: the automation may declare correctable
+            // fields (approval_data.correctable = {field: current value}).
+            // Render them as editable inputs; values the reviewer CHANGES ride
+            // with the Approve decision as `corrections` and are re-validated
+            // by the automation before anything is imported.
+            $('#modalCorrections').remove();
+            window._correctableOrig = null;
+            const corrEsc = s => String(s == null ? '' : s).replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            const corrLabel = k => String(k).replace(/_/g, ' ')
+                .replace(/\b\w/g, c => c.toUpperCase()).replace(/^Form Type$/, 'Document Type');
+            const correctable = (isReview && meta.correctable
+                                 && typeof meta.correctable === 'object') ? meta.correctable : null;
+            if (correctable && Object.keys(correctable).length && approval.status === 'Pending') {
+                window._correctableOrig = {};
+                const rows = Object.keys(correctable).map(k => {
+                    window._correctableOrig[k] = String(correctable[k] == null ? '' : correctable[k]);
+                    return `<div style="display:flex;align-items:center;gap:8px;margin:3px 0">
+                        <label style="min-width:150px;margin:0">${corrEsc(corrLabel(k))}</label>
+                        <input type="text" class="form-control form-control-sm corr-input"
+                               data-field="${corrEsc(k)}" value="${corrEsc(correctable[k])}">
+                    </div>`;
+                }).join('');
+                $('#modalData').before(
+                    `<div id="modalCorrections" style="margin:8px 0;padding:8px;border:1px solid #d0d7de;border-radius:6px">
+                        <strong><i class="fas fa-pen"></i> Review &amp; correct extracted data</strong>
+                        <div style="font-size:12px;color:#666;margin:2px 0 6px">
+                            Fix any wrong value, then Approve. Corrections are re-validated
+                            against the employee master before anything is imported.</div>
+                        ${rows}
+                     </div>`);
+            } else if (approval.corrections && Object.keys(approval.corrections || {}).length) {
+                const done = Object.entries(approval.corrections).map(([k, v]) =>
+                    `<div><code>${corrEsc(k)}</code> &rarr; <strong>${corrEsc(v)}</strong></div>`).join('');
+                $('#modalData').before(
+                    `<div id="modalCorrections" style="margin:8px 0">
+                        <strong>Corrections applied by reviewer</strong>${done}
+                     </div>`);
+            }
             $('#modalRequested').text(TimezoneUtils.formatDate(approval.requested_at) + 
                                     ' (' + TimezoneUtils.getRelativeTime(approval.requested_at) + ')');
             
@@ -949,20 +989,34 @@
         
         function processApproval(status) {
             const comments = $('#modalComments').val();
-            processApprovalRequest(currentRequestId, status, comments);
+            // Only CHANGED correctable values become corrections, and only on
+            // approve — an untouched form means "the extracted data was right".
+            let corrections = null;
+            if (status === 'approved' && window._correctableOrig) {
+                corrections = {};
+                $('#modalCorrections .corr-input').each(function () {
+                    const f = $(this).data('field');
+                    const v = String($(this).val() || '').trim();
+                    if (v && v !== window._correctableOrig[f]) corrections[f] = v;
+                });
+                if (!Object.keys(corrections).length) corrections = null;
+            }
+            processApprovalRequest(currentRequestId, status, comments, corrections);
             closeModal();
         }
-        
-        function processApprovalRequest(requestId, status, comments) {
+
+        function processApprovalRequest(requestId, status, comments, corrections) {
+            const payload = {
+                status: status,
+                comments: comments,
+                user: currentUserId
+            };
+            if (corrections) payload.corrections = corrections;
             $.ajax({
                 url: `/api/workflow/approvals/${requestId}`,
                 method: 'POST',
                 contentType: 'application/json',
-                data: JSON.stringify({
-                    status: status,
-                    comments: comments,
-                    user: currentUserId
-                }),
+                data: JSON.stringify(payload),
                 success: function(response) {
                     showNotification(`Request ${status}`, 'success');
                     refreshApprovals();

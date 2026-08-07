@@ -1197,6 +1197,15 @@ def runtime_review_item():
     auto_name = auto.get("name") or run.get("automation_id", "")
     message = (data.get("message") or "Review requested")[:1000]
     title = (data.get("title") or f"Automation exception — {auto_name}")[:490]
+    # BRD §10 fix-and-approve: the script may declare correctable fields
+    # ({field: current value}); the approvals UI renders them as inputs and
+    # the decision stores the reviewer's values on the row.
+    correctable = data.get("correctable")
+    if isinstance(correctable, dict):
+        correctable = {str(k)[:64]: ("" if v is None else str(v))[:200]
+                       for k, v in list(correctable.items())[:8]}
+    else:
+        correctable = None
     from . import approval_store
     row = approval_store.add_row(
         _get_manager().base_path, title=title, description=message,
@@ -1206,6 +1215,7 @@ def runtime_review_item():
             "source": "automation", "kind": "review",
             "run_id": run.get("run_id"), "automation_id": run.get("automation_id"),
             "automation_name": auto_name, "group_name": group_name,
+            "correctable": correctable,
             "attachments": attachments,  # name/size/relpath — relpath drives serving
         }))
     try:
@@ -1258,7 +1268,9 @@ def runtime_review_items_status():
             continue
         out[rid] = {"status": (row.get("status") or "Pending").lower(),
                     "responded_by": row.get("responded_by"),
-                    "response_at": row.get("response_at")}
+                    "response_at": row.get("response_at"),
+                    "comments": row.get("comments"),
+                    "corrections": row.get("corrections")}
     return jsonify({"statuses": out})
 
 

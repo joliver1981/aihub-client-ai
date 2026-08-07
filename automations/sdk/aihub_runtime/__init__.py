@@ -36,7 +36,8 @@ import urllib.error as _urlerror
 import urllib.request as _urlrequest
 
 __all__ = ["connection", "secret", "input", "inputs", "log", "checkpoint", "query",
-           "review_item", "review_decisions", "send_email", "llm", "ai_extract",
+           "review_item", "review_decisions", "review_decisions_detailed",
+           "send_email", "llm", "ai_extract",
            "AutomationRuntimeError", "AutomationAborted"]
 
 _RESOLVE_PATH = "/automations/api/runtime/resolve"
@@ -317,7 +318,8 @@ def ai_extract(prompt, images=None, schema=None, system=None, model=None, max_to
     return _ai_call(body).get("json")
 
 
-def review_item(message, title=None, files=None, assignee=None, assignee_group=None):
+def review_item(message, title=None, files=None, assignee=None, assignee_group=None,
+                correctable=None):
     """Send a NON-BLOCKING review item to the My Approvals queue and continue.
 
     Use for per-document exceptions in a batch: the run keeps going while a
@@ -328,6 +330,11 @@ def review_item(message, title=None, files=None, assignee=None, assignee_group=N
     the problem PDF); assignee is an optional user id (defaults to the user
     who started the run); assignee_group is an optional platform GROUP name
     or id — any member sees and works the item (wins over assignee).
+
+    correctable: optional {field: current value} dict (BRD §10 fix-and-
+    approve). The approvals UI renders these as editable inputs; the
+    reviewer's values come back via review_decisions_detailed() under
+    'corrections'. ALWAYS re-validate corrected values before using them.
 
     For a BLOCKING gate that pauses the run, use checkpoint() instead."""
     import os as __os
@@ -347,6 +354,9 @@ def review_item(message, title=None, files=None, assignee=None, assignee_group=N
         body["assignee"] = assignee
     if assignee_group is not None:
         body["assignee_group"] = assignee_group
+    if correctable is not None:
+        body["correctable"] = {str(k): ("" if v is None else str(v))
+                               for k, v in dict(correctable).items()}
     try:
         res = _runtime_post("/automations/api/runtime/review_item", body)
         rid = res.get("request_id")
@@ -377,6 +387,42 @@ def review_decisions(request_ids):
                             {"token": token, "request_ids": ids})
         statuses = res.get("statuses") or {}
         return {rid: (statuses.get(rid) or {}).get("status", "missing") for rid in ids}
+    except Exception as e:
+        log(f"review_decisions poll failed (treating as pending): {e}")
+        return None
+
+
+def review_decisions_detailed(request_ids):
+    """Like review_decisions(), but returns the full decision record per id:
+
+        {request_id: {"status": 'pending'|'approved'|'rejected'|'cancelled'|'missing',
+                      "corrections": {field: value} or None,   # reviewer-entered fixes
+                      "responded_by": str or None,
+                      "comments": str or None}}
+
+    or None when the queue can't be reached (treat as still-pending, keep your
+    own deadline). 'corrections' carries the reviewer's fix-and-approve values
+    (BRD §10) — they are RAW USER INPUT: re-validate against your reference
+    data before including anything in an output."""
+    import os as __os
+    ids = [str(r) for r in (request_ids or []) if r]
+    if not ids:
+        return {}
+    token = __os.environ.get("AIHUB_RUN_TOKEN")
+    if not token:
+        return None
+    try:
+        res = _runtime_post("/automations/api/runtime/review_items_status",
+                            {"token": token, "request_ids": ids})
+        statuses = res.get("statuses") or {}
+        out = {}
+        for rid in ids:
+            s = statuses.get(rid) or {}
+            out[rid] = {"status": s.get("status", "missing"),
+                        "corrections": s.get("corrections") if isinstance(s.get("corrections"), dict) else None,
+                        "responded_by": s.get("responded_by"),
+                        "comments": s.get("comments")}
+        return out
     except Exception as e:
         log(f"review_decisions poll failed (treating as pending): {e}")
         return None

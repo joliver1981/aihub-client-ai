@@ -92,9 +92,13 @@ def get_row(base_path: str, request_id: str) -> Optional[Dict]:
 
 def settle_row(base_path: str, request_id: str, status: str,
                responded_by, comments: Optional[str] = None,
-               only_if_pending: bool = True) -> Optional[Dict]:
+               only_if_pending: bool = True,
+               corrections: Optional[Dict] = None) -> Optional[Dict]:
     """Record the outcome on a row (Approved/Rejected/Cancelled). First
-    decision wins when only_if_pending (mirrors the checkpoint idempotency)."""
+    decision wins when only_if_pending (mirrors the checkpoint idempotency).
+    `corrections` (BRD §10 'review and correct extracted data'): the reviewer's
+    corrected field values, stored verbatim on the row so the polling run can
+    apply them — the automation re-validates before using any of it."""
     with _LOCK:
         row = get_row(base_path, request_id)
         if row is None:
@@ -105,6 +109,8 @@ def settle_row(base_path: str, request_id: str, status: str,
                    responded_by=str(responded_by) if responded_by is not None else None)
         if comments is not None:
             row["comments"] = comments
+        if corrections:
+            row["corrections"] = corrections
         tmp = _path(base_path, request_id) + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(row, f, indent=2)

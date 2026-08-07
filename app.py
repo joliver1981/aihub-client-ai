@@ -10321,10 +10321,22 @@ def process_approval_request(request_id):
             # gate buttons.
             cursor.close()
             conn.close()
+            # BRD §10 fix-and-approve: corrected field values entered by the
+            # reviewer ride along with the decision; sanitized here, applied
+            # (and re-validated) by the polling automation run.
+            corrections = data.get('corrections')
+            if isinstance(corrections, dict):
+                corrections = {str(k)[:64]: str(v).strip()[:200]
+                               for k, v in list(corrections.items())[:8]
+                               if str(v).strip()}
+                corrections = corrections or None
+            else:
+                corrections = None
             from automations import approval_store as _ap_store
             from automations.api import _get_manager as _ap_mgr
             _ap_store.settle_row(_ap_mgr().base_path, request_id,
-                                 status.capitalize(), responded_by, comments)
+                                 status.capitalize(), responded_by, comments,
+                                 corrections=corrections)
             # Non-blocking REVIEW items (kind='review') have no checkpoint —
             # the run already moved on; recording the review IS the action.
             if automation_meta.get("kind") == "review" or not automation_meta.get("checkpoint_id"):
