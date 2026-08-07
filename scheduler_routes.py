@@ -1038,32 +1038,34 @@ def update_job_schedule(job_id, schedule_id):
             update_fields.append("CronExpression = ?")
             params.append(cron_expression)
         
-        # Start and end dates
+        # Start and end dates — bind as datetime objects, never strings
+        # (string binding makes SQL Server parse text with the connection's
+        # language settings → error 241 on on-prem servers; see _bind_schedule_date)
         start_date = data.get('start_date')
         if start_date:
             update_fields.append("StartDate = ?")
-            params.append(start_date)
-        
+            params.append(_bind_schedule_date(start_date))
+
         end_date = data.get('end_date')
         if end_date:
             update_fields.append("EndDate = ?")
-            params.append(end_date)
-        
+            params.append(_bind_schedule_date(end_date))
+
         # Max runs
         max_runs = data.get('max_runs')
         if max_runs is not None:
             update_fields.append("MaxRuns = ?")
             params.append(max_runs)
-        
+
         # Is active
         is_active = data.get('is_active')
         if is_active is not None:
             update_fields.append("IsActive = ?")
             params.append(is_active)
-        
+
         # Add schedule_id to params
         params.append(schedule_id)
-        
+
         # Update schedule if fields provided
         if update_fields:
             query = f"""
@@ -1074,18 +1076,18 @@ def update_job_schedule(job_id, schedule_id):
             print(f'Running update query: {query}')
             cursor.execute(query, *params)
             conn.commit()
-        
+
         # Return success
         cursor.close()
         conn.close()
         print(f'Schedule {schedule_id} updated successfully')
         return jsonify({'message': f'Schedule {schedule_id} updated successfully'})
-        
+
     except Exception as e:
         print(f"Error updating job schedule: {str(e)}")
         logger.error(f"Error updating job schedule: {str(e)}")
         return jsonify({'error': str(e)}), 500
-    
+
 
 @scheduler_bp.route('/jobs/<int:job_id>/types/<string:job_type>/schedules/<int:schedule_id>', methods=['PUT'])
 @api_key_or_session_required(min_role=2)
@@ -1158,16 +1160,18 @@ def update_job_schedule_by_type(job_id, job_type, schedule_id):
             update_fields.append("CronExpression = ?")
             params.append(cron_expression)
         
-        # Start and end dates
+        # Start and end dates — bind as datetime objects, never strings
+        # (string binding makes SQL Server parse text with the connection's
+        # language settings → error 241 on on-prem servers; see _bind_schedule_date)
         start_date = data.get('start_date')
         if start_date:
             update_fields.append("StartDate = ?")
-            params.append(start_date)
-        
+            params.append(_bind_schedule_date(start_date))
+
         end_date = data.get('end_date')
         if end_date:
             update_fields.append("EndDate = ?")
-            params.append(end_date)
+            params.append(_bind_schedule_date(end_date))
         
         # Max runs
         max_runs = data.get('max_runs')
@@ -1629,17 +1633,40 @@ def _parse_datetime_string(datetime_str):
         '%Y-%m-%d %H:%M:%S',      # Space separated with seconds: 2025-06-27 20:05:00
         '%Y-%m-%d %H:%M',         # Space separated: 2025-06-27 20:05
         '%Y-%m-%dT%H:%M:%S.%f',   # ISO with microseconds: 2025-06-27T20:05:00.123456
+        '%Y-%m-%d',               # Date only: 2025-06-27 (midnight)
+        '%m/%d/%Y %H:%M',         # US format with time: 06/27/2025 20:05
+        '%m/%d/%Y',               # US format date only: 06/27/2025
     ]
-    
+
     for fmt in formats:
         try:
             return datetime.strptime(datetime_str, fmt)
         except ValueError:
             continue
-    
+
     # If all formats fail, log the error and return None
     logger.error(f"Unable to parse datetime string: {datetime_str}")
     return None
+
+
+def _bind_schedule_date(value):
+    """Convert an incoming start/end date to a Python datetime for SQL binding.
+
+    Passing a STRING makes SQL Server parse it with the connection's
+    language/DATEFORMAT settings — on-prem servers with non-us_english logins
+    throw error 241 on formats that work fine in dev (and the datetime-local
+    "YYYY-MM-DDTHH:MM" the UI sends has no seconds, so it doesn't qualify for
+    the safe ISO literal rule on legacy DATETIME columns). A bound datetime
+    OBJECT goes over the wire as a native type — no server-side text parsing,
+    immune to language settings and to DATETIME vs DATETIME2 differences.
+
+    Falls back to the original value when unparseable (same behavior as
+    before for formats we don't recognize).
+    """
+    if isinstance(value, datetime):
+        return value
+    parsed = _parse_datetime_string(value)
+    return parsed if parsed is not None else value
 
 def _create_schedule(cursor, job_id, schedule_data):
     """
@@ -1709,24 +1736,25 @@ def _create_schedule(cursor, job_id, schedule_data):
         start_date_str = schedule_data.get('start_date')
         
         try:
-            # If it's already a datetime object, convert to string
+            # Bind a datetime OBJECT, never a string — string binding makes SQL
+            # Server parse text with the connection's language settings (error
+            # 241 on on-prem servers). See _bind_schedule_date.
             if isinstance(start_date_str, datetime):
-                start_date = start_date_str.strftime('%Y-%m-%d %H:%M:%S')
+                start_date = start_date_str
             else:
                 # Parse datetime string using the helper function
                 local_dt = _parse_datetime_string(start_date_str)
-                
+
                 if local_dt is None:
                     logger.error(f"Failed to parse start_date: {start_date_str}")
                     start_date = start_date_str  # Use as-is if parsing fails
                 else:
                     if 'timezone_offset' in schedule_data:
                         # Convert to UTC by adding the offset (which is negative for positive timezone differences)
-                        utc_dt = local_dt + timedelta(minutes=schedule_data.get('timezone_offset', 0))
-                        start_date = utc_dt.strftime('%Y-%m-%d %H:%M:%S')
+                        start_date = local_dt + timedelta(minutes=schedule_data.get('timezone_offset', 0))
                     else:
                         # Use as-is if no timezone provided
-                        start_date = local_dt.strftime('%Y-%m-%d %H:%M:%S')
+                        start_date = local_dt
         except Exception as e:
             logger.error(f"Error processing start date: {str(e)}")
             start_date = start_date_str  # Use as-is if parsing fails
@@ -1741,28 +1769,27 @@ def _create_schedule(cursor, job_id, schedule_data):
         end_date_str = schedule_data.get('end_date')
         
         try:
-            # If it's already a datetime object, convert to string
+            # Bind a datetime OBJECT, never a string (see StartDate above).
             if isinstance(end_date_str, datetime):
-                end_date = end_date_str.strftime('%Y-%m-%d %H:%M:%S')
+                end_date = end_date_str
             else:
                 # Parse datetime string using the helper function
                 local_dt = _parse_datetime_string(end_date_str)
-                
+
                 if local_dt is None:
                     logger.error(f"Failed to parse end_date: {end_date_str}")
                     end_date = end_date_str  # Use as-is if parsing fails
                 else:
                     if 'timezone_offset' in schedule_data:
                         # Convert to UTC by adding the offset
-                        utc_dt = local_dt + timedelta(minutes=schedule_data.get('timezone_offset', 0))
-                        end_date = utc_dt.strftime('%Y-%m-%d %H:%M:%S')
+                        end_date = local_dt + timedelta(minutes=schedule_data.get('timezone_offset', 0))
                     else:
                         # Use as-is if no timezone provided
-                        end_date = local_dt.strftime('%Y-%m-%d %H:%M:%S')
+                        end_date = local_dt
         except Exception as e:
             logger.error(f"Error processing end date: {str(e)}")
             end_date = end_date_str  # Use as-is if parsing fails
-        
+
         fields.append('EndDate')
         values.append(end_date)
     
