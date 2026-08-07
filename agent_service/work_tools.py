@@ -9,6 +9,7 @@ headless runs (A3) will lean on it heavily.
 """
 
 import json
+import os
 from typing import Any
 
 from platform_tools import CURRENT_USER, _text
@@ -92,4 +93,189 @@ async def list_my_work(args: dict[str, Any]) -> dict[str, Any]:
     return _text(f"Open work items ({len(items)}):\n" + "\n".join(lines))
 
 
-WORK_TOOLS = [raise_work_item, list_my_work]
+@tool(
+    "schedule_agent_task",
+    "Schedule a recurring HEADLESS agent task: at each firing, a fresh agent "
+    "session runs the given prompt AS the current user and reports its result "
+    "into their My Work queue as an FYI. Use for recurring asks that need "
+    "judgment each time ('every morning, check X and flag anomalies') — for "
+    "purely mechanical repetition, prefer building an automation instead "
+    "(cheaper: zero tokens per run). Provide cron_expression OR "
+    "every_hours/every_days. Report ONLY the ids this returns.",
+    {
+        "type": "object",
+        "properties": {
+            "task_prompt": {"type": "string",
+                            "description": "The full instruction the headless "
+                                           "session will run each time"},
+            "name": {"type": "string", "description": "Short job name"},
+            "cron_expression": {"type": "string"},
+            "every_hours": {"type": "integer"},
+            "every_days": {"type": "integer"},
+        },
+        "required": ["task_prompt", "name"],
+        "additionalProperties": False,
+    },
+)
+async def schedule_agent_task(args: dict[str, Any]) -> dict[str, Any]:
+    import datetime as _dt
+    import httpx
+    from platform_tools import _headers
+    from agent_config import get_base_url
+
+    user = CURRENT_USER.get()
+    if int(user.get("role") or 0) < 2 and os.getenv(
+            "AGENT_BUILD_ALLOW_ALL_USERS", "false").lower() != "true":
+        return _text("Scheduling agent tasks requires a Developer role.",
+                     is_error=True)
+    if args.get("cron_expression"):
+        schedule = {"type": "cron",
+                    "cron_expression": str(args["cron_expression"])}
+    elif args.get("every_hours") or args.get("every_days"):
+        # Interval schedules need an anchored start or the engine's re-create
+        # loop pushes the next fire forever (CC lesson).
+        schedule = {"type": "interval",
+                    "start_date": _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")}
+        if args.get("every_hours"):
+            schedule["interval_hours"] = int(args["every_hours"])
+        if args.get("every_days"):
+            schedule["interval_days"] = int(args["every_days"])
+    else:
+        return _text("Provide either cron_expression or every_hours/every_days.",
+                     is_error=True)
+
+    body = {
+        "name": f"Agent: {str(args['name']).strip()[:80]}",
+        "type": "agent_session",
+        # string "0": the route's presence check treats int 0 as missing
+        "target_id": "0",
+        "description": str(args["task_prompt"])[:400],
+        "created_by": str(user.get("username") or "agent"),
+        "is_active": True,
+        "parameters": {
+            "prompt": {"value": str(args["task_prompt"]), "type": "string"},
+            "user_id": {"value": str(int(user.get("user_id") or 0)), "type": "string"},
+            "role": {"value": str(int(user.get("role") or 2)), "type": "string"},
+            "username": {"value": str(user.get("username") or ""), "type": "string"},
+        },
+        "schedule": schedule,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(f"{get_base_url()}/api/scheduler/jobs",
+                                  json=body, headers=_headers())
+            data = r.json() if r.status_code < 500 else {}
+            if r.status_code >= 400 or not data.get("id"):
+                return _text(f"Nothing was scheduled (HTTP {r.status_code}: "
+                             f"{data.get('error', r.text[:200])}). Do NOT tell "
+                             "the user it was scheduled.", is_error=True)
+            job_id = data["id"]
+            # Read-back: the job + an active schedule row must really exist.
+            rb = await client.get(f"{get_base_url()}/api/scheduler/jobs/{job_id}",
+                                  headers=_headers())
+            rbd = rb.json() if rb.status_code < 400 else {}
+            active = any(s.get("is_active") for s in (rbd.get("schedules") or []))
+            if not active:
+                return _text(f"Job #{job_id} was created but NO active schedule "
+                             "row exists — report this as NOT scheduled.",
+                             is_error=True)
+    except Exception as e:
+        return _text(f"Scheduling failed: {e}", is_error=True)
+    return _text(f"Scheduled headless agent task '{body['name']}' (job #{job_id}, "
+                 "verified active by read-back). Each firing runs as "
+                 f"{user.get('username')} and lands an FYI in their My Work. "
+                 "The engine picks it up on its next poll.")
+
+
+@tool(
+    "save_skill",
+    "Save procedural knowledge as a skill so future sessions start from "
+    "know-how instead of rediscovery. Use AFTER solving something non-obvious: "
+    "a process, a data model's quirks, a client convention. Scopes: 'user' "
+    "(private, default), 'group' (share with one of the user's groups — ask "
+    "the user to confirm first, and pass their group_id), 'tenant' (everyone — "
+    "this only FILES A REQUEST; an admin must approve it in My Work). Write "
+    "the description as a trigger ('use when...'). Record procedure and "
+    "gotchas, but tell future sessions to verify current facts with discovery "
+    "tools — never freeze schema or values as truth.",
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "kebab-case, e.g. month-end-close"},
+            "description": {"type": "string", "description": "'Use when …' trigger line"},
+            "content": {"type": "string", "description": "The skill body (markdown)"},
+            "scope": {"type": "string", "enum": ["user", "group", "tenant"]},
+            "group_id": {"type": "integer", "description": "Required for scope=group"},
+        },
+        "required": ["name", "description", "content"],
+        "additionalProperties": False,
+    },
+)
+async def save_skill(args: dict[str, Any]) -> dict[str, Any]:
+    import skills_mount
+    user = CURRENT_USER.get()
+    uid = int(user.get("user_id") or 0)
+    scope = str(args.get("scope") or "user")
+    name = str(args["name"]).strip().lower()
+    if not skills_mount.valid_name(name):
+        return _text("Skill name must be kebab-case (a-z, 0-9, '-').", is_error=True)
+
+    if scope == "tenant":
+        item = workitem_store.create_item(
+            "approve_deny", f"Promote skill '{name}' to tenant",
+            summary=(f"Requested by {user.get('username')}. Description: "
+                     f"{args['description']}\n\n--- SKILL.md ---\n"
+                     + str(args["content"])[:1500]),
+            payload={"kind": "skill_promotion", "name": name,
+                     "description": str(args["description"]),
+                     "content": str(args["content"]),
+                     "requested_by": user.get("username")},
+            from_kind="agent_session", from_ref=str(user.get("username") or ""),
+            created_by=str(user.get("username") or "agent"), priority=0)
+        return _text(f"Tenant promotion requested — approval item "
+                     f"{item['work_item_id']} is now in My Work (admin approval "
+                     "required; the skill is NOT shared yet).")
+
+    if scope == "group":
+        gid = int(args.get("group_id") or 0)
+        if not gid:
+            return _text("scope=group needs group_id (ask the user which of "
+                         "their groups).", is_error=True)
+        import readthrough
+        if gid not in readthrough.user_group_ids(uid):
+            return _text(f"User {uid} is not a member of group {gid} — not saved.",
+                         is_error=True)
+        path = skills_mount.write_skill("group", name, args["description"],
+                                        args["content"], group_id=gid)
+        return _text(f"Skill '{name}' saved to group {gid} ({path}). Members' "
+                     "future sessions will load it when relevant.")
+
+    path = skills_mount.write_skill("user", name, args["description"],
+                                    args["content"], user_id=uid)
+    return _text(f"Skill '{name}' saved to your private scope ({path}). Your "
+                 "future sessions will load it when relevant.")
+
+
+@tool(
+    "list_skills",
+    "List the skills the current user's sessions load: product + tenant + "
+    "their groups + private.",
+    {},
+)
+async def list_skills_tool(args: dict[str, Any]) -> dict[str, Any]:
+    import skills_mount
+    import readthrough
+    user = CURRENT_USER.get()
+    uid = int(user.get("user_id") or 0)
+    skills = skills_mount.list_skills(uid, readthrough.user_group_ids(uid))
+    if not skills:
+        return _text("No skills exist yet in any scope.")
+    lines = []
+    for s in skills:
+        scope = s["scope"] + (f" {s['group_id']}" if s.get("group_id") else "")
+        lines.append(f"- [{scope}] {s['name']} — {s['description'][:100]}")
+    return _text(f"Skills ({len(skills)}):\n" + "\n".join(lines))
+
+
+WORK_TOOLS = [raise_work_item, list_my_work, schedule_agent_task,
+              save_skill, list_skills_tool]

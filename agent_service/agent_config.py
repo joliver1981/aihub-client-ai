@@ -121,6 +121,28 @@ for _d in (WORKSPACE_DIR, CLAUDE_CONFIG_DIR, SKILLS_PRODUCT_DIR,
     os.makedirs(_d, exist_ok=True)
 
 
+def _sync_product_skills():
+    """Product skills ship with the service (agent_service/product_skills/) and
+    are mirrored into the data tree at startup — repo is the source of truth."""
+    import shutil
+    src_root = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "product_skills")
+    if not os.path.isdir(src_root):
+        return
+    for name in os.listdir(src_root):
+        src = os.path.join(src_root, name)
+        if os.path.isfile(os.path.join(src, "SKILL.md")):
+            dst = os.path.join(SKILLS_PRODUCT_DIR, name)
+            shutil.rmtree(dst, ignore_errors=True)
+            shutil.copytree(src, dst)
+
+
+try:
+    _sync_product_skills()
+except Exception as _e:
+    pass  # never block startup on skill sync
+
+
 # ---------------------------------------------------------------------------
 # Main-app base URL (port offset 0) — same env contract as cc_config
 # ---------------------------------------------------------------------------

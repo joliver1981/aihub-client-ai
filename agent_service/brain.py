@@ -71,6 +71,22 @@ manifest_json). Probe the schema FIRST — never trust remembered table or colum
 names — and use ? parameter placeholders, never string-formatted SQL. Never
 hard-code credentials; the server rejects them.
 
+SKILLS — YOUR PROCEDURAL MEMORY
+When you solve something non-obvious (a process, a data model's quirks, a
+client convention), SAVE IT as a skill (save_skill) so future sessions start
+from know-how instead of rediscovery. Default scope is the user's private one;
+share to a group only after they confirm; tenant-wide sharing files an admin
+approval into My Work. Skills record procedure and gotchas — but always verify
+current facts (schema, values) with discovery tools; never trust a skill's
+frozen facts over a live probe. Loaded skills appear to you automatically when
+relevant.
+
+RECURRING WORK
+Two ladders, pick deliberately: mechanical repetition -> build an AUTOMATION
+(deterministic, zero tokens per run). Recurring judgment ('check X each
+morning, flag what's odd') -> schedule_agent_task (a fresh headless session
+runs the prompt as this user and reports into their My Work).
+
 HONESTY DOCTRINE (non-negotiable)
 - Ground every claim in a tool result from this conversation. Never invent
   connection names, schema, data values, run outcomes, or schedule ids.
@@ -87,19 +103,21 @@ HONESTY DOCTRINE (non-negotiable)
 
 
 def build_options(session_id: Optional[str] = None,
-                  tool_scope: str = "full") -> ClaudeAgentOptions:
+                  tool_scope: str = "full",
+                  cwd: Optional[str] = None) -> ClaudeAgentOptions:
     ensure_anthropic_key()
+    allowed = (_READ_ALLOWED if tool_scope == "read" else ["mcp__aihub__*"])
     return ClaudeAgentOptions(
         system_prompt=SYSTEM_PROMPT,
         model=AGENT_MODEL,
-        tools=[],                                   # remove ALL built-ins
+        tools=["Skill"],            # ONLY the Skill loader — no Bash/Read/Write
         mcp_servers={"aihub": aihub_server},
-        allowed_tools=(_READ_ALLOWED if tool_scope == "read"
-                       else ["mcp__aihub__*"]),
+        allowed_tools=allowed + ["Skill"],
         permission_mode="dontAsk",
-        setting_sources=[],                         # no host-user settings bleed
+        setting_sources=["project"],  # load skills from the session workspace
+        skills="all",
         max_turns=AGENT_MAX_TURNS,
-        cwd=WORKSPACE_DIR,
+        cwd=cwd or WORKSPACE_DIR,
         env={"CLAUDE_CONFIG_DIR": CLAUDE_CONFIG_DIR},
         resume=session_id or None,
         stderr=lambda line: logger.debug(f"[sdk] {line}"),
@@ -118,10 +136,20 @@ async def run_turn(prompt: str, session_id: Optional[str],
     CURRENT_USER.set(user_ctx)
     logger.info(f"turn start user={user_ctx.get('username')} "
                 f"session={session_id or '(new)'} prompt={prompt[:200]!r}")
+    # Mount this user's skills view: product + tenant + their groups + private.
+    uid = int(user_ctx.get("user_id") or 0)
+    try:
+        import readthrough
+        import skills_mount
+        ws = skills_mount.build_user_workspace(uid, readthrough.user_group_ids(uid))
+    except Exception as e:
+        logger.warning(f"skills mount failed (continuing without): {e}")
+        ws = None
     new_session_id = session_id
     try:
         async for message in query(prompt=prompt,
-                                   options=build_options(session_id, tool_scope)):
+                                   options=build_options(session_id, tool_scope,
+                                                         cwd=ws)):
             if isinstance(message, SystemMessage):
                 if getattr(message, "subtype", "") == "init":
                     sid = (getattr(message, "data", {}) or {}).get("session_id")

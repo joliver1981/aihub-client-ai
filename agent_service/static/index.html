@@ -178,6 +178,7 @@
   <div class="brand"><div class="mark">A</div><b>The Agent</b></div>
   <button class="navlink on" id="nav-chat">◇ Assistant</button>
   <button class="navlink" id="nav-work">▣ My Work <span class="count" id="work-count" style="display:none">0</span></button>
+  <button class="navlink" id="nav-skills">◆ Skills</button>
   <div class="spacer"></div>
   <div class="model-note" id="model"></div>
   <div class="who" id="who"></div>
@@ -210,6 +211,21 @@
   </div>
 </section>
 
+<!-- ===================== SKILLS ===================== -->
+<section class="view" id="view-skills">
+  <div id="work-head" style="padding:16px 22px 0;display:flex;align-items:center;gap:14px">
+    <h1 style="font-size:17px;font-weight:650">Skills</h1>
+    <span class="sub" style="color:var(--text3);font-size:12px">Procedural memory — what your sessions know how to do</span>
+    <button id="skills-refresh" style="margin-left:auto;border:1px solid var(--line);border-radius:8px;padding:5px 12px;color:var(--text2);font-size:12px">↻ Refresh</button>
+  </div>
+  <div id="skills-body" style="flex:1;display:grid;grid-template-columns:355px 1fr;gap:14px;padding:14px 22px 22px;overflow:hidden;min-height:0">
+    <div id="skills-list" style="overflow-y:auto;display:flex;flex-direction:column;gap:8px"></div>
+    <div id="skills-detail" style="overflow-y:auto;background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:18px 20px">
+      <div style="color:var(--text3);text-align:center;margin-top:8vh;font-size:13px">Select a skill.</div>
+    </div>
+  </div>
+</section>
+
 <script>
 (() => {
   // ---------- auth ----------
@@ -231,18 +247,83 @@
 
   // ---------- view switching ----------
   const views = { chat: document.getElementById("view-chat"),
-                  work: document.getElementById("view-work") };
+                  work: document.getElementById("view-work"),
+                  skills: document.getElementById("view-skills") };
   const navs = { chat: document.getElementById("nav-chat"),
-                 work: document.getElementById("nav-work") };
+                 work: document.getElementById("nav-work"),
+                 skills: document.getElementById("nav-skills") };
   function show(v) {
     for (const k of Object.keys(views)) {
       views[k].classList.toggle("on", k === v);
       navs[k].classList.toggle("on", k === v);
     }
     if (v === "work") loadWork();
+    if (v === "skills") loadSkills();
   }
   navs.chat.onclick = () => show("chat");
   navs.work.onclick = () => show("work");
+  navs.skills.onclick = () => show("skills");
+
+  // ---------- skills view ----------
+  const SCOPE_STYLE = { product: "t-acknowledge", tenant: "t-provide_input",
+                        group: "t-edit_and_return", user: "t-review" };
+  async function loadSkills() {
+    const list = document.getElementById("skills-list");
+    const detail = document.getElementById("skills-detail");
+    list.innerHTML = "Loading…";
+    try {
+      const r = await fetch("/api/skills", { headers: H() });
+      const d = await r.json();
+      list.innerHTML = "";
+      if (!(d.skills || []).length) {
+        list.appendChild(el("div", "qfrom",
+          "No skills yet — the agent saves them as it learns, or ask it to."));
+        return;
+      }
+      d.skills.forEach(s => {
+        const b = el("button", "qitem");
+        const row = el("div", "qrow");
+        row.appendChild(el("span", "tchip " + (SCOPE_STYLE[s.scope] || ""),
+          s.scope + (s.group_id ? " " + s.group_id : "")));
+        row.appendChild(el("span", "qmeta", (s.size || 0) + " B"));
+        b.appendChild(row);
+        b.appendChild(el("div", "qtitle", s.name));
+        b.appendChild(el("div", "qfrom", s.description || ""));
+        b.onclick = async () => {
+          detail.innerHTML = "Loading…";
+          const q = `scope=${s.scope}&name=${encodeURIComponent(s.name)}` +
+                    (s.group_id ? `&group_id=${s.group_id}` : "");
+          const rr = await fetch(`/api/skills/read?${q}`, { headers: H() });
+          const dd = await rr.json().catch(() => ({}));
+          detail.innerHTML = "";
+          detail.appendChild(el("div", "crumb", `${s.scope} skill`));
+          detail.appendChild(el("div", "dtitle", s.name));
+          const pre = el("div", "kv");
+          pre.textContent = dd.content || "(unreadable)";
+          pre.style.cssText = "font-family:var(--mono);font-size:11.5px;" +
+            "white-space:pre-wrap;margin-top:10px";
+          detail.appendChild(pre);
+          if (s.scope !== "product") {
+            const acts = el("div", "actions");
+            const del = el("button", "btn danger", "Delete skill");
+            del.onclick = async () => {
+              if (!confirm(`Delete skill '${s.name}' (${s.scope})?`)) return;
+              const dr = await fetch("/api/skills/delete", { method: "POST",
+                headers: H(), body: JSON.stringify({ scope: s.scope,
+                  name: s.name, group_id: s.group_id || 0 }) });
+              if (dr.ok) loadSkills();
+              else note(detail, "err-note",
+                (await dr.json().catch(() => ({}))).detail || "delete failed");
+            };
+            acts.appendChild(del);
+            detail.appendChild(acts);
+          }
+        };
+        list.appendChild(b);
+      });
+    } catch (e) { list.textContent = "Could not load: " + e.message; }
+  }
+  document.getElementById("skills-refresh").onclick = loadSkills;
 
   // =====================================================
   // ASSISTANT (chat) — unchanged mechanics from A0/A1

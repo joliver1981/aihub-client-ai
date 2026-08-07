@@ -95,6 +95,71 @@ async def me(request: Request):
             "model": AGENT_MODEL}
 
 
+def _service_key_ok(request: Request) -> bool:
+    """X-API-Key auth for machine callers (the scheduler engine)."""
+    import hmac as _hmac
+    key = request.headers.get("X-API-Key", "") or ""
+    if not key:
+        return False
+    tenant = os.getenv("API_KEY", "")
+    from agent_config import get_internal_api_key
+    return ((bool(tenant) and _hmac.compare_digest(key, tenant))
+            or _hmac.compare_digest(key, get_internal_api_key()))
+
+
+@app.post("/api/run")
+async def headless_run(request: Request):
+    """
+    Headless brain turn for scheduled agent_session jobs (and future webhook/
+    email triggers). Runs AS the principal stored on the trigger — the user
+    who created the schedule — and reports the outcome into that user's
+    My Work queue as an acknowledge (FYI) item. Auth: platform service key.
+    """
+    if not _service_key_ok(request):
+        raise HTTPException(401, "service key required")
+    body = await request.json()
+    prompt = str(body.get("prompt") or "").strip()
+    if not prompt:
+        raise HTTPException(400, "prompt is required")
+    user_ctx = {
+        "user_id": int(body.get("user_id") or 0),
+        "role": int(body.get("role") or 2),
+        "username": str(body.get("username") or "scheduler"),
+        "name": str(body.get("username") or "scheduler"),
+    }
+    job_name = str(body.get("job_name") or "Scheduled agent task")
+    logger.info(f"headless run start job={job_name!r} as user "
+                f"{user_ctx['user_id']}/{user_ctx['username']}")
+
+    texts, tools_run, final = [], [], {}
+    async for ev in run_turn(prompt, None, user_ctx, tool_scope="full"):
+        if ev.get("type") == "text":
+            texts.append(ev["text"])
+        elif ev.get("type") == "tool":
+            tools_run.append(ev.get("name", "?").replace("mcp__aihub__", ""))
+        elif ev.get("type") in ("result", "error"):
+            final = ev
+    ok = bool(final.get("ok"))
+    summary_text = "\n\n".join(texts).strip()
+
+    item = workitem_store.create_item(
+        "acknowledge",
+        f"{'✓' if ok else '⚠'} {job_name}",
+        summary=(summary_text[:2000] or "(the run produced no text)"),
+        payload={"kind": "headless_run", "ok": ok,
+                 "subtype": final.get("subtype") or final.get("error"),
+                 "session_id": final.get("session_id"),
+                 "tools_used": tools_run[:30], "prompt": prompt[:500]},
+        addressed_user=user_ctx["user_id"] or None,
+        from_kind="agent_headless", from_ref=job_name,
+        created_by="scheduler")
+    logger.info(f"headless run done job={job_name!r} ok={ok} "
+                f"item={item['work_item_id']}")
+    return {"ok": ok, "subtype": final.get("subtype") or final.get("error"),
+            "session_id": final.get("session_id"),
+            "work_item_id": item["work_item_id"]}
+
+
 @app.post("/api/chat")
 async def chat(request: Request):
     user = _verify_request(request)
@@ -220,15 +285,71 @@ async def work_release(request: Request):
 
 @app.post("/api/work/respond")
 async def work_respond(request: Request):
-    """Close an agent-raised item with the human's response."""
+    """Close an agent-raised item with the human's response. Approving a
+    skill-promotion item is what actually publishes the skill to tenant scope
+    (James's Round-3 policy: tenant promotion ALWAYS requires this approval)."""
     user = _verify_request(request)
     body = await request.json()
+    before = workitem_store.get_item(str(body.get("id")))
     item, err = workitem_store.respond(str(body.get("id")),
                                        int(user["user_id"]),
                                        body.get("response") or {})
     if err:
         raise HTTPException(409, err)
+    payload = (before or {}).get("payload") or {}
+    decision = str((body.get("response") or {}).get("decision") or "")
+    if (payload.get("kind") == "skill_promotion" and decision == "approved"):
+        if int(user.get("role") or 0) < 3:
+            raise HTTPException(403, "Tenant skill promotion requires an admin.")
+        import skills_mount
+        skills_mount.write_skill("tenant", payload.get("name", ""),
+                                 payload.get("description", ""),
+                                 payload.get("content", ""))
+        logger.info(f"skill '{payload.get('name')}' promoted to tenant by "
+                    f"user {user['user_id']}")
     return {"item": _agent_item_view(item)}
+
+
+# ---------------------------------------------------------------------------
+# Skills admin API (A3)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/skills")
+async def skills_list(request: Request):
+    user = _verify_request(request)
+    import skills_mount
+    uid = int(user["user_id"] or 0)
+    gids = readthrough.user_group_ids(uid)
+    return {"skills": skills_mount.list_skills(uid, gids)}
+
+
+@app.get("/api/skills/read")
+async def skills_read(request: Request):
+    user = _verify_request(request)
+    import skills_mount
+    q = request.query_params
+    content = skills_mount.read_skill(q.get("scope", ""), q.get("name", ""),
+                                      user_id=int(user["user_id"] or 0),
+                                      group_id=int(q.get("group_id") or 0))
+    if not content:
+        raise HTTPException(404, "skill not found")
+    return {"content": content}
+
+
+@app.post("/api/skills/delete")
+async def skills_delete(request: Request):
+    user = _verify_request(request)
+    import skills_mount
+    body = await request.json()
+    scope = str(body.get("scope") or "")
+    if scope in ("tenant", "product") and int(user.get("role") or 0) < 3:
+        raise HTTPException(403, "Deleting tenant/product skills requires an admin.")
+    ok = skills_mount.delete_skill(scope, str(body.get("name") or ""),
+                                   user_id=int(user["user_id"] or 0),
+                                   group_id=int(body.get("group_id") or 0))
+    if not ok:
+        raise HTTPException(404, "skill not found")
+    return {"deleted": True}
 
 
 @app.post("/api/work/decide")

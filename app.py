@@ -13090,6 +13090,7 @@ def inject_config():
             
             # Local feature flags for sidebar visibility
             'FLAG_THE_AGENT': os.getenv('THE_AGENT_ENABLED', 'false').lower() == 'true',
+            'FLAG_AGENT_MODE': os.getenv('THE_AGENT_MODE', 'false').lower() == 'true',
             'FLAG_COMMAND_CENTER': local_flags.get('command_center_enabled', True),
             'FLAG_BUILDER': local_flags.get('builder_enabled', True),
             'FLAG_ENVIRONMENTS': local_flags.get('environments_enabled', True),
@@ -13140,6 +13141,7 @@ def inject_config():
             'tier_limit': lambda x: 0,
             'APP_VERSION': app_config.APP_VERSION,
             'FLAG_THE_AGENT': os.getenv('THE_AGENT_ENABLED', 'false').lower() == 'true',
+            'FLAG_AGENT_MODE': os.getenv('THE_AGENT_MODE', 'false').lower() == 'true',
             'FLAG_COMMAND_CENTER': True,
             'FLAG_BUILDER': True,
             'FLAG_ENVIRONMENTS': True,

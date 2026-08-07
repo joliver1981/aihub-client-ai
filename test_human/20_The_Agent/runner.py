@@ -401,6 +401,111 @@ def main():
 
     precleanup(["pack20_gate2"])  # tidy the A2 automation
 
+    # ------------------------------------------------------------------
+    # A3 — skills, headless runs, scheduled agent sessions
+    # ------------------------------------------------------------------
+    import shutil as _sh
+    import skills_mount
+
+    # clean slate for the test skill
+    _sh.rmtree(os.path.join(APP_ROOT, "data", "agent", "users", "1", "skills",
+                            "pack20-report-codename"), ignore_errors=True)
+
+    # A3-1 save a private skill via conversation (distinctive fact for A3-5)
+    ev, text = chat_turn(token,
+        "Save a private skill for me named exactly 'pack20-report-codename' "
+        "with description 'Use when asked about the monthly report codename' "
+        "and content stating: the internal codename for the monthly report is "
+        "ZEBRA-7.", timeout=A1_TURN_TIMEOUT)
+    skill_path = os.path.join(APP_ROOT, "data", "agent", "users", "1", "skills",
+                              "pack20-report-codename", "SKILL.md")
+    a31_ok = ("save_skill" in tools_used(ev)) and os.path.isfile(skill_path)
+    check("A3-1", "agent saves a private skill; SKILL.md exists on disk",
+          a31_ok, f"tools={tools_used(ev)} file={os.path.isfile(skill_path)}")
+
+    # A3-5 (run now, fresh session): the skill actually loads and informs
+    ev, text = chat_turn(token,
+        "Quick question: what is the internal codename for the monthly report?",
+        timeout=A1_TURN_TIMEOUT)
+    check("A3-2", "a fresh session loads the skill and answers from it",
+          "ZEBRA-7" in text, f"text={text[:200]!r}")
+
+    # A3-3 tenant promotion via My Work approval (direct: no model turn)
+    _sh.rmtree(os.path.join(APP_ROOT, "data", "agent", "skills", "tenant",
+                            "pack20-tenant-skill"), ignore_errors=True)
+    promo = workitem_store.create_item(
+        "approve_deny", "Promote skill 'pack20-tenant-skill' to tenant",
+        summary="pack20 test promotion",
+        payload={"kind": "skill_promotion", "name": "pack20-tenant-skill",
+                 "description": "pack20 tenant test",
+                 "content": "tenant knowledge body"},
+        created_by="pack20")
+    resp, st = work_api("POST", "/api/work/respond",
+                        {"id": promo["work_item_id"],
+                         "response": {"decision": "approved"}})
+    tenant_path = os.path.join(APP_ROOT, "data", "agent", "skills", "tenant",
+                               "pack20-tenant-skill", "SKILL.md")
+    check("A3-3", "approving the promotion item publishes the tenant skill",
+          st < 400 and os.path.isfile(tenant_path),
+          f"status={st} file={os.path.isfile(tenant_path)}")
+
+    # A3-4 headless run (as the scheduler would call it) -> FYI in My Work
+    r = requests.post(f"{BASE}/api/run",
+                      json={"prompt": "List the data connections and give a "
+                            "one-line summary of what exists.",
+                            "user_id": 1, "role": 3, "username": "pack20",
+                            "job_name": "Pack20 headless check"},
+                      headers=SVC_HEADERS, timeout=600)
+    hd = r.json() if r.status_code < 500 else {}
+    fyi = None
+    if hd.get("work_item_id"):
+        fyi = workitem_store.get_item(hd["work_item_id"])
+    check("A3-4", "headless /api/run works and lands an FYI in the creator's "
+                  "My Work",
+          r.status_code == 200 and hd.get("ok") and fyi
+          and fyi.get("verb") == "acknowledge" and fyi.get("addressed_user") == 1,
+          f"http={r.status_code} ok={hd.get('ok')} item={bool(fyi)}")
+    if fyi:
+        workitem_store.respond(fyi["work_item_id"], 1, {"decision": "acknowledged"})
+
+    # A3-5 scheduled agent session fires end-to-end through the JSS engine
+    import time as _t
+    job_body = {"name": "Agent: pack20 heartbeat", "type": "agent_session",
+                "target_id": "0", "created_by": "pack20", "is_active": True,
+                "parameters": {
+                    "prompt": {"value": "Say the words 'pack20 heartbeat ok' "
+                               "and stop. Do not use any tools.", "type": "string"},
+                    "user_id": {"value": "1", "type": "string"},
+                    "role": {"value": "3", "type": "string"},
+                    "username": {"value": "pack20", "type": "string"}},
+                "schedule": {"type": "interval", "interval_seconds": 45,
+                             "start_date": datetime.datetime.utcnow().strftime(
+                                 "%Y-%m-%d %H:%M:%S")}}
+    jr = requests.post(f"{MAIN}/api/scheduler/jobs", json=job_body,
+                       headers=SVC_HEADERS, timeout=30)
+    job = jr.json() if jr.status_code < 500 else {}
+    job_id = job.get("id")
+    fired_item = None
+    if job_id:
+        deadline = _t.time() + 240   # engine polls ~60s; first fire ≤ ~105s
+        while _t.time() < deadline and not fired_item:
+            _t.sleep(10)
+            for it in workitem_store.list_items(1, include_closed=True):
+                if (it.get("from_kind") == "agent_headless"
+                        and it.get("from_ref") == "Agent: pack20 heartbeat"):
+                    fired_item = it
+                    break
+        requests.delete(f"{MAIN}/api/scheduler/jobs/{job_id}",
+                        headers=SVC_HEADERS, timeout=30)
+    check("A3-5", "JSS fires an agent_session job; headless result lands in "
+                  "My Work",
+          bool(job_id) and fired_item is not None,
+          f"job={job_id} fired={bool(fired_item)} "
+          f"title={(fired_item or {}).get('title', '')!r}")
+    if fired_item and fired_item.get("status") in ("open", "claimed"):
+        workitem_store.respond(fired_item["work_item_id"], 1,
+                               {"decision": "acknowledged"})
+
     _write_report(checks)
     if not all(c["ok"] for c in checks):
         sys.exit(1)
