@@ -80,10 +80,10 @@
         .approval-table { width: 100%; border-collapse: collapse; color: var(--text-primary, #fff); background: var(--bg-card, #0a0a0a); }
         .approval-table th {
             background: var(--bg-elevated, #111111); color: var(--text-secondary, #a1a1aa);
-            font-weight: 600; text-transform: uppercase; font-size: 0.78rem; letter-spacing: 0.04em;
-            padding: 12px 15px; text-align: left; border-bottom: 1px solid var(--border-subtle, #27272a);
+            font-weight: 600; text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.03em;
+            padding: 10px 9px; text-align: left; border-bottom: 1px solid var(--border-subtle, #27272a);
         }
-        .approval-table td { padding: 12px 15px; border-bottom: 1px solid var(--border-subtle, #27272a); color: var(--text-primary, #fff); }
+        .approval-table td { padding: 9px; border-bottom: 1px solid var(--border-subtle, #27272a); color: var(--text-primary, #fff); font-size: 0.86rem; }
         .approval-table td strong { color: var(--text-primary, #fff); }
         .approval-table tbody tr:hover { background: var(--bg-hover, #1c1c1f); }
         /* Long automation review titles ("Dayforce exception — <file> ...
@@ -93,21 +93,21 @@
            tooltip and the View modal) and keep the action buttons on one
            unshrinkable line. */
         .approval-table td.title-cell {
-            max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
         /* Long automation/solution names ("dayforce-doc-upload_production_v2")
            are unbreakable tokens that also stretched the table. */
         .approval-table td.source-cell {
-            max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
         .approval-table td.actions-cell { white-space: nowrap; }
         
-        .priority-badge { padding: 4px 10px; border-radius: 6px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; }
+        .priority-badge { padding: 3px 7px; border-radius: 6px; font-size: 0.66rem; font-weight: 600; text-transform: uppercase; }
         .priority-urgent { background: rgba(251, 113, 133, 0.2); color: #fb7185; }
         .priority-high { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
         .priority-normal { background: rgba(113, 113, 122, 0.2); color: #a1a1aa; }
         
-        .status-badge { padding: 4px 10px; border-radius: 6px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; }
+        .status-badge { padding: 3px 7px; border-radius: 6px; font-size: 0.66rem; font-weight: 600; text-transform: uppercase; }
         .status-pending { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
         .status-approved { background: rgba(52, 211, 153, 0.2); color: #34d399; }
         .status-rejected { background: rgba(251, 113, 133, 0.2); color: #fb7185; }
@@ -117,8 +117,8 @@
         .countdown-timer.warning { color: #fbbf24; }
         .countdown-timer.safe { color: #34d399; }
         
-        .action-buttons { display: flex; gap: 8px; }
-        .btn-action { padding: 6px 12px; font-size: 0.82rem; border-radius: 8px; border: none; cursor: pointer; transition: all 0.2s; font-family: 'Outfit', sans-serif; }
+        .action-buttons { display: flex; gap: 6px; }
+        .btn-action { padding: 5px 9px; font-size: 0.78rem; border-radius: 8px; border: none; cursor: pointer; transition: all 0.2s; font-family: 'Outfit', sans-serif; }
         .btn-approve { background: rgba(52, 211, 153, 0.15); border: 1px solid rgba(52, 211, 153, 0.3); color: #34d399; }
         .btn-approve:hover { background: rgba(52, 211, 153, 0.25); }
         .btn-reject { background: rgba(251, 113, 133, 0.15); border: 1px solid rgba(251, 113, 133, 0.3); color: #fb7185; }
