@@ -1,70 +1,35 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal
 echo AI Hub Services Manager (AI-DEV) - Start/Restart Script
 echo ========================================================
 
-cd C:\src\aihub-client-ai-dev\shortcuts
+cd /d "%~dp0"
 
-call 00_STOP.bat
-
-powershell -ExecutionPolicy Bypass -File kill-port-5091.ps1
-
-powershell -ExecutionPolicy Bypass -File kill-port-8100.ps1
-
-@echo off
-set "PORT=5091"
-
-:: Find the PID of the process listening on the specified port
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":%PORT%" ^| findstr "LISTENING"') do (
-    set "PID=%%a"
-)
-
-:: Check if a PID was found and kill it
-if defined PID (
-    echo Found process with PID %PID% on port %PORT%. Terminating...
-    taskkill /F /PID %PID%
-) else (
-    echo No process found listening on port %PORT%.
+:: ============================================================================
+:: STOP PHASE - all stop logic lives in stop-aihub-services.ps1:
+::   window-title kill + command-line sweep + PORT-OWNERSHIP kill, then a
+::   VERIFY loop that only passes when every service port is actually FREE.
+:: It also records the pre-stop owner PID of every port so the verify phase
+:: below can prove the restart produced NEW processes.
+:: Batch-embedded PowerShell quoting broke silently in the past (parse errors
+:: swallowed by for /f) - never inline PowerShell in this file again.
+:: ============================================================================
+call "%~dp000_STOP.bat"
+if errorlevel 1 (
+    echo.
+    echo  *** STOP PHASE FAILED - a service port is still owned by an old process.
+    echo  *** NOT starting services on top of it - that is how stale code gets served.
+    echo  *** See the survivors listed above. If a kill was ACCESS DENIED, re-run
+    echo  *** this script from an elevated Administrator window.
+    echo.
+    pause
+    exit /b 1
 )
 
 :: Set the path to the Anaconda/Miniconda installation
 SET "CONDA_PATH=C:\Users\james\miniconda3"
 :: Set the project folder path
 SET "PROJECT_PATH=C:\src\aihub-client-ai-dev"
-
-echo.
-echo Checking for running services...
-echo.
-
-:: STEP 1: Kill by window title FIRST (while titles still say "AIHub-DEV*")
-:: This kills both the cmd window AND its child python process in one shot.
-:: Must happen BEFORE killing python.exe, because killing python causes cmd /k
-:: to drop to a prompt where conda hooks change the window title.
-echo Killing AIHub-DEV windows by title...
-taskkill /FI "WINDOWTITLE eq AIHub-DEV*" /F >nul 2>&1
-taskkill /FI "WINDOWTITLE eq Administrator:*AIHub-DEV*" /F >nul 2>&1
-
-:: STEP 2: PowerShell window-title kill (catches windows taskkill might miss)
-echo Using PowerShell to find remaining AIHub-DEV windows...
-for /f %%P in ('powershell -NoProfile -Command "Get-Process | Where-Object { $_.MainWindowTitle -like ''AIHub-DEV*'' } | Select-Object -ExpandProperty Id"') do (
-    echo [!] Found AIHub window PID %%P - killing process tree...
-    taskkill /PID %%P /T /F >nul 2>&1
-)
-
-:: Brief pause to let windows close before orphan cleanup
-timeout /t 2 /nobreak >nul
-
-:: STEP 3: Kill any orphaned python processes (safety net for processes whose windows were already closed)
-echo Cleaning up any orphaned python processes...
-for /f %%P in ('powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq ''python.exe'' -and ($_.CommandLine -match ''wsgi\.py'' -or $_.CommandLine -match ''wsgi_doc_api\.py'' -or $_.CommandLine -match ''app_doc_job_q\.py'' -or $_.CommandLine -match ''app_jss_main\.py'' -or $_.CommandLine -match ''wsgi_vector_api\.py'' -or $_.CommandLine -match ''wsgi_agent_api\.py'' -or $_.CommandLine -match ''wsgi_knowledge_api\.py'' -or $_.CommandLine -match ''wsgi_executor_service\.py'' -or $_.CommandLine -match ''app_mcp_gateway\.py'' -or $_.CommandLine -match ''app_cloud_gateway\.py'' -or $_.CommandLine -match ''builder_service\\\\main\.py'' -or $_.CommandLine -match ''builder_data\\\\main\.py'' -or $_.CommandLine -match ''command_center_service\\\\main\.py'') } | Select-Object -ExpandProperty ProcessId"') do (
-    echo [!] Killing orphaned python PID %%P ...
-    taskkill /PID %%P /T /F >nul 2>&1
-)
-
-:: Wait for processes to terminate
-echo.
-echo Waiting for processes to terminate...
-timeout /t 2 /nobreak >nul
 
 echo.
 echo Starting all AI Hub (AI-DEV) services...
@@ -143,6 +108,24 @@ start "AIHub-DEV Command Center" /D "%PROJECT_PATH%\command_center_service" cmd 
 echo [14/14] Starting Browser Use Service (main.py) in aihub-browseruse environment...
 start "AIHub-DEV Browser Use" /D "%PROJECT_PATH%\browser_use_service" cmd /k "color 04 && title AIHub-DEV Browser Use && call "%CONDA_PATH%\Scripts\activate.bat" && conda activate aihub-browseruse && python main.py"
 
+
+:: ============================================================================
+:: VERIFY PHASE - wait for every service port to be re-bound and prove each
+:: listener is a NEW process (creation time after the stop phase completed).
+:: Catches the exact failure this script used to hide: a stale process keeping
+:: the port while the fresh service silently fails to bind.
+:: ============================================================================
+echo.
+echo Verifying every service came up as a NEW process...
+powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0verify-aihub-services.ps1"
+if errorlevel 1 (
+    echo.
+    echo  *** VERIFY FAILED - see the table above. A service is missing or STALE.
+    echo  *** A stale listener means the app is serving OLD code right now.
+    echo.
+    pause
+    exit /b 1
+)
 
 echo.
 echo ============================================
