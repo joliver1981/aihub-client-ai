@@ -519,6 +519,37 @@ def get_browser_use_api_base_url():
 
     return f"{protocol}://{host}:{api_port}"
 
+def get_agent_service_api_base_url():
+    """Return full base URL for The Agent service (agent_service).
+
+    Browser-facing service (like Command Center) — users reach it via the main
+    app's /the-agent token redirect; other services dial it here.
+
+    Port: AGENT_SERVICE_PORT if set (production override), else HOST_PORT + 110.
+    The service binds its port from the same AGENT_SERVICE_PORT, so both stay in sync.
+
+    Returns:
+        Base URL (e.g. http://127.0.0.1:5111)
+    """
+    protocol = os.getenv('PROTOCOL', 'http')
+    host = os.getenv('SERVICE_HOST', '127.0.0.1')
+    if host == "0.0.0.0":
+        host = get_local_ip()
+
+    override = os.getenv('AGENT_SERVICE_PORT')
+    if override:
+        try:
+            api_port = int(override)
+        except ValueError:
+            api_port = 5111
+    else:
+        try:
+            api_port = int(os.getenv('HOST_PORT', '5001')) + 110
+        except ValueError:
+            api_port = 5111
+
+    return f"{protocol}://{host}:{api_port}"
+
 def normalize_boolean(value):
     """
     Normalize various representations to Python boolean values (True/False).

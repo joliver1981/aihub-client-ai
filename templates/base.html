@@ -1127,6 +1127,16 @@
                 {% endif %}
                 {% endif %}
 
+                {% if current_user.is_authenticated and current_user.role >= 2 and FLAG_THE_AGENT %}
+                <div class="new-nav-item">
+                    <a href="{{ url_for('the_agent_redirect') }}" class="new-nav-link" target="_blank">
+                        <i class="fas fa-robot nav-icon"></i>
+                        <span class="nav-text">The Agent</span>
+                        <i class="fas fa-flask experimental-icon" title="Preview"></i>
+                    </a>
+                </div>
+                {% endif %}
+
                 {% if current_user.is_authenticated and current_user.role >= 2 and FLAG_COMMAND_CENTER %}
                 <div class="new-nav-item">
                     <a href="{{ url_for('command_center_redirect') }}" class="new-nav-link" target="_blank">

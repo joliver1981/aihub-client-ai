@@ -128,6 +128,24 @@ def is_api_request():
     )
 
 
+def has_valid_api_key():
+    """
+    Service-to-service calls (Command Center, scheduler, automations runtime,
+    The Agent) authenticate with the platform API key instead of a session.
+    Reuses the canonical extraction/validation from role_decorators so the
+    middleware can never drift from what the per-route decorators accept.
+    """
+    try:
+        from role_decorators import _get_api_key_from_request, _validate_tenant_api_key
+        api_key = _get_api_key_from_request()
+        if not api_key:
+            return False
+        return bool(_validate_tenant_api_key(api_key).get('valid', False))
+    except Exception as e:  # fail closed: no key check -> treated as unauthenticated
+        auth_logger.error(f"API-key validation errored (treating as unauthenticated): {e}")
+        return False
+
+
 def check_scheduler_auth():
     """
     Check alternative authentication for scheduler endpoints.
@@ -184,7 +202,13 @@ def require_login_middleware():
     # Check if user is authenticated
     if current_user.is_authenticated:
         return
-    
+
+    # Service-to-service: a valid platform API key (X-API-Key / Bearer / etc.)
+    # is as good as a session. Without this, enforcement would break CC, the
+    # scheduler, and the automations runtime, which all call with the API key.
+    if has_valid_api_key():
+        return
+
     # === User is NOT authenticated and endpoint is NOT whitelisted ===
     
     # Log the blocked request

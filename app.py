@@ -420,6 +420,14 @@ login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.login_message_category = 'info'
 
+# AUTH: global route-guard middleware (AIHUB-authz). Runs as a before_request
+# on every route: allows whitelisted public endpoints, logged-in sessions, and
+# valid platform API keys (service-to-service); everything else is blocked —
+# or, with AUTH_MIDDLEWARE_DRY_RUN=true, logged to logs/auth_middleware_log.txt
+# without blocking so enforcement can be proven safe before cutover.
+from auth_middleware import init_auth_middleware
+init_auth_middleware(app)
+
 print('Initializing agent environments...')
 initialize_agent_environments(app)
 
@@ -1900,6 +1908,35 @@ def command_center_redirect():
     cc_url = f'http://{cc_host}:{cc_port}?token={token}'
 
     return redirect(cc_url)
+
+
+@app.route('/the-agent')
+@developer_required()
+def the_agent_redirect():
+    """
+    Token redirect to The Agent service (agent_service, HOST_PORT+110) — the
+    Claude-brained next-gen assistant. Same shared_auth JWT handshake as the
+    /command-center redirect; The Agent verifies the token locally. Flag-gated:
+    THE_AGENT_ENABLED gates the nav entry; this route is Developer+ regardless
+    (AGENT_ALLOW_ALL_USERS relaxes the role check service-side later).
+    """
+    if os.getenv('THE_AGENT_ENABLED', 'false').lower() != 'true':
+        flash('The Agent is not enabled on this install.', 'warning')
+        return redirect(url_for('home'))
+
+    cleanup_expired_cc_tokens()
+    token = _mint_cc_token({
+        'user_id': current_user.id,
+        'role': current_user.role,
+        'tenant_id': current_user.TenantId,
+        'username': current_user.username,
+        'name': current_user.name,
+    })
+
+    agent_port = os.environ.get('AGENT_SERVICE_PORT', '') or str(
+        int(os.environ.get('HOST_PORT', '5001')) + 110)
+    agent_host = os.environ.get('AGENT_SERVICE_HOST_PUBLIC', '') or request.host.split(':')[0]
+    return redirect(f'http://{agent_host}:{agent_port}?token={token}')
 
 
 @app.route('/api/validate-cc-token', methods=['POST'])
@@ -13052,6 +13089,7 @@ def inject_config():
             **tier_context,  # Unpacks all tier variables
             
             # Local feature flags for sidebar visibility
+            'FLAG_THE_AGENT': os.getenv('THE_AGENT_ENABLED', 'false').lower() == 'true',
             'FLAG_COMMAND_CENTER': local_flags.get('command_center_enabled', True),
             'FLAG_BUILDER': local_flags.get('builder_enabled', True),
             'FLAG_ENVIRONMENTS': local_flags.get('environments_enabled', True),
@@ -13101,6 +13139,7 @@ def inject_config():
             'tier_allows': lambda x: False,
             'tier_limit': lambda x: 0,
             'APP_VERSION': app_config.APP_VERSION,
+            'FLAG_THE_AGENT': os.getenv('THE_AGENT_ENABLED', 'false').lower() == 'true',
             'FLAG_COMMAND_CENTER': True,
             'FLAG_BUILDER': True,
             'FLAG_ENVIRONMENTS': True,
