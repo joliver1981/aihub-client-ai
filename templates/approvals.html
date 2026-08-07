@@ -82,6 +82,16 @@
         .approval-table td { padding: 12px 15px; border-bottom: 1px solid var(--border-subtle, #27272a); color: var(--text-primary, #fff); }
         .approval-table td strong { color: var(--text-primary, #fff); }
         .approval-table tbody tr:hover { background: var(--bg-hover, #1c1c1f); }
+        /* Long automation review titles ("Dayforce exception — <file> ...
+           [approve = include row in CSV]") were pushing the table wider than
+           the viewport and CLIPPING the Actions column (james 2026-08-06).
+           Truncate the title cell with an ellipsis (full text in the hover
+           tooltip and the View modal) and keep the action buttons on one
+           unshrinkable line. */
+        .approval-table td.title-cell {
+            max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .approval-table td.actions-cell { white-space: nowrap; }
         
         .priority-badge { padding: 4px 10px; border-radius: 6px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; }
         .priority-urgent { background: rgba(251, 113, 133, 0.2); color: #fb7185; }
@@ -733,7 +743,7 @@
                         </span>
                     </td>
                     <td>${typeBadge}</td>
-                    <td>
+                    <td class="title-cell" title="${String(approval.title || '').replace(/"/g, '&quot;')}">
                         <strong>${approval.title}</strong>
                     </td>
                     <td>${sourceName || '-'}</td>
@@ -746,7 +756,7 @@
                             ${approval.status}
                         </span>
                     </td>
-                    <td>
+                    <td class="actions-cell">
                         <div class="action-buttons">
                             ${actionsHtml}
                         </div>
