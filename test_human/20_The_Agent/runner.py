@@ -286,6 +286,121 @@ def main():
           "delete_automation" in tools_used(ev) and gone and not still_active,
           f"gone={gone} active_jobs_left={len(still_active)} text={text[:160]!r}")
 
+    # ------------------------------------------------------------------
+    # A2 — My Work: store, read-through, claim/release, decide, threads
+    # ------------------------------------------------------------------
+    import workitem_store
+
+    def work_api(method, path, body=None, qs=""):
+        fn = requests.post if method == "POST" else requests.get
+        kw = {"headers": {"Authorization": f"Bearer {token}",
+                          "Content-Type": "application/json"},
+              "timeout": 300}
+        if body is not None:
+            kw["json"] = body
+        r = fn(f"{BASE}{path}{qs}", **kw)
+        try:
+            return r.json(), r.status_code
+        except Exception:
+            return {"error": r.text[:200]}, r.status_code
+
+    # A2-1 raise via conversation -> visible in list -> respond -> lifecycle
+    ev, text = chat_turn(token,
+        "Raise a work item for me: a question titled 'Pack20 fiscal calendar "
+        "check' asking which fiscal calendar finance uses. Address it to me "
+        "(user 1).", timeout=A1_TURN_TIMEOUT)
+    lst, _ = work_api("GET", "/api/work/list")
+    mine = [i for i in (lst.get("items") or [])
+            if i.get("source") == "agent" and "Pack20 fiscal" in i.get("title", "")]
+    a21_ok = ("raise_work_item" in tools_used(ev)) and len(mine) == 1
+    item_id = mine[0]["id"] if mine else None
+    if item_id:
+        resp, st = work_api("POST", "/api/work/respond",
+                            {"id": item_id,
+                             "response": {"decision": "answered",
+                                          "text": "4-4-5"}})
+        evs = [e["event"] for e in workitem_store.list_events(item_id)]
+        a21_ok = a21_ok and st < 400 and evs == ["created", "responded", "closed"]
+    check("A2-1", "agent raises a work item; respond closes it with full lifecycle",
+          a21_ok, f"tools={tools_used(ev)} events={item_id and evs} text={text[:120]!r}")
+
+    # A2-2 checkpoint read-through: no model — direct manage build, then My Work
+    precleanup(["pack20_gate2"])
+    created, _ = manage_direct("create", {"name": "pack20_gate2",
+                                          "description": "pack20 A2 gate"})
+    auto_id = (created.get("automation") or {}).get("automation_id")
+    manage_direct("save_code", {"automation_id": auto_id,
+        "code": "import aihub_runtime as aihub\n"
+                "aihub.checkpoint('Pack20 A2 gate approval')\n"
+                "print('resumed after approval')\n"})
+    dr, _ = manage_direct("dry_run", {"automation_id": auto_id, "inputs": {}})
+    run_id = dr.get("run_id")
+    cp = (dr.get("pending_checkpoint") or {})
+    lst, _ = work_api("GET", "/api/work/list")
+    auto_items = [i for i in (lst.get("items") or [])
+                  if i.get("source") == "automation"
+                  and (i.get("payload") or {}).get("run_id") == run_id]
+    a22_ok = bool(dr.get("waiting_on_checkpoint")) and len(auto_items) == 1
+    if a22_ok:
+        dec, st = work_api("POST", "/api/work/decide",
+                           {"source": "automation", "id": auto_items[0]["id"],
+                            "decision": "approved", "comments": "pack20 approve",
+                            "title": auto_items[0]["title"]})
+        a22_ok = st < 400
+        if a22_ok:
+            import time as _t
+            final = {}
+            for _ in range(30):
+                evd, es = manage_direct("run_events", {"run_id": run_id})
+                final = (evd.get("run") or {}) if es < 400 else {}
+                if final.get("status") in ("success", "failed", "error",
+                                            "unverified", "aborted"):
+                    break
+                _t.sleep(2)
+            a22_ok = final.get("status") == "success"
+    check("A2-2", "paused checkpoint appears in My Work; approving there resumes "
+                  "the run to success",
+          a22_ok, f"run={run_id} waiting={dr.get('waiting_on_checkpoint')} "
+                  f"items={len(auto_items)} final={a22_ok}")
+
+    # A2-3 claim/release semantics on a shared item
+    sh = workitem_store.create_item("review", "Pack20 shared exception review",
+                                    summary="claim me", created_by="pack20")
+    cl, st1 = work_api("POST", "/api/work/claim", {"id": sh["work_item_id"]})
+    lst_other = workitem_store.list_items(999)   # another user's view
+    hidden = all(i["work_item_id"] != sh["work_item_id"] for i in lst_other)
+    rl, st2 = work_api("POST", "/api/work/release", {"id": sh["work_item_id"]})
+    lst_other2 = workitem_store.list_items(999)
+    visible_again = any(i["work_item_id"] == sh["work_item_id"] for i in lst_other2)
+    evs3 = [e["event"] for e in workitem_store.list_events(sh["work_item_id"])]
+    check("A2-3", "claim hides a shared item from others; release restores it",
+          st1 < 400 and hidden and st2 < 400 and visible_again
+          and evs3 == ["created", "claimed", "released"],
+          f"events={evs3} hidden={hidden} visible_again={visible_again}")
+    workitem_store.respond(sh["work_item_id"], 1, {"decision": "done"})  # tidy
+
+    # A2-4 email seam reachable (list contract; queue may legitimately be empty)
+    import asyncio as _aio
+    import readthrough as _rt
+    emails = _aio.run(_rt.email_pending())
+    check("A2-4", "email-approvals seam reachable via X-API-Key (list contract)",
+          isinstance(emails, list), f"pending={len(emails)}")
+
+    # A2-5 side-thread on the automation item answers with evidence, read-only
+    thr, st = work_api("POST", "/api/work/thread",
+                       {"source": "automation", "id": (auto_items[0]["id"]
+                                                        if auto_items else "x"),
+                        "question": "What automation raised this and what does "
+                                    "its code do? Answer from real lookups.",
+                        "title": "pack20 gate", "context": {"run_id": run_id,
+                        "automation_id": auto_id}})
+    a25_ok = (st < 400 and len(str(thr.get("reply") or "")) > 40
+              and len(thr.get("thread") or []) >= 2)
+    check("A2-5", "side-thread answers on the item (read-only tools, stored)",
+          a25_ok, f"reply={str(thr.get('reply'))[:160]!r}")
+
+    precleanup(["pack20_gate2"])  # tidy the A2 automation
+
     _write_report(checks)
     if not all(c["ok"] for c in checks):
         sys.exit(1)

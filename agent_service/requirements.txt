@@ -8,3 +8,4 @@ httpx>=0.27
 requests>=2.32
 PyJWT>=2.8          # shared_auth token verification
 cryptography>=42    # encrypt.py Fernet decrypt of ANTHROPIC_API_KEY_ENCRYPTED
+pyodbc>=5.0         # read-only ApprovalRequests/UserGroups read-through (My Work)

@@ -23,6 +23,7 @@ from agent_config import (
 )
 from platform_tools import AIHUB_TOOLS, CURRENT_USER
 from authoring_tools import AUTHORING_TOOLS
+from work_tools import WORK_TOOLS
 
 from claude_agent_sdk import (
     ClaudeAgentOptions, query, create_sdk_mcp_server,
@@ -30,7 +31,18 @@ from claude_agent_sdk import (
 )
 
 aihub_server = create_sdk_mcp_server(
-    name="aihub", version="0.2.0", tools=AIHUB_TOOLS + AUTHORING_TOOLS)
+    name="aihub", version="0.3.0",
+    tools=AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS)
+
+# Side-threads on work items run READ-ONLY: the thread answers questions with
+# evidence; it never mutates. Anything consequential goes through the item's
+# own action buttons or the main Assistant.
+_READ_TOOL_NAMES = [
+    "list_data_connections", "get_connection_schema", "probe_connection_query",
+    "ask_data_agent", "list_playbooks", "list_recent_runs",
+    "check_automation_run", "get_automation", "get_code_flow", "list_my_work",
+]
+_READ_ALLOWED = [f"mcp__aihub__{n}" for n in _READ_TOOL_NAMES]
 
 SYSTEM_PROMPT = """You are The Agent — AI Hub's assistant. You help people explore
 their data, get honest answers, and turn repeatable work into automations that run
@@ -74,14 +86,16 @@ HONESTY DOCTRINE (non-negotiable)
 """
 
 
-def build_options(session_id: Optional[str] = None) -> ClaudeAgentOptions:
+def build_options(session_id: Optional[str] = None,
+                  tool_scope: str = "full") -> ClaudeAgentOptions:
     ensure_anthropic_key()
     return ClaudeAgentOptions(
         system_prompt=SYSTEM_PROMPT,
         model=AGENT_MODEL,
         tools=[],                                   # remove ALL built-ins
         mcp_servers={"aihub": aihub_server},
-        allowed_tools=["mcp__aihub__*"],
+        allowed_tools=(_READ_ALLOWED if tool_scope == "read"
+                       else ["mcp__aihub__*"]),
         permission_mode="dontAsk",
         setting_sources=[],                         # no host-user settings bleed
         max_turns=AGENT_MAX_TURNS,
@@ -93,7 +107,7 @@ def build_options(session_id: Optional[str] = None) -> ClaudeAgentOptions:
 
 
 async def run_turn(prompt: str, session_id: Optional[str],
-                   user_ctx: dict) -> AsyncIterator[dict]:
+                   user_ctx: dict, tool_scope: str = "full") -> AsyncIterator[dict]:
     """
     Run one conversation turn; yield UI events:
       {"type": "text", "text": ...}
@@ -106,7 +120,8 @@ async def run_turn(prompt: str, session_id: Optional[str],
                 f"session={session_id or '(new)'} prompt={prompt[:200]!r}")
     new_session_id = session_id
     try:
-        async for message in query(prompt=prompt, options=build_options(session_id)):
+        async for message in query(prompt=prompt,
+                                   options=build_options(session_id, tool_scope)):
             if isinstance(message, SystemMessage):
                 if getattr(message, "subtype", "") == "init":
                     sid = (getattr(message, "data", {}) or {}).get("session_id")
