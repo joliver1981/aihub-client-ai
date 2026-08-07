@@ -170,7 +170,53 @@
   .threadrow{display:flex;gap:8px;margin-top:8px}
   .ok-note{color:var(--green);font-size:12px;margin-top:8px}
   .err-note{color:var(--red);font-size:12px;margin-top:8px}
+
+  /* ===== markdown rendering (agent output) ===== */
+  .bubble.md,.tmsg.md,.dsummary.md{white-space:normal}
+  .md p{margin:.4em 0}
+  .md p:first-child{margin-top:0}
+  .md p:last-child{margin-bottom:0}
+  .md h1,.md h2,.md h3,.md h4{font-weight:650;line-height:1.3;margin:.8em 0 .35em;color:var(--text)}
+  .md h1{font-size:16px}.md h2{font-size:15px}.md h3{font-size:14px}.md h4{font-size:13px}
+  .md strong{color:var(--text);font-weight:640}
+  .md a{color:var(--accent)}
+  .md ul,.md ol{padding-left:1.35em;margin:.4em 0}
+  .md li{margin:.15em 0}
+  .md code{font-family:var(--mono);font-size:.86em;background:var(--raised);
+           padding:.08em .35em;border-radius:4px}
+  .md pre{background:var(--raised);border:1px solid var(--line);border-radius:10px;
+          padding:10px 13px;overflow-x:auto;margin:.5em 0}
+  .md pre code{background:none;padding:0;font-size:12px}
+  .md blockquote{border-left:3px solid var(--line);padding-left:11px;color:var(--text2);margin:.45em 0}
+  .md hr{border:0;border-top:1px solid var(--line);margin:.7em 0}
+
+  /* interactive tables */
+  .tblwrap{border:1px solid var(--line);border-radius:10px;margin:.6em 0;overflow:hidden}
+  .tblwrap .tblscroll{overflow-x:auto}
+  .md table{border-collapse:collapse;width:100%;font-size:12.5px;margin:0}
+  .md th{text-align:left;color:var(--text2);font-weight:600;font-size:11.5px;
+         padding:7px 11px;border-bottom:1px solid var(--line);background:var(--raised);
+         white-space:nowrap;user-select:none}
+  .md th.sortable{cursor:pointer}
+  .md th.sortable:hover{color:var(--text)}
+  .md th .arrow{font-size:9px;color:var(--accent);margin-left:4px}
+  .md td{padding:6px 11px;border-bottom:1px solid var(--line-soft);
+         font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+  .md tbody tr:last-child td{border-bottom:0}
+  .md tbody tr:hover td{background:var(--hover)}
+  .tbltools{display:flex;gap:9px;align-items:center;padding:7px 10px;
+            border-bottom:1px solid var(--line-soft);background:var(--panel)}
+  .tbltools input{width:170px;padding:4px 10px;font-size:11.5px;border-radius:7px}
+  .tbltools .cnt{font-family:var(--mono);font-size:10px;color:var(--text3);margin-left:auto}
+  .tbltools .btn{padding:3px 10px;font-size:11px}
+  .tblpager{display:flex;gap:10px;align-items:center;justify-content:flex-end;
+            padding:6px 10px;border-top:1px solid var(--line-soft);
+            font-family:var(--mono);font-size:10.5px;color:var(--text3);background:var(--panel)}
+  .tblpager button{border:1px solid var(--line);border-radius:6px;padding:2px 9px;color:var(--text2)}
+  .tblpager button:disabled{opacity:.35;cursor:default}
 </style>
+<script src="/static/vendor/marked.min.js"></script>
+<script src="/static/vendor/purify.min.js"></script>
 </head>
 <body>
 
@@ -244,6 +290,108 @@
     if (text !== undefined) e.textContent = text;
     return e;
   };
+
+  // ---------- markdown (agent output only; sanitized — table cells carry DB data) ----------
+  if (window.marked) marked.setOptions({ gfm: true, breaks: true });
+  const md = (t) => {
+    if (!window.marked || !window.DOMPurify) {
+      const d = document.createElement("div"); d.textContent = t || ""; return d.innerHTML;
+    }
+    return DOMPurify.sanitize(marked.parse(String(t || "")));
+  };
+
+  // Upgrade every markdown table: horizontal scroll + header sort, and for
+  // bigger tables a filter box, CSV download, and paging — the CC-chat table
+  // affordances, rebuilt for this shell.
+  function enhanceTables(root) {
+    root.querySelectorAll("table").forEach((t) => {
+      if (t._enh) return; t._enh = true;
+      const tbody = t.tBodies[0];
+      const allRows = tbody ? Array.from(tbody.rows) : [];
+      const wrap = el("div", "tblwrap");
+      const scroll = el("div", "tblscroll");
+      t.parentNode.insertBefore(wrap, t);
+      const PAGE = 15;
+      let page = 0, view = allRows, sortCol = -1, sortDir = 1;
+
+      const tools = el("div", "tbltools");
+      const filter = document.createElement("input");
+      filter.type = "text"; filter.placeholder = "Filter rows…";
+      const cnt = el("span", "cnt");
+      const dl = el("button", "btn", "⬇ CSV");
+      tools.append(filter, cnt, dl);
+
+      const pager = el("div", "tblpager");
+      const prev = el("button", "", "‹ prev");
+      const info = el("span");
+      const next = el("button", "", "next ›");
+      pager.append(prev, info, next);
+
+      const big = allRows.length > 5;
+      if (big) wrap.appendChild(tools);
+      wrap.appendChild(scroll); scroll.appendChild(t);
+      if (allRows.length > PAGE) wrap.appendChild(pager);
+
+      function render() {
+        const start = page * PAGE, end = start + PAGE;
+        allRows.forEach(r => { r.style.display = "none"; });
+        view.forEach((r, i) => {
+          r.style.display = (i >= start && i < end) ? "" : "none";
+        });
+        cnt.textContent = view.length === allRows.length
+          ? `${allRows.length} rows` : `${view.length} of ${allRows.length} rows`;
+        const pages = Math.max(1, Math.ceil(view.length / PAGE));
+        info.textContent = `page ${Math.min(page + 1, pages)} / ${pages}`;
+        prev.disabled = page <= 0; next.disabled = page >= pages - 1;
+        pager.style.display = view.length > PAGE ? "" : "none";
+      }
+      prev.onclick = () => { if (page > 0) { page--; render(); } };
+      next.onclick = () => { page++; render(); };
+      filter.addEventListener("input", () => {
+        const q = filter.value.trim().toLowerCase();
+        view = q ? allRows.filter(r => r.textContent.toLowerCase().includes(q))
+                 : allRows;
+        page = 0; render();
+      });
+      dl.onclick = () => {
+        const esc = (s) => `"${String(s).replace(/"/g, '""')}"`;
+        const head = t.tHead ? Array.from(t.tHead.rows[0].cells).map(c => esc(c.textContent)) : [];
+        const lines = [head.join(",")];
+        view.forEach(r => lines.push(Array.from(r.cells).map(c => esc(c.textContent)).join(",")));
+        const blob = new Blob([lines.join("\r\n")], { type: "text/csv" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob); a.download = "table.csv"; a.click();
+        URL.revokeObjectURL(a.href);
+      };
+      if (t.tHead) Array.from(t.tHead.rows[0].cells).forEach((th, i) => {
+        th.classList.add("sortable");
+        th.onclick = () => {
+          sortDir = (sortCol === i) ? -sortDir : 1; sortCol = i;
+          const num = (s) => { const v = parseFloat(String(s).replace(/[$,%\s]/g, "")); return isNaN(v) ? null : v; };
+          const sorted = Array.from(allRows).sort((a, b) => {
+            const av = a.cells[i]?.textContent.trim() || "", bv = b.cells[i]?.textContent.trim() || "";
+            const an = num(av), bn = num(bv);
+            const c = (an !== null && bn !== null) ? an - bn : av.localeCompare(bv);
+            return c * sortDir;
+          });
+          sorted.forEach(r => tbody.appendChild(r));
+          allRows.length = 0; allRows.push(...sorted);
+          const q = filter.value.trim().toLowerCase();
+          view = q ? allRows.filter(r => r.textContent.toLowerCase().includes(q)) : allRows;
+          t.tHead.querySelectorAll(".arrow").forEach(x => x.remove());
+          th.appendChild(el("span", "arrow", sortDir > 0 ? "▲" : "▼"));
+          render();
+        };
+      });
+      render();
+    });
+  }
+
+  function renderMd(target, text) {
+    target.classList.add("md");
+    target.innerHTML = md(text);
+    enhanceTables(target);
+  }
 
   // ---------- view switching ----------
   const views = { chat: document.getElementById("view-chat"),
@@ -397,8 +545,10 @@
           let ev; try { ev = JSON.parse(chunk.slice(6)); } catch { continue; }
           think.remove();
           if (ev.type === "text") {
-            if (!bubble) { bubble = el("div", "bubble"); container.appendChild(bubble); }
-            bubble.textContent += (bubble.textContent ? "\n\n" : "") + ev.text;
+            if (!bubble) { bubble = el("div", "bubble"); bubble._raw = "";
+                           container.appendChild(bubble); }
+            bubble._raw += (bubble._raw ? "\n\n" : "") + ev.text;
+            renderMd(bubble, bubble._raw);
           } else if (ev.type === "tool") {
             bubble = null;
             const chip = el("div", "toolchip");
@@ -546,7 +696,12 @@
     detailEl.appendChild(el("div", "crumb",
       `${item.source} · ${item.verb.replace("_", " ")} · raised ${item.requested_at || ""}`));
     detailEl.appendChild(el("div", "dtitle", item.title));
-    if (item.summary) detailEl.appendChild(el("div", "dsummary", item.summary));
+    if (item.summary) {
+      const s = el("div", "dsummary");
+      if (item.source === "agent") renderMd(s, item.summary);  // headless FYIs etc.
+      else s.textContent = item.summary;
+      detailEl.appendChild(s);
+    }
 
     const p = item.payload || {};
     const actions = el("div", "actions");
@@ -680,7 +835,13 @@
       (msgs || []).forEach(m => {
         const d = el("div", "tmsg " + (m.role === "human" ? "human" : "agent"));
         d.appendChild(el("div", "au meta", m.role === "human" ? "You" : "The Agent"));
-        d.appendChild(document.createTextNode(m.text));
+        if (m.role === "human") {
+          d.appendChild(document.createTextNode(m.text));
+        } else {
+          const body = el("div");
+          renderMd(body, m.text);
+          d.appendChild(body);
+        }
         box.appendChild(d);
       });
     }
