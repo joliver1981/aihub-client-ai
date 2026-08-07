@@ -63,7 +63,11 @@
         
         .approvals-table-container {
             background: var(--bg-card, #0a0a0a); border: 1px solid var(--border-subtle, #27272a);
-            border-radius: 12px; overflow: hidden;
+            border-radius: 12px;
+            /* overflow was `hidden`, which CLIPPED columns that exceeded the
+               viewport with no way to reach them (james 2026-08-06). Scroll
+               horizontally instead — nothing is ever unreachable. */
+            overflow-x: auto; overflow-y: hidden;
         }
         
         .table-header {
@@ -90,6 +94,11 @@
            unshrinkable line. */
         .approval-table td.title-cell {
             max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        /* Long automation/solution names ("dayforce-doc-upload_production_v2")
+           are unbreakable tokens that also stretched the table. */
+        .approval-table td.source-cell {
+            max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
         .approval-table td.actions-cell { white-space: nowrap; }
         
@@ -746,7 +755,7 @@
                     <td class="title-cell" title="${String(approval.title || '').replace(/"/g, '&quot;')}">
                         <strong>${approval.title}</strong>
                     </td>
-                    <td>${sourceName || '-'}</td>
+                    <td class="source-cell" title="${String(sourceName || '').replace(/"/g, '&quot;')}">${sourceName || '-'}</td>
                     <td title="${requestedDate}">${requestedRelative}</td>
                     <td>${dueDate}</td>
                     <td>${timeRemainingHtml}</td>
