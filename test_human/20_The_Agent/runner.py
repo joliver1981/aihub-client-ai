@@ -1107,6 +1107,101 @@ def main():
           "get_agent_email_status" in used and affirms and not leads_no,
           f"tools={used} leads_no={leads_no} text={text[:180]!r}")
 
+    # ------------------------------------------------------------------
+    # I — Integrations tools + optional group scoping
+    # ------------------------------------------------------------------
+    import integration_tools as _it
+
+    # I-1 access rule (pure) + live assignment roundtrip with restore
+    try:
+        fake = {"integration_id": 1, "assigned_group_ids": [7]}
+        unassigned = {"integration_id": 2, "assigned_group_ids": []}
+        rule_ok = (_it.accessible(fake, 2, set())            # dev sees all
+                   and _it.accessible(fake, 1, {7, 9})       # member sees
+                   and not _it.accessible(fake, 1, {5})      # non-member no
+                   and not _it.accessible(unassigned, 1, {5})  # fail-closed
+                   and _it.accessible(unassigned, 3, set()))   # admin sees
+        ints = requests.get(f"{MAIN}/api/internal/integrations",
+                            headers=SVC_HEADERS, timeout=30).json()
+        rows = ints.get("integrations") or []
+        rt_ok, rt_note = True, "no integrations configured (roundtrip n/a)"
+        if rows:
+            target = rows[0]["integration_id"]
+            orig = sorted(rows[0].get("assigned_group_ids") or [])
+            def _assign(gids):
+                return requests.post(
+                    f"{MAIN}/api/internal/integrations/{target}/assign-groups",
+                    json={"group_ids": gids}, headers=SVC_HEADERS, timeout=30)
+            def _readback():
+                d = requests.get(f"{MAIN}/api/internal/integrations",
+                                 headers=SVC_HEADERS, timeout=30).json()
+                for r0 in d.get("integrations") or []:
+                    if r0["integration_id"] == target:
+                        return sorted(r0.get("assigned_group_ids") or [])
+                return None
+            r1 = _assign([424242])
+            got1 = _readback()
+            r2 = _assign(orig)
+            got2 = _readback()
+            rt_ok = (r1.status_code == 200 and got1 == [424242]
+                     and r2.status_code == 200 and got2 == orig)
+            rt_note = (f"target={target} set={got1} restored={got2} "
+                       f"(orig={orig})")
+        check("I-1", "integration access rule (dev-all, member-only, "
+                     "fail-closed) + assignment roundtrip persists in "
+                     "instance_config and restores",
+              rule_ok and rt_ok, f"rule={rule_ok}; {rt_note}")
+    except Exception as e:
+        check("I-1", "integration access + assignment roundtrip", False, e)
+
+    # I-2 scoping enforced at the tool chokepoint (no model): a role-1 user
+    # with no groups sees nothing; a role-2 user sees the real list.
+    try:
+        from platform_tools import CURRENT_USER as _CU2
+        _CU2.set({"user_id": 424243, "role": 1, "username": "pack20-regular"})
+        low = _aio.run(_it.list_integrations.handler({}))
+        low_txt = str(low)
+        _CU2.set({"user_id": 1, "role": 2, "username": "pack20-dev"})
+        dev = _aio.run(_it.list_integrations.handler({}))
+        dev_txt = str(dev)
+        blocked = ("assigned" in low_txt.lower()
+                   or "no integrations" in low_txt.lower()) \
+            and "integration_id" not in low_txt
+        dev_sees = str(len(rows)) in dev_txt or "id " in dev_txt
+        check("I-2", "tool chokepoint: role-1 no-groups user sees none "
+                     "(honest guidance); role-2 sees everything",
+              blocked and dev_sees,
+              f"low={low_txt[:100]!r} dev_count_hint={len(rows)}")
+    except Exception as e:
+        check("I-2", "tool-layer scoping", False, e)
+
+    # I-3 live: real SharePoint health_check through the execute seam, and a
+    # real model turn discovers integrations via the tool.
+    try:
+        sp = next((r0 for r0 in rows
+                   if "sharepoint" in str(r0.get("platform_name", "")).lower()
+                   and r0.get("is_connected")), None)
+        hc_ok, hc_note = True, "no connected SharePoint on this box (n/a)"
+        if sp:
+            hr = requests.post(
+                f"{MAIN}/api/internal/integrations/{sp['integration_id']}/execute",
+                json={"operation": "health_check", "parameters": {}},
+                headers=SVC_HEADERS, timeout=120)
+            hd = hr.json() if hr.status_code < 500 else {}
+            hc_ok = hr.status_code == 200 and hd.get("status") != "error"
+            hc_note = (f"sharepoint id={sp['integration_id']} "
+                       f"http={hr.status_code} resp={json.dumps(hd)[:120]}")
+        ev, text = chat_turn(token, "What integrations do we have available? "
+                                    "Just list them.")
+        used = tools_used(ev)
+        check("I-3", "live SharePoint health_check + model turn discovers "
+                     "integrations via the tool",
+              hc_ok and "list_integrations" in used
+              and "sharepoint" in text.lower(),
+              f"{hc_note}; tools={used}")
+    except Exception as e:
+        check("I-3", "integrations livefire", False, e)
+
     # A5-4 secrets seam (feedback #1): service-key store -> visible in list,
     # value never echoed anywhere.
     r = requests.post(f"{MAIN}/workflow/secrets/store",

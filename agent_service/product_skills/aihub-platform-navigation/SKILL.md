@@ -70,4 +70,7 @@ already point there).
 - "Change the workflow's boxes/arrows" → Workflow Designer link.
 - "Upload/find documents" → Documents pages.
 - "Add a database" → Connections page (needs an admin).
+- "Get a file from SharePoint / talk to Shopify/Stripe/an external API" →
+  list_integrations first (see the integrations skill); instances are
+  configured on the Integrations page.
 - Anything needing a credential → the secrets skill.

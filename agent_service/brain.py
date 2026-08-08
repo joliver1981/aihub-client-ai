@@ -26,6 +26,7 @@ from platform_tools import AIHUB_TOOLS, CURRENT_USER
 from authoring_tools import AUTHORING_TOOLS
 from work_tools import WORK_TOOLS
 from views_tools import VIEWS_TOOLS
+from integration_tools import INTEGRATION_TOOLS
 
 from claude_agent_sdk import (
     ClaudeAgentOptions, query, create_sdk_mcp_server,
@@ -37,8 +38,9 @@ except ImportError:  # pragma: no cover
     UserMessage = ToolResultBlock = None
 
 aihub_server = create_sdk_mcp_server(
-    name="aihub", version="0.4.0",
-    tools=AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS)
+    name="aihub", version="0.5.0",
+    tools=AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
+          + INTEGRATION_TOOLS)
 
 # Mutation-claim guard (port of CC nodes.py _claims_completed_mutation,
 # AIHUB-0048 F1): a reply asserting a JUST-COMPLETED change is only honest when
@@ -54,6 +56,7 @@ MUTATING_TOOLS = frozenset({
     "raise_work_item", "save_skill", "schedule_agent_task",
     "save_view", "delete_view", "store_platform_secret",
     "schedule_view_refresh", "draft_email_reply",
+    "execute_integration_operation", "assign_integration_groups",
 })
 
 # Tool inputs are streamed to the UI (chip click-to-peek) and would otherwise
@@ -83,6 +86,7 @@ _READ_TOOL_NAMES = [
     "ask_data_agent", "list_playbooks", "list_recent_runs",
     "check_automation_run", "get_automation", "get_code_flow", "list_my_work",
     "list_saved_views", "list_secret_names", "get_agent_email_status",
+    "list_integrations", "get_integration_operations",
 ]
 _READ_ALLOWED = [f"mcp__aihub__{n}" for n in _READ_TOOL_NAMES]
 
@@ -136,6 +140,17 @@ tokens per run). Recurring judgment ('check X each morning, flag what's odd')
 -> schedule_agent_task (a fresh headless session runs the prompt as this user
 and reports into their My Work). After an analysis the user liked, offer to
 pin it as a View.
+
+INTEGRATIONS (SharePoint, Shopify, Stripe, external APIs)
+When a request involves an external system, call list_integrations FIRST —
+never assume what's connected. You see only what this user may use
+(developers/admins see everything; regular users see integrations assigned
+to their groups). Check get_integration_operations for exact keys/params,
+then execute_integration_operation — the platform owns all auth and runs
+operations server-side. Instances and their credentials are configured on
+the Integrations page, never through chat. delete_* operations need the
+user's explicit confirmation. Admins can share an integration with a group
+via assign_integration_groups (ask which groups first).
 
 SECRETS AND CREDENTIALS
 When a user hands you an API key, password, or token in chat, store it

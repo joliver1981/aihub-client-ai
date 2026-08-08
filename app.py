@@ -5384,6 +5384,15 @@ def internal_list_integrations():
 
         result = []
         for intg in integrations:
+            # assigned_group_ids (additive field, 2026-08-08): group-scoped
+            # access for The Agent — stored inside instance_config (JSON merge
+            # via update_integration; no schema change). Absent/empty = not
+            # assigned to any group, which is the legacy state.
+            try:
+                _icfg = json.loads(intg.get("instance_config") or "{}")
+                _groups = [int(g) for g in (_icfg.get("assigned_group_ids") or [])]
+            except Exception:
+                _groups = []
             result.append({
                 "integration_id": intg.get("integration_id"),
                 "integration_name": intg.get("integration_name", ""),
@@ -5394,6 +5403,7 @@ def internal_list_integrations():
                 "auth_type": intg.get("auth_type", ""),
                 "is_connected": intg.get("is_connected", False),
                 "source_type": "integration",
+                "assigned_group_ids": _groups,
             })
 
         return jsonify({"status": "success", "integrations": result})
@@ -5416,6 +5426,43 @@ def internal_get_integration_operations(integration_id):
         return jsonify({"status": "success", "operations": operations})
     except Exception as e:
         logger.error(f"[internal_get_integration_operations] Error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/internal/integrations/<int:integration_id>/assign-groups", methods=['POST'])
+@cross_origin()
+@internal_api_key_required()
+def internal_assign_integration_groups(integration_id):
+    """
+    ADDITIVE (2026-08-08): set the group assignments that expose an
+    integration to non-developer users of The Agent. Stored inside the
+    instance_config JSON (merge semantics — no schema change; rides along in
+    Solutions Author exports). Empty list = unassigned = legacy behavior
+    (developers/admins only). Body: { "group_ids": [5, 7] }.
+    Caller responsibility: The Agent gates this behind an admin (role 3);
+    this internal seam is service-key only, like its siblings above.
+    """
+    try:
+        from integration_manager import IntegrationManager
+        data = request.get_json() or {}
+        raw = data.get("group_ids")
+        if not isinstance(raw, list):
+            return jsonify({"status": "error",
+                            "message": "group_ids must be a list"}), 400
+        group_ids = sorted({int(g) for g in raw})
+        manager = IntegrationManager()
+        if not manager.get_integration(integration_id):
+            return jsonify({"status": "error",
+                            "message": f"integration {integration_id} not found"}), 404
+        ok, msg = manager.update_integration(
+            integration_id, instance_config={"assigned_group_ids": group_ids})
+        if not ok:
+            return jsonify({"status": "error", "message": msg}), 500
+        return jsonify({"status": "success",
+                        "integration_id": integration_id,
+                        "assigned_group_ids": group_ids})
+    except Exception as e:
+        logger.error(f"[internal_assign_integration_groups] Error: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
