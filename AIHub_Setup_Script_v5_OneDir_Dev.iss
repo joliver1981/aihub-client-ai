@@ -69,6 +69,15 @@ Source: "C:\src\aihub-client-ai-dev\dist\command_center_service\*"; DestDir: "{a
 Source: "C:\src\aihub-client-ai-dev\dist\browser_use_service\*"; DestDir: "{app}\browser_use_service"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "C:\src\aihub-client-ai-dev\dist\browser_use_env\*"; DestDir: "{app}\browser_use_env"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "C:\src\aihub-client-ai-dev\dist\browser_use_chromium\*"; DestDir: "{app}\browser_use_chromium"; Flags: ignoreversion recursesubdirs createallsubdirs
+; The Agent (Strategy B): runs main.py from SOURCE under its own isolated env (aihub-agent:
+; claude-agent-sdk, fastapi, httpx, PyJWT, cryptography, pyodbc). Same shape as Browser Use.
+; The dist\ staging is produced by scripts/build_agent_service.ps1 (source minus __pycache__/
+; data/*.db) + a conda-pack of the aihub-agent env -> dist\agent_env. See
+; docs/dev_machine/AGENT_SERVICE_PACKAGING.md. Its shared key-resolution modules (shared_auth,
+; encrypt, secure_config, local_secrets) are ALREADY shipped loose to {app} above for Browser
+; Use — The Agent imports the same copies via APP_ROOT, so no new loose modules are needed.
+Source: "C:\src\aihub-client-ai-dev\dist\agent_service\*"; DestDir: "{app}\agent_service"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "C:\src\aihub-client-ai-dev\dist\agent_env\*"; DestDir: "{app}\agent_env"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Non-PyInstaller files (unchanged)
 Source: "C:\src\nssm-2.24\win64\nssm.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -349,8 +358,8 @@ end;
 procedure StopAndRemoveServices();
 var
   ResultCode: Integer;
-  Services: array[0..13] of String;
-  Executables: array[0..13] of String;
+  Services: array[0..14] of String;
+  Executables: array[0..14] of String;
   NssmPath: String;
   I: Integer;
 begin
@@ -368,6 +377,7 @@ begin
   Services[11] := 'AIHubCloudGateway';
   Services[12] := 'AIHubCommandCenter';
   Services[13] := 'AIHubBrowserUse';
+  Services[14] := 'AIHubTheAgent';
 
   // Corresponding executable names for taskkill
   Executables[0] := 'app.exe';
@@ -383,9 +393,10 @@ begin
   Executables[10] := 'builder_data.exe';
   Executables[11] := 'app_cloud_gateway.exe';
   Executables[12] := 'command_center_service.exe';
-  // Strategy-B service: image is the SHARED 'python.exe' — PHASE 4 below SKIPS taskkill for it on
-  // purpose (NSSM stop/remove already handled it) so we never blanket-kill unrelated client Pythons.
+  // Strategy-B services: image is the SHARED 'python.exe' — PHASE 4 below SKIPS taskkill for these on
+  // purpose (NSSM stop/remove already handled them) so we never blanket-kill unrelated client Pythons.
   Executables[13] := 'python.exe';
+  Executables[14] := 'python.exe';
   // ONEDIR: Executables remain the same name, just in subfolders
 
   Log('========================================');
@@ -404,7 +415,7 @@ begin
   // PHASE 1: Disable service recovery to prevent auto-restart
   // =========================================================================
   Log('Phase 1: Disabling service recovery...');
-  for I := 0 to 13 do
+  for I := 0 to 14 do
   begin
     DisableServiceRecovery(Services[I]);
   end;
@@ -417,7 +428,7 @@ begin
   if FileExists(NssmPath) then
   begin
     Log('Using NSSM to stop services: ' + NssmPath);
-    for I := 0 to 13 do
+    for I := 0 to 14 do
     begin
       Log('Stopping service: ' + Services[I]);
       Exec(NssmPath, 'stop ' + Services[I], '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
@@ -427,7 +438,7 @@ begin
   else
   begin
     Log('WARNING: NSSM not found, using sc.exe to stop services');
-    for I := 0 to 13 do
+    for I := 0 to 14 do
     begin
       Log('Stopping service: ' + Services[I]);
       Exec('sc.exe', 'stop "' + Services[I] + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
@@ -446,7 +457,7 @@ begin
   Log('Phase 3: Removing service registrations...');
   if FileExists(NssmPath) then
   begin
-    for I := 0 to 13 do
+    for I := 0 to 14 do
     begin
       Log('Removing service: ' + Services[I]);
       Exec(NssmPath, 'remove ' + Services[I] + ' confirm', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
@@ -455,7 +466,7 @@ begin
   end
   else
   begin
-    for I := 0 to 13 do
+    for I := 0 to 14 do
     begin
       Log('Removing service: ' + Services[I]);
       Exec('sc.exe', 'delete "' + Services[I] + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
@@ -471,7 +482,7 @@ begin
   // This is a safety net AFTER services are properly removed
   // =========================================================================
   Log('Phase 4: Final cleanup of any orphan processes...');
-  for I := 0 to 13 do
+  for I := 0 to 14 do
   begin
     // FOOTGUN GUARD: never `taskkill /F /IM python.exe` — that would kill UNRELATED client Python
     // processes. The Strategy-B Browser Use service (image python.exe) is already stopped+removed via
@@ -765,6 +776,7 @@ var
   LocalUser, LocalPwd, LocalDomain: String;
   UseSystemAccount: Boolean;
   BrowserUsePython: String;
+  TheAgentPython: String;
 begin
   EnvConfigFile := ExpandConstant('{app}\.env');
 
@@ -1040,7 +1052,33 @@ begin
   Exec(ExpandConstant('{app}\nssm.exe'), 'start AIHubBrowserUse', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Log('AIHubBrowserUse service started');
 
-  Log('All 14 services installed and started successfully');
+  // =========================================================================
+  // Service 15: The Agent (Strategy B - the bundled aihub-agent python runs main.py from SOURCE)
+  // =========================================================================
+  // Identical shape to Browser Use (Service 14): install the bundled python.exe as the app image,
+  // point AppDirectory at the service source folder, and pass main.py as a RELATIVE parameter
+  // (NSSM strips quotes on a spaced absolute path, so relative + AppDirectory is the robust form).
+  TheAgentPython := ExpandConstant('{app}\agent_env\python.exe');
+  ShellExec('', ExpandConstant('{app}\nssm.exe'),
+    'install AIHubTheAgent "' + TheAgentPython + '"',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{app}\nssm.exe'), 'set AIHubTheAgent AppDirectory "' + ExpandConstant('{app}\agent_service') + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{app}\nssm.exe'), 'set AIHubTheAgent AppParameters main.py', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+  if not UseSystemAccount then
+    Exec(ExpandConstant('{app}\nssm.exe'), 'set AIHubTheAgent ObjectName ' + LocalDomain + '\' + LocalUser + ' ' + LocalPwd, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+  // Env: HOST_PORT lets the resolver compute the default port (HOST_PORT+110=5111) without a
+  // rebuild; APP_ROOT must be the SHARED {app} root so the service loads the shared .env and
+  // resolves the same secrets/loose modules as the frozen services. Each KEY=VALUE is its OWN
+  // quoted argv element (the spaced-path MULTI_SZ lesson from Browser Use above).
+  Exec(ExpandConstant('{app}\nssm.exe'), 'set AIHubTheAgent AppEnvironmentExtra HOST_PORT=5001 "APP_ROOT=' + ExpandConstant('{app}') + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{app}\nssm.exe'), 'set AIHubTheAgent Description "AI Hub The Agent (SDK brain) service"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  ConfigureServiceRecovery('AIHubTheAgent');
+  Exec(ExpandConstant('{app}\nssm.exe'), 'start AIHubTheAgent', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Log('AIHubTheAgent service started');
+
+  Log('All 15 services installed and started successfully');
 
   // Get the configured port for browser launch
   GetConfiguredPort();
@@ -1371,6 +1409,8 @@ Filename: "{app}\nssm.exe"; Parameters: "stop AIHubCommandCenter"; Flags: runhid
 Filename: "{app}\nssm.exe"; Parameters: "remove AIHubCommandCenter confirm"; Flags: runhidden
 Filename: "{app}\nssm.exe"; Parameters: "stop AIHubBrowserUse"; Flags: runhidden waituntilterminated
 Filename: "{app}\nssm.exe"; Parameters: "remove AIHubBrowserUse confirm"; Flags: runhidden
+Filename: "{app}\nssm.exe"; Parameters: "stop AIHubTheAgent"; Flags: runhidden waituntilterminated
+Filename: "{app}\nssm.exe"; Parameters: "remove AIHubTheAgent confirm"; Flags: runhidden
 
 [UninstallRegistry]
 Root: HKLM; Subkey: "Software\AI Hub\Config"; Flags: deletekey

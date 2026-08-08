@@ -149,7 +149,7 @@ opt-in flag, an egress allowlist, and a review pipeline before anything ships.
 |---|---|
 | Flow dashboard (leadership/bottleneck view) | Pinned; lifecycle events land day 1 so it's pure dashboarding later |
 | Views / deterministic dashboards | Phase 2 (A5), designed-for now |
-| aihub-api Anthropic-compatible relay + metering | Required before first client deployment; not for PoC |
+| aihub-api Anthropic-compatible relay + metering | BUILT 2026-08-08 (aihub-api commit c97cd14, additive /api/agent-llm/*, NOT pushed = not deployed); client opt-in via AGENT_ANTHROPIC_RELAY (default off). E2E-verified: SDK brain ran a turn through it with no local Anthropic key. Deploy = push aihub-api + run migration 001 + flip the client flag |
 | BYOK productization / business-model changes | Later; relay path preserves current model |
 | Per-user identity enforcement on main-app routes | Legacy track; The Agent keeps its own audit log meanwhile |
 | Prompt-injection threat-model workstream | Dropped per James (on-prem; approvals gates are the compensating control) |

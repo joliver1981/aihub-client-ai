@@ -195,6 +195,26 @@ AI_HUB_API_KEY = os.getenv("AI_HUB_API_KEY", "") or get_internal_api_key()
 # ---------------------------------------------------------------------------
 
 def ensure_anthropic_key() -> bool:
+    # RELAY MODE (production posture): route the SDK through the aihub-api
+    # Anthropic relay instead of holding a raw Anthropic key on this box.
+    # The tenant LicenseKey authenticates; the cloud swaps in the real key
+    # and meters usage. Default OFF — behavior is byte-identical unless the
+    # flag is set. AGENT_RELAY_URL overrides the base (e.g. a local relay
+    # instance during testing); it defaults to AI_HUB_API_URL.
+    if os.getenv("AGENT_ANTHROPIC_RELAY", "false").lower() == "true":
+        relay_base = (os.getenv("AGENT_RELAY_URL")
+                      or os.getenv("AI_HUB_API_URL") or "").rstrip("/")
+        tenant_key = os.getenv("API_KEY", "")
+        if not relay_base or not tenant_key:
+            logger.error("AGENT_ANTHROPIC_RELAY=true but AGENT_RELAY_URL/"
+                         "AI_HUB_API_URL or API_KEY is missing — falling back "
+                         "to the direct key path")
+        else:
+            os.environ["ANTHROPIC_BASE_URL"] = f"{relay_base}/api/agent-llm"
+            os.environ["ANTHROPIC_API_KEY"] = tenant_key
+            logger.info(f"Anthropic RELAY mode: base {relay_base}/api/agent-llm "
+                        "(tenant-key auth; no raw Anthropic key on this box)")
+            return True
     if os.getenv("ANTHROPIC_API_KEY"):
         return True
     enc = os.getenv("ANTHROPIC_API_KEY_ENCRYPTED")

@@ -923,6 +923,24 @@ def main():
 
     email_store.init()
 
+    # Test isolation: these checks reuse fixed event ids (990001/2), but the
+    # dedupe ledger + FYI items persist across runs — clear our own debris so
+    # a rerun starts clean (mirrors precleanup for automations).
+    import sqlite3 as _sql3
+    _ec = _sql3.connect(email_store.DB_PATH)
+    _ec.execute("DELETE FROM processed_emails WHERE event_id IN (990001, 990002)")
+    _ec.commit()
+    _ec.close()
+    for _it in workitem_store.list_items(77, include_closed=True):
+        if (_it.get("payload") or {}).get("event_id") in (990001, 990002):
+            workitem_store.respond(_it["work_item_id"], 77,
+                                   {"decision": "acknowledged"})
+            _wc = _sql3.connect(email_store.DB_PATH)
+            _wc.execute("DELETE FROM work_items WHERE work_item_id = ?",
+                        (_it["work_item_id"],))
+            _wc.commit()
+            _wc.close()
+
     def _tok(uid, role=2):
         return shared_auth.sign_cc_token({
             "user_id": uid, "role": role, "tenant_id": os.getenv("TENANT_ID", ""),
@@ -939,6 +957,15 @@ def main():
                           f"/api/email/tenant-id",
                           headers={"X-API-Key": os.getenv("API_KEY", "")},
                           timeout=20).json()
+        # Messy prefix normalizes (James's rule: fix, don't reject):
+        # spaces/case/punct -> clean hyphenated prefix.
+        r_messy = requests.post(f"{BASE}/api/email/address",
+                                json={"prefix": "Pack 20.A6!", "enabled": True},
+                                headers={"Authorization": f"Bearer {tok77}"},
+                                timeout=30)
+        messy = (r_messy.json().get("address") or {}) \
+            if r_messy.status_code == 200 else {}
+        messy_expected = f"pack-20a6-agent.{ti.get('tenant_id')}@{ti.get('domain')}"
         r = requests.post(f"{BASE}/api/email/address",
                           json={"prefix": "pack20a6", "enabled": True},
                           headers={"Authorization": f"Bearer {tok77}"},
@@ -948,21 +975,27 @@ def main():
         rb = requests.get(f"{BASE}/api/email/address",
                           headers={"Authorization": f"Bearer {tok77}"},
                           timeout=30).json()
-        r_dot = requests.post(f"{BASE}/api/email/address",
-                              json={"prefix": "bad.dot"},
+        r_bad = requests.post(f"{BASE}/api/email/address",
+                              json={"prefix": "..!!.."},
                               headers={"Authorization": f"Bearer {tok77}"},
                               timeout=30)
         r_dup = requests.post(f"{BASE}/api/email/address",
                               json={"prefix": "pack20a6"},
                               headers={"Authorization": f"Bearer {_tok(78)}"},
                               timeout=30)
-        check("A6-1", "address provisioning: live suffix compose + readback; "
-                      "dotted prefix 400; duplicate 409",
-              r.status_code == 200 and addr.get("email_address") == expected
+        default_ok = (rb.get("default_prefix") == "pack20-u77")
+        check("A6-1", "address provisioning: messy prefix normalizes; suffix "
+                      "compose + readback; unsanitizable 400; duplicate 409; "
+                      "default = username",
+              r_messy.status_code == 200
+              and messy.get("email_address") == messy_expected
+              and r.status_code == 200 and addr.get("email_address") == expected
               and (rb.get("address") or {}).get("email_address") == expected
-              and r_dot.status_code == 400 and r_dup.status_code == 409,
-              f"addr={addr.get('email_address')} expected={expected} "
-              f"dot={r_dot.status_code} dup={r_dup.status_code}")
+              and r_bad.status_code == 400 and r_dup.status_code == 409
+              and default_ok,
+              f"messy={messy.get('email_address')} addr={addr.get('email_address')} "
+              f"bad={r_bad.status_code} dup={r_dup.status_code} "
+              f"default={rb.get('default_prefix')}")
     except Exception as e:
         check("A6-1", "address provisioning", False, e)
 

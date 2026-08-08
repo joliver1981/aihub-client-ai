@@ -638,7 +638,10 @@ async def email_address_get(request: Request):
         "address": row,
         "suffix": (f"-agent.{info['tenant_id']}@{info['domain']}"
                    if info else None),
-        "default_prefix": str(user["user_id"]),
+        # Default to the USERNAME (sanitized for email), not the user id —
+        # fall back to the id only when nothing email-safe survives.
+        "default_prefix": (email_store.sanitize_prefix(user.get("username"))
+                           or str(user["user_id"])),
         "poller_enabled": email_poller.enabled(),
         "poll_seconds": email_poller.POLL_SECONDS,
         "tenant_ok": bool(info),
@@ -654,11 +657,15 @@ async def email_address_set(request: Request):
     import email_store
     import email_client
     body = await request.json()
-    prefix = str(body.get("prefix") or str(user["user_id"])).strip().lower()
+    # Normalize instead of rejecting (spaces -> hyphens, invalid chars
+    # stripped); default = sanitized username, then user id.
+    prefix = email_store.sanitize_prefix(
+        body.get("prefix")
+        or email_store.sanitize_prefix(user.get("username"))
+        or str(user["user_id"]))
     if not email_store.valid_prefix(prefix):
-        raise HTTPException(400, "Prefix must be 1-40 chars of a-z, 0-9, or "
-                                 "hyphen (no dots — the mail router parses "
-                                 "dots).")
+        raise HTTPException(400, "That prefix has no email-safe characters "
+                                 "(a-z, 0-9, hyphen) — pick another.")
     info = await email_client.tenant_info()
     if not info:
         raise HTTPException(502, "Could not reach the cloud email service to "

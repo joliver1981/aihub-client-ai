@@ -35,6 +35,18 @@ PREFIX_RE = re.compile(r"^[a-z0-9-]{1,40}$")   # NO dots: the cloud parses the
                                                # last dot-segment as tenant id
 
 
+def sanitize_prefix(raw: str) -> str:
+    """Normalize any user-supplied prefix into an email-safe one (James's
+    rule: fix it, don't reject it): lowercase; spaces/underscores -> hyphen;
+    strip everything else including dots (the cloud router parses dots);
+    collapse runs of hyphens; trim. Returns '' if nothing survives."""
+    s = str(raw or "").strip().lower()
+    s = re.sub(r"[\s_]+", "-", s)
+    s = re.sub(r"[^a-z0-9-]", "", s)
+    s = re.sub(r"-{2,}", "-", s).strip("-")
+    return s[:40]
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 

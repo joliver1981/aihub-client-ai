@@ -595,8 +595,16 @@
       }
     } catch (e) { note.textContent = "Could not load: " + e.message; }
   }
+  function sanitizePrefix(raw) {
+    // Mirrors the server: lowercase, spaces/underscores -> hyphen, strip
+    // everything else (incl. dots — the mail router parses dots), collapse
+    // hyphen runs, trim.
+    return String(raw || "").trim().toLowerCase()
+      .replace(/[\s_]+/g, "-").replace(/[^a-z0-9-]/g, "")
+      .replace(/-{2,}/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+  }
   function updateEmailPreview() {
-    const p = document.getElementById("email-prefix").value.trim().toLowerCase();
+    const p = sanitizePrefix(document.getElementById("email-prefix").value);
     document.getElementById("email-full").textContent =
       p && emailSuffix ? `Full address: ${p}${emailSuffix}` : "";
   }
