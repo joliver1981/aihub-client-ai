@@ -1044,12 +1044,12 @@ def update_job_schedule(job_id, schedule_id):
         start_date = data.get('start_date')
         if start_date:
             update_fields.append("StartDate = ?")
-            params.append(_bind_schedule_date(start_date))
+            params.append(_bind_schedule_date_utc(start_date, data))
 
         end_date = data.get('end_date')
         if end_date:
             update_fields.append("EndDate = ?")
-            params.append(_bind_schedule_date(end_date))
+            params.append(_bind_schedule_date_utc(end_date, data))
 
         # Max runs
         max_runs = data.get('max_runs')
@@ -1166,12 +1166,12 @@ def update_job_schedule_by_type(job_id, job_type, schedule_id):
         start_date = data.get('start_date')
         if start_date:
             update_fields.append("StartDate = ?")
-            params.append(_bind_schedule_date(start_date))
+            params.append(_bind_schedule_date_utc(start_date, data))
 
         end_date = data.get('end_date')
         if end_date:
             update_fields.append("EndDate = ?")
-            params.append(_bind_schedule_date(end_date))
+            params.append(_bind_schedule_date_utc(end_date, data))
         
         # Max runs
         max_runs = data.get('max_runs')
@@ -1667,6 +1667,31 @@ def _bind_schedule_date(value):
         return value
     parsed = _parse_datetime_string(value)
     return parsed if parsed is not None else value
+
+
+def _bind_schedule_date_utc(value, request_data):
+    """_bind_schedule_date + the SAME local->UTC conversion the CREATE path
+    does (timezone-bug fix, 2026-08-08): the monitor page sends naive
+    browser-LOCAL wall time plus `timezone_offset` (minutes, from JS
+    getTimezoneOffset()) on BOTH create and update — but the update routes
+    used to drop the offset and store local wall-clock into the UTC column,
+    so every edit-save shifted the schedule (4h early in EDT) even when only
+    toggling is_active. Gated on field-presence exactly like
+    _create_schedule: service callers that POST true-UTC strings without
+    `timezone_offset` (agent/automations seams) are untouched.
+    """
+    if isinstance(value, datetime):
+        return value
+    parsed = _parse_datetime_string(value)
+    if parsed is None:
+        return value
+    if 'timezone_offset' in (request_data or {}):
+        try:
+            return parsed + timedelta(
+                minutes=int(request_data.get('timezone_offset') or 0))
+        except (TypeError, ValueError):
+            return parsed
+    return parsed
 
 def _create_schedule(cursor, job_id, schedule_data):
     """

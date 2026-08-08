@@ -2823,12 +2823,18 @@ function loadWorkflowSchedules() {
                         '<span class="badge bg-success">Active</span>' : 
                         '<span class="badge bg-secondary">Inactive</span>';
                     
-                    let nextRun = schedule.next_run_time ? 
-                        `Next run: ${formatDateTime(new Date(schedule.next_run_time))}` : 
+                    // next/last run come from the API as NAIVE UTC (the JSS
+                    // engine normalizes NextRunTime to UTC before persisting).
+                    // A bare new Date("...T...") parses that as LOCAL and
+                    // re-labels the UTC wall clock (+4h in EDT) — normalize
+                    // with the same 'Z'-stamping the start_date fill uses so
+                    // the user sees browser-local time (tz bug fix 2026-08-08).
+                    let nextRun = schedule.next_run_time ?
+                        `Next run: ${formatDateTime(new Date(normalizeUtcDateString(schedule.next_run_time)))}` :
                         'No future runs scheduled';
-                    
-                    let lastRun = schedule.last_run_time ? 
-                        `Last run: ${formatDateTime(new Date(schedule.last_run_time))}` : 
+
+                    let lastRun = schedule.last_run_time ?
+                        `Last run: ${formatDateTime(new Date(normalizeUtcDateString(schedule.last_run_time)))}` :
                         'Never run';
                     
                     let runsInfo = '';
@@ -3195,7 +3201,10 @@ function normalizeUtcDateString(dateStr) {
     if (typeof dateStr === 'string' && !dateStr.endsWith('Z') && !dateStr.includes('+') && !dateStr.includes('T')) {
         // Basic date/time format like "2025-05-16 22:27:00"
         dateStr = dateStr.replace(' ', 'T') + 'Z';
-    } else if (typeof dateStr === 'string' && dateStr.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/)) {
+    } else if (typeof dateStr === 'string' && dateStr.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/)) {
+        // Optional seconds + fractional seconds: SQL DATETIME isoformats with
+        // microseconds (…:00.003000) — without this branch match, such values
+        // skipped the 'Z' stamp and silently rendered as local (+4h).
         dateStr += 'Z';
     }
     return dateStr;
