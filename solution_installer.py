@@ -219,9 +219,15 @@ class SolutionInstaller:
         *,
         options: Optional[InstallOptions] = None,
         auth_headers: Optional[Dict[str, str]] = None,
+        installer_user_id: Optional[int] = None,
     ) -> InstallResult:
         options = options or InstallOptions()
         auth_headers = auth_headers or {}
+        # The authenticated installing user's LOCAL id (from the route's
+        # current_user). This is the owner imported automations should get —
+        # a cross-system bundle carries no owner, and the source's id would
+        # violate FK_Automations_Owner on this target.
+        self._installer_user_id = installer_user_id
 
         # Unpack into a temp dir we own for the duration of install.
         with tempfile.TemporaryDirectory(prefix="sol_install_") as tmp:
@@ -804,10 +810,15 @@ class SolutionInstaller:
 
                 from automations.manager import AutomationManager
                 mgr = AutomationManager()
+                # Owner = the installing user when known, else the token sub,
+                # then resolve_owner_user_id GUARANTEES the value exists in
+                # this tenant (falls back to an admin) so the FK can't fail.
+                owner = mgr.resolve_owner_user_id(
+                    self._resolve_installer_user_id(auth))
                 ok, auto, err = mgr.create_automation(
                     name=final_name,
                     description=meta.get("description") or "",
-                    owner_user_id=self._resolve_installer_user_id(auth),
+                    owner_user_id=owner,
                 )
                 if not ok:
                     raise ValueError(err or "create failed")
@@ -838,10 +849,20 @@ class SolutionInstaller:
                 result.assets.append(AssetResult(
                     kind="automation", name=name, status="failed", detail=str(e)))
 
-    @staticmethod
-    def _resolve_installer_user_id(auth) -> int:
-        """Best-effort owner for installed automations: the installing user's
-        id from the signed assertion when present, else admin (1)."""
+    def _resolve_installer_user_id(self, auth) -> Optional[int]:
+        """Best-effort CANDIDATE owner for imported automations: the local id
+        of the installing user (threaded from the route's current_user) when
+        known, else a signed X-AIHub-User assertion's sub (service callers).
+        Returns None when neither is available — the manager's
+        resolve_owner_user_id then picks a proven-valid tenant owner. NEVER
+        returns a blind hard-coded id (the old `return 1` violated the FK when
+        user 1 didn't exist on the target)."""
+        candidate = getattr(self, "_installer_user_id", None)
+        if candidate:
+            try:
+                return int(candidate)
+            except (TypeError, ValueError):
+                pass
         try:
             from shared_auth import verify_token, AUD_INTERNAL
             token = (auth or {}).get("X-AIHub-User") or ""
@@ -851,7 +872,7 @@ class SolutionInstaller:
                     return int(claims["sub"])
         except Exception:
             pass
-        return 1
+        return None
 
     def _verify_manifest_inventory(self, manifest, root, result):
         """Emit a failed AssetResult for every manifest entry with no backing

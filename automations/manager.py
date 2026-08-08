@@ -354,6 +354,42 @@ END
 
         return True, self._db_get_automation(automation_id), None
 
+    def resolve_owner_user_id(self, candidate: Optional[int]) -> int:
+        """Return an owner_user_id PROVEN to exist as a [dbo].[User] in this
+        tenant, satisfying FK_Automations_Owner.
+
+        This exists for the Solutions IMPORT path (cross-system): a bundle
+        carries no owner, and a source/foreign id would violate the FK on the
+        target. Prefer `candidate` (the installing user) when it is a real
+        local user in this tenant; otherwise fall back to the tenant's
+        lowest-id ADMIN, then any lowest-id user — never a hard-coded id that
+        isn't verified to exist. Raises if the tenant has no users at all
+        (impossible on a real install, but surfaced honestly rather than
+        blindly inserting a bad FK).
+        """
+        conn = self._db_conn()
+        try:
+            cur = conn.cursor()
+            if candidate and int(candidate) > 0:
+                cur.execute("SELECT id FROM [dbo].[User] WHERE id = ?",
+                            int(candidate))
+                if cur.fetchone():
+                    return int(candidate)
+            # tenant context is set on the connection, so these are scoped to
+            # this tenant's users (matching how the FK owner must belong here).
+            cur.execute("SELECT MIN(id) FROM [dbo].[User] WHERE role >= 3")
+            row = cur.fetchone()
+            if row and row[0] is not None:
+                return int(row[0])
+            cur.execute("SELECT MIN(id) FROM [dbo].[User]")
+            row = cur.fetchone()
+            if row and row[0] is not None:
+                return int(row[0])
+            raise ValueError("no users exist in this tenant to own the "
+                             "imported automation")
+        finally:
+            conn.close()
+
     def get_automation(self, automation_id: str) -> Optional[Dict]:
         return self._db_get_automation(automation_id)
 

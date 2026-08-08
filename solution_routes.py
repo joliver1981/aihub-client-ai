@@ -146,6 +146,18 @@ def _auth_headers_from_request() -> Dict[str, str]:
     return headers
 
 
+def _current_user_id() -> Optional[int]:
+    """The authenticated installer's LOCAL user id, for owning imported
+    assets (imported automations must be owned by a real user on THIS
+    system — see solution_installer FK remap). None if unauthenticated."""
+    try:
+        if getattr(current_user, "is_authenticated", False):
+            return int(current_user.id)
+    except (TypeError, ValueError, AttributeError):
+        pass
+    return None
+
+
 # ════════════════════════════════════════════════════════════════
 # Page routes
 # ════════════════════════════════════════════════════════════════
@@ -284,6 +296,7 @@ def api_install(solution_id: str):
         Path(bundle),
         options=options,
         auth_headers=_auth_headers_from_request(),
+        installer_user_id=_current_user_id(),
     )
     return jsonify(result.to_dict()), (200 if result.success else 207)
 
@@ -364,6 +377,7 @@ def api_install_upload():
             tmp_path,
             options=options,
             auth_headers=_auth_headers_from_request(),
+            installer_user_id=_current_user_id(),
         )
         return jsonify(result.to_dict()), (200 if result.success else 207)
     finally:

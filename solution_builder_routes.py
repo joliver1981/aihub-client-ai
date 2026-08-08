@@ -43,7 +43,7 @@ from typing import Any, Dict, List, Optional
 from flask import (
     Blueprint, abort, current_app, jsonify, render_template, request, send_file,
 )
-from flask_login import login_required
+from flask_login import current_user, login_required
 
 from solution_bundler import SolutionBundler
 from solution_catalog import list_bundled_solutions
@@ -113,6 +113,18 @@ def _auth_headers_from_request() -> Dict[str, str]:
     if api_key:
         headers["X-API-Key"] = api_key
     return headers
+
+
+def _current_user_id() -> Optional[int]:
+    """Authenticated installer's LOCAL user id, to own imported assets on
+    THIS system (imported automations must reference a real local user —
+    solution_installer FK remap)."""
+    try:
+        if getattr(current_user, "is_authenticated", False):
+            return int(current_user.id)
+    except (TypeError, ValueError, AttributeError):
+        pass
+    return None
 
 
 # ════════════════════════════════════════════════════════════════
@@ -975,6 +987,7 @@ def test_install():
             tmp_path,
             options=options,
             auth_headers=_auth_headers_from_request(),
+            installer_user_id=_current_user_id(),
         )
         payload = result.to_dict()
         payload["build_warnings"] = report.get("skipped") or []
