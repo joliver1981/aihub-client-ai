@@ -10,6 +10,7 @@ Run (dev):  conda activate aihub-agent && python main.py
 Health:     GET /health
 """
 
+import asyncio
 import json
 import os
 import sys
@@ -36,8 +37,19 @@ import readthrough
 async def lifespan(app):
     workitem_store.init()
     views_store.init()
+    import email_store
+    email_store.init()
+    poller_task = None
+    import email_poller
+    if email_poller.enabled():
+        poller_task = asyncio.get_event_loop().create_task(
+            email_poller.run_forever())
+    else:
+        logger.info("agent email poller disabled (AGENT_EMAIL_ENABLED != true)")
     logger.info(f"The Agent starting: {json.dumps(summary())}")
     yield
+    if poller_task:
+        poller_task.cancel()
     logger.info("The Agent stopped")
 
 
@@ -331,6 +343,30 @@ async def work_respond(request: Request):
             logger.error(f"promotion publish failed (item left open): {e}")
             raise HTTPException(500, f"Publish failed — the item remains open "
                                      f"to retry: {e}")
+    if (payload.get("kind") == "agent_email_reply"
+            and decision in ("answered", "approved")):
+        # SEND BEFORE CLOSE (v2 lesson): a failed send must leave the item
+        # open and retryable — never a closed item whose audit says approved
+        # with nothing sent. Only the address owner (it is THEIR from-
+        # address) or an admin may approve.
+        if (int(user.get("user_id") or 0) != int(payload.get("from_user") or -1)
+                and int(user.get("role") or 0) < 3):
+            raise HTTPException(403, "Only the address owner (or an admin) "
+                                     "can approve this email.")
+        import email_client
+        final_body = str((body.get("response") or {}).get("text") or "").strip() \
+            or str(payload.get("body") or "")
+        result = await email_client.send_reply(
+            payload.get("to") or [], str(payload.get("subject") or ""),
+            final_body, str(payload.get("from_address") or ""),
+            f"{payload.get('from_address', '').split('@')[0]} via The Agent")
+        if not result.get("success"):
+            logger.error(f"agent email send failed (item left open): {result}")
+            raise HTTPException(502, f"Send failed — the item remains open to "
+                                     f"retry: {result.get('error', result)}")
+        logger.info(f"agent email sent: to={payload.get('to')} "
+                    f"from={payload.get('from_address')} "
+                    f"result={json.dumps(result)[:200]}")
     item, err = workitem_store.respond(str(body.get("id")),
                                        int(user["user_id"]),
                                        body.get("response") or {})
@@ -584,6 +620,70 @@ async def views_refresh_cache(request: Request):
                 f"user {uid}: {ok_tiles}/{len(result['tiles'])} tiles ok")
     return {"ok": not errs, "tiles_ok": ok_tiles,
             "tiles_total": len(result["tiles"]), "errors": errs[:5]}
+
+
+# ---------------------------------------------------------------------------
+# Agent Email (A6) — per-user address provisioning + activity log
+# ---------------------------------------------------------------------------
+
+@app.get("/api/email/address")
+async def email_address_get(request: Request):
+    user = _verify_request(request)
+    import email_store
+    import email_client
+    import email_poller
+    info = await email_client.tenant_info()
+    row = email_store.get_address(int(user["user_id"] or 0))
+    return {
+        "address": row,
+        "suffix": (f"-agent.{info['tenant_id']}@{info['domain']}"
+                   if info else None),
+        "default_prefix": str(user["user_id"]),
+        "poller_enabled": email_poller.enabled(),
+        "poll_seconds": email_poller.POLL_SECONDS,
+        "tenant_ok": bool(info),
+    }
+
+
+@app.post("/api/email/address")
+async def email_address_set(request: Request):
+    """Create/update the CURRENT user's agent address. Same contract as the
+    legacy config page: user picks the prefix, the suffix is fixed per
+    install (numeric TenantId + domain from the cloud — readonly)."""
+    user = _verify_request(request)
+    import email_store
+    import email_client
+    body = await request.json()
+    prefix = str(body.get("prefix") or str(user["user_id"])).strip().lower()
+    if not email_store.valid_prefix(prefix):
+        raise HTTPException(400, "Prefix must be 1-40 chars of a-z, 0-9, or "
+                                 "hyphen (no dots — the mail router parses "
+                                 "dots).")
+    info = await email_client.tenant_info()
+    if not info:
+        raise HTTPException(502, "Could not reach the cloud email service to "
+                                 "resolve this install's address suffix — "
+                                 "nothing was saved.")
+    address = email_client.compose_address(prefix, info["tenant_id"],
+                                           info["domain"])
+    try:
+        row = email_store.upsert_address(
+            int(user["user_id"] or 0), prefix, address,
+            str(user.get("username") or ""), int(user.get("role") or 2),
+            bool(body.get("enabled", True)))
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    return {"address": row}
+
+
+@app.get("/api/email/log")
+async def email_log(request: Request):
+    user = _verify_request(request)
+    import email_store
+    row = email_store.get_address(int(user["user_id"] or 0))
+    if not row:
+        return {"log": []}
+    return {"log": email_store.recent(row["email_address"], 20)}
 
 
 if __name__ == "__main__":

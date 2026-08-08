@@ -53,14 +53,14 @@ async def raise_work_item(args: dict[str, Any]) -> dict[str, Any]:
             payload = json.loads(args["payload_json"])
         except Exception:
             return _text("payload_json is not valid JSON", is_error=True)
-    # Fail-closed: promotion payloads are minted ONLY by the sanctioned
-    # save_skill/save_view paths. A generic work item must never be able to
-    # impersonate one and turn an admin's approval into a publish.
+    # Fail-closed: reserved payload kinds are minted ONLY by their sanctioned
+    # tools. A generic work item must never be able to impersonate one and
+    # turn a human's approval into a publish or an email send.
     if isinstance(payload, dict) and payload.get("kind") in (
-            "skill_promotion", "view_promotion"):
+            "skill_promotion", "view_promotion", "agent_email_reply"):
         return _text("payload.kind '" + str(payload["kind"]) + "' is reserved "
-                     "for the save_skill/save_view promotion flows — use those "
-                     "tools instead.", is_error=True)
+                     "— use save_skill / save_view / draft_email_reply "
+                     "instead.", is_error=True)
     addressed = int(args.get("addressed_user_id") or 0) or None
     try:
         item = workitem_store.create_item(
@@ -285,5 +285,60 @@ async def list_skills_tool(args: dict[str, Any]) -> dict[str, Any]:
     return _text(f"Skills ({len(skills)}):\n" + "\n".join(lines))
 
 
+@tool(
+    "draft_email_reply",
+    "Draft an outbound email FROM the current user's personal agent address. "
+    "This NEVER sends: it files an editable approval into the user's My Work "
+    "— what they approve (after any edits) is what sends, from their agent "
+    "address, via the platform's governed email transport. Use when an "
+    "inbound email deserves a reply, or when the user asks you to email "
+    "someone. Never claim an email was SENT — only that a draft is awaiting "
+    "approval. Requires the user to have an active agent email address.",
+    {
+        "type": "object",
+        "properties": {
+            "to": {"type": "array", "items": {"type": "string"},
+                   "description": "Recipient addresses"},
+            "subject": {"type": "string"},
+            "body": {"type": "string", "description": "Plain-text draft body"},
+            "context": {"type": "string",
+                        "description": "Optional: what this replies to (shown "
+                                       "to the approver)"},
+        },
+        "required": ["to", "subject", "body"],
+        "additionalProperties": False,
+    },
+)
+async def draft_email_reply(args: dict[str, Any]) -> dict[str, Any]:
+    import email_store
+    user = CURRENT_USER.get()
+    uid = int(user.get("user_id") or 0)
+    addr = email_store.get_address(uid)
+    if not addr or not addr.get("is_active"):
+        return _text("This user has no active agent email address — nothing "
+                     "was drafted. They can create one on the Email screen.",
+                     is_error=True)
+    to = [str(a).strip() for a in (args.get("to") or []) if str(a).strip()]
+    if not to:
+        return _text("At least one recipient is required.", is_error=True)
+    subject = str(args["subject"]).strip()[:300]
+    body = str(args["body"])
+    item = workitem_store.create_item(
+        "edit_and_return", f"Send: {subject or '(no subject)'}",
+        summary=(f"To: {', '.join(to)}\nFrom: {addr['email_address']}\n"
+                 + (f"Context: {str(args.get('context'))[:400]}\n" if args.get('context') else "")
+                 + "\nEdit the body if needed — what you approve is what sends."),
+        payload={"kind": "agent_email_reply", "to": to, "subject": subject,
+                 "body": body, "from_address": addr["email_address"],
+                 "from_user": uid,
+                 "context": str(args.get("context") or "")[:500]},
+        addressed_user=uid,
+        from_kind="agent_email", from_ref=addr["email_address"],
+        created_by=str(user.get("username") or "agent"))
+    return _text(f"Draft filed for approval (work item {item['work_item_id']}). "
+                 f"It is in My Work now; NOTHING has been sent — the user "
+                 "approves (and may edit) the body first.")
+
+
 WORK_TOOLS = [raise_work_item, list_my_work, schedule_agent_task,
-              save_skill, list_skills_tool]
+              save_skill, list_skills_tool, draft_email_reply]

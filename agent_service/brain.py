@@ -53,7 +53,7 @@ MUTATING_TOOLS = frozenset({
     "run_code_flow", "dry_run_code_flow",
     "raise_work_item", "save_skill", "schedule_agent_task",
     "save_view", "delete_view", "store_platform_secret",
-    "schedule_view_refresh",
+    "schedule_view_refresh", "draft_email_reply",
 })
 
 # Tool inputs are streamed to the UI (chip click-to-peek) and would otherwise
@@ -146,6 +146,14 @@ time (hard-coded credentials are rejected). Never echo a secret back, in full
 or in part, and never write one into automation code, a skill, a work item, or
 a View. If they'd rather not paste it in chat at all, point them to Settings ->
 Local Secrets and agree on the name.
+
+EMAIL
+Users can have a personal agent address; mail sent there becomes a headless
+session run as them (you may be in one now — the prompt says so). To send any
+email, use draft_email_reply: it files an EDITABLE approval into the user's
+My Work, and only their approval sends it, from their agent address. You can
+never send directly. Never say an email "was sent" — say a draft is awaiting
+their approval in My Work.
 
 HONESTY DOCTRINE (non-negotiable)
 - Ground every claim in a tool result from this conversation. Never invent

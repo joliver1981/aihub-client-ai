@@ -279,6 +279,7 @@
   <button class="navlink" id="nav-work">▣ My Work <span class="count" id="work-count" style="display:none">0</span></button>
   <button class="navlink" id="nav-views">▦ Views</button>
   <button class="navlink" id="nav-playbooks">▷ Playbooks</button>
+  <button class="navlink" id="nav-email">✉ Email</button>
   <button class="navlink" id="nav-skills">◆ Skills</button>
   <div class="spacer"></div>
   <div class="plat" id="plat" style="display:none">
@@ -343,6 +344,42 @@
     <div id="views-detail" style="overflow-y:auto;min-height:0">
       <div style="color:var(--text3);text-align:center;margin-top:8vh;font-size:13px">
         Select a view — or ask the Assistant to build an analysis and “save this as a view”.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== AGENT EMAIL ===================== -->
+<section class="view" id="view-email">
+  <div id="work-head" style="padding:16px 22px 0;display:flex;align-items:center;gap:14px">
+    <h1 style="font-size:17px;font-weight:650">Agent Email</h1>
+    <span class="sub" style="color:var(--text3);font-size:12px">Your personal address — mail here becomes an agent session run as you</span>
+    <span class="vmeta" id="email-poller" style="margin-left:auto"></span>
+  </div>
+  <div style="flex:1;overflow-y:auto;padding:14px 22px 22px;display:flex;flex-direction:column;gap:14px;max-width:760px">
+    <div style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:18px 20px">
+      <div class="dlabel" style="margin-bottom:10px">Your address</div>
+      <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap">
+        <input id="email-prefix" type="text" maxlength="40" placeholder="prefix"
+               style="width:160px;padding:8px 12px;border-radius:9px 0 0 9px;border-right:0;font-family:var(--mono);font-size:13px">
+        <input id="email-suffix" type="text" readonly tabindex="-1"
+               style="width:280px;padding:8px 12px;border-radius:0 9px 9px 0;background:var(--raised);color:var(--text3);font-family:var(--mono);font-size:13px;cursor:default">
+      </div>
+      <div class="qfrom" id="email-full" style="margin-top:8px"></div>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:14px">
+        <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text2)">
+          <input id="email-enabled" type="checkbox" checked> Inbound enabled
+        </label>
+        <button class="btn primary" id="email-save">Save address</button>
+        <span id="email-note" class="qfrom"></span>
+      </div>
+      <div class="qfrom" style="margin-top:12px">
+        Mail sent to this address runs a headless agent session as you and lands
+        its result in My Work. Replies the agent drafts always wait for your
+        approval — nothing sends without you.</div>
+    </div>
+    <div style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:18px 20px">
+      <div class="dlabel" style="margin-bottom:10px">Recent inbound activity</div>
+      <div id="email-log" class="qfrom">—</div>
     </div>
   </div>
 </section>
@@ -484,11 +521,13 @@
                   work: document.getElementById("view-work"),
                   views: document.getElementById("view-views"),
                   playbooks: document.getElementById("view-playbooks"),
+                  email: document.getElementById("view-email"),
                   skills: document.getElementById("view-skills") };
   const navs = { chat: document.getElementById("nav-chat"),
                  work: document.getElementById("nav-work"),
                  views: document.getElementById("nav-views"),
                  playbooks: document.getElementById("nav-playbooks"),
+                 email: document.getElementById("nav-email"),
                  skills: document.getElementById("nav-skills") };
   function show(v) {
     for (const k of Object.keys(views)) {
@@ -500,12 +539,81 @@
     if (v === "skills") loadSkills();
     if (v === "views") loadViews();
     if (v === "playbooks") loadPlaybooks();
+    if (v === "email") loadEmail();
   }
   navs.chat.onclick = () => show("chat");
   navs.work.onclick = () => show("work");
   navs.views.onclick = () => show("views");
   navs.playbooks.onclick = () => show("playbooks");
+  navs.email.onclick = () => show("email");
   navs.skills.onclick = () => show("skills");
+
+  // ---------- agent email (A6) ----------
+  let emailSuffix = "";
+  async function loadEmail() {
+    const note = document.getElementById("email-note");
+    note.textContent = "";
+    try {
+      const r = await fetch("/api/email/address", { headers: H() });
+      const d = await r.json();
+      emailSuffix = d.suffix || "";
+      document.getElementById("email-suffix").value =
+        emailSuffix || "(cloud email service unreachable)";
+      const pfx = document.getElementById("email-prefix");
+      pfx.value = (d.address && d.address.prefix) || d.default_prefix || "";
+      document.getElementById("email-enabled").checked =
+        d.address ? !!d.address.is_active : true;
+      document.getElementById("email-poller").textContent = d.poller_enabled
+        ? `poller on · every ${d.poll_seconds}s`
+        : "poller OFF (AGENT_EMAIL_ENABLED)";
+      updateEmailPreview();
+      pfx.oninput = updateEmailPreview;
+      const lr = await fetch("/api/email/log", { headers: H() });
+      const ld = await lr.json();
+      const logEl = document.getElementById("email-log");
+      if (!(ld.log || []).length) {
+        logEl.textContent = d.address
+          ? "No inbound mail processed yet."
+          : "No address yet — pick a prefix and save.";
+      } else {
+        logEl.innerHTML = "";
+        ld.log.forEach(e => {
+          const row = el("div", "", "");
+          row.style.cssText = "display:flex;gap:10px;padding:4px 0;" +
+            "border-bottom:1px solid var(--line-soft);font-size:12px";
+          row.appendChild(el("span", "qmeta",
+            (e.processed_at || "").slice(0, 16).replace("T", " ")));
+          row.appendChild(el("span", "tchip " +
+            (e.outcome === "reply_drafted" ? "t-edit_and_return"
+             : e.outcome === "processed" ? "t-acknowledge" : "t-review"),
+            e.outcome));
+          const what = el("span", "", `${e.sender || "?"} — ${e.subject || "(no subject)"}`);
+          what.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+          row.appendChild(what);
+          logEl.appendChild(row);
+        });
+      }
+    } catch (e) { note.textContent = "Could not load: " + e.message; }
+  }
+  function updateEmailPreview() {
+    const p = document.getElementById("email-prefix").value.trim().toLowerCase();
+    document.getElementById("email-full").textContent =
+      p && emailSuffix ? `Full address: ${p}${emailSuffix}` : "";
+  }
+  document.getElementById("email-save").onclick = async () => {
+    const note = document.getElementById("email-note");
+    note.textContent = "Saving…";
+    try {
+      const r = await fetch("/api/email/address", { method: "POST",
+        headers: H(), body: JSON.stringify({
+          prefix: document.getElementById("email-prefix").value.trim(),
+          enabled: document.getElementById("email-enabled").checked }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { note.textContent = d.detail || "save failed"; return; }
+      note.textContent = `Saved — ${d.address.email_address}`;
+      loadEmail();
+    } catch (e) { note.textContent = e.message; }
+  };
 
   // ---------- platform deep links (rail + Playbooks header) ----------
   let mainPort = 5001;

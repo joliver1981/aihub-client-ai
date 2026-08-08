@@ -914,6 +914,152 @@ def main():
     finally:
         views_store.delete("pack20-two", 1, [], 3, "user")
 
+    # ------------------------------------------------------------------
+    # A6 — Agent Email: per-user addresses on the legacy cloud feed
+    # ------------------------------------------------------------------
+    import asyncio as _aio
+    import email_store
+    import email_poller
+
+    email_store.init()
+
+    def _tok(uid, role=2):
+        return shared_auth.sign_cc_token({
+            "user_id": uid, "role": role, "tenant_id": os.getenv("TENANT_ID", ""),
+            "username": f"pack20-u{uid}", "name": f"Pack20 U{uid}"})
+
+    tok77 = _tok(77)
+    email_store.delete_address(77)
+    email_store.delete_address(78)
+
+    # A6-1 provisioning: compose matches the LIVE cloud suffix; dot prefix
+    # rejected; duplicate address by another user rejected at the DB.
+    try:
+        ti = requests.get(f"{os.getenv('AI_HUB_API_URL', '').rstrip('/')}"
+                          f"/api/email/tenant-id",
+                          headers={"X-API-Key": os.getenv("API_KEY", "")},
+                          timeout=20).json()
+        r = requests.post(f"{BASE}/api/email/address",
+                          json={"prefix": "pack20a6", "enabled": True},
+                          headers={"Authorization": f"Bearer {tok77}"},
+                          timeout=30)
+        addr = (r.json().get("address") or {}) if r.status_code == 200 else {}
+        expected = f"pack20a6-agent.{ti.get('tenant_id')}@{ti.get('domain')}"
+        rb = requests.get(f"{BASE}/api/email/address",
+                          headers={"Authorization": f"Bearer {tok77}"},
+                          timeout=30).json()
+        r_dot = requests.post(f"{BASE}/api/email/address",
+                              json={"prefix": "bad.dot"},
+                              headers={"Authorization": f"Bearer {tok77}"},
+                              timeout=30)
+        r_dup = requests.post(f"{BASE}/api/email/address",
+                              json={"prefix": "pack20a6"},
+                              headers={"Authorization": f"Bearer {_tok(78)}"},
+                              timeout=30)
+        check("A6-1", "address provisioning: live suffix compose + readback; "
+                      "dotted prefix 400; duplicate 409",
+              r.status_code == 200 and addr.get("email_address") == expected
+              and (rb.get("address") or {}).get("email_address") == expected
+              and r_dot.status_code == 400 and r_dup.status_code == 409,
+              f"addr={addr.get('email_address')} expected={expected} "
+              f"dot={r_dot.status_code} dup={r_dup.status_code}")
+    except Exception as e:
+        check("A6-1", "address provisioning", False, e)
+
+    # A6-2 poller honesty (offline, injected brain): process / dedupe /
+    # self-loop guard — no real model call, no cloud call.
+    try:
+        pack_addr = f"pack20a6-agent.{ti.get('tenant_id')}@{ti.get('domain')}"
+        owner = email_store.get_address(77)
+        calls = {"n": 0}
+
+        async def fake_run_turn(prompt, session_id, user_ctx, tool_scope="full"):
+            calls["n"] += 1
+            yield {"type": "text", "text": "Handled the email (pack fake)."}
+            yield {"type": "result", "ok": True, "subtype": "success",
+                   "session_id": "pack-fake"}
+
+        ev1 = {"event_id": 990001, "recipient_email": pack_addr,
+               "sender_email": "outsider@example.com",
+               "subject": "pack20 inbound probe", "body_preview": "hello agent",
+               "message_key": ""}
+        o1 = _aio.run(email_poller.process_event(ev1, owner, {pack_addr},
+                                                 fake_run_turn))
+        o2 = _aio.run(email_poller.process_event(ev1, owner, {pack_addr},
+                                                 fake_run_turn))
+        ev_self = dict(ev1, event_id=990002, sender_email=pack_addr)
+        o3 = _aio.run(email_poller.process_event(ev_self, owner, {pack_addr},
+                                                 fake_run_turn))
+        fyi = [i for i in workitem_store.list_items(77, include_closed=True)
+               if (i.get("payload") or {}).get("event_id") == 990001]
+        check("A6-2", "poller: processes once (FYI in owner's My Work), dedupes "
+                      "repeats, skips self-mail without a brain call",
+              o1 == "processed" and o2 == "skipped_duplicate"
+              and o3 == "skipped_self" and calls["n"] == 1 and len(fyi) == 1,
+              f"outcomes=({o1},{o2},{o3}) brain_calls={calls['n']} fyi={len(fyi)}")
+    except Exception as e:
+        check("A6-2", "poller processing honesty", False, e)
+
+    # A6-3 reply approval: only owner/admin can approve; approved send goes
+    # out through the real cloud transport (self-addressed — harmless loop
+    # the poller's self-guard ignores); send-before-close on failure.
+    try:
+        item = workitem_store.create_item(
+            "edit_and_return", "Send: pack20 A6 self-test",
+            summary="pack probe", payload={
+                "kind": "agent_email_reply", "to": [pack_addr],
+                "subject": "pack20 A6 self-test",
+                "body": "original draft body", "from_address": pack_addr,
+                "from_user": 77},
+            addressed_user=77, from_kind="agent_email", from_ref=pack_addr,
+            created_by="pack20")
+        iid = item["work_item_id"]
+        r_other = requests.post(f"{BASE}/api/work/respond",
+                                json={"id": iid, "response": {
+                                    "decision": "answered", "text": "x"}},
+                                headers={"Authorization": f"Bearer {_tok(2)}"},
+                                timeout=30)
+        still_open = (workitem_store.get_item(iid) or {}).get("status") in (
+            "open", "claimed")
+        r_owner = requests.post(f"{BASE}/api/work/respond",
+                                json={"id": iid, "response": {
+                                    "decision": "answered",
+                                    "text": "edited final body (pack20)"}},
+                                headers={"Authorization": f"Bearer {tok77}"},
+                                timeout=60)
+        closed = (workitem_store.get_item(iid) or {}).get("status") == "closed"
+        check("A6-3", "reply approval: non-owner 403 (item stays open); owner "
+                      "approval sends via the real cloud transport and closes",
+              r_other.status_code == 403 and still_open
+              and r_owner.status_code == 200 and closed,
+              f"other={r_other.status_code} open_after={still_open} "
+              f"owner={r_owner.status_code} closed={closed}")
+    except Exception as e:
+        check("A6-3", "reply approval + send", False, e)
+
+    # A6-4 reserved-kind guard: raise_work_item cannot impersonate a reply
+    try:
+        import work_tools
+        from platform_tools import CURRENT_USER as _CU
+        _CU.set({"user_id": 77, "role": 2, "username": "pack20-u77"})
+        res = _aio.run(work_tools.raise_work_item.handler({
+            "verb": "edit_and_return", "title": "sneaky",
+            "summary": "x",
+            "payload_json": json.dumps({"kind": "agent_email_reply",
+                                        "to": ["victim@example.com"],
+                                        "subject": "s", "body": "b",
+                                        "from_address": pack_addr,
+                                        "from_user": 77})}))
+        blocked = bool(res.get("is_error")) and "reserved" in str(res)[:400]
+        check("A6-4", "reserved-kind guard: generic items cannot impersonate "
+                      "an email reply",
+              blocked, f"result={str(res)[:200]}")
+    except Exception as e:
+        check("A6-4", "reserved-kind guard", False, e)
+    finally:
+        email_store.delete_address(77)
+        email_store.delete_address(78)
+
     # A5-4 secrets seam (feedback #1): service-key store -> visible in list,
     # value never echoed anywhere.
     r = requests.post(f"{MAIN}/workflow/secrets/store",

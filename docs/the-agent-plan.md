@@ -111,15 +111,24 @@ checkpoint auto-abort honesty, tile cache) + user/group/tenant view scopes
 mirroring the skills promotion model (group = membership-verified direct
 save; tenant = admin approval via My Work, no bypass).
 
-**A6 — Agent Email (James, A4 feedback #3).** Every user can create a personal
-inbound address for The Agent: `<prefix>-agent.<client_id>@mail.everiai.ai`
-via Mailgun. `<client_id>` is fixed per install (platform config; shown in a
-readonly box on the create-address page); the user may change their prefix
-(defaults to their user id). Mail arriving there starts/continues a headless
-agent session as that user, honoring the same tool gates; attachments ride the
-existing agent-email attachment pipeline (reuse `agent_email` infra: inbound
-webhook, threading, cooldown, approvals). Outbound replies stay behind the
-My Work editable-draft gate — nothing sends unapproved.
+**A6 — Agent Email (James, A4 feedback #3). BUILT 2026-08-08.** Every user
+can create a personal inbound address for The Agent:
+`<prefix>-agent.<client_id>@mail.everiai.ai`. Survey-corrected facts
+(2026-08-07 infra workflow): `<client_id>` = the numeric **TenantId** (the
+cloud webhook parses the last dot-segment as tenant; live-verified tenant 1 /
+mail.everiai.ai on this install — so `-agent` is simply part of the prefix and
+the format parses through the EXISTING cloud pipeline unchanged); inbound is
+**cloud-API polling** (Mailgun → aihub-api webhook → per-tenant queue), not an
+on-prem webhook — The Agent's poller is a fourth reader of the same feed with
+its own dedupe ledger, exactly like the legacy EmailAgentDispatcher.
+Addresses live in the service's SQLite sidecar (NOT AgentEmailAddresses,
+which the legacy dispatcher owns — a row there would be double-processed);
+readonly suffix box + user-editable prefix on the Email screen (default =
+user id). Mail arriving runs a headless session as the owner (attachment text
+via the main app's existing extract route incl. OCR); replies only via
+draft_email_reply → editable My Work approval → send from the user's address
+through the cloud notifications transport (send-before-close). Self-loop
+guard, per-address cooldown + daily cap, AGENT_EMAIL_ENABLED kill switch.
 
 **Phase-2 backlog — product-skill "phone home" (feedback #4).** Installs
 report product-skill gaps (anonymized: which asks found no skill, which skills
