@@ -1093,6 +1093,20 @@ def main():
         email_store.delete_address(77)
         email_store.delete_address(78)
 
+    # A6-5 capability honesty (James's live repro 2026-08-08): "are you able
+    # to get email?" must be answered from the USER'S state via the status
+    # tool, leading with YES-here's-how — not a generic "no inbox tool".
+    ev, text = chat_turn(token, "Are you able to get email?")
+    used = tools_used(ev)
+    lowered = text.lower()
+    affirms = ("agent address" in lowered or "email screen" in lowered
+               or "-agent." in lowered)
+    leads_no = lowered.strip().startswith(("no", "short answer: no"))
+    check("A6-5", "email-capability ask: status tool consulted; answer leads "
+                  "with the personal-address capability, not 'no'",
+          "get_agent_email_status" in used and affirms and not leads_no,
+          f"tools={used} leads_no={leads_no} text={text[:180]!r}")
+
     # A5-4 secrets seam (feedback #1): service-key store -> visible in list,
     # value never echoed anywhere.
     r = requests.post(f"{MAIN}/workflow/secrets/store",

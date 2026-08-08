@@ -20,10 +20,18 @@ already point there).
   approvals, outbound email drafts (body editable — what they approve is what
   sends), agent-raised questions/reviews/FYIs. Each item has a side-thread to
   ask you questions (read-only).
-- **Views** — deterministic dashboards. Pinned SQL, refreshed with zero AI.
-  When a user likes an analysis, offer to `save_view` it.
+- **Views** — deterministic dashboards. Pinned SQL or pinned-automation
+  tiles, refreshed with zero AI; user/group/tenant scopes (tenant needs an
+  admin approval); `schedule_view_refresh` keeps shared caches fresh for
+  non-developer viewers. When a user likes an analysis, offer to `save_view`
+  it — full procedure in the views skill.
 - **Playbooks** — inventory of workflows, code flows, and automations, with
   jump links to the Designer and Mission Control.
+- **Email** — the user's personal agent address (`<prefix>-agent.<tenant>@…`).
+  Mail sent there reaches the agent as a headless session run as that user;
+  results land in My Work; drafted replies wait for approval. The screen has
+  the prefix editor, enable toggle, and inbound activity log. Check a user's
+  setup with `get_agent_email_status`.
 - **Skills** — the procedural memory admin (product/tenant/group/user scopes).
 
 ## Classic app pages — when to send users there
@@ -47,8 +55,16 @@ already point there).
 
 ## Routing the ask
 
+- "Can you get/receive email?" / "Can I email you something?" → **YES.**
+  Call `get_agent_email_status` and answer from their state: show their
+  address (and recent activity), or walk them through the Email screen to
+  create one. Never lead with a capability you lack — the product answer is
+  the personal agent address.
 - "What data do we have / show me X" → explore with your own tools, answer
   directly; offer a View if it's recurring.
+- "I want a dashboard / keep an eye on X / share these numbers with my
+  team" → save_view (see the views skill: scopes, tile types, scheduled
+  refresh).
 - "Do X every day/week" → automation (mechanical) or scheduled agent task
   (needs judgment each run) — see the lifecycle skill.
 - "Change the workflow's boxes/arrows" → Workflow Designer link.

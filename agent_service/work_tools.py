@@ -340,5 +340,51 @@ async def draft_email_reply(args: dict[str, Any]) -> dict[str, Any]:
                  "approves (and may edit) the body first.")
 
 
+@tool(
+    "get_agent_email_status",
+    "Check the current user's personal agent-email setup: their inbound "
+    "address (or that none exists yet), whether it's enabled, whether the "
+    "poller is running, and recent inbound activity. Use this WHENEVER a "
+    "user asks about receiving/getting/handling email so you answer from "
+    "THEIR actual state — never a generic capability answer.",
+    {},
+)
+async def get_agent_email_status(args: dict[str, Any]) -> dict[str, Any]:
+    import email_store
+    import email_poller
+    import email_client
+    user = CURRENT_USER.get()
+    uid = int(user.get("user_id") or 0)
+    row = email_store.get_address(uid)
+    info = await email_client.tenant_info()
+    suffix = (f"-agent.{info['tenant_id']}@{info['domain']}" if info
+              else "(cloud email service unreachable)")
+    lines = []
+    if row:
+        state = "ENABLED" if row.get("is_active") else "DISABLED"
+        lines.append(f"Address: {row['email_address']} ({state})")
+        recent = email_store.recent(row["email_address"], 5)
+        if recent:
+            lines.append(f"Recent inbound activity ({len(recent)} shown):")
+            for e in recent:
+                lines.append(f"  - {e['processed_at'][:16]} [{e['outcome']}] "
+                             f"from {e.get('sender') or '?'}: "
+                             f"{(e.get('subject') or '(no subject)')[:60]}")
+        else:
+            lines.append("No inbound mail processed yet.")
+    else:
+        default = email_store.sanitize_prefix(user.get("username")) or str(uid)
+        lines.append("No agent email address set up yet for this user. They "
+                     "can create one on the Email screen (rail: ✉ Email): "
+                     f"pick a prefix (default '{default}') and the address "
+                     f"becomes <prefix>{suffix}.")
+    lines.append(f"Inbound poller: {'RUNNING (every ' + str(email_poller.POLL_SECONDS) + 's)' if email_poller.enabled() else 'OFF (AGENT_EMAIL_ENABLED=false — an admin must enable it)'}")
+    lines.append("How it works: mail sent to the address becomes a headless "
+                 "agent session run as this user; results land in My Work, "
+                 "and replies the agent drafts always wait for their approval.")
+    return _text("\n".join(lines))
+
+
 WORK_TOOLS = [raise_work_item, list_my_work, schedule_agent_task,
-              save_skill, list_skills_tool, draft_email_reply]
+              save_skill, list_skills_tool, draft_email_reply,
+              get_agent_email_status]
