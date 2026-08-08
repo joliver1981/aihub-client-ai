@@ -9,8 +9,8 @@
     --bg:#0B0F14; --panel:#10161D; --raised:#151D26; --hover:#1A2430;
     --line:#1E2933; --line-soft:#18212B;
     --text:#E4ECF3; --text2:#93A2B0; --text3:#5C6B7A;
-    --accent:#41D0C1; --accent-ink:#0B0F14;
-    --accent-tint:rgba(65,208,193,.12); --accent-line:rgba(65,208,193,.35);
+    --accent:#4D9FFF; --accent-ink:#06101C;
+    --accent-tint:rgba(77,159,255,.13); --accent-line:rgba(77,159,255,.42);
     --amber:#E5B663; --amber-tint:rgba(229,182,99,.12);
     --red:#E0716B; --red-tint:rgba(224,113,107,.12);
     --green:#5AC488; --green-tint:rgba(90,196,136,.12);
@@ -34,7 +34,7 @@
         display:flex;flex-direction:column;gap:4px;padding:16px 10px;height:100vh;position:sticky;top:0}
   .brand{display:flex;align-items:center;gap:9px;padding:2px 8px 14px}
   .mark{width:26px;height:26px;border-radius:7px;flex:none;
-        background:linear-gradient(135deg,var(--accent),#2A8F86);
+        background:linear-gradient(135deg,var(--accent),#2563C9);
         display:grid;place-items:center;color:var(--accent-ink);font-weight:800;font-size:13px}
   .brand b{font-size:14px;font-weight:650}
   .navlink{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:8px;
@@ -232,6 +232,29 @@
             font-family:var(--mono);font-size:10.5px;color:var(--text3);background:var(--panel)}
   .tblpager button{border:1px solid var(--line);border-radius:6px;padding:2px 9px;color:var(--text2)}
   .tblpager button:disabled{opacity:.35;cursor:default}
+
+  /* platform links (rail) */
+  .plat{padding:10px 12px 4px;border-top:1px solid var(--line-soft);margin-top:8px}
+  .plat .plabel{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+                color:var(--text3);margin-bottom:6px}
+  .plat a{display:block;color:var(--text2);text-decoration:none;font-size:11.5px;
+          padding:3px 6px;border-radius:6px}
+  .plat a:hover{color:var(--text);background:var(--hover)}
+
+  /* views (deterministic dashboards) */
+  .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));
+         gap:14px;align-content:start}
+  .tile{background:var(--panel);border:1px solid var(--line);border-radius:13px;
+        padding:14px 16px;min-height:90px;display:flex;flex-direction:column}
+  .tile .ttitle{font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px}
+  .tile .stat{font-size:34px;font-weight:700;letter-spacing:-.02em;
+              font-variant-numeric:tabular-nums;margin:auto 0}
+  .tile .statsub{font-size:10.5px;color:var(--text3);font-family:var(--mono)}
+  .tile.err{border-color:rgba(230,90,90,.5)}
+  .tile.err .terr{color:#e06666;font-size:11.5px;font-family:var(--mono);
+                  white-space:pre-wrap;overflow-wrap:anywhere}
+  .tile.wide{grid-column:1 / -1}
+  .vmeta{font-family:var(--mono);font-size:10.5px;color:var(--text3)}
 </style>
 <script src="/static/vendor/marked.min.js"></script>
 <script src="/static/vendor/purify.min.js"></script>
@@ -242,8 +265,13 @@
   <div class="brand"><div class="mark">A</div><b>The Agent</b></div>
   <button class="navlink on" id="nav-chat">◇ Assistant</button>
   <button class="navlink" id="nav-work">▣ My Work <span class="count" id="work-count" style="display:none">0</span></button>
+  <button class="navlink" id="nav-views">▦ Views</button>
+  <button class="navlink" id="nav-playbooks">▷ Playbooks</button>
   <button class="navlink" id="nav-skills">◆ Skills</button>
   <div class="spacer"></div>
+  <div class="plat" id="plat" style="display:none">
+    <div class="plabel">Platform</div>
+  </div>
   <div class="model-note" id="model"></div>
   <div class="who" id="who"></div>
 </nav>
@@ -288,6 +316,34 @@
       <div style="color:var(--text3);text-align:center;margin-top:8vh;font-size:13px">Select a skill.</div>
     </div>
   </div>
+</section>
+
+<!-- ===================== VIEWS ===================== -->
+<section class="view" id="view-views">
+  <div id="work-head" style="padding:16px 22px 0;display:flex;align-items:center;gap:14px">
+    <h1 style="font-size:17px;font-weight:650">Views</h1>
+    <span class="sub" style="color:var(--text3);font-size:12px">Deterministic dashboards — pinned SQL, zero AI per refresh</span>
+    <span class="vmeta" id="views-meta" style="margin-left:auto"></span>
+    <button id="views-refresh" style="border:1px solid var(--line);border-radius:8px;padding:5px 12px;color:var(--text2);font-size:12px">↻ Refresh</button>
+  </div>
+  <div id="views-body" style="flex:1;display:grid;grid-template-columns:280px 1fr;gap:14px;padding:14px 22px 22px;overflow:hidden;min-height:0">
+    <div id="views-list" style="overflow-y:auto;display:flex;flex-direction:column;gap:8px"></div>
+    <div id="views-detail" style="overflow-y:auto;min-height:0">
+      <div style="color:var(--text3);text-align:center;margin-top:8vh;font-size:13px">
+        Select a view — or ask the Assistant to build an analysis and “save this as a view”.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== PLAYBOOKS ===================== -->
+<section class="view" id="view-playbooks">
+  <div id="work-head" style="padding:16px 22px 0;display:flex;align-items:center;gap:14px">
+    <h1 style="font-size:17px;font-weight:650">Playbooks</h1>
+    <span class="sub" style="color:var(--text3);font-size:12px">The deterministic assets on this install — workflows, code flows, automations</span>
+    <button id="pb-refresh" style="margin-left:auto;border:1px solid var(--line);border-radius:8px;padding:5px 12px;color:var(--text2);font-size:12px">↻ Refresh</button>
+  </div>
+  <div class="chips" id="pb-links" style="padding:10px 22px 0"></div>
+  <div id="pb-list" style="flex:1;overflow-y:auto;padding:14px 22px 22px;display:flex;flex-direction:column;gap:8px"></div>
 </section>
 
 <script>
@@ -414,9 +470,13 @@
   // ---------- view switching ----------
   const views = { chat: document.getElementById("view-chat"),
                   work: document.getElementById("view-work"),
+                  views: document.getElementById("view-views"),
+                  playbooks: document.getElementById("view-playbooks"),
                   skills: document.getElementById("view-skills") };
   const navs = { chat: document.getElementById("nav-chat"),
                  work: document.getElementById("nav-work"),
+                 views: document.getElementById("nav-views"),
+                 playbooks: document.getElementById("nav-playbooks"),
                  skills: document.getElementById("nav-skills") };
   function show(v) {
     for (const k of Object.keys(views)) {
@@ -425,10 +485,174 @@
     }
     if (v === "work") loadWork();
     if (v === "skills") loadSkills();
+    if (v === "views") loadViews();
+    if (v === "playbooks") loadPlaybooks();
   }
   navs.chat.onclick = () => show("chat");
   navs.work.onclick = () => show("work");
+  navs.views.onclick = () => show("views");
+  navs.playbooks.onclick = () => show("playbooks");
   navs.skills.onclick = () => show("skills");
+
+  // ---------- platform deep links (rail + Playbooks header) ----------
+  let mainPort = 5001;
+  const platUrl = (path) => `${location.protocol}//${location.hostname}:${mainPort}${path}`;
+  const PLATFORM_LINKS = [
+    ["Documents", "/document-manager"],
+    ["Document search", "/document-search"],
+    ["Workflow Designer", "/workflow_tool"],
+    ["Mission Control", "/automations/"],
+    ["Data Explorer", "/data_explorer"],
+    ["Connections", "/connections"],
+    ["Local Secrets", "/local-secrets"],
+    ["Classic app", "/?classic=1"],
+  ];
+  function buildPlatformLinks() {
+    const box = document.getElementById("plat");
+    box.querySelectorAll("a").forEach(a => a.remove());
+    PLATFORM_LINKS.forEach(([label, path]) => {
+      const a = el("a", "", label + " ↗");
+      a.href = platUrl(path); a.target = "_blank"; a.rel = "noopener";
+      box.appendChild(a);
+    });
+    box.style.display = "";
+  }
+
+  // ---------- views (deterministic dashboards) ----------
+  let currentView = null;
+  async function loadViews() {
+    const list = document.getElementById("views-list");
+    list.innerHTML = "Loading…";
+    try {
+      const r = await fetch("/api/views", { headers: H() });
+      const d = await r.json();
+      list.innerHTML = "";
+      if (!(d.views || []).length) {
+        const empty = el("div", "qfrom",
+          "No views yet. Build an analysis with the Assistant, then say " +
+          "“save this as a view” — it pins the exact SQL and refreshes here " +
+          "with zero AI.");
+        list.appendChild(empty);
+        return;
+      }
+      d.views.forEach(v => {
+        const b = el("button", "qitem" + (currentView === v.name ? " on" : ""));
+        const row = el("div", "qrow");
+        row.appendChild(el("span", "tchip t-review", `${v.tile_count} tiles`));
+        row.appendChild(el("span", "qmeta", "v" + v.version));
+        b.appendChild(row);
+        b.appendChild(el("div", "qtitle", v.name));
+        b.appendChild(el("div", "qfrom", v.description || ""));
+        b.onclick = () => { currentView = v.name; loadViews(); runView(v.name); };
+        list.appendChild(b);
+      });
+      if (currentView) runView(currentView);
+    } catch (e) { list.textContent = "Could not load: " + e.message; }
+  }
+  async function runView(name) {
+    const detail = document.getElementById("views-detail");
+    const meta = document.getElementById("views-meta");
+    detail.innerHTML = "";
+    detail.appendChild(el("div", "qfrom", "Refreshing — running pinned SQL…"));
+    try {
+      const r = await fetch("/api/views/run", { method: "POST", headers: H(),
+                                                body: JSON.stringify({ name }) });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        detail.textContent = d.detail || "refresh failed"; return;
+      }
+      const d = await r.json();
+      meta.textContent = `v${d.version} · refreshed ${new Date().toLocaleTimeString()}`;
+      detail.innerHTML = "";
+      const grid = el("div", "tiles");
+      (d.tiles || []).forEach(t => {
+        const tile = el("div", "tile");
+        tile.appendChild(el("div", "ttitle", t.title || "(untitled)"));
+        if (t.error) {
+          tile.classList.add("err");
+          tile.appendChild(el("div", "terr", t.error));
+        } else if ((t.viz === "stat" || t.viz === "auto" || !t.viz) &&
+                   (t.rows || []).length === 1 && (t.columns || []).length === 1) {
+          const v = t.rows[0][0];
+          const n = Number(v);
+          tile.appendChild(el("div", "stat",
+            Number.isFinite(n) ? n.toLocaleString() : String(v)));
+          tile.appendChild(el("div", "statsub", t.columns[0]));
+        } else {
+          tile.classList.add("wide");
+          const host = el("div", "md");
+          const tbl = document.createElement("table");
+          const thead = tbl.createTHead().insertRow();
+          (t.columns || []).forEach(c => {
+            const th = document.createElement("th");
+            th.textContent = c; thead.appendChild(th);
+          });
+          const tb = tbl.createTBody();
+          (t.rows || []).forEach(row => {
+            const tr = tb.insertRow();
+            row.forEach(cell => { tr.insertCell().textContent = String(cell ?? ""); });
+          });
+          host.appendChild(tbl);
+          tile.appendChild(host);
+          enhanceTables(host);
+          const cap = t.cap_applied ? ` (server row cap applied)` : "";
+          tile.appendChild(el("div", "statsub", `${(t.rows || []).length} rows${cap}`));
+        }
+        grid.appendChild(tile);
+      });
+      detail.appendChild(grid);
+    } catch (e) { detail.textContent = "Refresh failed: " + e.message; }
+  }
+  document.getElementById("views-refresh").onclick = () =>
+    currentView ? runView(currentView) : loadViews();
+
+  // ---------- playbooks ----------
+  const PB_STYLE = { workflow: "t-review", code_flow: "t-provide_input",
+                     automation: "t-approve_deny" };
+  async function loadPlaybooks() {
+    const list = document.getElementById("pb-list");
+    const links = document.getElementById("pb-links");
+    links.innerHTML = "";
+    [["Open Workflow Designer ↗", "/workflow_tool"],
+     ["Open Mission Control ↗", "/automations/"]].forEach(([label, path]) => {
+      const a = el("a", "chip", label);
+      a.href = platUrl(path); a.target = "_blank"; a.rel = "noopener";
+      a.style.textDecoration = "none";
+      links.appendChild(a);
+    });
+    list.innerHTML = "Loading…";
+    try {
+      const r = await fetch("/api/playbooks", { headers: H() });
+      const d = await r.json();
+      list.innerHTML = "";
+      (d.errors || []).forEach(e => list.appendChild(el("div", "err-note", e)));
+      if (!(d.playbooks || []).length) {
+        list.appendChild(el("div", "qfrom",
+          "No playbooks yet — ask the Assistant to build one."));
+        return;
+      }
+      d.playbooks.forEach(p => {
+        const b = el("button", "qitem");
+        const row = el("div", "qrow");
+        row.appendChild(el("span", "tchip " + (PB_STYLE[p.kind] || ""),
+                           p.kind.replace("_", " ")));
+        row.appendChild(el("span", "qmeta",
+          p.kind === "automation"
+            ? `v${p.version ?? "?"}${p.pinned ? " · pinned v" + p.pinned : ""}`
+            : `id ${p.id}`));
+        b.appendChild(row);
+        b.appendChild(el("div", "qtitle", p.name || "(unnamed)"));
+        if (p.description) b.appendChild(el("div", "qfrom", p.description));
+        b.onclick = () => {
+          const url = p.kind === "automation" ? platUrl("/automations/")
+                                              : platUrl("/workflow_tool");
+          window.open(url, "_blank", "noopener");
+        };
+        list.appendChild(b);
+      });
+    } catch (e) { list.textContent = "Could not load: " + e.message; }
+  }
+  document.getElementById("pb-refresh").onclick = loadPlaybooks;
 
   // ---------- skills view ----------
   const SCOPE_STYLE = { product: "t-acknowledge", tenant: "t-provide_input",
@@ -933,6 +1157,8 @@
         gate(d.detail || "Session expired — reopen from AI Hub."); return;
       }
       const d = await r.json(); me = d.user;
+      if (d.main_port) mainPort = d.main_port;
+      buildPlatformLinks();
       document.getElementById("who").innerHTML =
         `signed in as<b>${d.user.name || d.user.username}</b>`;
       document.getElementById("model").textContent = "brain: " + d.model;

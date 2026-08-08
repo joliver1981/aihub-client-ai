@@ -244,7 +244,10 @@ async def probe_connection_query(args: dict[str, Any]) -> dict[str, Any]:
                          "before assuming the data is missing.")
         lines = [" | ".join(str(c) for c in cols)]
         for r in rows[:15]:
-            lines.append(" | ".join(str(v) for v in r))
+            # rows arrive as dicts keyed by column — iterating the dict itself
+            # would render the KEYS (column names) instead of the values
+            vals = [r.get(c) for c in cols] if isinstance(r, dict) else list(r)
+            lines.append(" | ".join(str(v) for v in vals))
         note = f"\n({data.get('row_count')} rows returned"
         if data.get("cap_applied"):
             note += f", server cap {data.get('row_cap')} applied"
@@ -387,6 +390,76 @@ async def list_recent_runs(args: dict[str, Any]) -> dict[str, Any]:
         return _text(f"Could not fetch runs: {e}", is_error=True)
 
 
+@tool(
+    "list_secret_names",
+    "List the NAMES of secrets in AI Hub's encrypted Local Secrets store "
+    "(values are never exposed). Check here before asking a user for a "
+    "credential — it may already exist — and use these exact names in "
+    "automation manifests.",
+    {},
+)
+async def list_secret_names(args: dict[str, Any]) -> dict[str, Any]:
+    try:
+        data = await _get("/workflow/secrets/list")
+        secrets = data.get("secrets") or []
+        if not secrets:
+            return _text("The Local Secrets store is empty.")
+        lines = [f"- {s['name']}" + (f" — {s['description']}" if s.get("description") else "")
+                 for s in secrets]
+        return _text(f"Stored secret names ({len(secrets)}):\n" + "\n".join(lines))
+    except Exception as e:
+        logger.error(f"list_secret_names failed: {e}")
+        return _text(f"Could not list secret names: {e}", is_error=True)
+
+
+@tool(
+    "store_platform_secret",
+    "Store an API key/password/token a user just provided into AI Hub's "
+    "encrypted Local Secrets store, so automations reference it BY NAME in "
+    "their manifest and the server injects the value at run time. Use this "
+    "IMMEDIATELY when a user hands you a credential in chat — never hard-code "
+    "it, never echo it back (in full or in part), and refer to it only by "
+    "name afterwards. Name must be UPPER_SNAKE_CASE (e.g. SENDGRID_API_KEY).",
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "UPPER_SNAKE_CASE secret name"},
+            "value": {"type": "string", "description": "The secret value (never echoed)"},
+            "description": {"type": "string", "description": "What this credential is for"},
+            "category": {"type": "string",
+                         "enum": ["api_keys", "credentials", "database", "other"]},
+        },
+        "required": ["name", "value"],
+        "additionalProperties": False,
+    },
+)
+async def store_platform_secret(args: dict[str, Any]) -> dict[str, Any]:
+    try:
+        data, status = await _post("/workflow/secrets/store", {
+            "name": str(args["name"]).strip().upper(),
+            "value": str(args["value"]),
+            "description": str(args.get("description") or "provided via The Agent chat"),
+            "category": str(args.get("category") or "api_keys"),
+        })
+        if status >= 400 or not data.get("success"):
+            return _text(f"Secret NOT stored (HTTP {status}): "
+                         f"{data.get('error', data)}", is_error=True)
+        verb = "updated" if data.get("is_update") else "stored"
+        # Read-back: confirm the name now exists before claiming success.
+        rb = await _get("/workflow/secrets/list")
+        names = {s.get("name") for s in (rb.get("secrets") or [])}
+        if data.get("name") not in names:
+            return _text(f"Store call returned success but '{data.get('name')}' "
+                         "does not appear in the read-back list — report this "
+                         "as NOT stored.", is_error=True)
+        return _text(f"Secret '{data['name']}' {verb} in the encrypted Local "
+                     "Secrets store (verified by read-back). Reference it by "
+                     "this name in manifests; the value is never shown again.")
+    except Exception as e:
+        logger.error(f"store_platform_secret failed: {e}")
+        return _text(f"Secret NOT stored: {e}", is_error=True)
+
+
 AIHUB_TOOLS = [
     list_data_connections,
     get_connection_schema,
@@ -394,6 +467,8 @@ AIHUB_TOOLS = [
     ask_data_agent,
     list_playbooks,
     list_recent_runs,
+    list_secret_names,
+    store_platform_secret,
 ]
 
 # The combined MCP server (read + authoring tools) is assembled in brain.py to

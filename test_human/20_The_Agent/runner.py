@@ -529,6 +529,75 @@ def main():
           all(fab_hits) and not any(hon_hits),
           f"fabricated={fab_hits} honest={hon_hits}")
 
+    # ------------------------------------------------------------------
+    # A5 — Views (deterministic dashboards) + feedback-batch seams
+    # ------------------------------------------------------------------
+    import views_store
+
+    # A5-1 deterministic store -> run roundtrip (no model): pinned SQL runs
+    # through the governed probe seam and returns real rows.
+    views_store.init()
+    views_store.delete("pack20-direct")
+    try:
+        views_store.save("pack20-direct", "pack 20 direct view",
+                         [{"title": "Pulse", "connection": "ERPDB",
+                           "sql": "SELECT 1 AS pulse", "viz": "stat"}], 1)
+        r = requests.post(f"{BASE}/api/views/run", json={"name": "pack20-direct"},
+                          headers={"Authorization": f"Bearer {token}"}, timeout=60)
+        vr = r.json() if r.status_code < 400 else {}
+        tile = (vr.get("tiles") or [{}])[0]
+        ok = (r.status_code == 200 and not tile.get("error")
+              and tile.get("rows") and str(tile["rows"][0][0]) == "1")
+        check("A5-1", "saved view refreshes deterministically via the probe seam",
+              ok, f"http={r.status_code} tile={json.dumps(tile)[:250]}")
+    except Exception as e:
+        check("A5-1", "saved view refreshes deterministically", False, e)
+    finally:
+        views_store.delete("pack20-direct")
+
+    # A5-2 conversational: the agent pins a verified analysis as a View
+    views_store.delete("pack20-pulse")
+    ev, text = chat_turn(token,
+        "Create a saved View named exactly 'pack20-pulse' with ONE stat tile: "
+        "the row count of one real table on the ERPDB connection. Verify the "
+        "SQL with a probe first, then save the view.", timeout=A1_TURN_TIMEOUT)
+    used = tools_used(ev)
+    saved = views_store.get("pack20-pulse")
+    check("A5-2", "agent verifies SQL then saves a View (ground-truthed in store)",
+          "save_view" in used and saved is not None
+          and "probe_connection_query" in used,
+          f"tools={used} saved={bool(saved)} "
+          f"tiles={len((saved or {}).get('tiles', []))}")
+    views_store.delete("pack20-pulse")
+
+    # A5-3 playbooks inventory endpoint (feedback #6)
+    r = requests.get(f"{BASE}/api/playbooks",
+                     headers={"Authorization": f"Bearer {token}"}, timeout=60)
+    pb = r.json() if r.status_code < 400 else {}
+    kinds = {p.get("kind") for p in pb.get("playbooks") or []}
+    check("A5-3", "playbooks endpoint returns the real inventory",
+          r.status_code == 200 and len(pb.get("playbooks") or []) > 0
+          and kinds <= {"workflow", "code_flow", "automation"},
+          f"count={len(pb.get('playbooks') or [])} kinds={sorted(kinds)} "
+          f"errors={pb.get('errors')}")
+
+    # A5-4 secrets seam (feedback #1): service-key store -> visible in list,
+    # value never echoed anywhere.
+    r = requests.post(f"{MAIN}/workflow/secrets/store",
+                      json={"name": "PACK20_TEST_SECRET", "value": "pack20-value",
+                            "description": "pack 20 probe (safe to delete)"},
+                      headers=SVC_HEADERS, timeout=30)
+    sr = r.json() if r.status_code < 400 else {}
+    rl = requests.get(f"{MAIN}/workflow/secrets/list", headers=SVC_HEADERS,
+                      timeout=30)
+    names = {s.get("name") for s in (rl.json().get("secrets") or [])} \
+        if rl.status_code < 400 else set()
+    check("A5-4", "secret store seam: X-API-Key write lands in the store, "
+                  "response never echoes the value",
+          sr.get("success") is True and "PACK20_TEST_SECRET" in names
+          and "pack20-value" not in json.dumps(sr),
+          f"store={json.dumps(sr)[:200]} listed={'PACK20_TEST_SECRET' in names}")
+
     _write_report(checks)
     if not all(c["ok"] for c in checks):
         sys.exit(1)

@@ -28,12 +28,14 @@ from fastapi.middleware.cors import CORSMiddleware
 import shared_auth  # from APP_ROOT (agent_config put it on sys.path)
 from brain import run_turn
 import workitem_store
+import views_store
 import readthrough
 
 
 @asynccontextmanager
 async def lifespan(app):
     workitem_store.init()
+    views_store.init()
     logger.info(f"The Agent starting: {json.dumps(summary())}")
     yield
     logger.info("The Agent stopped")
@@ -92,7 +94,10 @@ async def health():
 async def me(request: Request):
     user = _verify_request(request)
     return {"user": {k: user[k] for k in ("username", "name", "role")},
-            "model": AGENT_MODEL}
+            "model": AGENT_MODEL,
+            # Deep links into the legacy app (Playbooks/Platform views) target
+            # the same hostname the browser used, on the main app's port.
+            "main_port": int(os.getenv("HOST_PORT", "5001"))}
 
 
 def _service_key_ok(request: Request) -> bool:
@@ -438,6 +443,74 @@ async def work_thread_get(request: Request):
     if not item:
         return {"thread": []}
     return {"thread": workitem_store.thread(item["work_item_id"])}
+
+
+# ---------------------------------------------------------------------------
+# Playbooks inventory (A4 feedback #6) — the deterministic assets that exist,
+# with deep links so builders can jump to the legacy designer/Mission Control.
+# ---------------------------------------------------------------------------
+
+@app.get("/api/playbooks")
+async def playbooks(request: Request):
+    user = _verify_request(request)
+    from platform_tools import _get, _post, _pick
+    out, errors = [], []
+    try:
+        rows = await _get("/get/workflows")
+        for row in (rows or []):
+            if not isinstance(row, dict):
+                continue
+            wd = row.get("workflow_data") or row.get("WORKFLOW_DATA")
+            kind = "code_flow" if (isinstance(wd, str) and '"code_flow"' in wd) \
+                else "workflow"
+            out.append({"kind": kind,
+                        "id": _pick(row, "id", "workflow_id"),
+                        "name": _pick(row, "workflow_name", "name"),
+                        "description": _pick(row, "description") or ""})
+    except Exception as e:
+        errors.append(f"workflows: {e}")
+    try:
+        body = {"action": "list",
+                "user_context": {"user_id": int(user.get("user_id") or 0),
+                                 "role": int(user.get("role") or 2),
+                                 "username": str(user.get("username") or "")},
+                "payload": {}}
+        data, status = await _post("/automations/api/internal/manage", body)
+        if status < 400:
+            for a in (data.get("automations") or []):
+                out.append({"kind": "automation",
+                            "id": a.get("automation_id"),
+                            "name": a.get("name"),
+                            "description": a.get("description") or "",
+                            "version": a.get("current_version"),
+                            "pinned": a.get("pinned_version")})
+        else:
+            errors.append(f"automations: HTTP {status}")
+    except Exception as e:
+        errors.append(f"automations: {e}")
+    return {"playbooks": out, "errors": errors}
+
+
+# ---------------------------------------------------------------------------
+# Views API (A5) — deterministic dashboards. Refresh runs the pinned SQL
+# through the governed probe seam; no LLM is involved anywhere on this path.
+# ---------------------------------------------------------------------------
+
+@app.get("/api/views")
+async def views_list(request: Request):
+    _verify_request(request)
+    return {"views": views_store.list_views()}
+
+
+@app.post("/api/views/run")
+async def views_run(request: Request):
+    _verify_request(request)
+    body = await request.json()
+    view = views_store.get(str(body.get("name") or ""))
+    if not view:
+        raise HTTPException(404, "view not found")
+    from views_tools import run_view
+    return await run_view(view)
 
 
 if __name__ == "__main__":

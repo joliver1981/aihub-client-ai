@@ -105,6 +105,22 @@ Data Explorer's save-a-dashboard capability must not be lost: users compose dash
 
 **A5 — Views (Phase 2).** Deterministic dashboards per §5.
 
+**A6 — Agent Email (James, A4 feedback #3).** Every user can create a personal
+inbound address for The Agent: `<prefix>-agent.<client_id>@mail.everiai.ai`
+via Mailgun. `<client_id>` is fixed per install (platform config; shown in a
+readonly box on the create-address page); the user may change their prefix
+(defaults to their user id). Mail arriving there starts/continues a headless
+agent session as that user, honoring the same tool gates; attachments ride the
+existing agent-email attachment pipeline (reuse `agent_email` infra: inbound
+webhook, threading, cooldown, approvals). Outbound replies stay behind the
+My Work editable-draft gate — nothing sends unapproved.
+
+**Phase-2 backlog — product-skill "phone home" (feedback #4).** Installs
+report product-skill gaps (anonymized: which asks found no skill, which skills
+misfired) to a central endpoint; curated fixes ship back as product-skill
+updates — behavior fixes without code releases, hive-mind style. Needs an
+opt-in flag, an egress allowlist, and a review pipeline before anything ships.
+
 **Legacy track (independent, James's timeline, never blocks A-track):**
 - `BUILDER_HOST=127.0.0.1` (one-line config; closes the 0.0.0.0 unauthenticated builder exposure).
 - auth_middleware: teach it X-API-Key (it currently only understands session cookies — naive enforcement would break CC/JSS/automations callers), wire in DRY_RUN (log-only), observe weeks, triage the log, then staged enforcement with env-var rollback. Per-route decorators on the 29 anonymous routes as the narrow alternative.

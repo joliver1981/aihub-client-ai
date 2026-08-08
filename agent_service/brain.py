@@ -25,6 +25,7 @@ from agent_config import (
 from platform_tools import AIHUB_TOOLS, CURRENT_USER
 from authoring_tools import AUTHORING_TOOLS
 from work_tools import WORK_TOOLS
+from views_tools import VIEWS_TOOLS
 
 from claude_agent_sdk import (
     ClaudeAgentOptions, query, create_sdk_mcp_server,
@@ -36,8 +37,8 @@ except ImportError:  # pragma: no cover
     UserMessage = ToolResultBlock = None
 
 aihub_server = create_sdk_mcp_server(
-    name="aihub", version="0.3.0",
-    tools=AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS)
+    name="aihub", version="0.4.0",
+    tools=AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS)
 
 # Mutation-claim guard (port of CC nodes.py _claims_completed_mutation,
 # AIHUB-0048 F1): a reply asserting a JUST-COMPLETED change is only honest when
@@ -51,7 +52,14 @@ MUTATING_TOOLS = frozenset({
     "create_code_flow", "add_code_step", "wire_steps", "schedule_code_flow",
     "run_code_flow", "dry_run_code_flow",
     "raise_work_item", "save_skill", "schedule_agent_task",
+    "save_view", "delete_view", "store_platform_secret",
 })
+
+# Tool inputs are streamed to the UI (chip click-to-peek) and would otherwise
+# display a pasted credential — redact sensitive fields at the event seam.
+# The SDK transcript already holds the user's own paste; this keeps OUR
+# surfaces from re-displaying it.
+SENSITIVE_TOOL_FIELDS = {"store_platform_secret": ("value",)}
 
 MUTATION_CLAIM_RE = re.compile(
     r"(✅\s*(created|saved|scheduled|promoted|deleted|inserted|added|updated|wired))"
@@ -73,6 +81,7 @@ _READ_TOOL_NAMES = [
     "list_data_connections", "get_connection_schema", "probe_connection_query",
     "ask_data_agent", "list_playbooks", "list_recent_runs",
     "check_automation_run", "get_automation", "get_code_flow", "list_my_work",
+    "list_saved_views", "list_secret_names",
 ]
 _READ_ALLOWED = [f"mcp__aihub__{n}" for n in _READ_TOOL_NAMES]
 
@@ -114,10 +123,24 @@ frozen facts over a live probe. Loaded skills appear to you automatically when
 relevant.
 
 RECURRING WORK
-Two ladders, pick deliberately: mechanical repetition -> build an AUTOMATION
+Three ladders, pick deliberately: something to LOOK AT repeatedly (numbers,
+top-N lists, a pulse) -> save a VIEW (save_view: the exact SQL you verified is
+pinned; the Views screen refreshes it deterministically, zero AI per refresh).
+Mechanical repetition that DOES something -> build an AUTOMATION
 (deterministic, zero tokens per run). Recurring judgment ('check X each
 morning, flag what's odd') -> schedule_agent_task (a fresh headless session
-runs the prompt as this user and reports into their My Work).
+runs the prompt as this user and reports into their My Work). After an
+analysis the user liked, offer to pin it as a View.
+
+SECRETS AND CREDENTIALS
+When a user hands you an API key, password, or token in chat, store it
+IMMEDIATELY with store_platform_secret (check list_secret_names first — it may
+already exist). From then on refer to it ONLY by its UPPER_SNAKE_CASE name:
+automations declare it in the manifest and the server injects the value at run
+time (hard-coded credentials are rejected). Never echo a secret back, in full
+or in part, and never write one into automation code, a skill, a work item, or
+a View. If they'd rather not paste it in chat at all, point them to Settings ->
+Local Secrets and agree on the name.
 
 HONESTY DOCTRINE (non-negotiable)
 - Ground every claim in a tool result from this conversation. Never invent
@@ -198,9 +221,14 @@ async def run_turn(prompt: str, session_id: Optional[str],
                     elif hasattr(block, "name"):
                         bid = getattr(block, "id", "") or ""
                         bname = getattr(block, "name", "?")
-                        tool_names[bid] = bname.replace("mcp__aihub__", "")
+                        short = bname.replace("mcp__aihub__", "")
+                        tool_names[bid] = short
+                        tool_input = dict(getattr(block, "input", {}) or {})
+                        for field in SENSITIVE_TOOL_FIELDS.get(short, ()):
+                            if field in tool_input:
+                                tool_input[field] = "•••redacted•••"
                         yield {"type": "tool", "id": bid, "name": bname,
-                               "input": getattr(block, "input", {}) or {}}
+                               "input": tool_input}
             elif UserMessage is not None and isinstance(message, UserMessage):
                 # Tool results: surface completion + honest ok/failed per call
                 for block in (getattr(message, "content", None) or []):

@@ -1583,7 +1583,17 @@ def home():
             session['session_id'] = str(uuid.uuid4())
             app.logger.debug(f"New session created with ID: {session['session_id']}")
         print('Session created:', session['session_id'])
-        
+
+        # AGENT MODE entry point (James, A4 feedback #7): when the mode is on,
+        # qualifying users land straight in The Agent — no wonky two-hop nav.
+        # ?classic=1 is the deliberate escape hatch back to the legacy app.
+        if (current_user.is_authenticated
+                and os.getenv('THE_AGENT_MODE', 'false').lower() == 'true'
+                and os.getenv('THE_AGENT_ENABLED', 'false').lower() == 'true'
+                and request.args.get('classic') != '1'
+                and getattr(current_user, 'role', 0) >= 2):
+            return redirect(url_for('the_agent_redirect'))
+
         # If user is authenticated, redirect to dashboard
         if current_user.is_authenticated:
             return redirect(url_for('dashboard'))
@@ -9336,6 +9346,34 @@ def workflow_secrets_list():
         ]})
     except Exception as e:
         return jsonify({"secrets": [], "error": str(e)}), 200
+
+
+@app.route('/workflow/secrets/store', methods=['POST'])
+@api_key_or_session_required()
+def workflow_secrets_store():
+    """Write twin of /workflow/secrets/list: lets platform services (The Agent)
+    store a secret a user handed over in chat into the encrypted local store,
+    so it can be referenced BY NAME in manifests instead of pasted into code.
+    Same validation as the browser Local Secrets page; the value is never
+    echoed back in any response."""
+    try:
+        data = request.get_json(silent=True) or {}
+        name = str(data.get('name') or '').strip().upper()
+        value = data.get('value') or ''
+        from local_secrets_routes import validate_secret_name
+        is_valid, err = validate_secret_name(name)
+        if not is_valid:
+            return jsonify({"success": False, "error": err}), 400
+        if not value or len(str(value)) > 10000:
+            return jsonify({"success": False,
+                            "error": "Secret value required (max 10,000 chars)"}), 400
+        manager = get_secrets_manager()
+        is_update = manager.exists(name)
+        manager.set(name, str(value), str(data.get('description') or ''),
+                    str(data.get('category') or 'api_keys'))
+        return jsonify({"success": True, "name": name, "is_update": is_update})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route('/workflow/file/read', methods=['POST'])
