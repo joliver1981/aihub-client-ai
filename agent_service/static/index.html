@@ -185,6 +185,9 @@
   .threadrow{display:flex;gap:8px;margin-top:8px}
   .ok-note{color:var(--green);font-size:12px;margin-top:8px}
   .err-note{color:var(--red);font-size:12px;margin-top:8px}
+  .guard-note{color:var(--amber);background:var(--amber-tint);
+              border:1px solid rgba(229,182,99,.4);border-radius:9px;
+              padding:8px 12px;font-size:12px;max-width:88%}
 
   /* ===== markdown rendering (agent output) ===== */
   .bubble.md,.tmsg.md,.dsummary.md{white-space:normal}
@@ -607,6 +610,9 @@
                 };
               }
             }
+          } else if (ev.type === "guard") {
+            const g = el("div", "guard-note", "⚠ " + ev.warning);
+            container.appendChild(g);
           } else if (ev.type === "result") {
             if (ev.session_id) { sessionId = ev.session_id;
               sessionStorage.setItem("agent_session", sessionId); }

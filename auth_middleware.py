@@ -134,16 +134,35 @@ def has_valid_api_key():
     The Agent) authenticate with the platform API key instead of a session.
     Reuses the canonical extraction/validation from role_decorators so the
     middleware can never drift from what the per-route decorators accept.
+
+    Uses validate_api_key — which accepts BOTH the raw tenant key and the
+    machine-derived internal key. The dry-run observation phase caught the
+    original tenant-only check: CC and The Agent authenticate with the
+    INTERNAL key by default, so tenant-only enforcement would have broken
+    every native tool call (327 would-be-blocks in the first day's log).
     """
     try:
-        from role_decorators import _get_api_key_from_request, _validate_tenant_api_key
+        from role_decorators import _get_api_key_from_request, validate_api_key
         api_key = _get_api_key_from_request()
         if not api_key:
             return False
-        return bool(_validate_tenant_api_key(api_key).get('valid', False))
+        return bool((validate_api_key(api_key) or {}).get('valid', False))
     except Exception as e:  # fail closed: no key check -> treated as unauthenticated
         auth_logger.error(f"API-key validation errored (treating as unauthenticated): {e}")
         return False
+
+
+# Endpoint-name PREFIXES that self-authenticate by design and must pass the
+# global guard (both facts verified in code + the dry-run log):
+# - automations.runtime_*  — the automation SDK subprocess polls these with a
+#   per-run token (checkpoints/resolve/ai); it may dial the box's LAN IP, so
+#   a localhost check would not cover it. The routes validate the run token.
+# - mcp_internal.*         — the MCP gateway's internal seam; the route itself
+#   hard-rejects non-loopback callers before doing anything.
+SELF_AUTHENTICATING_PREFIXES = (
+    'automations.runtime_',
+    'mcp_internal.',
+)
 
 
 def check_scheduler_auth():
@@ -201,6 +220,10 @@ def require_login_middleware():
     
     # Check if user is authenticated
     if current_user.is_authenticated:
+        return
+
+    # Self-authenticating endpoint families (run-token / loopback-enforced)
+    if endpoint.startswith(SELF_AUTHENTICATING_PREFIXES):
         return
 
     # Service-to-service: a valid platform API key (X-API-Key / Bearer / etc.)

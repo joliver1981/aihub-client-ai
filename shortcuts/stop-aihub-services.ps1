@@ -40,6 +40,7 @@ $PortServices = @(
     @{ Port = 5081; Name = 'Cloud Gateway (app_cloud_gateway.py)' }
     @{ Port = 5091; Name = 'Command Center (command_center_service\main.py)' }
     @{ Port = 5101; Name = 'Browser Use (browser_use_service\main.py)' }
+    @{ Port = 5111; Name = 'The Agent (agent_service\main.py)' }
     @{ Port = 8100; Name = 'Builder Service (builder_service\main.py)' }
     @{ Port = 8200; Name = 'Builder Data (builder_data\main.py)' }
 )

@@ -456,3 +456,40 @@ class TestApiKeyPassthrough:
                              "Accept": "application/json"},
                 )
                 assert resp.status_code == 401
+
+
+class TestApiKeyInternalAndSelfAuth:
+    """A4 hardening from the dry-run observation log: the middleware must
+    accept the machine-derived INTERNAL key (CC/The Agent's default), and
+    must pass self-authenticating endpoint families straight through."""
+
+    def test_internal_derived_key_passes(self, middleware_app):
+        import role_decorators
+        app, _ = middleware_app
+        with patch.dict(os.environ, {"API_KEY": "tenant-key-xyz"}):
+            internal = role_decorators.get_internal_api_key()
+            with app.test_client() as client:
+                resp = client.get("/api/data",
+                                  headers={"X-API-Key": internal,
+                                           "Accept": "application/json"})
+                assert resp.status_code == 200
+
+    def test_self_authenticating_prefix_passes_without_any_auth(self):
+        from auth_middleware import SELF_AUTHENTICATING_PREFIXES
+        assert "automations.runtime_" in SELF_AUTHENTICATING_PREFIXES
+        assert "mcp_internal." in SELF_AUTHENTICATING_PREFIXES
+
+    def test_runtime_endpoint_passes(self, middleware_app):
+        """An endpoint named like the automations runtime family is admitted
+        (it validates its own per-run token inside the route)."""
+        app, _ = middleware_app
+
+        @app.route("/runtime-probe", endpoint="automations.runtime_checkpoint")
+        def _runtime_probe():
+            return "runtime ok"
+
+        with app.test_client() as client:
+            resp = client.get("/runtime-probe",
+                              headers={"Accept": "application/json"})
+            assert resp.status_code == 200
+            assert b"runtime ok" in resp.data

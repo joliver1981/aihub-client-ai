@@ -506,6 +506,29 @@ def main():
         workitem_store.respond(fired_item["work_item_id"], 1,
                                {"decision": "acknowledged"})
 
+    # ------------------------------------------------------------------
+    # A4 — hardening: the mutation-claim guard (deterministic, no model)
+    # ------------------------------------------------------------------
+    import brain as _brain
+    fabricated = [
+        "✅ Created the automation and scheduled it for Mondays.",
+        "I've now created the automation invoice-pulse with a daily schedule.",
+        "The playbook is now live and running on a schedule.",
+    ]
+    honest = [
+        "The create failed: an automation named invoice-pulse already exists.",
+        "I attempted to save the code but the tool returned an error, so "
+        "nothing was created.",
+        "Here is the plan: I would create an automation, dry-run it, then "
+        "promote. Shall I proceed?",
+    ]
+    fab_hits = [bool(_brain.claims_completed_mutation(t)) for t in fabricated]
+    hon_hits = [bool(_brain.claims_completed_mutation(t)) for t in honest]
+    check("A4-1", "mutation-claim guard: catches fabricated claims, spares "
+                  "honest failures and plans",
+          all(fab_hits) and not any(hon_hits),
+          f"fabricated={fab_hits} honest={hon_hits}")
+
     _write_report(checks)
     if not all(c["ok"] for c in checks):
         sys.exit(1)

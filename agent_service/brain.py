@@ -15,6 +15,7 @@ Lockdown posture (A0, read-only):
 
 import json
 import os
+import re
 from typing import AsyncIterator, Optional
 
 from agent_config import (
@@ -37,6 +38,33 @@ except ImportError:  # pragma: no cover
 aihub_server = create_sdk_mcp_server(
     name="aihub", version="0.3.0",
     tools=AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS)
+
+# Mutation-claim guard (port of CC nodes.py _claims_completed_mutation,
+# AIHUB-0048 F1): a reply asserting a JUST-COMPLETED change is only honest when
+# a mutating tool actually succeeded this turn. Deterministic fail-closed
+# regex — tuned to first-person/checkmarked completion claims so recaps and
+# honest failure reports don't false-positive.
+MUTATING_TOOLS = frozenset({
+    "create_automation", "save_automation_code", "promote_automation",
+    "schedule_automation", "delete_automation", "decide_automation_checkpoint",
+    "run_automation", "dry_run_automation",
+    "create_code_flow", "add_code_step", "wire_steps", "schedule_code_flow",
+    "run_code_flow", "dry_run_code_flow",
+    "raise_work_item", "save_skill", "schedule_agent_task",
+})
+
+MUTATION_CLAIM_RE = re.compile(
+    r"(✅\s*(created|saved|scheduled|promoted|deleted|inserted|added|updated|wired))"
+    r"|(\bI(?:'|’)?ve\s+(?:now\s+)?(created|saved|scheduled|promoted|deleted|"
+    r"added|updated|wired)\b[^.\n]{0,80}\b(automation|code\s*flow|workflow|"
+    r"schedule|job|skill|work\s*item|playbook|step|checkpoint)\b)"
+    r"|(\b(?:is|are)\s+now\s+(?:live|scheduled|promoted|running\s+on\s+a\s+schedule)\b)",
+    re.I)
+
+
+def claims_completed_mutation(text: str) -> bool:
+    return bool(MUTATION_CLAIM_RE.search(text or ""))
+
 
 # Side-threads on work items run READ-ONLY: the thread answers questions with
 # evidence; it never mutates. Anything consequential goes through the item's
@@ -150,6 +178,9 @@ async def run_turn(prompt: str, session_id: Optional[str],
         logger.warning(f"skills mount failed (continuing without): {e}")
         ws = None
     new_session_id = session_id
+    all_text = []                # for the mutation-claim guard
+    tool_names = {}              # tool_use_id -> tool name
+    mutation_succeeded = False
     try:
         async for message in query(prompt=prompt,
                                    options=build_options(session_id, tool_scope,
@@ -162,11 +193,13 @@ async def run_turn(prompt: str, session_id: Optional[str],
             elif isinstance(message, AssistantMessage):
                 for block in message.content:
                     if hasattr(block, "text") and getattr(block, "text", None):
+                        all_text.append(block.text)
                         yield {"type": "text", "text": block.text}
                     elif hasattr(block, "name"):
-                        yield {"type": "tool",
-                               "id": getattr(block, "id", "") or "",
-                               "name": getattr(block, "name", "?"),
+                        bid = getattr(block, "id", "") or ""
+                        bname = getattr(block, "name", "?")
+                        tool_names[bid] = bname.replace("mcp__aihub__", "")
+                        yield {"type": "tool", "id": bid, "name": bname,
                                "input": getattr(block, "input", {}) or {}}
             elif UserMessage is not None and isinstance(message, UserMessage):
                 # Tool results: surface completion + honest ok/failed per call
@@ -180,15 +213,28 @@ async def run_turn(prompt: str, session_id: Optional[str],
                             preview = " ".join(
                                 p.get("text", "") if isinstance(p, dict)
                                 else str(getattr(p, "text", "")) for p in parts)
-                        yield {"type": "tool_result",
-                               "id": getattr(block, "tool_use_id", "") or "",
-                               "ok": not bool(getattr(block, "is_error", False)),
+                        rid = getattr(block, "tool_use_id", "") or ""
+                        ok = not bool(getattr(block, "is_error", False))
+                        if ok and tool_names.get(rid) in MUTATING_TOOLS:
+                            mutation_succeeded = True
+                        yield {"type": "tool_result", "id": rid, "ok": ok,
                                "preview": preview.strip()[:600]}
             elif isinstance(message, ResultMessage):
                 new_session_id = getattr(message, "session_id", None) or new_session_id
                 subtype = getattr(message, "subtype", "")
                 ok = subtype == "success"
                 cost = getattr(message, "total_cost_usd", None)
+                # AIHUB-0048-class guard: claimed change without a successful
+                # mutating tool this turn — flag it, loudly and deterministically.
+                if claims_completed_mutation("\n".join(all_text)) and not mutation_succeeded:
+                    warning = ("This reply claims a completed change, but no "
+                               "mutating tool succeeded in this turn — treat the "
+                               "claim as UNVERIFIED and ask the agent to show the "
+                               "tool evidence.")
+                    logger.warning(f"MUTATION-CLAIM GUARD user="
+                                   f"{user_ctx.get('username')} session="
+                                   f"{new_session_id}: {warning}")
+                    yield {"type": "guard", "warning": warning}
                 logger.info(f"turn done user={user_ctx.get('username')} "
                             f"session={new_session_id} subtype={subtype} cost={cost}")
                 yield {"type": "result", "session_id": new_session_id,

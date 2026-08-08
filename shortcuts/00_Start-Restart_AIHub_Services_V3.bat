@@ -108,6 +108,9 @@ start "AIHub-DEV Command Center" /D "%PROJECT_PATH%\command_center_service" cmd 
 echo [14/14] Starting Browser Use Service (main.py) in aihub-browseruse environment...
 start "AIHub-DEV Browser Use" /D "%PROJECT_PATH%\browser_use_service" cmd /k "color 04 && title AIHub-DEV Browser Use && call "%CONDA_PATH%\Scripts\activate.bat" && conda activate aihub-browseruse && python main.py"
 
+echo [15/15] Starting The Agent (main.py) in aihub-agent environment...
+start "AIHub-DEV The Agent" /D "%PROJECT_PATH%\agent_service" cmd /k "color 0B && title AIHub-DEV The Agent && call "%CONDA_PATH%\Scripts\activate.bat" && conda activate aihub-agent && python main.py"
+
 
 :: ============================================================================
 :: VERIFY PHASE - wait for every service port to be re-bound and prove each
@@ -145,6 +148,7 @@ echo - Brown  : Builder Service (aihubbuilder) - port 8100
 echo - Magenta: Builder Data (aihubbuilder) - port 8200
 echo - Purple : Command Center Service (aihubbuilder) - port 5091
 echo - Red    : Browser Use Service (aihub-browseruse) - port 5101
+echo - Aqua   : The Agent (aihub-agent) - port 5111
 echo.
 echo Source: %PROJECT_PATH%
 echo.
