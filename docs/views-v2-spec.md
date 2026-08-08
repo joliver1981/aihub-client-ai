@@ -147,6 +147,16 @@ SQL tiles keep v1 behavior. Tiles refresh concurrently (asyncio gather)
 so one slow automation doesn't serialize the dashboard; results paint from
 `tile_cache` instantly on open, then update as runs land.
 
+Two limits made explicit during review (2026-08-07):
+- The run seam returns only the final ~2000 chars of stdout, so the tile's
+  JSON line must stay under ~1900 chars; the contract error and the product
+  skill both say so.
+- Automation RUNS are Developer+ platform-wide, so a role<2 viewer (the
+  AGENT_ALLOW_ALL_USERS direction) gets an honest per-tile "requires a
+  Developer role" error plus the cached last result. Plain-user dashboards
+  get live automation data via v2.1 scheduled refresh + cache, not by
+  bypassing the platform's run gating.
+
 ### 4.4 Cost note
 
 An automation tile costs one automation run per refresh (still zero LLM

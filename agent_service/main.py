@@ -296,22 +296,46 @@ async def work_respond(request: Request):
     user = _verify_request(request)
     body = await request.json()
     before = workitem_store.get_item(str(body.get("id")))
+    payload = (before or {}).get("payload") or {}
+    decision = str((body.get("response") or {}).get("decision") or "")
+    # Gate BEFORE closing the item: a non-admin approval of a promotion item
+    # must leave the item open for a real admin, not close-without-publishing.
+    is_promotion = payload.get("kind") in ("skill_promotion", "view_promotion")
+    if is_promotion and decision == "approved":
+        if int(user.get("role") or 0) < 3:
+            raise HTTPException(403, "Tenant promotion requires an admin.")
+        # PUBLISH FIRST, close after (review finding, 2026-08-07): if the
+        # publish fails, the item must stay open and retryable — never a
+        # closed item whose audit trail says approved with nothing published.
+        # Publishes are idempotent upserts, so a rare respond() failure after
+        # a successful publish is safely re-approvable.
+        try:
+            if payload.get("kind") == "skill_promotion":
+                import skills_mount
+                skills_mount.write_skill("tenant", payload.get("name", ""),
+                                         payload.get("description", ""),
+                                         payload.get("content", ""))
+                logger.info(f"skill '{payload.get('name')}' promoted to tenant "
+                            f"by user {user['user_id']}")
+            else:
+                # The ONLY path that publishes a tenant view (views-v2-spec §3.2).
+                views_store.publish_tenant(
+                    payload.get("name", ""), payload.get("description", ""),
+                    payload.get("tiles") or [],
+                    int(payload.get("requested_by_user") or 0))
+                logger.info(f"view '{payload.get('name')}' promoted to tenant "
+                            f"by user {user['user_id']}")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"promotion publish failed (item left open): {e}")
+            raise HTTPException(500, f"Publish failed — the item remains open "
+                                     f"to retry: {e}")
     item, err = workitem_store.respond(str(body.get("id")),
                                        int(user["user_id"]),
                                        body.get("response") or {})
     if err:
         raise HTTPException(409, err)
-    payload = (before or {}).get("payload") or {}
-    decision = str((body.get("response") or {}).get("decision") or "")
-    if (payload.get("kind") == "skill_promotion" and decision == "approved"):
-        if int(user.get("role") or 0) < 3:
-            raise HTTPException(403, "Tenant skill promotion requires an admin.")
-        import skills_mount
-        skills_mount.write_skill("tenant", payload.get("name", ""),
-                                 payload.get("description", ""),
-                                 payload.get("content", ""))
-        logger.info(f"skill '{payload.get('name')}' promoted to tenant by "
-                    f"user {user['user_id']}")
     return {"item": _agent_item_view(item)}
 
 
@@ -498,17 +522,28 @@ async def playbooks(request: Request):
 
 @app.get("/api/views")
 async def views_list(request: Request):
-    _verify_request(request)
-    return {"views": views_store.list_views()}
+    user = _verify_request(request)
+    uid = int(user["user_id"] or 0)
+    return {"views": views_store.list_views(uid, readthrough.user_group_ids(uid))}
 
 
 @app.post("/api/views/run")
 async def views_run(request: Request):
-    _verify_request(request)
+    user = _verify_request(request)
+    uid = int(user["user_id"] or 0)
     body = await request.json()
-    view = views_store.get(str(body.get("name") or ""))
+    # Visibility is enforced in the store: a guessed group/user view name
+    # resolves to nothing, not to data.
+    view = views_store.get(str(body.get("name") or ""), uid,
+                           readthrough.user_group_ids(uid),
+                           str(body.get("scope") or ""),
+                           int(body.get("group_id") or 0))
     if not view:
-        raise HTTPException(404, "view not found")
+        raise HTTPException(404, "view not found (or not visible to you)")
+    # Automation tiles run through the manage seam AS the refreshing user —
+    # the run rows show who refreshed (audit-true).
+    from platform_tools import CURRENT_USER
+    CURRENT_USER.set(user)
     from views_tools import run_view
     return await run_view(view)
 

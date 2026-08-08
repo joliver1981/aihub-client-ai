@@ -519,84 +519,121 @@
   }
 
   // ---------- views (deterministic dashboards) ----------
-  let currentView = null;
+  const VIEW_SCOPE_STYLE = { user: "t-review", group: "t-edit_and_return",
+                             tenant: "t-provide_input" };
+  let currentView = null;   // {name, scope, group_id}
+  let viewsData = [];       // last fetched list — re-rendered without refetch
+  const sameView = (a, b) => a && b && a.name === b.name &&
+    a.scope === b.scope && (a.group_id || 0) === (b.group_id || 0);
+  function renderViewsList() {
+    const list = document.getElementById("views-list");
+    list.innerHTML = "";
+    if (!viewsData.length) {
+      list.appendChild(el("div", "qfrom",
+        "No views yet. Build an analysis with the Assistant, then say " +
+        "“save this as a view” — it pins the exact recipe and refreshes " +
+        "here with zero AI."));
+      return;
+    }
+    viewsData.forEach(v => {
+      const key = { name: v.name, scope: v.scope, group_id: v.group_id || 0 };
+      const b = el("button", "qitem" + (sameView(currentView, key) ? " on" : ""));
+      const row = el("div", "qrow");
+      row.appendChild(el("span", "tchip " + (VIEW_SCOPE_STYLE[v.scope] || ""),
+        v.scope + (v.group_id ? " " + v.group_id : "")));
+      row.appendChild(el("span", "qmeta",
+        `${v.tile_count} tiles · v${v.version}` +
+        (v.has_automation_tiles ? " · ▷" : "")));
+      b.appendChild(row);
+      b.appendChild(el("div", "qtitle", v.name));
+      b.appendChild(el("div", "qfrom", v.description || ""));
+      // Select = highlight from cached data + ONE run. Never refetch-and-run
+      // from a click — that pattern double-ran every automation tile.
+      b.onclick = () => { currentView = key; renderViewsList(); runView(key); };
+      list.appendChild(b);
+    });
+  }
   async function loadViews() {
     const list = document.getElementById("views-list");
     list.innerHTML = "Loading…";
     try {
       const r = await fetch("/api/views", { headers: H() });
       const d = await r.json();
-      list.innerHTML = "";
-      if (!(d.views || []).length) {
-        const empty = el("div", "qfrom",
-          "No views yet. Build an analysis with the Assistant, then say " +
-          "“save this as a view” — it pins the exact SQL and refreshes here " +
-          "with zero AI.");
-        list.appendChild(empty);
-        return;
-      }
-      d.views.forEach(v => {
-        const b = el("button", "qitem" + (currentView === v.name ? " on" : ""));
-        const row = el("div", "qrow");
-        row.appendChild(el("span", "tchip t-review", `${v.tile_count} tiles`));
-        row.appendChild(el("span", "qmeta", "v" + v.version));
-        b.appendChild(row);
-        b.appendChild(el("div", "qtitle", v.name));
-        b.appendChild(el("div", "qfrom", v.description || ""));
-        b.onclick = () => { currentView = v.name; loadViews(); runView(v.name); };
-        list.appendChild(b);
-      });
-      if (currentView) runView(currentView);
+      viewsData = d.views || [];
+      renderViewsList();
     } catch (e) { list.textContent = "Could not load: " + e.message; }
   }
-  async function runView(name) {
+  function renderTileData(tile, columns, rows, t, asOf) {
+    if ((t.viz === "stat" || t.viz === "auto" || !t.viz) &&
+        rows.length === 1 && columns.length === 1) {
+      const v = rows[0][0];
+      const n = Number(v);
+      tile.appendChild(el("div", "stat",
+        Number.isFinite(n) ? n.toLocaleString() : String(v)));
+      tile.appendChild(el("div", "statsub",
+        columns[0] + (asOf ? ` · as of ${asOf}` : "")));
+    } else {
+      tile.classList.add("wide");
+      const host = el("div", "md");
+      const tbl = document.createElement("table");
+      const thead = tbl.createTHead().insertRow();
+      columns.forEach(c => {
+        const th = document.createElement("th");
+        th.textContent = c; thead.appendChild(th);
+      });
+      const tb = tbl.createTBody();
+      rows.forEach(row => {
+        const tr = tb.insertRow();
+        row.forEach(cell => { tr.insertCell().textContent = String(cell ?? ""); });
+      });
+      host.appendChild(tbl);
+      tile.appendChild(host);
+      enhanceTables(host);
+      const cap = t.cap_applied ? ` (server row cap applied)` : "";
+      tile.appendChild(el("div", "statsub",
+        `${rows.length} rows${cap}` + (asOf ? ` · as of ${asOf}` : "")));
+    }
+  }
+  let runSeq = 0;   // stale-response guard: only the newest run may paint
+  async function runView(key) {
+    const seq = ++runSeq;
     const detail = document.getElementById("views-detail");
     const meta = document.getElementById("views-meta");
     detail.innerHTML = "";
-    detail.appendChild(el("div", "qfrom", "Refreshing — running pinned SQL…"));
+    detail.appendChild(el("div", "qfrom",
+      "Refreshing — running the pinned recipe…"));
     try {
       const r = await fetch("/api/views/run", { method: "POST", headers: H(),
-                                                body: JSON.stringify({ name }) });
+        body: JSON.stringify({ name: key.name, scope: key.scope,
+                               group_id: key.group_id || 0 }) });
+      if (seq !== runSeq) return;   // user moved on; a slow automation tile
+                                    // response must never repaint over it
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
         detail.textContent = d.detail || "refresh failed"; return;
       }
       const d = await r.json();
-      meta.textContent = `v${d.version} · refreshed ${new Date().toLocaleTimeString()}`;
+      if (seq !== runSeq) return;
+      meta.textContent = `${d.scope || ""} · v${d.version} · refreshed ` +
+        new Date().toLocaleTimeString();
       detail.innerHTML = "";
       const grid = el("div", "tiles");
       (d.tiles || []).forEach(t => {
         const tile = el("div", "tile");
-        tile.appendChild(el("div", "ttitle", t.title || "(untitled)"));
+        const title = el("div", "ttitle", t.title || "(untitled)");
+        if (t.type === "automation")
+          title.textContent += ` · ▷ ${t.automation || "automation"}`;
+        tile.appendChild(title);
         if (t.error) {
           tile.classList.add("err");
           tile.appendChild(el("div", "terr", t.error));
-        } else if ((t.viz === "stat" || t.viz === "auto" || !t.viz) &&
-                   (t.rows || []).length === 1 && (t.columns || []).length === 1) {
-          const v = t.rows[0][0];
-          const n = Number(v);
-          tile.appendChild(el("div", "stat",
-            Number.isFinite(n) ? n.toLocaleString() : String(v)));
-          tile.appendChild(el("div", "statsub", t.columns[0]));
+          if (t.cache) {
+            const asOf = (t.cache.cached_at || "").slice(0, 16).replace("T", " ");
+            renderTileData(tile, t.cache.columns || [], t.cache.rows || [],
+                           t, asOf || "earlier");
+          }
         } else {
-          tile.classList.add("wide");
-          const host = el("div", "md");
-          const tbl = document.createElement("table");
-          const thead = tbl.createTHead().insertRow();
-          (t.columns || []).forEach(c => {
-            const th = document.createElement("th");
-            th.textContent = c; thead.appendChild(th);
-          });
-          const tb = tbl.createTBody();
-          (t.rows || []).forEach(row => {
-            const tr = tb.insertRow();
-            row.forEach(cell => { tr.insertCell().textContent = String(cell ?? ""); });
-          });
-          host.appendChild(tbl);
-          tile.appendChild(host);
-          enhanceTables(host);
-          const cap = t.cap_applied ? ` (server row cap applied)` : "";
-          tile.appendChild(el("div", "statsub", `${(t.rows || []).length} rows${cap}`));
+          renderTileData(tile, t.columns || [], t.rows || [], t, null);
         }
         grid.appendChild(tile);
       });

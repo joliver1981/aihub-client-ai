@@ -53,6 +53,14 @@ async def raise_work_item(args: dict[str, Any]) -> dict[str, Any]:
             payload = json.loads(args["payload_json"])
         except Exception:
             return _text("payload_json is not valid JSON", is_error=True)
+    # Fail-closed: promotion payloads are minted ONLY by the sanctioned
+    # save_skill/save_view paths. A generic work item must never be able to
+    # impersonate one and turn an admin's approval into a publish.
+    if isinstance(payload, dict) and payload.get("kind") in (
+            "skill_promotion", "view_promotion"):
+        return _text("payload.kind '" + str(payload["kind"]) + "' is reserved "
+                     "for the save_skill/save_view promotion flows — use those "
+                     "tools instead.", is_error=True)
     addressed = int(args.get("addressed_user_id") or 0) or None
     try:
         item = workitem_store.create_item(

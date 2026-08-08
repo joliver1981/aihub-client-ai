@@ -28,6 +28,24 @@ Start every script with the explicit import (`aihub` is not pre-bound):
 - Declare every connection/secret in the manifest; hard-coded credentials are
   rejected at save time.
 
+## Building a View tile from an automation
+
+A View tile can render an automation's output (scrapes, web APIs with
+secrets, Python transforms). Contract:
+
+- The automation's **last stdout line** must be one JSON value:
+  `{"columns": ["a","b"], "rows": [[1,2], ...]}`, a list of objects, or
+  `{"value": 42, "label": "open orders"}` for a stat tile.
+- The tile runs the **pinned version** — promote before saving the view
+  (save_view refuses drafts).
+- **Never call `aihub.checkpoint()` in a tile automation** — a dashboard
+  refresh cannot wait on approvals; the refresh aborts the run and the tile
+  errors.
+- Keep it fast (tile budget ~120s) and small (~50 rows — pulse numbers and
+  top-N lists, not exports). The run seam returns only the final ~2000 chars
+  of stdout, so the JSON line must stay under ~1900 chars — print fewer
+  rows/columns rather than a wide dump.
+
 ## Gotchas that cost real debugging time
 
 - Probe the schema before writing SQL (`get_connection_schema`); never trust

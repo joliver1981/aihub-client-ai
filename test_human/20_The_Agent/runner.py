@@ -537,11 +537,12 @@ def main():
     # A5-1 deterministic store -> run roundtrip (no model): pinned SQL runs
     # through the governed probe seam and returns real rows.
     views_store.init()
-    views_store.delete("pack20-direct")
+    views_store.delete("pack20-direct", 1, [], 3, "user")
     try:
         views_store.save("pack20-direct", "pack 20 direct view",
                          [{"title": "Pulse", "connection": "ERPDB",
-                           "sql": "SELECT 1 AS pulse", "viz": "stat"}], 1)
+                           "sql": "SELECT 1 AS pulse", "viz": "stat"}], 1,
+                         scope="user")
         r = requests.post(f"{BASE}/api/views/run", json={"name": "pack20-direct"},
                           headers={"Authorization": f"Bearer {token}"}, timeout=60)
         vr = r.json() if r.status_code < 400 else {}
@@ -553,22 +554,22 @@ def main():
     except Exception as e:
         check("A5-1", "saved view refreshes deterministically", False, e)
     finally:
-        views_store.delete("pack20-direct")
+        views_store.delete("pack20-direct", 1, [], 3, "user")
 
     # A5-2 conversational: the agent pins a verified analysis as a View
-    views_store.delete("pack20-pulse")
+    views_store.delete("pack20-pulse", 1, [], 3, "user")
     ev, text = chat_turn(token,
         "Create a saved View named exactly 'pack20-pulse' with ONE stat tile: "
         "the row count of one real table on the ERPDB connection. Verify the "
         "SQL with a probe first, then save the view.", timeout=A1_TURN_TIMEOUT)
     used = tools_used(ev)
-    saved = views_store.get("pack20-pulse")
+    saved = views_store.get("pack20-pulse", 1, [])
     check("A5-2", "agent verifies SQL then saves a View (ground-truthed in store)",
           "save_view" in used and saved is not None
           and "probe_connection_query" in used,
           f"tools={used} saved={bool(saved)} "
           f"tiles={len((saved or {}).get('tiles', []))}")
-    views_store.delete("pack20-pulse")
+    views_store.delete("pack20-pulse", 1, [], 3)
 
     # A5-3 playbooks inventory endpoint (feedback #6)
     r = requests.get(f"{BASE}/api/playbooks",
@@ -580,6 +581,240 @@ def main():
           and kinds <= {"workflow", "code_flow", "automation"},
           f"count={len(pb.get('playbooks') or [])} kinds={sorted(kinds)} "
           f"errors={pb.get('errors')}")
+
+    # ------------------------------------------------------------------
+    # V2 — Views v2: scopes (skills-parity promotion) + automation tiles
+    # ------------------------------------------------------------------
+    import readthrough as _rt
+
+    def _tok2():
+        return shared_auth.sign_cc_token({
+            "user_id": 2, "role": 2, "tenant_id": os.getenv("TENANT_ID", ""),
+            "username": "pack20-user2", "name": "Pack 20 User Two"})
+
+    def _views_api(tok):
+        r = requests.get(f"{BASE}/api/views",
+                         headers={"Authorization": f"Bearer {tok}"}, timeout=30)
+        return {v["name"]: v for v in (r.json().get("views") or [])} \
+            if r.status_code < 400 else {}
+
+    def _run_view_api(tok, name, scope="", group_id=0, timeout=200):
+        return requests.post(f"{BASE}/api/views/run",
+                             json={"name": name, "scope": scope,
+                                   "group_id": group_id},
+                             headers={"Authorization": f"Bearer {tok}"},
+                             timeout=timeout)
+
+    token2 = _tok2()
+    SQL_TILE = [{"title": "Pulse", "connection": "ERPDB",
+                 "sql": "SELECT 1 AS pulse", "viz": "stat"}]
+
+    # V2-1 scope isolation: user 1's private view is invisible to user 2
+    views_store.delete("pack20-private", 1, [], 3, "user")
+    try:
+        views_store.save("pack20-private", "v2 isolation probe", SQL_TILE, 1,
+                         scope="user")
+        seen1 = "pack20-private" in _views_api(token)
+        seen2 = "pack20-private" in _views_api(token2)
+        r2 = _run_view_api(token2, "pack20-private", "user")
+        r1 = _run_view_api(token, "pack20-private", "user")
+        ok1 = (r1.status_code == 200
+               and not (r1.json()["tiles"][0].get("error")))
+        check("V2-1", "private view: owner sees+runs it; another user cannot",
+              seen1 and not seen2 and r2.status_code == 404 and ok1,
+              f"owner_sees={seen1} other_sees={seen2} "
+              f"other_run={r2.status_code} owner_run={r1.status_code}")
+    except Exception as e:
+        check("V2-1", "private view scope isolation", False, e)
+    finally:
+        views_store.delete("pack20-private", 1, [], 3, "user")
+
+    # V2-2 group gate at the store chokepoint: non-member save REJECTED;
+    # a real membership (if user 1 has one) saves directly, no approval.
+    gids1 = _rt.user_group_ids(1)
+    rejected = False
+    try:
+        views_store.save("pack20-group", "gate probe", SQL_TILE, 1,
+                         scope="group", group_id=999999)
+    except ValueError:
+        rejected = True
+    member_ok, member_note = True, "user 1 has no groups (accept branch n/a)"
+    if gids1:
+        gid = gids1[0]
+        views_store.delete("pack20-group", 1, gids1, 3, "group", gid)
+        try:
+            views_store.save("pack20-group", "member save", SQL_TILE, 1,
+                             scope="group", group_id=gid)
+            member_ok = "pack20-group" in _views_api(token)
+            member_note = f"saved to real group {gid}, visible={member_ok}"
+        except Exception as e:
+            member_ok, member_note = False, str(e)
+        finally:
+            views_store.delete("pack20-group", 1, gids1, 3, "group", gid)
+    check("V2-2", "group views: non-member rejected at the store chokepoint; "
+                  "member saves directly (no approval)",
+          rejected and member_ok,
+          f"nonmember_rejected={rejected}; {member_note}")
+
+    # V2-3 tenant promotion: request -> My Work item; role-2 approval 403s
+    # and leaves the item OPEN; role-3 approval publishes; then cleanup.
+    views_store.delete("pack20-tenant", 1, [], 3, "tenant")
+    try:
+        item = views_store.request_tenant_promotion(
+            "pack20-tenant", "v2 promotion probe", SQL_TILE, 1, "pack20-runner")
+        iid = item["work_item_id"]
+        published_early = "pack20-tenant" in _views_api(token2)
+        r_low = requests.post(f"{BASE}/api/work/respond",
+                              json={"id": iid,
+                                    "response": {"decision": "approved"}},
+                              headers={"Authorization": f"Bearer {token2}"},
+                              timeout=30)
+        still_open = (workitem_store.get_item(iid) or {}).get("status") in (
+            "open", "claimed")
+        r_admin = requests.post(f"{BASE}/api/work/respond",
+                                json={"id": iid,
+                                      "response": {"decision": "approved"}},
+                                headers={"Authorization": f"Bearer {token}"},
+                                timeout=30)
+        published = "pack20-tenant" in _views_api(token2)
+        r_run = _run_view_api(token2, "pack20-tenant", "tenant")
+        runs_ok = (r_run.status_code == 200
+                   and not r_run.json()["tiles"][0].get("error"))
+        check("V2-3", "tenant promotion: not published until a role>=3 My Work "
+                      "approval; role<3 rejected and item stays open",
+              (not published_early) and r_low.status_code == 403 and still_open
+              and r_admin.status_code == 200 and published and runs_ok,
+              f"early={published_early} low={r_low.status_code} "
+              f"open_after_low={still_open} admin={r_admin.status_code} "
+              f"published={published} run_ok={runs_ok}")
+    except Exception as e:
+        check("V2-3", "tenant promotion flow", False, e)
+    finally:
+        views_store.delete("pack20-tenant", 1, [], 3, "tenant")
+
+    # V2-4/5/6 automation-backed tiles (real pinned automations)
+    def _mk_automation(name, code):
+        precleanup([name])
+        data, st = manage_direct("create", {"name": name,
+                                            "description": "pack20 v2 tile"})
+        aid = (data.get("automation") or {}).get("automation_id")
+        if not aid:
+            return None, f"create failed HTTP {st}: {data.get('error')}"
+        data, st = manage_direct("save_code", {"automation_id": aid,
+                                               "code": code})
+        if st >= 400:
+            return None, f"save_code failed: {data.get('error')}"
+        data, st = manage_direct("promote", {"automation_id": aid})
+        if st >= 400 or not data.get("pinned_version"):
+            return None, f"promote failed: {data.get('error')}"
+        return aid, None
+
+    def _tile_view(vname, aid, aname):
+        views_store.delete(vname, 1, [], 3, "user")
+        views_store.save(vname, "v2 automation tile", [{
+            "type": "automation", "title": "Auto tile",
+            "automation": aname, "automation_id": aid,
+            "automation_name": aname, "viz": "auto"}], 1, scope="user")
+
+    # V2-4: happy path — pinned automation prints a JSON table
+    aid4, err4 = _mk_automation(
+        "pack20_viewtile",
+        'print("computing")\nprint(\'{"columns": ["n"], "rows": [[7]]}\')\n')
+    if err4:
+        check("V2-4", "automation tile end-to-end", False, err4)
+    else:
+        _tile_view("pack20-autoview", aid4, "pack20_viewtile")
+        r = _run_view_api(token, "pack20-autoview", "user")
+        tile = (r.json().get("tiles") or [{}])[0] if r.status_code == 200 else {}
+        runs, _ = manage_direct("runs", {"automation_id": aid4, "limit": 1})
+        run_row = (runs.get("runs") or [{}])[0]
+        check("V2-4", "automation tile: pinned run renders JSON rows; real run "
+                      "row exists",
+              r.status_code == 200 and not tile.get("error")
+              and tile.get("rows") == [[7]]
+              and run_row.get("status") == "success",
+              f"http={r.status_code} tile={json.dumps(tile)[:200]} "
+              f"run={run_row.get('status')}")
+        views_store.delete("pack20-autoview", 1, [], 3, "user")
+
+    # V2-5: checkpoint honesty — tile errors AND the checkpoint is aborted
+    aid5, err5 = _mk_automation(
+        "pack20_viewcp",
+        "import aihub_runtime as aihub\n"
+        "aihub.checkpoint('view tile should refuse this')\n"
+        "print('should not matter')\n")
+    if err5:
+        check("V2-5", "checkpoint tile honesty", False, err5)
+    else:
+        _tile_view("pack20-cpview", aid5, "pack20_viewcp")
+        r = _run_view_api(token, "pack20-cpview", "user", timeout=300)
+        tile = (r.json().get("tiles") or [{}])[0] if r.status_code == 200 else {}
+        run_id = tile.get("run_id")
+        import time as _time
+        _time.sleep(5)  # let the engine finalize the aborted run row
+        ev, _ = manage_direct("run_events", {"run_id": str(run_id or "")})
+        run_row = ev.get("run") or {}
+        no_pending = not ev.get("pending_checkpoint")
+        check("V2-5", "checkpoint tile: honest error, run settled, NO pending "
+                      "approval left behind",
+              "checkpoint" in str(tile.get("error", "")).lower()
+              and run_id and no_pending
+              and run_row.get("status") not in ("waiting", "running"),
+              f"error={str(tile.get('error'))[:120]} run_status="
+              f"{run_row.get('status')} pending={not no_pending}")
+        views_store.delete("pack20-cpview", 1, [], 3, "user")
+
+    # V2-6: contract violation — no JSON on the last line
+    aid6, err6 = _mk_automation(
+        "pack20_viewnojson", 'print("just words, no JSON here")\n')
+    if err6:
+        check("V2-6", "tile contract violation", False, err6)
+    else:
+        _tile_view("pack20-nojson", aid6, "pack20_viewnojson")
+        r = _run_view_api(token, "pack20-nojson", "user")
+        tile = (r.json().get("tiles") or [{}])[0] if r.status_code == 200 else {}
+        check("V2-6", "tile contract violation: honest per-tile error naming "
+                      "the contract",
+              r.status_code == 200
+              and "stdout line must be JSON" in str(tile.get("error", "")),
+              f"tile={json.dumps(tile)[:200]}")
+        views_store.delete("pack20-nojson", 1, [], 3, "user")
+
+    precleanup(["pack20_viewtile", "pack20_viewcp", "pack20_viewnojson"])
+
+    # V2-7 migration: a v1-shape DB (UNIQUE name, no ns column) migrates,
+    # legacy rows become tenant scope. Runs against a TEMP db via monkeypatch.
+    import tempfile
+    _orig_db = views_store.DB_PATH
+    try:
+        tmp = os.path.join(tempfile.gettempdir(), "pack20_views_v1.db")
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        import sqlite3 as _sq
+        c = _sq.connect(tmp)
+        c.executescript("""
+        CREATE TABLE views (
+            view_id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE,
+            description TEXT DEFAULT '', owner_user INTEGER,
+            tiles TEXT NOT NULL, prev_tiles TEXT,
+            version INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL);""")
+        c.execute("INSERT INTO views VALUES ('legacy1','old view','',1,"
+                  "'[{\"title\":\"t\",\"connection\":\"ERPDB\","
+                  "\"sql\":\"SELECT 1\"}]',NULL,3,'2026-08-01','2026-08-01')")
+        c.commit(); c.close()
+        views_store.DB_PATH = tmp
+        views_store.init()
+        migrated = views_store.get("old view", 2, [], "")  # visible to anyone => tenant
+        check("V2-7", "v1->v2 migration: legacy rows land in tenant scope, "
+                      "version preserved",
+              migrated is not None and migrated.get("scope") == "tenant"
+              and migrated.get("version") == 3,
+              f"migrated={json.dumps({k: migrated.get(k) for k in ('scope', 'version', 'ns')}) if migrated else None}")
+    except Exception as e:
+        check("V2-7", "v1->v2 migration", False, e)
+    finally:
+        views_store.DB_PATH = _orig_db
 
     # A5-4 secrets seam (feedback #1): service-key store -> visible in list,
     # value never echoed anywhere.

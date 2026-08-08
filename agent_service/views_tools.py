@@ -1,85 +1,245 @@
 """
-Views tools (A5) — save/list/delete deterministic dashboards.
+Views tools (A5 + v2) — save/list/delete deterministic dashboards.
 
-The agent builds an analysis conversationally ONCE, then pins the exact SQL
-into a View. From then on the Views surface refreshes it deterministically —
-the pinned SELECTs re-run through the read-only probe seam with zero LLM
-involvement, so a saved dashboard can never drift, hallucinate, or burn
-tokens. This is the Data Explorer saved-dashboard contract James pinned in
-the plan ("deterministic refresh, no rebuilding via chat").
+The agent builds an analysis conversationally ONCE, then pins the exact
+recipe into a View. From then on the Views surface refreshes it
+deterministically — SQL tiles re-run through the read-only probe seam,
+automation tiles run the automation's PINNED version through the governed
+run seam — zero LLM anywhere on the refresh path.
+
+v2 (docs/views-v2-spec.md): scopes mirror skills (user private / group
+membership-verified / tenant via My Work admin approval), and automation
+tiles unlock every source the platform can already reach deterministically
+(scrapes, APIs-with-secrets, transforms) with no new execution paths.
 """
 
+import asyncio
 import json
+import os
 from typing import Any
 
 from claude_agent_sdk import tool
 
 from platform_tools import CURRENT_USER, _text, _post, _resolve_connection
+from authoring_tools import _manage, _resolve_automation
 import views_store
+
+VIEW_TILE_TIMEOUT = float(os.getenv("VIEW_TILE_TIMEOUT", "120"))
+TILE_ROW_CAP = 50
+
+
+# ---------------------------------------------------------------------------
+# Refresh engine (shared with /api/views/run; no LLM anywhere)
+# ---------------------------------------------------------------------------
+
+def _parse_tile_stdout(stdout_tail: str):
+    """Tile output contract (spec §4.2): the LAST stdout line that parses as
+    JSON is the tile's data. Accepts {columns, rows}, a list of dicts, or a
+    {value[, label]} stat. Returns (columns, rows) or raises ValueError."""
+    for line in reversed((stdout_tail or "").strip().splitlines()):
+        line = line.strip()
+        if not line or line[0] not in "[{":
+            continue
+        try:
+            data = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(data, dict) and "columns" in data and "rows" in data:
+            cols = [str(c) for c in (data["columns"] or [])]
+            rows = [[r.get(c) for c in cols] if isinstance(r, dict) else list(r)
+                    for r in (data["rows"] or [])]
+            return cols, rows[:TILE_ROW_CAP]
+        if isinstance(data, list) and data and all(isinstance(r, dict) for r in data):
+            cols = [str(k) for k in data[0].keys()]
+            return cols, [[r.get(c) for c in cols] for r in data[:TILE_ROW_CAP]]
+        if isinstance(data, dict) and "value" in data:
+            return [str(data.get("label") or "value")], [[data["value"]]]
+    raise ValueError(
+        "no tile data found — the automation's LAST stdout line must be JSON: "
+        '{"columns": [...], "rows": [[...]]}, a list of objects, or '
+        '{"value": n, "label": "..."}. Note the run seam returns only the '
+        "final ~2000 chars of stdout, so keep the JSON line under ~1900 chars "
+        "(print fewer rows/columns — tiles are pulses, not exports)")
+
+
+async def _run_sql_tile(t: dict, tile: dict) -> None:
+    conn_id, err = await _resolve_connection(t.get("connection"))
+    if err:
+        tile["error"] = err
+        return
+    data, status = await _post(f"/api/discover/query/{conn_id}",
+                               {"sql": str(t.get("sql") or "").strip()})
+    if data.get("rejected"):
+        tile["error"] = f"rejected by read-only gate: {data.get('error')}"
+    elif data.get("sql_error"):
+        tile["error"] = f"SQL error: {data.get('error')}"
+    elif not data.get("success"):
+        tile["error"] = f"HTTP {status}: {data.get('error', data)}"
+    else:
+        cols = data.get("columns") or []
+        # The discover seam returns rows as dicts keyed by column;
+        # normalize to arrays in column order for the tile renderer.
+        tile["columns"] = cols
+        tile["rows"] = [[r.get(c) for c in cols] if isinstance(r, dict) else r
+                        for r in (data.get("rows") or [])]
+        tile["row_count"] = data.get("row_count")
+        tile["cap_applied"] = bool(data.get("cap_applied"))
+
+
+async def _run_automation_tile(t: dict, tile: dict) -> None:
+    """Run the PINNED version through the governed manage seam, honesty
+    branches per spec §4.3. Runs as the refreshing user (CURRENT_USER is the
+    session envelope — set by the endpoint/turn before we get here)."""
+    auto_ref = str(t.get("automation_id") or t.get("automation") or "")
+    payload = {"automation_id": auto_ref, "inputs": dict(t.get("inputs") or {})}
+    try:
+        data, status = await _manage("run", payload, timeout=VIEW_TILE_TIMEOUT)
+    except Exception as e:
+        tile["error"] = f"run failed to start: {e}"
+        return
+
+    # A dashboard refresh cannot wait on humans: settle the checkpoint abort
+    # so no orphan approval lands in My Work, and say why the tile failed.
+    # _manage never raises — it returns (error_dict, status) — so success is
+    # judged from the STATUS, not from the absence of an exception (review
+    # finding, 2026-08-07: the old code claimed "aborted" unconditionally).
+    if data.get("waiting_on_checkpoint"):
+        cp = data.get("pending_checkpoint") or {}
+        adata, astatus = await _manage(
+            "checkpoint_decision",
+            {"run_id": str(data.get("run_id")),
+             "checkpoint_id": str(cp.get("checkpoint_id")),
+             "decision": "abort"}, timeout=30)
+        if astatus < 400 and not adata.get("timed_out"):
+            aborted = "run aborted, no approval left pending"
+        else:
+            aborted = (f"abort FAILED (HTTP {astatus}: "
+                       f"{adata.get('error', adata)}) — an approval may still "
+                       "be pending in My Approvals")
+        tile["run_id"] = data.get("run_id")
+        tile["error"] = ("this automation pauses at a human checkpoint — a "
+                         "View refresh cannot wait on approvals; remove the "
+                         f"checkpoint or don't use it in a View ({aborted})")
+        return
+
+    if data.get("timed_out") or data.get("inline_wait_elapsed"):
+        tile["still_running"] = True
+        tile["run_id"] = data.get("run_id")
+        tile["error"] = (f"still executing after {int(VIEW_TILE_TIMEOUT)}s "
+                         f"(run_id {data.get('run_id', '?')}) — refresh again "
+                         "later; showing the last cached result if one exists")
+        return
+
+    if status == 403:
+        # Automation RUNS are Developer+ platform-wide; a role<2 viewer (the
+        # AGENT_ALLOW_ALL_USERS direction) can't trigger one — say so plainly
+        # and let the cache branch serve the last good result. The v2.1 answer
+        # for plain-user dashboards is scheduled refresh + cache.
+        tile["error"] = ("refreshing automation tiles requires a Developer "
+                        "role on this install — showing the last cached "
+                        "result if one exists")
+        return
+    run_status = str(data.get("status") or "")
+    if status >= 400 or run_status not in ("success",):
+        detail = data.get("error") or (str(data.get("stderr_tail") or "")[-300:])
+        tile["error"] = (f"run {run_status or 'failed'} "
+                         f"(exit {data.get('exit_code')}, run_id "
+                         f"{data.get('run_id', '?')}): {detail}")
+        return
+
+    try:
+        cols, rows = _parse_tile_stdout(str(data.get("stdout_tail") or ""))
+    except ValueError as e:
+        tile["error"] = str(e)
+        return
+    tile["columns"] = cols
+    tile["rows"] = rows
+    tile["row_count"] = len(rows)
+    tile["run_id"] = data.get("run_id")
 
 
 async def run_view(view: dict) -> dict:
-    """
-    Refresh a view deterministically: run each tile's pinned SQL through the
-    governed probe endpoint (sql_gate read-only + server row cap ~50). Errors
-    are per-tile and honest — one broken tile never fakes the others.
-    Shared by the /api/views/run endpoint and nothing else; no LLM anywhere.
-    """
+    """Refresh every tile concurrently; per-tile honest errors — one broken
+    tile never fakes the others. On error/still-running, attach the cached
+    last-good result labeled with its timestamp (spec §4.3)."""
+    tiles_def = view.get("tiles") or []
     results = []
-    for t in view.get("tiles") or []:
+    for t in tiles_def:
         tile = {"title": t.get("title"), "viz": t.get("viz") or "auto",
-                "sql": t.get("sql"), "connection": t.get("connection")}
+                "type": str(t.get("type") or "sql")}
+        if tile["type"] == "sql":
+            tile["sql"] = t.get("sql")
+            tile["connection"] = t.get("connection")
+        else:
+            tile["automation"] = t.get("automation_name") or t.get("automation")
+        results.append(tile)
+
+    async def _one(i: int):
+        t, tile = tiles_def[i], results[i]
         try:
-            conn_id, err = await _resolve_connection(t.get("connection"))
-            if err:
-                tile["error"] = err
-                results.append(tile)
-                continue
-            data, status = await _post(f"/api/discover/query/{conn_id}",
-                                       {"sql": str(t.get("sql") or "").strip()})
-            if data.get("rejected"):
-                tile["error"] = f"rejected by read-only gate: {data.get('error')}"
-            elif data.get("sql_error"):
-                tile["error"] = f"SQL error: {data.get('error')}"
-            elif not data.get("success"):
-                tile["error"] = f"HTTP {status}: {data.get('error', data)}"
+            if tile["type"] == "automation":
+                await _run_automation_tile(t, tile)
             else:
-                cols = data.get("columns") or []
-                # The discover seam returns rows as dicts keyed by column;
-                # normalize to arrays in column order for the tile renderer.
-                rows = [[r.get(c) for c in cols] if isinstance(r, dict) else r
-                        for r in (data.get("rows") or [])]
-                tile["columns"] = cols
-                tile["rows"] = rows
-                tile["row_count"] = data.get("row_count")
-                tile["cap_applied"] = bool(data.get("cap_applied"))
+                await _run_sql_tile(t, tile)
         except Exception as e:
             tile["error"] = str(e)
-        results.append(tile)
+
+    await asyncio.gather(*(_one(i) for i in range(len(tiles_def))))
+
+    # Cache handling: full success refreshes the cache; failures serve it.
+    cache = view.get("tile_cache") or []
+    cached_at = view.get("cached_at")
+    for i, tile in enumerate(results):
+        if tile.get("error") and i < len(cache) and cache[i].get("rows") is not None:
+            tile["cache"] = {"columns": cache[i].get("columns") or [],
+                             "rows": cache[i].get("rows") or [],
+                             "cached_at": cached_at}
+    if all(not t.get("error") for t in results) and results:
+        try:
+            views_store.set_cache(view["view_id"], [
+                {"columns": t.get("columns") or [], "rows": t.get("rows") or []}
+                for t in results])
+        except Exception:
+            pass
+
     return {"name": view.get("name"), "description": view.get("description"),
+            "scope": view.get("scope"), "group_id": view.get("group_id"),
             "version": view.get("version"), "updated_at": view.get("updated_at"),
             "tiles": results}
 
 
+# ---------------------------------------------------------------------------
+# Tools
+# ---------------------------------------------------------------------------
+
 @tool(
     "save_view",
     "Pin the CURRENT analysis as a saved View — a deterministic dashboard the "
-    "user refreshes from the Views screen with zero AI involvement. Each tile "
-    "= a title + connection + ONE frozen SELECT (verified via "
-    "probe_connection_query FIRST — never pin SQL you haven't run). Saving an "
-    "existing name replaces it and bumps its version. Tiles whose SELECT "
-    "returns a single row+column render as big-number stats; anything else "
-    "renders as a table. The server caps ~50 rows per tile — tell the user a "
-    "View is for pulse numbers and top-N lists, not bulk export.",
+    "user refreshes from the Views screen with zero AI involvement. Tiles "
+    "(max 8): SQL tiles = title + connection + ONE frozen SELECT (verified "
+    "via probe_connection_query FIRST — never pin SQL you haven't run); "
+    "automation tiles = title + a PROMOTED automation whose last stdout line "
+    "prints JSON tile data (use for scraped/API/computed data). Scopes mirror "
+    "skills: 'user' (private, default), 'group' (shared with one of the "
+    "user's groups — ask them to confirm first, pass group_id), 'tenant' "
+    "(everyone — FILES AN ADMIN APPROVAL into My Work; not published until "
+    "approved). Saving an existing name in the same scope replaces it and "
+    "bumps its version. ~50 rows per tile — pulse numbers and top-N lists, "
+    "not exports.",
     {
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "View name (shown in the Views list)"},
             "description": {"type": "string", "description": "One line: what this shows"},
             "tiles_json": {"type": "string",
-                           "description": 'JSON array, each: {"title": str, '
-                                          '"connection": name-or-id, "sql": '
-                                          '"SELECT ...", "viz": "stat|table|auto"}'},
+                           "description": 'JSON array. SQL tile: {"title": str, '
+                                          '"connection": name-or-id, "sql": "SELECT ...", '
+                                          '"viz": "stat|table|auto"}. Automation tile: '
+                                          '{"type": "automation", "title": str, '
+                                          '"automation": name-or-id, "inputs": {...}, '
+                                          '"viz": ...}'},
+            "scope": {"type": "string", "enum": ["user", "group", "tenant"]},
+            "group_id": {"type": "integer", "description": "Required for scope=group"},
         },
         "required": ["name", "tiles_json"],
         "additionalProperties": False,
@@ -87,6 +247,8 @@ async def run_view(view: dict) -> dict:
 )
 async def save_view(args: dict[str, Any]) -> dict[str, Any]:
     user = CURRENT_USER.get()
+    uid = int(user.get("user_id") or 0)
+    scope = str(args.get("scope") or "user")
     try:
         tiles = json.loads(args["tiles_json"])
     except Exception as e:
@@ -94,48 +256,95 @@ async def save_view(args: dict[str, Any]) -> dict[str, Any]:
     err = views_store.validate_tiles(tiles)
     if err:
         return _text(f"Not saved: {err}", is_error=True)
-    # Read-back honesty: verify every connection resolves BEFORE saving, so a
-    # saved view never contains a tile that can only ever error.
+
+    # Read-back honesty BEFORE saving: every SQL tile's connection must
+    # resolve; every automation tile must exist AND have a pinned version
+    # (tiles run the pinned version — a draft can never back a tile).
     for i, t in enumerate(tiles, 1):
-        _cid, cerr = await _resolve_connection(t.get("connection"))
-        if cerr:
-            return _text(f"Not saved — tile {i} ('{t.get('title')}'): {cerr}",
-                         is_error=True)
+        if str(t.get("type") or "sql") == "automation":
+            auto_id, aerr = await _resolve_automation(str(t.get("automation")))
+            if aerr:
+                return _text(f"Not saved — tile {i} ('{t.get('title')}'): {aerr}",
+                             is_error=True)
+            got, gstat = await _manage("get", {"automation_id": auto_id},
+                                       timeout=30)
+            a = (got.get("automation") or {}) if gstat < 400 else {}
+            if not a.get("pinned_version"):
+                return _text(f"Not saved — tile {i} ('{t.get('title')}'): "
+                             f"automation '{a.get('name', t.get('automation'))}' "
+                             "has NO promoted version. Views only run pinned "
+                             "code — promote it first.", is_error=True)
+            t["automation_id"] = auto_id
+            t["automation_name"] = a.get("name")
+        else:
+            _cid, cerr = await _resolve_connection(t.get("connection"))
+            if cerr:
+                return _text(f"Not saved — tile {i} ('{t.get('title')}'): {cerr}",
+                             is_error=True)
+
+    name = str(args["name"]).strip()
+    description = str(args.get("description") or "")
+
+    if scope == "tenant":
+        try:
+            item = views_store.request_tenant_promotion(
+                name, description, tiles, uid, str(user.get("username") or ""))
+        except ValueError as e:
+            return _text(f"Not requested: {e}", is_error=True)
+        return _text(f"Tenant promotion requested — approval item "
+                     f"{item['work_item_id']} is now in My Work (admin approval "
+                     "required; the view is NOT published yet).")
+
     try:
-        info = views_store.save(str(args["name"]), str(args.get("description") or ""),
-                                tiles, int(user.get("user_id") or 0))
+        info = views_store.save(name, description, tiles, uid,
+                                scope=scope, group_id=int(args.get("group_id") or 0))
     except ValueError as e:
         return _text(f"Not saved: {e}", is_error=True)
     verb = "updated" if info["version"] > 1 else "created"
-    return _text(f"View '{info['name']}' {verb} (v{info['version']}, "
+    where = ("your private scope" if scope == "user"
+             else f"group {info['group_id']} (members see it)")
+    return _text(f"View '{info['name']}' {verb} in {where} (v{info['version']}, "
                  f"{info['tile_count']} tiles). It now appears on the Views "
-                 "screen; every refresh re-runs the pinned SQL exactly — no AI "
-                 "in the loop.")
+                 "screen; every refresh re-runs the pinned recipe exactly — no "
+                 "AI in the loop.")
 
 
 @tool(
     "list_saved_views",
-    "List the saved Views (deterministic dashboards) on this install.",
+    "List the saved Views (deterministic dashboards) the current user can "
+    "see: their private ones + their groups' + tenant-wide.",
     {},
 )
 async def list_saved_views(args: dict[str, Any]) -> dict[str, Any]:
-    views = views_store.list_views()
+    import readthrough
+    user = CURRENT_USER.get()
+    uid = int(user.get("user_id") or 0)
+    views = views_store.list_views(uid, readthrough.user_group_ids(uid))
     if not views:
-        return _text("No Views are saved yet.")
-    lines = [f"- {v['name']} (v{v['version']}, {v['tile_count']} tiles) — "
-             f"{(v.get('description') or '')[:100]}" for v in views]
+        return _text("No Views are visible to this user yet.")
+    lines = []
+    for v in views:
+        scope = v["scope"] + (f" {v['group_id']}" if v.get("group_id") else "")
+        auto = " ▷automation" if v.get("has_automation_tiles") else ""
+        lines.append(f"- [{scope}] {v['name']} (v{v['version']}, "
+                     f"{v['tile_count']} tiles{auto}) — "
+                     f"{(v.get('description') or '')[:80]}")
     return _text(f"Saved Views ({len(views)}):\n" + "\n".join(lines))
 
 
 @tool(
     "delete_view",
-    "Delete a saved View by name. Destructive: call once with confirmed=false "
-    "to preview, then ONLY after the user explicitly confirms, again with "
+    "Delete a saved View by name (optionally scope/group_id when names "
+    "collide across scopes). Permissions: private = owner; group = any "
+    "member; tenant = admin. Destructive: call once with confirmed=false to "
+    "preview, then ONLY after the user explicitly confirms, again with "
     "confirmed=true.",
     {
         "type": "object",
         "properties": {
             "name": {"type": "string"},
+            "scope": {"type": "string", "enum": ["user", "group", "tenant"]},
+            "group_id": {"type": "integer"},
             "confirmed": {"type": "boolean"},
         },
         "required": ["name"],
@@ -143,16 +352,28 @@ async def list_saved_views(args: dict[str, Any]) -> dict[str, Any]:
     },
 )
 async def delete_view(args: dict[str, Any]) -> dict[str, Any]:
+    import readthrough
+    user = CURRENT_USER.get()
+    uid = int(user.get("user_id") or 0)
+    gids = readthrough.user_group_ids(uid)
     name = str(args["name"]).strip()
-    view = views_store.get(name)
+    scope = str(args.get("scope") or "")
+    gid = int(args.get("group_id") or 0)
+    view = views_store.get(name, uid, gids, scope, gid)
     if not view:
-        return _text(f"No view named '{name}' exists.", is_error=True)
+        return _text(f"No view named '{name}' is visible to this user.",
+                     is_error=True)
     if not args.get("confirmed"):
-        return _text(f"CONFIRMATION REQUIRED: view '{name}' (v{view['version']}, "
-                     f"{len(view['tiles'])} tiles) would be permanently deleted. "
-                     "Ask the user to confirm, then call again with confirmed=true.")
-    views_store.delete(name)
-    return _text(f"View '{name}' deleted.")
+        return _text(f"CONFIRMATION REQUIRED: view '{name}' "
+                     f"[{view['scope']}{' ' + str(view.get('group_id')) if view.get('group_id') else ''}] "
+                     f"(v{view['version']}, {len(view['tiles'])} tiles) would be "
+                     "permanently deleted. Ask the user to confirm, then call "
+                     "again with confirmed=true.")
+    ok, derr = views_store.delete(name, uid, gids, int(user.get("role") or 0),
+                                  view["scope"], int(view.get("group_id") or 0))
+    if not ok:
+        return _text(f"Not deleted: {derr}", is_error=True)
+    return _text(f"View '{name}' [{view['scope']}] deleted.")
 
 
 VIEWS_TOOLS = [save_view, list_saved_views, delete_view]

@@ -65,7 +65,7 @@ MUTATION_CLAIM_RE = re.compile(
     r"(✅\s*(created|saved|scheduled|promoted|deleted|inserted|added|updated|wired))"
     r"|(\bI(?:'|’)?ve\s+(?:now\s+)?(created|saved|scheduled|promoted|deleted|"
     r"added|updated|wired)\b[^.\n]{0,80}\b(automation|code\s*flow|workflow|"
-    r"schedule|job|skill|work\s*item|playbook|step|checkpoint)\b)"
+    r"schedule|job|skill|work\s*item|playbook|step|checkpoint|view|secret)\b)"
     r"|(\b(?:is|are)\s+now\s+(?:live|scheduled|promoted|running\s+on\s+a\s+schedule)\b)",
     re.I)
 
@@ -124,13 +124,17 @@ relevant.
 
 RECURRING WORK
 Three ladders, pick deliberately: something to LOOK AT repeatedly (numbers,
-top-N lists, a pulse) -> save a VIEW (save_view: the exact SQL you verified is
-pinned; the Views screen refreshes it deterministically, zero AI per refresh).
-Mechanical repetition that DOES something -> build an AUTOMATION
-(deterministic, zero tokens per run). Recurring judgment ('check X each
-morning, flag what's odd') -> schedule_agent_task (a fresh headless session
-runs the prompt as this user and reports into their My Work). After an
-analysis the user liked, offer to pin it as a View.
+top-N lists, a pulse) -> save a VIEW (save_view: the exact recipe you verified
+is pinned; the Views screen refreshes it deterministically, zero AI per
+refresh). Tiles can be frozen SELECTs or PROMOTED automations that print JSON
+tile data (for scraped/API/computed sources — never use checkpoints in a tile
+automation). View scopes mirror skills: private by default, group after the
+user confirms which group, tenant files an admin approval. Mechanical
+repetition that DOES something -> build an AUTOMATION (deterministic, zero
+tokens per run). Recurring judgment ('check X each morning, flag what's odd')
+-> schedule_agent_task (a fresh headless session runs the prompt as this user
+and reports into their My Work). After an analysis the user liked, offer to
+pin it as a View.
 
 SECRETS AND CREDENTIALS
 When a user hands you an API key, password, or token in chat, store it
