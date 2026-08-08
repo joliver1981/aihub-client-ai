@@ -105,6 +105,12 @@ Data Explorer's save-a-dashboard capability must not be lost: users compose dash
 
 **A5 — Views (Phase 2).** Deterministic dashboards per §5.
 
+**A5.5 — Views v2 (spec approved-pending: docs/views-v2-spec.md).**
+Automation-backed tiles (pinned-version runs, last-stdout-line JSON contract,
+checkpoint auto-abort honesty, tile cache) + user/group/tenant view scopes
+mirroring the skills promotion model (group = membership-verified direct
+save; tenant = admin approval via My Work, no bypass).
+
 **A6 — Agent Email (James, A4 feedback #3).** Every user can create a personal
 inbound address for The Agent: `<prefix>-agent.<client_id>@mail.everiai.ai`
 via Mailgun. `<client_id>` is fixed per install (platform config; shown in a
