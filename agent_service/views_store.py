@@ -33,6 +33,9 @@ _LOCK = threading.Lock()
 
 MAX_TILES = 8
 SCOPES = ("user", "group", "tenant")
+VIZ_TYPES = ("auto", "stat", "table", "ticker", "line", "bar")
+MIN_REFRESH_SECONDS = 15          # floor so a tile can't hammer the platform
+MAX_REFRESH_SECONDS = 86400
 
 
 def _now() -> str:
@@ -181,6 +184,17 @@ def validate_tiles(tiles) -> Optional[str]:
                 return f"tile {i} inputs must be an object"
         else:
             return f"tile {i} has unknown type '{ttype}' (sql | automation)"
+        viz = str(t.get("viz") or "auto")
+        if viz not in VIZ_TYPES:
+            return f"tile {i} has unknown viz '{viz}' ({' | '.join(VIZ_TYPES)})"
+        if t.get("refresh_seconds") is not None:
+            try:
+                rs = int(t["refresh_seconds"])
+            except Exception:
+                return f"tile {i} refresh_seconds must be an integer"
+            if not (MIN_REFRESH_SECONDS <= rs <= MAX_REFRESH_SECONDS):
+                return (f"tile {i} refresh_seconds must be between "
+                        f"{MIN_REFRESH_SECONDS} and {MAX_REFRESH_SECONDS}")
     return None
 
 

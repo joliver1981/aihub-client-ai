@@ -816,6 +816,104 @@ def main():
     finally:
         views_store.DB_PATH = _orig_db
 
+    # ------------------------------------------------------------------
+    # V2.1 — per-tile refresh, cache merge, scheduled cache refresh
+    # ------------------------------------------------------------------
+
+    # V21-1 tile_index runs ONE tile and merges the cache per-slot
+    views_store.delete("pack20-two", 1, [], 3, "user")
+    try:
+        views_store.save("pack20-two", "v2.1 tile-index probe", [
+            {"title": "One", "connection": "ERPDB", "sql": "SELECT 1 AS a",
+             "viz": "stat"},
+            {"title": "Two", "connection": "ERPDB", "sql": "SELECT 2 AS b",
+             "viz": "stat", "refresh_seconds": 30},
+        ], 1, scope="user")
+        r = requests.post(f"{BASE}/api/views/run",
+                          json={"name": "pack20-two", "scope": "user",
+                                "tile_index": 1},
+                          headers={"Authorization": f"Bearer {token}"},
+                          timeout=60)
+        d = r.json() if r.status_code == 200 else {}
+        tiles = d.get("tiles") or []
+        only_second = (len(tiles) == 1 and tiles[0].get("index") == 1
+                       and tiles[0].get("rows") == [["2"]]
+                       and tiles[0].get("refresh_seconds") == 30)
+        after = views_store.get("pack20-two", 1, [], "user")
+        cache = after.get("tile_cache") or []
+        merged = (len(cache) == 2 and not cache[0]
+                  and (cache[1] or {}).get("rows") == [["2"]])
+        check("V21-1", "tile_index runs a single tile; cache merges per-slot",
+              only_second and merged,
+              f"tiles={json.dumps(tiles)[:150]} cache_slots="
+              f"{[bool(c) for c in cache]}")
+    except Exception as e:
+        check("V21-1", "tile_index single-tile run", False, e)
+
+    # V21-2 refresh-cache endpoint (service key, stored principal)
+    try:
+        r = requests.post(f"{BASE}/api/views/refresh-cache",
+                          json={"name": "pack20-two", "scope": "user",
+                                "user_id": 1, "role": 3,
+                                "username": "pack20-runner"},
+                          headers=SVC_HEADERS, timeout=120)
+        d = r.json() if r.status_code == 200 else {}
+        after = views_store.get("pack20-two", 1, [], "user")
+        cache = after.get("tile_cache") or []
+        both = (len(cache) == 2 and (cache[0] or {}).get("rows") == [["1"]]
+                and (cache[1] or {}).get("rows") == [["2"]])
+        r_bad = requests.post(f"{BASE}/api/views/refresh-cache",
+                              json={"name": "pack20-two", "scope": "user",
+                                    "user_id": 2, "role": 2,
+                                    "username": "someone-else"},
+                              headers=SVC_HEADERS, timeout=60)
+        check("V21-2", "refresh-cache: service-key headless refresh fills every "
+                       "slot; wrong principal cannot reach the view",
+              r.status_code == 200 and d.get("ok") and d.get("tiles_ok") == 2
+              and both and r_bad.status_code == 404,
+              f"http={r.status_code} resp={json.dumps(d)[:120]} both={both} "
+              f"wrong_principal={r_bad.status_code}")
+    except Exception as e:
+        check("V21-2", "refresh-cache endpoint", False, e)
+
+    # V21-3 JSS view_refresh livefire: interval job fires, cached_at advances
+    try:
+        before_at = (views_store.get("pack20-two", 1, [], "user") or {}).get(
+            "cached_at") or ""
+        vr_body = {"name": "View refresh: pack20-two", "type": "view_refresh",
+                   "target_id": "0", "created_by": "pack20", "is_active": True,
+                   "parameters": {
+                       "view_name": {"value": "pack20-two", "type": "string"},
+                       "view_scope": {"value": "user", "type": "string"},
+                       "view_group_id": {"value": "0", "type": "string"},
+                       "user_id": {"value": "1", "type": "string"},
+                       "role": {"value": "3", "type": "string"},
+                       "username": {"value": "pack20-runner", "type": "string"}},
+                   "schedule": {"type": "interval", "interval_seconds": 45,
+                                "start_date": datetime.datetime.utcnow().strftime(
+                                    "%Y-%m-%d %H:%M:%S")}}
+        jr = requests.post(f"{MAIN}/api/scheduler/jobs", json=vr_body,
+                           headers=SVC_HEADERS, timeout=30)
+        vjob = (jr.json() if jr.status_code < 500 else {}).get("id")
+        advanced = False
+        if vjob:
+            deadline = _t.time() + 240
+            while _t.time() < deadline and not advanced:
+                _t.sleep(10)
+                now_at = (views_store.get("pack20-two", 1, [], "user") or {}
+                          ).get("cached_at") or ""
+                advanced = bool(now_at and now_at > before_at)
+            requests.delete(f"{MAIN}/api/scheduler/jobs/{vjob}",
+                            headers=SVC_HEADERS, timeout=30)
+        check("V21-3", "JSS view_refresh job fires; the shared cache advances "
+                       "with zero AI",
+              bool(vjob) and advanced,
+              f"job={vjob} before={before_at!r} advanced={advanced}")
+    except Exception as e:
+        check("V21-3", "JSS view_refresh livefire", False, e)
+    finally:
+        views_store.delete("pack20-two", 1, [], 3, "user")
+
     # A5-4 secrets seam (feedback #1): service-key store -> visible in list,
     # value never echoed anywhere.
     r = requests.post(f"{MAIN}/workflow/secrets/store",

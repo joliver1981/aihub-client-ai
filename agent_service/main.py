@@ -545,7 +545,45 @@ async def views_run(request: Request):
     from platform_tools import CURRENT_USER
     CURRENT_USER.set(user)
     from views_tools import run_view
-    return await run_view(view)
+    tile_index = body.get("tile_index")
+    return await run_view(view, int(tile_index) if tile_index is not None else None)
+
+
+@app.post("/api/views/refresh-cache")
+async def views_refresh_cache(request: Request):
+    """Headless cache refresh for view_refresh JSS jobs (service-key auth,
+    same contract as /api/run). Runs AS the stored principal — the user who
+    created the schedule — and updates the tile cache every viewer sees.
+    Zero LLM involvement; this is how plain users get current automation-tile
+    data without holding a Developer role themselves."""
+    if not _service_key_ok(request):
+        raise HTTPException(401, "service key required")
+    body = await request.json()
+    principal = {
+        "user_id": int(body.get("user_id") or 0),
+        "role": int(body.get("role") or 2),
+        "username": str(body.get("username") or "scheduler"),
+        "name": str(body.get("username") or "scheduler"),
+    }
+    uid = principal["user_id"]
+    view = views_store.get(str(body.get("name") or ""), uid,
+                           readthrough.user_group_ids(uid),
+                           str(body.get("scope") or ""),
+                           int(body.get("group_id") or 0))
+    if not view:
+        raise HTTPException(404, "view not found (or not visible to the "
+                                 "stored principal)")
+    from platform_tools import CURRENT_USER
+    CURRENT_USER.set(principal)
+    from views_tools import run_view
+    result = await run_view(view)
+    ok_tiles = sum(1 for t in result["tiles"] if not t.get("error"))
+    errs = [f"tile {t['index']} ({t.get('title')}): {t['error']}"
+            for t in result["tiles"] if t.get("error")]
+    logger.info(f"view refresh-cache '{view['name']}' [{view['scope']}] as "
+                f"user {uid}: {ok_tiles}/{len(result['tiles'])} tiles ok")
+    return {"ok": not errs, "tiles_ok": ok_tiles,
+            "tiles_total": len(result["tiles"]), "errors": errs[:5]}
 
 
 if __name__ == "__main__":

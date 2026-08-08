@@ -53,6 +53,7 @@ MUTATING_TOOLS = frozenset({
     "run_code_flow", "dry_run_code_flow",
     "raise_work_item", "save_skill", "schedule_agent_task",
     "save_view", "delete_view", "store_platform_secret",
+    "schedule_view_refresh",
 })
 
 # Tool inputs are streamed to the UI (chip click-to-peek) and would otherwise

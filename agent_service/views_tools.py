@@ -158,15 +158,27 @@ async def _run_automation_tile(t: dict, tile: dict) -> None:
     tile["run_id"] = data.get("run_id")
 
 
-async def run_view(view: dict) -> dict:
-    """Refresh every tile concurrently; per-tile honest errors — one broken
-    tile never fakes the others. On error/still-running, attach the cached
-    last-good result labeled with its timestamp (spec §4.3)."""
+async def run_view(view: dict, only_index: int | None = None) -> dict:
+    """Refresh tiles concurrently; per-tile honest errors — one broken tile
+    never fakes the others. only_index runs a single tile (per-tile
+    refresh_seconds timers in the UI use this so a 30s ticker doesn't re-run
+    the whole board). The cache is merged PER TILE: each success overwrites
+    its own slot with a timestamp; failures serve their slot's last good
+    result labeled as-of (spec §4.3)."""
+    from datetime import datetime, timezone
     tiles_def = view.get("tiles") or []
+    if only_index is not None and not (0 <= only_index < len(tiles_def)):
+        return {"name": view.get("name"), "error": "tile_index out of range",
+                "tiles": []}
+    indices = [only_index] if only_index is not None else list(range(len(tiles_def)))
+
     results = []
-    for t in tiles_def:
-        tile = {"title": t.get("title"), "viz": t.get("viz") or "auto",
-                "type": str(t.get("type") or "sql")}
+    for i in indices:
+        t = tiles_def[i]
+        tile = {"index": i, "title": t.get("title"),
+                "viz": t.get("viz") or "auto",
+                "type": str(t.get("type") or "sql"),
+                "refresh_seconds": t.get("refresh_seconds")}
         if tile["type"] == "sql":
             tile["sql"] = t.get("sql")
             tile["connection"] = t.get("connection")
@@ -174,8 +186,8 @@ async def run_view(view: dict) -> dict:
             tile["automation"] = t.get("automation_name") or t.get("automation")
         results.append(tile)
 
-    async def _one(i: int):
-        t, tile = tiles_def[i], results[i]
+    async def _one(pos: int):
+        t, tile = tiles_def[indices[pos]], results[pos]
         try:
             if tile["type"] == "automation":
                 await _run_automation_tile(t, tile)
@@ -184,28 +196,36 @@ async def run_view(view: dict) -> dict:
         except Exception as e:
             tile["error"] = str(e)
 
-    await asyncio.gather(*(_one(i) for i in range(len(tiles_def))))
+    await asyncio.gather(*(_one(p) for p in range(len(indices))))
 
-    # Cache handling: full success refreshes the cache; failures serve it.
-    cache = view.get("tile_cache") or []
-    cached_at = view.get("cached_at")
-    for i, tile in enumerate(results):
-        if tile.get("error") and i < len(cache) and cache[i].get("rows") is not None:
+    # Per-tile cache merge: successes overwrite their slot; other slots keep
+    # their last good data. Failed tiles get their slot attached for as-of
+    # rendering.
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    cache = list(view.get("tile_cache") or [])
+    cache += [{}] * (len(tiles_def) - len(cache))
+    legacy_at = view.get("cached_at")   # pre-per-tile cache rows lack "at"
+    any_success = False
+    for tile in results:
+        i = tile["index"]
+        if not tile.get("error"):
+            cache[i] = {"columns": tile.get("columns") or [],
+                        "rows": tile.get("rows") or [], "at": now}
+            any_success = True
+        elif cache[i].get("rows") is not None:
             tile["cache"] = {"columns": cache[i].get("columns") or [],
                              "rows": cache[i].get("rows") or [],
-                             "cached_at": cached_at}
-    if all(not t.get("error") for t in results) and results:
+                             "cached_at": cache[i].get("at") or legacy_at}
+    if any_success:
         try:
-            views_store.set_cache(view["view_id"], [
-                {"columns": t.get("columns") or [], "rows": t.get("rows") or []}
-                for t in results])
+            views_store.set_cache(view["view_id"], cache)
         except Exception:
             pass
 
     return {"name": view.get("name"), "description": view.get("description"),
             "scope": view.get("scope"), "group_id": view.get("group_id"),
             "version": view.get("version"), "updated_at": view.get("updated_at"),
-            "tiles": results}
+            "tile_index": only_index, "tiles": results}
 
 
 # ---------------------------------------------------------------------------
@@ -376,4 +396,104 @@ async def delete_view(args: dict[str, Any]) -> dict[str, Any]:
     return _text(f"View '{name}' [{view['scope']}] deleted.")
 
 
-VIEWS_TOOLS = [save_view, list_saved_views, delete_view]
+@tool(
+    "schedule_view_refresh",
+    "Schedule a View's cache to refresh automatically (JSS engine, zero AI "
+    "per refresh). This is how NON-developer viewers get current automation-"
+    "tile data: the scheduled refresh runs as the schedule's creator and "
+    "updates the cache everyone sees. Provide every_minutes (>=15) OR a cron "
+    "expression. Report ONLY the ids this returns.",
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "The view's name"},
+            "scope": {"type": "string", "enum": ["user", "group", "tenant"]},
+            "group_id": {"type": "integer"},
+            "every_minutes": {"type": "integer", "description": "Interval, min 15"},
+            "cron_expression": {"type": "string"},
+        },
+        "required": ["name"],
+        "additionalProperties": False,
+    },
+)
+async def schedule_view_refresh(args: dict[str, Any]) -> dict[str, Any]:
+    import datetime as _dt
+    import httpx
+    import readthrough
+    from platform_tools import _headers
+    from agent_config import get_base_url
+
+    user = CURRENT_USER.get()
+    uid = int(user.get("user_id") or 0)
+    if int(user.get("role") or 0) < 2 and os.getenv(
+            "AGENT_BUILD_ALLOW_ALL_USERS", "false").lower() != "true":
+        return _text("Scheduling view refreshes requires a Developer role.",
+                     is_error=True)
+    name = str(args["name"]).strip()
+    scope = str(args.get("scope") or "")
+    gid = int(args.get("group_id") or 0)
+    view = views_store.get(name, uid, readthrough.user_group_ids(uid), scope, gid)
+    if not view:
+        return _text(f"No view named '{name}' is visible to this user — "
+                     "nothing scheduled.", is_error=True)
+
+    if args.get("cron_expression"):
+        schedule = {"type": "cron",
+                    "cron_expression": str(args["cron_expression"])}
+    elif args.get("every_minutes"):
+        mins = max(int(args["every_minutes"]), 15)
+        schedule = {"type": "interval", "interval_minutes": mins,
+                    "start_date": _dt.datetime.utcnow().strftime(
+                        "%Y-%m-%d %H:%M:%S")}
+    else:
+        return _text("Provide every_minutes (>=15) or cron_expression.",
+                     is_error=True)
+
+    body = {
+        "name": f"View refresh: {view['name']}"[:80],
+        "type": "view_refresh",
+        # string "0": the route's presence check treats int 0 as missing
+        "target_id": "0",
+        "description": f"Deterministic cache refresh of view '{view['name']}' "
+                       f"[{view['scope']}]",
+        "created_by": str(user.get("username") or "agent"),
+        "is_active": True,
+        "parameters": {
+            "view_name": {"value": view["name"], "type": "string"},
+            "view_scope": {"value": view["scope"], "type": "string"},
+            "view_group_id": {"value": str(view.get("group_id") or 0),
+                              "type": "string"},
+            "user_id": {"value": str(uid), "type": "string"},
+            "role": {"value": str(int(user.get("role") or 2)), "type": "string"},
+            "username": {"value": str(user.get("username") or ""),
+                         "type": "string"},
+        },
+        "schedule": schedule,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(f"{get_base_url()}/api/scheduler/jobs",
+                                  json=body, headers=_headers())
+            data = r.json() if r.status_code < 500 else {}
+            if r.status_code >= 400 or not data.get("id"):
+                return _text(f"Nothing was scheduled (HTTP {r.status_code}: "
+                             f"{data.get('error', r.text[:200])}). Do NOT tell "
+                             "the user it was scheduled.", is_error=True)
+            job_id = data["id"]
+            rb = await client.get(f"{get_base_url()}/api/scheduler/jobs/{job_id}",
+                                  headers=_headers())
+            rbd = rb.json() if rb.status_code < 400 else {}
+            active = any(s.get("is_active") for s in (rbd.get("schedules") or []))
+            if not active:
+                return _text(f"Job #{job_id} was created but NO active schedule "
+                             "row exists — report this as NOT scheduled.",
+                             is_error=True)
+    except Exception as e:
+        return _text(f"Scheduling failed: {e}", is_error=True)
+    return _text(f"Scheduled cache refresh for view '{view['name']}' (job "
+                 f"#{job_id}, verified active by read-back). Each firing "
+                 f"refreshes the tiles as {user.get('username')} and updates "
+                 "the cache every viewer sees — zero AI per refresh.")
+
+
+VIEWS_TOOLS = [save_view, list_saved_views, delete_view, schedule_view_refresh]

@@ -108,6 +108,9 @@ class JobSchedulerService:
         # engine's behavior is byte-identical unless explicitly enabled.
         if os.getenv('AGENT_SESSION_JOBS_ENABLED', 'false').lower() == 'true':
             self.job_types['agent_session'] = self._execute_agent_session_job
+            # Views v2.1: deterministic dashboard-cache refresh (zero LLM);
+            # same flag — both are The Agent service's job family.
+            self.job_types['view_refresh'] = self._execute_view_refresh_job
 
         print('API Base URL:', self.api_base_url)
         
@@ -1301,6 +1304,64 @@ class JobSchedulerService:
                 execution_id,
                 'failed',
                 result_message=f"Error executing agent session job: {str(e)}",
+                error_details=error_details
+            )
+
+    def _execute_view_refresh_job(self, job_data: Dict[str, Any]):
+        """Refresh a saved View's tile cache via The Agent service — pinned
+        SQL / pinned automations only, zero LLM. Runs as the stored principal
+        (the schedule's creator) so plain viewers see current cache without
+        needing run rights themselves."""
+        scheduled_job_id = job_data['scheduled_job_id']
+        schedule_id = job_data['schedule_id']
+        job_name = job_data['job_name']
+        parameters = job_data.get('parameters', {})
+
+        def _pv(name, default=''):
+            v = parameters.get(name, default)
+            return v.get('value', default) if isinstance(v, dict) else v
+
+        logger.info(f"Executing view refresh job: {job_name} (ID: {scheduled_job_id})")
+        execution_id = self._create_execution_record(scheduled_job_id, schedule_id)
+        try:
+            self._update_execution_record(execution_id, 'running')
+            if not _pv('view_name'):
+                raise ValueError("job parameter 'view_name' is missing")
+
+            agent_port = os.getenv('AGENT_SERVICE_PORT') or str(
+                int(os.getenv('HOST_PORT', '5001')) + 110)
+            api_url = f"http://127.0.0.1:{agent_port}/api/views/refresh-cache"
+            payload = {
+                'name': _pv('view_name'),
+                'scope': _pv('view_scope'),
+                'group_id': _pv('view_group_id') or 0,
+                'user_id': _pv('user_id') or 0,
+                'role': _pv('role') or 2,
+                'username': _pv('username') or 'scheduler',
+            }
+            headers = {'X-API-Key': os.getenv('API_KEY', '')}
+            response = requests.post(api_url, json=payload, headers=headers,
+                                     timeout=600)
+            data = response.json() if response.status_code in (200, 404) else {}
+            ok = bool(data.get('ok'))
+            message = (f"View refresh {'ok' if ok else 'PARTIAL/FAILED'}: "
+                       f"{data.get('tiles_ok', 0)}/{data.get('tiles_total', '?')} "
+                       f"tiles; errors={data.get('errors') or (response.status_code if response.status_code >= 400 else 'none')}")
+            record_status = 'completed' if ok else 'failed'
+            self._update_execution_record(execution_id, record_status,
+                                          result_message=message[:500])
+            self._increment_run_count(schedule_id)
+            self._update_last_run_time(schedule_id, datetime.now())
+            logger.info(f"view refresh job {record_status}: {job_name} ({message})")
+
+        except Exception as e:
+            error_details = traceback.format_exc()
+            logger.error(f"Error executing view refresh job {job_name}: {str(e)}")
+            logger.error(error_details)
+            self._update_execution_record(
+                execution_id,
+                'failed',
+                result_message=f"Error executing view refresh job: {str(e)}",
                 error_details=error_details
             )
 

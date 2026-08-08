@@ -255,6 +255,18 @@
                   white-space:pre-wrap;overflow-wrap:anywhere}
   .tile.wide{grid-column:1 / -1}
   .vmeta{font-family:var(--mono);font-size:10.5px;color:var(--text3)}
+  .tickerwrap{overflow:hidden;white-space:nowrap;margin:auto 0;padding:6px 0}
+  .tickerstrip{display:inline-block;white-space:nowrap;
+               animation:tickerScroll 30s linear infinite}
+  .tickerstrip span{margin-right:28px;font-variant-numeric:tabular-nums}
+  .tickerstrip b{color:var(--accent);font-weight:650}
+  @keyframes tickerScroll{from{transform:translateX(0)}
+                          to{transform:translateX(-50%)}}
+  .tile svg{width:100%;height:120px;display:block;margin:auto 0}
+  .tile svg .ln{fill:none;stroke:var(--accent);stroke-width:2}
+  .tile svg .ar{fill:var(--accent-tint)}
+  .tile svg .br{fill:var(--accent);opacity:.75}
+  .tile svg text{fill:var(--text3);font-size:9px;font-family:var(--mono)}
 </style>
 <script src="/static/vendor/marked.min.js"></script>
 <script src="/static/vendor/purify.min.js"></script>
@@ -483,6 +495,7 @@
       views[k].classList.toggle("on", k === v);
       navs[k].classList.toggle("on", k === v);
     }
+    if (v !== "views") clearTileTimers();
     if (v === "work") loadWork();
     if (v === "skills") loadSkills();
     if (v === "views") loadViews();
@@ -549,9 +562,20 @@
       b.appendChild(el("div", "qfrom", v.description || ""));
       // Select = highlight from cached data + ONE run. Never refetch-and-run
       // from a click — that pattern double-ran every automation tile.
-      b.onclick = () => { currentView = key; renderViewsList(); runView(key); };
+      b.onclick = () => {
+        currentView = key;
+        location.hash = `view=${encodeURIComponent(key.name)}&scope=${key.scope}` +
+                        (key.group_id ? `&gid=${key.group_id}` : "");
+        renderViewsList(); runView(key);
+      };
       list.appendChild(b);
     });
+  }
+  function viewFromHash() {
+    const m = new URLSearchParams(location.hash.replace(/^#/, ""));
+    if (!m.get("view")) return null;
+    return { name: decodeURIComponent(m.get("view")),
+             scope: m.get("scope") || "", group_id: Number(m.get("gid")) || 0 };
   }
   async function loadViews() {
     const list = document.getElementById("views-list");
@@ -563,7 +587,87 @@
       renderViewsList();
     } catch (e) { list.textContent = "Could not load: " + e.message; }
   }
+  function svgEsc(s) { return String(s).slice(0, 24); }
+  function firstNumericCol(columns, rows) {
+    for (let c = 1; c < columns.length; c++)
+      if (rows.some(r => Number.isFinite(Number(r[c])))) return c;
+    return columns.length > 1 ? 1 : 0;
+  }
+  function renderChart(tile, columns, rows, kind) {
+    const yc = firstNumericCol(columns, rows);
+    const pts = rows.map(r => ({ x: String(r[0] ?? ""), y: Number(r[yc]) }))
+                    .filter(p => Number.isFinite(p.y));
+    if (!pts.length) { tile.appendChild(el("div", "statsub", "no numeric data to chart")); return; }
+    const W = 280, HT = 120, PAD = 6, BASE = HT - 14;
+    const ys = pts.map(p => p.y);
+    const lo = Math.min(0, ...ys), hi = Math.max(...ys) || 1;
+    const sy = v => BASE - ((v - lo) / (hi - lo || 1)) * (BASE - PAD);
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", `0 0 ${W} ${HT}`);
+    if (kind === "bar") {
+      const bw = Math.max(2, Math.min(34, (W - 2 * PAD) / pts.length - 3));
+      pts.forEach((p, i) => {
+        const r = document.createElementNS(ns, "rect");
+        const x = PAD + i * ((W - 2 * PAD) / pts.length);
+        r.setAttribute("x", x); r.setAttribute("width", bw);
+        r.setAttribute("y", sy(Math.max(p.y, 0)));
+        r.setAttribute("height", Math.max(1, Math.abs(sy(0) - sy(p.y))));
+        r.setAttribute("class", "br");
+        const tt = document.createElementNS(ns, "title");
+        tt.textContent = `${p.x}: ${p.y}`; r.appendChild(tt);
+        svg.appendChild(r);
+      });
+    } else {
+      const step = (W - 2 * PAD) / Math.max(1, pts.length - 1);
+      const coords = pts.map((p, i) => `${PAD + i * step},${sy(p.y)}`);
+      const area = document.createElementNS(ns, "polygon");
+      area.setAttribute("points",
+        `${PAD},${sy(lo)} ` + coords.join(" ") + ` ${PAD + (pts.length - 1) * step},${sy(lo)}`);
+      area.setAttribute("class", "ar"); svg.appendChild(area);
+      const line = document.createElementNS(ns, "polyline");
+      line.setAttribute("points", coords.join(" "));
+      line.setAttribute("class", "ln"); svg.appendChild(line);
+    }
+    const t0 = document.createElementNS(ns, "text");
+    t0.setAttribute("x", PAD); t0.setAttribute("y", HT - 2);
+    t0.textContent = svgEsc(pts[0].x);
+    const t1 = document.createElementNS(ns, "text");
+    t1.setAttribute("x", W - PAD); t1.setAttribute("y", HT - 2);
+    t1.setAttribute("text-anchor", "end");
+    t1.textContent = svgEsc(pts[pts.length - 1].x);
+    svg.append(t0, t1);
+    tile.appendChild(svg);
+    tile.appendChild(el("div", "statsub",
+      `${columns[yc]}: ${lo.toLocaleString()} – ${hi.toLocaleString()}`));
+  }
+  function renderTicker(tile, columns, rows) {
+    const wrap = el("div", "tickerwrap");
+    const strip = el("div", "tickerstrip");
+    const mk = () => rows.forEach(r => {
+      const s = document.createElement("span");
+      if (r.length >= 2) {
+        const b = document.createElement("b"); b.textContent = String(r[0]);
+        s.appendChild(b);
+        s.appendChild(document.createTextNode(" " + String(r[1] ?? "")));
+      } else s.textContent = String(r[0] ?? "");
+      strip.appendChild(s);
+    });
+    mk(); mk();   // duplicated content = seamless loop
+    strip.style.animationDuration = Math.max(12, rows.length * 3) + "s";
+    wrap.appendChild(strip); tile.appendChild(wrap);
+  }
   function renderTileData(tile, columns, rows, t, asOf) {
+    if (t.viz === "ticker" && rows.length) {
+      renderTicker(tile, columns, rows);
+      if (asOf) tile.appendChild(el("div", "statsub", `as of ${asOf}`));
+      return;
+    }
+    if ((t.viz === "line" || t.viz === "bar") && rows.length) {
+      renderChart(tile, columns, rows, t.viz);
+      if (asOf) tile.appendChild(el("div", "statsub", `as of ${asOf}`));
+      return;
+    }
     if ((t.viz === "stat" || t.viz === "auto" || !t.viz) &&
         rows.length === 1 && columns.length === 1) {
       const v = rows[0][0];
@@ -595,8 +699,13 @@
     }
   }
   let runSeq = 0;   // stale-response guard: only the newest run may paint
+  let tileTimers = [];
+  function clearTileTimers() {
+    tileTimers.forEach(clearInterval); tileTimers = [];
+  }
   async function runView(key) {
     const seq = ++runSeq;
+    clearTileTimers();
     const detail = document.getElementById("views-detail");
     const meta = document.getElementById("views-meta");
     detail.innerHTML = "";
@@ -619,26 +728,50 @@
       detail.innerHTML = "";
       const grid = el("div", "tiles");
       (d.tiles || []).forEach(t => {
-        const tile = el("div", "tile");
-        const title = el("div", "ttitle", t.title || "(untitled)");
-        if (t.type === "automation")
-          title.textContent += ` · ▷ ${t.automation || "automation"}`;
-        tile.appendChild(title);
-        if (t.error) {
-          tile.classList.add("err");
-          tile.appendChild(el("div", "terr", t.error));
-          if (t.cache) {
-            const asOf = (t.cache.cached_at || "").slice(0, 16).replace("T", " ");
-            renderTileData(tile, t.cache.columns || [], t.cache.rows || [],
-                           t, asOf || "earlier");
-          }
-        } else {
-          renderTileData(tile, t.columns || [], t.rows || [], t, null);
+        const node = buildTile(t);
+        grid.appendChild(node);
+        // Per-tile auto-refresh (v2.1): a 30s ticker re-runs ONLY its own
+        // tile via tile_index — never the whole board.
+        if (t.refresh_seconds && t.index !== undefined) {
+          tileTimers.push(setInterval(async () => {
+            try {
+              const rr = await fetch("/api/views/run", { method: "POST",
+                headers: H(), body: JSON.stringify({ name: key.name,
+                  scope: key.scope, group_id: key.group_id || 0,
+                  tile_index: t.index }) });
+              if (!rr.ok || seq !== runSeq) return;
+              const dd = await rr.json();
+              const fresh = (dd.tiles || [])[0];
+              if (!fresh) return;
+              const repl = buildTile(fresh);
+              const old = grid.querySelector(`[data-idx="${t.index}"]`);
+              if (old) old.replaceWith(repl);
+            } catch {}
+          }, Math.max(15, t.refresh_seconds) * 1000));
         }
-        grid.appendChild(tile);
       });
       detail.appendChild(grid);
     } catch (e) { detail.textContent = "Refresh failed: " + e.message; }
+  }
+  function buildTile(t) {
+    const tile = el("div", "tile");
+    if (t.index !== undefined) tile.dataset.idx = t.index;
+    const title = el("div", "ttitle", t.title || "(untitled)");
+    if (t.type === "automation")
+      title.textContent += ` · ▷ ${t.automation || "automation"}`;
+    tile.appendChild(title);
+    if (t.error) {
+      tile.classList.add("err");
+      tile.appendChild(el("div", "terr", t.error));
+      if (t.cache) {
+        const asOf = (t.cache.cached_at || "").slice(0, 16).replace("T", " ");
+        renderTileData(tile, t.cache.columns || [], t.cache.rows || [],
+                       t, asOf || "earlier");
+      }
+    } else {
+      renderTileData(tile, t.columns || [], t.rows || [], t, null);
+    }
+    return tile;
   }
   document.getElementById("views-refresh").onclick = () =>
     currentView ? runView(currentView) : loadViews();
@@ -1202,6 +1335,9 @@
       input.disabled = false; send.disabled = false;
       if (!document.getElementById("hello") && !thread.children.length) hello(d.user);
       input.focus(); refreshWorkCount();
+      // Deep link (v2.1): #view=<name>&scope=&gid= opens straight to a view.
+      const hv = viewFromHash();
+      if (hv) { currentView = hv; show("views"); runView(hv); }
     } catch (e) { gate("The Agent service is unreachable: " + e.message); }
   }
   boot();
