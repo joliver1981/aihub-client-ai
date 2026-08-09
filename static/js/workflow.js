@@ -2816,6 +2816,17 @@ function configureNode() {
             } else if (nodeType === 'Alert') {
                 const alertType = currentConfig.alertType || 'email';
                 updateAlertFields(alertType);
+            } else if (nodeType === 'Code Step') {
+                // The generic populate JSON.stringifies array values compactly;
+                // reformat the manifest textareas so they are actually readable.
+                ['connections', 'secrets', 'packages', 'inputs', 'outputs'].forEach(k => {
+                    const ta = modalBody.querySelector(`textarea[name="${k}"]`);
+                    if (ta && ta.value.trim()) {
+                        try {
+                            ta.value = JSON.stringify(JSON.parse(ta.value), null, 2);
+                        } catch (e) { /* leave as-is; save validates */ }
+                    }
+                });
             }
 
             // Show modal
@@ -2922,6 +2933,39 @@ function saveNodeConfig() {
             Object.assign(config, portalConfig);
         }
 
+        // Special handling for Code Step — the manifest lists render as JSON
+        // textareas; parse them back so a working code flow round-trips
+        // losslessly. Invalid JSON aborts the save (modal stays open) rather
+        // than corrupting a runnable step. Keys the form doesn't render
+        // (e.g. environmentId) are preserved from the existing config, because
+        // this function REPLACES the config wholesale — anything not carried
+        // here would be silently stripped.
+        if (nodeType === 'Code Step') {
+            const existing = nodeConfigs.get(configuredNode.id) || {};
+            Object.keys(existing).forEach(k => {
+                if (!(k in config)) config[k] = existing[k];
+            });
+            const listKeys = ['connections', 'secrets', 'packages', 'inputs', 'outputs'];
+            for (const k of listKeys) {
+                if (typeof config[k] === 'string') {
+                    const raw = config[k].trim();
+                    let parsed;
+                    try {
+                        parsed = raw ? JSON.parse(raw) : [];
+                    } catch (e) {
+                        alert(`Code Step: "${k}" is not valid JSON — fix it or clear the field.\n\n${e.message}`);
+                        return;
+                    }
+                    if (!Array.isArray(parsed)) {
+                        alert(`Code Step: "${k}" must be a JSON array (e.g. []).`);
+                        return;
+                    }
+                    config[k] = parsed;
+                }
+            }
+            config.timeout = parseInt(config.timeout, 10) || 600;
+        }
+
         console.log(`Saving node config: ${formatJsonOutput(config)}`);
 
         // Save configuration
@@ -3010,6 +3054,9 @@ function createNode(type, x, y) {
             break;
         case 'File Transfer':
             icon.className = 'bi bi-arrow-down-up';
+            break;
+        case 'Code Step':
+            icon.className = 'bi bi-code-slash';
             break;
         default:
             icon.className = 'bi bi-box';
@@ -3498,6 +3545,9 @@ function loadWorkflow(workflow) {
                     break;
                 case 'File Transfer':
                     icon.className = 'bi bi-arrow-down-up';
+                    break;
+                case 'Code Step':
+                    icon.className = 'bi bi-code-slash';
                     break;
                 default:
                     icon.className = 'bi bi-box';
@@ -7301,6 +7351,109 @@ async function executeSetVariableNode(config, prev_data = {}) {
         };
     }
 }
+
+// Code Step — the atom of a CODE FLOW (docs/code-flows-plan.md). These nodes
+// are authored by the Code Flows system; the designer's job here is honest
+// view/edit. The modal must surface (or the save handler preserve) EVERY
+// config key: saveNodeConfig rebuilds config from the form, so an absent,
+// unpreserved field would be silently stripped on save. Keys not rendered
+// here (e.g. environmentId) survive via the Code Step merge in saveNodeConfig.
+nodeConfigTemplates['Code Step'] = {
+    template: `
+        <div class="alert alert-info py-2 small">
+            <i class="bi bi-code-slash"></i> Inline <strong>Python step</strong> of a Code Flow,
+            run through the Automations runner (<code>import aihub_runtime as aihub</code> for
+            connections/secrets/inputs/log/checkpoint). Edits here change the live workflow —
+            the code runs exactly as shown.
+        </div>
+        <div class="mb-2">
+            <label class="form-label small">Python code <span class="text-danger">*</span></label>
+            <textarea class="form-control form-control-sm font-monospace" name="code" rows="16"
+                spellcheck="false" data-no-enhance
+                style="font-size: 0.8rem; white-space: pre; overflow-x: auto;"></textarea>
+        </div>
+        <div class="row">
+            <div class="col-md-4 mb-2">
+                <label class="form-label small">Timeout (seconds)</label>
+                <input type="number" class="form-control form-control-sm" name="timeout"
+                    min="1" placeholder="600">
+            </div>
+            <div class="col-md-4 mb-2">
+                <label class="form-label small">Output variable</label>
+                <input type="text" class="form-control form-control-sm" name="outputVariable"
+                    placeholder="gets {status, exit_code, ...}">
+            </div>
+            <div class="col-md-4 mb-2">
+                <label class="form-label small">Files variable</label>
+                <input type="text" class="form-control form-control-sm" name="filesVariable"
+                    placeholder="gets produced file paths">
+            </div>
+        </div>
+        <div class="mb-2">
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="checkbox" name="continueOnError" id="csContinueOnError">
+                <label class="form-check-label small" for="csContinueOnError">
+                    Continue workflow on failure
+                </label>
+            </div>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="checkbox" name="allowUnverified" id="csAllowUnverified">
+                <label class="form-check-label small" for="csAllowUnverified">
+                    Treat <em>unverified</em> outcome as pass
+                </label>
+            </div>
+        </div>
+        <details class="mb-1">
+            <summary class="small text-muted" style="cursor: pointer;">
+                Manifest — connections, secrets, packages, inputs, outputs (JSON arrays)
+            </summary>
+            <div class="row mt-2">
+                <div class="col-md-4 mb-2">
+                    <label class="form-label small">Connections</label>
+                    <textarea class="form-control form-control-sm font-monospace" name="connections"
+                        rows="3" spellcheck="false" data-no-enhance placeholder='["ERPDB"]'></textarea>
+                </div>
+                <div class="col-md-4 mb-2">
+                    <label class="form-label small">Secrets</label>
+                    <textarea class="form-control form-control-sm font-monospace" name="secrets"
+                        rows="3" spellcheck="false" data-no-enhance placeholder='["SFTP_PASSWORD"]'></textarea>
+                </div>
+                <div class="col-md-4 mb-2">
+                    <label class="form-label small">Packages</label>
+                    <textarea class="form-control form-control-sm font-monospace" name="packages"
+                        rows="3" spellcheck="false" data-no-enhance placeholder='["openpyxl"]'></textarea>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6 mb-2">
+                    <label class="form-label small">Inputs</label>
+                    <textarea class="form-control form-control-sm font-monospace" name="inputs"
+                        rows="4" spellcheck="false" data-no-enhance
+                        placeholder='[{"name": "run_date", "type": "string", "default": ""}]'></textarea>
+                </div>
+                <div class="col-md-6 mb-2">
+                    <label class="form-label small">Outputs (verify specs)</label>
+                    <textarea class="form-control form-control-sm font-monospace" name="outputs"
+                        rows="4" spellcheck="false" data-no-enhance
+                        placeholder='[{"type": "file", "path": "report.csv"}]'></textarea>
+                </div>
+            </div>
+        </details>
+    `,
+    defaultConfig: {
+        code: '',
+        connections: [],
+        secrets: [],
+        packages: [],
+        inputs: [],
+        outputs: [],
+        timeout: 600,
+        outputVariable: '',
+        filesVariable: '',
+        continueOnError: false,
+        allowUnverified: false
+    }
+};
 
 // Add a "Set Variable" node type to the nodeConfigTemplates
 nodeConfigTemplates['Set Variable'] = {
