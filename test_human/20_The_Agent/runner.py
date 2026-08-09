@@ -1272,6 +1272,21 @@ def main():
           and "pb-filters" in ui_html and "pb-search" in ui_html,
           "static tripwire (live-verified in browser)")
 
+    # N-1 Platform menu completeness (James 2026-08-09): the create/manage
+    # surfaces admins reach from the rail — Integrations, Solutions +
+    # Solutions Author, Users/Groups, MCP, Environments — plus role-gated
+    # groups. Guards against the rail drifting behind the classic nav.
+    needed = ["/integrations", "/solutions", "/solutions/author", "/mcp_servers",
+              "/environments/", "/users", "/groups", "/admin/api-keys",
+              "/custom_agent_enhanced", "/data_dictionary", "/monitoring"]
+    missing = [p for p in needed if p not in ui_html]
+    grouped = ('PLATFORM_GROUPS' in ui_html and 'minRole: 3' in ui_html
+               and 'minRole: 2' in ui_html)
+    check("N-1", "Platform rail exposes Integrations/Solutions/admin surfaces, "
+                 "role-gated by group",
+          not missing and grouped,
+          f"missing={missing} grouped={grouped}")
+
     # ------------------------------------------------------------------
     # I — Integrations tools + optional group scoping
     # ------------------------------------------------------------------

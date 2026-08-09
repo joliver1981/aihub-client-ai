@@ -50,8 +50,24 @@ already point there).
   the secrets skill; you can also store via `store_platform_secret`).
 - **My Approvals** `/approvals` — the classic approval surface; My Work here
   covers the same items plus more.
-- **Scheduler, users, settings** — classic admin area; direct admins to the
-  classic app (`/?classic=1` from the home page when Agent Mode is on).
+- **Solutions** `/solutions` and **Solutions Author** `/solutions/author` —
+  import/install a Solution bundle, or build/export one (packages tenant
+  assets to move between installs).
+- **Integrations** `/integrations` — configure external-system connections
+  (SharePoint, Shopify, Stripe…). Admins create/connect them here (the
+  agent's own tools then USE them; assignment to groups is conversational —
+  see the integrations skill).
+- **Admin areas** — Users `/users`, Groups `/groups`, MCP Servers
+  `/mcp_servers`, Environments `/environments/`, API Keys `/admin/api-keys`,
+  Identity `/admin/identity`, Compliance `/compliance`, System Logs,
+  Feedback Analysis. All reachable from the rail's grouped Platform menu
+  (Admin group shows for admins only) or via `/?classic=1`.
+
+The rail's **Platform** menu lists these grouped as Data / Build & automate /
+Documents / Admin (admin group = role 3+). When a user needs to create,
+promote, or manage something you can't do inline — importing a Solution,
+connecting an Integration, managing users — point them at the matching rail
+link.
 
 ## Routing the ask
 
