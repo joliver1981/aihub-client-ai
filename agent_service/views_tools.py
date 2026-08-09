@@ -178,7 +178,8 @@ async def run_view(view: dict, only_index: int | None = None) -> dict:
         tile = {"index": i, "title": t.get("title"),
                 "viz": t.get("viz") or "auto",
                 "type": str(t.get("type") or "sql"),
-                "refresh_seconds": t.get("refresh_seconds")}
+                "refresh_seconds": t.get("refresh_seconds"),
+                "layout": t.get("layout")}
         if tile["type"] == "sql":
             tile["sql"] = t.get("sql")
             tile["connection"] = t.get("connection")
@@ -539,5 +540,126 @@ async def schedule_view_refresh(args: dict[str, Any]) -> dict[str, Any]:
                  "the cache every viewer sees — zero AI per refresh.")
 
 
+# ---------------------------------------------------------------------------
+# Rename (James 2026-08-09) — in-place, with scheduler propagation
+# ---------------------------------------------------------------------------
+
+async def rewrite_view_refresh_jobs(old_name: str, new_name: str,
+                                    scope: str, group_id: int,
+                                    modified_by: str = "agent") -> dict:
+    """view_refresh JSS jobs reference their view BY NAME (parameters.view_name
+    — there is no id in the job), so a rename must rewrite every matching job
+    or its schedule 404s forever and the shared cache silently goes stale.
+    Best-effort per job; returns {updated: [ids], failed: [{id, error}]} so
+    callers can report honestly."""
+    import httpx
+    from platform_tools import _headers
+    from agent_config import get_base_url
+
+    updated, failed = [], []
+    base = get_base_url()
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(f"{base}/api/scheduler/jobs",
+                                 headers=_headers())
+            jobs = r.json() if r.status_code < 400 else []
+            if not isinstance(jobs, list):
+                jobs = []
+            for j in jobs:
+                if str(j.get("type")) != "view_refresh":
+                    continue
+                jid = j.get("id")
+                try:
+                    jr = await client.get(f"{base}/api/scheduler/jobs/{jid}",
+                                          headers=_headers())
+                    job = jr.json() if jr.status_code < 400 else {}
+                    params = job.get("parameters") or {}
+
+                    def _pv(key):
+                        v = params.get(key)
+                        return str(v.get("value")) if isinstance(v, dict) \
+                            else str(v or "")
+                    if _pv("view_name") != old_name:
+                        continue
+                    if _pv("view_scope") != str(scope):
+                        continue
+                    if int(_pv("view_group_id") or 0) != int(group_id or 0):
+                        continue
+                    params["view_name"] = {"value": new_name, "type": "string"}
+                    pr = await client.put(
+                        f"{base}/api/scheduler/jobs/{jid}",
+                        json={"name": f"View refresh: {new_name}"[:80],
+                              "description": (f"Deterministic cache refresh of "
+                                              f"view '{new_name}' [{scope}]"),
+                              "parameters": params,
+                              "modified_by": modified_by},
+                        headers=_headers())
+                    if pr.status_code < 400:
+                        updated.append(jid)
+                    else:
+                        failed.append({"id": jid,
+                                       "error": f"HTTP {pr.status_code}"})
+                except Exception as e:
+                    failed.append({"id": jid, "error": str(e)})
+    except Exception as e:
+        failed.append({"id": None, "error": f"job listing failed: {e}"})
+    return {"updated": updated, "failed": failed}
+
+
+def rename_summary(view: dict, sched: dict) -> str:
+    """Shared honest wording for the tool + HTTP paths."""
+    parts = [f"View '{view['old_name']}' renamed to '{view['name']}' "
+             f"[{view['scope']}] — same view, version v{view['version']} and "
+             "cached data preserved."]
+    if sched["updated"]:
+        parts.append(f"{len(sched['updated'])} scheduled refresh job(s) "
+                     f"re-pointed at the new name "
+                     f"(#{', #'.join(str(i) for i in sched['updated'])}).")
+    if sched["failed"]:
+        parts.append(f"WARNING: {len(sched['failed'])} scheduled refresh "
+                     "job(s) could NOT be updated and will fail until fixed: "
+                     + "; ".join(f"#{f['id']}: {f['error']}"
+                                 for f in sched["failed"]))
+    parts.append("Old bookmarks/deep links to the previous name no longer "
+                 "resolve.")
+    return " ".join(parts)
+
+
+@tool(
+    "rename_view",
+    "Rename a saved View IN PLACE — keeps its id, version, cached tiles and "
+    "scope, and re-points any scheduled cache-refresh jobs at the new name. "
+    "ALWAYS use this to rename; never save_view under a different name (that "
+    "creates a disconnected copy and strands the original). Permissions "
+    "mirror delete: private = owner, group = any member, tenant = admin.",
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Current view name"},
+            "new_name": {"type": "string", "description": "New name (max 120 chars)"},
+            "scope": {"type": "string", "enum": ["user", "group", "tenant"]},
+            "group_id": {"type": "integer"},
+        },
+        "required": ["name", "new_name"],
+        "additionalProperties": False,
+    },
+)
+async def rename_view(args: dict[str, Any]) -> dict[str, Any]:
+    import readthrough
+    user = CURRENT_USER.get()
+    uid = int(user.get("user_id") or 0)
+    view, err = views_store.rename(
+        str(args["name"]).strip(), str(args["new_name"]).strip(), uid,
+        readthrough.user_group_ids(uid), int(user.get("role") or 0),
+        str(args.get("scope") or ""), int(args.get("group_id") or 0))
+    if err:
+        return _text(f"Not renamed: {err}", is_error=True)
+    sched = await rewrite_view_refresh_jobs(
+        view["old_name"], view["name"], view["scope"],
+        int(view.get("group_id") or 0),
+        modified_by=str(user.get("username") or "agent"))
+    return _text(rename_summary(view, sched))
+
+
 VIEWS_TOOLS = [save_view, get_view, list_saved_views, delete_view,
-               schedule_view_refresh]
+               schedule_view_refresh, rename_view]

@@ -1252,6 +1252,137 @@ def main():
     finally:
         views_store.delete("pack20-edit", 1, [], 3, "user")
 
+    # ------------------------------------------------------------------
+    # V23 — tile layout (arrange/resize) + in-place rename (James 2026-08-09)
+    # ------------------------------------------------------------------
+    # V23-1 layout endpoint: order permutes tiles AND the positional cache
+    # together; spans stamp on pre-permute indices; version does NOT bump.
+    try:
+        views_store.delete("pack20-lay", 1, [], 3, "user")
+        views_store.delete("pack20-lay2", 1, [], 3, "user")
+        views_store.save("pack20-lay", "layout probe", [
+            {"title": "a", "connection": "ERPDB", "sql": "SELECT 1 AS x"},
+            {"title": "b", "connection": "ERPDB", "sql": "SELECT 2 AS y"},
+            {"title": "c", "connection": "ERPDB", "sql": "SELECT 3 AS z"}],
+            1, scope="user")
+        v0 = views_store.get("pack20-lay", 1, [], "user")
+        views_store.set_cache(v0["view_id"], [
+            {"columns": ["x"], "rows": [[1]], "at": "A"},
+            {"columns": ["y"], "rows": [[2]], "at": "B"},
+            {"columns": ["z"], "rows": [[3]], "at": "C"}])
+        r = requests.post(f"{BASE}/api/views/layout",
+                          json={"name": "pack20-lay", "order": [2, 0, 1],
+                                "layouts": [{"index": 0, "w": 2, "h": 3}]},
+                          headers={"Authorization": f"Bearer {token}"},
+                          timeout=30)
+        v1 = views_store.get("pack20-lay", 1, [], "user")
+        titles = [t["title"] for t in v1["tiles"]]
+        lay_on_a = next(t for t in v1["tiles"] if t["title"] == "a"
+                        ).get("layout") == {"w": 2, "h": 3}
+        cache_follows = [c.get("at") for c in (v1.get("tile_cache") or [])] \
+            == ["C", "A", "B"]
+        r_bad = requests.post(f"{BASE}/api/views/layout",
+                              json={"name": "pack20-lay", "order": [0, 0, 1]},
+                              headers={"Authorization": f"Bearer {token}"},
+                              timeout=30)
+        check("V23-1", "layout: order+spans persist, cache permutes WITH tiles, "
+                       "version unchanged; non-permutation order 400",
+              r.status_code == 200 and titles == ["c", "a", "b"] and lay_on_a
+              and cache_follows and v1["version"] == v0["version"]
+              and r_bad.status_code == 400,
+              f"http={r.status_code} titles={titles} lay={lay_on_a} "
+              f"cache={cache_follows} v={v0['version']}->{v1['version']} "
+              f"bad={r_bad.status_code}")
+    except Exception as e:
+        check("V23-1", "views layout endpoint", False, e)
+
+    # V23-2 rename in place: id/version/cache survive; old name 404s; clash
+    # in-namespace 400; resave WITHOUT layout keys inherits them positionally.
+    try:
+        vid0 = views_store.get("pack20-lay", 1, [], "user")["view_id"]
+        r = requests.post(f"{BASE}/api/views/rename",
+                          json={"name": "pack20-lay",
+                                "new_name": "pack20-lay2"},
+                          headers={"Authorization": f"Bearer {token}"},
+                          timeout=60)
+        d = r.json() if r.status_code == 200 else {}
+        v2 = views_store.get("pack20-lay2", 1, [], "user")
+        kept = (v2 and v2["view_id"] == vid0
+                and [c.get("at") for c in (v2.get("tile_cache") or [])]
+                == ["C", "A", "B"])
+        r_old = requests.post(f"{BASE}/api/views/run",
+                              json={"name": "pack20-lay"},
+                              headers={"Authorization": f"Bearer {token}"},
+                              timeout=30)
+        views_store.save("pack20-lay", "clash probe", [
+            {"title": "q", "connection": "ERPDB", "sql": "SELECT 9 AS q"}],
+            1, scope="user")
+        r_clash = requests.post(f"{BASE}/api/views/rename",
+                                json={"name": "pack20-lay",
+                                      "new_name": "pack20-lay2"},
+                                headers={"Authorization": f"Bearer {token}"},
+                                timeout=30)
+        views_store.save("pack20-lay2", "resave sans layout", [
+            {"title": "n0", "connection": "ERPDB", "sql": "SELECT 1 AS x"},
+            {"title": "n1", "connection": "ERPDB", "sql": "SELECT 2 AS y"},
+            {"title": "n2", "connection": "ERPDB", "sql": "SELECT 3 AS z"}],
+            1, scope="user")
+        v3 = views_store.get("pack20-lay2", 1, [], "user")
+        carried = v3["tiles"][1].get("layout") == {"w": 2, "h": 3}
+        check("V23-2", "rename keeps id+cache; old name 404; clash 400; "
+                       "layout survives a layout-less resave (carry-over)",
+              r.status_code == 200 and d.get("old_name") == "pack20-lay"
+              and kept and r_old.status_code == 404
+              and r_clash.status_code == 400 and carried,
+              f"http={r.status_code} kept={kept} old={r_old.status_code} "
+              f"clash={r_clash.status_code} carried={carried}")
+    except Exception as e:
+        check("V23-2", "views rename endpoint", False, e)
+
+    # V23-3 rename re-points view_refresh JSS jobs (they reference the view
+    # BY NAME — an un-rewritten job would 404 on every firing, forever).
+    v23_job = None
+    try:
+        vr_body = {"name": "View refresh: pack20-lay2", "type": "view_refresh",
+                   "target_id": "0", "created_by": "pack20", "is_active": True,
+                   "parameters": {
+                       "view_name": {"value": "pack20-lay2", "type": "string"},
+                       "view_scope": {"value": "user", "type": "string"},
+                       "view_group_id": {"value": "0", "type": "string"},
+                       "user_id": {"value": "1", "type": "string"},
+                       "role": {"value": "3", "type": "string"},
+                       "username": {"value": "pack20-runner", "type": "string"}},
+                   "schedule": {"type": "interval", "interval_minutes": 60,
+                                "start_date": "2027-01-01 00:00:00"}}
+        jr = requests.post(f"{MAIN}/api/scheduler/jobs", json=vr_body,
+                           headers=SVC_HEADERS, timeout=30)
+        v23_job = (jr.json() if jr.status_code < 500 else {}).get("id")
+        r = requests.post(f"{BASE}/api/views/rename",
+                          json={"name": "pack20-lay2",
+                                "new_name": "pack20-lay3"},
+                          headers={"Authorization": f"Bearer {token}"},
+                          timeout=60)
+        d = r.json() if r.status_code == 200 else {}
+        repointed = v23_job is not None and int(v23_job) in [
+            int(x) for x in (d.get("schedules_updated") or [])]
+        gj = requests.get(f"{MAIN}/api/scheduler/jobs/{v23_job}",
+                          headers=SVC_HEADERS, timeout=30).json() \
+            if v23_job else {}
+        pv = ((gj.get("parameters") or {}).get("view_name") or {}).get("value")
+        check("V23-3", "rename rewrites the job's view_name parameter "
+                       "(read back from the scheduler DB)",
+              r.status_code == 200 and repointed and pv == "pack20-lay3",
+              f"http={r.status_code} job={v23_job} "
+              f"updated={d.get('schedules_updated')} view_name={pv!r}")
+    except Exception as e:
+        check("V23-3", "rename schedule propagation", False, e)
+    finally:
+        if v23_job:
+            requests.delete(f"{MAIN}/api/scheduler/jobs/{v23_job}",
+                            headers=SVC_HEADERS, timeout=30)
+        for _nm in ("pack20-lay", "pack20-lay2", "pack20-lay3"):
+            views_store.delete(_nm, 1, [], 3, "user")
+
     # M-1 runtime model setting (James 2026-08-09): admin sets it in the UI,
     # applies without restart; non-admin 403; clear restores the default.
     try:

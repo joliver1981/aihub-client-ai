@@ -55,7 +55,7 @@ MUTATING_TOOLS = frozenset({
     "create_code_flow", "add_code_step", "wire_steps", "schedule_code_flow",
     "run_code_flow", "dry_run_code_flow",
     "raise_work_item", "save_skill", "schedule_agent_task",
-    "save_view", "delete_view", "store_platform_secret",
+    "save_view", "delete_view", "rename_view", "store_platform_secret",
     "schedule_view_refresh", "draft_email_reply", "setup_agent_email",
     "execute_integration_operation", "assign_integration_groups",
 })
@@ -146,6 +146,10 @@ tokens per run). Recurring judgment ('check X each morning, flag what's odd')
 -> schedule_agent_task (a fresh headless session runs the prompt as this user
 and reports into their My Work). After an analysis the user liked, offer to
 pin it as a View.
+To RENAME a view use rename_view (in place, schedules follow) — never
+save_view under a new name, which forks a copy. When re-saving tiles,
+preserve each tile's 'layout' key: it holds the sizes/positions the user
+arranged by hand on the Views screen.
 
 FILES — YOU LIVE IN A WEB BROWSER
 Your users talk to you through a web page; server filesystem paths mean

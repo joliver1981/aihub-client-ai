@@ -258,9 +258,23 @@
 
   /* views (deterministic dashboards) */
   .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));
-         gap:14px;align-content:start}
+         gap:14px;align-content:start;grid-auto-rows:minmax(96px,auto)}
   .tile{background:var(--panel);border:1px solid var(--line);border-radius:13px;
-        padding:14px 16px;min-height:90px;display:flex;flex-direction:column}
+        padding:14px 16px;min-height:90px;display:flex;flex-direction:column;
+        position:relative}
+  /* user-sized tiles honor their span box; overflowing content scrolls inside */
+  .tile.sized{overflow:hidden}
+  .tile.sized .md{flex:1;min-height:0;overflow:auto}
+  /* arrange mode (drag to reorder, corner handle to resize) */
+  .tiles.arranging .tile{cursor:grab;border-style:dashed;
+                         border-color:var(--accent-line)}
+  .tiles.arranging .tile:active{cursor:grabbing}
+  .tile.dragging{opacity:.35}
+  .tile .rz{display:none;position:absolute;right:2px;bottom:2px;width:16px;
+            height:16px;cursor:nwse-resize;border-right:2px solid var(--accent);
+            border-bottom:2px solid var(--accent);border-radius:0 0 9px 0;
+            opacity:.7}
+  .tiles.arranging .tile .rz{display:block}
   .tile .ttitle{font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px}
   .tile .stat{font-size:34px;font-weight:700;letter-spacing:-.02em;
               font-variant-numeric:tabular-nums;margin:auto 0}
@@ -354,8 +368,18 @@
     <h1 style="font-size:17px;font-weight:650">Views</h1>
     <span class="sub" style="color:var(--text3);font-size:12px">Deterministic dashboards — pinned SQL, zero AI per refresh</span>
     <span class="vmeta" id="views-meta" style="margin-left:auto"></span>
+    <button id="views-arrange" style="display:none;border:1px solid var(--line);border-radius:8px;padding:5px 12px;color:var(--text2);font-size:12px">⠿ Arrange</button>
+    <button id="views-rename" style="display:none;border:1px solid var(--line);border-radius:8px;padding:5px 12px;color:var(--text2);font-size:12px">Rename</button>
     <button id="views-edit" style="display:none;border:1px solid var(--accent-line);border-radius:8px;padding:5px 12px;color:var(--accent);font-size:12px">✎ Edit with AI</button>
     <button id="views-refresh" style="border:1px solid var(--line);border-radius:8px;padding:5px 12px;color:var(--text2);font-size:12px">↻ Refresh</button>
+  </div>
+  <div id="views-renamebar" style="display:none;margin:10px 22px 0;background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:10px 14px;align-items:center;gap:8px">
+    <span style="font-size:12px;color:var(--text3)">Rename to</span>
+    <input id="views-renameinput" type="text" maxlength="120"
+           style="flex:1;padding:7px 11px;border-radius:9px;font-size:12.5px">
+    <button class="btn primary" id="views-renamesave">Save</button>
+    <button class="btn" id="views-renamecancel">Cancel</button>
+    <span id="views-renamenote" style="font-size:11.5px;color:var(--text3)"></span>
   </div>
   <div id="views-editpanel" style="display:none;margin:10px 22px 0;background:var(--panel);border:1px solid var(--accent-line);border-radius:13px;padding:12px 14px">
     <div id="views-editlog" style="max-height:180px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:9px"></div>
@@ -841,10 +865,13 @@
         currentView = key;
         location.hash = `view=${encodeURIComponent(key.name)}&scope=${key.scope}` +
                         (key.group_id ? `&gid=${key.group_id}` : "");
-        // fresh edit context per view: show the button, reset the panel
+        // fresh edit context per view: show the buttons, reset the panels
         document.getElementById("views-edit").style.display = "";
+        document.getElementById("views-arrange").style.display = "";
+        document.getElementById("views-rename").style.display = "";
         document.getElementById("views-editpanel").style.display = "none";
         document.getElementById("views-editlog").innerHTML = "";
+        hideRenameBar(); setArrange(false);
         renderViewsList(); runView(key);
       };
       list.appendChild(b);
@@ -956,7 +983,8 @@
       tile.appendChild(el("div", "statsub",
         columns[0] + (asOf ? ` · as of ${asOf}` : "")));
     } else {
-      tile.classList.add("wide");
+      // explicit user layout wins; only layout-less tables auto-span the row
+      if (!t.layout) tile.classList.add("wide");
       const host = el("div", "md");
       const tbl = document.createElement("table");
       const thead = tbl.createTHead().insertRow();
@@ -1010,31 +1038,53 @@
         const node = buildTile(t);
         grid.appendChild(node);
         // Per-tile auto-refresh (v2.1): a 30s ticker re-runs ONLY its own
-        // tile via tile_index — never the whole board.
+        // tile via tile_index — never the whole board. The timer tracks the
+        // ELEMENT and reads its index at fire time: arrange-mode reordering
+        // renumbers tiles, and a timer must follow its tile, not a position.
         if (t.refresh_seconds && t.index !== undefined) {
+          let elRef = node;
           tileTimers.push(setInterval(async () => {
             try {
+              const idxNow = Number(elRef.dataset.idx);
+              if (!Number.isFinite(idxNow) || !elRef.isConnected) return;
               const rr = await fetch("/api/views/run", { method: "POST",
                 headers: H(), body: JSON.stringify({ name: key.name,
                   scope: key.scope, group_id: key.group_id || 0,
-                  tile_index: t.index }) });
+                  tile_index: idxNow }) });
               if (!rr.ok || seq !== runSeq) return;
               const dd = await rr.json();
               const fresh = (dd.tiles || [])[0];
               if (!fresh) return;
               const repl = buildTile(fresh);
-              const old = grid.querySelector(`[data-idx="${t.index}"]`);
-              if (old) old.replaceWith(repl);
+              repl.dataset.idx = idxNow;
+              if (!elRef.isConnected) return;
+              elRef.replaceWith(repl); elRef = repl;
+              refreshSpans(grid);
+              if (arrangeOn) applyArrangeAffordances(grid);
             } catch {}
           }, Math.max(15, t.refresh_seconds) * 1000));
         }
       });
       detail.appendChild(grid);
+      refreshSpans(grid);
+      wireArrange(grid, key);
+      if (arrangeOn) {
+        grid.classList.add("arranging");
+        applyArrangeAffordances(grid);
+      }
     } catch (e) { detail.textContent = "Refresh failed: " + e.message; }
   }
   function buildTile(t) {
     const tile = el("div", "tile");
     if (t.index !== undefined) tile.dataset.idx = t.index;
+    if (t.layout && (t.layout.w || t.layout.h)) {
+      tile.classList.add("sized");
+      if (t.layout.w) tile.dataset.w = t.layout.w;
+      if (t.layout.h) tile.dataset.h = t.layout.h;
+    }
+    const rz = el("div", "rz"); rz.title = "Drag to resize";
+    tile.appendChild(rz);
+    if (arrangeOn) tile.draggable = true;
     const title = el("div", "ttitle", t.title || "(untitled)");
     if (t.type === "automation")
       title.textContent += ` · ▷ ${t.automation || "automation"}`;
@@ -1052,6 +1102,181 @@
     }
     return tile;
   }
+  // ---------- arrange mode: drag to reorder, corner-drag to resize --------
+  // (James 2026-08-09) Layout is per-tile {w,h} grid spans + array order,
+  // saved through POST /api/views/layout on every change — no library, no
+  // free pixels: spans keep the flowing-grid look and survive any window
+  // width. Server permutes the positional tile cache alongside the tiles.
+  let arrangeOn = false;
+  let dragEl = null;
+  let arrangeDirty = false;
+  let commitChain = Promise.resolve();   // serialize saves: a drag during an
+                                         // in-flight save must build on it
+  function tilesColCount(grid) {
+    return Math.max(1,
+      getComputedStyle(grid).gridTemplateColumns.split(" ").length);
+  }
+  function refreshSpans(grid) {
+    const cols = tilesColCount(grid);
+    grid.querySelectorAll(".tile").forEach(n => {
+      const w = Number(n.dataset.w) || 0, h = Number(n.dataset.h) || 0;
+      n.style.gridColumn = w ? `span ${Math.min(w, cols)}` : "";
+      n.style.gridRow = h ? `span ${h}` : "";
+    });
+  }
+  window.addEventListener("resize", () => {
+    const g = document.querySelector("#views-detail .tiles");
+    if (g) refreshSpans(g);
+  });
+  function applyArrangeAffordances(grid) {
+    grid.querySelectorAll(".tile").forEach(n => { n.draggable = arrangeOn; });
+  }
+  function setArrange(on) {
+    arrangeOn = on;
+    const btn = document.getElementById("views-arrange");
+    btn.textContent = on ? "✓ Done" : "⠿ Arrange";
+    btn.style.borderColor = on ? "var(--accent-line)" : "var(--line)";
+    btn.style.color = on ? "var(--accent)" : "var(--text2)";
+    const grid = document.querySelector("#views-detail .tiles");
+    if (grid) {
+      grid.classList.toggle("arranging", on);
+      applyArrangeAffordances(grid);
+    }
+  }
+  document.getElementById("views-arrange").onclick = () => setArrange(!arrangeOn);
+  function commitLayout(grid, key) {
+    if (!arrangeDirty) return;
+    arrangeDirty = false;
+    commitChain = commitChain.then(async () => {
+      const nodes = [...grid.querySelectorAll(".tile")];
+      const order = nodes.map(n => Number(n.dataset.idx));
+      const layouts = nodes.filter(n => n.dataset.w || n.dataset.h)
+        .map(n => ({ index: Number(n.dataset.idx),
+                     w: Number(n.dataset.w) || 1,
+                     h: Number(n.dataset.h) || 1 }));
+      const meta = document.getElementById("views-meta");
+      try {
+        const r = await fetch("/api/views/layout", { method: "POST",
+          headers: H(), body: JSON.stringify({ name: key.name,
+            scope: key.scope, group_id: key.group_id || 0, order, layouts }) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { meta.textContent = d.detail || "layout not saved"; return; }
+        // Server order now matches DOM order — renumber so per-tile refresh
+        // timers and the next commit reference the right slots.
+        nodes.forEach((n, i) => { n.dataset.idx = i; });
+        meta.textContent = "layout saved · " + new Date().toLocaleTimeString();
+      } catch (e) { meta.textContent = "layout not saved: " + e.message; }
+    });
+  }
+  function wireArrange(grid, key) {
+    grid.addEventListener("dragstart", (e) => {
+      const t = e.target.closest(".tile");
+      if (!t || !arrangeOn) { e.preventDefault(); return; }
+      dragEl = t; t.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+      try { e.dataTransfer.setData("text/plain", t.dataset.idx || ""); } catch {}
+    });
+    grid.addEventListener("dragover", (e) => {
+      if (!arrangeOn || !dragEl) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      const t = e.target.closest(".tile");
+      if (!t || t === dragEl) return;
+      const r = t.getBoundingClientRect();
+      const after = (e.clientY - r.top) / r.height +
+                    (e.clientX - r.left) / r.width > 1;
+      const want = after ? t.nextSibling : t;
+      if (want !== dragEl && dragEl.nextSibling !== want) {
+        grid.insertBefore(dragEl, want);
+        arrangeDirty = true;
+      }
+    });
+    grid.addEventListener("drop", (e) => { if (arrangeOn) e.preventDefault(); });
+    grid.addEventListener("dragend", () => {
+      if (!dragEl) return;
+      dragEl.classList.remove("dragging");
+      dragEl = null;
+      commitLayout(grid, key);
+    });
+    grid.addEventListener("pointerdown", (e) => {
+      const rz = e.target.closest(".rz");
+      if (!rz || !arrangeOn) return;
+      const tile = rz.closest(".tile");
+      e.preventDefault();
+      const cols = tilesColCount(grid);
+      const GAP = 14, ROWH = 96;
+      const cellW = (grid.clientWidth - (cols - 1) * GAP) / cols;
+      const r0 = tile.getBoundingClientRect();
+      const startW = Number(tile.dataset.w) || Math.max(1, Math.min(cols,
+        Math.round((r0.width + GAP) / (cellW + GAP))));
+      const startH = Number(tile.dataset.h) ||
+        Math.max(1, Math.min(4, Math.round((r0.height + GAP) / (ROWH + GAP))));
+      const sx = e.clientX, sy = e.clientY;
+      const move = (ev) => {
+        const w = Math.max(1, Math.min(4,
+          startW + Math.round((ev.clientX - sx) / (cellW + GAP))));
+        const h = Math.max(1, Math.min(4,
+          startH + Math.round((ev.clientY - sy) / (ROWH + GAP))));
+        if (String(w) !== tile.dataset.w || String(h) !== tile.dataset.h) {
+          tile.dataset.w = w; tile.dataset.h = h;
+          tile.classList.add("sized");
+          arrangeDirty = true;
+          refreshSpans(grid);
+        }
+      };
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        commitLayout(grid, key);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    });
+  }
+
+  // ---------- rename (in place — id/version/cache kept, schedules follow) --
+  const renameBar = document.getElementById("views-renamebar");
+  function hideRenameBar() { renameBar.style.display = "none"; }
+  document.getElementById("views-rename").onclick = () => {
+    if (!currentView) return;
+    renameBar.style.display = "flex";
+    const inp = document.getElementById("views-renameinput");
+    inp.value = currentView.name;
+    document.getElementById("views-renamenote").textContent = "";
+    inp.focus(); inp.select();
+  };
+  document.getElementById("views-renamecancel").onclick = hideRenameBar;
+  async function doRename() {
+    const inp = document.getElementById("views-renameinput");
+    const note = document.getElementById("views-renamenote");
+    const nn = inp.value.trim();
+    if (!nn || !currentView || nn === currentView.name) { hideRenameBar(); return; }
+    note.textContent = "…";
+    try {
+      const r = await fetch("/api/views/rename", { method: "POST", headers: H(),
+        body: JSON.stringify({ name: currentView.name, scope: currentView.scope,
+          group_id: currentView.group_id || 0, new_name: nn }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { note.textContent = d.detail || "rename failed"; return; }
+      // Mutate the SAME object: runView + per-tile refresh timers hold this
+      // reference, so in-flight timers immediately POST the new name.
+      currentView.name = d.name;
+      location.hash = `view=${encodeURIComponent(d.name)}&scope=${currentView.scope}` +
+                      (currentView.group_id ? `&gid=${currentView.group_id}` : "");
+      const nUp = (d.schedules_updated || []).length;
+      const nFail = (d.schedules_failed || []).length;
+      document.getElementById("views-meta").textContent =
+        `renamed to '${d.name}'` +
+        (nUp ? ` · ${nUp} schedule(s) re-pointed` : "") +
+        (nFail ? ` · ${nFail} schedule update(s) FAILED` : "");
+      hideRenameBar();
+      loadViews();
+    } catch (e) { note.textContent = "rename failed: " + e.message; }
+  }
+  document.getElementById("views-renamesave").onclick = doRename;
+  document.getElementById("views-renameinput").addEventListener("keydown",
+    (e) => { if (e.key === "Enter") doRename(); });
+
   document.getElementById("views-refresh").onclick = () =>
     currentView ? runView(currentView) : loadViews();
 

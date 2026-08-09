@@ -36,6 +36,7 @@ SCOPES = ("user", "group", "tenant")
 VIZ_TYPES = ("auto", "stat", "table", "ticker", "line", "bar")
 MIN_REFRESH_SECONDS = 15          # floor so a tile can't hammer the platform
 MAX_REFRESH_SECONDS = 86400
+MAX_SPAN = 4                      # tile layout w/h ceiling (grid units)
 
 
 def _now() -> str:
@@ -195,7 +196,37 @@ def validate_tiles(tiles) -> Optional[str]:
             if not (MIN_REFRESH_SECONDS <= rs <= MAX_REFRESH_SECONDS):
                 return (f"tile {i} refresh_seconds must be between "
                         f"{MIN_REFRESH_SECONDS} and {MAX_REFRESH_SECONDS}")
+        if t.get("layout") is not None:
+            lay = t["layout"]
+            if not isinstance(lay, dict):
+                return f"tile {i} layout must be an object like {{\"w\": 2, \"h\": 1}}"
+            for k in ("w", "h"):
+                if lay.get(k) is not None:
+                    try:
+                        v = int(lay[k])
+                    except Exception:
+                        return f"tile {i} layout.{k} must be an integer"
+                    # clamp in place — an out-of-range span is a preference,
+                    # not a reason to reject the whole view
+                    lay[k] = max(1, min(MAX_SPAN, v))
     return None
+
+
+def _carry_layout(new_tiles: list, old_tiles_json: str) -> None:
+    """Positional layout carry-over on resave: the agent path (get_view ->
+    edit -> save_view) rewrites tiles wholesale, and the model may drop the
+    'layout' keys the user set by dragging on the Views screen. A tile that
+    arrives WITHOUT layout inherits the layout of the tile that previously
+    sat at the same position; explicit layouts always win."""
+    try:
+        old = json.loads(old_tiles_json or "[]")
+    except Exception:
+        return
+    for i, t in enumerate(new_tiles):
+        if isinstance(t, dict) and "layout" not in t \
+                and i < len(old) and isinstance(old[i], dict) \
+                and isinstance(old[i].get("layout"), dict):
+            t["layout"] = old[i]["layout"]
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +288,7 @@ def _save(name, description, tiles, owner_user, scope, group_id,
         row = c.execute("SELECT view_id, tiles, version FROM views "
                         "WHERE ns = ? AND name = ?", (ns, name)).fetchone()
         if row:
+            _carry_layout(tiles, row["tiles"])
             c.execute("UPDATE views SET description=?, tiles=?, prev_tiles=?, "
                       "version=version+1, updated_at=?, tile_cache=NULL, "
                       "cached_at=NULL WHERE view_id=?",
@@ -394,3 +426,123 @@ def set_cache(view_id: str, tiles_result: list) -> None:
     with _LOCK, _connect() as c:
         c.execute("UPDATE views SET tile_cache=?, cached_at=? WHERE view_id=?",
                   (json.dumps(tiles_result), _now(), view_id))
+
+
+# ---------------------------------------------------------------------------
+# Layout + rename (James 2026-08-09): user-arranged dashboards
+# ---------------------------------------------------------------------------
+
+def _can_modify(view: dict, user_id: int, role: int) -> Optional[str]:
+    """Same permission table as delete (spec §3.1): user = owner; group = any
+    member (visibility already proves membership — group namespaces are only
+    searched for members); tenant = admin."""
+    if view["scope"] == "tenant" and int(role or 0) < 3:
+        return "changing a tenant view requires an admin"
+    if view["scope"] == "user" and \
+            int(view.get("owner_user") or 0) != int(user_id or 0):
+        return "only the owner can change a private view"
+    return None
+
+
+def update_layout(name: str, user_id: int, group_ids, role: int,
+                  scope: str = "", group_id: int = 0,
+                  order=None, layouts=None) -> tuple:
+    """Persist the user's arrangement: per-tile {w,h} spans and/or a new tile
+    order. This is PRESENTATION, not recipe — the version does NOT bump and
+    prev_tiles is untouched.
+
+    order: list where order[new_position] = old_index (a full permutation).
+    layouts: [{index: old_index, w, h}] — applied BEFORE the permutation.
+
+    tile_cache is permuted in the SAME transaction: cache slots are positional
+    (run_view merges cache[i] by tile index), so reordering tiles without
+    reordering their cache would attach every tile's 'as of' data to the
+    wrong tile. Returns (view_dict_or_None, err)."""
+    view = get(name, user_id, group_ids, scope, group_id)
+    if not view:
+        return None, "view not found (or not visible to you)"
+    perr = _can_modify(view, user_id, role)
+    if perr:
+        return None, perr
+    tiles = list(view.get("tiles") or [])
+    n = len(tiles)
+
+    for spec in (layouts or []):
+        if not isinstance(spec, dict):
+            return None, "layouts entries must be objects"
+        try:
+            idx = int(spec.get("index"))
+        except Exception:
+            return None, "layouts entries need an integer index"
+        if not (0 <= idx < n):
+            return None, f"layouts index {idx} out of range (0..{n - 1})"
+        lay = dict(tiles[idx].get("layout") or {})
+        for k in ("w", "h"):
+            if spec.get(k) is not None:
+                try:
+                    lay[k] = max(1, min(MAX_SPAN, int(spec[k])))
+                except Exception:
+                    return None, f"layouts {k} must be an integer"
+        tiles[idx]["layout"] = lay
+
+    cache = view.get("tile_cache")
+    if order is not None:
+        try:
+            order = [int(x) for x in order]
+        except Exception:
+            return None, "order must be a list of integers"
+        if sorted(order) != list(range(n)):
+            return None, (f"order must be a permutation of 0..{n - 1} "
+                          "(every tile exactly once)")
+        tiles = [tiles[i] for i in order]
+        if isinstance(cache, list):
+            padded = cache + [{}] * (n - len(cache))
+            cache = [padded[i] for i in order]
+
+    now = _now()
+    with _LOCK, _connect() as c:
+        c.execute("UPDATE views SET tiles=?, tile_cache=?, updated_at=? "
+                  "WHERE view_id=?",
+                  (json.dumps(tiles),
+                   json.dumps(cache) if isinstance(cache, list) else None,
+                   now, view["view_id"]))
+    logger.info(f"view layout updated: [{view['ns']}] {view['name']} "
+                f"(order={'yes' if order is not None else 'no'}, "
+                f"{len(layouts or [])} tile size(s))")
+    view["tiles"], view["tile_cache"], view["updated_at"] = tiles, cache, now
+    return view, None
+
+
+def rename(name: str, new_name: str, user_id: int, group_ids, role: int,
+           scope: str = "", group_id: int = 0) -> tuple:
+    """In-place rename: UPDATE by view_id so version, cache, prev_tiles and
+    the view_id itself all survive. (save_view under a new name would FORK
+    the view instead — new id, v1, empty cache, stranded original.)
+    Callers must propagate the new name to name-keyed externals (view_refresh
+    scheduler jobs, #view= deep links). Returns (view_dict_or_None, err)."""
+    new_name = str(new_name or "").strip()
+    if not new_name or len(new_name) > 120:
+        return None, "new name required (max 120 chars)"
+    view = get(name, user_id, group_ids, scope, group_id)
+    if not view:
+        return None, "view not found (or not visible to you)"
+    perr = _can_modify(view, user_id, role)
+    if perr:
+        return None, perr.replace("changing", "renaming")
+    if new_name == view["name"]:
+        return None, "that is already the view's name"
+    now = _now()
+    with _LOCK, _connect() as c:
+        clash = c.execute("SELECT 1 FROM views WHERE ns=? AND name=?",
+                          (view["ns"], new_name)).fetchone()
+        if clash:
+            return None, (f"a view named '{new_name}' already exists in "
+                          f"this scope ({view['ns']})")
+        c.execute("UPDATE views SET name=?, updated_at=? WHERE view_id=?",
+                  (new_name, now, view["view_id"]))
+    logger.info(f"view renamed: [{view['ns']}] '{view['name']}' -> "
+                f"'{new_name}' by user {user_id}")
+    old = view["name"]
+    view["name"], view["updated_at"] = new_name, now
+    view["old_name"] = old
+    return view, None

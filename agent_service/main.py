@@ -547,9 +547,12 @@ async def views_edit_chat(request: Request):
                           "tiles": view.get("tiles") or []}, indent=1)
             + "\nRULES: apply the user's change by re-saving with save_view "
             "using the SAME name and scope, passing the COMPLETE tile list — "
-            "preserve every tile they didn't ask to change. Verify any new "
-            "SQL with probe_connection_query first. Automation tiles need a "
-            "PROMOTED automation. Keep replies short — the screen refreshes "
+            "preserve every tile they didn't ask to change, INCLUDING each "
+            "tile's 'layout' key ({w,h} spans from the user's arrangement). "
+            "If they ask to RENAME the view, call rename_view — never "
+            "save_view under a different name (that forks a copy). Verify any "
+            "new SQL with probe_connection_query first. Automation tiles need "
+            "a PROMOTED automation. Keep replies short — the screen refreshes "
             "the view after each of your turns.\n\nUser: ")
     from platform_tools import CURRENT_USER
     CURRENT_USER.set(user)
@@ -679,6 +682,57 @@ async def views_refresh_cache(request: Request):
                 f"user {uid}: {ok_tiles}/{len(result['tiles'])} tiles ok")
     return {"ok": not errs, "tiles_ok": ok_tiles,
             "tiles_total": len(result["tiles"]), "errors": errs[:5]}
+
+
+@app.post("/api/views/layout")
+async def views_layout(request: Request):
+    """Persist the user's tile arrangement (drag-reorder + resize on the Views
+    screen, James 2026-08-09). Presentation only: version does not bump, and
+    the positional tile cache is permuted alongside the tiles so cached
+    results stay attached to the right tile."""
+    user = _verify_request(request)
+    uid = int(user["user_id"] or 0)
+    body = await request.json()
+    view, err = views_store.update_layout(
+        str(body.get("name") or ""), uid, readthrough.user_group_ids(uid),
+        int(user.get("role") or 0), str(body.get("scope") or ""),
+        int(body.get("group_id") or 0),
+        order=body.get("order"), layouts=body.get("layouts"))
+    if err:
+        code = 403 if ("admin" in err or "owner" in err) else \
+               (404 if "not found" in err else 400)
+        raise HTTPException(code, err)
+    return {"ok": True, "name": view["name"],
+            "tiles": [{"index": i, "layout": t.get("layout")}
+                      for i, t in enumerate(view.get("tiles") or [])]}
+
+
+@app.post("/api/views/rename")
+async def views_rename(request: Request):
+    """Rename a view IN PLACE (id/version/cache preserved) and re-point any
+    view_refresh scheduler jobs — they reference the view by NAME, so leaving
+    them behind would 404 every future scheduled refresh."""
+    user = _verify_request(request)
+    uid = int(user["user_id"] or 0)
+    body = await request.json()
+    view, err = views_store.rename(
+        str(body.get("name") or ""), str(body.get("new_name") or ""), uid,
+        readthrough.user_group_ids(uid), int(user.get("role") or 0),
+        str(body.get("scope") or ""), int(body.get("group_id") or 0))
+    if err:
+        code = 403 if ("admin" in err or "owner" in err) else \
+               (404 if "not found" in err else 400)
+        raise HTTPException(code, err)
+    from views_tools import rewrite_view_refresh_jobs
+    sched = await rewrite_view_refresh_jobs(
+        view["old_name"], view["name"], view["scope"],
+        int(view.get("group_id") or 0),
+        modified_by=str(user.get("username") or "user"))
+    return {"ok": True, "name": view["name"], "old_name": view["old_name"],
+            "scope": view["scope"], "group_id": view.get("group_id"),
+            "version": view["version"],
+            "schedules_updated": sched["updated"],
+            "schedules_failed": sched["failed"]}
 
 
 # ---------------------------------------------------------------------------

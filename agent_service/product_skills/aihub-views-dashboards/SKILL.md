@@ -59,6 +59,20 @@ re-save everything. Never drop tiles the user didn't mention. Users can also
 edit inline from the Views screen ("✎ Edit with AI") — those requests arrive
 with the current definition already in context; same rules apply.
 
+Tiles may carry a `layout` key (`{"w": 1-4, "h": 1-4}` grid spans) — that is
+the user's hand-arranged size/position from the Views screen's Arrange mode,
+and tile ORDER is their chosen order. PRESERVE both when re-saving: keep
+every tile's `layout` and don't reorder tiles unless asked.
+
+## Renaming
+
+`rename_view` renames IN PLACE — same view, version and cached tiles kept,
+and any scheduled cache-refresh jobs are re-pointed automatically. NEVER
+"rename" by saving under a new name: that forks a disconnected copy and
+strands the original (and its schedules). Rename rights mirror delete:
+private = owner, group = any member, tenant = admin. Old `#view=` deep links
+stop resolving after a rename — mention it if the user shares links.
+
 ## Stock ticker recipe (external data in a view)
 
 A scrolling ticker of EXTERNAL data (stock quotes, weather, rates) is an
