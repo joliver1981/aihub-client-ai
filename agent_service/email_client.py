@@ -66,7 +66,14 @@ async def poll(limit: int = 100) -> list:
 
 
 async def full_body(message_key: str) -> Optional[str]:
-    """Full body via the cloud message proxy; poll rows carry only a preview."""
+    """Full body via the cloud message proxy. Poll rows carry NO body at all
+    (metadata only — verified live 2026-08-09), so this fetch is the ONLY
+    body source and its parsing must match the proxy's real shape:
+    {"success": true, "message": {body_text, body_plain, stripped_text,
+    body_html, ...}} — the same envelope email_receive_client unwraps with
+    result.get('message'). The original A6 code looked for a nonexistent
+    'content' key and Mailgun hyphen field names, so every inbound email
+    read as '(empty body)' (James's live repro, event 48)."""
     if not message_key:
         return None
     try:
@@ -77,8 +84,14 @@ async def full_body(message_key: str) -> Optional[str]:
             if r.status_code != 200:
                 return None
             data = r.json()
-            content = data.get("content") or data
-            return (content.get("body_text") or content.get("body-plain")
+            content = data.get("message") or data.get("content") or data
+            if not isinstance(content, dict):
+                return None
+            # body_text first (legacy dispatcher parity: complete content,
+            # quoted thread included); stripped_text is Mailgun's
+            # new-text-only heuristic and can drop inline replies.
+            return (content.get("body_text") or content.get("stripped_text")
+                    or content.get("body_plain") or content.get("body-plain")
                     or content.get("stripped-text") or None)
     except Exception as e:
         logger.warning(f"email full-body fetch failed: {e}")
