@@ -1272,6 +1272,42 @@ def main():
           and "pb-filters" in ui_html and "pb-search" in ui_html,
           "static tripwire (live-verified in browser)")
 
+    # F-1 file handoff (James 2026-08-09): offer stages a per-user copy and
+    # returns a chat link; owner downloads it; other users 404; paths outside
+    # APP_ROOT refused.
+    try:
+        import file_tools as _ft
+        from platform_tools import CURRENT_USER as _CU5
+        _CU5.set({"user_id": 77, "role": 2, "username": "pack20-u77"})
+        probe_src = os.path.join(APP_ROOT, "uploads", "pack20_file_probe.txt")
+        os.makedirs(os.path.dirname(probe_src), exist_ok=True)
+        with open(probe_src, "w", encoding="utf-8") as f:
+            f.write("pack20 file handoff probe")
+        res = _aio.run(_ft.offer_file_download.handler(
+            {"server_path": probe_src}))
+        import re as _re
+        m = _re.search(r"/api/files/([a-f0-9-]+)", str(res))
+        fid = m.group(1) if m else ""
+        r_own = requests.get(f"{BASE}/api/files/{fid}",
+                             headers={"Authorization": f"Bearer {tok77}"},
+                             timeout=30)
+        r_other = requests.get(f"{BASE}/api/files/{fid}",
+                               headers={"Authorization": f"Bearer {_tok(2)}"},
+                               timeout=30)
+        res_bad = _aio.run(_ft.offer_file_download.handler(
+            {"server_path": r"C:\Windows\win.ini"}))
+        check("F-1", "file handoff: offer -> owner downloads bytes; other "
+                     "user 404; outside-APP_ROOT refused",
+              bool(fid) and r_own.status_code == 200
+              and r_own.content == b"pack20 file handoff probe"
+              and r_other.status_code == 404
+              and bool(res_bad.get("is_error")),
+              f"fid={bool(fid)} own={r_own.status_code} "
+              f"other={r_other.status_code} bad_refused={bool(res_bad.get('is_error'))}")
+        os.remove(probe_src)
+    except Exception as e:
+        check("F-1", "file handoff", False, e)
+
     # N-1 Platform menu completeness (James 2026-08-09): the create/manage
     # surfaces admins reach from the rail — Integrations, Solutions +
     # Solutions Author, Users/Groups, MCP, Environments — plus role-gated

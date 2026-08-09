@@ -737,6 +737,24 @@ async def settings_model(request: Request):
 
 
 # ---------------------------------------------------------------------------
+# File handoff (James 2026-08-09): download links in chat
+# ---------------------------------------------------------------------------
+
+@app.get("/api/files/{file_id}")
+async def serve_offered_file(file_id: str, request: Request):
+    """Serve a file the agent explicitly offered to THIS user
+    (offer_file_download stages copies per-user; cross-user ids 404)."""
+    user = _verify_request(request)
+    import file_tools
+    hit = file_tools.resolve_offer(int(user["user_id"] or 0), file_id)
+    if not hit:
+        raise HTTPException(404, "file not found")
+    path, original_name = hit
+    return FileResponse(path, filename=original_name,
+                        media_type="application/octet-stream")
+
+
+# ---------------------------------------------------------------------------
 # Chat history (CC-parity, James 2026-08-09)
 # ---------------------------------------------------------------------------
 

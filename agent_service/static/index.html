@@ -234,6 +234,10 @@
   .tblpager button:disabled{opacity:.35;cursor:default}
 
   #chat-footer{position:relative}
+  .md a.filelink{display:inline-block;background:var(--accent-tint);
+    border:1px solid var(--accent-line);border-radius:9px;padding:5px 12px;
+    margin:3px 0;font-size:12.5px;text-decoration:none;cursor:pointer}
+  .md a.filelink:hover{background:var(--hover)}
   .histitem{display:block;width:100%;text-align:left;padding:8px 11px;border-radius:9px;
             border:1px solid transparent;color:var(--text2);font-size:12.5px}
   .histitem:hover{background:var(--hover);border-color:var(--line)}
@@ -564,6 +568,29 @@
     target.classList.add("md");
     target.innerHTML = md(text);
     enhanceTables(target);
+    // File handoff links: fetch with the auth header and trigger a real
+    // browser download (no token ever rides in a URL).
+    target.querySelectorAll('a[href^="/api/files/"]').forEach(a => {
+      a.classList.add("filelink");
+      a.onclick = async (e) => {
+        e.preventDefault();
+        const orig = a.textContent;
+        a.textContent = orig + " …";
+        try {
+          const r = await fetch(a.getAttribute("href"), { headers: H() });
+          if (!r.ok) { a.textContent = orig + " (no longer available)"; return; }
+          const blob = await r.blob();
+          const url = URL.createObjectURL(blob);
+          const dl = document.createElement("a");
+          dl.href = url;
+          const m = orig.match(/⤓\s*(.+?)\s*\(/);
+          dl.download = (m ? m[1] : "download").trim();
+          document.body.appendChild(dl); dl.click(); dl.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 5000);
+          a.textContent = orig;
+        } catch { a.textContent = orig + " (download failed)"; }
+      };
+    });
   }
 
   // ---------- view switching ----------

@@ -30,7 +30,11 @@ skill for the general rule).
 Typical flow to fetch a file when given a site/library/file description:
 `lookup_site_by_url` (or `list_sites`) → `list_drives` (document libraries)
 → `search_files` or `list_folder_by_path` → `download_file` /
-`download_file_by_path`. For pulling CONTENT INTO THE PLATFORM, prefer
+`download_file_by_path`. A download lands on the SERVER — the user is in a
+web browser, so ALWAYS follow it with `offer_file_download` (pass the saved
+path from the operation result) and give them the returned chat link; never
+quote a server path as the deliverable. For pulling CONTENT INTO THE
+PLATFORM, prefer
 `download_to_knowledge` (single file) or `import_folder_to_knowledge`
 (whole folder) — they land documents straight in the knowledge system where
 document search can use them. Newly created SharePoint sites can take

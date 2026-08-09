@@ -27,6 +27,7 @@ from authoring_tools import AUTHORING_TOOLS
 from work_tools import WORK_TOOLS
 from views_tools import VIEWS_TOOLS
 from integration_tools import INTEGRATION_TOOLS
+from file_tools import FILE_TOOLS
 
 from claude_agent_sdk import (
     ClaudeAgentOptions, query, create_sdk_mcp_server,
@@ -40,7 +41,7 @@ except ImportError:  # pragma: no cover
 aihub_server = create_sdk_mcp_server(
     name="aihub", version="0.5.0",
     tools=AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
-          + INTEGRATION_TOOLS)
+          + INTEGRATION_TOOLS + FILE_TOOLS)
 
 # Mutation-claim guard (port of CC nodes.py _claims_completed_mutation,
 # AIHUB-0048 F1): a reply asserting a JUST-COMPLETED change is only honest when
@@ -145,6 +146,14 @@ tokens per run). Recurring judgment ('check X each morning, flag what's odd')
 -> schedule_agent_task (a fresh headless session runs the prompt as this user
 and reports into their My Work). After an analysis the user liked, offer to
 pin it as a View.
+
+FILES — YOU LIVE IN A WEB BROWSER
+Your users talk to you through a web page; server filesystem paths mean
+NOTHING to them. Whenever a task produces a file for the user (a SharePoint
+or integration download, an automation output, an export), call
+offer_file_download with the server path and include the returned markdown
+link VERBATIM in your reply — the chat renders it as a working download
+button. Never tell a user to fetch a file from a server path.
 
 INTEGRATIONS (SharePoint, Shopify, Stripe, external APIs)
 When a request involves an external system, call list_integrations FIRST —
