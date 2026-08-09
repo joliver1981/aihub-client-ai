@@ -1050,10 +1050,14 @@
             {# MODERN NAV: Work / Build / Admin                          #}
             {# ══════════════════════════════════════════════════════════ #}
 
-            {% if FLAG_AGENT_MODE and current_user.is_authenticated and current_user.role >= 2 %}
+            {% if FLAG_AGENT_MODE and current_user.is_authenticated and current_user.role >= 2 and not session.get('classic_mode') %}
             <!-- ── AGENT MODE ── the noun-collapse lens: talk, decide, done.
                  Classic Work/Build sections are HIDDEN (never deleted); flip
-                 THE_AGENT_MODE=false in .env to restore them instantly. -->
+                 THE_AGENT_MODE=false in .env to restore them instantly.
+                 A sticky ?classic=1 session (session['classic_mode'], set by
+                 the home route) suppresses the lens: "Classic app" from The
+                 Agent means the TRUE classic app, full original nav, until
+                 the user picks The Agent again (its redirect clears it). -->
             <div class="new-nav-section" id="agentModeSection">
                 <div class="new-nav-section-title">Agent Mode</div>
                 <div class="new-nav-item">

@@ -1586,11 +1586,19 @@ def home():
 
         # AGENT MODE entry point (James, A4 feedback #7): when the mode is on,
         # qualifying users land straight in The Agent — no wonky two-hop nav.
-        # ?classic=1 is the deliberate escape hatch back to the legacy app.
+        # ?classic=1 is the deliberate escape hatch back to the legacy app,
+        # and it is STICKY (James, 2026-08-08): choosing Classic must mean the
+        # TRUE classic app — full original nav, kept across page navigation —
+        # not the slim Agent-Mode lens. The session flag drives both this
+        # redirect and the base.html nav lens; picking The Agent again (its
+        # redirect route) clears it.
+        if request.args.get('classic') == '1':
+            session['classic_mode'] = True
         if (current_user.is_authenticated
                 and os.getenv('THE_AGENT_MODE', 'false').lower() == 'true'
                 and os.getenv('THE_AGENT_ENABLED', 'false').lower() == 'true'
                 and request.args.get('classic') != '1'
+                and not session.get('classic_mode')
                 and getattr(current_user, 'role', 0) >= 2):
             return redirect(url_for('the_agent_redirect'))
 
@@ -1933,6 +1941,10 @@ def the_agent_redirect():
     if os.getenv('THE_AGENT_ENABLED', 'false').lower() != 'true':
         flash('The Agent is not enabled on this install.', 'warning')
         return redirect(url_for('home'))
+
+    # Choosing The Agent ends a sticky classic-mode session (see home route):
+    # the next visit to '/' goes straight back to The Agent.
+    session.pop('classic_mode', None)
 
     cleanup_expired_cc_tokens()
     token = _mint_cc_token({
