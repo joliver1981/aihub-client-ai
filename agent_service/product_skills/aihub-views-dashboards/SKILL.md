@@ -51,6 +51,35 @@ Delete rights: private = owner, group = any member, tenant = admin.
   the cached data labeled as-of. Offer it whenever a shared view has
   automation tiles or non-developer viewers.
 
+## Editing an existing view
+
+`save_view` REPLACES the whole view (same name + scope = new version). So to
+change one tile: `get_view` first, apply the change to the full tile list,
+re-save everything. Never drop tiles the user didn't mention. Users can also
+edit inline from the Views screen ("✎ Edit with AI") — those requests arrive
+with the current definition already in context; same rules apply.
+
+## Stock ticker recipe (external data in a view)
+
+A scrolling ticker of EXTERNAL data (stock quotes, weather, rates) is an
+AUTOMATION TILE + `viz: "ticker"` + `refresh_seconds`:
+
+1. The user needs an API key from a data provider (e.g. a free-tier stock
+   API). Store it with `store_platform_secret` (e.g. STOCK_API_KEY) — never
+   hard-code it.
+2. Build a small automation: read the key with `aihub.secret("STOCK_API_KEY")`,
+   call the provider's quote endpoint (declare `requests` in the manifest
+   packages and the secret in manifest secrets), and print the tile contract
+   as the LAST stdout line: `{"columns": ["sym", "price"], "rows":
+   [["AAPL", 231.4], ...]}` — 2-column rows render as "SYM price" pairs in
+   the ticker. Dry-run, then PROMOTE (tiles only run pinned code).
+3. `get_view` the target view, append the tile:
+   `{"type": "automation", "title": "Watchlist", "automation": "<name>",
+   "viz": "ticker", "refresh_seconds": 60}` — and re-save the full list.
+
+No API key / internal data? A plain SQL tile with `viz: "ticker"` works too
+(e.g. invoice totals by vendor) — no automation needed.
+
 ## Gotchas
 
 - Tiles are pulses and top-N lists, not exports: ~50 rows per tile, and an

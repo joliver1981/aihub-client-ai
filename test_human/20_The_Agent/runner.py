@@ -1222,6 +1222,36 @@ def main():
     finally:
         email_store.delete_address(77)
 
+    # V22-1 view editing seams (James 2026-08-09): get_view returns full tile
+    # definitions (edits must preserve them); edit-chat is visibility-gated.
+    try:
+        import views_tools as _vt
+        views_store.delete("pack20-edit", 1, [], 3, "user")
+        views_store.save("pack20-edit", "edit probe", [
+            {"title": "One", "connection": "ERPDB", "sql": "SELECT 1 AS a",
+             "viz": "stat"},
+            {"title": "Tick", "connection": "ERPDB", "sql": "SELECT 2 AS b",
+             "viz": "ticker", "refresh_seconds": 60}], 1, scope="user")
+        from platform_tools import CURRENT_USER as _CU5
+        _CU5.set({"user_id": 1, "role": 3, "username": "pack20-runner"})
+        gv = _aio.run(_vt.get_view.handler({"name": "pack20-edit"}))
+        gv_txt = str(gv)
+        gv_ok = ('"ticker"' in gv_txt and '"refresh_seconds": 60' in gv_txt
+                 and '"SELECT 1 AS a"' in gv_txt)
+        r_other = requests.post(f"{BASE}/api/views/edit-chat",
+                                json={"name": "pack20-edit", "scope": "user",
+                                      "message": "hi"},
+                                headers={"Authorization": f"Bearer {_tok(2)}"},
+                                timeout=30)
+        check("V22-1", "get_view returns full tile defs (ticker+refresh) for "
+                       "edit-preserve; edit-chat 404s for non-owners",
+              gv_ok and r_other.status_code == 404,
+              f"gv_ok={gv_ok} other={r_other.status_code}")
+    except Exception as e:
+        check("V22-1", "view edit seams", False, e)
+    finally:
+        views_store.delete("pack20-edit", 1, [], 3, "user")
+
     # M-1 runtime model setting (James 2026-08-09): admin sets it in the UI,
     # applies without restart; non-admin 403; clear restores the default.
     try:

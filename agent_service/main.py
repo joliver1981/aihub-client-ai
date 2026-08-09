@@ -516,6 +516,54 @@ async def work_thread_get(request: Request):
     return {"thread": workitem_store.thread(item["work_item_id"])}
 
 
+@app.post("/api/views/edit-chat")
+async def views_edit_chat(request: Request):
+    """Inline 'Edit with AI' on the Views screen (James 2026-08-09): a chat
+    scoped to ONE view. Full tool access (so save_view works), with the
+    view's CURRENT definition injected so edits preserve untouched tiles.
+    The client holds the session id per view for follow-ups; the screen
+    re-runs the view after each reply so changes appear immediately."""
+    user = _verify_request(request)
+    uid = int(user["user_id"] or 0)
+    body = await request.json()
+    message = str(body.get("message") or "").strip()
+    if not message:
+        raise HTTPException(400, "empty message")
+    view = views_store.get(str(body.get("name") or ""), uid,
+                           readthrough.user_group_ids(uid),
+                           str(body.get("scope") or ""),
+                           int(body.get("group_id") or 0))
+    if not view:
+        raise HTTPException(404, "view not found (or not visible to you)")
+    session_id = body.get("session_id") or None
+    preamble = ""
+    if not session_id:
+        preamble = (
+            "You are editing ONE saved View for this user, inline from the "
+            "Views screen. Its CURRENT definition:\n"
+            + json.dumps({"name": view["name"], "scope": view["scope"],
+                          "group_id": view.get("group_id"),
+                          "version": view["version"],
+                          "tiles": view.get("tiles") or []}, indent=1)
+            + "\nRULES: apply the user's change by re-saving with save_view "
+            "using the SAME name and scope, passing the COMPLETE tile list — "
+            "preserve every tile they didn't ask to change. Verify any new "
+            "SQL with probe_connection_query first. Automation tiles need a "
+            "PROMOTED automation. Keep replies short — the screen refreshes "
+            "the view after each of your turns.\n\nUser: ")
+    from platform_tools import CURRENT_USER
+    CURRENT_USER.set(user)
+    reply_parts, out_session = [], session_id
+    async for ev in run_turn(preamble + message, session_id, user,
+                             tool_scope="full"):
+        if ev.get("type") == "text":
+            reply_parts.append(ev["text"])
+        elif ev.get("type") in ("result", "error"):
+            out_session = ev.get("session_id") or out_session
+    return {"reply": "\n\n".join(reply_parts).strip() or "(no reply produced)",
+            "session_id": out_session}
+
+
 # ---------------------------------------------------------------------------
 # Playbooks inventory (A4 feedback #6) — the deterministic assets that exist,
 # with deep links so builders can jump to the legacy designer/Mission Control.

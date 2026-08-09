@@ -354,7 +354,16 @@
     <h1 style="font-size:17px;font-weight:650">Views</h1>
     <span class="sub" style="color:var(--text3);font-size:12px">Deterministic dashboards — pinned SQL, zero AI per refresh</span>
     <span class="vmeta" id="views-meta" style="margin-left:auto"></span>
+    <button id="views-edit" style="display:none;border:1px solid var(--accent-line);border-radius:8px;padding:5px 12px;color:var(--accent);font-size:12px">✎ Edit with AI</button>
     <button id="views-refresh" style="border:1px solid var(--line);border-radius:8px;padding:5px 12px;color:var(--text2);font-size:12px">↻ Refresh</button>
+  </div>
+  <div id="views-editpanel" style="display:none;margin:10px 22px 0;background:var(--panel);border:1px solid var(--accent-line);border-radius:13px;padding:12px 14px">
+    <div id="views-editlog" style="max-height:180px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:9px"></div>
+    <div style="display:flex;gap:8px">
+      <input id="views-editinput" type="text" placeholder="Describe a change to this view — e.g. add a ticker of invoice totals by vendor…"
+             style="flex:1;padding:8px 12px;border-radius:9px;font-size:12.5px">
+      <button class="btn primary" id="views-editsend">Apply</button>
+    </div>
   </div>
   <div id="views-body" style="flex:1;display:grid;grid-template-columns:280px 1fr;gap:14px;padding:14px 22px 22px;overflow:hidden;min-height:0">
     <div id="views-list" style="overflow-y:auto;display:flex;flex-direction:column;gap:8px"></div>
@@ -832,6 +841,10 @@
         currentView = key;
         location.hash = `view=${encodeURIComponent(key.name)}&scope=${key.scope}` +
                         (key.group_id ? `&gid=${key.group_id}` : "");
+        // fresh edit context per view: show the button, reset the panel
+        document.getElementById("views-edit").style.display = "";
+        document.getElementById("views-editpanel").style.display = "none";
+        document.getElementById("views-editlog").innerHTML = "";
         renderViewsList(); runView(key);
       };
       list.appendChild(b);
@@ -1041,6 +1054,50 @@
   }
   document.getElementById("views-refresh").onclick = () =>
     currentView ? runView(currentView) : loadViews();
+
+  // ---------- inline "Edit with AI" (per-view chat; James 2026-08-09) ----
+  const editSessions = new Map();   // viewKey -> chat session id
+  const viewKeyStr = (k) => `${k.scope}|${k.group_id || 0}|${k.name}`;
+  const editPanel = document.getElementById("views-editpanel");
+  const editLog = document.getElementById("views-editlog");
+  document.getElementById("views-edit").onclick = () => {
+    editPanel.style.display = editPanel.style.display === "none" ? "" : "none";
+    if (editPanel.style.display === "") document.getElementById("views-editinput").focus();
+  };
+  function editMsg(role, text) {
+    const d = el("div", "tmsg " + (role === "you" ? "human" : "agent"));
+    d.appendChild(el("div", "au meta", role === "you" ? "You" : "The Agent"));
+    if (role === "you") d.appendChild(document.createTextNode(text));
+    else { const b = el("div"); renderMd(b, text); d.appendChild(b); }
+    editLog.appendChild(d); editLog.scrollTop = editLog.scrollHeight;
+  }
+  async function sendViewEdit() {
+    const inp = document.getElementById("views-editinput");
+    const btn = document.getElementById("views-editsend");
+    const msg = inp.value.trim();
+    if (!msg || !currentView) return;
+    inp.value = ""; btn.disabled = true; btn.textContent = "…";
+    editMsg("you", msg);
+    try {
+      const r = await fetch("/api/views/edit-chat", { method: "POST",
+        headers: H(), body: JSON.stringify({
+          name: currentView.name, scope: currentView.scope,
+          group_id: currentView.group_id || 0, message: msg,
+          session_id: editSessions.get(viewKeyStr(currentView)) || null }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { editMsg("agent", d.detail || "edit failed"); }
+      else {
+        if (d.session_id) editSessions.set(viewKeyStr(currentView), d.session_id);
+        editMsg("agent", d.reply);
+        loadViews();                 // version counts refresh
+        runView(currentView);        // the view repaints with the change
+      }
+    } catch (e) { editMsg("agent", "error: " + e.message); }
+    btn.disabled = false; btn.textContent = "Apply";
+  }
+  document.getElementById("views-editsend").onclick = sendViewEdit;
+  document.getElementById("views-editinput").addEventListener("keydown",
+    (e) => { if (e.key === "Enter") sendViewEdit(); });
 
   // ---------- playbooks ----------
   const PB_STYLE = { workflow: "t-review", code_flow: "t-provide_input",

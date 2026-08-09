@@ -254,10 +254,15 @@ async def run_view(view: dict, only_index: int | None = None) -> dict:
             "tiles_json": {"type": "string",
                            "description": 'JSON array. SQL tile: {"title": str, '
                                           '"connection": name-or-id, "sql": "SELECT ...", '
-                                          '"viz": "stat|table|auto"}. Automation tile: '
-                                          '{"type": "automation", "title": str, '
-                                          '"automation": name-or-id, "inputs": {...}, '
-                                          '"viz": ...}'},
+                                          '"viz": "stat|table|auto|ticker|line|bar"}. '
+                                          'Automation tile: {"type": "automation", '
+                                          '"title": str, "automation": name-or-id, '
+                                          '"inputs": {...}, "viz": ...}. Optional per '
+                                          'tile: "refresh_seconds" (min 15) — that tile '
+                                          're-runs on its own timer while the view is '
+                                          'open (pair with ticker). ticker scrolls rows '
+                                          'as label/value pairs; line/bar chart col0 vs '
+                                          'the first numeric column.'},
             "scope": {"type": "string", "enum": ["user", "group", "tenant"]},
             "group_id": {"type": "integer", "description": "Required for scope=group"},
         },
@@ -327,6 +332,44 @@ async def save_view(args: dict[str, Any]) -> dict[str, Any]:
                  f"{info['tile_count']} tiles). It now appears on the Views "
                  "screen; every refresh re-runs the pinned recipe exactly — no "
                  "AI in the loop.")
+
+
+@tool(
+    "get_view",
+    "Read a saved View's FULL definition — every tile with its type, "
+    "connection/automation, SQL, viz, and refresh_seconds. ALWAYS call this "
+    "before editing a view: to change or add ONE tile you must re-save the "
+    "COMPLETE tile list (save_view replaces wholesale), so fetch the current "
+    "tiles, apply the change, and pass everything back. Never drop tiles the "
+    "user didn't ask to remove.",
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "scope": {"type": "string", "enum": ["user", "group", "tenant"]},
+            "group_id": {"type": "integer"},
+        },
+        "required": ["name"],
+        "additionalProperties": False,
+    },
+)
+async def get_view(args: dict[str, Any]) -> dict[str, Any]:
+    import readthrough
+    user = CURRENT_USER.get()
+    uid = int(user.get("user_id") or 0)
+    view = views_store.get(str(args["name"]).strip(), uid,
+                           readthrough.user_group_ids(uid),
+                           str(args.get("scope") or ""),
+                           int(args.get("group_id") or 0))
+    if not view:
+        return _text(f"No view named '{args['name']}' is visible to this user.",
+                     is_error=True)
+    return _text(json.dumps({
+        "name": view["name"], "scope": view["scope"],
+        "group_id": view.get("group_id"), "version": view["version"],
+        "description": view.get("description") or "",
+        "tiles": view.get("tiles") or [],
+    }, indent=1))
 
 
 @tool(
@@ -496,4 +539,5 @@ async def schedule_view_refresh(args: dict[str, Any]) -> dict[str, Any]:
                  "the cache every viewer sees — zero AI per refresh.")
 
 
-VIEWS_TOOLS = [save_view, list_saved_views, delete_view, schedule_view_refresh]
+VIEWS_TOOLS = [save_view, get_view, list_saved_views, delete_view,
+               schedule_view_refresh]

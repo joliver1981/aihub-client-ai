@@ -86,8 +86,8 @@ _READ_TOOL_NAMES = [
     "list_data_connections", "get_connection_schema", "probe_connection_query",
     "ask_data_agent", "list_playbooks", "list_recent_runs",
     "check_automation_run", "get_automation", "get_code_flow", "list_my_work",
-    "list_saved_views", "list_secret_names", "get_agent_email_status",
-    "list_integrations", "get_integration_operations",
+    "list_saved_views", "get_view", "list_secret_names",
+    "get_agent_email_status", "list_integrations", "get_integration_operations",
 ]
 _READ_ALLOWED = [f"mcp__aihub__{n}" for n in _READ_TOOL_NAMES]
 
