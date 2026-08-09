@@ -58,6 +58,22 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+# Per-address options (James, 2026-08-09 — parity with the legacy agent email
+# config): auto_send bypasses the My Work approval; outbound_enabled is the
+# outbound kill switch; notify_on_receive emails notification_email on each
+# inbound; cooldown_minutes overrides the env default (NULL = env);
+# reply_instructions = standing personality/instructions injected into email
+# sessions. Added via additive ALTER TABLE so existing rows keep working.
+_OPTION_COLUMNS = {
+    "auto_send": "INTEGER NOT NULL DEFAULT 0",
+    "outbound_enabled": "INTEGER NOT NULL DEFAULT 1",
+    "notify_on_receive": "INTEGER NOT NULL DEFAULT 0",
+    "notification_email": "TEXT DEFAULT ''",
+    "cooldown_minutes": "INTEGER",
+    "reply_instructions": "TEXT DEFAULT ''",
+}
+
+
 def init() -> None:
     with _LOCK, _connect() as c:
         c.executescript("""
@@ -82,7 +98,29 @@ def init() -> None:
             PRIMARY KEY (event_id, address)
         );
         """)
+        cols = {r["name"] for r in c.execute(
+            "PRAGMA table_info(user_email_addresses)")}
+        for name, ddl in _OPTION_COLUMNS.items():
+            if name not in cols:
+                c.execute(f"ALTER TABLE user_email_addresses "
+                          f"ADD COLUMN {name} {ddl}")
     logger.info("agent email store ready")
+
+
+def set_options(user_id: int, **options) -> Optional[dict]:
+    """Update per-address option columns (only known columns; ignores None)."""
+    sets, vals = [], []
+    for k, v in options.items():
+        if k in _OPTION_COLUMNS and v is not None:
+            sets.append(f"{k} = ?")
+            vals.append(v)
+    if not sets:
+        return get_address(user_id)
+    vals += [_now(), int(user_id)]
+    with _LOCK, _connect() as c:
+        c.execute(f"UPDATE user_email_addresses SET {', '.join(sets)}, "
+                  f"updated_at = ? WHERE user_id = ?", vals)
+    return get_address(user_id)
 
 
 def valid_prefix(prefix: str) -> bool:

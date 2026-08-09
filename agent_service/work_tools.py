@@ -103,13 +103,15 @@ async def list_my_work(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "schedule_agent_task",
-    "Schedule a recurring HEADLESS agent task: at each firing, a fresh agent "
-    "session runs the given prompt AS the current user and reports its result "
-    "into their My Work queue as an FYI. Use for recurring asks that need "
-    "judgment each time ('every morning, check X and flag anomalies') — for "
-    "purely mechanical repetition, prefer building an automation instead "
-    "(cheaper: zero tokens per run). Provide cron_expression OR "
-    "every_hours/every_days. Report ONLY the ids this returns.",
+    "Schedule a HEADLESS agent task — recurring OR one-shot delayed: at each "
+    "firing, a fresh agent session runs the given prompt AS the current user "
+    "and reports its result into their My Work queue as an FYI. Recurring "
+    "('every morning, check X'): cron_expression OR every_hours/every_days. "
+    "ONE-SHOT DELAYED ('check my email in 2 minutes', 'follow up in an "
+    "hour'): run_in_minutes — fires once, then the job deactivates. The "
+    "engine polls about every minute, so timing is minute-granular, not "
+    "exact seconds. For purely mechanical repetition prefer an automation "
+    "(zero tokens per run). Report ONLY the ids this returns.",
     {
         "type": "object",
         "properties": {
@@ -120,6 +122,9 @@ async def list_my_work(args: dict[str, Any]) -> dict[str, Any]:
             "cron_expression": {"type": "string"},
             "every_hours": {"type": "integer"},
             "every_days": {"type": "integer"},
+            "run_in_minutes": {"type": "integer",
+                               "description": "One-shot: fire once this many "
+                                              "minutes from now (min 1)"},
         },
         "required": ["task_prompt", "name"],
         "additionalProperties": False,
@@ -136,7 +141,16 @@ async def schedule_agent_task(args: dict[str, Any]) -> dict[str, Any]:
             "AGENT_BUILD_ALLOW_ALL_USERS", "false").lower() != "true":
         return _text("Scheduling agent tasks requires a Developer role.",
                      is_error=True)
-    if args.get("cron_expression"):
+    one_shot = False
+    if args.get("run_in_minutes"):
+        # ONE-SHOT (James 2026-08-09): a 'date' schedule = the engine's
+        # DateTrigger — fires once (pending-execution dedupe engine-side).
+        mins = max(int(args["run_in_minutes"]), 1)
+        fire_at = _dt.datetime.utcnow() + _dt.timedelta(minutes=mins)
+        schedule = {"type": "date",
+                    "start_date": fire_at.strftime("%Y-%m-%d %H:%M:%S")}
+        one_shot = True
+    elif args.get("cron_expression"):
         schedule = {"type": "cron",
                     "cron_expression": str(args["cron_expression"])}
     elif args.get("every_hours") or args.get("every_days"):
@@ -149,8 +163,8 @@ async def schedule_agent_task(args: dict[str, Any]) -> dict[str, Any]:
         if args.get("every_days"):
             schedule["interval_days"] = int(args["every_days"])
     else:
-        return _text("Provide either cron_expression or every_hours/every_days.",
-                     is_error=True)
+        return _text("Provide cron_expression, every_hours/every_days, or "
+                     "run_in_minutes for a one-shot.", is_error=True)
 
     body = {
         "name": f"Agent: {str(args['name']).strip()[:80]}",
@@ -189,6 +203,13 @@ async def schedule_agent_task(args: dict[str, Any]) -> dict[str, Any]:
                              is_error=True)
     except Exception as e:
         return _text(f"Scheduling failed: {e}", is_error=True)
+    if one_shot:
+        return _text(f"One-shot task '{body['name']}' scheduled (job #{job_id}, "
+                     "verified active by read-back). It fires ONCE in about "
+                     f"{max(int(args['run_in_minutes']), 1)} minute(s) (the "
+                     "engine polls ~every minute), runs as "
+                     f"{user.get('username')}, and lands its result as an FYI "
+                     "in their My Work.")
     return _text(f"Scheduled headless agent task '{body['name']}' (job #{job_id}, "
                  "verified active by read-back). Each firing runs as "
                  f"{user.get('username')} and lands an FYI in their My Work. "
@@ -287,13 +308,13 @@ async def list_skills_tool(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "draft_email_reply",
-    "Draft an outbound email FROM the current user's personal agent address. "
-    "This NEVER sends: it files an editable approval into the user's My Work "
-    "— what they approve (after any edits) is what sends, from their agent "
-    "address, via the platform's governed email transport. Use when an "
-    "inbound email deserves a reply, or when the user asks you to email "
-    "someone. Never claim an email was SENT — only that a draft is awaiting "
-    "approval. Requires the user to have an active agent email address.",
+    "Send/draft an outbound email FROM the current user's personal agent "
+    "address, honoring their address settings: with auto-send OFF (default) "
+    "it files an EDITABLE approval into My Work and NOTHING sends until they "
+    "approve; with auto-send ON it sends immediately via the platform's "
+    "governed transport and reports so. Outbound can be disabled entirely on "
+    "the Email screen. Report exactly what happened — never claim SENT unless "
+    "the result says so. Requires an active agent email address.",
     {
         "type": "object",
         "properties": {
@@ -318,11 +339,46 @@ async def draft_email_reply(args: dict[str, Any]) -> dict[str, Any]:
         return _text("This user has no active agent email address — nothing "
                      "was drafted. They can create one on the Email screen.",
                      is_error=True)
+    if not addr.get("outbound_enabled", 1):
+        return _text("Outbound email is DISABLED for this address (Email "
+                     "screen setting) — nothing was drafted or sent.",
+                     is_error=True)
     to = [str(a).strip() for a in (args.get("to") or []) if str(a).strip()]
     if not to:
         return _text("At least one recipient is required.", is_error=True)
     subject = str(args["subject"]).strip()[:300]
     body = str(args["body"])
+
+    if addr.get("auto_send"):
+        # AUTO-SEND (James 2026-08-09, opt-in per address): send now through
+        # the same cloud transport the approval path uses; leave a closed
+        # FYI audit item. A failed send falls back to the approval queue —
+        # never silently dropped.
+        import email_client
+        result = await email_client.send_reply(
+            to, subject, body, addr["email_address"],
+            f"{addr.get('prefix', 'agent')} via The Agent")
+        if result.get("success"):
+            workitem_store.create_item(
+                "acknowledge", f"✉ Auto-sent: {subject or '(no subject)'}",
+                summary=(f"To: {', '.join(to)}\nFrom: {addr['email_address']}\n"
+                         f"(auto-send is ON for this address)\n\n{body[:1500]}"),
+                payload={"kind": "agent_email_autosent", "to": to,
+                         "subject": subject, "from_user": uid},
+                addressed_user=uid, from_kind="agent_email",
+                from_ref=addr["email_address"],
+                created_by=str(user.get("username") or "agent"))
+            return _text(f"Email SENT to {', '.join(to)} from "
+                         f"{addr['email_address']} (auto-send is enabled for "
+                         "this address; an FYI audit item was added to "
+                         "My Work).")
+        logger_note = str(result.get("error", result))[:200]
+        # fall through to the approval path so the message isn't lost
+        fallback_note = (f"Auto-send FAILED ({logger_note}) — filed for "
+                         "manual approval instead. ")
+    else:
+        fallback_note = ""
+
     item = workitem_store.create_item(
         "edit_and_return", f"Send: {subject or '(no subject)'}",
         summary=(f"To: {', '.join(to)}\nFrom: {addr['email_address']}\n"
@@ -335,18 +391,83 @@ async def draft_email_reply(args: dict[str, Any]) -> dict[str, Any]:
         addressed_user=uid,
         from_kind="agent_email", from_ref=addr["email_address"],
         created_by=str(user.get("username") or "agent"))
-    return _text(f"Draft filed for approval (work item {item['work_item_id']}). "
-                 f"It is in My Work now; NOTHING has been sent — the user "
-                 "approves (and may edit) the body first.")
+    return _text(f"{fallback_note}Draft filed for approval (work item "
+                 f"{item['work_item_id']}). It is in My Work now; NOTHING has "
+                 "been sent — the user approves (and may edit) the body first.")
+
+
+@tool(
+    "setup_agent_email",
+    "Create (or re-activate) the current user's personal agent email address "
+    "— WITH THEIR PERMISSION. TWO-STEP: first call WITHOUT confirmed to get "
+    "the proposed address; present it, tell them they can pick a different "
+    "prefix, and only after they explicitly agree call again with "
+    "confirmed=true (and their chosen prefix if they gave one). The address "
+    "becomes <prefix>-agent.<tenant>@<domain>; sending stays approval-gated "
+    "by default and all options live on the Email screen.",
+    {
+        "type": "object",
+        "properties": {
+            "prefix": {"type": "string",
+                       "description": "Optional prefix; defaults to their "
+                                      "username (sanitized)"},
+            "confirmed": {"type": "boolean"},
+        },
+        "required": [],
+        "additionalProperties": False,
+    },
+)
+async def setup_agent_email(args: dict[str, Any]) -> dict[str, Any]:
+    import email_store
+    import email_client
+    user = CURRENT_USER.get()
+    uid = int(user.get("user_id") or 0)
+    existing = email_store.get_address(uid)
+    if existing and existing.get("is_active") and not args.get("prefix"):
+        return _text(f"Already set up: {existing['email_address']} is ACTIVE — "
+                     "nothing to create. Settings live on the Email screen.")
+    info = await email_client.tenant_info()
+    if not info:
+        return _text("The cloud email service is unreachable, so the address "
+                     "suffix can't be resolved — nothing was created. Try "
+                     "again shortly.", is_error=True)
+    prefix = email_store.sanitize_prefix(
+        args.get("prefix")
+        or (existing or {}).get("prefix")
+        or email_store.sanitize_prefix(user.get("username"))
+        or str(uid))
+    if not prefix:
+        return _text("That prefix has no email-safe characters (a-z, 0-9, "
+                     "hyphen) — pick another.", is_error=True)
+    address = email_client.compose_address(prefix, info["tenant_id"],
+                                           info["domain"])
+    if not args.get("confirmed"):
+        return _text(f"PROPOSAL (nothing created yet): their agent address "
+                     f"would be {address}. Ask the user to confirm — and tell "
+                     "them they can choose a different prefix (letters, "
+                     "numbers, hyphens). Only call again with confirmed=true "
+                     "after they explicitly agree.")
+    try:
+        row = email_store.upsert_address(
+            uid, prefix, address, str(user.get("username") or ""),
+            int(user.get("role") or 2), True)
+    except ValueError as e:
+        return _text(f"Not created: {e} — suggest a different prefix.",
+                     is_error=True)
+    return _text(f"Done — {row['email_address']} is ACTIVE. Mail sent there "
+                 "reaches me as a session run as them, results land in "
+                 "My Work, and any replies I draft wait for their approval "
+                 "(auto-send and other options are on the Email screen).")
 
 
 @tool(
     "get_agent_email_status",
-    "Check the current user's personal agent-email setup: their inbound "
-    "address (or that none exists yet), whether it's enabled, whether the "
-    "poller is running, and recent inbound activity. Use this WHENEVER a "
-    "user asks about receiving/getting/handling email so you answer from "
-    "THEIR actual state — never a generic capability answer.",
+    "Your INBOX VIEW for the current user: their agent address (or that none "
+    "exists yet), settings, poller state, and recent inbound activity "
+    "(sender/subject/outcome). Questions like 'did you get any email?' are "
+    "answered from THIS — call it and report the activity directly, without "
+    "capability disclaimers. Use it whenever a user asks about receiving, "
+    "getting, or handling email.",
     {},
 )
 async def get_agent_email_status(args: dict[str, Any]) -> dict[str, Any]:
@@ -363,6 +484,19 @@ async def get_agent_email_status(args: dict[str, Any]) -> dict[str, Any]:
     if row:
         state = "ENABLED" if row.get("is_active") else "DISABLED"
         lines.append(f"Address: {row['email_address']} ({state})")
+        lines.append(
+            "Settings: outbound "
+            + ("ON" if row.get("outbound_enabled", 1) else "OFF")
+            + ", auto-send " + ("ON (replies send immediately)"
+                                if row.get("auto_send")
+                                else "OFF (replies wait for approval)")
+            + (", notify-on-receive → " + row["notification_email"]
+               if row.get("notify_on_receive") and row.get("notification_email")
+               else "")
+            + (f", cooldown {row['cooldown_minutes']}m"
+               if row.get("cooldown_minutes") is not None else "")
+            + ("; standing reply instructions are set"
+               if str(row.get("reply_instructions") or "").strip() else ""))
         recent = email_store.recent(row["email_address"], 5)
         if recent:
             lines.append(f"Recent inbound activity ({len(recent)} shown):")
@@ -374,10 +508,11 @@ async def get_agent_email_status(args: dict[str, Any]) -> dict[str, Any]:
             lines.append("No inbound mail processed yet.")
     else:
         default = email_store.sanitize_prefix(user.get("username")) or str(uid)
-        lines.append("No agent email address set up yet for this user. They "
-                     "can create one on the Email screen (rail: ✉ Email): "
-                     f"pick a prefix (default '{default}') and the address "
-                     f"becomes <prefix>{suffix}.")
+        lines.append("No agent email address set up yet for this user. OFFER "
+                     "TO SET IT UP: with their permission you can create it "
+                     f"yourself via setup_agent_email — suggest '{default}"
+                     f"{suffix}' and tell them they may pick a different "
+                     "prefix. (The Email screen is the manual alternative.)")
     lines.append(f"Inbound poller: {'RUNNING (every ' + str(email_poller.POLL_SECONDS) + 's)' if email_poller.enabled() else 'OFF (AGENT_EMAIL_ENABLED=false — an admin must enable it)'}")
     lines.append("How it works: mail sent to the address becomes a headless "
                  "agent session run as this user; results land in My Work, "
@@ -387,4 +522,4 @@ async def get_agent_email_status(args: dict[str, Any]) -> dict[str, Any]:
 
 WORK_TOOLS = [raise_work_item, list_my_work, schedule_agent_task,
               save_skill, list_skills_tool, draft_email_reply,
-              get_agent_email_status]
+              get_agent_email_status, setup_agent_email]

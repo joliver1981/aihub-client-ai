@@ -11840,3 +11840,28 @@ function scrollToStartNode() {
         behavior: 'smooth'
     });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Deep link (The Agent Playbooks page, 2026-08-09): /workflow_tool?load_workflow_id=<id>
+// auto-selects and opens that workflow once the picker has populated. Additive:
+// without the param, nothing changes.
+document.addEventListener('DOMContentLoaded', function () {
+    const wid = new URLSearchParams(location.search).get('load_workflow_id');
+    if (!wid) return;
+    let tries = 0;
+    const timer = setInterval(function () {
+        tries++;
+        const sel = document.getElementById('workflowSelect');
+        if (sel && Array.from(sel.options).some(o => o.value === wid)) {
+            clearInterval(timer);
+            sel.value = wid;
+            loadSelectedWorkflow();
+        } else if (tries > 40) {   // ~10s — list never produced the id
+            clearInterval(timer);
+            if (typeof showToast === 'function') {
+                showToast('Could not auto-open workflow ' + wid +
+                          ' — pick it from the Load list.', 'warning');
+            }
+        }
+    }, 250);
+});

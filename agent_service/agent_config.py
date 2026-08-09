@@ -11,6 +11,7 @@ load root .env -> load_secure_config (API_KEY from registry) -> logging.
 """
 
 import os
+import re
 import sys
 import json
 import uuid
@@ -194,6 +195,56 @@ AI_HUB_API_KEY = os.getenv("AI_HUB_API_KEY", "") or get_internal_api_key()
 # Fernet-encrypted ANTHROPIC_API_KEY_ENCRYPTED; the SDK reads the plain env.
 # ---------------------------------------------------------------------------
 
+
+# ---------------------------------------------------------------------------
+# Runtime settings (James 2026-08-09): admin-changeable WITHOUT a restart.
+# A tiny JSON file in the service's data dir; build_options reads the
+# effective model per turn, so a UI change applies to the very next message.
+# AGENT_MODEL (.env) stays the install default; the override sits on top and
+# clearing it falls straight back.
+# ---------------------------------------------------------------------------
+
+RUNTIME_SETTINGS_PATH = os.path.join(APP_ROOT, "data", "agent", "settings.json")
+_MODEL_RE = re.compile(r"^[A-Za-z0-9._:-]{3,80}$")
+
+
+def _read_runtime_settings() -> dict:
+    try:
+        with open(RUNTIME_SETTINGS_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def get_effective_model() -> str:
+    override = str(_read_runtime_settings().get("model") or "").strip()
+    return override if override else AGENT_MODEL
+
+
+def set_model_override(model) -> str:
+    """Set (or clear, with None/'') the runtime model override. Returns the
+    now-effective model. Raises ValueError on a malformed id."""
+    settings = _read_runtime_settings()
+    m = str(model or "").strip()
+    if m:
+        if not _MODEL_RE.match(m):
+            raise ValueError("model id may only contain letters, digits, "
+                             "dots, colons, underscores and hyphens")
+        settings["model"] = m
+    else:
+        settings.pop("model", None)
+    os.makedirs(os.path.dirname(RUNTIME_SETTINGS_PATH), exist_ok=True)
+    tmp = RUNTIME_SETTINGS_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(settings, f, indent=1)
+    os.replace(tmp, RUNTIME_SETTINGS_PATH)
+    effective = get_effective_model()
+    logger.info(f"model override {'set to ' + m if m else 'CLEARED'} — "
+                f"effective model now {effective}")
+    return effective
+
+
 def ensure_anthropic_key() -> bool:
     # RELAY MODE (production posture): route the SDK through the aihub-api
     # Anthropic relay instead of holding a raw Anthropic key on this box.
@@ -239,7 +290,8 @@ def summary() -> dict:
         "service": "agent_service",
         "host": HOST,
         "port": PORT,
-        "model": AGENT_MODEL,
+        "model": get_effective_model(),
+        "model_default": AGENT_MODEL,
         "app_root": APP_ROOT,
         "main_app": get_base_url(),
         "allow_all_users": AGENT_ALLOW_ALL_USERS,

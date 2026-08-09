@@ -39,8 +39,12 @@ def enabled() -> bool:
     return os.getenv("AGENT_EMAIL_ENABLED", "false").lower() == "true"
 
 
-def _cooldown_blocked(address: str) -> bool:
-    if COOLDOWN_MINUTES <= 0:
+def _cooldown_blocked(address: str, owner: dict = None) -> bool:
+    # Per-address override (James 2026-08-09 parity options); NULL = env default.
+    minutes = COOLDOWN_MINUTES
+    if owner and owner.get("cooldown_minutes") is not None:
+        minutes = int(owner["cooldown_minutes"])
+    if minutes <= 0:
         return False
     last = email_store.last_processed_at(address)
     if not last:
@@ -49,7 +53,7 @@ def _cooldown_blocked(address: str) -> bool:
     try:
         then = datetime.fromisoformat(last)
         delta = (datetime.now(timezone.utc) - then).total_seconds() / 60.0
-        return delta < COOLDOWN_MINUTES
+        return delta < minutes
     except Exception:
         return False
 
@@ -73,9 +77,16 @@ async def build_prompt(ev: dict, owner: dict) -> str:
         "You are handling an INBOUND EMAIL sent to this user's personal agent "
         "address. Act on it with your tools exactly as if the user asked in "
         "chat, then follow the email doctrine: if a reply is warranted, use "
-        "draft_email_reply (it files an editable approval in My Work — you "
-        "cannot and must not send directly, and you must never claim a reply "
-        "was SENT). If no reply is needed, just do the work and summarize.",
+        "draft_email_reply (with auto-send OFF it files an editable approval "
+        "in My Work; with auto-send ON it sends immediately and tells you so "
+        "— report whichever actually happened, never guess). If no reply is "
+        "needed, just do the work and summarize.",
+    ]
+    if str(owner.get("reply_instructions") or "").strip():
+        parts.append("The user's STANDING INSTRUCTIONS for handling their "
+                     "email (style, personality, rules — follow them):\n"
+                     + str(owner["reply_instructions"]).strip()[:2000])
+    parts += [
         f"From: {sender}",
         f"To: {_event_field(ev, 'recipient_email', 'recipient')}",
         f"Subject: {subject}",
@@ -122,7 +133,7 @@ async def process_event(ev: dict, owner: dict, own_addresses: set,
         email_store.record(event_id, address, "skipped_rate_limited", sender,
                            subject, f"daily cap {DAILY_CAP} reached")
         return "skipped_rate_limited"
-    if _cooldown_blocked(address):
+    if _cooldown_blocked(address, owner):
         # NOT recorded as processed — the next poll after the cooldown
         # window retries it (the 3-day cloud retention gives us slack).
         return "deferred_cooldown"
@@ -168,6 +179,27 @@ async def process_event(ev: dict, owner: dict, own_addresses: set,
 
     email_store.record(event_id, address, outcome, sender, subject,
                        f"tools={','.join(tools_run[:10])}")
+
+    # notify_on_receive (parity option): tell the user's notification address
+    # an email arrived and what the agent did. Failure is logged, never fatal.
+    if owner.get("notify_on_receive") and str(owner.get("notification_email")
+                                              or "").strip():
+        try:
+            note = (f"Your agent address {address} received an email.\n\n"
+                    f"From: {sender}\nSubject: {subject}\n"
+                    f"Outcome: {outcome.replace('_', ' ')}"
+                    + ("\n\nA drafted reply is waiting for your approval in "
+                       "My Work." if outcome == "reply_drafted" else ""))
+            result = await email_client.send_reply(
+                [str(owner["notification_email"]).strip()],
+                f"[AI Hub] Agent email received: {subject or '(no subject)'}",
+                note, address, "AI Hub Agent Notifications")
+            if not result.get("success"):
+                logger.warning(f"receive-notification send failed: "
+                               f"{result.get('error', result)}")
+        except Exception as e:
+            logger.warning(f"receive-notification failed (non-fatal): {e}")
+
     logger.info(f"agent email {outcome}: event {event_id} -> {address} "
                 f"(sender {sender}, subject {subject!r})")
     return outcome

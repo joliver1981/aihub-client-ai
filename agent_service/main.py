@@ -39,6 +39,8 @@ async def lifespan(app):
     views_store.init()
     import email_store
     email_store.init()
+    import chat_history
+    chat_history.init()
     poller_task = None
     import email_poller
     if email_poller.enabled():
@@ -105,8 +107,10 @@ async def health():
 @app.get("/api/me")
 async def me(request: Request):
     user = _verify_request(request)
+    from agent_config import get_effective_model
     return {"user": {k: user[k] for k in ("username", "name", "role")},
-            "model": AGENT_MODEL,
+            "model": get_effective_model(),
+            "model_default": AGENT_MODEL,
             # Deep links into the legacy app (Playbooks/Platform views) target
             # the same hostname the browser used, on the main app's port.
             "main_port": int(os.getenv("HOST_PORT", "5001"))}
@@ -187,12 +191,19 @@ async def chat(request: Request):
         raise HTTPException(400, "Empty message")
 
     async def event_stream():
+        final_sid = session_id
         try:
             async for event in run_turn(message, session_id, user):
+                if event.get("type") == "result" and event.get("session_id"):
+                    final_sid = event["session_id"]
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:  # belt-and-suspenders: never die mid-stream silently
             logger.error(f"/api/chat stream error: {e}")
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+        # Chat-history ledger (CC-parity): title = the conversation's FIRST
+        # message (only the INSERT sets it; later turns just bump counters).
+        import chat_history
+        chat_history.touch(int(user["user_id"] or 0), final_sid or "", message)
         yield "data: {\"type\": \"done\"}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream",
@@ -680,7 +691,70 @@ async def email_address_set(request: Request):
             bool(body.get("enabled", True)))
     except ValueError as e:
         raise HTTPException(409, str(e))
+    # Per-address parity options (James 2026-08-09): only fields present in
+    # the request are updated; absent fields keep their stored values.
+    opts = {}
+    if "auto_send" in body:
+        opts["auto_send"] = 1 if body["auto_send"] else 0
+    if "outbound_enabled" in body:
+        opts["outbound_enabled"] = 1 if body["outbound_enabled"] else 0
+    if "notify_on_receive" in body:
+        opts["notify_on_receive"] = 1 if body["notify_on_receive"] else 0
+    if "notification_email" in body:
+        opts["notification_email"] = str(body["notification_email"] or "").strip()[:200]
+    if "cooldown_minutes" in body:
+        cm = body["cooldown_minutes"]
+        opts["cooldown_minutes"] = max(0, min(int(cm), 1440)) if cm not in (None, "") else None
+    if "reply_instructions" in body:
+        opts["reply_instructions"] = str(body["reply_instructions"] or "")[:2000]
+    if opts:
+        row = email_store.set_options(int(user["user_id"] or 0), **opts)
     return {"address": row}
+
+
+# ---------------------------------------------------------------------------
+# Runtime settings (James 2026-08-09): admin-set model, no restart needed
+# ---------------------------------------------------------------------------
+
+@app.post("/api/settings/model")
+async def settings_model(request: Request):
+    """Set (or clear with empty string) the runtime model override. Admin
+    only; applies from the very next turn — no restart. AGENT_MODEL in .env
+    remains the install default underneath."""
+    user = _verify_request(request)
+    if int(user.get("role") or 0) < 3:
+        raise HTTPException(403, "Changing the model requires an admin.")
+    from agent_config import set_model_override
+    body = await request.json()
+    try:
+        effective = set_model_override(body.get("model"))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    logger.info(f"model override changed by user {user['user_id']} "
+                f"({user.get('username')}) -> effective {effective}")
+    return {"model": effective, "model_default": AGENT_MODEL,
+            "override_active": effective != AGENT_MODEL}
+
+
+# ---------------------------------------------------------------------------
+# Chat history (CC-parity, James 2026-08-09)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/chat/history")
+async def chat_history_list(request: Request):
+    user = _verify_request(request)
+    import chat_history
+    return {"sessions": chat_history.list_sessions(int(user["user_id"] or 0))}
+
+
+@app.get("/api/chat/history/{hist_session_id}")
+async def chat_history_replay(hist_session_id: str, request: Request):
+    user = _verify_request(request)
+    import chat_history
+    if not chat_history.owns_session(int(user["user_id"] or 0), hist_session_id):
+        raise HTTPException(404, "conversation not found")
+    return {"session_id": hist_session_id,
+            "turns": chat_history.replay(hist_session_id)}
 
 
 @app.get("/api/email/log")

@@ -55,7 +55,7 @@ MUTATING_TOOLS = frozenset({
     "run_code_flow", "dry_run_code_flow",
     "raise_work_item", "save_skill", "schedule_agent_task",
     "save_view", "delete_view", "store_platform_secret",
-    "schedule_view_refresh", "draft_email_reply",
+    "schedule_view_refresh", "draft_email_reply", "setup_agent_email",
     "execute_integration_operation", "assign_integration_groups",
 })
 
@@ -128,6 +128,11 @@ frozen facts over a live probe. Loaded skills appear to you automatically when
 relevant.
 
 RECURRING WORK
+One-shot delayed actions ("check my email in 2 minutes", "follow up in an
+hour"): schedule_agent_task with run_in_minutes — a fresh headless session
+fires ONCE at that time as this user and reports into their My Work. You
+cannot sleep or wait inside a conversation turn; the scheduler is how you
+defer work.
 Three ladders, pick deliberately: something to LOOK AT repeatedly (numbers,
 top-N lists, a pulse) -> save a VIEW (save_view: the exact recipe you verified
 is pinned; the Views screen refreshes it deterministically, zero AI per
@@ -168,13 +173,21 @@ screen in the rail); mail sent there reaches you as a headless session run as
 them, and your results land in their My Work. When a user asks whether you can
 get/receive/handle email, the answer is YES: call get_agent_email_status
 FIRST and answer from their actual state — show their address and recent
-activity, or walk them through creating one (Email screen, pick a prefix).
-Never lead with what you can't do. What you don't have is inbox browsing —
-mail is pushed to you per-message, not fetched; the Email screen shows the
-activity log. To send, use draft_email_reply: it files an EDITABLE approval
-into the user's My Work, and only their approval sends it, from their agent
-address. You can never send directly, and never say an email "was sent" — say
-a draft is awaiting their approval in My Work.
+activity, or if none exists OFFER TO SET IT UP yourself: propose the default
+address, note they can pick a different prefix, and after they explicitly
+agree call setup_agent_email with confirmed=true (never create it without
+their permission).
+get_agent_email_status IS your inbox view: "did you get any email?" / "any
+mail?" = call it and answer from the activity it reports — directly, with NO
+capability disclaimers or preambles about what you can't do. (Full message
+bodies arrive only in the per-message sessions; if asked for an old email's
+contents, say the activity log has sender/subject/outcome and offer to act
+on future mail instead.) To send, use draft_email_reply — it honors the address's
+settings: auto-send OFF (default) files an EDITABLE approval in My Work and
+nothing sends until they approve; auto-send ON sends immediately and the tool
+says so. Report exactly what the tool result says — "sent" only when it says
+sent, otherwise "awaiting approval". Outbound can be disabled entirely; if
+the tool refuses, say so and point to the Email screen.
 
 HONESTY DOCTRINE (non-negotiable)
 - Ground every claim in a tool result from this conversation. Never invent
@@ -196,9 +209,10 @@ def build_options(session_id: Optional[str] = None,
                   cwd: Optional[str] = None) -> ClaudeAgentOptions:
     ensure_anthropic_key()
     allowed = (_READ_ALLOWED if tool_scope == "read" else ["mcp__aihub__*"])
+    from agent_config import get_effective_model
     return ClaudeAgentOptions(
         system_prompt=SYSTEM_PROMPT,
-        model=AGENT_MODEL,
+        model=get_effective_model(),   # admin runtime override > AGENT_MODEL
         tools=["Skill"],            # ONLY the Skill loader — no Bash/Read/Write
         mcp_servers={"aihub": aihub_server},
         allowed_tools=allowed + ["Skill"],

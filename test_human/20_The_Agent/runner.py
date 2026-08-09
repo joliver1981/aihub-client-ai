@@ -1107,6 +1107,171 @@ def main():
           "get_agent_email_status" in used and affirms and not leads_no,
           f"tools={used} leads_no={leads_no} text={text[:180]!r}")
 
+    # A6-6 email options (James 2026-08-09): persistence roundtrip, outbound
+    # kill switch, auto-send with audit FYI, auto-send failure fallback.
+    try:
+        email_store.delete_address(77)
+        requests.post(f"{BASE}/api/email/address",
+                      json={"prefix": "pack20a66", "enabled": True,
+                            "auto_send": True, "outbound_enabled": True,
+                            "notify_on_receive": True,
+                            "notification_email": "probe@example.com",
+                            "cooldown_minutes": 7,
+                            "reply_instructions": "Reply tersely."},
+                      headers={"Authorization": f"Bearer {tok77}"}, timeout=30)
+        row = (requests.get(f"{BASE}/api/email/address",
+                            headers={"Authorization": f"Bearer {tok77}"},
+                            timeout=30).json().get("address") or {})
+        opts_ok = (row.get("auto_send") == 1 and row.get("outbound_enabled") == 1
+                   and row.get("notify_on_receive") == 1
+                   and row.get("notification_email") == "probe@example.com"
+                   and row.get("cooldown_minutes") == 7
+                   and row.get("reply_instructions") == "Reply tersely.")
+
+        import work_tools as _wt
+        import email_client as _ec
+        from platform_tools import CURRENT_USER as _CU3
+        _CU3.set({"user_id": 77, "role": 2, "username": "pack20-u77"})
+        sent_calls = []
+
+        async def fake_send(to, subject, body, from_address, from_name):
+            sent_calls.append({"to": to, "subject": subject})
+            return {"success": True, "message_id": "fake-123"}
+
+        real_send = _ec.send_reply
+        _ec.send_reply = fake_send
+        try:
+            res_auto = _aio.run(_wt.draft_email_reply.handler(
+                {"to": ["x@example.com"], "subject": "auto probe",
+                 "body": "hello"}))
+            auto_ok = ("SENT" in str(res_auto) and len(sent_calls) == 1)
+            audit = [i for i in workitem_store.list_items(77, include_closed=True)
+                     if (i.get("payload") or {}).get("kind") == "agent_email_autosent"]
+
+            async def fail_send(*a, **k):
+                return {"success": False, "error": "cloud down (fake)"}
+            _ec.send_reply = fail_send
+            res_fb = _aio.run(_wt.draft_email_reply.handler(
+                {"to": ["x@example.com"], "subject": "fb probe", "body": "b"}))
+            fb_ok = ("FAILED" in str(res_fb) and "approval" in str(res_fb).lower())
+
+            email_store.set_options(77, outbound_enabled=0)
+            res_off = _aio.run(_wt.draft_email_reply.handler(
+                {"to": ["x@example.com"], "subject": "off probe", "body": "b"}))
+            off_ok = bool(res_off.get("is_error")) and "DISABLED" in str(res_off)
+        finally:
+            _ec.send_reply = real_send
+        check("A6-6", "email options: roundtrip persists; auto-send sends + "
+                      "audit FYI; failed auto-send falls back to approval; "
+                      "outbound-off refuses",
+              opts_ok and auto_ok and len(audit) >= 1 and fb_ok and off_ok,
+              f"opts={opts_ok} auto={auto_ok} audit={len(audit)} fb={fb_ok} "
+              f"off={off_ok}")
+    except Exception as e:
+        check("A6-6", "email options", False, e)
+    finally:
+        email_store.delete_address(77)
+
+    # H-1 chat history (James 2026-08-09): ledger + SDK-transcript replay +
+    # ownership isolation. The pack's own chat turns feed the ledger.
+    try:
+        import chat_history
+        chat_history.init()
+        r = requests.get(f"{BASE}/api/chat/history",
+                         headers={"Authorization": f"Bearer {token}"}, timeout=30)
+        sessions = r.json().get("sessions") or []
+        first = sessions[0] if sessions else {}
+        rp = requests.get(f"{BASE}/api/chat/history/{first.get('session_id', 'x')}",
+                          headers={"Authorization": f"Bearer {token}"}, timeout=30)
+        turns = rp.json().get("turns") or [] if rp.status_code == 200 else []
+        roles = {t.get("role") for t in turns}
+        r_other = requests.get(
+            f"{BASE}/api/chat/history/{first.get('session_id', 'x')}",
+            headers={"Authorization": f"Bearer {_tok(2)}"}, timeout=30)
+        check("H-1", "chat history: ledger lists sessions; replay parses the "
+                     "SDK transcript (user+agent turns); other users 404",
+              len(sessions) > 0 and rp.status_code == 200 and len(turns) >= 2
+              and {"user", "agent"} <= roles and r_other.status_code == 404,
+              f"sessions={len(sessions)} turns={len(turns)} roles={sorted(roles)} "
+              f"other={r_other.status_code}")
+    except Exception as e:
+        check("H-1", "chat history", False, e)
+
+    # A6-7 self-provisioning (James 2026-08-09): two-step consent — proposal
+    # creates NOTHING; confirmed + custom prefix creates; duplicate honest.
+    try:
+        email_store.delete_address(77)
+        import work_tools as _wt2
+        from platform_tools import CURRENT_USER as _CU4
+        _CU4.set({"user_id": 77, "role": 2, "username": "pack20-u77"})
+        step1 = _aio.run(_wt2.setup_agent_email.handler({}))
+        nothing_yet = email_store.get_address(77) is None
+        proposes = "PROPOSAL" in str(step1) and "pack20-u77-agent." in str(step1)
+        step2 = _aio.run(_wt2.setup_agent_email.handler(
+            {"prefix": "pack20 chosen!", "confirmed": True}))
+        row = email_store.get_address(77)
+        created = (row is not None and row["is_active"] == 1
+                   and row["email_address"].startswith("pack20-chosen-agent."))
+        check("A6-7", "setup_agent_email: proposal creates nothing; consent + "
+                      "custom prefix (normalized) creates ACTIVE",
+              proposes and nothing_yet and created,
+              f"proposal_ok={proposes} nothing_yet={nothing_yet} "
+              f"created={row['email_address'] if row else None}")
+    except Exception as e:
+        check("A6-7", "setup_agent_email two-step", False, e)
+    finally:
+        email_store.delete_address(77)
+
+    # M-1 runtime model setting (James 2026-08-09): admin sets it in the UI,
+    # applies without restart; non-admin 403; clear restores the default.
+    try:
+        import agent_config as _ac
+        default_model = _ac.AGENT_MODEL
+        r_low = requests.post(f"{BASE}/api/settings/model",
+                              json={"model": "claude-sonnet-5"},
+                              headers={"Authorization": f"Bearer {_tok(2)}"},
+                              timeout=30)
+        r_set = requests.post(f"{BASE}/api/settings/model",
+                              json={"model": "claude-sonnet-5"},
+                              headers={"Authorization": f"Bearer {token}"},
+                              timeout=30)
+        me = requests.get(f"{BASE}/api/me",
+                          headers={"Authorization": f"Bearer {token}"},
+                          timeout=30).json()
+        set_ok = (r_set.status_code == 200 and me.get("model") == "claude-sonnet-5"
+                  and me.get("model_default") == default_model)
+        r_bad = requests.post(f"{BASE}/api/settings/model",
+                              json={"model": "bad model!!"},
+                              headers={"Authorization": f"Bearer {token}"},
+                              timeout=30)
+        r_clr = requests.post(f"{BASE}/api/settings/model", json={"model": ""},
+                              headers={"Authorization": f"Bearer {token}"},
+                              timeout=30)
+        me2 = requests.get(f"{BASE}/api/me",
+                           headers={"Authorization": f"Bearer {token}"},
+                           timeout=30).json()
+        check("M-1", "runtime model override: non-admin 403; admin set applies "
+                     "(no restart); malformed 400; clear restores default",
+              r_low.status_code == 403 and set_ok and r_bad.status_code == 400
+              and r_clr.status_code == 200 and me2.get("model") == default_model,
+              f"low={r_low.status_code} set={me.get('model')} "
+              f"bad={r_bad.status_code} cleared={me2.get('model')}")
+    except Exception as e:
+        check("M-1", "runtime model override", False, e)
+
+    # P-1 designer deep-link + Playbooks filters tripwire (live-verified in
+    # browser 2026-08-09; this guards regressions).
+    wf_js = open(os.path.join(APP_ROOT, "static", "js", "workflow.js"),
+                 encoding="utf-8", errors="replace").read()
+    ui_html = open(os.path.join(APP_ROOT, "agent_service", "static",
+                                "index.html"), encoding="utf-8",
+                   errors="replace").read()
+    check("P-1", "designer deep-link handler + Playbooks emits it + filter "
+                 "chips/search present",
+          "load_workflow_id" in wf_js and "load_workflow_id" in ui_html
+          and "pb-filters" in ui_html and "pb-search" in ui_html,
+          "static tripwire (live-verified in browser)")
+
     # ------------------------------------------------------------------
     # I — Integrations tools + optional group scoping
     # ------------------------------------------------------------------

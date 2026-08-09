@@ -233,6 +233,13 @@
   .tblpager button{border:1px solid var(--line);border-radius:6px;padding:2px 9px;color:var(--text2)}
   .tblpager button:disabled{opacity:.35;cursor:default}
 
+  #chat-footer{position:relative}
+  .histitem{display:block;width:100%;text-align:left;padding:8px 11px;border-radius:9px;
+            border:1px solid transparent;color:var(--text2);font-size:12.5px}
+  .histitem:hover{background:var(--hover);border-color:var(--line)}
+  .histitem .ht{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .histitem .hm{font-family:var(--mono);font-size:10.5px;color:var(--text3)}
+
   /* platform links (rail) */
   .plat{padding:10px 12px 4px;border-top:1px solid var(--line-soft);margin-top:8px}
   .plat .plabel{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
@@ -297,7 +304,9 @@
       <textarea id="input" rows="1" placeholder="Ask, analyze, build, schedule…"></textarea>
       <button class="send" id="send">Send</button>
       <button class="newchat" id="newchat" title="Start fresh">New</button>
+      <button class="newchat" id="histbtn" title="Past conversations">⌛</button>
     </div>
+    <div id="hist-pop" style="display:none;position:absolute;bottom:100%;right:0;margin-bottom:8px;width:420px;max-height:340px;overflow-y:auto;background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:10px;box-shadow:0 8px 30px rgba(0,0,0,.35);z-index:50"></div>
     <div class="foot-note"><span>draft → dry-run → promote → schedule</span>
       <span>humans stay in the loop · My Work</span></div>
   </div>
@@ -357,7 +366,10 @@
   </div>
   <div style="flex:1;overflow-y:auto;padding:14px 22px 22px;display:flex;flex-direction:column;gap:14px;max-width:760px">
     <div style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:18px 20px">
-      <div class="dlabel" style="margin-bottom:10px">Your address</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <div class="dlabel" style="margin:0">Your address</div>
+        <span id="email-state" class="tchip t-review">checking…</span>
+      </div>
       <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap">
         <input id="email-prefix" type="text" maxlength="40" placeholder="prefix"
                style="width:160px;padding:8px 12px;border-radius:9px 0 0 9px;border-right:0;font-family:var(--mono);font-size:13px">
@@ -365,17 +377,46 @@
                style="width:280px;padding:8px 12px;border-radius:0 9px 9px 0;background:var(--raised);color:var(--text3);font-family:var(--mono);font-size:13px;cursor:default">
       </div>
       <div class="qfrom" id="email-full" style="margin-top:8px"></div>
-      <div style="display:flex;align-items:center;gap:12px;margin-top:14px">
+      <div style="display:flex;align-items:center;gap:12px;margin-top:14px;flex-wrap:wrap">
         <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text2)">
           <input id="email-enabled" type="checkbox" checked> Inbound enabled
         </label>
-        <button class="btn primary" id="email-save">Save address</button>
+        <button class="btn primary" id="email-save">Create address</button>
         <span id="email-note" class="qfrom"></span>
       </div>
       <div class="qfrom" style="margin-top:12px">
         Mail sent to this address runs a headless agent session as you and lands
-        its result in My Work. Replies the agent drafts always wait for your
-        approval — nothing sends without you.</div>
+        its result in My Work.</div>
+    </div>
+    <div style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:18px 20px">
+      <div class="dlabel" style="margin-bottom:12px">Sending &amp; behavior</div>
+      <div style="display:flex;flex-direction:column;gap:11px;font-size:12.5px;color:var(--text2)">
+        <label style="display:flex;align-items:center;gap:8px">
+          <input id="email-outbound" type="checkbox" checked>
+          Outbound enabled <span class="qfrom">(off = the agent can never draft or send from this address)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px">
+          <input id="email-autosend" type="checkbox">
+          Auto-send replies <span class="qfrom">(off = every reply waits for your approval in My Work; on = the agent sends immediately, with an FYI audit trail)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <input id="email-notify" type="checkbox">
+          Notify me on inbound mail →
+          <input id="email-notify-addr" type="email" placeholder="notification email"
+                 style="width:230px;padding:5px 10px;border-radius:8px;font-size:12px">
+        </label>
+        <label style="display:flex;align-items:center;gap:8px">
+          Cooldown between processed emails:
+          <input id="email-cooldown" type="number" min="0" max="1440" placeholder="default"
+                 style="width:90px;padding:5px 10px;border-radius:8px;font-size:12px"> minutes
+          <span class="qfrom">(blank = platform default, 0 = none)</span>
+        </label>
+        <div>
+          <div style="margin-bottom:5px">Standing instructions / personality for handling your email:</div>
+          <textarea id="email-instructions" rows="3" placeholder="e.g. Reply formally; always CC nothing; never commit to meetings — say you'll check with me…"
+                    style="width:100%;padding:8px 12px;border-radius:9px;font-size:12.5px"></textarea>
+        </div>
+      </div>
     </div>
     <div style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:18px 20px">
       <div class="dlabel" style="margin-bottom:10px">Recent inbound activity</div>
@@ -392,6 +433,11 @@
     <button id="pb-refresh" style="margin-left:auto;border:1px solid var(--line);border-radius:8px;padding:5px 12px;color:var(--text2);font-size:12px">↻ Refresh</button>
   </div>
   <div class="chips" id="pb-links" style="padding:10px 22px 0"></div>
+  <div style="display:flex;gap:9px;align-items:center;padding:10px 22px 0;flex-wrap:wrap">
+    <div class="chips" id="pb-filters" style="padding:0"></div>
+    <input id="pb-search" type="text" placeholder="Filter by name…"
+           style="margin-left:auto;width:220px;padding:6px 12px;border-radius:9px;font-size:12px">
+  </div>
   <div id="pb-list" style="flex:1;overflow-y:auto;padding:14px 22px 22px;display:flex;flex-direction:column;gap:8px"></div>
 </section>
 
@@ -560,14 +606,39 @@
       document.getElementById("email-suffix").value =
         emailSuffix || "(cloud email service unreachable)";
       const pfx = document.getElementById("email-prefix");
-      pfx.value = (d.address && d.address.prefix) || d.default_prefix || "";
-      document.getElementById("email-enabled").checked =
-        d.address ? !!d.address.is_active : true;
+      const a = d.address;
+      pfx.value = (a && a.prefix) || d.default_prefix || "";
+      document.getElementById("email-enabled").checked = a ? !!a.is_active : true;
+      // Saved vs unsaved must be UNMISTAKABLE (James: the live preview read
+      // like an existing address). The chip + button text carry the truth.
+      const state = document.getElementById("email-state");
+      const saveBtn = document.getElementById("email-save");
+      if (a) {
+        state.textContent = a.is_active ? "ACTIVE" : "SAVED — inbound disabled";
+        state.className = "tchip " + (a.is_active ? "t-acknowledge" : "t-review");
+        saveBtn.textContent = "Save changes";
+      } else {
+        state.textContent = "NOT CREATED YET";
+        state.className = "tchip t-approve_deny";
+        saveBtn.textContent = "Create address";
+      }
+      document.getElementById("email-outbound").checked =
+        a ? !!a.outbound_enabled : true;
+      document.getElementById("email-autosend").checked = a ? !!a.auto_send : false;
+      document.getElementById("email-notify").checked =
+        a ? !!a.notify_on_receive : false;
+      document.getElementById("email-notify-addr").value =
+        (a && a.notification_email) || "";
+      document.getElementById("email-cooldown").value =
+        (a && a.cooldown_minutes !== null && a.cooldown_minutes !== undefined)
+          ? a.cooldown_minutes : "";
+      document.getElementById("email-instructions").value =
+        (a && a.reply_instructions) || "";
       document.getElementById("email-poller").textContent = d.poller_enabled
         ? `poller on · every ${d.poll_seconds}s`
         : "poller OFF (AGENT_EMAIL_ENABLED)";
-      updateEmailPreview();
-      pfx.oninput = updateEmailPreview;
+      updateEmailPreview(!!a);
+      pfx.oninput = () => updateEmailPreview(!!a);
       const lr = await fetch("/api/email/log", { headers: H() });
       const ld = await lr.json();
       const logEl = document.getElementById("email-log");
@@ -603,19 +674,29 @@
       .replace(/[\s_]+/g, "-").replace(/[^a-z0-9-]/g, "")
       .replace(/-{2,}/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
   }
-  function updateEmailPreview() {
+  function updateEmailPreview(saved) {
     const p = sanitizePrefix(document.getElementById("email-prefix").value);
     document.getElementById("email-full").textContent =
-      p && emailSuffix ? `Full address: ${p}${emailSuffix}` : "";
+      p && emailSuffix
+        ? `${saved ? "Your address" : "Will become"}: ${p}${emailSuffix}`
+        : "";
   }
   document.getElementById("email-save").onclick = async () => {
     const note = document.getElementById("email-note");
     note.textContent = "Saving…";
     try {
+      const cd = document.getElementById("email-cooldown").value.trim();
       const r = await fetch("/api/email/address", { method: "POST",
         headers: H(), body: JSON.stringify({
           prefix: document.getElementById("email-prefix").value.trim(),
-          enabled: document.getElementById("email-enabled").checked }) });
+          enabled: document.getElementById("email-enabled").checked,
+          outbound_enabled: document.getElementById("email-outbound").checked,
+          auto_send: document.getElementById("email-autosend").checked,
+          notify_on_receive: document.getElementById("email-notify").checked,
+          notification_email: document.getElementById("email-notify-addr").value.trim(),
+          cooldown_minutes: cd === "" ? null : Number(cd),
+          reply_instructions: document.getElementById("email-instructions").value,
+        }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { note.textContent = d.detail || "save failed"; return; }
       note.textContent = `Saved — ${d.address.email_address}`;
@@ -895,6 +976,37 @@
   // ---------- playbooks ----------
   const PB_STYLE = { workflow: "t-review", code_flow: "t-provide_input",
                      automation: "t-approve_deny" };
+  let pbData = [], pbFilter = "all", pbQuery = "";
+  const PB_FILTERS = [["all", "All"], ["workflow", "Workflows"],
+                      ["code_flow", "Code Flows"], ["automation", "Automations"]];
+  function renderPbFilters() {
+    const box = document.getElementById("pb-filters");
+    box.innerHTML = "";
+    PB_FILTERS.forEach(([key, label]) => {
+      const n = key === "all" ? pbData.length
+              : pbData.filter(p => p.kind === key).length;
+      const b = el("button", "chip" + (pbFilter === key ? " on" : ""));
+      b.appendChild(document.createTextNode(label + " "));
+      b.appendChild(el("span", "n", String(n)));
+      b.onclick = () => { pbFilter = key; renderPbFilters(); renderPlaybooks(); };
+      box.appendChild(b);
+    });
+  }
+  function renderPlaybooks() {
+    const list = document.getElementById("pb-list");
+    list.innerHTML = "";
+    const q = pbQuery.trim().toLowerCase();
+    const rows = pbData.filter(p =>
+      (pbFilter === "all" || p.kind === pbFilter) &&
+      (!q || `${p.name || ""} ${p.description || ""}`.toLowerCase().includes(q)));
+    if (!rows.length) {
+      list.appendChild(el("div", "qfrom", pbData.length
+        ? "Nothing matches this filter."
+        : "No playbooks yet — ask the Assistant to build one."));
+      return;
+    }
+    rows.forEach(p => appendPbItem(list, p));
+  }
   async function loadPlaybooks() {
     const list = document.getElementById("pb-list");
     const links = document.getElementById("pb-links");
@@ -912,12 +1024,16 @@
       const d = await r.json();
       list.innerHTML = "";
       (d.errors || []).forEach(e => list.appendChild(el("div", "err-note", e)));
-      if (!(d.playbooks || []).length) {
-        list.appendChild(el("div", "qfrom",
-          "No playbooks yet — ask the Assistant to build one."));
-        return;
-      }
-      d.playbooks.forEach(p => {
+      pbData = d.playbooks || [];
+      renderPbFilters();
+      renderPlaybooks();
+    } catch (e) { list.textContent = "Could not load: " + e.message; }
+  }
+  document.getElementById("pb-search").addEventListener("input", (e) => {
+    pbQuery = e.target.value; renderPlaybooks();
+  });
+  function appendPbItem(list, p) {
+    {
         const b = el("button", "qitem");
         const row = el("div", "qrow");
         row.appendChild(el("span", "tchip " + (PB_STYLE[p.kind] || ""),
@@ -930,13 +1046,16 @@
         b.appendChild(el("div", "qtitle", p.name || "(unnamed)"));
         if (p.description) b.appendChild(el("div", "qfrom", p.description));
         b.onclick = () => {
-          const url = p.kind === "automation" ? platUrl("/automations/")
-                                              : platUrl("/workflow_tool");
+          // Workflows/code flows deep-link straight into the designer with
+          // THAT workflow loaded (?load_workflow_id — workflow.js handles it);
+          // automations open Mission Control (no per-item deep link exists).
+          const url = p.kind === "automation"
+            ? platUrl("/automations/")
+            : platUrl(`/workflow_tool?load_workflow_id=${encodeURIComponent(p.id)}`);
           window.open(url, "_blank", "noopener");
         };
         list.appendChild(b);
-      });
-    } catch (e) { list.textContent = "Could not load: " + e.message; }
+    }
   }
   document.getElementById("pb-refresh").onclick = loadPlaybooks;
 
@@ -1155,6 +1274,67 @@
     sessionId = null; sessionStorage.removeItem("agent_session");
     thread.innerHTML = ""; boot(); };
 
+  // ---------- chat history (CC-parity) ----------
+  const histPop = document.getElementById("hist-pop");
+  document.getElementById("histbtn").onclick = async () => {
+    if (histPop.style.display !== "none") { histPop.style.display = "none"; return; }
+    histPop.innerHTML = "Loading…"; histPop.style.display = "";
+    try {
+      const r = await fetch("/api/chat/history", { headers: H() });
+      const d = await r.json();
+      histPop.innerHTML = "";
+      if (!(d.sessions || []).length) {
+        histPop.appendChild(el("div", "qfrom", "No past conversations yet."));
+        return;
+      }
+      d.sessions.forEach(s => {
+        const b = el("button", "histitem");
+        b.appendChild(el("div", "ht", s.title || "(untitled conversation)"));
+        b.appendChild(el("div", "hm",
+          `${(s.updated_at || "").slice(0, 16).replace("T", " ")} · ${s.turns} turn${s.turns === 1 ? "" : "s"}`
+          + (s.session_id === sessionId ? " · current" : "")));
+        b.onclick = () => { histPop.style.display = "none"; openHistory(s); };
+        histPop.appendChild(b);
+      });
+    } catch (e) { histPop.textContent = "Could not load: " + e.message; }
+  };
+  document.addEventListener("click", (e) => {
+    if (histPop.style.display !== "none" && !histPop.contains(e.target)
+        && e.target.id !== "histbtn") histPop.style.display = "none";
+  });
+  async function openHistory(s) {
+    try {
+      const r = await fetch(`/api/chat/history/${encodeURIComponent(s.session_id)}`,
+                            { headers: H() });
+      if (!r.ok) return;
+      const d = await r.json();
+      document.getElementById("hello")?.remove();
+      thread.innerHTML = "";
+      (d.turns || []).forEach(t => {
+        if (t.role === "user") { addUser(t.text); return; }
+        const m = el("div", "msg agent");
+        m.appendChild(el("span", "au", "The Agent"));
+        (t.tools || []).forEach(name => {
+          const chip = el("div", "toolchip");
+          chip.appendChild(el("span", "dot stale"));
+          chip.appendChild(document.createTextNode(name));
+          m.appendChild(chip);
+        });
+        if (t.text) { const bub = el("div", "bubble"); renderMd(bub, t.text);
+                      m.appendChild(bub); }
+        thread.appendChild(m);
+      });
+      // Resume: the next message continues THIS conversation.
+      sessionId = s.session_id;
+      sessionStorage.setItem("agent_session", sessionId);
+      const note = el("div", "guard-note",
+        "Resumed past conversation — your next message continues it. "
+        + "Use New to start fresh.");
+      note.style.borderColor = "var(--accent-line)";
+      thread.appendChild(note); scroll();
+    } catch {}
+  }
+
   // =====================================================
   // MY WORK
   // =====================================================
@@ -1265,7 +1445,9 @@
     detailEl.appendChild(el("div", "crumb",
       `${item.source} · ${item.verb.replace("_", " ")} · raised ${item.requested_at || ""}`));
     detailEl.appendChild(el("div", "dtitle", item.title));
-    if (item.summary) {
+    // (email drafts render structured To/From/Subject rows instead of the
+    // plain summary text — showing both would duplicate)
+    if (item.summary && (item.payload || {}).kind !== "agent_email_reply") {
       const s = el("div", "dsummary");
       if (item.source === "agent") renderMd(s, item.summary);  // headless FYIs etc.
       else s.textContent = item.summary;
@@ -1332,6 +1514,46 @@
           comments: cm.value, title: item.title }, detailEl, "Rejected.");
       actions.append(ok, no);
       actions.appendChild(el("span", "hint", "Your decision resumes the paused run"));
+    } else if (p.kind === "agent_email_reply") {
+      // Drafted outbound email — render as an EMAIL review, not a payload
+      // dump (James 2026-08-09): To/From/Subject rows + editable body,
+      // exactly like the legacy email approvals.
+      const sec = el("div", "dsection");
+      sec.appendChild(el("div", "dlabel",
+        "Draft — body is editable; what you approve is what sends"));
+      const toRow = el("div", "mailrow");
+      toRow.appendChild(el("span", "k", "TO"));
+      toRow.appendChild(el("span", "kv", (p.to || []).join(", ")));
+      const fromRow = el("div", "mailrow");
+      fromRow.appendChild(el("span", "k", "FROM"));
+      fromRow.appendChild(el("span", "kv", p.from_address || ""));
+      const subRow = el("div", "mailrow");
+      subRow.appendChild(el("span", "k", "SUBJECT"));
+      subRow.appendChild(el("span", "kv", p.subject || "(no subject)"));
+      sec.append(toRow, fromRow, subRow);
+      if (p.context) {
+        const cx = el("div", "mailrow");
+        cx.appendChild(el("span", "k", "RE"));
+        cx.appendChild(el("span", "kv", p.context));
+        sec.appendChild(cx);
+      }
+      const bodyTa = el("textarea"); bodyTa.rows = 10;
+      bodyTa.value = p.body || "";
+      sec.appendChild(bodyTa);
+      detailEl.appendChild(sec);
+      const cm = commentBox();
+      const cs = el("div", "dsection"); cs.appendChild(cm); detailEl.appendChild(cs);
+      const send = el("button", "btn primary", "Approve & send");
+      send.onclick = () => post("/api/work/respond",
+        { id: item.id, response: { decision: "answered", text: bodyTa.value,
+                                   comments: cm.value } },
+        detailEl, "Sent.");
+      const deny = el("button", "btn danger", "Deny");
+      deny.onclick = () => post("/api/work/respond",
+        { id: item.id, response: { decision: "denied", comments: cm.value } },
+        detailEl, "Denied — nothing was sent.");
+      actions.append(send, deny);
+      actions.appendChild(el("span", "hint", "Nothing sends without you"));
     } else {
       // agent-raised items
       if (!item.addressed_user) {
@@ -1350,14 +1572,25 @@
         bar.appendChild(cb);
         detailEl.appendChild(bar);
       }
-      if (Object.keys(p).length) {
+      // Friendly details (James 2026-08-09): readable key-value lines, not a
+      // raw JSON "Payload" dump. Internal keys (kind, _*) are hidden.
+      const shown = Object.entries(p).filter(([k]) =>
+        k !== "kind" && !k.startsWith("_"));
+      if (shown.length) {
         const sec = el("div", "dsection");
-        sec.appendChild(el("div", "dlabel", "Payload"));
-        const pre = el("div", "kv");
-        pre.textContent = JSON.stringify(p, null, 1).slice(0, 1500);
-        pre.style.fontFamily = "var(--mono)"; pre.style.fontSize = "11px";
-        pre.style.whiteSpace = "pre-wrap";
-        sec.appendChild(pre); detailEl.appendChild(sec);
+        sec.appendChild(el("div", "dlabel", "Details"));
+        shown.slice(0, 12).forEach(([k, v]) => {
+          const row = el("div", "mailrow");
+          row.appendChild(el("span", "k",
+            k.replace(/_/g, " ").toUpperCase().slice(0, 18)));
+          const val = Array.isArray(v) ? v.join(", ")
+            : (typeof v === "object" && v !== null)
+              ? JSON.stringify(v).slice(0, 200)
+              : String(v);
+          row.appendChild(el("span", "kv", val.slice(0, 300)));
+          sec.appendChild(row);
+        });
+        detailEl.appendChild(sec);
       }
       const cs = el("div", "dsection");
       let answer = null;
@@ -1433,6 +1666,57 @@
     };
   }
 
+  // ---------- model note (admins can change the brain model, no restart) ----
+  function renderModelNote(d) {
+    const box = document.getElementById("model");
+    box.innerHTML = "";
+    const isDefault = d.model === d.model_default;
+    const label = el("span", "", "brain: " + d.model + (isDefault ? "" : " *"));
+    box.appendChild(label);
+    if ((d.user || {}).role >= 3) {
+      label.style.cursor = "pointer";
+      label.title = "Admin: click to change the model (applies to the next "
+                  + "message; * = override of the install default "
+                  + d.model_default + ")";
+      label.onclick = () => {
+        box.innerHTML = "";
+        const inp = document.createElement("input");
+        inp.value = d.model; inp.setAttribute("list", "model-suggestions");
+        inp.style.cssText = "width:150px;padding:3px 8px;border-radius:7px;" +
+          "font-family:var(--mono);font-size:10.5px";
+        const dl = document.createElement("datalist");
+        dl.id = "model-suggestions";
+        ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001",
+         d.model_default].forEach(m => {
+          const o = document.createElement("option"); o.value = m;
+          dl.appendChild(o);
+        });
+        const save = el("button", "btn", "Set");
+        save.style.cssText = "padding:2px 9px;font-size:10.5px;margin-left:5px";
+        const reset = el("button", "btn", "Default");
+        reset.style.cssText = save.style.cssText;
+        reset.title = "Clear the override (back to " + d.model_default + ")";
+        const apply = async (value) => {
+          const r = await fetch("/api/settings/model", { method: "POST",
+            headers: H(), body: JSON.stringify({ model: value }) });
+          const res = await r.json().catch(() => ({}));
+          if (!r.ok) { box.textContent = res.detail || "failed";
+                       setTimeout(() => renderModelNote(d), 2000); return; }
+          d.model = res.model;
+          renderModelNote(d);
+        };
+        save.onclick = () => apply(inp.value.trim());
+        reset.onclick = () => apply("");
+        inp.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") apply(inp.value.trim());
+          if (e.key === "Escape") renderModelNote(d);
+        });
+        box.append(inp, dl, save, reset);
+        inp.focus();
+      };
+    }
+  }
+
   // ---------- boot ----------
   async function boot() {
     if (!token()) { gate("No access token. Use the AI Hub menu → The Agent."); return; }
@@ -1447,7 +1731,7 @@
       buildPlatformLinks();
       document.getElementById("who").innerHTML =
         `signed in as<b>${d.user.name || d.user.username}</b>`;
-      document.getElementById("model").textContent = "brain: " + d.model;
+      renderModelNote(d);
       input.disabled = false; send.disabled = false;
       if (!document.getElementById("hello") && !thread.children.length) hello(d.user);
       input.focus(); refreshWorkCount();
