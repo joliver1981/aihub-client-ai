@@ -716,14 +716,19 @@
           const row = el("div", "", "");
           row.style.cssText = "display:flex;gap:10px;padding:4px 0;" +
             "border-bottom:1px solid var(--line-soft);font-size:12px";
-          row.appendChild(el("span", "qmeta",
-            (e.processed_at || "").slice(0, 16).replace("T", " ")));
+          const ts = el("span", "qmeta",
+            (e.processed_at || "").slice(0, 16).replace("T", " "));
+          // .qmeta's margin-left:auto is for queue rows (meta at the right
+          // edge); as the FIRST flex child here it right-shoved every line.
+          ts.style.marginLeft = "0";
+          row.appendChild(ts);
           row.appendChild(el("span", "tchip " +
             (e.outcome === "reply_drafted" ? "t-edit_and_return"
              : e.outcome === "processed" ? "t-acknowledge" : "t-review"),
             e.outcome));
           const what = el("span", "", `${e.sender || "?"} — ${e.subject || "(no subject)"}`);
-          what.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+          what.style.cssText = "flex:1;min-width:0;overflow:hidden;" +
+            "text-overflow:ellipsis;white-space:nowrap";
           row.appendChild(what);
           logEl.appendChild(row);
         });
