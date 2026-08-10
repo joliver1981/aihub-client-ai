@@ -580,7 +580,8 @@ PLAYBOOKS_DIR = os.path.join(HERE, "playbooks")
 
 
 def _web_url(doc):
-    stem = os.path.splitext(os.path.basename(doc or ""))[0]
+    from _web_stem import web_stem
+    stem = web_stem(doc)
     if stem and os.path.isfile(os.path.join(PLAYBOOKS_DIR, stem + ".html")):
         return f"/playbooks/{stem}.html"
     return None
