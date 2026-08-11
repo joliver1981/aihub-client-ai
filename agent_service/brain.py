@@ -28,6 +28,7 @@ from work_tools import WORK_TOOLS
 from views_tools import VIEWS_TOOLS
 from integration_tools import INTEGRATION_TOOLS
 from file_tools import FILE_TOOLS
+from document_tools import DOCUMENT_TOOLS
 
 from claude_agent_sdk import (
     ClaudeAgentOptions, query, create_sdk_mcp_server,
@@ -38,10 +39,15 @@ try:  # tool results ride on UserMessage blocks; import defensively across SDK v
 except ImportError:  # pragma: no cover
     UserMessage = ToolResultBlock = None
 
+# Document tools are additive and reversible: flip AGENT_DOCUMENT_TOOLS=false to
+# ship without them (reverts to the pre-tool, automation-only ingest behavior).
+_DOCUMENT_TOOLS_ON = os.getenv("AGENT_DOCUMENT_TOOLS", "true").lower() == "true"
+
 aihub_server = create_sdk_mcp_server(
     name="aihub", version="0.5.0",
     tools=AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
-          + INTEGRATION_TOOLS + FILE_TOOLS)
+          + INTEGRATION_TOOLS + FILE_TOOLS
+          + (DOCUMENT_TOOLS if _DOCUMENT_TOOLS_ON else []))
 
 # Mutation-claim guard (port of CC nodes.py _claims_completed_mutation,
 # AIHUB-0048 F1): a reply asserting a JUST-COMPLETED change is only honest when
@@ -58,6 +64,7 @@ MUTATING_TOOLS = frozenset({
     "save_view", "delete_view", "rename_view", "store_platform_secret",
     "schedule_view_refresh", "draft_email_reply", "setup_agent_email",
     "execute_integration_operation", "assign_integration_groups",
+    "import_documents",
 })
 
 # Tool inputs are streamed to the UI (chip click-to-peek) and would otherwise
@@ -88,6 +95,7 @@ _READ_TOOL_NAMES = [
     "check_automation_run", "get_automation", "get_code_flow", "list_my_work",
     "list_saved_views", "get_view", "list_secret_names",
     "get_agent_email_status", "list_integrations", "get_integration_operations",
+    "list_server_files", "search_documents", "list_documents", "get_document",
 ]
 _READ_ALLOWED = [f"mcp__aihub__{n}" for n in _READ_TOOL_NAMES]
 
@@ -158,6 +166,28 @@ or integration download, an automation output, an export), call
 offer_file_download with the server path and include the returned markdown
 link VERBATIM in your reply — the chat renders it as a working download
 button. Never tell a user to fetch a file from a server path.
+
+DOCUMENTS (import, search, answer)
+You have first-class document tools — use them; do NOT hand-build an automation
+or probe endpoints just to import or search files, and never mention API keys.
+- When a user tells you where files are, call list_server_files on that path to
+  confirm what's there. You DO have server filesystem access through this tool —
+  never say you can't see files.
+- To bring documents into AI Hub, call import_documents with the folder (or a
+  single file). It extracts, stores, and indexes each one for search, and it is
+  IDEMPOTENT — it skips files already imported from the same path, so re-running
+  never duplicates. Report its per-file outcome exactly (imported / already-
+  present / failed); don't claim a file imported if it didn't.
+- To answer questions about imported documents, call search_documents with the
+  question. It searches the WHOLE document store (semantic + field) and returns
+  passages with filename and page — you do NOT need a knowledge agent, and you
+  do NOT need to parse the files yourself. Cite the filename/page it returns. If
+  it finds nothing, say so and offer to import the documents.
+- list_documents / get_document show what's in the store — use them to verify an
+  import landed or to answer "what documents do I have?".
+A standing "watch a folder and ingest new files on a schedule" pipeline is still
+an AUTOMATION (see the document-ingestion skill) — build that when the user wants
+ongoing ingestion, but for a one-time import or any Q&A, use the tools directly.
 
 INTEGRATIONS (SharePoint, Shopify, Stripe, external APIs)
 When a request involves an external system, call list_integrations FIRST —

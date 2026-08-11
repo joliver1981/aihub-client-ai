@@ -2,70 +2,82 @@
 name: aihub-document-ingestion
 description: Use when a user wants to import/ingest documents (PDFs, scans,
   Office files) into AI Hub so the platform can search and answer questions
-  about them — a one-time bulk import or a standing folder-watch pipeline.
+  about them — a one-time bulk import, or a standing folder-watch pipeline.
 ---
 
 # Ingesting documents into AI Hub
 
 AI Hub reads documents (AI vision + OCR for scans), stores their text, and
-makes them searchable. You don't have a direct ingest tool — you ingest by
-**building an automation** (deterministic, governed, schedulable), which is
-exactly right for a repeatable pipeline.
+makes them searchable across the whole document store. For anything a user
+asks in the moment — "import this folder", "what do these invoices say?" —
+use the document TOOLS directly. Only a *standing, scheduled* ingest needs an
+automation.
 
-## The two endpoints (call from automation code with `import requests`)
+## One-time import + Q&A — use the tools (no automation, no API key)
 
-Automations run on the platform host, so loopback URLs work.
+You have first-class document tools. Reach for them; do not hand-build a probe
+automation or talk about API keys — that's plumbing the tools already handle.
 
-- **Process a document** (extract text, no auth — loopback doc API):
-  `POST http://127.0.0.1:<HOST_PORT+10>/document/process`
-  form: `filePath=<server path>`, `detect_document_type=true`,
-  `force_ai_extraction=false` (set true for scanned/handwritten).
-  Returns `{status, document_id, page_count, total_chars, document_text}`.
-- **Ingest AND attach to a searchable agent** (so Q&A works):
-  `POST http://127.0.0.1:<HOST_PORT>/add/agent_knowledge`
-  multipart: `file=@<path>`, `agent_id=<knowledge agent id>`,
-  `description=…`, `user_id=<uid>`. Auth: header `X-API-Key`. Store the
-  platform key once as a secret (`store_platform_secret AI_HUB_API_KEY`) and
-  read it in code with `aihub.secret("AI_HUB_API_KEY")`. Indexing is async —
-  search can lag a couple minutes for large docs.
+1. **`list_server_files(path)`** — confirm what's actually in the folder the
+   user named (names, sizes, types). You DO have server filesystem access
+   through this tool; never claim you can't see files.
+2. **`import_documents(path)`** — point it at the folder (or a single file). It
+   extracts, stores, and indexes each supported document. It is **idempotent**:
+   a file already imported from the same path is skipped, so re-running never
+   creates duplicates. Report its per-file result honestly (imported /
+   already-present / failed). Pass `force_ai_extraction=true` for scanned or
+   handwritten pages; `recursive=true` to include subfolders.
+3. **`search_documents(question)`** — answer questions against the whole store
+   (semantic + field search). **No knowledge agent is required** — search hits
+   the document store directly and returns passages with filename + page (and
+   any extracted fields like totals/dates) to cite. If it returns nothing, say
+   so and offer to import.
+4. **`list_documents` / `get_document`** — see what's in the store / verify an
+   import landed.
 
-To answer questions about ingested docs, the docs must be attached to an
-agent; then you query it with `ask_data_agent` (that agent's id).
+Supported types: PDF, Word, Excel, CSV, TXT, and common images.
 
-## Folder-watch ingest pipeline (the standing process)
+## Standing folder-watch pipeline — this is where an automation belongs
 
-Automation `main.py` shape — plain stdlib for files, `requests` for ingest:
+When the user wants *ongoing* ingestion ("import new files from this folder
+going forward, archive the originals"), build an AUTOMATION and schedule it —
+deterministic, governed, zero tokens per run. Automations run on the platform
+host, so the loopback document API is reachable with no auth:
 
     import os, glob, shutil, requests
     import aihub_runtime as aihub
+
     IN  = aihub.input("input_dir")
     ARC = aihub.input("archive_dir")
-    KEY = aihub.secret("AI_HUB_API_KEY")
-    AID = aihub.input("agent_id")
+    # Document API = main port + 10 (e.g. 5001 -> 5011). No API key needed.
+    DOC = "http://127.0.0.1:5011/document/process"
+
+    os.makedirs(ARC, exist_ok=True)
     new = 0
     for path in glob.glob(os.path.join(IN, "*.pdf")):
-        with open(path, "rb") as f:
-            r = requests.post("http://127.0.0.1:5001/add/agent_knowledge",
-                files={"file": (os.path.basename(path), f)},
-                data={"agent_id": AID, "description": "auto-ingested",
-                      "user_id": aihub.input("user_id")},
-                headers={"X-API-Key": KEY}, timeout=600)
-        if r.ok:
+        r = requests.post(DOC, data={
+            "filePath": path,
+            "detect_document_type": "true",
+            "force_ai_extraction": "false",
+        }, timeout=600)
+        if r.ok and r.json().get("status") == "success":
             shutil.move(path, os.path.join(ARC, os.path.basename(path)))
             aihub.log(f"ingested + archived {os.path.basename(path)}")
             new += 1
+        else:
+            aihub.log(f"left in place (extract failed): {os.path.basename(path)}")
     print(f"{new} new document(s) ingested")
 
-Declare `requests` in the manifest packages and `AI_HUB_API_KEY` in secrets.
-Dry-run, promote, then **schedule** it (e.g. every 15 minutes) so it keeps
-watching the folder. Archiving the source is what stops re-ingesting.
+Declare `requests` in the manifest packages. Dry-run, promote, then **schedule**
+(e.g. every 15 minutes). **Archiving the processed source is what prevents
+re-ingesting it** — the doc API always inserts, so a file left in the input
+folder would be imported again on the next run. Widen the glob (`*.pdf`,
+`*.docx`, …) to whatever the user drops in.
 
 ## Rules
 
-- Probe/confirm the folder paths and the target agent id before building —
-  never guess. Offer to create a knowledge agent if none fits.
-- Report ingest results honestly: files processed, attached, archived. If a
-  file fails extraction, leave it in the input folder and say so — don't
-  archive an un-ingested file.
-- Large PDF? Preflight with `POST /api/document/preflight` (multipart file)
-  to get page_count before committing.
+- Confirm the folder path first (`list_server_files`) — never guess.
+- Report ingest results honestly: imported, skipped-as-duplicate, failed. If a
+  file fails extraction, leave it in place and say so — don't claim it landed.
+- For a one-time job, `import_documents` already dedupes; you don't need to
+  build anything.
