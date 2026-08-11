@@ -5551,6 +5551,39 @@ def internal_document_search():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route("/api/internal/document-search-unified", methods=['POST'])
+@cross_origin()
+@internal_api_key_required()
+def internal_document_search_unified():
+    """Consistent-shape repository document search for microservice consumers
+    (The Agent, Command Center). ADDITIVE wrapper over the SAME enhanced engine
+    as /api/internal/document-search, but it normalizes that engine's variable
+    return (a JSON dict for field/hybrid, a pre-formatted text blob for
+    semantic) into ONE stable schema so consumers don't each re-parse it.
+
+    Body: {"question": str}  (optional: "max_results": int, "check_completeness": bool)
+    Returns: {"status":"success","result": {ok, engine, query, approach,
+              passages:[{filename,page,document_id,document_type,text,relevance,fields}],
+              answer, text, count, query_analysis, error}}
+    Legacy /api/internal/document-search is unchanged.
+    """
+    try:
+        data = request.get_json() or {}
+        question = (data.get("question") or "").strip()
+        if not question:
+            return jsonify({"status": "error", "message": "question is required"}), 400
+        from document_search_wrapper import document_search_unified
+        result = document_search_unified(
+            question,
+            max_results=data.get("max_results"),
+            check_completeness=data.get("check_completeness"),
+        )
+        return jsonify({"status": "success", "result": result})
+    except Exception as e:
+        logger.error(f"[internal_document_search_unified] Error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 # ─── End Internal API Endpoints ──────────────────────────────────────────────
 
 

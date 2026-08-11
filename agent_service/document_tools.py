@@ -31,7 +31,6 @@ true (default true) — flip to false to revert to pre-tool behavior.
 
 import fnmatch
 import os
-import re
 from datetime import datetime
 from typing import Any
 
@@ -382,42 +381,6 @@ def _pick(row: dict, *keys, default=None):
     return default
 
 
-# The document-search engine returns TWO shapes depending on the AI-chosen
-# approach: a JSON dict {results:[…]} for field/hybrid, but a PRE-FORMATTED text
-# blob for the semantic approach — repeated blocks of
-#   [Source N: <file> - Page <p>] (<type>) (Relevance: 0.42)
-#   <passage text>
-#    Document URL: http://…/document/view/<id>?page=<p>
-# Parse that blob back into passage dicts so both shapes format identically.
-_SEMANTIC_BLOCK_RE = re.compile(
-    r"\[Source\s+\d+:\s*(?P<file>.+?)\s*-\s*Page\s*(?P<page>[^\]]*?)\]\s*"
-    r"(?:\((?P<type>[^)]*)\)\s*)?\(Relevance:\s*(?P<rel>[\d.]+)\)[ \t]*\n?"
-    r"(?P<text>.*?)(?=\n\[Source\s+\d+:|\Z)",
-    re.S,
-)
-
-
-def _parse_semantic_blocks(text: str) -> list:
-    out = []
-    for m in _SEMANTIC_BLOCK_RE.finditer(text):
-        body = m.group("text") or ""
-        did = None
-        um = re.search(r"Document URL:\s*(\S+)", body)
-        if um:
-            body = body[:um.start()].rstrip()
-            dm = re.search(r"/document/view/([^?\s]+)", um.group(1))
-            if dm:
-                did = dm.group(1)
-        out.append({
-            "filename": (m.group("file") or "").strip(),
-            "page_number": (m.group("page") or "").strip(),
-            "document_id": did,
-            "snippet": body.strip(),
-            "relevance": m.group("rel"),
-        })
-    return out
-
-
 @tool(
     "search_documents",
     "Search the AI Hub document library and get the most relevant passages to "
@@ -450,34 +413,33 @@ async def search_documents(args: dict[str, Any]) -> dict[str, Any]:
         limit = 12
     limit = max(1, min(limit, 50))
 
-    data, status = await _post_main("/api/internal/document-search",
+    # The UNIFIED endpoint (additive) normalizes the engine's variable return
+    # (JSON dict for field/hybrid, [Source …] text blob for semantic) into one
+    # stable schema server-side, so we consume a consistent shape here.
+    data, status = await _post_main("/api/internal/document-search-unified",
                                     {"question": query}, internal=True,
                                     read_timeout=180.0)
     if status != 200:
         msg = data.get("message") or data.get("error") if isinstance(data, dict) else data
         return _text(f"Document search failed (HTTP {status}): {msg}", is_error=True)
 
-    # The endpoint wraps as {"status","results": <payload>}, where <payload> is
-    # EITHER the engine's JSON dict (field/hybrid approach) OR a pre-formatted
-    # [Source …] text blob (semantic approach). Normalize both into passage
-    # dicts; never iterate a raw string as if it were rows.
-    payload = _unwrap(data.get("results")) if isinstance(data, dict) else _unwrap(data)
-    rows, qa, err = [], {}, None
-    if isinstance(payload, dict):
-        rows = payload.get("results") or []
-        qa = payload.get("query_analysis") or {}
-        err = payload.get("error")
-    elif isinstance(payload, str) and payload.strip():
-        rows = _parse_semantic_blocks(payload)
-        if not rows:
-            # Non-empty but unrecognized formatting — hand it to the model
-            # rather than silently report zero hits.
-            return _text(f"Results for \"{query}\":\n{payload.strip()[:4000]}")
+    result = data.get("result") if isinstance(data, dict) else None
+    if not isinstance(result, dict):
+        return _text(f"Document search returned an unexpected response: "
+                     f"{str(data)[:300]}", is_error=True)
+    if result.get("error"):
+        return _text(f"Document search error: {result['error']}", is_error=True)
 
+    rows = result.get("passages") or []
+    qa = result.get("query_analysis") or {}
     if not rows:
-        note = f" ({err})" if err else ""
-        return _text(f"No documents matched \"{query}\".{note} If you expected "
-                     "hits, the documents may not be imported yet — check with "
+        # The engine may synthesize a text answer with no structured passages,
+        # or genuinely find nothing — surface either honestly.
+        answer = (result.get("answer") or result.get("text") or "").strip()
+        if answer:
+            return _text(f"Results for \"{query}\":\n{answer[:4000]}")
+        return _text(f"No documents matched \"{query}\". If you expected hits, "
+                     "the documents may not be imported yet — check with "
                      "list_documents or import them with import_documents.")
 
     # Dedupe near-identical passages by (filename, page); keep first (ranked).
@@ -502,7 +464,7 @@ async def search_documents(args: dict[str, Any]) -> dict[str, Any]:
         line = (f"• {fname}{loc}"
                 + (f"  [id {did}]" if did else ""))
         # structured fields the extractor pulled (total_due, invoice_number …)
-        rf = row.get("relevant_fields")
+        rf = row.get("fields") or row.get("relevant_fields")
         if isinstance(rf, dict) and rf:
             kv = ", ".join(f"{k}={v}" for k, v in list(rf.items())[:8]
                            if v not in (None, ""))

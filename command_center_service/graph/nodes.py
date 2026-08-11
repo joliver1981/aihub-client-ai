@@ -3795,7 +3795,10 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
 
         logger.info(f"[converse/tool] Document search: question='{question[:100]}'")
         try:
-            url = f"{get_base_url()}/api/internal/document-search"
+            # Unified endpoint (additive): normalizes the engine's variable
+            # return (JSON dict for field/hybrid, text blob for semantic) into
+            # one stable schema, so we always get readable passages.
+            url = f"{get_base_url()}/api/internal/document-search-unified"
             headers = {
                 "X-API-Key": AI_HUB_API_KEY,
                 "Content-Type": "application/json",
@@ -3814,30 +3817,17 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             if data.get("status") == "error":
                 return f"Document search error: {data.get('message', 'Unknown error')}"
 
-            results = data.get("results", {})
-            if isinstance(results, str):
-                import json as _json
-                try:
-                    results = _json.loads(results)
-                except (_json.JSONDecodeError, TypeError):
-                    pass
+            result = data.get("result") or {}
+            if result.get("error"):
+                return f"Document search error: {result['error']}"
 
-            # Format result for the LLM — truncate if very large
-            result_str = json.dumps(results, default=str) if isinstance(results, (dict, list)) else str(results)
+            result_str = result.get("text") or ""
+            n_results = result.get("count", 0)
+            logger.info(f"[converse/tool] Document search returned {n_results} passage(s)")
+            if not result_str:
+                return f"No documents matched \"{question}\"."
             if len(result_str) > 50000:
-                # Preserve structure but truncate the results array
-                if isinstance(results, dict) and "results" in results:
-                    search_meta = {k: v for k, v in results.items() if k != "results"}
-                    doc_results = results.get("results", [])
-                    search_meta["results_truncated"] = True
-                    search_meta["total_results_returned"] = len(doc_results)
-                    search_meta["results"] = doc_results[:20]
-                    result_str = json.dumps(search_meta, default=str)
-                else:
-                    result_str = result_str[:50000] + "\n... (results truncated)"
-
-            n_results = len(results.get("results", [])) if isinstance(results, dict) else 0
-            logger.info(f"[converse/tool] Document search returned {n_results} results")
+                result_str = result_str[:50000] + "\n... (results truncated)"
             return result_str
 
         except _httpx.TimeoutException:
@@ -8994,7 +8984,8 @@ async def _execute_cc_tool(
             import httpx as _httpx
             from cc_config import get_base_url, AI_HUB_API_KEY
 
-            url = f"{get_base_url()}/api/internal/document-search"
+            # Unified endpoint (additive) — consistent normalized shape.
+            url = f"{get_base_url()}/api/internal/document-search-unified"
             headers = {
                 "X-API-Key": AI_HUB_API_KEY,
                 "Content-Type": "application/json",
@@ -9009,22 +9000,13 @@ async def _execute_cc_tool(
             if data.get("status") == "error":
                 return {"text": f"Document search error: {data.get('message', 'Unknown')}", "status": "failed"}
 
-            results = data.get("results", {})
-            if isinstance(results, str):
-                try:
-                    results = json.loads(results)
-                except (json.JSONDecodeError, TypeError):
-                    pass
+            result = data.get("result") or {}
+            if result.get("error"):
+                return {"text": f"Document search error: {result['error']}", "status": "failed"}
 
-            result_str = json.dumps(results, default=str) if isinstance(results, (dict, list)) else str(results)
+            result_str = result.get("text") or f"No documents matched \"{description}\"."
             if len(result_str) > 50000:
-                if isinstance(results, dict) and "results" in results:
-                    doc_results = results.get("results", [])
-                    results["results"] = doc_results[:20]
-                    results["results_truncated"] = True
-                    result_str = json.dumps(results, default=str)
-                else:
-                    result_str = result_str[:50000] + "\n... (truncated)"
+                result_str = result_str[:50000] + "\n... (truncated)"
             return {"text": result_str, "status": "completed"}
 
         # ── search_web ────────────────────────────────────────────────────
