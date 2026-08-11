@@ -31,6 +31,7 @@ true (default true) — flip to false to revert to pre-tool behavior.
 
 import fnmatch
 import os
+import re
 from datetime import datetime
 from typing import Any
 
@@ -381,6 +382,42 @@ def _pick(row: dict, *keys, default=None):
     return default
 
 
+# The document-search engine returns TWO shapes depending on the AI-chosen
+# approach: a JSON dict {results:[…]} for field/hybrid, but a PRE-FORMATTED text
+# blob for the semantic approach — repeated blocks of
+#   [Source N: <file> - Page <p>] (<type>) (Relevance: 0.42)
+#   <passage text>
+#    Document URL: http://…/document/view/<id>?page=<p>
+# Parse that blob back into passage dicts so both shapes format identically.
+_SEMANTIC_BLOCK_RE = re.compile(
+    r"\[Source\s+\d+:\s*(?P<file>.+?)\s*-\s*Page\s*(?P<page>[^\]]*?)\]\s*"
+    r"(?:\((?P<type>[^)]*)\)\s*)?\(Relevance:\s*(?P<rel>[\d.]+)\)[ \t]*\n?"
+    r"(?P<text>.*?)(?=\n\[Source\s+\d+:|\Z)",
+    re.S,
+)
+
+
+def _parse_semantic_blocks(text: str) -> list:
+    out = []
+    for m in _SEMANTIC_BLOCK_RE.finditer(text):
+        body = m.group("text") or ""
+        did = None
+        um = re.search(r"Document URL:\s*(\S+)", body)
+        if um:
+            body = body[:um.start()].rstrip()
+            dm = re.search(r"/document/view/([^?\s]+)", um.group(1))
+            if dm:
+                did = dm.group(1)
+        out.append({
+            "filename": (m.group("file") or "").strip(),
+            "page_number": (m.group("page") or "").strip(),
+            "document_id": did,
+            "snippet": body.strip(),
+            "relevance": m.group("rel"),
+        })
+    return out
+
+
 @tool(
     "search_documents",
     "Search the AI Hub document library and get the most relevant passages to "
@@ -420,15 +457,22 @@ async def search_documents(args: dict[str, Any]) -> dict[str, Any]:
         msg = data.get("message") or data.get("error") if isinstance(data, dict) else data
         return _text(f"Document search failed (HTTP {status}): {msg}", is_error=True)
 
-    results = data.get("results") if isinstance(data, dict) else None
-    # endpoint wraps as {"status","results": <parsed search payload>}
-    payload = _unwrap(results) if not isinstance(results, dict) else results
+    # The endpoint wraps as {"status","results": <payload>}, where <payload> is
+    # EITHER the engine's JSON dict (field/hybrid approach) OR a pre-formatted
+    # [Source …] text blob (semantic approach). Normalize both into passage
+    # dicts; never iterate a raw string as if it were rows.
+    payload = _unwrap(data.get("results")) if isinstance(data, dict) else _unwrap(data)
+    rows, qa, err = [], {}, None
     if isinstance(payload, dict):
         rows = payload.get("results") or []
         qa = payload.get("query_analysis") or {}
         err = payload.get("error")
-    else:
-        rows, qa, err = (payload or []), {}, None
+    elif isinstance(payload, str) and payload.strip():
+        rows = _parse_semantic_blocks(payload)
+        if not rows:
+            # Non-empty but unrecognized formatting — hand it to the model
+            # rather than silently report zero hits.
+            return _text(f"Results for \"{query}\":\n{payload.strip()[:4000]}")
 
     if not rows:
         note = f" ({err})" if err else ""
