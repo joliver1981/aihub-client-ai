@@ -314,14 +314,25 @@ async def list_skills_tool(args: dict[str, Any]) -> dict[str, Any]:
     "approve; with auto-send ON it sends immediately via the platform's "
     "governed transport and reports so. Outbound can be disabled entirely on "
     "the Email screen. Report exactly what happened — never claim SENT unless "
-    "the result says so. Requires an active agent email address.",
+    "the result says so. Requires an active agent email address. "
+    "FORMATTING: write `body` as plain text with light markdown — '# ' / '## ' "
+    "headings, '- ' bullets, '1. ' numbered lists, **bold**, `code`, "
+    "[links](https://…), and | pipe | tables |. The service renders that to "
+    "styled HTML and sends the text you wrote as the plain-text alternative, "
+    "so write it to read well BOTH ways. Do NOT write raw HTML.",
     {
         "type": "object",
         "properties": {
             "to": {"type": "array", "items": {"type": "string"},
                    "description": "Recipient addresses"},
             "subject": {"type": "string"},
-            "body": {"type": "string", "description": "Plain-text draft body"},
+            "body": {"type": "string",
+                     "description": "Draft body: plain text with light markdown "
+                                    "(see FORMATTING above). Never raw HTML."},
+            "rich": {"type": "boolean",
+                     "description": "Default true — send a formatted HTML version "
+                                    "alongside the plain text. Set false only for "
+                                    "a deliberately plain-text-only message."},
             "context": {"type": "string",
                         "description": "Optional: what this replies to (shown "
                                        "to the approver)"},
@@ -348,6 +359,11 @@ async def draft_email_reply(args: dict[str, Any]) -> dict[str, Any]:
         return _text("At least one recipient is required.", is_error=True)
     subject = str(args["subject"]).strip()[:300]
     body = str(args["body"])
+    # HTML is opt-OUT per message and kill-switchable install-wide
+    # (AGENT_EMAIL_HTML=false). The markdown-ish body is ALWAYS sent as the
+    # plain-text alternative, so a client that can't render HTML loses nothing.
+    import email_render
+    rich = bool(args.get("rich", True)) and email_render.html_enabled()
 
     if addr.get("auto_send"):
         # AUTO-SEND (James 2026-08-09, opt-in per address): send now through
@@ -357,7 +373,9 @@ async def draft_email_reply(args: dict[str, Any]) -> dict[str, Any]:
         import email_client
         result = await email_client.send_reply(
             to, subject, body, addr["email_address"],
-            f"{addr.get('prefix', 'agent')} via The Agent")
+            f"{addr.get('prefix', 'agent')} via The Agent",
+            html_body=email_render.render_email(body, title=subject) if rich
+            else None)
         if result.get("success"):
             workitem_store.create_item(
                 "acknowledge", f"✉ Auto-sent: {subject or '(no subject)'}",
@@ -383,10 +401,13 @@ async def draft_email_reply(args: dict[str, Any]) -> dict[str, Any]:
         "edit_and_return", f"Send: {subject or '(no subject)'}",
         summary=(f"To: {', '.join(to)}\nFrom: {addr['email_address']}\n"
                  + (f"Context: {str(args.get('context'))[:400]}\n" if args.get('context') else "")
-                 + "\nEdit the body if needed — what you approve is what sends."),
+                 + "\nEdit the body if needed — what you approve is what sends."
+                 + ("\nFormatting (headings, lists, tables) is applied to the "
+                    "text you approve; the plain text is sent alongside it."
+                    if rich else "")),
         payload={"kind": "agent_email_reply", "to": to, "subject": subject,
                  "body": body, "from_address": addr["email_address"],
-                 "from_user": uid,
+                 "from_user": uid, "rich": rich,
                  "context": str(args.get("context") or "")[:500]},
         addressed_user=uid,
         from_kind="agent_email", from_ref=addr["email_address"],

@@ -365,12 +365,23 @@ async def work_respond(request: Request):
             raise HTTPException(403, "Only the address owner (or an admin) "
                                      "can approve this email.")
         import email_client
+        import email_render
         final_body = str((body.get("response") or {}).get("text") or "").strip() \
             or str(payload.get("body") or "")
+        # Render the APPROVED text, not the drafted text: the human may have
+        # edited it, and what they approved is what must send — in both formats.
+        # The payload carries the INTENT ("rich"), never a pre-rendered artifact,
+        # so an edit can't leave stale HTML attached to fresh prose. Items queued
+        # before this feature existed have no flag and stay plain, and the
+        # install-wide kill switch applies to already-queued items too.
+        rich = bool(payload.get("rich", False)) and email_render.html_enabled()
         result = await email_client.send_reply(
             payload.get("to") or [], str(payload.get("subject") or ""),
             final_body, str(payload.get("from_address") or ""),
-            f"{payload.get('from_address', '').split('@')[0]} via The Agent")
+            f"{payload.get('from_address', '').split('@')[0]} via The Agent",
+            html_body=email_render.render_email(
+                final_body, title=str(payload.get("subject") or ""))
+            if rich else None)
         if not result.get("success"):
             logger.error(f"agent email send failed (item left open): {result}")
             raise HTTPException(502, f"Send failed — the item remains open to "

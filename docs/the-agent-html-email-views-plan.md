@@ -200,6 +200,16 @@ Also carry over from `schedule_view_refresh`: `target_id` must be the **string**
 (the route's presence check treats int `0` as missing), and job creation must be verified
 by read-back before reporting success.
 
+**A scheduled send NEVER enters the approval queue** (James, 2026-08-13). The user
+asking for "email me this dashboard daily at 9am" *is* the consent — making them approve
+the same email every morning defeats the entire feature. So the `view_email` executor
+calls the transport directly and does **not** consult `auto_send` / `require_approval`;
+consent is captured once, at schedule-creation time, along with the recipient list.
+
+The `outbound_enabled` kill switch is a different thing and **is** still honored: it means
+"stop all outbound mail from this address", and a scheduled job must respect it. Approval
+is per-message consent (already given); the kill switch is a global stop (not given).
+
 **From-address and kill switch:** send as the scheduling user's agent email address
 (`email_store.get_address(uid)`), honoring `outbound_enabled`. If they have no active
 address, **fail at schedule time** with a clear message — never create a job that will
