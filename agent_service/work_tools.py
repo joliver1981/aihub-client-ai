@@ -306,6 +306,67 @@ async def list_skills_tool(args: dict[str, Any]) -> dict[str, Any]:
     return _text(f"Skills ({len(skills)}):\n" + "\n".join(lines))
 
 
+def _refresh_summary(tiles: list) -> str:
+    """How the refresh ACTUALLY went, in one line.
+
+    The model never sees tile data, which is what stops it inventing numbers —
+    but it also means it cannot tell a live dashboard from four stale tiles. On
+    the first live run it wrote "the tiles carry the current figures" about a
+    board where every tile had failed and was serving 4-day-old cache. The
+    rendered email was honest; the covering note was not. So the tool reports
+    freshness explicitly and the model is told to pass it on.
+    """
+    fresh = sum(1 for t in tiles if not t.get("error"))
+    stale = sum(1 for t in tiles if t.get("error") and (t.get("cache") or {}).get("rows") is not None)
+    dead = len(tiles) - fresh - stale
+    if fresh == len(tiles):
+        return f"all {fresh} tiles refreshed live"
+    bits = [f"{fresh} of {len(tiles)} tiles refreshed live"]
+    if stale:
+        bits.append(f"{stale} could NOT refresh and show older cached values")
+    if dead:
+        bits.append(f"{dead} failed with no data at all")
+    return "; ".join(bits)
+
+
+async def render_view_for_email(view_name: str, scope: str, group_id: int,
+                                principal: dict) -> tuple:
+    """Resolve + refresh a View server-side and render it for email.
+    Returns (html, text, error, refresh_summary).
+
+    NOT a tool — a plain helper, and it must stay ABOVE the @tool block below:
+    a bare function sitting between a decorator and its intended target silently
+    steals the decoration, leaving the real tool undecorated and crashing
+    create_sdk_mcp_server at import ('function' object has no attribute 'name').
+
+    The MODEL never sees the tile data: numbers travel from the governed
+    refresh path straight into the message, so they cannot be paraphrased,
+    rounded, or invented. Visibility is enforced by views_store.get() — a
+    guessed name resolves to nothing, not to data.
+
+    Shared with the approval path in main.py, which re-runs this at SEND time
+    so an approved email carries current numbers rather than draft-time ones.
+    """
+    import readthrough
+    import views_store
+    import email_render
+    from views_tools import run_view
+
+    uid = int(principal.get("user_id") or 0)
+    view = views_store.get(str(view_name).strip(), uid,
+                           readthrough.user_group_ids(uid), str(scope or ""),
+                           int(group_id or 0))
+    if not view:
+        return "", "", (f"No saved View named '{view_name}' is visible to this "
+                        "user — nothing was drafted or sent."), ""
+    # Automation tiles run through the governed seam AS this principal.
+    CURRENT_USER.set(principal)
+    result = await run_view(view)
+    html, text = email_render.render_view(
+        result, base_url=os.getenv("APP_PUBLIC_BASE_URL", ""))
+    return html, text, None, _refresh_summary(result.get("tiles") or [])
+
+
 @tool(
     "draft_email_reply",
     "Send/draft an outbound email FROM the current user's personal agent "
@@ -319,13 +380,27 @@ async def list_skills_tool(args: dict[str, Any]) -> dict[str, Any]:
     "headings, '- ' bullets, '1. ' numbered lists, **bold**, `code`, "
     "[links](https://…), and | pipe | tables |. The service renders that to "
     "styled HTML and sends the text you wrote as the plain-text alternative, "
-    "so write it to read well BOTH ways. Do NOT write raw HTML.",
+    "so write it to read well BOTH ways. Do NOT write raw HTML. "
+    "EMBED A DASHBOARD: pass view_name to append a saved View's live tiles to "
+    "the email. The View is refreshed and rendered BY THE SERVICE at send time "
+    "— you never see or retype the numbers, so never restate them in `body`; "
+    "write the covering note and let the tiles carry the data. A refresh can "
+    "PARTIALLY FAIL, in which case those tiles show older cached values (the "
+    "email labels them). The tool result tells you exactly how many refreshed — "
+    "never call the figures 'current' or 'live' unless it says all tiles did.",
     {
         "type": "object",
         "properties": {
             "to": {"type": "array", "items": {"type": "string"},
                    "description": "Recipient addresses"},
             "subject": {"type": "string"},
+            "view_name": {"type": "string",
+                          "description": "Optional: a saved View to refresh and "
+                                         "embed as a dashboard in the email"},
+            "view_scope": {"type": "string",
+                           "enum": ["user", "group", "tenant"],
+                           "description": "Only when View names collide across scopes"},
+            "view_group_id": {"type": "integer"},
             "body": {"type": "string",
                      "description": "Draft body: plain text with light markdown "
                                     "(see FORMATTING above). Never raw HTML."},
@@ -365,6 +440,29 @@ async def draft_email_reply(args: dict[str, Any]) -> dict[str, Any]:
     import email_render
     rich = bool(args.get("rich", True)) and email_render.html_enabled()
 
+    # Optional embedded dashboard (Phase 2). Rendered NOW for the auto-send
+    # path; the approval path stores the reference and re-renders at send.
+    view_html = view_text = ""
+    view_ref = None
+    if str(args.get("view_name") or "").strip():
+        principal = {"user_id": uid, "role": int(user.get("role") or 2),
+                     "username": str(user.get("username") or ""),
+                     "name": str(user.get("name") or "")}
+        view_html, view_text, view_err, view_status = await render_view_for_email(
+            str(args["view_name"]), str(args.get("view_scope") or ""),
+            int(args.get("view_group_id") or 0), principal)
+        if view_err:
+            return _text(view_err, is_error=True)
+        view_ref = {"name": str(args["view_name"]).strip(),
+                    "scope": str(args.get("view_scope") or ""),
+                    "group_id": int(args.get("view_group_id") or 0),
+                    # Stored principal, same idea as a view_refresh JSS job: the
+                    # approval may be actioned by an admin who cannot see the
+                    # drafter's private View, so the re-run uses THIS envelope.
+                    "as_user": principal}
+
+    plain_body = body + (("\n\n" + view_text) if view_text else "")
+
     if addr.get("auto_send"):
         # AUTO-SEND (James 2026-08-09, opt-in per address): send now through
         # the same cloud transport the approval path uses; leave a closed
@@ -372,15 +470,17 @@ async def draft_email_reply(args: dict[str, Any]) -> dict[str, Any]:
         # never silently dropped.
         import email_client
         result = await email_client.send_reply(
-            to, subject, body, addr["email_address"],
+            to, subject, plain_body, addr["email_address"],
             f"{addr.get('prefix', 'agent')} via The Agent",
-            html_body=email_render.render_email(body, title=subject) if rich
-            else None)
+            html_body=email_render.render_email_with_view(
+                body, view_html, title=subject) if rich else None)
         if result.get("success"):
             workitem_store.create_item(
                 "acknowledge", f"✉ Auto-sent: {subject or '(no subject)'}",
                 summary=(f"To: {', '.join(to)}\nFrom: {addr['email_address']}\n"
-                         f"(auto-send is ON for this address)\n\n{body[:1500]}"),
+                         f"(auto-send is ON for this address)"
+                         + (f"\nEmbedded View: {view_ref['name']}" if view_ref else "")
+                         + f"\n\n{body[:1500]}"),
                 payload={"kind": "agent_email_autosent", "to": to,
                          "subject": subject, "from_user": uid},
                 addressed_user=uid, from_kind="agent_email",
@@ -389,7 +489,13 @@ async def draft_email_reply(args: dict[str, Any]) -> dict[str, Any]:
             return _text(f"Email SENT to {', '.join(to)} from "
                          f"{addr['email_address']} (auto-send is enabled for "
                          "this address; an FYI audit item was added to "
-                         "My Work).")
+                         "My Work)."
+                         + (f" The View '{view_ref['name']}' was embedded as a "
+                            f"dashboard: {view_status}. You did not see its "
+                            "numbers, so do not describe them — and if any tile "
+                            "did not refresh, say that plainly rather than "
+                            "calling the figures current."
+                            if view_ref else ""))
         logger_note = str(result.get("error", result))[:200]
         # fall through to the approval path so the message isn't lost
         fallback_note = (f"Auto-send FAILED ({logger_note}) — filed for "
@@ -404,17 +510,24 @@ async def draft_email_reply(args: dict[str, Any]) -> dict[str, Any]:
                  + "\nEdit the body if needed — what you approve is what sends."
                  + ("\nFormatting (headings, lists, tables) is applied to the "
                     "text you approve; the plain text is sent alongside it."
-                    if rich else "")),
+                    if rich else "")
+                 + (f"\nThe View '{view_ref['name']}' is embedded below your "
+                    "text and is REFRESHED when you approve, so the email "
+                    "carries current numbers — not these."
+                    if view_ref else "")),
         payload={"kind": "agent_email_reply", "to": to, "subject": subject,
                  "body": body, "from_address": addr["email_address"],
-                 "from_user": uid, "rich": rich,
+                 "from_user": uid, "rich": rich, "view": view_ref,
                  "context": str(args.get("context") or "")[:500]},
         addressed_user=uid,
         from_kind="agent_email", from_ref=addr["email_address"],
         created_by=str(user.get("username") or "agent"))
     return _text(f"{fallback_note}Draft filed for approval (work item "
                  f"{item['work_item_id']}). It is in My Work now; NOTHING has "
-                 "been sent — the user approves (and may edit) the body first.")
+                 "been sent — the user approves (and may edit) the body first."
+                 + (f" The View '{view_ref['name']}' will be refreshed and "
+                    "embedded when they approve."
+                    if view_ref else ""))
 
 
 @tool(

@@ -306,3 +306,322 @@ def render_email(body: str, title: str = "",
                  footer: Optional[str] = DEFAULT_FOOTER) -> str:
     """markdown-ish prose -> a complete, email-client-safe HTML document."""
     return render_shell(render_markdownish(body), title=title, footer=footer)
+
+
+# ---------------------------------------------------------------------------
+# View dashboards (Phase 2)
+#
+# Input is run_view()'s output verbatim — the same LLM-free contract the Views
+# screen renders. Two deliberate departures from the on-screen version:
+#
+#   * TILES STACK. A View's grid layout (per-tile w/h spans) does not survive
+#     email clients; one full-width tile per row is the honest port.
+#   * ROWS ARE CAPPED HARDER (15 vs the store's 50). Gmail clips a message over
+#     ~102KB and eight 50-row tiles can reach it — a clipped dashboard hides
+#     data without saying so, which is worse than an explicit "showing 15 of N".
+#
+# Staleness and per-tile errors are rendered, never hidden: run_view serves the
+# last good cache when a refresh fails, so an email that dropped that label
+# would present stale numbers as current.
+# ---------------------------------------------------------------------------
+
+EMAIL_ROW_CAP = 15
+# Columns need a cap MORE than rows do. Measured on a real saved View: one
+# 24-column tile rendered 43KB of a 48KB email — inline styles repeat per cell,
+# so width costs far more than height. Twenty-four columns is also unreadable in
+# a 600px email. Both problems have the same fix, and the count is stated.
+EMAIL_COL_CAP = 8
+# Per-dimension caps can always be beaten by a COMBINATION: 8 tiles x 15 rows x
+# 8 columns still measured 104KB, past Gmail's ~102KB clip point. So the whole
+# fragment gets a hard byte budget as well, and tiles that don't fit are
+# reported rather than dropped — a clipped email hides data without saying so.
+EMAIL_HTML_BUDGET = 70_000
+EMAIL_TEXT_BUDGET = 24_000
+# Driver errors are enormous — a single dead SQL connection produces ~700 chars
+# of ODBC spew, and a 4-tile View repeating it in both formats measured ~50KB,
+# half of Gmail's ~102KB clip budget. On screen the full text is fine (the View
+# is right there); in email the first line carries the diagnosis and the deep
+# link carries the rest.
+ERROR_CHARS = 180
+BAR_FILL = "#4D9FFF"
+BAR_TRACK = "#EDF1F5"
+ERR_INK = "#B42318"
+ERR_BG = "#FEF3F2"
+ERR_LINE = "#FDA29B"
+
+
+def _num(v):
+    if isinstance(v, bool) or v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _fmt(v) -> str:
+    """Thousands separators for every number, integer or not — grouping only
+    some of a column ("8,693" next to "16259.35") reads as a rendering bug. We
+    do NOT round: inventing or dropping precision in a dashboard is a lie."""
+    if v is None:
+        return ""
+    n = _num(v)
+    if n is None:
+        return str(v)
+    return f"{int(n):,}" if float(n).is_integer() else f"{n:,}"
+
+
+def _first_numeric_col(columns, rows) -> int:
+    """Mirrors the UI's firstNumericCol (index.html): column 0 is the label,
+    the first column with numbers is the value."""
+    for c in range(1, len(columns)):
+        if any(_num(r[c]) is not None for r in rows if len(r) > c):
+            return c
+    return 1 if len(columns) > 1 else 0
+
+
+def _cell(content: str, *, head: bool = False, align: str = "left") -> str:
+    """Deliberately terse. Colour and font-size INHERIT from the table element
+    (they do in every major client), so only the properties that don't inherit —
+    padding and borders — are repeated per cell. With hundreds of cells in a
+    wide table, the saving is most of the message size."""
+    if head:
+        return (f'<th align="{align}" style="padding:7px 10px;'
+                f'border-bottom:2px solid {LINE};">{content}</th>')
+    return (f'<td align="{align}" style="padding:7px 10px;'
+            f'border-bottom:1px solid {LINE};">{content}</td>')
+
+
+def _short_error(text) -> str:
+    """One tidy line: collapse the driver's newlines and keep the head, which is
+    where the diagnosis lives ('wait operation timed out', 'invalid object name')."""
+    flat = " ".join(str(text or "").split())
+    return flat if len(flat) <= ERROR_CHARS else flat[:ERROR_CHARS].rstrip() + "…"
+
+
+def _note(text: str) -> str:
+    return (f'<div style="margin:8px 0 0;color:{MUTED};font-size:11px;'
+            f'line-height:1.4;">{esc(text)}</div>')
+
+
+def _tile_stat(columns, rows) -> str:
+    value = rows[0][0] if rows and rows[0] else ""
+    label = columns[0] if columns else ""
+    return (f'<div style="font-size:30px;font-weight:700;color:{INK};'
+            f'line-height:1.15;">{esc(_fmt(value))}</div>'
+            f'<div style="margin-top:2px;color:{MUTED};font-size:12px;">'
+            f'{esc(label)}</div>')
+
+
+def _tile_bar(columns, rows) -> str:
+    """Bars as NESTED TABLES with bgcolor — Outlook's Word engine is unreliable
+    with div widths, so a coloured cell sized in % is the portable bar."""
+    yc = _first_numeric_col(columns, rows)
+    pts = [(str(r[0]) if r else "", _num(r[yc]) if len(r) > yc else None)
+           for r in rows]
+    pts = [(x, y) for x, y in pts if y is not None]
+    if not pts:
+        return _note("no numeric data to chart")
+    peak = max((abs(y) for _, y in pts), default=0) or 1
+    out = []
+    for label, value in pts[:EMAIL_ROW_CAP]:
+        pct = max(1, min(100, int(round(abs(value) / peak * 100))))
+        fill = (f'<table role="presentation" width="100%" cellpadding="0" '
+                f'cellspacing="0" border="0" style="width:100%;'
+                f'border-collapse:collapse;"><tr>'
+                f'<td width="{pct}%" bgcolor="{BAR_FILL}" '
+                f'style="width:{pct}%;background:{BAR_FILL};height:14px;'
+                f'font-size:0;line-height:14px;border-radius:3px;">&nbsp;</td>'
+                f'<td style="font-size:0;line-height:14px;">&nbsp;</td>'
+                f"</tr></table>")
+        out.append(
+            f"<tr>"
+            f'<td width="34%" style="padding:5px 8px 5px 0;color:{INK};'
+            f'font-size:13px;vertical-align:middle;">{esc(label)}</td>'
+            f'<td bgcolor="{BAR_TRACK}" style="background:{BAR_TRACK};'
+            f'border-radius:3px;vertical-align:middle;">{fill}</td>'
+            f'<td align="right" style="padding:5px 0 5px 10px;color:{INK};'
+            f'font-size:13px;font-weight:600;white-space:nowrap;'
+            f'vertical-align:middle;">{esc(_fmt(value))}</td>'
+            f"</tr>")
+    body = (f'<table role="presentation" width="100%" cellpadding="0" '
+            f'cellspacing="0" border="0" style="width:100%;'
+            f'border-collapse:collapse;">{"".join(out)}</table>')
+    if len(pts) > EMAIL_ROW_CAP:
+        body += _note(f"showing {EMAIL_ROW_CAP} of {len(pts)}")
+    return body
+
+
+def _tile_table(columns, rows, row_count=None, cap_applied=False) -> str:
+    if not columns:
+        return _note("no data")
+    cols = columns[:EMAIL_COL_CAP]
+    shown = rows[:EMAIL_ROW_CAP]
+    head = "".join(_cell(esc(c), head=True) for c in cols)
+    body = []
+    for r in shown:
+        padded = (list(r) + [""] * len(columns))[:len(cols)]
+        body.append("<tr>" + "".join(
+            _cell(esc(_fmt(v)), align="right" if _num(v) is not None else "left")
+            for v in padded) + "</tr>")
+    html = (f'<table role="presentation" width="100%" cellpadding="0" '
+            f'cellspacing="0" border="0" style="width:100%;'
+            f'border-collapse:collapse;color:{INK};font-size:13px;">'
+            f'<thead style="background:{PAGE};color:{MUTED};font-size:11px;'
+            f'text-transform:uppercase;letter-spacing:.03em;">'
+            f"<tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table>")
+    total = row_count if isinstance(row_count, int) else len(rows)
+    bits = []
+    if len(rows) > EMAIL_ROW_CAP:
+        bits.append(f"showing {EMAIL_ROW_CAP} of {total} rows")
+    else:
+        bits.append(f"{total} row{'s' if total != 1 else ''}")
+    if len(columns) > EMAIL_COL_CAP:
+        bits.append(f"first {EMAIL_COL_CAP} of {len(columns)} columns")
+    if cap_applied:
+        bits.append("server row cap applied")
+    return html + _note(" · ".join(bits))
+
+
+def _tile_body(tile, columns, rows) -> str:
+    viz = (tile.get("viz") or "auto").lower()
+    if viz == "bar" and rows:
+        return _tile_bar(columns, rows)
+    if viz in ("stat", "auto", "") and len(rows) == 1 and len(columns) == 1:
+        return _tile_stat(columns, rows)
+    # line and ticker have no portable email form: a chart needs an image and a
+    # marquee needs CSS animation. Both degrade to the data itself.
+    return _tile_table(columns, rows, tile.get("row_count"),
+                       bool(tile.get("cap_applied")))
+
+
+def render_tile(tile: dict) -> str:
+    title = tile.get("title") or "(untitled)"
+    if str(tile.get("type") or "") == "automation":
+        title += f" · ▷ {tile.get('automation') or 'automation'}"
+    parts = [f'<div style="margin:0 0 10px;color:{INK};font-size:15px;'
+             f'font-weight:600;line-height:1.3;">{esc(title)}</div>']
+
+    error = tile.get("error")
+    cache = tile.get("cache") or {}
+    if error:
+        parts.append(
+            f'<div style="margin:0 0 10px;padding:8px 10px;background:{ERR_BG};'
+            f'border:1px solid {ERR_LINE};border-radius:6px;color:{ERR_INK};'
+            f'font-size:12px;line-height:1.45;">{esc(_short_error(error))}</div>')
+        if cache.get("rows") is not None:
+            as_of = str(cache.get("cached_at") or "")[:16].replace("T", " ")
+            parts.append(_tile_body(tile, cache.get("columns") or [],
+                                    cache.get("rows") or []))
+            parts.append(_note(f"as of {as_of or 'earlier'} — last good result"))
+    else:
+        parts.append(_tile_body(tile, tile.get("columns") or [],
+                                tile.get("rows") or []))
+
+    return (f'<table role="presentation" width="100%" cellpadding="0" '
+            f'cellspacing="0" border="0" style="width:100%;margin:0 0 16px;'
+            f'border-collapse:separate;"><tr>'
+            f'<td style="padding:16px 18px;background:{CARD};'
+            f'border:1px solid {LINE};border-radius:10px;">'
+            f'{"".join(parts)}</td></tr></table>')
+
+
+def _tile_text(tile) -> str:
+    """Plain-text alternative — the half every non-HTML client gets."""
+    title = tile.get("title") or "(untitled)"
+    lines = [f"-- {title} --"]
+    error = tile.get("error")
+    cache = tile.get("cache") or {}
+    if error:
+        lines.append(f"   ! {_short_error(error)}")
+        columns, rows = cache.get("columns") or [], cache.get("rows") or []
+        if rows:
+            as_of = str(cache.get("cached_at") or "")[:16].replace("T", " ")
+            lines.append(f"   (as of {as_of or 'earlier'} — last good result)")
+    else:
+        columns, rows = tile.get("columns") or [], tile.get("rows") or []
+    if columns:
+        cols = columns[:EMAIL_COL_CAP]
+        lines.append("   " + " | ".join(str(c) for c in cols))
+        for r in rows[:EMAIL_ROW_CAP]:
+            lines.append("   " + " | ".join(
+                _fmt(v) for v in (list(r) + [""] * len(columns))[:len(cols)]))
+        total = tile.get("row_count") if isinstance(tile.get("row_count"), int) \
+            else len(rows)
+        notes = []
+        if len(rows) > EMAIL_ROW_CAP:
+            notes.append(f"showing {EMAIL_ROW_CAP} of {total} rows")
+        if len(columns) > EMAIL_COL_CAP:
+            notes.append(f"first {EMAIL_COL_CAP} of {len(columns)} columns")
+        if notes:
+            lines.append("   ... " + ", ".join(notes))
+    return "\n".join(lines)
+
+
+def render_view(view: dict, base_url: str = "") -> tuple:
+    """run_view() output -> (html_fragment, text_fragment).
+
+    Returns a FRAGMENT, not a document: the caller composes it with the prose
+    body so one email carries both, in both formats.
+    """
+    name = view.get("name") or "View"
+    desc = view.get("description") or ""
+    head = [f'<div style="margin:22px 0 4px;color:{INK};font-size:18px;'
+            f'font-weight:700;line-height:1.3;">{esc(name)}</div>']
+    if desc:
+        head.append(f'<div style="margin:0 0 14px;color:{MUTED};font-size:13px;'
+                    f'line-height:1.45;">{esc(desc)}</div>')
+    else:
+        head.append('<div style="height:10px;line-height:10px;">&nbsp;</div>')
+
+    tiles = view.get("tiles") or []
+
+    # Budgeted assembly: the first tile always renders (an empty dashboard helps
+    # nobody), after which tiles are added only while they fit.
+    rendered, dropped, used = [], 0, 0
+    for i, t in enumerate(tiles):
+        block = render_tile(t)
+        if i and used + len(block) > EMAIL_HTML_BUDGET:
+            dropped = len(tiles) - i
+            break
+        rendered.append(block)
+        used += len(block)
+    html = "".join(head) + "".join(rendered)
+    if dropped:
+        html += _note(f"{dropped} more tile{'s' if dropped != 1 else ''} not "
+                      "shown — the full dashboard would be clipped by some mail "
+                      "clients. Open the View in AI Hub for all of it.")
+
+    link = (base_url or "").rstrip("/")
+    if link.startswith("http"):
+        html += (f'<div style="margin:2px 0 0;font-size:12px;">'
+                 f'<a href="{esc(link)}/the-agent" style="color:{ACCENT};'
+                 f'text-decoration:underline;">Open this View in AI Hub</a></div>')
+
+    text = [f"== {name} =="]
+    if desc:
+        text.append(desc)
+    text.append("")
+    tused, tdropped = 0, 0
+    for i, t in enumerate(tiles):
+        block = _tile_text(t)
+        if i and tused + len(block) > EMAIL_TEXT_BUDGET:
+            tdropped = len(tiles) - i
+            break
+        text.append(block)
+        text.append("")
+        tused += len(block)
+    if tdropped:
+        text.append(f"({tdropped} more tile{'s' if tdropped != 1 else ''} not "
+                    "shown — open the View in AI Hub for all of it.)")
+        text.append("")
+    if link.startswith("http"):
+        text.append(f"Open this View in AI Hub: {link}/the-agent")
+    return html, "\n".join(text)
+
+
+def render_email_with_view(body: str, view_html: str = "", title: str = "",
+                           footer: Optional[str] = DEFAULT_FOOTER) -> str:
+    """Prose + an embedded dashboard, as one email-safe document."""
+    return render_shell(render_markdownish(body) + (view_html or ""),
+                        title=title, footer=footer)

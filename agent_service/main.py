@@ -375,12 +375,33 @@ async def work_respond(request: Request):
         # before this feature existed have no flag and stay plain, and the
         # install-wide kill switch applies to already-queued items too.
         rich = bool(payload.get("rich", False)) and email_render.html_enabled()
+        # An embedded View is RE-RUN at approval time, not carried over from the
+        # draft: the whole point of a dashboard is current numbers, and an
+        # approval can sit for days. It runs as the DRAFTER's stored principal
+        # (payload.view.as_user), because the approver may be an admin who
+        # cannot see the drafter's private View — resolving as them would 404 a
+        # view the drafter legitimately embedded.
+        view_html = view_text = ""
+        vref = payload.get("view") or None
+        if vref:
+            from work_tools import render_view_for_email
+            view_html, view_text, verr, _vstatus = await render_view_for_email(
+                str(vref.get("name") or ""), str(vref.get("scope") or ""),
+                int(vref.get("group_id") or 0),
+                vref.get("as_user") or {"user_id": payload.get("from_user"),
+                                        "role": 2, "username": "approver"})
+            if verr:
+                logger.error(f"agent email view render failed (item left open): {verr}")
+                raise HTTPException(502, f"The embedded View could not be "
+                                         f"refreshed, so nothing was sent — the "
+                                         f"item remains open to retry: {verr}")
         result = await email_client.send_reply(
             payload.get("to") or [], str(payload.get("subject") or ""),
-            final_body, str(payload.get("from_address") or ""),
+            final_body + (("\n\n" + view_text) if view_text else ""),
+            str(payload.get("from_address") or ""),
             f"{payload.get('from_address', '').split('@')[0]} via The Agent",
-            html_body=email_render.render_email(
-                final_body, title=str(payload.get("subject") or ""))
+            html_body=email_render.render_email_with_view(
+                final_body, view_html, title=str(payload.get("subject") or ""))
             if rich else None)
         if not result.get("success"):
             logger.error(f"agent email send failed (item left open): {result}")
