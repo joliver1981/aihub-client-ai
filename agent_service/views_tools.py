@@ -589,6 +589,168 @@ async def schedule_view_refresh(args: dict[str, Any]) -> dict[str, Any]:
                  "the cache every viewer sees — zero AI per refresh.")
 
 
+@tool(
+    "schedule_view_email",
+    "Schedule a saved View to be REFRESHED AND EMAILED as a dashboard on a "
+    "cadence — 'email me this dashboard every weekday at 9am'. Zero AI per "
+    "send: the tiles are re-run deterministically and rendered by the service. "
+    "It sends from the user's own agent email address and does NOT go through "
+    "the approval queue — scheduling it IS the consent. ALWAYS pass timezone "
+    "when the user names a clock time, in their words ('9am Eastern' -> "
+    "timezone 'Eastern'); without it a cron fires in UTC and '9am' is wrong. "
+    "Report ONLY the ids this returns.",
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "The view's name"},
+            "to": {"type": "array", "items": {"type": "string"},
+                   "description": "Recipient addresses"},
+            "subject": {"type": "string", "description": "Optional subject line"},
+            "note": {"type": "string",
+                     "description": "Optional covering note above the dashboard. "
+                                    "Do NOT put data in it — the tiles carry the "
+                                    "numbers and they change every send."},
+            "cron_expression": {"type": "string",
+                                "description": "e.g. '0 9 * * 1-5' = weekdays 9am"},
+            "every_hours": {"type": "integer"},
+            "timezone": {"type": "string",
+                         "description": "The user's zone, as they said it "
+                                        "('Eastern', 'America/New_York', 'UTC+05:30')"},
+            "scope": {"type": "string", "enum": ["user", "group", "tenant"]},
+            "group_id": {"type": "integer"},
+        },
+        "required": ["name", "to"],
+        "additionalProperties": False,
+    },
+)
+async def schedule_view_email(args: dict[str, Any]) -> dict[str, Any]:
+    import datetime as _dt
+    import email_store
+    import httpx
+    import readthrough
+    from platform_tools import _headers
+    from agent_config import get_base_url
+
+    user = CURRENT_USER.get()
+    uid = int(user.get("user_id") or 0)
+    if int(user.get("role") or 0) < 2 and os.getenv(
+            "AGENT_BUILD_ALLOW_ALL_USERS", "false").lower() != "true":
+        return _text("Scheduling view emails requires a Developer role.",
+                     is_error=True)
+
+    name = str(args["name"]).strip()
+    scope = str(args.get("scope") or "")
+    gid = int(args.get("group_id") or 0)
+    view = views_store.get(name, uid, readthrough.user_group_ids(uid), scope, gid)
+    if not view:
+        return _text(f"No view named '{name}' is visible to this user — "
+                     "nothing scheduled.", is_error=True)
+
+    to = [str(a).strip() for a in (args.get("to") or []) if str(a).strip()]
+    if not to:
+        return _text("At least one recipient is required.", is_error=True)
+
+    # Fail HERE, not at 9am every morning: a job whose sender cannot send is a
+    # daily silent failure.
+    addr = email_store.get_address(uid)
+    if not addr or not addr.get("is_active"):
+        return _text("This user has no active agent email address, so a "
+                     "scheduled dashboard could never send — nothing was "
+                     "scheduled. They can create one on the Email screen.",
+                     is_error=True)
+    if not addr.get("outbound_enabled", 1):
+        return _text("Outbound email is DISABLED for this address — nothing was "
+                     "scheduled.", is_error=True)
+
+    if args.get("cron_expression"):
+        schedule = {"type": "cron",
+                    "cron_expression": str(args["cron_expression"])}
+    elif args.get("every_hours"):
+        schedule = {"type": "interval",
+                    "interval_hours": max(int(args["every_hours"]), 1),
+                    "start_date": _dt.datetime.utcnow().strftime(
+                        "%Y-%m-%d %H:%M:%S")}
+    else:
+        return _text("Provide cron_expression (e.g. '0 9 * * 1-5') or "
+                     "every_hours.", is_error=True)
+
+    # Timezone: the engine reads parameters.timezone and builds a DST-aware
+    # CronTrigger (job_scheduler.py). schedule_view_refresh omits this, which is
+    # why its crons fire in UTC — do not repeat that here.
+    tz_note = ""
+    tz_canonical = ""
+    if args.get("timezone"):
+        try:
+            import schedule_tz
+            tz_canonical, tz_display, note = schedule_tz.resolve_timezone(
+                str(args["timezone"]))
+            tz_note = f" Times are {tz_display}." + (f" {note}" if note else "")
+        except Exception as e:
+            return _text(f"Could not resolve the timezone '{args['timezone']}' "
+                         f"({e}) — nothing was scheduled, because a cron with "
+                         "the wrong zone fires at the wrong hour every day.",
+                         is_error=True)
+    elif schedule["type"] == "cron":
+        tz_note = (" NOTE: no timezone was given, so this fires on the "
+                   "scheduler's default zone (UTC) — tell the user, and offer "
+                   "to reschedule with their zone.")
+
+    def _p(v):
+        return {"value": str(v), "type": "string"}
+
+    params = {
+        "view_name": _p(view["name"]),
+        "view_scope": _p(view["scope"]),
+        "view_group_id": _p(view.get("group_id") or 0),
+        "user_id": _p(uid),
+        "role": _p(int(user.get("role") or 2)),
+        "username": _p(user.get("username") or ""),
+        "to": _p(",".join(to)),
+        "subject": _p(str(args.get("subject") or f"{view['name']} — dashboard")),
+        "note": _p(str(args.get("note") or "")),
+    }
+    if tz_canonical:
+        params["timezone"] = _p(tz_canonical)
+
+    body = {
+        "name": f"View email: {view['name']}"[:80],
+        # string "0": the route's presence check treats int 0 as missing
+        "target_id": "0",
+        "type": "view_email",
+        "description": f"Email the '{view['name']}' dashboard to {', '.join(to)}",
+        "created_by": str(user.get("username") or "agent"),
+        "is_active": True,
+        "parameters": params,
+        "schedule": schedule,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(f"{get_base_url()}/api/scheduler/jobs",
+                                  json=body, headers=_headers())
+            data = r.json() if r.status_code < 500 else {}
+            if r.status_code >= 400 or not data.get("id"):
+                return _text(f"Nothing was scheduled (HTTP {r.status_code}: "
+                             f"{data.get('error', r.text[:200])}). Do NOT tell "
+                             "the user it was scheduled.", is_error=True)
+            job_id = data["id"]
+            rb = await client.get(f"{get_base_url()}/api/scheduler/jobs/{job_id}",
+                                  headers=_headers())
+            rbd = rb.json() if rb.status_code < 400 else {}
+            active = any(s.get("is_active") for s in (rbd.get("schedules") or []))
+            if not active:
+                return _text(f"Job #{job_id} was created but NO active schedule "
+                             "row exists — report this as NOT scheduled.",
+                             is_error=True)
+    except Exception as e:
+        return _text(f"Scheduling failed: {e}", is_error=True)
+
+    return _text(f"Scheduled: the '{view['name']}' dashboard will be refreshed "
+                 f"and emailed to {', '.join(to)} from {addr['email_address']} "
+                 f"(job #{job_id}, verified active by read-back).{tz_note} Each "
+                 "firing re-runs the tiles deterministically and sends — no "
+                 "approval step, zero AI per send.")
+
+
 # ---------------------------------------------------------------------------
 # Rename (James 2026-08-09) — in-place, with scheduler propagation
 # ---------------------------------------------------------------------------
@@ -615,7 +777,9 @@ async def rewrite_view_refresh_jobs(old_name: str, new_name: str,
             if not isinstance(jobs, list):
                 jobs = []
             for j in jobs:
-                if str(j.get("type")) != "view_refresh":
+                # view_email jobs key off the name the same way, so a rename
+                # must re-point them too or the daily dashboard 404s forever.
+                if str(j.get("type")) not in ("view_refresh", "view_email"):
                     continue
                 jid = j.get("id")
                 try:
@@ -711,4 +875,4 @@ async def rename_view(args: dict[str, Any]) -> dict[str, Any]:
 
 
 VIEWS_TOOLS = [save_view, get_view, list_saved_views, delete_view,
-               schedule_view_refresh, rename_view]
+               schedule_view_refresh, schedule_view_email, rename_view]

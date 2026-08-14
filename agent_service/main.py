@@ -716,6 +716,71 @@ async def views_refresh_cache(request: Request):
             "tiles_total": len(result["tiles"]), "errors": errs[:5]}
 
 
+@app.post("/api/views/email")
+async def views_email(request: Request):
+    """Headless dashboard EMAIL for view_email JSS jobs — service-key auth, same
+    contract as /api/views/refresh-cache, and it refreshes the shared tile cache
+    on the way through (run_view does that itself).
+
+    NO APPROVAL QUEUE (James, 2026-08-13): a user asking for "email me this
+    dashboard every weekday at 9am" has given consent once, at schedule time,
+    along with the recipient list — making them approve the same email every
+    morning defeats the feature. auto_send / require_approval are therefore not
+    consulted here.
+
+    outbound_enabled IS still honored: that switch means "stop all outbound mail
+    from this address", which is a global stop the user has NOT given.
+    """
+    if not _service_key_ok(request):
+        raise HTTPException(401, "service key required")
+    body = await request.json()
+    principal = {
+        "user_id": int(body.get("user_id") or 0),
+        "role": int(body.get("role") or 2),
+        "username": str(body.get("username") or "scheduler"),
+        "name": str(body.get("username") or "scheduler"),
+    }
+    uid = principal["user_id"]
+    to = [str(a).strip() for a in (body.get("to") or []) if str(a).strip()]
+    if not to:
+        raise HTTPException(400, "no recipients on the job")
+
+    import email_client
+    import email_render
+    import email_store
+    from work_tools import render_view_for_email
+
+    addr = email_store.get_address(uid)
+    if not addr or not addr.get("is_active"):
+        raise HTTPException(400, "the scheduling user has no active agent email "
+                                 "address — nothing sent")
+    if not addr.get("outbound_enabled", 1):
+        raise HTTPException(403, "outbound email is DISABLED for this address — "
+                                 "nothing sent")
+
+    name = str(body.get("name") or "")
+    view_html, view_text, err, refresh = await render_view_for_email(
+        name, str(body.get("view_scope") or ""), int(body.get("view_group_id") or 0),
+        principal)
+    if err:
+        raise HTTPException(404, err)
+
+    subject = str(body.get("subject") or f"{name} — dashboard")[:300]
+    note = str(body.get("note") or f"Your scheduled '{name}' dashboard.")
+    result = await email_client.send_reply(
+        to, subject, note + "\n\n" + view_text, addr["email_address"],
+        f"{addr.get('prefix', 'agent')} via The Agent",
+        html_body=(email_render.render_email_with_view(note, view_html,
+                                                       title=subject)
+                   if email_render.html_enabled() else None))
+    ok = bool(result.get("success"))
+    logger.info(f"view email '{name}' as user {uid} -> {to}: "
+                f"{'sent' if ok else 'FAILED'} ({refresh}); "
+                f"{json.dumps(result)[:200]}")
+    return {"ok": ok, "refresh": refresh,
+            "error": None if ok else str(result.get("error", result))[:300]}
+
+
 @app.post("/api/views/layout")
 async def views_layout(request: Request):
     """Persist the user's tile arrangement (drag-reorder + resize on the Views

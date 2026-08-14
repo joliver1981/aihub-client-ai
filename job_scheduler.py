@@ -111,6 +111,9 @@ class JobSchedulerService:
             # Views v2.1: deterministic dashboard-cache refresh (zero LLM);
             # same flag — both are The Agent service's job family.
             self.job_types['view_refresh'] = self._execute_view_refresh_job
+            # "Email me this dashboard every weekday at 9am" — refreshes the
+            # view AND mails it. Same job family, same flag.
+            self.job_types['view_email'] = self._execute_view_email_job
 
         print('API Base URL:', self.api_base_url)
         
@@ -1362,6 +1365,81 @@ class JobSchedulerService:
                 execution_id,
                 'failed',
                 result_message=f"Error executing view refresh job: {str(e)}",
+                error_details=error_details
+            )
+
+    def _execute_view_email_job(self, job_data: Dict[str, Any]):
+        """Refresh a saved View and EMAIL it as a rendered dashboard, via The
+        Agent service. Runs as the stored principal (the schedule's creator) and
+        sends from THEIR agent email address.
+
+        Deliberately not gated by the email approval queue: scheduling the job
+        IS the consent (the recipients were named then). The service still
+        honors the per-address outbound kill switch.
+
+        The send outcome goes into the execution record — a daily email that
+        silently stopped working must be visible in scheduler history, not just
+        absent from an inbox."""
+        scheduled_job_id = job_data['scheduled_job_id']
+        schedule_id = job_data['schedule_id']
+        job_name = job_data['job_name']
+        parameters = job_data.get('parameters', {})
+
+        def _pv(name, default=''):
+            v = parameters.get(name, default)
+            return v.get('value', default) if isinstance(v, dict) else v
+
+        logger.info(f"Executing view email job: {job_name} (ID: {scheduled_job_id})")
+        execution_id = self._create_execution_record(scheduled_job_id, schedule_id)
+        try:
+            self._update_execution_record(execution_id, 'running')
+            if not _pv('view_name'):
+                raise ValueError("job parameter 'view_name' is missing")
+            recipients = [a for a in str(_pv('to') or '').split(',') if a.strip()]
+            if not recipients:
+                raise ValueError("job parameter 'to' is missing")
+
+            agent_port = os.getenv('AGENT_SERVICE_PORT') or str(
+                int(os.getenv('HOST_PORT', '5001')) + 110)
+            api_url = f"http://127.0.0.1:{agent_port}/api/views/email"
+            payload = {
+                'name': _pv('view_name'),
+                'view_scope': _pv('view_scope'),
+                'view_group_id': _pv('view_group_id') or 0,
+                'user_id': _pv('user_id') or 0,
+                'role': _pv('role') or 2,
+                'username': _pv('username') or 'scheduler',
+                'to': [a.strip() for a in recipients],
+                'subject': _pv('subject'),
+                'note': _pv('note'),
+            }
+            headers = {'X-API-Key': os.getenv('API_KEY', '')}
+            response = requests.post(api_url, json=payload, headers=headers,
+                                     timeout=900)
+            data = response.json() if response.status_code in (200, 400, 403, 404) else {}
+            ok = bool(data.get('ok'))
+            if ok:
+                message = (f"Dashboard emailed to {len(recipients)} recipient(s): "
+                           f"{data.get('refresh', 'refresh state unknown')}")
+            else:
+                message = (f"NOT sent (HTTP {response.status_code}): "
+                           f"{data.get('error') or data.get('detail') or response.text[:200]}")
+            self._update_execution_record(execution_id,
+                                          'completed' if ok else 'failed',
+                                          result_message=message[:500])
+            self._increment_run_count(schedule_id)
+            self._update_last_run_time(schedule_id, datetime.now())
+            logger.info(f"view email job {'completed' if ok else 'FAILED'}: "
+                        f"{job_name} ({message})")
+
+        except Exception as e:
+            error_details = traceback.format_exc()
+            logger.error(f"Error executing view email job {job_name}: {str(e)}")
+            logger.error(error_details)
+            self._update_execution_record(
+                execution_id,
+                'failed',
+                result_message=f"Error executing view email job: {str(e)}",
                 error_details=error_details
             )
 

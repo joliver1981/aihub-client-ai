@@ -1,6 +1,9 @@
 # The Agent — HTML email + embedded View dashboards
 
-**Status:** plan, not built. Written 2026-08-13.
+**Status:** Written 2026-08-13. **Phases 1, 2 and 4 BUILT and live-verified the
+same day** (`814dc53`, `34e9910`, this commit); Phase 3 remains deferred by
+decision. One extra fix fell out of Phase 2 testing and shipped separately: Views
+now serialize tiles that share an automation (`c31d075`, §5 Phase 4 notes).
 **Scope owner:** James.
 **Related:** [docs/the-agent-plan.md](the-agent-plan.md), [docs/views-v2-spec.md](views-v2-spec.md)
 

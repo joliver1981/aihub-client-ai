@@ -326,6 +326,12 @@ def _refresh_summary(tiles: list) -> str:
         bits.append(f"{stale} could NOT refresh and show older cached values")
     if dead:
         bits.append(f"{dead} failed with no data at all")
+    # Carry a real reason, not just a count: "0 of 6 refreshed" in a scheduler
+    # execution record is a mystery a week later, and this is the only place
+    # that still has the tile errors in hand.
+    why = next((str(t.get("error")) for t in tiles if t.get("error")), "")
+    if why:
+        bits.append(f"first error: {' '.join(why.split())[:200]}")
     return "; ".join(bits)
 
 
