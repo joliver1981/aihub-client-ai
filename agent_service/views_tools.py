@@ -16,6 +16,7 @@ tiles unlock every source the platform can already reach deterministically
 import asyncio
 import json
 import os
+import time
 from typing import Any
 
 from claude_agent_sdk import tool
@@ -25,6 +26,10 @@ from authoring_tools import _manage, _resolve_automation
 import views_store
 
 VIEW_TILE_TIMEOUT = float(os.getenv("VIEW_TILE_TIMEOUT", "120"))
+# Total wall-clock allowed for ONE serialized group of same-automation tiles
+# (see _group_key). Tiles that never get their turn say so rather than
+# pretending they failed.
+VIEW_SERIAL_BUDGET = float(os.getenv("VIEW_SERIAL_BUDGET", "300"))
 TILE_ROW_CAP = 50
 
 
@@ -158,6 +163,20 @@ async def _run_automation_tile(t: dict, tile: dict) -> None:
     tile["run_id"] = data.get("run_id")
 
 
+def _group_key(t: dict, pos: int) -> str:
+    """Tiles that MUST NOT run at the same time share a key.
+
+    Automation tiles are keyed on the automation alone — deliberately matching
+    how the runner's lock works, inputs and all — so two panels of the same
+    automation land in one group. SQL tiles get a unique key each: the read-only
+    probe seam has no such lock, and serializing them would slow every ordinary
+    board for nothing.
+    """
+    if str(t.get("type") or "sql") == "automation":
+        return "auto:" + str(t.get("automation_id") or t.get("automation") or "")
+    return f"sql:{pos}"
+
+
 async def run_view(view: dict, only_index: int | None = None) -> dict:
     """Refresh tiles concurrently; per-tile honest errors — one broken tile
     never fakes the others. only_index runs a single tile (per-tile
@@ -197,7 +216,37 @@ async def run_view(view: dict, only_index: int | None = None) -> dict:
         except Exception as e:
             tile["error"] = str(e)
 
-    await asyncio.gather(*(_one(p) for p in range(len(indices))))
+    # Fan out by GROUP, not by tile. Tiles backed by the same automation must
+    # run one at a time: the runner's skip-if-running lock is keyed on
+    # automation_id ALONE (automations/runner.py _db_has_live_run), so firing
+    # them together means the first wins and the rest come back "run skipped" —
+    # differing `inputs` do not help. A real View hit exactly this: six tiles,
+    # one automation, six panels, five skipped on every refresh.
+    #
+    # Serializing (rather than relaxing the lock) keeps the platform's
+    # no-concurrency guarantee intact for stateful automations. Different
+    # automations, and all SQL tiles, still run fully concurrently.
+    groups: dict = {}
+    for pos in range(len(indices)):
+        groups.setdefault(_group_key(tiles_def[indices[pos]], pos), []).append(pos)
+
+    async def _run_group(positions: list):
+        started = time.monotonic()
+        for n, pos in enumerate(positions):
+            # The budget is only checked BETWEEN tiles, so the first tile of a
+            # group always runs and a single slow tile is never cut off midway.
+            if n and time.monotonic() - started > VIEW_SERIAL_BUDGET:
+                for p in positions[n:]:
+                    results[p]["error"] = (
+                        f"not refreshed: this tile shares an automation with "
+                        f"{len(positions) - 1} other tile(s), which must run one "
+                        f"at a time, and the {int(VIEW_SERIAL_BUDGET)}s budget for "
+                        f"the group ran out — showing the last cached result if "
+                        f"one exists")
+                return
+            await _one(pos)
+
+    await asyncio.gather(*(_run_group(p) for p in groups.values()))
 
     # Per-tile cache merge: successes overwrite their slot; other slots keep
     # their last good data. Failed tiles get their slot attached for as-of
