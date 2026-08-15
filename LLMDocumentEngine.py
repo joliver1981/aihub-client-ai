@@ -990,6 +990,20 @@ class LLMDocumentProcessor:
 
                 page_data_list.append(page_data)
 
+            # ---- Category assignment for NEW document types (v3 ACL) ----------
+            # An unmapped type is visible to admins only, so a freshly coined type
+            # would silently vanish from every non-admin's search. The AI files it
+            # into a category (or a new admin-only one) per DOC_CATEGORY_AI_MANAGED;
+            # failures never block the ingest — the review page catches strays.
+            if page_data_list and not self._schema_excluded(detected_document_type):
+                try:
+                    from doc_search_v3.category_assignment import ensure_category_assignment
+                    ensure_category_assignment(
+                        detected_document_type,
+                        sample_text=(page_data_list[0].get('full_text') or '')[:1500])
+                except Exception as cat_err:
+                    self.logger.info(f"Category assignment skipped: {cat_err}")
+
             # ---- Learn this document type's schema from the WHOLE document ----
             # Once per document, after every page is extracted. Generating from a
             # single page yielded cover-page schemas that then bounded extraction for

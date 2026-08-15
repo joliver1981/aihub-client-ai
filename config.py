@@ -646,6 +646,19 @@ DOC_RECORDS_INPUT_TOKENS = int(os.getenv('DOC_RECORDS_INPUT_TOKENS', 12000))
 # first would be meaningless for the next. They always use free-form AI extraction.
 DOC_SCHEMA_EXCLUDED_TYPES = os.getenv('DOC_SCHEMA_EXCLUDED_TYPES', 'unknown,unknown_document')
 
+# ── Document categories: AI-managed assignment (james, 2026-08-13) ────────────
+# When a NEWLY DETECTED document type has no category, the AI files it into one
+# and a human is told afterwards — because finding people to administer the
+# platform has been the harder problem at clients. OFF = assignments are held
+# 'pending' (admin-only visibility) until a steward approves on the review page.
+DOC_CATEGORY_AI_MANAGED = os.getenv('DOC_CATEGORY_AI_MANAGED', 'True').lower() == 'true'
+# Escape hatch (default OFF = fully automatic): hold LOW-CONFIDENCE assignments
+# as pending even when AI-managed is on. Exists for the one failure that matters:
+# filing a new lease variant into Leases should just happen; filing board minutes
+# into Leases would hand the Leases groups something they shouldn't see.
+DOC_CATEGORY_HOLD_LOW_CONFIDENCE = os.getenv('DOC_CATEGORY_HOLD_LOW_CONFIDENCE', 'False').lower() == 'true'
+DOC_CATEGORY_CONFIDENCE_THRESHOLD = int(os.getenv('DOC_CATEGORY_CONFIDENCE_THRESHOLD', 70))
+
 # ── Document search v3: the counting lane ─────────────────────────────────────
 # COUNT-shaped questions ("how many of our leases...", "which guides require...")
 # route to doc_search_v3.enumerate: a real denominator from SQL, one verdict per
