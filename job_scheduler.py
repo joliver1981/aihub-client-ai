@@ -37,6 +37,19 @@ try:
 except Exception:  # pragma: no cover
     _tz_to_tzinfo = lambda _name: None
 
+# Standard-crontab day-of-week -> day NAMES before the trigger is built.
+# APScheduler's CronTrigger day_of_week is 0=MONDAY and from_crontab does NOT
+# remap standard crontab's 0=SUNDAY numbering, so a stored '0 9 * * 1-5'
+# ("weekdays") fired Tue-Sat - nine live schedules were a day late, including
+# weekday-named automations executing on a Saturday (root-caused 2026-08-15,
+# see cron_dow.py). Names mean the same days under both conventions. Same soft
+# import as schedule_tz above: a missing module can never break scheduling -
+# it just reverts to the prior (shifted) behavior.
+try:
+    from cron_dow import normalize_cron_dow as _normalize_cron_dow
+except Exception:  # pragma: no cover
+    _normalize_cron_dow = lambda expr: expr
+
 rotate_logs_on_startup(log_file=os.getenv('JOB_SCHEDULER_SERVICE_LOG', get_log_path('job_scheduler_service_log.txt')))
 
 # Configure logging — reconfigure stdout for UTF-8 on Windows
@@ -512,8 +525,17 @@ class JobSchedulerService:
                 _cron_tz = _tz_obj or JOB_SCHEDULER_TIMEZONE
                 if tz_name and _tz_obj is not None:
                     logger.info(f"Cron schedule using timezone: {tz_name}")
+                # Numeric day-of-week -> names so the stored STANDARD-crontab
+                # expression fires on the days its author meant (0=Sunday).
+                # Logged whenever it changes anything so the shift is visible
+                # in the engine log.
+                _cron_norm = _normalize_cron_dow(cron_expression)
+                if _cron_norm != cron_expression:
+                    logger.info(f"cron day-of-week normalized: "
+                                f"'{cron_expression}' -> '{_cron_norm}' "
+                                f"(standard crontab: 0=Sunday)")
                 trigger = CronTrigger.from_crontab(
-                    cron_expression,
+                    _cron_norm,
                     timezone=_cron_tz
                 )
                 if start_date:
