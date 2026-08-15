@@ -4179,6 +4179,77 @@ def get_user_group(group_id=None):
     })
 
 
+@app.route("/get/category_grants/<int:group_id>")
+@cross_origin()
+@api_key_or_session_required(min_role=3)
+def get_category_grants(group_id):
+    """Document-category access for one group (v3 ACL, migration 016).
+
+    Every category is returned with its grant state so the UI renders one
+    searchable list with Access + Manage checkboxes — with ~90 seeded categories
+    a dual-list would hide what a group can already see.
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+        cursor.execute("""
+            SELECT c.category_id, c.category_name,
+                   (SELECT COUNT(*) FROM DocumentTypeCategories tc
+                     WHERE tc.category_id = c.category_id) AS type_count,
+                   CASE WHEN cg.id IS NULL THEN 0 ELSE 1 END AS granted,
+                   ISNULL(cg.can_manage, 0) AS can_manage
+            FROM DocumentCategories c
+            LEFT JOIN DocumentCategoryGroups cg
+                   ON cg.category_id = c.category_id AND cg.group_id = ?
+            ORDER BY c.category_name
+        """, group_id)
+        rows = [{'category_id': r[0], 'category_name': r[1], 'type_count': r[2],
+                 'granted': bool(r[3]), 'can_manage': bool(r[4])}
+                for r in cursor.fetchall()]
+        conn.close()
+        return jsonify({'status': 'success', 'categories': rows})
+    except Exception as e:
+        logger.error(f"[get_category_grants] {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/save/category_grants', methods=['POST'])
+@cross_origin()
+@api_key_or_session_required(min_role=3)
+def save_category_grants():
+    """Replace one group's category grants (mirrors save_permissions'
+    DELETE+INSERT shape). Body: {group_id, grants: [{category_id, can_manage}]}.
+
+    An EMPTY grants list is a legitimate admin action — it removes the group's
+    document access entirely, and the v3 resolver fails CLOSED for its members.
+    """
+    try:
+        data = request.json or {}
+        group_id = int(data['group_id'])
+        grants = data.get('grants') or []
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+        cursor.execute("DELETE FROM DocumentCategoryGroups WHERE group_id = ?",
+                       group_id)
+        for g in grants:
+            cursor.execute("""
+                INSERT INTO DocumentCategoryGroups
+                    (category_id, group_id, can_manage, created_by)
+                VALUES (?, ?, ?, ?)
+            """, int(g['category_id']), group_id,
+                 1 if g.get('can_manage') else 0,
+                 getattr(current_user, 'user_name', None) or 'admin')
+        conn.commit()
+        conn.close()
+        logger.info(f"[category-grants] group={group_id} -> {len(grants)} grant(s)")
+        return jsonify({'status': 'success', 'granted': len(grants)})
+    except Exception as e:
+        logger.error(f"[save_category_grants] {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 @app.route("/get/quickjobs")
 @cross_origin()
 @login_required
@@ -5582,7 +5653,12 @@ def internal_document_search_unified():
         if assertion:
             try:
                 import shared_auth
-                claims = shared_auth.verify_token(assertion, shared_auth.AUD_INTERNAL)
+                # verify_token returns (claims, error) — NOT a bare dict.
+                claims, verr = shared_auth.verify_token(
+                    assertion, shared_auth.AUD_INTERNAL)
+                if verr or not claims:
+                    return jsonify({"status": "error",
+                                    "message": "invalid user assertion"}), 403
                 uid = claims.get("sub") or claims.get("user_id")
                 role = claims.get("role")
             except Exception:

@@ -418,10 +418,42 @@
                                 </div>
                             </div>
                         </div>
-                        
-                       
+
+
                     </div>
                 </div>
+
+                <!-- Document Categories (v3 ACL): which document categories this
+                     group can READ, and which it MANAGES (stewards receive the
+                     review items for new AI type assignments in the category). -->
+                <div class="row mt-2">
+                    <div class="col-md-12">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0">Document Categories</h6>
+                                <small class="text-muted">Access = members can search these documents &middot; Manage = stewards of the category</small>
+                            </div>
+                            <div class="card-body">
+                                <div class="input-group input-group-sm mb-2">
+                                    <div class="input-group-prepend">
+                                        <span class="input-group-text"><i class="fas fa-search"></i></span>
+                                    </div>
+                                    <input type="text" class="form-control" id="category-search" placeholder="Search categories..." onkeyup="filterCategories()">
+                                    <div class="input-group-append">
+                                        <button class="btn btn-outline-secondary" type="button" onclick="$('#category-search').val('');filterCategories();">
+                                            <i class="fas fa-times"></i>
+                                        </button>
+                                        <button class="btn btn-outline-secondary" type="button" id="categoryGrantAll" title="Grant access to all">All</button>
+                                        <button class="btn btn-outline-secondary" type="button" id="categoryGrantNone" title="Remove all access">None</button>
+                                    </div>
+                                </div>
+                                <div id="categoryList" style="max-height: 260px; overflow-y: auto;"></div>
+                                <small class="text-muted">A group with no categories granted has <strong>no document search access</strong> for its members (admins are always unrestricted).</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="row">
                     <!-- Actions card moved inline with reduced spacing -->
                     <div class="card">
@@ -593,6 +625,9 @@
                 // Enable controls
                 toggleControls(true);
 
+                // Document category grants (v3 ACL)
+                loadCategoryGrants(groupId);
+
                 // Fetch assigned and unassigned users
                 $.ajax({
                     url: '/get/user_groups/' + groupId,
@@ -635,6 +670,7 @@
                 $('#unassignedUsers').empty();
                 $('#assignedUsers').empty();
                 $('#permissionsList input[type="checkbox"]').prop('checked', false);
+                $('#categoryList').empty();
             }
         });
 
@@ -662,6 +698,50 @@
             $(this).toggleClass('active');
         });
 
+        // ── Document category grants (v3 ACL) ─────────────────────────────
+        function loadCategoryGrants(groupId) {
+            $('#categoryList').empty();
+            if (!groupId) return;
+            $.get('/get/category_grants/' + groupId, function(resp) {
+                if (resp.status !== 'success') return;
+                resp.categories.forEach(function(c) {
+                    var row = '<div class="d-flex align-items-center category-row py-1 border-bottom" data-name="' +
+                        $('<span>').text(c.category_name.toLowerCase()).html() + '">' +
+                        '<div class="flex-grow-1">' + $('<span>').text(c.category_name).html() +
+                        ' <small class="text-muted">(' + c.type_count + ' type' + (c.type_count === 1 ? '' : 's') + ')</small></div>' +
+                        '<label class="mb-0 mr-3"><input type="checkbox" class="cat-access" data-id="' + c.category_id + '"' +
+                        (c.granted ? ' checked' : '') + '> Access</label>' +
+                        '<label class="mb-0"><input type="checkbox" class="cat-manage" data-id="' + c.category_id + '"' +
+                        (c.can_manage ? ' checked' : '') + '> Manage</label>' +
+                        '</div>';
+                    $('#categoryList').append(row);
+                });
+            });
+        }
+        function filterCategories() {
+            var q = ($('#category-search').val() || '').toLowerCase();
+            $('#categoryList .category-row').each(function() {
+                $(this).toggle($(this).data('name').indexOf(q) !== -1);
+            });
+        }
+        // Manage implies Access — stewardship without visibility is meaningless.
+        $('#categoryList').on('change', '.cat-manage', function() {
+            if (this.checked) {
+                $('#categoryList .cat-access[data-id="' + $(this).data('id') + '"]').prop('checked', true);
+            }
+        });
+        $('#categoryList').on('change', '.cat-access', function() {
+            if (!this.checked) {
+                $('#categoryList .cat-manage[data-id="' + $(this).data('id') + '"]').prop('checked', false);
+            }
+        });
+        $('#categoryGrantAll').click(function() {
+            $('#categoryList .category-row:visible .cat-access').prop('checked', true);
+        });
+        $('#categoryGrantNone').click(function() {
+            $('#categoryList .category-row:visible .cat-access, #categoryList .category-row:visible .cat-manage').prop('checked', false);
+        });
+
         $('#saveChanges').click(function() {
             var groupId = $('#groupSelect').val();
             var assignedUsers = [];
@@ -675,13 +755,30 @@
                 permissions.push($(this).val());
             });
 
+            // Category grants ride the same Save button — one action, two writes.
+            var grants = [];
+            $('#categoryList .cat-access:checked').each(function() {
+                var id = $(this).data('id');
+                grants.push({
+                    category_id: id,
+                    can_manage: $('#categoryList .cat-manage[data-id="' + id + '"]').is(':checked')
+                });
+            });
+
             $.ajax({
                 url: '/save/permissions',
                 type: 'POST',
                 contentType: 'application/json',
                 data: JSON.stringify({ group_id: groupId, assigned_users: assignedUsers, permissions: permissions }),
                 success: function(response) {
-                    $('#successToast').toast('show');
+                    $.ajax({
+                        url: '/save/category_grants',
+                        type: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify({ group_id: groupId, grants: grants }),
+                        success: function() { $('#successToast').toast('show'); },
+                        error: function() { $('#errorToast').toast('show'); }
+                    });
                 },
                 error: function() {
                     $('#errorToast').toast('show');
