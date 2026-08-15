@@ -173,18 +173,89 @@ def normalize_search_result(raw, query: str) -> dict:
     }
 
 
+def _empty_result(question: str, engine: str, text: str, error=None) -> dict:
+    return {"ok": error is None, "engine": engine, "query": question,
+            "approach": None, "passages": [], "answer": text or None,
+            "text": text, "count": 0, "query_analysis": {}, "error": error}
+
+
+def _question_shape(question: str) -> str:
+    """COUNT (which/how-many across documents) vs LOOKUP. Mini-LLM per the
+    platform directive — never keywords. Any failure -> LOOKUP (legacy path)."""
+    try:
+        from doc_search_v3.enumerate_engine import _llm, _parse_json
+        raw = _llm(
+            f"Question: {question}\n\n"
+            'Return STRICT JSON: {"shape": "COUNT"} when the answer is a count '
+            'or list ACROSS MANY documents ("how many leases...", "which guides '
+            'require...", "list every document that..."), or {"shape": "LOOKUP"} '
+            "when it asks what specific documents say (facts, passages, "
+            "summaries, single-document questions).",
+            system="You classify question shapes. STRICT JSON only.",
+            max_tokens=60)
+        shape = str(_parse_json(raw).get("shape") or "").upper()
+        return shape if shape in ("COUNT", "LOOKUP") else "LOOKUP"
+    except Exception:
+        return "LOOKUP"
+
+
 def document_search_unified(question: str, max_results: int | None = None,
                             check_completeness: bool | None = None,
-                            conn_string: str | None = None) -> dict:
-    """Additive facade: run the enhanced repository search and return the stable
-    normalized schema. The Agent and Command Center call this (via the internal
-    endpoint) instead of parsing the raw engine output themselves."""
+                            conn_string: str | None = None,
+                            user_id=None, user_role=None) -> dict:
+    """Additive facade: route by question shape, then run the right engine and
+    return the stable normalized schema. The Agent and Command Center call this
+    (via the internal endpoint) instead of parsing raw engine output.
+
+    v3 (2026-08-15): COUNT-shaped questions go to doc_search_v3.enumerate — a
+    real denominator, one verdict per document, deterministic roll-up — and
+    LOOKUP questions run the legacy engine, now carrying the caller's category
+    allow list. Identity is optional: absent -> today's unrestricted posture.
+    Every v3 error falls back to legacy, never to a dead end."""
     question = (question or "").strip()
     if not question:
-        return {"ok": False, "engine": "repository_super_search",
-                "query": question, "approach": None, "passages": [],
-                "answer": None, "text": "", "count": 0,
-                "query_analysis": {}, "error": "question is required"}
+        return _empty_result(question, "repository_super_search", "",
+                             error="question is required")
+
+    allowed = None
+    try:
+        from doc_search_v3 import acl
+        allowed = acl.accessible_document_types(user_id, user_role)
+        if acl.deny_all(allowed):
+            # MUST stop here: the legacy engine treats an empty allow list as
+            # NO FILTER (fail-open) — deny-all may never reach it.
+            return _empty_result(
+                question, "doc_search_v3.acl",
+                "You do not have access to any document categories. An "
+                "administrator can grant access on the Groups page.")
+    except Exception as e:
+        # ACL machinery itself failing must not take search down for the
+        # identity-less callers that predate it.
+        if user_id not in (None, "", 0):
+            return _empty_result(question, "doc_search_v3.acl",
+                                 "Access could not be verified — try again.",
+                                 error=str(e)[:200])
+        allowed = None
+
+    if getattr(cfg, "DOC_SEARCH_V3_ENABLED", True) \
+            and _question_shape(question) == "COUNT":
+        try:
+            from doc_search_v3.enumerate_engine import enumerate_documents
+            v3 = enumerate_documents(question, user_id=user_id,
+                                     user_role=user_role)
+            if v3.get("ok") or v3.get("denied"):
+                result = _empty_result(question, "doc_search_v3.enumerate",
+                                       v3.get("text") or "")
+                result["approach"] = "enumerate"
+                result["count"] = v3.get("denominator") or 0
+                result["v3"] = {k: v3.get(k) for k in
+                                ("denominator", "types", "field_path", "counts",
+                                 "labels", "capped", "not_reached", "elapsed_s")}
+                return result
+        except Exception as e:
+            import logging
+            logging.error(f"doc_search_v3 enumerate failed ({e}) — "
+                          f"falling back to legacy search")
 
     from DocUtils import document_search_super_enhanced_debug
     cs = conn_string or get_db_connection_string()
@@ -192,7 +263,8 @@ def document_search_unified(question: str, max_results: int | None = None,
     cc = (check_completeness if check_completeness is not None
           else bool(getattr(cfg, "DOC_CHECK_COMPLETENESS", False)))
     raw = document_search_super_enhanced_debug(
-        cs, user_question=question, max_results=mr, check_completeness=cc)
+        cs, user_question=question, max_results=mr, check_completeness=cc,
+        allowed_document_types=allowed)
     result = normalize_search_result(raw, question)
 
     # RECORDS HINT — the discovery bridge. When search returns pages from document

@@ -80,6 +80,20 @@ def _headers(internal: bool = False) -> dict:
     if internal:
         # strict internal endpoints only accept the machine-derived key
         h["X-Internal-API-Key"] = get_internal_api_key()
+    # Caller identity (v3 category ACL): mint a short-lived assertion when this
+    # request runs on behalf of a real signed-in user. Absent identity keeps
+    # today's unrestricted posture server-side, so this is additive.
+    try:
+        user = CURRENT_USER.get() or {}
+        uid = user.get("user_id")
+        # The contextvar default is the service principal (user_id=0) — that is
+        # NOT a user identity and must not mint an assertion.
+        if uid not in (None, "", 0):
+            import shared_auth
+            h["X-AIHub-User"] = shared_auth.sign_user_assertion(
+                uid, (user or {}).get("tenant_id"), (user or {}).get("role"))
+    except Exception:
+        pass   # identity is an enhancement; a doc call must never fail over it
     return h
 
 

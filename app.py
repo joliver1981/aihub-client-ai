@@ -5572,11 +5572,29 @@ def internal_document_search_unified():
         question = (data.get("question") or "").strip()
         if not question:
             return jsonify({"status": "error", "message": "question is required"}), 400
+
+        # Optional caller identity (X-AIHub-User, AUD_INTERNAL assertion).
+        # ABSENT -> unrestricted, today's posture, so identity-less internal
+        # callers keep working. PRESENT BUT INVALID -> hard 403: a forged
+        # assertion must never be treated as merely missing.
+        uid, role = None, None
+        assertion = request.headers.get("X-AIHub-User")
+        if assertion:
+            try:
+                import shared_auth
+                claims = shared_auth.verify_token(assertion, shared_auth.AUD_INTERNAL)
+                uid = claims.get("sub") or claims.get("user_id")
+                role = claims.get("role")
+            except Exception:
+                return jsonify({"status": "error",
+                                "message": "invalid user assertion"}), 403
+
         from document_search_wrapper import document_search_unified
         result = document_search_unified(
             question,
             max_results=data.get("max_results"),
             check_completeness=data.get("check_completeness"),
+            user_id=uid, user_role=role,
         )
         return jsonify({"status": "success", "result": result})
     except Exception as e:

@@ -645,6 +645,17 @@ DOC_RECORDS_INPUT_TOKENS = int(os.getenv('DOC_RECORDS_INPUT_TOKENS', 12000))
 # they are the absence of one — so a schema learned from whichever document landed
 # first would be meaningless for the next. They always use free-form AI extraction.
 DOC_SCHEMA_EXCLUDED_TYPES = os.getenv('DOC_SCHEMA_EXCLUDED_TYPES', 'unknown,unknown_document')
+
+# ── Document search v3: the counting lane ─────────────────────────────────────
+# COUNT-shaped questions ("how many of our leases...", "which guides require...")
+# route to doc_search_v3.enumerate: a real denominator from SQL, one verdict per
+# document, deterministic roll-up, and verdicts written back as fields so the
+# SECOND ask answers from SQL. Every v3 error falls back to the legacy engine.
+DOC_SEARCH_V3_ENABLED = os.getenv('DOC_SEARCH_V3_ENABLED', 'True').lower() == 'true'
+# Wall-clock bound for one enumerate run — sized UNDER Command Center's 120s
+# client timeout so the server always answers first. Documents not reached are
+# named in the ledger, never silently dropped.
+DOC_V3_ENUM_TIMEOUT_S = int(os.getenv('DOC_V3_ENUM_TIMEOUT_S', 110))
 VECTOR_USE_SMART_CHUNKING = True                    # Smart chunking on/off switch (master toggle for LLM-driven chunking + section context)
 VECTOR_SMART_CHUNKING_MAX_CHARS = 128000            # Max context window for LLM chunking (can be ~1M tokens)
 VECTOR_SMART_CHUNK_INCLUDE_SECTION_HEADER = True    # When smart chunking is on, embed each chunk with [doc_identifier][section_breadcrumb] prefix and surface that context to the AI at retrieval time. Set False to keep boundary detection only.
