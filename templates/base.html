@@ -1385,6 +1385,10 @@
                         </a>
                         {% endif %}
 
+                        <a href="{{ url_for('document_categories_page') }}" class="new-nav-link">
+                            <span class="nav-text">Document Categories</span>
+                        </a>
+
                         {% if SHOW_ENTERPRISE_FEATURES %}
                         <a href="/email-processing/history" class="new-nav-link">
                             <span class="nav-text">Email Processing</span>
@@ -1720,6 +1724,10 @@
                             <span class="nav-text">Groups</span>
                         </a>
                         {% endif %}
+
+                        <a href="{{ url_for('document_categories_page') }}" class="new-nav-link">
+                            <span class="nav-text">Document Categories</span>
+                        </a>
 
                         <!-- Email Processing History (Enterprise Feature) -->
                         {% if SHOW_ENTERPRISE_FEATURES %}

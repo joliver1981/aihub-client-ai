@@ -1,0 +1,285 @@
+{% extends "base.html" %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<style>
+    .dc-wrap { max-width: 1200px; margin: 0 auto; padding: 20px; }
+    .dc-card { background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e0e0e0);
+               border-radius: 10px; padding: 20px 24px; margin-bottom: 22px; }
+    .dc-card h3 { margin: 0 0 4px 0; font-size: 1.05rem; }
+    .dc-sub { color: var(--text-secondary, #777); font-size: 0.85rem; margin-bottom: 14px; }
+    .dc-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    .dc-table th { text-align: left; padding: 8px 10px; color: var(--text-secondary, #777);
+                   font-weight: 600; border-bottom: 2px solid var(--border-color, #e0e0e0);
+                   white-space: nowrap; }
+    .dc-table td { padding: 7px 10px; border-bottom: 1px solid var(--border-color, #eee);
+                   vertical-align: middle; }
+    .dc-table tr:hover td { background: var(--hover-bg, rgba(128,128,128,0.06)); }
+    .dc-badge { display: inline-block; padding: 2px 9px; border-radius: 10px;
+                font-size: 0.72rem; font-weight: 600; white-space: nowrap; }
+    .dc-badge.pending  { background: rgba(255,165,0,0.15);  color: #cc7a00; }
+    .dc-badge.active   { background: rgba(40,167,69,0.15);  color: #1e7e34; }
+    .dc-badge.stray    { background: rgba(220,53,69,0.15);  color: #b02a37; }
+    .dc-badge.ai       { background: rgba(0,123,255,0.12);  color: #0b5ed7; }
+    .dc-badge.human    { background: rgba(108,117,125,0.15); color: #5a6268; }
+    .dc-select { padding: 5px 8px; border: 1px solid var(--border-color, #ccc);
+                 border-radius: 6px; background: var(--input-bg, #fff);
+                 color: var(--text-primary, #222); max-width: 260px; font-size: 0.85rem; }
+    .dc-input { padding: 6px 10px; border: 1px solid var(--border-color, #ccc);
+                border-radius: 6px; background: var(--input-bg, #fff);
+                color: var(--text-primary, #222); font-size: 0.85rem; }
+    .dc-btn { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer;
+              font-size: 0.83rem; font-weight: 600; background: var(--primary-color, #007bff);
+              color: #fff; }
+    .dc-btn:hover { filter: brightness(1.08); }
+    .dc-btn.subtle { background: var(--hover-bg, #e9ecef); color: var(--text-primary, #333); }
+    .dc-btn:disabled { opacity: 0.5; cursor: default; }
+    .dc-row-actions { display: flex; gap: 8px; align-items: center; }
+    .dc-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 12px;
+                  flex-wrap: wrap; }
+    .dc-count-pill { font-size: 0.78rem; color: var(--text-secondary, #888); }
+    .dc-empty { color: var(--text-secondary, #888); font-size: 0.88rem; padding: 10px 0; }
+    .dc-flash { position: fixed; top: 74px; right: 24px; z-index: 4000; padding: 10px 18px;
+                border-radius: 8px; font-size: 0.86rem; color: #fff; display: none; }
+    .dc-flash.ok { background: #28a745; } .dc-flash.err { background: #dc3545; }
+    .dc-conf { font-variant-numeric: tabular-nums; }
+</style>
+
+<div class="dc-wrap">
+    <h2 style="margin-bottom:2px;">Document Categories</h2>
+    <div class="dc-sub" style="margin-bottom:18px;">
+        Every document type belongs to one category; groups are granted access per
+        category on the <a href="/groups">Groups</a> page. A type with no category is
+        visible to <b>admins only</b>.
+    </div>
+
+    <!-- ── Needs attention: pending AI filings + unmapped strays ── -->
+    <div class="dc-card" id="dcReviewCard" style="display:none;">
+        <h3>Needs review</h3>
+        <div class="dc-sub">
+            Pending rows are AI filings awaiting approval (the type stays admin-only
+            until approved). Unfiled rows have no category at all.
+        </div>
+        <table class="dc-table" id="dcReviewTable">
+            <thead><tr>
+                <th>Document type</th><th>Docs</th><th>State</th>
+                <th>AI confidence</th><th>Category</th><th></th>
+            </tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <!-- ── All mappings ── -->
+    <div class="dc-card">
+        <h3>All document types</h3>
+        <div class="dc-sub">Change a category to re-file the type — takes effect on the
+            next search, no re-ingest needed.</div>
+        <div class="dc-toolbar">
+            <input type="text" class="dc-input" id="dcSearch"
+                   placeholder="Filter types or categories…" style="min-width:260px;">
+            <span class="dc-count-pill" id="dcMappedCount"></span>
+        </div>
+        <table class="dc-table" id="dcMapTable">
+            <thead><tr>
+                <th>Document type</th><th>Docs</th><th>Category</th>
+                <th>Status</th><th>Assigned by</th><th></th>
+            </tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <!-- ── Categories ── -->
+    <div class="dc-card">
+        <h3>Categories</h3>
+        <div class="dc-sub">New categories start with zero group grants (admin-only).
+            Merging moves all types and unions the group grants, then deletes the
+            source category.</div>
+        <div class="dc-toolbar">
+            <input type="text" class="dc-input" id="dcNewCatName" placeholder="New category name…">
+            <button class="dc-btn" id="dcCreateCat">Create</button>
+            <span style="flex:1"></span>
+            <select class="dc-select" id="dcMergeFrom"></select>
+            <span style="font-size:0.85rem;">into</span>
+            <select class="dc-select" id="dcMergeTo"></select>
+            <button class="dc-btn subtle" id="dcMergeBtn">Merge</button>
+        </div>
+        <table class="dc-table" id="dcCatTable">
+            <thead><tr>
+                <th>Category</th><th>Slug</th><th>Types</th><th>Groups granted</th>
+            </tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</div>
+
+<div class="dc-flash" id="dcFlash"></div>
+
+<script>
+(function () {
+    let DATA = { mappings: [], unmapped: [], categories: [] };
+
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g,
+            c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    function flash(msg, ok) {
+        const el = $('#dcFlash');
+        el.text(msg).removeClass('ok err').addClass(ok ? 'ok' : 'err').fadeIn(120);
+        setTimeout(() => el.fadeOut(300), ok ? 1800 : 4200);
+    }
+
+    function catOptions(selectedId, placeholder) {
+        let html = placeholder ? `<option value="">${esc(placeholder)}</option>` : '';
+        for (const c of DATA.categories) {
+            html += `<option value="${c.category_id}"` +
+                    (c.category_id === selectedId ? ' selected' : '') +
+                    `>${esc(c.category_name)}</option>`;
+        }
+        return html;
+    }
+
+    function load() {
+        $.getJSON('/get/document_category_admin', function (resp) {
+            if (resp.status !== 'success') { flash(resp.message || 'Load failed', false); return; }
+            DATA = resp;
+            render();
+        }).fail(() => flash('Failed to load category data', false));
+    }
+
+    function render() {
+        // -- Needs review: pending + strays --
+        const pending = DATA.mappings.filter(m => m.status === 'pending');
+        const review = $('#dcReviewTable tbody').empty();
+        for (const u of DATA.unmapped) {
+            review.append(`<tr>
+                <td><b>${esc(u.document_type)}</b></td>
+                <td>${u.doc_count}</td>
+                <td><span class="dc-badge stray">unfiled — admin-only</span></td>
+                <td>—</td>
+                <td><select class="dc-select dc-file-sel" data-type="${esc(u.document_type)}">
+                    ${catOptions(null, '— choose category —')}</select></td>
+                <td><button class="dc-btn dc-file-btn" data-type="${esc(u.document_type)}">File</button></td>
+            </tr>`);
+        }
+        for (const m of pending) {
+            review.append(`<tr>
+                <td><b>${esc(m.document_type)}</b></td>
+                <td>${m.doc_count}</td>
+                <td><span class="dc-badge pending">pending approval</span></td>
+                <td class="dc-conf">${m.ai_confidence != null ? Math.round(m.ai_confidence) + '%' : '—'}</td>
+                <td><select class="dc-select dc-file-sel" data-type="${esc(m.document_type)}">
+                    ${catOptions(m.category_id, null)}</select></td>
+                <td><button class="dc-btn dc-file-btn" data-type="${esc(m.document_type)}">Approve</button></td>
+            </tr>`);
+        }
+        $('#dcReviewCard').toggle(pending.length + DATA.unmapped.length > 0);
+
+        // -- All mappings --
+        renderMappings();
+
+        // -- Categories --
+        const cats = $('#dcCatTable tbody').empty();
+        for (const c of DATA.categories) {
+            cats.append(`<tr>
+                <td><b>${esc(c.category_name)}</b></td>
+                <td style="color:var(--text-secondary,#888);">${esc(c.category_slug)}</td>
+                <td>${c.type_count}</td>
+                <td>${c.group_count}</td>
+            </tr>`);
+        }
+        $('#dcMergeFrom').html(catOptions(null, 'Merge category…'));
+        $('#dcMergeTo').html(catOptions(null, 'into category…'));
+    }
+
+    function renderMappings() {
+        const q = ($('#dcSearch').val() || '').toLowerCase();
+        const body = $('#dcMapTable tbody').empty();
+        let shown = 0;
+        for (const m of DATA.mappings) {
+            if (q && !m.document_type.toLowerCase().includes(q) &&
+                !(m.category_name || '').toLowerCase().includes(q)) continue;
+            shown++;
+            body.append(`<tr>
+                <td><b>${esc(m.document_type)}</b></td>
+                <td>${m.doc_count}</td>
+                <td><select class="dc-select dc-recat-sel" data-type="${esc(m.document_type)}"
+                        data-orig="${m.category_id}">${catOptions(m.category_id, null)}</select></td>
+                <td><span class="dc-badge ${esc(m.status)}">${esc(m.status)}</span></td>
+                <td><span class="dc-badge ${esc(m.assigned_by)}">${esc(m.assigned_by)}</span>
+                    ${m.assigned_by === 'ai' && m.ai_confidence != null
+                        ? `<span class="dc-conf" style="font-size:0.75rem;color:var(--text-secondary,#888);"> ${Math.round(m.ai_confidence)}%</span>` : ''}</td>
+                <td><button class="dc-btn dc-recat-btn" data-type="${esc(m.document_type)}"
+                        style="display:none;">Save</button></td>
+            </tr>`);
+        }
+        if (!shown) body.append('<tr><td colspan="6" class="dc-empty">No matching types.</td></tr>');
+        $('#dcMappedCount').text(`${shown} of ${DATA.mappings.length} types` +
+            (DATA.unmapped.length ? ` · ${DATA.unmapped.length} unfiled` : ''));
+    }
+
+    function fileType(documentType, categoryId, btn) {
+        if (!categoryId) { flash('Choose a category first', false); return; }
+        btn && btn.prop('disabled', true);
+        $.ajax({
+            url: '/save/type_category', method: 'POST', contentType: 'application/json',
+            data: JSON.stringify({ document_type: documentType, category_id: +categoryId })
+        }).done(resp => {
+            if (resp.status === 'success') { flash(`Filed '${documentType}'`, true); load(); }
+            else flash(resp.message || 'Save failed', false);
+        }).fail(x => flash((x.responseJSON || {}).message || 'Save failed', false))
+          .always(() => btn && btn.prop('disabled', false));
+    }
+
+    // -- events --
+    $(document).on('click', '.dc-file-btn', function () {
+        const t = $(this).data('type');
+        fileType(t, $(`.dc-file-sel[data-type="${CSS.escape(t)}"]`).val(), $(this));
+    });
+    $(document).on('change', '.dc-recat-sel', function () {
+        const changed = String($(this).val()) !== String($(this).data('orig'));
+        $(this).closest('tr').find('.dc-recat-btn').toggle(changed);
+    });
+    $(document).on('click', '.dc-recat-btn', function () {
+        const t = $(this).data('type');
+        fileType(t, $(`.dc-recat-sel[data-type="${CSS.escape(t)}"]`).val(), $(this));
+    });
+    $('#dcSearch').on('input', renderMappings);
+
+    $('#dcCreateCat').on('click', function () {
+        const name = ($('#dcNewCatName').val() || '').trim();
+        if (!name) { flash('Enter a category name', false); return; }
+        $.ajax({
+            url: '/save/document_category', method: 'POST', contentType: 'application/json',
+            data: JSON.stringify({ category_name: name })
+        }).done(resp => {
+            if (resp.status === 'success') { $('#dcNewCatName').val(''); flash(`Created '${name}'`, true); load(); }
+            else flash(resp.message || 'Create failed', false);
+        }).fail(x => flash((x.responseJSON || {}).message || 'Create failed', false));
+    });
+
+    $('#dcMergeBtn').on('click', function () {
+        const from = $('#dcMergeFrom').val(), to = $('#dcMergeTo').val();
+        if (!from || !to) { flash('Pick both categories', false); return; }
+        if (from === to) { flash('Pick two different categories', false); return; }
+        const fromName = $('#dcMergeFrom option:selected').text();
+        const toName = $('#dcMergeTo option:selected').text();
+        if (!confirm(`Merge '${fromName}' into '${toName}'?\n\nAll its types move to ` +
+                     `'${toName}', group grants are unioned, and '${fromName}' is deleted. ` +
+                     `This cannot be undone.`)) return;
+        $.ajax({
+            url: '/merge/document_category', method: 'POST', contentType: 'application/json',
+            data: JSON.stringify({ from_id: +from, to_id: +to })
+        }).done(resp => {
+            if (resp.status === 'success') { flash(`Merged — ${resp.moved_types} type(s) moved`, true); load(); }
+            else flash(resp.message || 'Merge failed', false);
+        }).fail(x => flash((x.responseJSON || {}).message || 'Merge failed', false));
+    });
+
+    load();
+})();
+</script>
+</div>
+{% endblock %}

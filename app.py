@@ -4250,6 +4250,205 @@ def save_category_grants():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
+# ---- Document category governance (v3 ACL review page, migration 016) ------
+
+@app.route('/document_categories')
+@admin_required()
+def document_categories_page():
+    return render_template('document_categories.html')
+
+
+@app.route('/get/document_category_admin')
+@cross_origin()
+@api_key_or_session_required(min_role=3)
+def get_document_category_admin():
+    """Everything the review page needs in one payload: every type->category
+    mapping with live doc counts (pending AI filings are just status='pending'
+    rows), UNMAPPED stray types (admin-only until filed — the failure mode this
+    page exists to catch), and the category list for the pickers."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+        cursor.execute("""
+            SELECT tc.document_type, tc.category_id, c.category_name, tc.status,
+                   tc.assigned_by, tc.ai_confidence,
+                   (SELECT COUNT(*) FROM Documents d
+                     WHERE d.document_type = tc.document_type) AS doc_count
+            FROM DocumentTypeCategories tc
+            JOIN DocumentCategories c ON c.category_id = tc.category_id
+            ORDER BY tc.document_type
+        """)
+        mappings = [{'document_type': r[0], 'category_id': r[1],
+                     'category_name': r[2], 'status': r[3], 'assigned_by': r[4],
+                     'ai_confidence': r[5], 'doc_count': r[6]}
+                    for r in cursor.fetchall()]
+        cursor.execute("""
+            SELECT d.document_type, COUNT(*) AS doc_count
+            FROM Documents d
+            WHERE d.document_type IS NOT NULL AND d.document_type <> ''
+              AND NOT EXISTS (SELECT 1 FROM DocumentTypeCategories tc
+                              WHERE tc.document_type = d.document_type)
+            GROUP BY d.document_type
+            ORDER BY d.document_type
+        """)
+        unmapped = [{'document_type': r[0], 'doc_count': r[1]}
+                    for r in cursor.fetchall()]
+        cursor.execute("""
+            SELECT c.category_id, c.category_slug, c.category_name, c.is_system,
+                   (SELECT COUNT(*) FROM DocumentTypeCategories tc
+                     WHERE tc.category_id = c.category_id) AS type_count,
+                   (SELECT COUNT(*) FROM DocumentCategoryGroups cg
+                     WHERE cg.category_id = c.category_id) AS group_count
+            FROM DocumentCategories c
+            ORDER BY c.category_name
+        """)
+        categories = [{'category_id': r[0], 'category_slug': r[1],
+                       'category_name': r[2], 'is_system': bool(r[3]),
+                       'type_count': r[4], 'group_count': r[5]}
+                      for r in cursor.fetchall()]
+        conn.close()
+        return jsonify({'status': 'success', 'mappings': mappings,
+                        'unmapped': unmapped, 'categories': categories})
+    except Exception as e:
+        logger.error(f"[get_document_category_admin] {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/save/type_category', methods=['POST'])
+@cross_origin()
+@api_key_or_session_required(min_role=3)
+def save_type_category():
+    """File (or re-file) one document type into a category, as a human.
+
+    One endpoint covers all three review actions — approve a pending AI filing
+    (same category), recategorise (different category), adopt a stray (no row
+    yet) — because they are all 'a human says this type belongs here', which
+    upserts status='active', assigned_by='human'."""
+    try:
+        data = request.json or {}
+        document_type = (data.get('document_type') or '').strip()
+        category_id = int(data['category_id'])
+        if not document_type:
+            return jsonify({'status': 'error',
+                            'message': 'document_type required'}), 400
+        who = getattr(current_user, 'user_name', None) or 'admin'
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+        cursor.execute("""
+            UPDATE DocumentTypeCategories
+               SET category_id = ?, status = 'active', assigned_by = 'human',
+                   ai_confidence = NULL, created_by = ?
+             WHERE document_type = ?
+        """, category_id, who, document_type)
+        if cursor.rowcount == 0:
+            cursor.execute("""
+                INSERT INTO DocumentTypeCategories
+                    (document_type, category_id, status, assigned_by, created_by)
+                VALUES (?, ?, 'active', 'human', ?)
+            """, document_type, category_id, who)
+        conn.commit()
+        conn.close()
+        logger.info(f"[category-review] '{document_type}' -> category "
+                    f"{category_id} by {who}")
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        logger.error(f"[save_type_category] {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/save/document_category', methods=['POST'])
+@cross_origin()
+@api_key_or_session_required(min_role=3)
+def save_document_category():
+    """Create a category. Starts with zero group grants (admin-only) — granting
+    lives on the Groups page."""
+    try:
+        import re as _re
+        name = ((request.json or {}).get('category_name') or '').strip()
+        if not name:
+            return jsonify({'status': 'error',
+                            'message': 'category_name required'}), 400
+        slug = _re.sub(r'[^a-z0-9_]', '_', name.lower()).strip('_')[:100]
+        if not slug:
+            return jsonify({'status': 'error', 'message': 'invalid name'}), 400
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+        cursor.execute("SELECT 1 FROM DocumentCategories WHERE category_slug = ?",
+                       slug)
+        if cursor.fetchone():
+            conn.close()
+            return jsonify({'status': 'error',
+                            'message': f"A category with slug '{slug}' already "
+                                       f"exists"}), 400
+        cursor.execute("""
+            INSERT INTO DocumentCategories
+                (category_slug, category_name, is_system, created_by)
+            VALUES (?, ?, 0, ?)
+        """, slug, name, getattr(current_user, 'user_name', None) or 'admin')
+        conn.commit()
+        conn.close()
+        return jsonify({'status': 'success', 'category_slug': slug})
+    except Exception as e:
+        logger.error(f"[save_document_category] {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/merge/document_category', methods=['POST'])
+@cross_origin()
+@api_key_or_session_required(min_role=3)
+def merge_document_category():
+    """Merge category `from_id` into `to_id`: move its types, union its group
+    grants (a manage grant on either side survives), then delete it."""
+    try:
+        data = request.json or {}
+        from_id, to_id = int(data['from_id']), int(data['to_id'])
+        if from_id == to_id:
+            return jsonify({'status': 'error',
+                            'message': 'Pick two different categories'}), 400
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+        cursor.execute("""
+            UPDATE DocumentTypeCategories SET category_id = ?
+             WHERE category_id = ?
+        """, to_id, from_id)
+        moved_types = cursor.rowcount
+        # Grant union: upgrade can_manage on the target where the source had it,
+        # drop source rows whose group already has the target, move the rest.
+        cursor.execute("""
+            UPDATE tgt SET can_manage = 1
+            FROM DocumentCategoryGroups tgt
+            WHERE tgt.category_id = ? AND tgt.can_manage = 0
+              AND EXISTS (SELECT 1 FROM DocumentCategoryGroups src
+                          WHERE src.category_id = ?
+                            AND src.group_id = tgt.group_id
+                            AND src.can_manage = 1)
+        """, to_id, from_id)
+        cursor.execute("""
+            DELETE FROM DocumentCategoryGroups
+             WHERE category_id = ?
+               AND group_id IN (SELECT group_id FROM DocumentCategoryGroups
+                                WHERE category_id = ?)
+        """, from_id, to_id)
+        cursor.execute("""
+            UPDATE DocumentCategoryGroups SET category_id = ?
+             WHERE category_id = ?
+        """, to_id, from_id)
+        cursor.execute("DELETE FROM DocumentCategories WHERE category_id = ?",
+                       from_id)
+        conn.commit()
+        conn.close()
+        logger.info(f"[category-merge] {from_id} -> {to_id} "
+                    f"({moved_types} type(s) moved)")
+        return jsonify({'status': 'success', 'moved_types': moved_types})
+    except Exception as e:
+        logger.error(f"[merge_document_category] {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 @app.route("/get/quickjobs")
 @cross_origin()
 @login_required
