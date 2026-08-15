@@ -1838,7 +1838,11 @@ class LLMDocumentProcessor:
             for row in rows:
                 if isinstance(row, dict) and any(
                         str(v).strip() for v in row.values() if v is not None):
-                    all_rows.append({str(k): v for k, v in row.items() if k in columns})
+                    clean = {str(k): v for k, v in row.items() if k in columns}
+                    for pk in ('source_pages', 'source_page'):
+                        if pk in clean:
+                            clean[pk] = self._normalize_page_ref(clean[pk])
+                    all_rows.append(clean)
 
             self.logger.info(
                 f"Records: pages {page_list[0]}-{page_list[-1]} -> "
@@ -1854,6 +1858,23 @@ class LLMDocumentProcessor:
                            'expected_rows': spec.get('expected_rows') or 0,
                            'groups': len(groups),
                            'truncated_groups': truncated_groups}}
+
+    @staticmethod
+    def _normalize_page_ref(value) -> str:
+        """'Page 6' / '[Page 8], [Page 9]' / 'p. 6-7' -> '6' / '8,9' / '6,7'.
+
+        The extraction prompt tells the model to cite the [Page N] markers, so it
+        writes 'Page 6' back — but source_pages is a reference column that queries
+        and citations join on, so it holds bare numbers only. Format-level regex,
+        not language interpretation.
+        """
+        if value in (None, ''):
+            return ''
+        seen = []
+        for n in re.findall(r'\d+', str(value)):
+            if n not in seen:
+                seen.append(n)
+        return ','.join(seen)
 
     @staticmethod
     def _salvage_rows(json_str: str) -> List[Dict[str, Any]]:

@@ -276,3 +276,33 @@ class TestTruncatedRowsAreSalvaged:
         expected = int(getattr(cfg, 'DOC_RECORDS_INPUT_TOKENS', 12000)
                        * float(getattr(cfg, 'DOC_CHARS_PER_TOKEN', 4) or 4))
         assert captured['max_chars'] == max(10000, expected)
+
+
+@pytest.mark.unit
+class TestPageRefNormalization:
+    """The model cites '[Page N]' markers back as 'Page 6'; the reference column
+    holds bare numbers so queries and citations can join on it."""
+
+    @pytest.mark.parametrize('raw,expected', [
+        ('Page 6', '6'),
+        ('[Page 8], [Page 9]', '8,9'),
+        ('p. 6-7', '6,7'),
+        ('6', '6'),
+        ('8,9', '8,9'),
+        ('Pages 12 and 14', '12,14'),
+        ('', ''),
+        (None, ''),
+        ('Page 6, Page 6', '6'),          # dedup
+    ])
+    def test_normalization(self, engine, raw, expected):
+        assert engine._normalize_page_ref(raw) == expected
+
+    def test_rows_are_normalized_during_extraction(self, engine):
+        with patch.object(engine, '_group_pages_for_extraction', return_value=[
+                {'text': '[Page 1] a', 'page_numbers': [1]}]), \
+             patch('LLMDocumentEngine.AnthropicProxyClient') as mock_client:
+            mock_client.return_value.messages_create.return_value = _reply(
+                [{'topic': 'Labeling', 'requirement': 'x',
+                  'source_pages': 'Page 6'}])
+            out = engine._extract_records(_pages(1), 'vendor_guide', GUIDE_SCHEMA)
+        assert out['requirements']['rows'][0]['source_pages'] == '6'
