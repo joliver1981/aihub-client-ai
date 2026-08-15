@@ -834,6 +834,17 @@ class LLMDocumentProcessor:
         try:
             self.anthropic_proxy_client._set_tracking_params('document_processor')
 
+            # Re-read schemas from disk per document: the app and the job queue
+            # each hold a long-lived processor, so without this a schema learned
+            # in one process — or edited on the admin page — stays invisible to
+            # the other until restart. A few small YAML reads per multi-minute
+            # ingest is noise.
+            try:
+                self.schemas = self._load_schemas()
+            except Exception as schema_reload_err:
+                self.logger.warning(f"Schema reload failed, using cached: "
+                                    f"{schema_reload_err}")
+
             page_data_list = []
             extracted_pages = []
             # Get filename and basic file info

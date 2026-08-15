@@ -4449,6 +4449,213 @@ def merge_document_category():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
+# ---- Document schema admin (learned extraction schemas) ---------------------
+
+def _schema_admin_dir():
+    """Same resolution as LLMDocumentProcessor's default schema_dir='./schemas'."""
+    return os.path.abspath('./schemas')
+
+
+def _schema_admin_files():
+    """[(document_type, path)] by parsing every YAML in the schema dir — the
+    document_type key INSIDE the file is authoritative (mirrors _load_schemas;
+    filenames are just where the engine happened to write)."""
+    import yaml
+    out = []
+    d = _schema_admin_dir()
+    if not os.path.isdir(d):
+        return out
+    for fn in sorted(os.listdir(d)):
+        if not fn.endswith(('.yml', '.yaml')):
+            continue
+        path = os.path.join(d, fn)
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f)
+            if isinstance(data, dict) and data.get('document_type'):
+                out.append((data['document_type'], path, data))
+        except Exception as e:
+            logger.warning(f"[schema-admin] unreadable schema {fn}: {e}")
+    return out
+
+
+@app.route('/document_schemas')
+@admin_required()
+def document_schemas_page():
+    return render_template('document_schemas.html')
+
+
+@app.route('/get/document_schemas')
+@cross_origin()
+@api_key_or_session_required(min_role=3)
+def get_document_schemas():
+    """List every learned/hand-written schema plus types parked mid-learning
+    (consolidation failed; retried on the type's next document)."""
+    try:
+        from datetime import datetime
+        schemas = []
+        for doc_type, path, data in _schema_admin_files():
+            fields = data.get('fields')
+            records = data.get('records')
+            schemas.append({
+                'document_type': doc_type,
+                'filename': os.path.basename(path),
+                'auto_learned': os.path.basename(path).endswith(
+                    ('_auto.yml', '_auto.yaml')),
+                'field_count': len(fields) if isinstance(fields, (dict, list))
+                               else None,
+                'record_sets': list(records.keys())
+                               if isinstance(records, dict) else [],
+                'allow_evolution': bool(data.get('allow_evolution', True)),
+                'modified': datetime.fromtimestamp(
+                    os.path.getmtime(path)).strftime('%Y-%m-%d %H:%M'),
+            })
+        pending = []
+        pdir = os.path.join(_schema_admin_dir(), '_pending')
+        if os.path.isdir(pdir):
+            for fn in sorted(os.listdir(pdir)):
+                if not fn.endswith('_observed.json'):
+                    continue
+                try:
+                    with open(os.path.join(pdir, fn), 'r', encoding='utf-8') as f:
+                        obs = json.load(f)
+                    pending.append({
+                        'document_type': obs.get('document_type',
+                                                 fn[:-len('_observed.json')]),
+                        'observed_paths': len(obs.get('observed_paths') or []),
+                    })
+                except Exception:
+                    pending.append({'document_type': fn[:-len('_observed.json')],
+                                    'observed_paths': None})
+        return jsonify({'status': 'success', 'schemas': schemas,
+                        'pending': pending})
+    except Exception as e:
+        logger.error(f"[get_document_schemas] {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/get/document_schema')
+@cross_origin()
+@api_key_or_session_required(min_role=3)
+def get_document_schema():
+    try:
+        doc_type = (request.args.get('document_type') or '').strip()
+        for t, path, _data in _schema_admin_files():
+            if t == doc_type:
+                with open(path, 'r', encoding='utf-8') as f:
+                    return jsonify({'status': 'success', 'document_type': t,
+                                    'filename': os.path.basename(path),
+                                    'yaml_text': f.read()})
+        return jsonify({'status': 'error', 'message': 'No schema for type'}), 404
+    except Exception as e:
+        logger.error(f"[get_document_schema] {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/save/document_schema', methods=['POST'])
+@cross_origin()
+@api_key_or_session_required(min_role=3)
+def save_document_schema():
+    """Overwrite a schema's YAML after validating it still parses and still
+    describes the SAME document_type (renaming here would orphan the file from
+    its type). Previous version is kept in schemas/_history/. Takes effect on
+    the next ingest — the engine re-reads schemas per document."""
+    try:
+        import yaml
+        from datetime import datetime
+        data = request.json or {}
+        doc_type = (data.get('document_type') or '').strip()
+        text = data.get('yaml_text') or ''
+        try:
+            parsed = yaml.safe_load(text)
+        except Exception as ye:
+            return jsonify({'status': 'error',
+                            'message': f'Not valid YAML: {ye}'}), 400
+        if not isinstance(parsed, dict):
+            return jsonify({'status': 'error',
+                            'message': 'Schema must be a YAML mapping'}), 400
+        if parsed.get('document_type') != doc_type:
+            return jsonify({'status': 'error',
+                            'message': f"document_type inside the YAML must stay "
+                                       f"'{doc_type}'"}), 400
+        for t, path, _d in _schema_admin_files():
+            if t == doc_type:
+                hist = os.path.join(_schema_admin_dir(), '_history')
+                os.makedirs(hist, exist_ok=True)
+                stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                shutil.copy2(path, os.path.join(
+                    hist, f"{os.path.basename(path)}.{stamp}.bak"))
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(text)
+                logger.info(f"[schema-admin] '{doc_type}' saved by "
+                            f"{getattr(current_user, 'user_name', 'admin')}")
+                return jsonify({'status': 'success'})
+        return jsonify({'status': 'error', 'message': 'No schema for type'}), 404
+    except Exception as e:
+        logger.error(f"[save_document_schema] {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/save/schema_evolution', methods=['POST'])
+@cross_origin()
+@api_key_or_session_required(min_role=3)
+def save_schema_evolution():
+    """Per-type toggle (default ON): may the engine evolve this schema — add
+    newly observed fields — as more documents of the type arrive. Stored in the
+    schema YAML itself so it travels with the schema."""
+    try:
+        import yaml
+        data = request.json or {}
+        doc_type = (data.get('document_type') or '').strip()
+        allow = bool(data.get('allow_evolution'))
+        for t, path, parsed in _schema_admin_files():
+            if t == doc_type:
+                parsed['allow_evolution'] = allow
+                with open(path, 'w', encoding='utf-8') as f:
+                    yaml.dump(parsed, f, sort_keys=False, allow_unicode=True,
+                              default_flow_style=False)
+                return jsonify({'status': 'success',
+                                'allow_evolution': allow})
+        return jsonify({'status': 'error', 'message': 'No schema for type'}), 404
+    except Exception as e:
+        logger.error(f"[save_schema_evolution] {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/delete/document_schema', methods=['POST'])
+@cross_origin()
+@api_key_or_session_required(min_role=3)
+def delete_document_schema():
+    """Retire a schema: the type's NEXT document triggers a fresh whole-document
+    learning pass. Moved to schemas/_trash (with any parked observation, so
+    relearning starts clean), never hard-deleted."""
+    try:
+        from datetime import datetime
+        doc_type = ((request.json or {}).get('document_type') or '').strip()
+        for t, path, _d in _schema_admin_files():
+            if t == doc_type:
+                trash = os.path.join(_schema_admin_dir(), '_trash')
+                os.makedirs(trash, exist_ok=True)
+                stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                shutil.move(path, os.path.join(
+                    trash, f"{os.path.basename(path)}.{stamp}"))
+                safe = ''.join(c if c.isalnum() or c in '-_' else '_'
+                               for c in doc_type)
+                pend = os.path.join(_schema_admin_dir(), '_pending',
+                                    f"{safe}_observed.json")
+                if os.path.exists(pend):
+                    shutil.move(pend, os.path.join(
+                        trash, f"{safe}_observed.json.{stamp}"))
+                logger.info(f"[schema-admin] '{doc_type}' schema retired by "
+                            f"{getattr(current_user, 'user_name', 'admin')} — "
+                            f"relearns on next ingest")
+                return jsonify({'status': 'success'})
+        return jsonify({'status': 'error', 'message': 'No schema for type'}), 404
+    except Exception as e:
+        logger.error(f"[delete_document_schema] {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 @app.route("/get/quickjobs")
 @cross_origin()
 @login_required

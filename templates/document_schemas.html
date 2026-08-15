@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<style>
+    .ds-wrap { max-width: 1200px; margin: 0 auto; padding: 20px; }
+    .ds-card { background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e0e0e0);
+               border-radius: 10px; padding: 20px 24px; margin-bottom: 22px; }
+    .ds-card h3 { margin: 0 0 4px 0; font-size: 1.05rem; }
+    .ds-sub { color: var(--text-secondary, #777); font-size: 0.85rem; margin-bottom: 14px; }
+    .ds-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    .ds-table th { text-align: left; padding: 8px 10px; color: var(--text-secondary, #777);
+                   font-weight: 600; border-bottom: 2px solid var(--border-color, #e0e0e0);
+                   white-space: nowrap; }
+    .ds-table td { padding: 7px 10px; border-bottom: 1px solid var(--border-color, #eee);
+                   vertical-align: middle; }
+    .ds-table tr.ds-row { cursor: pointer; }
+    .ds-table tr.ds-row:hover td { background: var(--hover-bg, rgba(128,128,128,0.06)); }
+    .ds-table tr.ds-row.sel td { background: rgba(0,123,255,0.08); }
+    .ds-badge { display: inline-block; padding: 2px 9px; border-radius: 10px;
+                font-size: 0.72rem; font-weight: 600; white-space: nowrap; }
+    .ds-badge.auto    { background: rgba(0,123,255,0.12); color: #0b5ed7; }
+    .ds-badge.manual  { background: rgba(108,117,125,0.15); color: #5a6268; }
+    .ds-badge.records { background: rgba(111,66,193,0.14); color: #6f42c1; }
+    .ds-badge.pending { background: rgba(255,165,0,0.15); color: #cc7a00; }
+    .ds-btn { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer;
+              font-size: 0.83rem; font-weight: 600; background: var(--primary-color, #007bff);
+              color: #fff; }
+    .ds-btn:hover { filter: brightness(1.08); }
+    .ds-btn.subtle { background: var(--hover-bg, #e9ecef); color: var(--text-primary, #333); }
+    .ds-btn.danger { background: #dc3545; }
+    .ds-btn:disabled { opacity: 0.5; cursor: default; }
+    .ds-editor { width: 100%; min-height: 420px; font-family: 'Consolas', 'Monaco', monospace;
+                 font-size: 0.82rem; line-height: 1.45; padding: 12px;
+                 border: 1px solid var(--border-color, #ccc); border-radius: 8px;
+                 background: var(--input-bg, #fafafa); color: var(--text-primary, #222);
+                 white-space: pre; overflow-x: auto; resize: vertical; }
+    .ds-editor-bar { display: flex; gap: 10px; align-items: center; margin: 10px 0; }
+    .ds-flash { position: fixed; top: 74px; right: 24px; z-index: 4000; padding: 10px 18px;
+                border-radius: 8px; font-size: 0.86rem; color: #fff; display: none; }
+    .ds-flash.ok { background: #28a745; } .ds-flash.err { background: #dc3545; }
+    /* evolution toggle */
+    .ds-toggle { position: relative; display: inline-block; width: 38px; height: 20px; }
+    .ds-toggle input { opacity: 0; width: 0; height: 0; }
+    .ds-toggle .slider { position: absolute; inset: 0; background: #adb5bd;
+                         border-radius: 20px; transition: 0.2s; }
+    .ds-toggle .slider:before { content: ''; position: absolute; height: 14px; width: 14px;
+                                left: 3px; bottom: 3px; background: #fff; border-radius: 50%;
+                                transition: 0.2s; }
+    .ds-toggle input:checked + .slider { background: var(--primary-color, #007bff); }
+    .ds-toggle input:checked + .slider:before { transform: translateX(18px); }
+</style>
+
+<div class="ds-wrap">
+    <h2 style="margin-bottom:2px;">Document Schemas</h2>
+    <div class="ds-sub" style="margin-bottom:18px;">
+        What the engine extracts per document type: fields (one value per document)
+        and record sets (repeating rows). Learned automatically from the first document
+        of each type; edits apply on the <b>next ingest</b> — no restart needed.
+    </div>
+
+    <div class="ds-card" id="dsPendingCard" style="display:none;">
+        <h3>Learning in progress</h3>
+        <div class="ds-sub">These types were read free-form but schema consolidation
+            failed — it retries automatically on the type's next document.</div>
+        <table class="ds-table" id="dsPendingTable">
+            <thead><tr><th>Document type</th><th>Observed field paths</th></tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <div class="ds-card">
+        <h3>Schemas</h3>
+        <div class="ds-sub">
+            <b>Evolve</b> (per type, on by default) lets the engine add newly observed
+            fields as more documents of the type arrive. Deleting a schema makes the
+            type's next document trigger a fresh learning pass.
+        </div>
+        <table class="ds-table" id="dsTable">
+            <thead><tr>
+                <th>Document type</th><th>Source</th><th>Fields</th>
+                <th>Record sets</th><th>Evolve</th><th>Modified</th>
+            </tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <div class="ds-card" id="dsEditorCard" style="display:none;">
+        <h3 id="dsEditorTitle"></h3>
+        <div class="ds-sub" id="dsEditorFile"></div>
+        <textarea class="ds-editor" id="dsEditor" spellcheck="false"></textarea>
+        <div class="ds-editor-bar">
+            <button class="ds-btn" id="dsSaveBtn">Save schema</button>
+            <button class="ds-btn subtle" id="dsCloseBtn">Close</button>
+            <span style="flex:1"></span>
+            <button class="ds-btn danger" id="dsDeleteBtn">Delete — relearn on next ingest</button>
+        </div>
+    </div>
+</div>
+
+<div class="ds-flash" id="dsFlash"></div>
+
+<script>
+(function () {
+    let CURRENT = null;   // document_type open in the editor
+
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g,
+            c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    function flash(msg, ok) {
+        const el = $('#dsFlash');
+        el.text(msg).removeClass('ok err').addClass(ok ? 'ok' : 'err').fadeIn(120);
+        setTimeout(() => el.fadeOut(300), ok ? 1800 : 4200);
+    }
+
+    function load() {
+        $.getJSON('/get/document_schemas', function (resp) {
+            if (resp.status !== 'success') { flash(resp.message || 'Load failed', false); return; }
+            const body = $('#dsTable tbody').empty();
+            if (!resp.schemas.length) {
+                body.append('<tr><td colspan="6" style="color:var(--text-secondary,#888);">' +
+                            'No schemas yet — one is learned from the first document of each type.</td></tr>');
+            }
+            for (const s of resp.schemas) {
+                const recs = s.record_sets.length
+                    ? s.record_sets.map(r => `<span class="ds-badge records">${esc(r)}</span>`).join(' ')
+                    : '<span style="color:var(--text-secondary,#999);">—</span>';
+                body.append(`<tr class="ds-row" data-type="${esc(s.document_type)}">
+                    <td><b>${esc(s.document_type)}</b></td>
+                    <td><span class="ds-badge ${s.auto_learned ? 'auto' : 'manual'}">
+                        ${s.auto_learned ? 'AI-learned' : 'hand-written'}</span></td>
+                    <td>${s.field_count == null ? '—' : s.field_count}</td>
+                    <td>${recs}</td>
+                    <td><label class="ds-toggle" title="Allow the engine to add newly observed fields">
+                        <input type="checkbox" class="ds-evolve" data-type="${esc(s.document_type)}"
+                               ${s.allow_evolution ? 'checked' : ''}>
+                        <span class="slider"></span></label></td>
+                    <td style="color:var(--text-secondary,#888);white-space:nowrap;">${esc(s.modified)}</td>
+                </tr>`);
+            }
+            const pbody = $('#dsPendingTable tbody').empty();
+            for (const p of resp.pending) {
+                pbody.append(`<tr><td><b>${esc(p.document_type)}</b>
+                    <span class="ds-badge pending">consolidation pending</span></td>
+                    <td>${p.observed_paths == null ? '—' : p.observed_paths}</td></tr>`);
+            }
+            $('#dsPendingCard').toggle(resp.pending.length > 0);
+            if (CURRENT && !resp.schemas.some(s => s.document_type === CURRENT)) closeEditor();
+            $(`.ds-row[data-type="${CSS.escape(CURRENT || '')}"]`).addClass('sel');
+        }).fail(() => flash('Failed to load schemas', false));
+    }
+
+    function openEditor(docType) {
+        $.getJSON('/get/document_schema', { document_type: docType }, function (resp) {
+            if (resp.status !== 'success') { flash(resp.message || 'Load failed', false); return; }
+            CURRENT = docType;
+            $('.ds-row').removeClass('sel');
+            $(`.ds-row[data-type="${CSS.escape(docType)}"]`).addClass('sel');
+            $('#dsEditorTitle').text(docType);
+            $('#dsEditorFile').text(resp.filename + ' — previous versions are kept in schemas/_history');
+            $('#dsEditor').val(resp.yaml_text);
+            $('#dsEditorCard').show();
+            $('#dsEditorCard')[0].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }).fail(x => flash((x.responseJSON || {}).message || 'Load failed', false));
+    }
+
+    function closeEditor() {
+        CURRENT = null;
+        $('#dsEditorCard').hide();
+        $('.ds-row').removeClass('sel');
+    }
+
+    // -- events --
+    $(document).on('click', '.ds-row', function (e) {
+        if ($(e.target).closest('.ds-toggle').length) return;   // toggle, not open
+        openEditor($(this).data('type'));
+    });
+
+    $(document).on('change', '.ds-evolve', function () {
+        const t = $(this).data('type'), allow = this.checked;
+        $.ajax({
+            url: '/save/schema_evolution', method: 'POST', contentType: 'application/json',
+            data: JSON.stringify({ document_type: t, allow_evolution: allow })
+        }).done(resp => {
+            if (resp.status === 'success')
+                flash(`Evolution ${allow ? 'ON' : 'OFF'} for '${t}'`, true);
+            else { flash(resp.message || 'Save failed', false); this.checked = !allow; }
+        }).fail(() => { flash('Save failed', false); this.checked = !allow; });
+    });
+
+    $('#dsSaveBtn').on('click', function () {
+        if (!CURRENT) return;
+        const btn = $(this).prop('disabled', true);
+        $.ajax({
+            url: '/save/document_schema', method: 'POST', contentType: 'application/json',
+            data: JSON.stringify({ document_type: CURRENT, yaml_text: $('#dsEditor').val() })
+        }).done(resp => {
+            if (resp.status === 'success') { flash('Schema saved — applies on next ingest', true); load(); }
+            else flash(resp.message || 'Save failed', false);
+        }).fail(x => flash((x.responseJSON || {}).message || 'Save failed', false))
+          .always(() => btn.prop('disabled', false));
+    });
+
+    $('#dsCloseBtn').on('click', closeEditor);
+
+    $('#dsDeleteBtn').on('click', function () {
+        if (!CURRENT) return;
+        if (!confirm(`Delete the schema for '${CURRENT}'?\n\nThe next document of this ` +
+                     `type will trigger a fresh whole-document learning pass (one LLM call ` +
+                     `per page for that document). The current file is kept in schemas/_trash.`))
+            return;
+        $.ajax({
+            url: '/delete/document_schema', method: 'POST', contentType: 'application/json',
+            data: JSON.stringify({ document_type: CURRENT })
+        }).done(resp => {
+            if (resp.status === 'success') { flash('Schema retired', true); closeEditor(); load(); }
+            else flash(resp.message || 'Delete failed', false);
+        }).fail(x => flash((x.responseJSON || {}).message || 'Delete failed', false));
+    });
+
+    load();
+})();
+</script>
+</div>
+{% endblock %}
