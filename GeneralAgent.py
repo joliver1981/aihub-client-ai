@@ -839,6 +839,41 @@ def search_documents_meaning(document_type: Optional[str] = None, search_query: 
     return document_search_meaning(conn_str, document_type=document_type, search_query=search_query, max_results=cfg.DOC_SEARCH_LIMIT)
 
 @tool
+def query_document_records(record_set: Optional[str] = None,
+                           search: Optional[str] = None,
+                           topic: Optional[str] = None,
+                           document_type: Optional[str] = None,
+                           limit: int = 50) -> str:
+    """
+    Query the STRUCTURED RECORD ROWS extracted from documents — a compliance
+    guide's requirements, an invoice's line items. Use this for questions whose
+    answer is a LIST or COUNT across documents: "which guides require X",
+    "how many documents state Y". NEVER answer such questions by counting
+    search passages — passages are a relevance sample, not a census.
+
+    Call with NO parameters first to see which record sets exist. Every response
+    includes a COVERAGE line (how many documents were actually extracted) —
+    relay it. If it reports no records exist, fall back to document_super_search
+    and say the answer comes from reading pages, not a structured table.
+
+    ### Parameters:
+    record_set: Which set to query (e.g. 'vendor_requirements'); omit to list
+    search: Text filter over the rows (e.g. '856 ASN', 'carton marking')
+    topic: Exact topic from the set's controlled vocabulary (shown in list mode)
+    document_type: Restrict to one document type
+    limit: Max rows (default 50, max 200)
+
+    ### Returns: Formatted rows with filename, page, excerpt, and coverage.
+    """
+    from document_records_query import query_document_records as _qdr
+    result = _qdr(record_set=record_set, search=search, topic=topic,
+                  document_type=document_type, limit=limit)
+    if not result.get('ok'):
+        return (f"Record query error: {result.get('error')}. "
+                f"Fall back to document_super_search.")
+    return result.get('text') or "No output."
+
+@tool
 def get_document_universe_metadata(document_types: Optional[List[str]] = None) -> str:
     """
     Provides comprehensive metadata about the document universe to help AI understand
@@ -3135,12 +3170,29 @@ class GeneralAgent():
                     })
             return raw
 
+        def _wrapped_query_document_records(record_set: Optional[str] = None,
+                                            search: Optional[str] = None,
+                                            topic: Optional[str] = None,
+                                            document_type: Optional[str] = None,
+                                            limit: int = 50) -> str:
+            if document_type and document_type not in allow_set:
+                return _denied_response('query_document_records', document_type)
+            from document_records_query import query_document_records as _qdr
+            result = _qdr(record_set=record_set, search=search, topic=topic,
+                          document_type=document_type, limit=limit,
+                          allowed_document_types=allow_list_for_log)
+            if not result.get('ok'):
+                return (f"Record query error: {result.get('error')}. "
+                        f"Fall back to document_super_search.")
+            return result.get('text') or "No output."
+
         wrappers = {
             'search_documents': _wrapped_search_documents,
             'document_super_search': _wrapped_document_super_search,
             'search_documents_meaning': _wrapped_search_documents_meaning,
             'get_document_universe_metadata': _wrapped_get_document_universe_metadata,
             'get_document_using_document_id': _wrapped_get_document_using_document_id,
+            'query_document_records': _wrapped_query_document_records,
         }
 
         new_tools = []

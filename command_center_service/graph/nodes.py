@@ -3840,6 +3840,53 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             return f"Document search failed: {str(e)}"
 
     @lc_tool
+    async def query_document_records(record_set: str = "", search: str = "",
+                                     topic: str = "", document_type: str = "",
+                                     limit: int = 50) -> str:
+        """Query the STRUCTURED RECORD ROWS extracted from documents — a compliance
+        guide's requirements, an invoice's line items. Use for questions whose answer
+        is a LIST or COUNT across documents: 'which guides require X', 'how many
+        documents state Y'. NEVER answer such questions by counting search_documents
+        passages — passages are a relevance sample, not a census.
+
+        Call with no arguments first to see which record sets exist. Every response
+        includes a COVERAGE line (how many documents were actually extracted) —
+        relay it. If it reports no records exist, fall back to search_documents and
+        say the answer comes from reading pages, not a structured table.
+
+        Args:
+            record_set: Which set to query (e.g. 'vendor_requirements'); empty = list sets
+            search: Text filter over rows (e.g. '856 ASN', 'carton marking')
+            topic: Exact topic from the set's controlled vocabulary
+            document_type: Restrict to one document type
+            limit: Max rows (default 50)
+        """
+        import httpx as _httpx
+        from cc_config import get_base_url, AI_HUB_API_KEY
+        payload = {k: v for k, v in (("record_set", record_set), ("search", search),
+                                     ("topic", topic), ("document_type", document_type),
+                                     ("limit", limit)) if v not in ("", None, 0)}
+        try:
+            async with _httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.post(
+                    f"{get_base_url()}/api/internal/document-records",
+                    json=payload,
+                    headers={"X-API-Key": AI_HUB_API_KEY,
+                             "Content-Type": "application/json",
+                             "Connection": "close"})
+            if resp.status_code != 200:
+                return (f"Record query failed (HTTP {resp.status_code}). "
+                        f"Fall back to search_documents.")
+            result = (resp.json() or {}).get("result") or {}
+            if not result.get("ok"):
+                return (f"Record query error: {result.get('error')}. "
+                        f"Fall back to search_documents.")
+            return result.get("text") or "No output."
+        except Exception as e:
+            logger.error(f"[converse/tool] Record query failed: {e}")
+            return f"Record query failed: {str(e)}. Fall back to search_documents."
+
+    @lc_tool
     async def send_email(to_address: str = "", subject: str = "", message: str = "", artifact_id: str = "") -> str:
         """Send an email, optionally attaching a previously exported file.
         Use this when the user asks to email, send, or share information via email.
@@ -6671,6 +6718,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         tools.append(generate_image)
     if DOCUMENT_SEARCH_ENABLED:
         tools.append(search_documents)
+        tools.append(query_document_records)
     if _CODE_INTERPRETER_ENABLED:
         tools.append(run_python)
     if _SFTP_ENABLED:
@@ -6887,6 +6935,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                     "generate_image": generate_image,
                     "search_web": search_web,
                     "search_documents": search_documents,
+                    "query_document_records": query_document_records,
                     "send_email": send_email,
                     "run_python": run_python,
                     "sftp_list_files": sftp_list_files,

@@ -5584,6 +5584,37 @@ def internal_document_search_unified():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route("/api/internal/document-records", methods=['POST'])
+@cross_origin()
+@internal_api_key_required()
+def internal_document_records():
+    """Query the structured RECORDS extracted from documents (a manual's
+    requirements, an invoice's line items) for microservice consumers (The Agent,
+    Command Center). ADDITIVE — sibling of /api/internal/document-search-unified.
+
+    Body (all optional): {"record_set": str, "search": str, "topic": str,
+                          "document_type": str, "limit": int}
+    No filters = LIST mode (which record sets exist + coverage).
+    Returns: {"status":"success","result":{ok, mode, text, rows|sets, coverage,
+              fallback}} — `fallback: true` tells the agent to answer via
+    search_documents instead (with the honesty caveat in `text`).
+    """
+    try:
+        data = request.get_json() or {}
+        from document_records_query import query_document_records
+        result = query_document_records(
+            record_set=data.get("record_set"),
+            search=data.get("search"),
+            topic=data.get("topic"),
+            document_type=data.get("document_type"),
+            limit=data.get("limit") or 50,
+        )
+        return jsonify({"status": "success", "result": result})
+    except Exception as e:
+        logger.error(f"[internal_document_records] Error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 # ─── End Internal API Endpoints ──────────────────────────────────────────────
 
 

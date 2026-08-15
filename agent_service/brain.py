@@ -96,6 +96,7 @@ _READ_TOOL_NAMES = [
     "list_saved_views", "get_view", "list_secret_names",
     "get_agent_email_status", "list_integrations", "get_integration_operations",
     "list_server_files", "search_documents", "list_documents", "get_document",
+    "query_document_records",
 ]
 _READ_ALLOWED = [f"mcp__aihub__{n}" for n in _READ_TOOL_NAMES]
 
@@ -185,6 +186,14 @@ or probe endpoints just to import or search files, and never mention API keys.
   it finds nothing, say so and offer to import the documents.
 - list_documents / get_document show what's in the store — use them to verify an
   import landed or to answer "what documents do I have?".
+- For "WHICH documents require X" / "HOW MANY documents state Y" / "list every
+  requirement about Z", call query_document_records — structured rows extracted
+  from repeating content (a guide's requirements, an invoice's line items), each
+  citing its page and a verbatim excerpt. NEVER answer which/how-many questions
+  by counting search_documents passages: passages are a relevance sample, not a
+  census. Always RELAY the COVERAGE line it returns (how many documents were
+  actually extracted); if it says no records exist, fall back to search_documents
+  and say the answer comes from reading pages, not from a structured table.
 A standing "watch a folder and ingest new files on a schedule" pipeline is still
 an AUTOMATION (see the document-ingestion skill) — build that when the user wants
 ongoing ingestion, but for a one-time import or any Q&A, use the tools directly.

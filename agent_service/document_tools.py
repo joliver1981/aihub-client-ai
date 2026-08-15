@@ -483,7 +483,13 @@ async def search_documents(args: dict[str, Any]) -> dict[str, Any]:
     conf = qa.get("confidence")
     if conf and conf != "unknown":
         header += f" · search confidence: {conf}"
-    return _text(header + ":\n" + "\n".join(out))
+    body = header + ":\n" + "\n".join(out)
+    # Discovery bridge: the server flags when these documents carry structured
+    # record rows — the right tool for which/how-many questions.
+    hint = result.get("records_hint")
+    if hint:
+        body += f"\n\n{hint}"
+    return _text(body)
 
 
 # ---------------------------------------------------------------------------
@@ -581,7 +587,61 @@ async def get_document(args: dict[str, Any]) -> dict[str, Any]:
     return _text(f"Document {did}:\n{body}")
 
 
+@tool(
+    "query_document_records",
+    "Query the STRUCTURED RECORD ROWS extracted from documents — a compliance "
+    "guide's requirements, an invoice's line items. Use this for questions whose "
+    "answer is a LIST or COUNT across documents: 'which guides require X', "
+    "'how many documents state Y', 'list every requirement about Z'. NEVER answer "
+    "such questions by counting search_documents passages — passages are a "
+    "relevance sample, not a census. Call with NO arguments first to see which "
+    "record sets exist. Every response includes a COVERAGE line saying how many "
+    "documents were actually extracted — relay it, because unextracted documents "
+    "are absent from the rows, not absent from reality. If it reports no records "
+    "exist (fallback: true), answer via search_documents instead and say the "
+    "answer comes from reading pages, not a structured table.",
+    {
+        "type": "object",
+        "properties": {
+            "record_set": {"type": "string",
+                           "description": "Which set to query (e.g. "
+                                          "'vendor_requirements'). Omit to list "
+                                          "available sets."},
+            "search": {"type": "string",
+                       "description": "Text filter over the rows (e.g. '856 ASN', "
+                                      "'carton marking')"},
+            "topic": {"type": "string",
+                      "description": "Exact topic from the set's controlled "
+                                     "vocabulary (shown in list mode)"},
+            "document_type": {"type": "string",
+                              "description": "Restrict to one document type"},
+            "limit": {"type": "integer",
+                      "description": "Max rows (default 50, max 200)"},
+        },
+        "additionalProperties": False,
+    },
+)
+async def query_document_records(args: dict[str, Any]) -> dict[str, Any]:
+    payload = {k: args.get(k) for k in
+               ("record_set", "search", "topic", "document_type", "limit")
+               if args.get(k) not in (None, "")}
+    data, status = await _post_main("/api/internal/document-records", payload,
+                                    internal=True, read_timeout=60.0)
+    if status != 200:
+        msg = data.get("message") if isinstance(data, dict) else data
+        return _text(f"Record query failed (HTTP {status}): {msg}. Fall back to "
+                     f"search_documents for a page-text answer.", is_error=True)
+    result = data.get("result") if isinstance(data, dict) else None
+    if not isinstance(result, dict):
+        return _text(f"Record query returned an unexpected response: "
+                     f"{str(data)[:300]}", is_error=True)
+    if not result.get("ok"):
+        return _text(f"Record query error: {result.get('error')}. Fall back to "
+                     f"search_documents.", is_error=True)
+    return _text(result.get("text") or "No output.")
+
+
 DOCUMENT_TOOLS = [
     list_server_files, import_documents, search_documents,
-    list_documents, get_document,
+    list_documents, get_document, query_document_records,
 ]

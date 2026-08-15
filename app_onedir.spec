@@ -202,6 +202,17 @@ a = Analysis(
         'cryptography',
         'bcrypt',
         'nacl',
+        # Document search/records: app.py imports these lazily INSIDE the route
+        # bodies (/api/internal/document-search-unified, /document-records), which
+        # PyInstaller's static analysis misses — the frozen client would return
+        # "Document search failed" on both agent surfaces with no build-time
+        # signal. Same trap as jwt/paramiko above.
+        'document_search_wrapper',
+        'document_records_query',
+        'doc_search_v2',
+        'doc_search_v2.factory',
+        'doc_search_v2.needle',
+        'doc_search_v2.sweep',
     ] + all_collected_hiddenimports,
     hookspath=[],
     hooksconfig={},

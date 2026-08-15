@@ -193,4 +193,31 @@ def document_search_unified(question: str, max_results: int | None = None,
           else bool(getattr(cfg, "DOC_CHECK_COMPLETENESS", False)))
     raw = document_search_super_enhanced_debug(
         cs, user_question=question, max_results=mr, check_completeness=cc)
-    return normalize_search_result(raw, question)
+    result = normalize_search_result(raw, question)
+
+    # RECORDS HINT — the discovery bridge. When search returns pages from document
+    # types that carry structured record sets, tell the model so at exactly the
+    # moment it matters: a which/how-many question answered by counting passages is
+    # the confident-wrong-number failure, and the records tool is the fix. Appended
+    # AFTER normalization so the [Source …] parsing contract is untouched; CC reads
+    # result["text"], The Agent renders records_hint explicitly — both see it.
+    try:
+        from document_records_query import get_types_with_records
+        type_map = get_types_with_records()   # cached, cheap
+        hit_types = sorted({p.get("document_type") for p in result["passages"]
+                            if p.get("document_type")} & set(type_map))
+        if hit_types:
+            sets = sorted({type_map[t] for t in hit_types})
+            hint = (f"NOTE: structured record rows exist for "
+                    f"{', '.join(hit_types)} documents (record set(s): "
+                    f"{', '.join(sets)}). For 'which documents…' or 'how many…' "
+                    f"questions, query the document-records tool instead of "
+                    f"counting these passages — passages are a relevance sample, "
+                    f"not a census.")
+            result["records_hint"] = hint
+            if result.get("text"):
+                result["text"] = result["text"] + "\n\n" + hint
+    except Exception:
+        pass   # the hint is an enhancement; search must never fail because of it
+
+    return result

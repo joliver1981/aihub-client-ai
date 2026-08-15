@@ -154,6 +154,11 @@ tools:
     description: "Searches documents based on the meaning of the text within the search query and return results as JSON string."
     routing_hint: "FALLBACK only — use for conceptual/meaning-based queries when document_super_search returns no results."
 
+  - name: query_document_records
+    display_name: "Document Records"
+    description: "Query the structured record rows extracted from documents (a compliance guide's requirements, an invoice's line items). For 'which documents require X' / 'how many documents state Y' questions."
+    routing_hint: "Use for LIST or COUNT questions across documents. Never answer those by counting search passages — passages are a relevance sample, not a census. Relay the COVERAGE line; if no records exist, fall back to document_super_search."
+
   - name: document_super_search
     display_name: "Document Search"
     description: "Search documents and return results as JSON string. Designed for AI agent analysis of document data."
@@ -506,6 +511,7 @@ dependencies:
       - list_document_fields
       - get_document_universe_metadata
       - list_document_types
+      - query_document_records
     optional:
       - find_potential_search_fields
   
@@ -514,6 +520,9 @@ dependencies:
       - get_document_universe_metadata
       - find_potential_search_fields
       - get_document_pages
+      # Records ride along with document search: any agent that can search
+      # documents can also answer which/how-many questions from extracted rows.
+      - query_document_records
   
   # Agent communication dependencies
   create_agent_workflow:
