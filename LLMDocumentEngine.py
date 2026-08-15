@@ -725,7 +725,14 @@ class LLMDocumentProcessor:
                     with open(os.path.join(self.schema_dir, filename), 'r') as f:
                         schema = yaml.safe_load(f)
                         doc_type = schema.get('document_type')
-                        if doc_type:
+                        if doc_type and self._schema_excluded(doc_type):
+                            # A stale schema for a pseudo-type on disk must not take
+                            # effect — ignore it rather than bound extraction with it.
+                            self.logger.info(
+                                f"Ignoring schema '{filename}' — '{doc_type}' is an "
+                                f"excluded pseudo-type (DOC_SCHEMA_EXCLUDED_TYPES)."
+                            )
+                        elif doc_type:
                             schemas[doc_type] = schema
                             self.logger.info(f"Loaded schema for document type: {doc_type}")
                 except Exception as e:
@@ -839,6 +846,7 @@ class LLMDocumentProcessor:
             print(f"Processing document: {filename} (ID: {file_id})")
             self.logger.info(f"Processing document: {filename} (ID: {file_id})")
             file_start_time = time.time()
+            processing_error = None   # set by the failure path; surfaced in the return
 
             sql_conn = get_db_connection()
             cursor = sql_conn.cursor()
@@ -903,6 +911,41 @@ class LLMDocumentProcessor:
                 print(f'ERROR: Invalid document type selected: {document_type}')
                 extracted_pages = []
                 
+            # ---- Optional: one extraction for the WHOLE document, not one per page ----
+            # Per-page extraction re-answers document-level facts on every page that
+            # mentions them, producing duplicates and sometimes conflicting values.
+            # When enabled (and a schema defines the target fields), extract once and
+            # attach each fact to the page that evidenced it. Any failure falls through
+            # to the per-page path below, so this can only add.
+            # If this type's consolidation failed on an earlier document, its observed
+            # paths were parked. Retrying that ONE call now is what stops this document
+            # from paying the full per-page cost all over again.
+            if (extract_fields and not force_ai_extraction
+                    and detected_document_type not in self.schemas):
+                try:
+                    self._try_schema_from_pending(detected_document_type)
+                except Exception as e:
+                    self.logger.warning(f"Pending-schema retry errored: {e}")
+
+            doc_level_fields = None
+            if (extract_fields
+                    and extracted_pages
+                    and getattr(cfg, 'DOC_DOCUMENT_LEVEL_EXTRACTION', False)
+                    and detected_document_type in self.schemas
+                    and not force_ai_extraction):
+                try:
+                    doc_level_fields = self._extract_document_level_fields(
+                        extracted_pages,
+                        detected_document_type,
+                        self.schemas[detected_document_type]
+                    )
+                except Exception as e:
+                    self.logger.error(
+                        f"Document-level extraction failed ({e}); "
+                        f"falling back to per-page extraction."
+                    )
+                    doc_level_fields = None
+
             # Process each page
             self.logger.debug(f"Processing pages...")
             page_data_list = []
@@ -915,13 +958,18 @@ class LLMDocumentProcessor:
                 
                 # Determine structure and extract fields
                 extracted_data = {}
-                if extract_fields:
+                if doc_level_fields is not None:
+                    # Already extracted once for the whole document; this page gets the
+                    # facts that were evidenced on it (usually {} for most pages).
+                    extracted_data = doc_level_fields.get(page_num, {})
+                elif extract_fields:
                     if (detected_document_type in self.schemas) and not force_ai_extraction:
                         # Use predefined schema to extract fields
                         print('Extracting fields with schema...')
                         extracted_data = self._extract_with_schema(
-                            page_content, 
-                            self.schemas[detected_document_type]
+                            page_content,
+                            self.schemas[detected_document_type],
+                            detected_document_type
                         )
                     else:
                         # Use AI to determine structure and extract fields
@@ -939,9 +987,25 @@ class LLMDocumentProcessor:
                     "full_text": page_content,
                     "extracted_data": extracted_data
                 }
-                
+
                 page_data_list.append(page_data)
-                
+
+            # ---- Learn this document type's schema from the WHOLE document ----
+            # Once per document, after every page is extracted. Generating from a
+            # single page yielded cover-page schemas that then bounded extraction for
+            # every later document of that type. Excluded pseudo-types
+            # (unknown_document) never get one — _save_ai_schema enforces that.
+            if extract_fields and page_data_list and detected_document_type not in self.schemas:
+                try:
+                    merged_shape = self._merge_field_shapes(
+                        [p.get('extracted_data') for p in page_data_list]
+                    )
+                    if merged_shape:
+                        self._save_ai_schema(detected_document_type, merged_shape)
+                except Exception as e:
+                    self.logger.warning(f"Could not generate schema for "
+                                        f"'{detected_document_type}': {e}")
+
             if not do_not_store:
                 # Store in vector database and SQL database
                 VECTOR_LOADED = False
@@ -955,6 +1019,25 @@ class LLMDocumentProcessor:
                     print(f"Storing in SQL database...")
                     try:
                         self._store_in_sql_db(file_path, file_id, detected_document_type, page_data_list, is_knowledge_document)
+
+                        # RECORDS — the document's repeating content (a manual's
+                        # requirements, an invoice's line items). Runs only when the
+                        # type's schema declares a record set, and never blocks the
+                        # document: a failure here leaves fields and pages intact.
+                        if (getattr(cfg, 'DOC_EXTRACT_RECORDS', False)
+                                and extract_fields and not force_ai_extraction
+                                and (self.schemas.get(detected_document_type) or {}).get('records')):
+                            try:
+                                extracted_records = self._extract_records(
+                                    extracted_pages, detected_document_type,
+                                    self.schemas[detected_document_type])
+                                self._store_records(file_id, extracted_records,
+                                                    len(extracted_pages))
+                            except Exception as rec_err:
+                                self.logger.error(
+                                    f"Record extraction failed for {file_id} "
+                                    f"({rec_err}) — fields and pages are unaffected."
+                                )
                     except:
                         print(f"Error storing in SQL database")
                         if VECTOR_LOADED:
@@ -989,6 +1072,11 @@ class LLMDocumentProcessor:
         except Exception as e:
             print(f"Error processing document: {str(e)}")
             self.logger.error(f"Error processing document: {str(e)}")
+            # Surface the failure to the CALLER, not just the job table. This except
+            # used to fall through to the same return as success, so an aborted store
+            # (e.g. a vector-batch failure before SQL storage) reported HTTP success
+            # while the database held nothing — a 58-minute ingest lost invisibly.
+            processing_error = str(e)
             # Update job file status in database
             processing_time = time.time() - file_start_time
             sql_conn = get_db_connection()
@@ -1008,7 +1096,8 @@ class LLMDocumentProcessor:
                 """, (detected_document_type, file_id, len(page_data_list), processing_time, str(e), execution_id, filename))
                 sql_conn.commit()
             
-        # Return processing results
+        # Return processing results. processing_error is None on success; callers
+        # (app_doc_api.DocumentProcessor) turn a non-None value into an HTTP error.
         return {
             "document_id": file_id,
             "filename": filename,
@@ -1016,7 +1105,8 @@ class LLMDocumentProcessor:
             "page_count": len(page_data_list),
             "processed_at": created_at,
             "pages": page_data_list,
-            "file_detail_id": file_detail_id
+            "file_detail_id": file_detail_id,
+            "processing_error": processing_error,
         }
     
      
@@ -1316,54 +1406,631 @@ class LLMDocumentProcessor:
             self.logger.error(f"Error calling Claude Vision API: {str(e)}")
             return ["Error extracting text: " + str(e)]
     
-    def _extract_with_schema(self, text: str, schema: Dict[str, Any]) -> Dict[str, Any]:
+    def _assign_dotted_field(self, target: Dict[str, Any], field_name: str, value: Any):
+        """Assign a value into ``target``, expanding dot notation into nested dicts.
+
+        ``parties.lessee.name`` -> ``{'parties': {'lessee': {'name': value}}}``
+        """
+        if '.' not in field_name:
+            target[field_name] = value
+            return
+        parts = field_name.split('.')
+        current = target
+        for part in parts[:-1]:
+            if not isinstance(current.get(part), dict):
+                current[part] = {}
+            current = current[part]
+        current[parts[-1]] = value
+
+    def _extract_fields_with_llm(self, text: str, field_specs: Dict[str, str],
+                                 document_type: str,
+                                 with_pages: bool = False) -> Dict[str, Any]:
+        """Extract a KNOWN list of fields from one page of text using the LLM.
+
+        This is the schema-driven counterpart to ``_extract_with_ai``: instead of
+        letting the model invent a shape, we hand it the exact field names the
+        schema defines and require those keys back. That is what makes values
+        comparable across documents of the same type — the whole point of having
+        a schema.
+
+        Args:
+            text: page text
+            field_specs: {dotted_field_name: description}
+            document_type: used only for prompt context
+
+        Returns:
+            {dotted_field_name: value} for fields actually found. Raises on
+            failure so the caller can decide how to degrade.
+        """
+        listing = "\n".join(
+            f"- {name}" + (f"  ({desc})" if desc and desc != name else "")
+            for name, desc in field_specs.items()
+        )
+
+        if with_pages:
+            value_rule = (
+                'Each value must be an object: {"value": <the value, or null>, '
+                '"page": <the [Page N] number you read it from, or null>}. '
+            )
+            unit = "document extract"
+        else:
+            value_rule = "Each value is the extracted value itself, or null. "
+            unit = "page"
+
+        system_prompt = (
+            f"You extract specific, named fields from {document_type} documents. "
+            "Respond with STRICT JSON only — no prose, no markdown fences. "
+            "Return ONE FLAT object whose keys are EXACTLY the field names given to you, "
+            "spelled identically, including any dots. Do not nest the KEYS. Do not add keys. "
+            + value_rule +
+            f"Use null for any field this {unit} does not state. "
+            "Never infer, never guess, never carry knowledge in from outside the text — "
+            f"if the {unit} does not say it, the value is null."
+        )
+        user_text = (
+            f"Extract these fields from the {document_type} {unit} below.\n\n"
+            f"FIELDS:\n{listing}\n\n"
+            "Return a JSON object with exactly these keys, using null where the text "
+            "does not state a value.\n"
+            + ("Cite the [Page N] marker each value came from.\n" if with_pages else "")
+            + f"\n--- TEXT ---\n{text}\n--- END TEXT ---"
+        )
+        messages = [{"role": "user", "content": [{"type": "text", "text": user_text}]}]
+
+        # The reply is a small flat JSON object. Reserving ANTHROPIC_MAX_TOKENS (64000)
+        # would consume context that should be holding document text, so use the
+        # extraction-specific budget. (config.py reads ANTHROPIC_MAX_TOKENS with no
+        # default, so it can also be None on a box without that env var.)
+        max_tokens = int(getattr(cfg, 'DOC_DOC_LEVEL_OUTPUT_TOKENS', None)
+                         or getattr(cfg, 'ANTHROPIC_MAX_TOKENS', None) or 8000)
+
+        if self._anthropic_config['use_direct_api']:
+            response = anthropic_messages_create(
+                client=self.anthropic_client,
+                model=cfg.ANTHROPIC_MODEL,
+                max_tokens=max_tokens,
+                system=system_prompt,
+                messages=messages,
+            )
+        else:
+            client = self.anthropic_proxy_client or AnthropicProxyClient()
+            response = client.messages_create(
+                messages=messages,
+                model=cfg.ANTHROPIC_MODEL,
+                max_tokens=max_tokens,
+                system=system_prompt,
+            )
+        ai_response = self._response_text(response)
+
+        json_match = re.search(r'```(?:json)?\s*([\s\S]+?)\s*```', ai_response)
+        json_str = json_match.group(1) if json_match else ai_response
+        json_str = json_str.strip()
+        if not (json_str.startswith('{') and json_str.endswith('}')):
+            brace_match = re.search(r'(\{[\s\S]+\})', json_str)
+            if brace_match:
+                json_str = brace_match.group(1)
+        try:
+            data = json.loads(json_str)
+        except Exception:
+            data = json.loads(self._remove_json_comments(json_str=json_str))
+
+        return data if isinstance(data, dict) else {}
+
+    @staticmethod
+    def _response_text(response) -> str:
+        """Pull the assistant's TEXT out of a response, whichever block it is in.
+
+        ``response['content'][0]['text']`` is wrong for reasoning models: they can emit
+        a ``thinking`` block first, so index 0 has no ``text`` key at all and the caller
+        dies with a KeyError. Scan for the first text block instead.
+        Handles both transports — the proxy returns dicts, the direct SDK returns objects.
+        """
+        content = getattr(response, 'content', None)
+        if content is None and isinstance(response, dict):
+            if 'content' not in response:
+                # Proxy error shape: {"error": ..., "details": ...}
+                raise ValueError(f"LLM call failed: {str(response)[:300]}")
+            content = response['content']
+        if not content:
+            raise ValueError("LLM returned no content")
+
+        for block in content:
+            if isinstance(block, dict):
+                if block.get('type') == 'text' and block.get('text'):
+                    return block['text']
+            elif getattr(block, 'type', None) == 'text' and getattr(block, 'text', None):
+                return block.text
+        # Nothing typed as text — fall back to any block exposing a text value.
+        for block in content:
+            text = block.get('text') if isinstance(block, dict) else getattr(block, 'text', None)
+            if text:
+                return text
+        raise ValueError("LLM returned no text block")
+
+    @staticmethod
+    def _doc_level_char_budget() -> int:
+        """Characters of document text allowed in one extraction request.
+
+        Configured in TOKENS (DOC_DOC_LEVEL_MAX_TOKENS) and converted here, because
+        the real constraint is the model's context window, not characters.
+        DOC_DOC_LEVEL_MAX_CHARS > 0 overrides for anyone who wants char-level control.
+        """
+        explicit = int(getattr(cfg, 'DOC_DOC_LEVEL_MAX_CHARS', 0) or 0)
+        if explicit > 0:
+            return explicit
+        tokens = int(getattr(cfg, 'DOC_DOC_LEVEL_MAX_TOKENS', 120000))
+        chars_per_token = float(getattr(cfg, 'DOC_CHARS_PER_TOKEN', 4) or 4)
+        return max(10000, int(tokens * chars_per_token))
+
+    def _group_pages_for_extraction(self, pages: List[Dict[str, Any]],
+                                    max_chars: int) -> List[Dict[str, Any]]:
+        """Group already-extracted pages into LLM-sized chunks on PAGE BOUNDARIES.
+
+        A page is never split across two chunks and never dropped. A single page
+        larger than ``max_chars`` becomes its own chunk rather than being truncated
+        — an oversized page is a cost problem, not a correctness one.
+
+        This is deliberately separate from the PDF *text* extraction batching
+        (MultiPagePDFHandler / FastPDFExtractor), which has already completed by the
+        time this runs and hands us one entry per page. This only decides how many
+        pages to show the model at once.
+
+        Returns a list of {'text', 'page_numbers'} preserving document order.
+        """
+        chunks = []
+        current_parts, current_pages, current_len = [], [], 0
+
+        def flush():
+            if current_pages:
+                chunks.append({'text': "\n\n".join(current_parts),
+                               'page_numbers': list(current_pages)})
+
+        for page in pages:
+            page_num = page.get('page_number')
+            body = page.get('text') or ''
+            # Exactly one page marker, so the model can attribute a value to a page.
+            # The extractors already prefix "[Page N]" when include_page_numbers is on
+            # (fast_pdf_extractor.extract_text_fast), but not for blank pages and not
+            # when that flag is off — so add one only when it is missing.
+            if not re.match(rf'^\s*\[Page {page_num}\]', body):
+                block = f"[Page {page_num}]\n{body}"
+            else:
+                block = body
+
+            if current_pages and (current_len + len(block)) > max_chars:
+                flush()
+                current_parts, current_pages, current_len = [], [], 0
+
+            current_parts.append(block)
+            current_pages.append(page_num)
+            current_len += len(block)
+
+        flush()
+
+        # Coverage invariant: every input page appears exactly once.
+        covered = [n for c in chunks for n in c['page_numbers']]
+        expected = [p.get('page_number') for p in pages]
+        if covered != expected:
+            raise RuntimeError(
+                f"page coverage check failed: chunking produced {len(covered)} page slots "
+                f"for {len(expected)} pages (order/duplication mismatch)"
+            )
+        return chunks
+
+    def _extract_document_level_fields(self, pages: List[Dict[str, Any]],
+                                       document_type: str,
+                                       schema: Dict[str, Any]) -> Dict[Any, Dict[str, Any]]:
+        """Extract the schema's fields ONCE for the whole document, not once per page.
+
+        Per-page extraction produces a value for every page that happens to mention a
+        field, which for document-level facts means duplicates and, worse, conflicting
+        values from different pages (measured: one lease returned both 'LLC' and
+        'Georgia limited liability company' for the same party). A document-level pass
+        yields one value per field, attributed to the page it came from so the
+        citation survives.
+
+        Returns {page_number: {field_path: value}} — shaped so the caller can attach
+        each fact to the page that evidenced it. Raises on failure; the caller falls
+        back to per-page extraction.
+        """
+        fields = (schema or {}).get('fields') or {}
+        if not fields:
+            return {}
+
+        field_specs = {name: (info or {}).get('description') or name
+                       for name, info in fields.items()}
+        max_chars = self._doc_level_char_budget()
+        chunks = self._group_pages_for_extraction(pages, max_chars)
+
+        self.logger.info(
+            f"Document-level extraction: {len(pages)} page(s) -> {len(chunks)} LLM call(s) "
+            f"(budget {max_chars:,} chars each) for '{document_type}'"
+        )
+
+        merged = {}      # field_path -> (value, page_number)
+        conflicts = 0
+
+        for idx, chunk in enumerate(chunks, 1):
+            page_list = chunk['page_numbers']
+            self.logger.info(
+                f"  chunk {idx}/{len(chunks)}: pages {page_list[0]}-{page_list[-1]} "
+                f"({len(chunk['text']):,} chars)"
+            )
+            values = self._extract_fields_with_llm(
+                chunk['text'], field_specs, document_type, with_pages=True
+            )
+            for field_name in field_specs:
+                raw = values.get(field_name)
+                value, page_hint = self._split_value_and_page(raw)
+                if value in (None, '', [], {}):
+                    continue
+                if field_name in merged:
+                    if merged[field_name][0] != value:
+                        conflicts += 1
+                    continue  # first non-null wins; documents state key facts early
+                if page_hint not in page_list:
+                    page_hint = page_list[0]
+                merged[field_name] = (value, page_hint)
+
+        if conflicts:
+            self.logger.info(
+                f"Document-level extraction: {conflicts} field(s) had a differing value in a "
+                f"later chunk; kept the first occurrence."
+            )
+
+        by_page = {}
+        for field_name, (value, page_num) in merged.items():
+            self._assign_dotted_field(by_page.setdefault(page_num, {}), field_name, value)
+
+        self.logger.info(
+            f"Document-level extraction complete: {len(merged)} field value(s) across "
+            f"{len(by_page)} page(s), from {len(pages)} page(s) read."
+        )
+        return by_page
+
+    def _extract_records(self, pages: List[Dict[str, Any]], document_type: str,
+                         schema: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract the document's REPEATING content as rows.
+
+        Fields answer "what is this document's X" — one value per document. Records
+        answer "what does this document contain many of" — a manual's requirements, an
+        invoice's line items. Both come from the same page groups; this is a second pass
+        over them asking a different question.
+
+        Unlike fields, rows ACCUMULATE across page groups: a 108-page manual states
+        different requirements on different pages, and every one is a distinct row. That
+        is the opposite of the first-value-wins rule for fields, and it is why this
+        cannot simply reuse the field extractor.
+
+        Returns {set_name: {'rows': [...], 'expected_rows': int, 'groups': int,
+                            'truncated_groups': int}} — empty when the type declares none.
+        """
+        record_specs = (schema or {}).get('records') or {}
+        if not record_specs:
+            return {}
+
+        set_name, spec = next(iter(record_specs.items()))
+        columns = spec.get('columns') or {}
+        vocab = spec.get('vocabulary') or {}
+        if not columns:
+            return {}
+
+        # Records use SMALLER page groups than fields. Field output is a fixed-size
+        # object regardless of input; record output grows with input, so a whole-document
+        # group overruns the output cap mid-JSON (measured: 108 pages in one request ->
+        # ~150 rows wanted ~30K output tokens against a 16K cap -> 0 rows salvaged).
+        chars_per_token = float(getattr(cfg, 'DOC_CHARS_PER_TOKEN', 4) or 4)
+        max_chars = max(10000, int(
+            int(getattr(cfg, 'DOC_RECORDS_INPUT_TOKENS', 12000)) * chars_per_token))
+        groups = self._group_pages_for_extraction(pages, max_chars)
+
+        col_lines = []
+        for col, desc in columns.items():
+            allowed = vocab.get(col)
+            if allowed:
+                col_lines.append(f"- {col}: {desc}. MUST be exactly one of: "
+                                 f"{', '.join(allowed)}")
+            else:
+                col_lines.append(f"- {col}: {desc}")
+        col_listing = "\n".join(col_lines)
+
+        system_prompt = (
+            f"You extract repeating records from {document_type} documents. "
+            "Respond with STRICT JSON only, no prose, no markdown fences: "
+            '{"rows": [{"<column>": <value>, ...}, ...]}. '
+            "Every row must use EXACTLY the given column names. "
+            "Extract EVERY instance you find in the text you are given — do not "
+            "summarise, do not merge similar ones, do not stop early. "
+            "Never invent a row that is not stated in the text. "
+            "If this text contains none, return {\"rows\": []}."
+        )
+
+        vocab_rule = ""
+        if vocab:
+            vocab_rule = (
+                "\nFor any column with an allowed list: pick one of the allowed values. "
+                "If none fits, leave that column null rather than inventing a new value "
+                "— a new value would make this row uncountable alongside the others.\n"
+            )
+
+        all_rows, truncated_groups = [], 0
+        for idx, group in enumerate(groups, 1):
+            page_list = group['page_numbers']
+            user_text = (
+                f"{spec.get('grain', 'one row per item')}.\n\n"
+                f"COLUMNS:\n{col_listing}\n"
+                f"{vocab_rule}\n"
+                f"Extract every such row stated in the text below. Cite the [Page N] "
+                f"marker each row came from in the source_pages column, and put the "
+                f"verbatim sentence in the excerpt column.\n\n"
+                f"--- TEXT (pages {page_list[0]}-{page_list[-1]}) ---\n{group['text']}\n"
+                f"--- END TEXT ---"
+            )
+            messages = [{"role": "user", "content": [{"type": "text", "text": user_text}]}]
+            max_tokens = int(getattr(cfg, 'DOC_RECORDS_OUTPUT_TOKENS', None) or 16000)
+
+            try:
+                if self._anthropic_config['use_direct_api']:
+                    response = anthropic_messages_create(
+                        client=self.anthropic_client, model=cfg.ANTHROPIC_MODEL,
+                        max_tokens=max_tokens, system=system_prompt, messages=messages)
+                else:
+                    client = self.anthropic_proxy_client or AnthropicProxyClient()
+                    response = client.messages_create(
+                        messages=messages, model=cfg.ANTHROPIC_MODEL,
+                        max_tokens=max_tokens, system=system_prompt)
+                raw = self._response_text(response)
+                stop_reason = (response.get('stop_reason')
+                               if isinstance(response, dict)
+                               else getattr(response, 'stop_reason', None))
+            except Exception as e:
+                self.logger.error(
+                    f"Record extraction failed for pages {page_list[0]}-{page_list[-1]} "
+                    f"of '{document_type}' ({e}) — those pages contribute no rows."
+                )
+                truncated_groups += 1
+                continue
+
+            # An output-token stop is the silent killer: rows are cut off, every page was
+            # still READ, and page-coverage would report 100%. Count it explicitly.
+            if stop_reason == 'max_tokens':
+                truncated_groups += 1
+                self.logger.error(
+                    f"Record extraction hit the output cap on pages "
+                    f"{page_list[0]}-{page_list[-1]} of '{document_type}'. Rows from "
+                    f"this range are INCOMPLETE. Raise DOC_RECORDS_OUTPUT_TOKENS or "
+                    f"lower DOC_DOC_LEVEL_MAX_TOKENS so fewer pages go per request."
+                )
+
+            m = re.search(r'```(?:json)?\s*([\s\S]+?)\s*```', raw or '')
+            json_str = (m.group(1) if m else (raw or '')).strip()
+            if not (json_str.startswith('{') and json_str.endswith('}')):
+                m2 = re.search(r'(\{[\s\S]+\})', json_str)
+                json_str = m2.group(1) if m2 else json_str
+            try:
+                parsed = json.loads(json_str)
+            except Exception:
+                try:
+                    parsed = json.loads(self._remove_json_comments(json_str=json_str))
+                except Exception as e:
+                    # An output-cap stop cuts the JSON mid-row. The rows BEFORE the cut
+                    # are complete and valid — salvage them rather than losing the whole
+                    # group (the run stays marked partial either way).
+                    salvaged = self._salvage_rows(json_str)
+                    if salvaged:
+                        self.logger.warning(
+                            f"Record JSON truncated for pages {page_list[0]}-"
+                            f"{page_list[-1]} of '{document_type}'; salvaged "
+                            f"{len(salvaged)} complete row(s)."
+                        )
+                        parsed = {'rows': salvaged}
+                    else:
+                        truncated_groups += 1
+                        self.logger.error(
+                            f"Record JSON unparseable for pages {page_list[0]}-"
+                            f"{page_list[-1]} of '{document_type}' ({e})."
+                        )
+                        continue
+
+            rows = (parsed or {}).get('rows')
+            if not isinstance(rows, list):
+                continue
+            for row in rows:
+                if isinstance(row, dict) and any(
+                        str(v).strip() for v in row.values() if v is not None):
+                    all_rows.append({str(k): v for k, v in row.items() if k in columns})
+
+            self.logger.info(
+                f"Records: pages {page_list[0]}-{page_list[-1]} -> "
+                f"{len(rows) if isinstance(rows, list) else 0} row(s)"
+            )
+
+        self.logger.info(
+            f"Record extraction '{set_name}' for '{document_type}': {len(all_rows)} row(s) "
+            f"from {len(groups)} request(s); expected ~{spec.get('expected_rows')}; "
+            f"{truncated_groups} incomplete."
+        )
+        return {set_name: {'rows': all_rows,
+                           'expected_rows': spec.get('expected_rows') or 0,
+                           'groups': len(groups),
+                           'truncated_groups': truncated_groups}}
+
+    @staticmethod
+    def _salvage_rows(json_str: str) -> List[Dict[str, Any]]:
+        """Recover the complete row objects from a truncated {"rows":[...]} payload.
+
+        When the model hits its output cap it stops mid-row, invalidating the whole
+        JSON document — but every row before the cut is intact. Walk the string with a
+        raw JSON decoder, collecting objects until the first undecodable position.
+        """
+        try:
+            start = json_str.index('"rows"')
+            start = json_str.index('[', start) + 1
+        except ValueError:
+            return []
+        decoder = json.JSONDecoder()
+        rows, i, n = [], start, len(json_str)
+        while i < n:
+            while i < n and json_str[i] in ' \t\r\n,':
+                i += 1
+            if i >= n or json_str[i] != '{':
+                break
+            try:
+                obj, end = decoder.raw_decode(json_str, i)
+            except Exception:
+                break  # the truncated row — everything before it is already collected
+            if isinstance(obj, dict):
+                rows.append(obj)
+            i = end
+        return rows
+
+    def _store_records(self, document_id: str, extracted: Dict[str, Any],
+                       pages_total: int):
+        """Persist records + a __manifest row. Degrades to a no-op without the table.
+
+        The manifest is what separates "this document states no such requirement" from
+        "record extraction never ran on this document". Losing that distinction is how a
+        confident wrong answer gets produced.
+        """
+        if not extracted:
+            return
+        sql_conn = get_db_connection()
+        if not sql_conn:
+            return
+        try:
+            cursor = sql_conn.cursor()
+            cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+            cursor.execute("""
+                SELECT 1 FROM sys.objects
+                WHERE object_id = OBJECT_ID(N'[dbo].[DocumentRecords]') AND type = 'U'
+            """)
+            if not cursor.fetchone():
+                self.logger.warning(
+                    "DocumentRecords table not present — records extracted but not "
+                    "stored. Run migrations/017_document_records.sql to enable."
+                )
+                return
+
+            for set_name, payload in extracted.items():
+                rows = payload.get('rows') or []
+                cursor.execute(
+                    "DELETE FROM DocumentRecords WHERE document_id = ? AND record_set IN (?, ?)",
+                    document_id, set_name, '__manifest')
+                for i, row in enumerate(rows):
+                    cursor.execute("""
+                        INSERT INTO DocumentRecords
+                            (document_id, record_set, row_index, row_json,
+                             source_pages, excerpt, confidence, extractor_model)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, document_id, set_name, i, json.dumps(row, default=str),
+                         str(row.get('source_pages') or '')[:100],
+                         str(row.get('excerpt') or '')[:2000],
+                         None, str(getattr(cfg, 'ANTHROPIC_MODEL', ''))[:100])
+
+                manifest = {
+                    'record_set': set_name,
+                    'status': 'partial' if payload.get('truncated_groups') else 'complete',
+                    'rows_written': len(rows),
+                    'expected_rows': payload.get('expected_rows') or 0,
+                    'pages_total': pages_total,
+                    'requests': payload.get('groups') or 0,
+                    'incomplete_requests': payload.get('truncated_groups') or 0,
+                }
+                cursor.execute("""
+                    INSERT INTO DocumentRecords
+                        (document_id, record_set, row_index, row_json, extractor_model)
+                    VALUES (?, ?, ?, ?, ?)
+                """, document_id, '__manifest', 0, json.dumps(manifest),
+                     str(getattr(cfg, 'ANTHROPIC_MODEL', ''))[:100])
+
+                sql_conn.commit()
+                self.logger.info(
+                    f"Stored {len(rows)} '{set_name}' record(s) for {document_id} "
+                    f"(status={manifest['status']})."
+                )
+        except Exception as e:
+            self.logger.error(f"Could not store records for {document_id}: {e}")
+        finally:
+            try:
+                sql_conn.close()
+            except Exception:
+                pass
+
+    @staticmethod
+    def _split_value_and_page(raw):
+        """Accept either a bare value or {'value':..., 'page':...} from the model."""
+        if isinstance(raw, dict) and 'value' in raw:
+            page = raw.get('page')
+            try:
+                page = int(page) if page is not None else None
+            except (TypeError, ValueError):
+                page = None
+            return raw.get('value'), page
+        return raw, None
+
+    def _extract_with_schema(self, text: str, schema: Dict[str, Any],
+                             document_type: str = None) -> Dict[str, Any]:
         """
         Extract structured data using a predefined schema.
-        
+
+        The schema supplies the field NAMES; the LLM reads the page and fills them
+        in. Handing the model a fixed target list — rather than letting it invent a
+        shape per page, as ``_extract_with_ai`` does — is what makes values
+        comparable across documents of the same type, which is what any counting or
+        filtering question depends on.
+
+        Replaces a regex implementation that extracted a field only when the schema
+        gave it a ``pattern``. No schema in the wild carries one (0 of 55 files),
+        so it returned {} for every field. Combined with ``_save_ai_schema`` —
+        which writes a pattern-less schema after the first successful AI extraction
+        and is preferred over the AI path from then on — each document type
+        extracted correctly exactly once and silently extracted nothing ever after.
+
+        A schema with no usable field list (e.g. the compliance schemas, which
+        describe ``categories`` rather than ``fields``) falls through to
+        ``_extract_with_ai``, so a schema can never be worse than no schema.
+
         Args:
             text: Extracted text from a document page
             schema: Schema definition for the document type
-            
+            document_type: Type name, for prompt context and fallback
+
         Returns:
-            Dictionary of structured fields
+            Dictionary of structured fields, nested where names use dot notation
         """
+        doc_type = document_type or schema.get('document_type') or 'document'
+        fields = schema.get('fields') or {}
+
+        if not fields:
+            self.logger.info(
+                f"Schema for '{doc_type}' defines no fields — using AI extraction."
+            )
+            return self._extract_with_ai(text, doc_type)
+
+        field_specs = {
+            name: (info or {}).get('description') or name
+            for name, info in fields.items()
+        }
+
+        try:
+            values = self._extract_fields_with_llm(text, field_specs, doc_type)
+        except Exception as e:
+            # Never fail closed into silence — that is the bug this replaces.
+            self.logger.error(
+                f"Schema-driven extraction failed for '{doc_type}' ({e}); "
+                f"falling back to AI extraction for this page."
+            )
+            return self._extract_with_ai(text, doc_type)
+
         extracted_data = {}
-        
-        # Get field definitions from schema
-        fields = schema.get('fields', {})
-        
-        # Extract each field using patterns defined in schema
-        for field_name, field_info in fields.items():
-            pattern = field_info.get('pattern')
-            
-            if pattern:
-                value = self._extract_field(text, pattern)
-                
-                # Apply any transformations defined in the schema
-                transform = field_info.get('transform')
-                if transform == 'to_number' and value:
-                    try:
-                        value = float(value.replace(',', ''))
-                    except ValueError:
-                        pass
-                elif transform == 'to_date' and value:
-                    # Keep as string but ensure consistent format if possible
-                    pass
-                
-                # Handle nested fields using dot notation in field name
-                if '.' in field_name:
-                    parts = field_name.split('.')
-                    current = extracted_data
-                    for part in parts[:-1]:
-                        if part not in current:
-                            current[part] = {}
-                        current = current[part]
-                    current[parts[-1]] = value
-                else:
-                    extracted_data[field_name] = value
-        
+        for field_name in field_specs:
+            value = values.get(field_name)
+            # Only record fields the page actually stated.
+            if value not in (None, '', [], {}):
+                self._assign_dotted_field(extracted_data, field_name, value)
+
         return extracted_data
-    
+
     def _remove_json_comments(self, json_str):
         # Remove all //... comments
         json_str = re.sub(r'//.*', '', json_str)
@@ -1455,8 +2122,10 @@ class LLMDocumentProcessor:
                 self.logger.info(f"Corrected JSON response.")
                 print("Corrected JSON response.")
             
-            # Save the AI-determined schema for future use
-            self._save_ai_schema(document_type, extracted_data)
+            # NOTE: schema generation deliberately does NOT happen here. This function
+            # runs per PAGE, so saving from it produced a schema describing one page
+            # (usually the cover). The schema is generated once per document, after
+            # every page has been extracted — see process_document.
 
             if cfg.ANTHROPIC_API_THROTTLE_CALLS:
                 print('API throttling active, waiting before submitting next request...')
@@ -1472,25 +2141,350 @@ class LLMDocumentProcessor:
                 "raw_text_sample": text[:500] + ("..." if len(text) > 500 else "")
             }
     
+    @staticmethod
+    def _schema_excluded(document_type: str) -> bool:
+        """True for pseudo-types that must never carry a schema.
+
+        'unknown_document' is not a document type — it is the absence of one. A schema
+        learned from whichever unclassified document happened to arrive first describes
+        that one document and nothing else, so it must not become the extraction target
+        for every later unclassified document.
+        """
+        excluded = {t.strip().lower()
+                    for t in str(getattr(cfg, 'DOC_SCHEMA_EXCLUDED_TYPES',
+                                         'unknown,unknown_document') or '').split(',')
+                    if t.strip()}
+        return str(document_type or '').strip().lower() in excluded
+
+    @staticmethod
+    def _merge_field_shapes(shapes: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Deep-merge the extracted data of every page into one shape.
+
+        Only the KEY STRUCTURE matters — this feeds schema generation, not values.
+        Later pages contribute keys earlier pages did not have.
+        """
+        merged: Dict[str, Any] = {}
+
+        def merge_into(target, source):
+            for key, value in (source or {}).items():
+                if isinstance(value, dict):
+                    node = target.get(key)
+                    if not isinstance(node, dict):
+                        node = {}
+                        target[key] = node
+                    merge_into(node, value)
+                elif key not in target or target[key] in (None, '', [], {}):
+                    target[key] = value
+
+        for shape in shapes:
+            if isinstance(shape, dict):
+                merge_into(merged, shape)
+        return merged
+
+    @staticmethod
+    def _build_schema_dict(document_type: str, consolidated: Dict[str, Any]) -> Dict[str, Any]:
+        """Assemble the on-disk schema from a consolidation result.
+
+        ``fields`` keeps the existing {name: {description}} shape so nothing that reads
+        schemas today has to change. ``records`` is additive and omitted entirely when
+        the document type has no repeating unit — a lease's schema looks exactly as it
+        did before this feature existed.
+        """
+        schema = {
+            'document_type': document_type,
+            'fields': {name: {'description': desc}
+                       for name, desc in (consolidated.get('fields') or {}).items()},
+        }
+        records = consolidated.get('records') or {}
+        if records:
+            schema['records'] = records
+        return schema
+
+    def _pending_observation_path(self, document_type: str) -> str:
+        safe = ''.join(c if c.isalnum() or c in '-_' else '_' for c in str(document_type))
+        return os.path.join(self.schema_dir, '_pending', f"{safe}_observed.json")
+
+    def _save_pending_observation(self, document_type: str, observed_paths: List[str]):
+        """Park the field paths observed from a document whose consolidation failed.
+
+        Reading a document free-form costs one LLM call PER PAGE (108 for a 108-page
+        manual). Consolidating those paths into a schema is ONE cheap call. Without this,
+        a failure of the cheap step discards the expensive step, and every future
+        document of the type pays the per-page cost again — permanently.
+        """
+        try:
+            path = self._pending_observation_path(document_type)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump({'document_type': document_type,
+                           'observed_paths': sorted(set(observed_paths))}, f)
+            self.logger.info(
+                f"Parked {len(set(observed_paths))} observed path(s) for "
+                f"'{document_type}' at {path} — retry costs one call, not a re-read."
+            )
+        except Exception as e:
+            self.logger.warning(f"Could not park observed paths for '{document_type}': {e}")
+
+    def _clear_pending_observation(self, document_type: str):
+        try:
+            path = self._pending_observation_path(document_type)
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
+
+    def _try_schema_from_pending(self, document_type: str) -> bool:
+        """Retry consolidation from parked paths. True if a schema now exists.
+
+        Runs BEFORE a document is read, so a type whose consolidation failed once can
+        recover on the next document for the price of a single call.
+        """
+        if self._schema_excluded(document_type) or document_type in self.schemas:
+            return document_type in self.schemas
+        path = self._pending_observation_path(document_type)
+        if not os.path.exists(path):
+            return False
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                observed = (json.load(f) or {}).get('observed_paths') or []
+            if not observed:
+                return False
+            self.logger.info(
+                f"Retrying parked schema consolidation for '{document_type}' "
+                f"({len(observed)} observed paths) — no document re-read needed."
+            )
+            consolidated = self._consolidate_schema_fields(document_type, observed)
+        except Exception as e:
+            self.logger.warning(
+                f"Parked consolidation retry failed for '{document_type}': {e}"
+            )
+            return False
+
+        schema = self._build_schema_dict(document_type, consolidated)
+        try:
+            os.makedirs(self.schema_dir, exist_ok=True)
+            with open(os.path.join(self.schema_dir, f"{document_type}_auto.yml"), 'w') as f:
+                yaml.dump(schema, f, default_flow_style=False)
+        except Exception as e:
+            self.logger.warning(f"Could not write recovered schema: {e}")
+            return False
+
+        self.schemas[document_type] = schema
+        self._clear_pending_observation(document_type)
+        self.logger.info(
+            f"Recovered schema for '{document_type}': "
+            f"{len(consolidated.get('fields') or {})} fields. "
+            f"This document uses the cheap document-level path."
+        )
+        return True
+
+    def _consolidate_schema_fields(self, document_type: str,
+                                   observed_paths: List[str]) -> Dict[str, str]:
+        """Turn the field paths observed across a document into a DOCUMENT-LEVEL schema.
+
+        Why this step exists. Free-form extraction invents a JSON shape per page, so
+        merging every page of a 108-page manual produced 1,808 "fields" — 313 of them
+        page sections, 331 array positions like ``fob_points[0].rates.OPO.rate_20ft``,
+        five spellings of "last updated", and an ``extraction_error`` key. That is a
+        transcript of what each page happened to contain, not a description of the
+        document type.
+
+        The question this asks instead is: *which of these are properties of the
+        DOCUMENT AS A WHOLE* — true no matter which page you opened? For a lease that
+        is ~20 fields (tenant, term, rent). For a compliance manual it is a handful
+        (retailer, effective date, version), because a manual's substance is prose, not
+        fields — that content is reached by SEARCH, not by field extraction.
+
+        No cap is imposed. A form-like document legitimately has many document-level
+        facts and keeps them; a narrative document legitimately has few. Size falls out
+        of the question, and imposing a limit would discard real information.
+
+        Returns {field_path: description}. Raises on failure — the caller then declines
+        to write a schema at all, which leaves free-form extraction in place.
+        """
+        listing = "\n".join(f"- {p}" for p in sorted(observed_paths))
+
+        system_prompt = (
+            "You design extraction schemas for business documents. "
+            "Respond with STRICT JSON only, no prose, no markdown fences:\n"
+            '{"fields": {"<field.path>": "<short description>", ...},\n'
+            ' "records": {"<set_name>": {"grain": "one row per ...",\n'
+            '                            "expected_rows": <int>,\n'
+            '                            "columns": {"<col>": "<description>"},\n'
+            '                            "vocabulary": {"<col>": ["value", ...]}}}}\n'
+            'Return "records": {} when the document has no repeating unit worth a table.'
+        )
+        user_text = (
+            f"Below are every field path an AI extractor produced while reading ONE "
+            f"document of type '{document_type}', page by page. Each page invented its "
+            f"own structure, so this list is repetitive and full of page-local noise.\n\n"
+            f"Design the schema of DOCUMENT-LEVEL FACTS for '{document_type}' — the "
+            f"properties of the document as a whole, which would have the same value no "
+            f"matter which page you read.\n\n"
+            "RULES\n"
+            "1. KEEP facts about the document as a whole: parties, identifiers, dates, "
+            "totals, terms, classifications, key obligations.\n"
+            "2. DROP page-local structure: section titles, tables of contents, layout, "
+            "colours, fonts, footers, page numbers, images, examples.\n"
+            "3. Paths with an array index like [0] are ROWS of something that repeats. "
+            "They are NOT document-level fields — keep them out of \"fields\". Decide "
+            "whether they describe ONE repeating unit worth a table of its own (a "
+            "manual's requirements, an invoice's line items, a lease's rent steps). If "
+            "they do, return it under \"records\". If they are headings, a table of "
+            "contents, layout, or several unrelated things, return \"records\": {} — "
+            "that content stays reachable by document search.\n"
+            "4. DROP extraction errors and diagnostic keys.\n"
+            "5. COLLAPSE synonyms to ONE canonical field (e.g. last_updated / "
+            "updated_date / date_updated / document_updated_date -> one field).\n"
+            "6. Do NOT invent fields that are absent from the list.\n"
+            "7. Return AS MANY OR AS FEW as genuinely qualify. A form-like document "
+            "(lease, invoice, purchase order) may yield 15-30. A narrative document "
+            "(manual, guide, policy) may yield only 5-10 because its substance is prose "
+            "rather than fields — that is the correct answer, do NOT pad it.\n"
+            "8. Keep dotted paths for nesting. Use clear, canonical names.\n"
+            "9. For \"records\": return AT MOST ONE set — the document's OPERATIVE "
+            "content: obligations, requirements, transactions, line items, rate entries. "
+            "NEVER choose reference or navigational material (glossaries, definitions, "
+            "abbreviations, contact lists, tables of contents) as the record set — that "
+            "content stays reachable by search. A compliance guide's record set is its "
+            "REQUIREMENTS, not its glossary. Note the repeating unit may not appear as "
+            "clean [0]-indexed paths: a guide stating rules across many differently-named "
+            "sections (carton_marking.*, cargo_booking_policy.*, policies.*) is still ONE "
+            "record set of requirements. Give it a 'grain' sentence beginning "
+            "'one row per ...', the columns EVERY row would have, and an expected row "
+            "count for a document like this. Include a 'vocabulary' for any column that "
+            "should be grouped or counted (e.g. a topic column) so rows stay comparable "
+            "ACROSS documents of this type — a free-typed topic makes counting useless.\n"
+            "10. Every record set must include columns for the source page(s) and a "
+            "verbatim excerpt, so each row can be traced back to the document.\n\n"
+            f"OBSERVED FIELD PATHS ({len(observed_paths)}):\n{listing}"
+        )
+        messages = [{"role": "user", "content": [{"type": "text", "text": user_text}]}]
+        max_tokens = int(getattr(cfg, 'DOC_DOC_LEVEL_OUTPUT_TOKENS', None) or 8000)
+
+        if self._anthropic_config['use_direct_api']:
+            response = anthropic_messages_create(
+                client=self.anthropic_client, model=cfg.ANTHROPIC_MODEL,
+                max_tokens=max_tokens, system=system_prompt, messages=messages)
+        else:
+            client = self.anthropic_proxy_client or AnthropicProxyClient()
+            response = client.messages_create(
+                messages=messages, model=cfg.ANTHROPIC_MODEL,
+                max_tokens=max_tokens, system=system_prompt)
+        ai_response = self._response_text(response)
+
+        m = re.search(r'```(?:json)?\s*([\s\S]+?)\s*```', ai_response)
+        json_str = (m.group(1) if m else ai_response).strip()
+        if not (json_str.startswith('{') and json_str.endswith('}')):
+            m2 = re.search(r'(\{[\s\S]+\})', json_str)
+            if m2:
+                json_str = m2.group(1)
+        try:
+            data = json.loads(json_str)
+        except Exception:
+            data = json.loads(self._remove_json_comments(json_str=json_str))
+
+        fields = (data or {}).get('fields') or {}
+        if not isinstance(fields, dict) or not fields:
+            raise ValueError("consolidation returned no fields")
+        # Never let the consolidator invent paths that were not observed, and never
+        # let obvious noise back in.
+        observed = set(observed_paths)
+        clean = {str(k): str(v) for k, v in fields.items()
+                 if '[' not in str(k) and 'error' not in str(k).lower()}
+        unseen = [k for k in clean if k not in observed]
+        if unseen:
+            self.logger.info(
+                f"Schema consolidation proposed {len(unseen)} canonical name(s) not "
+                f"literally observed (synonym collapsing) — keeping them."
+            )
+
+        records = self._clean_record_spec((data or {}).get('records'))
+        if records:
+            name, spec = next(iter(records.items()))
+            self.logger.info(
+                f"Consolidation proposed record set '{name}': "
+                f"{len(spec.get('columns') or {})} columns, "
+                f"~{spec.get('expected_rows')} rows expected — {spec.get('grain')}"
+            )
+        return {'fields': clean, 'records': records}
+
+    @staticmethod
+    def _clean_record_spec(records) -> Dict[str, Any]:
+        """Validate the consolidator's record proposal. Returns {} if unusable.
+
+        A malformed or over-eager proposal must degrade to "no records" rather than
+        create a table nobody can query — the failure mode this whole design exists to
+        avoid is confident-looking structure with nothing behind it.
+        Enforces AT MOST ONE set for now (see design note in _extract_records).
+        """
+        if not isinstance(records, dict) or not records:
+            return {}
+        out = {}
+        for name, spec in records.items():
+            if not isinstance(spec, dict):
+                continue
+            columns = spec.get('columns')
+            if not isinstance(columns, dict) or not columns:
+                continue
+            safe_name = ''.join(c if c.isalnum() or c == '_' else '_'
+                                for c in str(name)).strip('_').lower()[:64]
+            if not safe_name or safe_name.startswith('__'):
+                continue
+            cols = {str(c): str(d) for c, d in columns.items() if str(c).strip()}
+            # Provenance columns are mandatory — add them if the model forgot.
+            cols.setdefault('source_pages', 'Page number(s) this row came from')
+            cols.setdefault('excerpt', 'Verbatim sentence this row came from')
+
+            vocab = {}
+            raw_vocab = spec.get('vocabulary')
+            if isinstance(raw_vocab, dict):
+                for col, values in raw_vocab.items():
+                    if str(col) in cols and isinstance(values, list) and values:
+                        vocab[str(col)] = [str(v) for v in values if str(v).strip()]
+
+            try:
+                expected = int(spec.get('expected_rows') or 0)
+            except (TypeError, ValueError):
+                expected = 0
+
+            out[safe_name] = {
+                'grain': str(spec.get('grain') or f'one row per {safe_name[:-1] or "item"}'),
+                'expected_rows': expected,
+                'columns': cols,
+                'vocabulary': vocab,
+            }
+            break  # at most one record set
+        return out
+
     def _save_ai_schema(self, document_type: str, extracted_data: Dict[str, Any]):
         """
-        Save AI-determined schema for future use.
-        
+        Save an AI-determined schema for future use, from the WHOLE document.
+
+        Called once per document after every page has been extracted — never from the
+        per-page extractor. That distinction is the whole point: generating from a
+        single page produced schemas describing a COVER PAGE (measured on a 108-page
+        vendor guide: title, classification, and five marketing slogans), which then
+        became the permanent extraction target for every later document of that type.
+
         Args:
             document_type: Type of document
-            extracted_data: Extracted structured data
+            extracted_data: Merged extracted structure across all pages of the document
         """
+        # Pseudo-types never get a schema (see _schema_excluded).
+        if self._schema_excluded(document_type):
+            self.logger.info(
+                f"Not generating a schema for '{document_type}' — excluded pseudo-type."
+            )
+            return
+
         # Only save if we don't already have a schema for this document type
         if document_type in self.schemas:
             return
-            
-        # Create a schema based on the AI extraction
-        schema = {
-            'document_type': document_type,
-            'fields': {}
-        }
-        
-        # Recursively build field definitions
+
+        # Flatten the merged document shape into the raw observed paths.
+        observed_paths = []
+
         def add_fields(data, prefix=''):
             if isinstance(data, dict):
                 for key, value in data.items():
@@ -1498,18 +2492,61 @@ class LLMDocumentProcessor:
                     if isinstance(value, (dict, list)):
                         add_fields(value, path)
                     else:
-                        # Add as a field with empty pattern (will need to be filled in later)
-                        schema['fields'][path] = {'description': f"Auto-detected field: {path}"}
+                        observed_paths.append(path)
             elif isinstance(data, list) and data and isinstance(data[0], dict):
                 # For lists of objects, just process the first one as an example
                 add_fields(data[0], prefix + '[0]')
-        
+
         add_fields(extracted_data)
-        
+        if not observed_paths:
+            return
+
+        # Consolidate into DOCUMENT-LEVEL facts. The raw paths are a page-by-page
+        # transcript, not a schema — writing them verbatim is what produced a
+        # 1,808-field "schema" from one manual. If consolidation fails we write NOTHING:
+        # free-form extraction is a worse-but-honest fallback, whereas a junk schema
+        # would silently bound every later document of this type.
+        consolidated = None
+        last_error = None
+        for attempt in (1, 2):
+            try:
+                consolidated = self._consolidate_schema_fields(document_type, observed_paths)
+                break
+            except Exception as e:
+                last_error = e
+                self.logger.warning(
+                    f"Schema consolidation attempt {attempt} failed for "
+                    f"'{document_type}': {e}"
+                )
+
+        if consolidated is None:
+            # The expensive work (one free-form read PER PAGE) already happened. Losing
+            # it here would make the NEXT document of this type pay the whole per-page
+            # cost again — and the one after that, forever. Park the observed paths so a
+            # later document can retry the cheap consolidation call instead of re-reading.
+            self._save_pending_observation(document_type, observed_paths)
+            self.logger.warning(
+                f"Schema consolidation failed for '{document_type}' ({last_error}); "
+                f"observed paths parked for retry — free-form extraction stays in effect."
+            )
+            return
+
+        self._clear_pending_observation(document_type)
+
+        _rec = consolidated.get('records') or {}
+        self.logger.info(
+            f"Schema for '{document_type}': {len(observed_paths)} observed path(s) -> "
+            f"{len(consolidated.get('fields') or {})} document-level field(s)"
+            + (f" + record set '{next(iter(_rec))}'" if _rec else " + no record sets")
+            + "."
+        )
+
+        schema = self._build_schema_dict(document_type, consolidated)
+
         # Save the schema
         os.makedirs(self.schema_dir, exist_ok=True)
         schema_path = os.path.join(self.schema_dir, f"{document_type}_auto.yml")
-        
+
         with open(schema_path, 'w') as f:
             yaml.dump(schema, f, default_flow_style=False)
             

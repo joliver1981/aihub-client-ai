@@ -572,7 +572,79 @@ DOC_INCLUDE_COUNTS_IN_AI_FIELD_DATA = False         # This will include field co
 DOC_IGNORE_FIELD_FILTERS = False                    # Ignore field filters when searching for documents (useful if field matching is not working due to date formatting issues, etc.)
 DOC_GET_ADDITIONAL_DOCUMENT_INFO = False            # Get additional document info - processed_at, reference_number, customer_id, vendor_id, document_date
 DOC_USE_MINI_MODEL_FOR_AI_FIELD_SELECTION = True    # Uses a mini model instead of core model for ai field selection (reduces token usage on core model)
-DOC_INCLUDE_FULL_PAGE_IN_CHUNK_RESULTS = False      # If True chunks are only used to find pages and full page text is returned to the AI instead of just chunks
+# The page is the payload; the chunk is the pointer. Chunks (512 chars) exist to FIND
+# the right page — the AI should then read the PAGE, not a fragment of it. ON by default
+# since 2026-08-14: it was off because the formatter preferred matched_chunk over the
+# page it fetched, making the flag a visible no-op (fixed in format_search_results_for_ai).
+DOC_INCLUDE_FULL_PAGE_IN_CHUNK_RESULTS = os.getenv('DOC_INCLUDE_FULL_PAGE_IN_CHUNK_RESULTS', 'True').lower() == 'true'
+# Per-page ceiling inside a search result. Real pages are 1,500-3,200 chars; this only
+# bites degenerate single-"page" documents (a TXT ingested as one 200K-char page) so one
+# document cannot eat the whole result budget. Announced in the output when it fires.
+DOC_SEARCH_MAX_CHARS_PER_SOURCE = int(os.getenv('DOC_SEARCH_MAX_CHARS_PER_SOURCE', 20000))
+
+# Document-level field extraction (DEFAULT ON).
+#   ON  = ONE extraction pass for the whole document. Pages are grouped into
+#         LLM-sized requests on PAGE BOUNDARIES (a page is never split or dropped),
+#         and each extracted fact is attached to the page it was read from, so the
+#         citation survives. A 79-page lease costs 1 field-extraction call.
+#   OFF = legacy per-page extraction: 79 calls for that same lease, re-answering
+#         document-level facts on every page, which produced duplicate and sometimes
+#         conflicting values for one document.
+# Requires a schema for the detected document_type, and applies only when
+# force_ai_extraction is False. Any failure falls back to the per-page path.
+# NOTE: unrelated to VECTOR_CHUNK_SIZE (vector-store chunking for semantic search)
+# and to use_batch_processing/batch_size (reading a large PDF in page batches).
+DOC_DOCUMENT_LEVEL_EXTRACTION = os.getenv('DOC_DOCUMENT_LEVEL_EXTRACTION', 'True').lower() == 'true'
+
+# How much document text goes into ONE extraction request, expressed in TOKENS.
+# Converted to characters internally via DOC_CHARS_PER_TOKEN. Pages are never split
+# across requests, so a document larger than this budget simply uses more requests.
+#
+# Sizing this: a request must fit INPUT + OUTPUT inside the model's context window.
+#   200K-context model : 120,000 input tokens leaves ~70K of headroom for the
+#                        response and the prompt scaffolding. This is the default.
+#   1M-context model   : raise to ~900000. NOTE the hosted relay
+#                        (CommonUtils.AnthropicProxyClient.messages_create) sends no
+#                        beta header, so 1M context is only available on a direct-API
+#                        / BYOK path today. Raising this above the model's real window
+#                        makes requests fail — extraction then falls back to per-page,
+#                        which is correct but slow and expensive.
+DOC_DOC_LEVEL_MAX_TOKENS = int(os.getenv('DOC_DOC_LEVEL_MAX_TOKENS', 120000))
+
+# Output budget for an extraction response. The reply is a small flat JSON object, so
+# this is deliberately far below ANTHROPIC_MAX_TOKENS (64000) — reserving 64K of output
+# would eat context that should be holding document text.
+DOC_DOC_LEVEL_OUTPUT_TOKENS = int(os.getenv('DOC_DOC_LEVEL_OUTPUT_TOKENS', 8000))
+
+# Advanced override: cap a request by characters instead of tokens. Leave at 0 to
+# derive it from DOC_DOC_LEVEL_MAX_TOKENS (the normal case).
+DOC_DOC_LEVEL_MAX_CHARS = int(os.getenv('DOC_DOC_LEVEL_MAX_CHARS', 0))
+
+# Record extraction: a document's REPEATING content (a manual's requirements, an
+# invoice's line items) as rows, alongside the document-level fields. Runs only for
+# document types whose learned schema declares a `records:` set — a lease declares none
+# and is unaffected. Requires migrations/017_document_records.sql; without that table
+# records are extracted and then skipped with a warning, and nothing else changes.
+# ON by default. Requires migrations/017_document_records.sql; without that table the
+# rows are extracted and then skipped with a warning, and nothing else changes.
+DOC_EXTRACT_RECORDS = os.getenv('DOC_EXTRACT_RECORDS', 'True').lower() == 'true'
+# Output budget for ONE record-extraction request. Rows are the output here, not a small
+# object, so this is much larger than DOC_DOC_LEVEL_OUTPUT_TOKENS. Hitting this cap
+# truncates rows silently at the model layer — the extractor detects it and marks the
+# run 'partial' rather than letting a short count look complete.
+DOC_RECORDS_OUTPUT_TOKENS = int(os.getenv('DOC_RECORDS_OUTPUT_TOKENS', 16000))
+# Input budget per RECORD request, in tokens. Deliberately much smaller than
+# DOC_DOC_LEVEL_MAX_TOKENS: field output is a fixed-size object however much text goes
+# in, but record output GROWS with input — a 108-page guide in one request wanted ~30K
+# output tokens, blew the output cap mid-JSON and yielded 0 rows (manifest: partial).
+# ~12K tokens in ≈ 18 pages ≈ ~25 rows ≈ ~6K tokens out: comfortable margin per request.
+DOC_RECORDS_INPUT_TOKENS = int(os.getenv('DOC_RECORDS_INPUT_TOKENS', 12000))
+
+# Document types that must NEVER get an auto-generated extraction schema, and whose
+# schema is ignored if one already exists on disk. These are not real document types —
+# they are the absence of one — so a schema learned from whichever document landed
+# first would be meaningless for the next. They always use free-form AI extraction.
+DOC_SCHEMA_EXCLUDED_TYPES = os.getenv('DOC_SCHEMA_EXCLUDED_TYPES', 'unknown,unknown_document')
 VECTOR_USE_SMART_CHUNKING = True                    # Smart chunking on/off switch (master toggle for LLM-driven chunking + section context)
 VECTOR_SMART_CHUNKING_MAX_CHARS = 128000            # Max context window for LLM chunking (can be ~1M tokens)
 VECTOR_SMART_CHUNK_INCLUDE_SECTION_HEADER = True    # When smart chunking is on, embed each chunk with [doc_identifier][section_breadcrumb] prefix and surface that context to the AI at retrieval time. Set False to keep boundary detection only.
@@ -698,7 +770,13 @@ VECTOR_ENABLE_CHUNKING = True                           # Enable/disable chunkin
 VECTOR_SPLITTER_TYPE = 'recursive_character'            # recursive_character, token, markdown, html, python
 
 # For chat/retrieval context
-VECTOR_SEARCH_RESULTS_CHAR_LIMIT_FOR_AI = 300000        # Character limit when formatting document search results for AI prompts
+# Total budget for a formatted search-result payload. 600,000 chars ≈ 150K tokens —
+# sized for a 200K-token window carrying full PAGES (post-2026-08-14) rather than
+# 512-char chunks. Overflow is announced in the output ("showing X of Y matching
+# pages"), never silently dropped. NOTE the per-hop caps downstream: CC truncates its
+# tool result at 150K chars (nodes.py), The Agent renders ~4K chars per passage
+# (document_tools.py) — raising only this number changes nothing on those surfaces.
+VECTOR_SEARCH_RESULTS_CHAR_LIMIT_FOR_AI = int(os.getenv('VECTOR_SEARCH_RESULTS_CHAR_LIMIT_FOR_AI', 600000))
 VECTOR_SEARCH_RESULTS_MIN_SCORE_FOR_AI = 0.25           # Minimum relevance score for chunk results to be included in document search results
 VECTOR_SEARCH_RESULTS_RESULT_LIMIT_FOR_AI = 999         # Maximum results that can be returned by the document search
 

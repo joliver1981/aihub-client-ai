@@ -211,6 +211,17 @@ class DocumentProcessor:
                 detect_document_type=detect_document_type
             )
 
+            # HONEST FAILURE (2026-08-14): the engine used to return the same shape on
+            # success and on an aborted store, so a failed ingest reported HTTP success
+            # while the database held nothing. If the engine flagged an error, say so.
+            if result.get("processing_error"):
+                return {
+                    "status": "error",
+                    "message": f"Document processing failed: {result['processing_error']}",
+                    "document_id": result.get("document_id"),
+                    "execution_id": execution_id,
+                }
+
             try:
                 document_pages = result["pages"]
                 document_text = ""
