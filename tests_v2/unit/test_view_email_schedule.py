@@ -100,6 +100,32 @@ def test_a_cron_without_a_timezone_warns_instead_of_silently_using_utc():
     assert "UTC" in said and "no timezone" in said.lower()
 
 
+def test_weekday_cron_is_stored_as_day_names_not_numbers():
+    """The engine parses with APScheduler's CronTrigger.from_crontab, whose
+    day_of_week is 0=MONDAY, while standard crontab uses 0=SUNDAY — and it does
+    NOT remap. So a stored '0 9 * * 1-5' fires Tue-Sat, verified on APScheduler
+    3.11.0 and against nine live schedules on this install. Names mean the same
+    thing under either numbering."""
+    _, posted = _call({"name": "Ops Board", "to": ["j@x.co"],
+                       "cron_expression": "0 9 * * 1-5"})
+    assert posted["schedule"]["cron_expression"] == "0 9 * * mon-fri"
+
+
+def test_dow_normalisation_covers_the_shapes_a_model_will_write():
+    n = V.normalize_cron_dow
+    assert n("0 9 * * 1-5") == "0 9 * * mon-fri"
+    assert n("30 7 * * 1,3") == "30 7 * * mon,wed"
+    assert n("0 22 * * 0") == "0 22 * * sun"
+    assert n("0 6 * * 7") == "0 6 * * sun"        # 7 is Sunday too
+    assert n("0 9 * * 6") == "0 9 * * sat"
+    # left alone: wildcards, steps, names already used, and malformed input
+    assert n("0 9 * * *") == "0 9 * * *"
+    assert n("0 9 * * */2") == "0 9 * * */2"
+    assert n("0 9 * * mon-fri") == "0 9 * * mon-fri"
+    assert n("nonsense") == "nonsense"
+    assert n("") == ""
+
+
 def test_target_id_is_the_string_zero():
     """The scheduler route's presence check treats int 0 as missing."""
     _, posted = _call({"name": "Ops Board", "to": ["j@x.co"],

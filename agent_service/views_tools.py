@@ -163,6 +163,53 @@ async def _run_automation_tile(t: dict, tile: dict) -> None:
     tile["run_id"] = data.get("run_id")
 
 
+_CRON_DAY_NAMES = ("sun", "mon", "tue", "wed", "thu", "fri", "sat")
+
+
+def normalize_cron_dow(expr: str) -> str:
+    """Rewrite a 5-field crontab's day-of-week numbers as NAMES.
+
+    The engine builds triggers with APScheduler's CronTrigger.from_crontab,
+    whose day_of_week is 0=MONDAY — while standard crontab (and every model,
+    and every human) uses 0=SUNDAY. from_crontab does NOT remap, so
+    '0 9 * * 1-5' — the canonical "weekdays" expression — actually fires
+    Tue-Sat. Verified on APScheduler 3.11.0 and against nine live schedules on
+    this install, every one of them a day late.
+
+    Names sidestep the whole question: 'mon-fri' means Monday to Friday under
+    either numbering, so this stays correct even if the engine's parsing is
+    fixed later. Untouched: '*', step syntax, and expressions already using
+    names.
+    """
+    parts = str(expr or "").split()
+    if len(parts) != 5:
+        return expr
+    dow = parts[4]
+    if dow == "*" or "/" in dow or any(c.isalpha() for c in dow):
+        return expr
+    if not all(c.isdigit() or c in ",-" for c in dow):
+        return expr
+
+    def _name(token: str) -> str:
+        n = int(token)
+        return _CRON_DAY_NAMES[0 if n == 7 else n] if 0 <= n <= 7 else token
+
+    out = []
+    for chunk in dow.split(","):
+        if "-" in chunk:
+            lo, _, hi = chunk.partition("-")
+            if lo.isdigit() and hi.isdigit():
+                out.append(f"{_name(lo)}-{_name(hi)}")
+            else:
+                out.append(chunk)
+        elif chunk.isdigit():
+            out.append(_name(chunk))
+        else:
+            out.append(chunk)
+    parts[4] = ",".join(out)
+    return " ".join(parts)
+
+
 def _group_key(t: dict, pos: int) -> str:
     """Tiles that MUST NOT run at the same time share a key.
 
@@ -663,8 +710,11 @@ async def schedule_view_email(args: dict[str, Any]) -> dict[str, Any]:
                      "scheduled.", is_error=True)
 
     if args.get("cron_expression"):
+        # Day-of-week numbers -> names before storing: the engine reads 0 as
+        # MONDAY, so a stored '1-5' fires Tue-Sat (see normalize_cron_dow).
         schedule = {"type": "cron",
-                    "cron_expression": str(args["cron_expression"])}
+                    "cron_expression": normalize_cron_dow(
+                        str(args["cron_expression"]))}
     elif args.get("every_hours"):
         schedule = {"type": "interval",
                     "interval_hours": max(int(args["every_hours"]), 1),
