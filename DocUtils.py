@@ -4545,80 +4545,165 @@ def deduplicate_search_results_new(*result_lists,
 
 
 def format_search_results_for_ai(search_results: List[Dict[str, Any]]) -> str:
+    """Format vector search results into the [Source N: ...] blob the AI consumes.
+
+    THE PAGE IS THE PAYLOAD; THE CHUNK IS THE POINTER. Chunks (512 chars) exist to FIND
+    the right page; the model should then read the page. The previous version preferred
+    metadata['matched_chunk'] over the page text — which meant that turning on
+    DOC_INCLUDE_FULL_PAGE_IN_CHUNK_RESULTS changed what was FETCHED but never what the
+    AI was SHOWN, making the flag a silent no-op. Full page text is read from
+    metadata['full_text'] (stored on every chunk at index time), so this works even when
+    the vector service predates the flag flip; the matched chunk is kept as a short
+    "Matched:" line explaining WHY the page surfaced.
+
+    Contract consumed by document_search_wrapper._SOURCE_BLOCK_RE — do not change the
+    header shape "[Source N: <file> - Page <p>] (<type>) (Relevance: r)" or the
+    "Document URL:" line without updating that regex.
+
+    Honesty rules (both previously silent):
+      * a page longer than DOC_SEARCH_MAX_CHARS_PER_SOURCE is cut WITH a marker;
+      * results dropped at VECTOR_SEARCH_RESULTS_CHAR_LIMIT_FOR_AI are COUNTED and the
+        blob ends with an omission notice instead of just stopping.
     """
-    Simple function to format search results for AI consumption.
-    Takes your existing search results and returns a clean string.
-    
-    Args:
-        search_results: List of search result dictionaries from your vector search
-        max_length: Maximum character length for the formatted output
-        
-    Returns:
-        Clean formatted string ready to insert into AI prompts
-    """
-    
+
     if not search_results:
         return "No relevant documents found."
-    
+
+    max_length = int(cfg.VECTOR_SEARCH_RESULTS_CHAR_LIMIT_FOR_AI)
+    per_source_cap = int(getattr(cfg, 'DOC_SEARCH_MAX_CHARS_PER_SOURCE', 20000))
+    chunk_preview_cap = 240
+
+    # ---- Pass 1: group chunk-level hits into unique PAGES. -----------------------
+    # deduplicate_search_results dedupes on the top-level document_id, which for chunk
+    # results is the CHUNK id — so two chunks from the same page arrive as two results.
+    # Rendering the same full page twice would waste most of the budget, so group by
+    # (real document_id, page_number), keep the best relevance, and collect every
+    # matched chunk for that page.
+    pages = {}
+    page_order = []
+    for result in search_results:
+        try:
+            metadata = result.get('metadata', {}) or {}
+            real_doc_id = (metadata.get('document_id')
+                           or metadata.get('original_doc_id')
+                           or result.get('document_id', ''))
+            page_num = metadata.get('page_number', '?')
+            key = (str(real_doc_id), str(page_num))
+
+            # Page text: full page from metadata first, then whatever the engine sent
+            # as the body (which IS the full page when the engine-side flag is on).
+            full_text = (metadata.get('full_text') or result.get('text')
+                         or result.get('document') or '')
+            chunk_text = metadata.get('matched_chunk') or ''
+            if (not chunk_text and full_text and result.get('text')
+                    and result['text'] != full_text):
+                chunk_text = result['text']
+            relevance = result.get('relevance_score', 0.0) or 0.0
+
+            if key not in pages:
+                pages[key] = {
+                    'filename': metadata.get('filename', 'Unknown Document'),
+                    'page_num': page_num,
+                    'doc_type': metadata.get('document_type', 'document'),
+                    'document_id': real_doc_id,
+                    'text': full_text,
+                    'relevance': relevance,
+                    'chunks': [],
+                }
+                page_order.append(key)
+            entry = pages[key]
+            if relevance > entry['relevance']:
+                entry['relevance'] = relevance
+            if len(full_text) > len(entry['text']):
+                entry['text'] = full_text
+            if chunk_text and chunk_text not in entry['chunks']:
+                entry['chunks'].append(chunk_text)
+        except Exception as e:
+            print(f"Error grouping search result: {str(e)}")
+            continue
+
+    # Best pages first — page-level best relevance is the honest ordering once several
+    # chunks vote for one page.
+    page_order.sort(key=lambda k: -pages[k]['relevance'])
+
+    # ---- Pass 2: render within the budget, announcing every cut. -----------------
     formatted_parts = []
     current_length = 0
-    max_length = int(cfg.VECTOR_SEARCH_RESULTS_CHAR_LIMIT_FOR_AI)
+    shown = 0
+    omitted = 0
 
-    for i, result in enumerate(search_results, 1):
+    for key in page_order:
+        entry = pages[key]
         try:
-            # Get the chunk text (most relevant part)
-            if 'matched_chunk' in result.get('metadata', {}):
-                text = result['metadata']['matched_chunk']
-            elif 'text' in result:
-                text = result['text']
-            elif 'document' in result:
-                text = result['document']
-            else:
-                continue  # Skip if no text found
-            
-            # Get metadata for source reference
-            metadata = result.get('metadata', {})
-            filename = metadata.get('filename', 'Unknown Document')
-            page_num = metadata.get('page_number', '?')
-            doc_type = metadata.get('document_type', 'document')
-            relevance = result.get('relevance_score', 0.0)
-
-            document_id = metadata.get('document_id', '')
-            link_to_document = ''
-            if document_id:
-                link_to_document = get_base_url() + f"/document/view/{document_id}?page={page_num or '1'}"
-            
-            # Clean filename 
-            clean_filename = filename.split('/')[-1].split('\\')[-1]
+            filename = entry['filename']
+            clean_filename = filename.split('/')[-1].split(chr(92))[-1]
             if '.' in clean_filename:
                 clean_filename = '.'.join(clean_filename.split('.')[:-1])
-            
-            # Format this result
-            result_text = f"[Source {i}: {clean_filename} - Page {page_num}] ({doc_type}) (Relevance: {relevance:.2f})\n{text.strip()}\n Document URL: {link_to_document}"
-            
-            # Check length constraint
+
+            link_to_document = ''
+            if entry['document_id']:
+                link_to_document = (get_base_url()
+                                    + f"/document/view/{entry['document_id']}"
+                                    + f"?page={entry['page_num'] or '1'}")
+
+            text = (entry['text'] or '').strip()
+            if len(text) > per_source_cap:
+                text = text[:per_source_cap] + (
+                    f"{chr(10)}... [page text truncated at {per_source_cap:,} chars — "
+                    f"open the Document URL for the rest]")
+
+            matched_lines = ''
+            for c in entry['chunks'][:3]:
+                c = ' '.join(str(c).split())
+                # When the page text already contains the chunk verbatim (the normal
+                # case), a Matched line adds nothing — keep the payload clean.
+                if c and c[:120] not in text:
+                    matched_lines += (chr(10) + 'Matched: "'
+                                      + c[:chunk_preview_cap] + '"')
+
+            result_text = (
+                f"[Source {shown + 1}: {clean_filename} - Page {entry['page_num']}] "
+                f"({entry['doc_type']}) (Relevance: {entry['relevance']:.2f})"
+                f"{matched_lines}{chr(10)}{text}{chr(10)}"
+                f" Document URL: {link_to_document}"
+            )
+
             if current_length + len(result_text) > max_length:
-                # Try to fit truncated version
-                remaining_space = max_length - current_length - 50
-                if remaining_space > 100:
-                    truncated_text = text[:remaining_space] + "..."
-                    result_text = f"[Source {i}: {clean_filename} - Page {page_num}] ({doc_type}) (Relevance: {relevance:.2f})\n{truncated_text}\n Document URL: {link_to_document}"
+                remaining_space = max_length - current_length - 200
+                if remaining_space > 500 and shown == 0:
+                    # Never return an empty result because the first page was huge.
+                    truncated = text[:remaining_space] + "..."
+                    result_text = (
+                        f"[Source 1: {clean_filename} - Page {entry['page_num']}] "
+                        f"({entry['doc_type']}) (Relevance: {entry['relevance']:.2f})"
+                        f"{chr(10)}{truncated}{chr(10)}"
+                        f" Document URL: {link_to_document}")
                     formatted_parts.append(result_text)
+                    shown += 1
+                omitted = len(page_order) - shown
                 break
-            
+
             formatted_parts.append(result_text)
             current_length += len(result_text)
-            
+            shown += 1
+
         except Exception as e:
-            print(f"Error formatting result {i}: {str(e)}")
+            print(f"Error formatting result for page {key}: {str(e)}")
             continue
-    
+
     if not formatted_parts:
         return "No relevant document content available."
-    
-    print('Total Results after AI formatting:', len(formatted_parts))
-    
-    return "\n".join(formatted_parts)
+
+    if omitted > 0:
+        formatted_parts.append(
+            f"{chr(10)}[Result set truncated: showing {shown} of {len(page_order)} "
+            f"matching pages — {omitted} more page(s) omitted after the "
+            f"{max_length:,}-character limit. Narrow the search to see them.]")
+
+    print(f'Total Results after AI formatting: {shown} page(s) shown, '
+          f'{omitted} omitted, from {len(search_results)} chunk hit(s)')
+
+    return (chr(10)).join(formatted_parts)
 
 
 def get_document_id_by_filename(filename_search: str) -> str:

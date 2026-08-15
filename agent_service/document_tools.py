@@ -457,9 +457,12 @@ async def search_documents(args: dict[str, Any]) -> dict[str, Any]:
         text = _pick(row, "snippet", "matched_text", "highlight", "full_text",
                      "page_text", "text", "content", "chunk", default="")
         did = _pick(row, "document_id", "doc_id")
-        # keep enough to include the tail of a one-page doc (totals/terms often
-        # sit at the end) so the model can answer in one pass, not re-query.
-        snippet = " ".join(str(text).split())[:800]
+        # Passages are FULL PAGES now (2026-08-14), not 512-char chunks — the old
+        # [:800] squeeze silently undid that upgrade on this surface. 4,000 chars
+        # keeps a real lease page (1,500-3,200 chars) intact; 12 passages ≈ 12K
+        # tokens, well within an agent turn.
+        passage_cap = int(os.getenv("AGENT_DOC_PASSAGE_CHARS", "4000"))
+        snippet = " ".join(str(text).split())[:passage_cap]
         loc = f" p.{page}" if page not in (None, "") else ""
         line = (f"• {fname}{loc}"
                 + (f"  [id {did}]" if did else ""))

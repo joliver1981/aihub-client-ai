@@ -386,6 +386,11 @@ def search_documents_for_ai():
     
 
 def format_search_results_for_ai(search_results: List[Dict[str, Any]]) -> str:
+    # NOTE (2026-08-14): DEAD COPY — both route call sites are commented out; the live
+    # formatter is DocUtils.format_search_results_for_ai, which now renders the FULL
+    # PAGE and keeps the chunk as a "Matched:" line. If you ever re-enable this one,
+    # port that fix first: this copy still prefers matched_chunk over the page, which
+    # silently defeats DOC_INCLUDE_FULL_PAGE_IN_CHUNK_RESULTS.
     """
     Simple function to format search results for AI consumption.
     Takes your existing search results and returns a clean string.

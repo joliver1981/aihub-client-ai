@@ -3826,8 +3826,10 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             logger.info(f"[converse/tool] Document search returned {n_results} passage(s)")
             if not result_str:
                 return f"No documents matched \"{question}\"."
-            if len(result_str) > 50000:
-                result_str = result_str[:50000] + "\n... (results truncated)"
+            # 150K chars ≈ 37K tokens — sized for full-page results (2026-08-14);
+            # the old 50K cap silently undid the engine's larger payload.
+            if len(result_str) > 150000:
+                result_str = result_str[:150000] + "\n... (results truncated)"
             return result_str
 
         except _httpx.TimeoutException:
@@ -9005,8 +9007,9 @@ async def _execute_cc_tool(
                 return {"text": f"Document search error: {result['error']}", "status": "failed"}
 
             result_str = result.get("text") or f"No documents matched \"{description}\"."
-            if len(result_str) > 50000:
-                result_str = result_str[:50000] + "\n... (truncated)"
+            # 150K chars ≈ 37K tokens — sized for full-page results (2026-08-14).
+            if len(result_str) > 150000:
+                result_str = result_str[:150000] + "\n... (truncated)"
             return {"text": result_str, "status": "completed"}
 
         # ── search_web ────────────────────────────────────────────────────
