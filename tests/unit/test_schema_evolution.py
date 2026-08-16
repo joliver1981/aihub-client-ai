@@ -318,13 +318,17 @@ class TestRecordSetAutoDefine:
             ok = engine._define_record_set(
                 'zz_evo_lease',
                 {'name': 'safety_procedures', 'grain': 'one row per procedure',
-                 'example_columns': ['procedure'], 'sightings': []},
+                 'example_columns': ['procedure'],
+                 'sightings': [{'document_id': 'd1', 'filename': 'a.pdf'},
+                               {'document_id': 'd2', 'filename': 'b.pdf'}]},
                 self._pages())
         assert ok is True
         on_disk = _disk(engine)
         spec = on_disk['records']['safety_procedures']
         assert spec['evolved'] and 'procedure' in spec['columns']
         assert 'source_pages' in spec['columns']
+        # sighting provenance persisted — the coverage UI badges these docs
+        assert spec['first_sighted_in'] == ['d1', 'd2']
         assert on_disk['fields'] == SCHEMA['fields']
         assert not os.path.exists(engine._repeating_flag_path('zz_evo_lease'))
         assert len(os.listdir(os.path.join(engine.schema_dir, '_history'))) == 1

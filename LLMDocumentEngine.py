@@ -2088,6 +2088,12 @@ class LLMDocumentProcessor:
                 hist, f"{os.path.basename(path)}.{stamp}.bak"))
             for spec in cleaned.values():
                 spec['evolved'] = datetime.now().strftime('%Y-%m-%d')
+                # Which documents REPORTED this unit before the set existed —
+                # the coverage UI badges them: the only unchecked documents
+                # positively known to contain rows.
+                spec['first_sighted_in'] = sorted(
+                    {s['document_id'] for s in (unit.get('sightings') or [])
+                     if s.get('document_id')})
             schema['records'] = cleaned
             with open(path, 'w', encoding='utf-8') as f:
                 yaml.dump(schema, f, sort_keys=False, allow_unicode=True,

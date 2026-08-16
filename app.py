@@ -4497,6 +4497,14 @@ def get_document_schemas():
         for doc_type, path, data in _schema_admin_files():
             fields = data.get('fields')
             records = data.get('records')
+            # Documents that REPORTED the repeating unit before the set was
+            # defined (auto-define provenance): the only unchecked documents
+            # we positively know contain rows.
+            sighted = []
+            if isinstance(records, dict):
+                for spec in records.values():
+                    if isinstance(spec, dict):
+                        sighted.extend(spec.get('first_sighted_in') or [])
             schemas.append({
                 'document_type': doc_type,
                 'filename': os.path.basename(path),
@@ -4509,6 +4517,7 @@ def get_document_schemas():
                 'allow_evolution': bool(data.get('allow_evolution', True)),
                 'modified': datetime.fromtimestamp(
                     os.path.getmtime(path)).strftime('%Y-%m-%d %H:%M'),
+                '_first_sighted': set(sighted),
             })
         pending = []
         repeating_flags = []
@@ -4573,15 +4582,18 @@ def get_document_schemas():
                             "SELECT COUNT(*) FROM Documents WHERE "
                             "document_type = ?", dt)
                         total = cursor.fetchone()[0]
+                        # "Checked" = a __manifest row exists, INCLUDING
+                        # rows_written=0 — a document legitimately containing
+                        # no rows is checked-and-done, not missing anything.
                         cursor.execute("""
                             SELECT COUNT(DISTINCT r.document_id)
                             FROM DocumentRecords r
                             JOIN Documents d ON d.document_id = r.document_id
                             WHERE d.document_type = ?
                               AND r.record_set = '__manifest'""", dt)
-                        covered = cursor.fetchone()[0]
-                        missing = []
-                        if covered < total:
+                        checked = cursor.fetchone()[0]
+                        unchecked = []
+                        if checked < total:
                             cursor.execute("""
                                 SELECT TOP 50 d.document_id, d.filename
                                 FROM Documents d
@@ -4591,17 +4603,25 @@ def get_document_schemas():
                                       WHERE r.document_id = d.document_id
                                         AND r.record_set = '__manifest')
                                 ORDER BY d.filename""", dt)
-                            missing = [{'document_id': r[0], 'filename': r[1]}
-                                       for r in cursor.fetchall()]
+                            unchecked = [
+                                {'document_id': r[0], 'filename': r[1],
+                                 'reported': r[0] in s['_first_sighted']}
+                                for r in cursor.fetchall()]
+                            # The ones known to contain the unit lead the list.
+                            unchecked.sort(
+                                key=lambda m: (not m['reported'], m['filename']))
                         s['records_coverage'] = {
-                            'total_docs': total, 'covered_docs': covered,
-                            'missing': missing,
-                            'missing_truncated': (total - covered) > len(missing),
+                            'total_docs': total, 'checked_docs': checked,
+                            'unchecked': unchecked,
+                            'unchecked_truncated':
+                                (total - checked) > len(unchecked),
                         }
                 conn.close()
             except Exception as cov_err:
                 logger.warning(f"[schema-admin] records coverage skipped: "
                                f"{cov_err}")
+        for s in schemas:
+            s.pop('_first_sighted', None)
         return jsonify({'status': 'success', 'schemas': schemas,
                         'pending': pending,
                         'repeating_flags': repeating_flags})
