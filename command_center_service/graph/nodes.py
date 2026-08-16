@@ -2381,6 +2381,26 @@ Reply with ONLY one word: CONTINUE, CC_CAPABLE, or REROUTE."""
 
 # ─── Node: converse ───────────────────────────────────────────────────────
 
+def _doc_identity_headers(user_ctx: dict) -> dict:
+    """X-AIHub-User assertion for the main app's internal document endpoints.
+
+    Without it those endpoints treat the caller as service-internal and search
+    UNRESTRICTED — correct for headless system jobs, wrong for a user-facing
+    chat: the v3 category ACL never engages, so every CC user searches with
+    admin visibility. Mint only from a verified user_context (routes/chat.py
+    builds it from verified CC-session claims). Anonymous/system sessions send
+    nothing and deliberately keep today's unrestricted behavior. A signing
+    failure is allowed to RAISE — the call sites' error handling turns it into
+    an honest tool failure instead of silently searching unrestricted.
+    """
+    uid = (user_ctx or {}).get("user_id")
+    if uid in (None, "", 0, "anonymous"):
+        return {}
+    import shared_auth
+    return {"X-AIHub-User": shared_auth.sign_user_assertion(
+        uid, (user_ctx or {}).get("tenant_id"), (user_ctx or {}).get("role"))}
+
+
 async def converse(state: CommandCenterState) -> dict:
     """General conversation — grounded in real platform data."""
     from cc_config import get_llm, COMMAND_CENTER_SYSTEM_PROMPT, STRUCTURED_RESPONSE_FORMAT, IMAGE_GENERATION_ENABLED, DOCUMENT_SEARCH_ENABLED
@@ -3804,6 +3824,7 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 "Content-Type": "application/json",
                 "Connection": "close",
             }
+            headers.update(_doc_identity_headers(state.get("user_context")))
 
             async with _httpx.AsyncClient(timeout=120.0) as client:
                 resp = await client.post(url, json={"question": question}, headers=headers)
@@ -3867,13 +3888,15 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                                      ("topic", topic), ("document_type", document_type),
                                      ("limit", limit)) if v not in ("", None, 0)}
         try:
+            _rec_headers = {"X-API-Key": AI_HUB_API_KEY,
+                            "Content-Type": "application/json",
+                            "Connection": "close"}
+            _rec_headers.update(_doc_identity_headers(state.get("user_context")))
             async with _httpx.AsyncClient(timeout=60.0) as client:
                 resp = await client.post(
                     f"{get_base_url()}/api/internal/document-records",
                     json=payload,
-                    headers={"X-API-Key": AI_HUB_API_KEY,
-                             "Content-Type": "application/json",
-                             "Connection": "close"})
+                    headers=_rec_headers)
             if resp.status_code != 200:
                 return (f"Record query failed (HTTP {resp.status_code}). "
                         f"Fall back to search_documents.")
@@ -9042,6 +9065,7 @@ async def _execute_cc_tool(
                 "Content-Type": "application/json",
                 "Connection": "close",
             }
+            headers.update(_doc_identity_headers(user_ctx))
             async with _httpx.AsyncClient(timeout=120.0) as client:
                 resp = await client.post(url, json={"question": description}, headers=headers)
 
