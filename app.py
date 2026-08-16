@@ -14056,10 +14056,21 @@ def purge_document(document_id):
                 logger.error(f"Failed to reconnect to database: {str(reconnect_error)}")
                 return  "error", f"Database connection lost and reconnection failed: {str(reconnect_error)}", 500
             
-        # Delete from SQL database
+        # Delete from SQL database. DocumentRecords FIRST — its FK to Documents
+        # (migration 017) has no ON DELETE CASCADE, so deleting a document that
+        # has extracted rows would otherwise fail on the constraint. Guarded:
+        # the table may not exist on installs that never ran 017.
+        try:
+            cursor.execute("""
+                IF OBJECT_ID(N'[dbo].[DocumentRecords]', 'U') IS NOT NULL
+                    DELETE FROM DocumentRecords WHERE document_id = ?
+            """, (document_id,))
+        except Exception as rec_del_err:
+            logger.warning(f"DocumentRecords cleanup for {document_id} "
+                           f"skipped: {rec_del_err}")
         cursor.execute("DELETE FROM Documents WHERE document_id = ?", (document_id,))
         conn.commit()
-        
+
         return  "success", f"Document {document_id} deleted successfully", 200
         
     except Exception as e:
