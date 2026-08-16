@@ -135,6 +135,43 @@ def _classify(document_type: str, existing, sample_text: str) -> dict:
     return out if isinstance(out, dict) else {}
 
 
+def notify_type_stewards(document_type: str, title: str, detail: str,
+                         extra: Optional[dict] = None):
+    """FYI to the steward groups (can_manage) of the category that owns
+    `document_type`, via the approvals sidecar — the platform's non-workflow
+    My Work lane. Public seam for OTHER subsystems (e.g. record-set flags in
+    the document engine) so steward routing lives in exactly one place.
+    Best-effort: never raises."""
+    try:
+        conn, cur = _connect()
+        try:
+            cur.execute("""SELECT cg.group_id
+                           FROM DocumentTypeCategories tc
+                           JOIN DocumentCategoryGroups cg
+                             ON cg.category_id = tc.category_id
+                           WHERE tc.document_type = ? AND cg.can_manage = 1""",
+                        document_type)
+            stewards = [r[0] for r in cur.fetchall()]
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        if not stewards:
+            return
+        from automations.approval_store import add_row
+        from CommonUtils import get_app_path
+        base = get_app_path("automations", f"tenant_{os.getenv('API_KEY')}")
+        os.makedirs(base, exist_ok=True)
+        payload = dict(extra or {})
+        payload.setdefault('document_type', document_type)
+        for gid in stewards:
+            add_row(base, title, detail, gid, json.dumps(payload),
+                    priority=0, assigned_to_type='group')
+    except Exception as e:
+        logger.info(f"[category-ai] steward notify skipped: {e}")
+
+
 def _notify_stewards(cur, conn, summary: dict):
     """FYI (active) or approval item (pending) to the category's steward groups,
     via the approvals file sidecar — the platform's non-workflow My Work lane.

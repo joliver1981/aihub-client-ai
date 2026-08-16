@@ -254,7 +254,7 @@ class TestDocumentLevelExtraction:
             'execution_date': {'value': None, 'page': None},
             'parties.lessor.name': {'value': 'Hartford Trust', 'page': 2},
         }):
-            by_page, _unlisted = engine._extract_document_level_fields(pages, 'lease_agreement', LEASE_SCHEMA)
+            by_page, _unlisted, _rep = engine._extract_document_level_fields(pages, 'lease_agreement', LEASE_SCHEMA)
 
         assert by_page[2]['parties']['lessee']['name'] == 'Skyline Stores'
         assert by_page[2]['parties']['lessor']['name'] == 'Hartford Trust'
@@ -271,7 +271,7 @@ class TestDocumentLevelExtraction:
             {'parties.lessor.name': {'value': 'LLC', 'page': 30}},
         ]
         with patch.object(engine, '_extract_fields_with_llm', side_effect=responses):
-            by_page, _unlisted = engine._extract_document_level_fields(
+            by_page, _unlisted, _rep = engine._extract_document_level_fields(
                 pages, 'lease_agreement', LEASE_SCHEMA)
 
         names = [v['parties']['lessor']['name'] for v in by_page.values()
@@ -282,7 +282,7 @@ class TestDocumentLevelExtraction:
         pages = _pages(4)
         with patch.object(engine, '_extract_fields_with_llm',
                           return_value={'premises.size': '14,000 SF'}):
-            by_page, _unlisted = engine._extract_document_level_fields(
+            by_page, _unlisted, _rep = engine._extract_document_level_fields(
                 pages, 'lease_agreement', LEASE_SCHEMA)
         assert by_page[1]['premises']['size'] == '14,000 SF'
 
@@ -290,12 +290,12 @@ class TestDocumentLevelExtraction:
         pages = _pages(3)
         with patch.object(engine, '_extract_fields_with_llm',
                           return_value={'premises.size': {'value': '9,000 SF', 'page': 99}}):
-            by_page, _unlisted = engine._extract_document_level_fields(
+            by_page, _unlisted, _rep = engine._extract_document_level_fields(
                 pages, 'lease_agreement', LEASE_SCHEMA)
         assert set(by_page) <= {1, 2, 3}, "a hallucinated page number must not create a page"
 
     def test_schema_without_fields_yields_nothing_to_do(self, engine):
-        assert engine._extract_document_level_fields(_pages(3), 'x', CATEGORY_SCHEMA) == ({}, {})
+        assert engine._extract_document_level_fields(_pages(3), 'x', CATEGORY_SCHEMA) == ({}, {}, None)
 
 
 @pytest.mark.unit

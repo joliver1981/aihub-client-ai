@@ -4511,24 +4511,100 @@ def get_document_schemas():
                     os.path.getmtime(path)).strftime('%Y-%m-%d %H:%M'),
             })
         pending = []
+        repeating_flags = []
         pdir = os.path.join(_schema_admin_dir(), '_pending')
         if os.path.isdir(pdir):
             for fn in sorted(os.listdir(pdir)):
-                if not fn.endswith('_observed.json'):
-                    continue
-                try:
-                    with open(os.path.join(pdir, fn), 'r', encoding='utf-8') as f:
-                        obs = json.load(f)
-                    pending.append({
-                        'document_type': obs.get('document_type',
-                                                 fn[:-len('_observed.json')]),
-                        'observed_paths': len(obs.get('observed_paths') or []),
-                    })
-                except Exception:
-                    pending.append({'document_type': fn[:-len('_observed.json')],
-                                    'observed_paths': None})
+                path = os.path.join(pdir, fn)
+                if fn.endswith('_observed.json'):
+                    try:
+                        with open(path, 'r', encoding='utf-8') as f:
+                            obs = json.load(f)
+                        pending.append({
+                            'document_type': obs.get('document_type',
+                                                     fn[:-len('_observed.json')]),
+                            'observed_paths': len(obs.get('observed_paths') or []),
+                        })
+                    except Exception:
+                        pending.append({'document_type':
+                                        fn[:-len('_observed.json')],
+                                        'observed_paths': None})
+                elif fn.endswith('_repeating_unit.json'):
+                    # Repeating-unit evidence: a unit seen in documents of a
+                    # type whose schema has no record set. Auto mode activates
+                    # it at the sightings threshold; flag-only mode leaves this
+                    # badge + delete-to-relearn to a human.
+                    try:
+                        with open(path, 'r', encoding='utf-8') as f:
+                            flag = json.load(f)
+                        for u in (flag.get('units') or {}).values():
+                            repeating_flags.append({
+                                'document_type': flag.get('document_type'),
+                                'unit': u.get('name'),
+                                'grain': u.get('grain'),
+                                'sightings': len(u.get('sightings') or []),
+                                'auto': bool(getattr(
+                                    cfg, 'DOC_RECORDS_AUTODEFINE', True)),
+                                'activates_at': int(getattr(
+                                    cfg,
+                                    'DOC_RECORDS_AUTODEFINE_SIGHTINGS', 2)),
+                            })
+                    except Exception:
+                        pass
+
+        # Rows coverage per record set: a document with no __manifest row for
+        # its type's set never had record extraction run — including everything
+        # ingested before the set existed. "Floor, not a census" made visible.
+        typed = [s for s in schemas if s['record_sets']]
+        if typed:
+            try:
+                conn = get_db_connection()
+                cursor = conn.cursor()
+                cursor.execute("EXEC tenant.sp_setTenantContext ?",
+                               os.getenv('API_KEY'))
+                cursor.execute("""SELECT 1 FROM sys.objects
+                                  WHERE object_id =
+                                        OBJECT_ID(N'[dbo].[DocumentRecords]')
+                                    AND type = 'U'""")
+                if cursor.fetchone():
+                    for s in typed:
+                        dt = s['document_type']
+                        cursor.execute(
+                            "SELECT COUNT(*) FROM Documents WHERE "
+                            "document_type = ?", dt)
+                        total = cursor.fetchone()[0]
+                        cursor.execute("""
+                            SELECT COUNT(DISTINCT r.document_id)
+                            FROM DocumentRecords r
+                            JOIN Documents d ON d.document_id = r.document_id
+                            WHERE d.document_type = ?
+                              AND r.record_set = '__manifest'""", dt)
+                        covered = cursor.fetchone()[0]
+                        missing = []
+                        if covered < total:
+                            cursor.execute("""
+                                SELECT TOP 50 d.document_id, d.filename
+                                FROM Documents d
+                                WHERE d.document_type = ?
+                                  AND NOT EXISTS (
+                                      SELECT 1 FROM DocumentRecords r
+                                      WHERE r.document_id = d.document_id
+                                        AND r.record_set = '__manifest')
+                                ORDER BY d.filename""", dt)
+                            missing = [{'document_id': r[0], 'filename': r[1]}
+                                       for r in cursor.fetchall()]
+                        s['records_coverage'] = {
+                            'total_docs': total, 'covered_docs': covered,
+                            'missing': missing,
+                            'missing_truncated': (total - covered) > len(missing),
+                        }
+                conn.close()
+            except Exception as cov_err:
+                logger.warning(f"[schema-admin] records coverage skipped: "
+                               f"{cov_err}")
         return jsonify({'status': 'success', 'schemas': schemas,
-                        'pending': pending})
+                        'pending': pending,
+                        'repeating_flags': repeating_flags})
     except Exception as e:
         logger.error(f"[get_document_schemas] {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -4653,6 +4729,88 @@ def delete_document_schema():
         return jsonify({'status': 'error', 'message': 'No schema for type'}), 404
     except Exception as e:
         logger.error(f"[delete_document_schema] {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+_records_backfill_inflight = set()
+_records_backfill_engine = None
+
+
+@app.route('/backfill/document_records', methods=['POST'])
+@cross_origin()
+@api_key_or_session_required(min_role=3)
+def backfill_document_records():
+    """Records-only reprocess of ONE stored document — no re-ingest.
+
+    Page text already lives in DocumentPages, so a document that predates its
+    type's record set (or predates records extraction entirely) can get its
+    rows by running the existing extractor over stored text. Runs in a
+    background thread (a big document takes minutes); the coverage line on the
+    Document Schemas page is the progress/result indicator — the document
+    gains a __manifest row when done."""
+    global _records_backfill_engine
+    try:
+        doc_id = ((request.json or {}).get('document_id') or '').strip()
+        if not doc_id:
+            return jsonify({'status': 'error',
+                            'message': 'document_id required'}), 400
+        if doc_id in _records_backfill_inflight:
+            return jsonify({'status': 'success', 'state': 'already_running'})
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+        cursor.execute("SELECT document_type, filename FROM Documents "
+                       "WHERE document_id = ?", doc_id)
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'status': 'error',
+                            'message': 'Unknown document'}), 404
+        doc_type, filename = row[0], row[1]
+        cursor.execute("""SELECT page_number, full_text FROM DocumentPages
+                          WHERE document_id = ? ORDER BY page_number""", doc_id)
+        pages = [{'page_number': r[0], 'text': r[1] or ''}
+                 for r in cursor.fetchall()]
+        conn.close()
+        if not pages:
+            return jsonify({'status': 'error',
+                            'message': 'No stored page text for this '
+                                       'document'}), 400
+
+        from LLMDocumentEngine import LLMDocumentProcessor
+        if _records_backfill_engine is None:
+            _records_backfill_engine = LLMDocumentProcessor(
+                sql_connection_string=None)
+        engine = _records_backfill_engine
+        engine.schemas = engine._load_schemas()
+        if not (engine.schemas.get(doc_type) or {}).get('records'):
+            return jsonify({'status': 'error',
+                            'message': f"'{doc_type}' has no record set to "
+                                       f"backfill"}), 400
+
+        def _run(doc_id=doc_id, doc_type=doc_type, pages=pages,
+                 filename=filename):
+            try:
+                extracted = engine._extract_records(pages, doc_type,
+                                                    engine.schemas[doc_type])
+                engine._store_records(doc_id, extracted, len(pages))
+                logger.info(f"[records-backfill] {filename} ({doc_id}): done.")
+            except Exception as bf_err:
+                logger.error(f"[records-backfill] {filename} ({doc_id}) "
+                             f"failed: {bf_err}")
+            finally:
+                _records_backfill_inflight.discard(doc_id)
+
+        _records_backfill_inflight.add(doc_id)
+        import threading
+        threading.Thread(target=_run, daemon=True,
+                         name=f"records-backfill-{doc_id[:8]}").start()
+        logger.info(f"[records-backfill] started for {filename} ({doc_id}), "
+                    f"{len(pages)} page(s).")
+        return jsonify({'status': 'success', 'state': 'started',
+                        'pages': len(pages)})
+    except Exception as e:
+        logger.error(f"[backfill_document_records] {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 

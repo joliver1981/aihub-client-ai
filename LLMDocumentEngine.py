@@ -945,7 +945,7 @@ class LLMDocumentProcessor:
                     and detected_document_type in self.schemas
                     and not force_ai_extraction):
                 try:
-                    doc_level_fields, unlisted_observations = \
+                    doc_level_fields, unlisted_observations, repeating_unit = \
                         self._extract_document_level_fields(
                             extracted_pages,
                             detected_document_type,
@@ -964,6 +964,16 @@ class LLMDocumentProcessor:
                             self._assign_dotted_field(
                                 doc_level_fields.setdefault(ev['page'], {}),
                                 fp, ev['value'])
+                    # ---- Record-set auto-define -------------------------------
+                    # A repeating unit in a document whose schema has no record
+                    # set: log the sighting; at the evidence threshold, define
+                    # the set from THIS document. Runs before the records
+                    # branch below, so the defining document extracts its own
+                    # rows in this same ingest.
+                    if repeating_unit:
+                        self._handle_repeating_unit(
+                            detected_document_type, repeating_unit,
+                            file_id, filename, extracted_pages)
                 except Exception as e:
                     self.logger.error(
                         f"Document-level extraction failed ({e}); "
@@ -1464,7 +1474,8 @@ class LLMDocumentProcessor:
     def _extract_fields_with_llm(self, text: str, field_specs: Dict[str, str],
                                  document_type: str,
                                  with_pages: bool = False,
-                                 observe_unlisted: bool = False) -> Dict[str, Any]:
+                                 observe_unlisted: bool = False,
+                                 observe_repeating: bool = False) -> Dict[str, Any]:
         """Extract a KNOWN list of fields from one page of text using the LLM.
 
         This is the schema-driven counterpart to ``_extract_with_ai``: instead of
@@ -1503,6 +1514,23 @@ class LLMDocumentProcessor:
             value_rule = "Each value is the extracted value itself, or null. "
             unit = "page"
 
+        repeating_rule = ""
+        repeating_ask = ""
+        if observe_repeating:
+            repeating_rule = (
+                'EXCEPTION — one extra key "_repeating_unit" IS allowed: '
+                'null, or (when this extract contains a MATERIAL repeating '
+                'unit — many rows of the same kind of operative content, like '
+                'requirements, line items, or scheduled amounts) an object '
+                '{"name": "<snake_case plural>", "grain": "one row per ...", '
+                '"example_columns": ["<attr>", ...], "pages": [<ints>]}. '
+                'Reference or navigational material — a table of contents, '
+                'index, glossary, definitions list — is NOT a repeating unit. '
+                'Almost every extract should return null. '
+            )
+            repeating_ask = ('Also report a material repeating unit under '
+                             '"_repeating_unit" (usually null).\n')
+
         unlisted_rule = ""
         unlisted_ask = ""
         if observe_unlisted:
@@ -1525,7 +1553,7 @@ class LLMDocumentProcessor:
             "Respond with STRICT JSON only — no prose, no markdown fences. "
             "Return ONE FLAT object whose keys are EXACTLY the field names given to you, "
             "spelled identically, including any dots. Do not nest the KEYS. Do not add keys. "
-            + value_rule + unlisted_rule +
+            + value_rule + unlisted_rule + repeating_rule +
             f"Use null for any field this {unit} does not state. "
             "Never infer, never guess, never carry knowledge in from outside the text — "
             f"if the {unit} does not say it, the value is null."
@@ -1536,7 +1564,7 @@ class LLMDocumentProcessor:
             "Return a JSON object with exactly these keys, using null where the text "
             "does not state a value.\n"
             + ("Cite the [Page N] marker each value came from.\n" if with_pages else "")
-            + unlisted_ask
+            + unlisted_ask + repeating_ask
             + f"\n--- TEXT ---\n{text}\n--- END TEXT ---"
         )
         messages = [{"role": "user", "content": [{"type": "text", "text": user_text}]}]
@@ -1693,16 +1721,19 @@ class LLMDocumentProcessor:
         yields one value per field, attributed to the page it came from so the
         citation survives.
 
-        Returns ({page_number: {field_path: value}}, unlisted_observations) —
-        the first shaped so the caller can attach each fact to the page that
-        evidenced it; the second is {path: {value, page, description}} of
-        material facts the document states that the SCHEMA lacks, which feeds
-        schema evolution. Raises on failure; the caller falls back to per-page
+        Returns ({page_number: {field_path: value}}, unlisted_observations,
+        repeating_unit) — the first shaped so the caller can attach each fact
+        to the page that evidenced it; the second is {path: {value, page,
+        description}} of material facts the document states that the SCHEMA
+        lacks (feeds field evolution); the third is None or {name, grain,
+        example_columns, pages, chunks_agreeing} — a material repeating unit
+        seen in a document whose schema has NO record set (feeds record-set
+        auto-define). Raises on failure; the caller falls back to per-page
         extraction.
         """
         fields = (schema or {}).get('fields') or {}
         if not fields:
-            return {}, {}
+            return {}, {}, None
 
         field_specs = {name: (info or {}).get('description') or name
                        for name, info in fields.items()}
@@ -1712,15 +1743,20 @@ class LLMDocumentProcessor:
         observe = (getattr(cfg, 'DOC_SCHEMA_EVOLUTION', True)
                    and bool((schema or {}).get('allow_evolution', True))
                    and not self._schema_excluded(document_type))
+        # Ask about repeating units only while the schema has NO record set —
+        # once one exists this costs nothing and cannot churn it.
+        observe_repeating = observe and not (schema or {}).get('records')
 
         self.logger.info(
             f"Document-level extraction: {len(pages)} page(s) -> {len(chunks)} LLM call(s) "
             f"(budget {max_chars:,} chars each) for '{document_type}'"
             + (" [observing unlisted fields]" if observe else "")
+            + (" [watching for repeating units]" if observe_repeating else "")
         )
 
         merged = {}      # field_path -> (value, page_number)
         unlisted = {}    # path -> {value, page, description}; first sighting wins
+        repeating = None  # first well-formed sighting wins; count agreement
         conflicts = 0
 
         for idx, chunk in enumerate(chunks, 1):
@@ -1731,8 +1767,26 @@ class LLMDocumentProcessor:
             )
             values = self._extract_fields_with_llm(
                 chunk['text'], field_specs, document_type, with_pages=True,
-                observe_unlisted=observe
+                observe_unlisted=observe, observe_repeating=observe_repeating
             )
+            raw_repeating = values.pop('_repeating_unit', None)
+            if observe_repeating and isinstance(raw_repeating, dict) \
+                    and str(raw_repeating.get('name') or '').strip():
+                if repeating is None:
+                    repeating = {
+                        'name': str(raw_repeating['name']).strip()[:64],
+                        'grain': str(raw_repeating.get('grain') or '')[:200],
+                        'example_columns':
+                            [str(c)[:64] for c in
+                             (raw_repeating.get('example_columns') or [])
+                             if str(c).strip()][:20],
+                        'pages': [p for p in
+                                  (raw_repeating.get('pages') or [])
+                                  if isinstance(p, int)][:50],
+                        'chunks_agreeing': 1,
+                    }
+                else:
+                    repeating['chunks_agreeing'] += 1
             raw_unlisted = values.pop('_unlisted', None)
             if observe and isinstance(raw_unlisted, dict):
                 for path, obs in raw_unlisted.items():
@@ -1776,8 +1830,11 @@ class LLMDocumentProcessor:
             f"Document-level extraction complete: {len(merged)} field value(s) across "
             f"{len(by_page)} page(s), from {len(pages)} page(s) read."
             + (f" {len(unlisted)} unlisted field(s) observed." if unlisted else "")
+            + (f" Repeating unit observed: '{repeating['name']}' "
+               f"({repeating['chunks_agreeing']} chunk(s) agree)."
+               if repeating else "")
         )
-        return by_page, unlisted
+        return by_page, unlisted, repeating
 
     def _schema_file_for(self, document_type: str) -> Optional[str]:
         """The on-disk file whose document_type key matches — the file the admin
@@ -1910,6 +1967,232 @@ class LLMDocumentProcessor:
         except Exception as e:
             self.logger.warning(f"[schema-evolve] '{document_type}' skipped: {e}")
             return {}
+
+    def _repeating_flag_path(self, document_type: str) -> str:
+        safe = ''.join(c if c.isalnum() or c in '-_' else '_'
+                       for c in str(document_type))
+        return os.path.join(self.schema_dir, '_pending',
+                            f"{safe}_repeating_unit.json")
+
+    def _note_repeating_unit(self, document_type: str, unit: Dict[str, Any],
+                             doc_id: str, filename: str) -> Dict[str, Any]:
+        """Record one document's sighting of a repeating unit; return the
+        accumulated entry (with its distinct-document sightings list). One
+        sighting per document — re-ingesting the same document is not new
+        evidence."""
+        path = self._repeating_flag_path(document_type)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        data = {'document_type': document_type, 'units': {}}
+        if os.path.exists(path):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, dict) and isinstance(loaded.get('units'), dict):
+                    data = loaded
+            except Exception:
+                pass
+        key = ''.join(c if c.isalnum() else '_'
+                      for c in unit['name'].lower()).strip('_') or 'unit'
+        entry = data['units'].setdefault(key, {
+            'name': unit['name'], 'grain': unit.get('grain') or '',
+            'example_columns': unit.get('example_columns') or [],
+            'sightings': [], 'first_seen': datetime.now().isoformat()})
+        if not any(s.get('document_id') == doc_id for s in entry['sightings']):
+            entry['sightings'].append({
+                'document_id': doc_id, 'filename': filename,
+                'date': datetime.now().isoformat(),
+                'chunks_agreeing': unit.get('chunks_agreeing') or 1})
+        entry['last_seen'] = datetime.now().isoformat()
+        # Keep the richest column example seen so far — later, bigger documents
+        # usually show more attributes.
+        if len(unit.get('example_columns') or []) > len(entry['example_columns']):
+            entry['example_columns'] = unit['example_columns']
+            entry['grain'] = unit.get('grain') or entry['grain']
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=1)
+        return entry
+
+    def _define_record_set(self, document_type: str, unit: Dict[str, Any],
+                           pages: List[Dict[str, Any]]) -> bool:
+        """Define the observed record set from the document IN HAND — the one
+        that demonstrably contains it — and activate it in the schema.
+
+        This is the consolidator's records contract run standalone: same
+        grain/columns/vocabulary shape, same rule-9 refusal of reference and
+        navigational material, validated by the same _clean_record_spec. The
+        defining text is the document's real pages, so the definition is
+        learning-grade — not the extraction pass's drive-by guess. Additions
+        only, _history backup, evolved marker: identical discipline to field
+        evolution. True when the schema now has the set."""
+        try:
+            schema = self.schemas.get(document_type)
+            if not schema or schema.get('records'):
+                return False
+            max_chars = self._doc_level_char_budget()
+            chunks = self._group_pages_for_extraction(pages, max_chars)
+            # The unit's sighted pages usually fit one chunk; cap the read.
+            chunks = chunks[:3]
+            text = "\n\n".join(c['text'] for c in chunks)
+            system_prompt = (
+                f"You define the RECORD SET for '{document_type}' documents — "
+                "the repeating operative content to extract as rows from every "
+                "document of the type. Respond with STRICT JSON only: "
+                '{"records": {"<snake_case set name>": {"grain": "one row per '
+                '...", "expected_rows": <int estimate for THIS document>, '
+                '"columns": {"<col>": "<description>", ...}, "vocabulary": '
+                '{"<col>": ["<canonical value>", ...], ...}}}} with EXACTLY '
+                "ONE set, or {\"records\": {}} if there is no material "
+                "repeating unit after all. Columns must be attributes stated "
+                "row-by-row in the text. Reference or navigational material — "
+                "tables of contents, indexes, glossaries, definition lists — "
+                "is NOT a record set. Scattered sections of the same kind of "
+                "content are still ONE set."
+            )
+            user_text = (
+                f"A reader observed a repeating unit in this {document_type}: "
+                f"name '{unit['name']}', {unit.get('grain') or 'grain unknown'}, "
+                f"example attributes {unit.get('example_columns') or []}.\n"
+                f"Define the record set from the document text below (or "
+                f"reject it).\n\n--- TEXT ---\n{text}\n--- END TEXT ---")
+            messages = [{"role": "user",
+                         "content": [{"type": "text", "text": user_text}]}]
+            if self._anthropic_config['use_direct_api']:
+                response = anthropic_messages_create(
+                    client=self.anthropic_client, model=cfg.ANTHROPIC_MODEL,
+                    max_tokens=4000, system=system_prompt, messages=messages)
+            else:
+                client = self.anthropic_proxy_client or AnthropicProxyClient()
+                response = client.messages_create(
+                    messages=messages, model=cfg.ANTHROPIC_MODEL,
+                    max_tokens=4000, system=system_prompt)
+            raw = self._response_text(response)
+            m = re.search(r'(\{[\s\S]+\})', raw)
+            proposal = json.loads(m.group(1) if m else raw)
+            cleaned = self._clean_record_spec(proposal.get('records'))
+            if not cleaned:
+                self.logger.info(
+                    f"[records-autodefine] '{document_type}': definition pass "
+                    f"rejected the unit ('{unit['name']}').")
+                return False
+
+            path = self._schema_file_for(document_type)
+            if not path:
+                self.logger.warning(
+                    f"[records-autodefine] no schema file for "
+                    f"'{document_type}' — set not persisted.")
+                return False
+            hist = os.path.join(self.schema_dir, '_history')
+            os.makedirs(hist, exist_ok=True)
+            stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            shutil.copy2(path, os.path.join(
+                hist, f"{os.path.basename(path)}.{stamp}.bak"))
+            for spec in cleaned.values():
+                spec['evolved'] = datetime.now().strftime('%Y-%m-%d')
+            schema['records'] = cleaned
+            with open(path, 'w', encoding='utf-8') as f:
+                yaml.dump(schema, f, sort_keys=False, allow_unicode=True,
+                          default_flow_style=False)
+            self.schemas[document_type] = schema
+            set_name = next(iter(cleaned))
+            self.logger.info(
+                f"[records-autodefine] '{document_type}': record set "
+                f"'{set_name}' defined and ACTIVE "
+                f"({len(cleaned[set_name]['columns'])} column(s)); previous "
+                f"schema in _history.")
+            # Flag satisfied — clear it so detection stays off and the page
+            # badge disappears.
+            try:
+                flag = self._repeating_flag_path(document_type)
+                if os.path.exists(flag):
+                    os.remove(flag)
+            except Exception:
+                pass
+            return True
+        except Exception as e:
+            self.logger.warning(
+                f"[records-autodefine] '{document_type}' skipped: {e}")
+            return False
+
+    def _handle_repeating_unit(self, document_type: str, unit: Dict[str, Any],
+                               doc_id: str, filename: str,
+                               pages: List[Dict[str, Any]]):
+        """Sighting -> evidence file -> (at the threshold) auto-define from the
+        document in hand. Never raises into the ingest.
+
+        Threshold semantics (james, 2026-08-16): one document reporting a unit
+        can be an outlier; a SECOND independent document is evidence. The
+        defining document is always one that exhibits the unit — never a bet
+        on the next upload's shape. With auto mode off this degrades to
+        flag-only: the evidence file still accumulates (page badge), stewards
+        still get the first-sighting FYI, and a human uses delete-to-relearn.
+        """
+        try:
+            schema = self.schemas.get(document_type)
+            if (not schema or schema.get('records')
+                    or self._schema_excluded(document_type)
+                    or not bool(schema.get('allow_evolution', True))
+                    or not getattr(cfg, 'DOC_SCHEMA_EVOLUTION', True)):
+                return
+            auto = getattr(cfg, 'DOC_RECORDS_AUTODEFINE', True)
+            threshold = max(1, int(getattr(
+                cfg, 'DOC_RECORDS_AUTODEFINE_SIGHTINGS', 2)))
+            entry = self._note_repeating_unit(document_type, unit, doc_id,
+                                              filename)
+            n = len(entry['sightings'])
+            self.logger.info(
+                f"[records-flag] '{document_type}': repeating unit "
+                f"'{entry['name']}' sighted in {n} document(s)"
+                + (f" — activates at {threshold}." if auto and n < threshold
+                   else "."))
+            if n == 1:
+                self._notify_repeating_unit(document_type, entry, auto,
+                                            threshold)
+            if auto and n >= threshold:
+                if self._define_record_set(document_type, entry, pages):
+                    self._notify_repeating_unit(document_type, entry, auto,
+                                                threshold, activated=True)
+        except Exception as e:
+            self.logger.warning(f"[records-flag] '{document_type}' "
+                                f"sighting handling skipped: {e}")
+
+    def _notify_repeating_unit(self, document_type: str, entry: Dict[str, Any],
+                               auto: bool, threshold: int,
+                               activated: bool = False):
+        """Steward FYI via the same My Work sidecar the categoriser uses.
+        Best-effort — a notification failure never blocks anything."""
+        try:
+            from doc_search_v3.category_assignment import notify_type_stewards
+            n = len(entry['sightings'])
+            if activated:
+                title = (f"Now extracting '{entry['name']}' rows from "
+                         f"{document_type} documents")
+                detail = (f"After seeing it in {n} document(s), the AI defined "
+                          f"and activated the '{entry['name']}' record set "
+                          f"({entry.get('grain') or 'row-per-item'}). Earlier "
+                          f"documents lack rows — coverage and per-document "
+                          f"backfill are on the Document Schemas page.")
+            elif auto:
+                title = (f"Repeating content observed in {document_type} "
+                         f"documents")
+                detail = (f"'{entry['name']}' was observed in "
+                          f"{entry['sightings'][0]['filename']} but is not in "
+                          f"the type's schema. It will start extracting as "
+                          f"rows automatically once seen in {threshold} "
+                          f"document(s).")
+            else:
+                title = (f"Review: repeating content in {document_type} "
+                         f"documents is not being extracted")
+                detail = (f"'{entry['name']}' was observed in "
+                          f"{entry['sightings'][0]['filename']}. Automatic "
+                          f"definition is off — review on the Document "
+                          f"Schemas page (delete-to-relearn captures it).")
+            notify_type_stewards(document_type, title, detail,
+                                 {'source': 'doc_records_flag',
+                                  'document_type': document_type,
+                                  'unit': entry['name'],
+                                  'activated': activated})
+        except Exception as e:
+            self.logger.info(f"[records-flag] steward FYI skipped: {e}")
 
     def _extract_records(self, pages: List[Dict[str, Any]], document_type: str,
                          schema: Dict[str, Any]) -> Dict[str, Any]:

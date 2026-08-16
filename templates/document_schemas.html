@@ -31,6 +31,15 @@
     .ds-badge.manual  { background: var(--bg-elevated);     color: var(--text-secondary); }
     .ds-badge.records { background: rgba(167,139,250,0.16); color: var(--cyber-violet); }
     .ds-badge.pending { background: rgba(251,191,36,0.16);  color: var(--status-warning); }
+    .ds-badge.flag    { background: rgba(251,191,36,0.16);  color: var(--status-warning); }
+    .ds-cov { font-size: 0.78rem; color: var(--text-secondary); margin-top: 3px; }
+    .ds-cov b.short { color: var(--status-warning); }
+    .ds-cov a { color: var(--cyber-cyan); cursor: pointer; }
+    .ds-missing { margin: 6px 0 0 0; padding: 8px 10px; border: 1px dashed var(--border-accent);
+                  border-radius: 8px; background: var(--bg-elevated); }
+    .ds-missing .row { display: flex; align-items: center; gap: 10px; padding: 3px 0;
+                       font-size: 0.82rem; color: var(--text-primary); }
+    .ds-btn.tiny { padding: 3px 10px; font-size: 0.74rem; }
     .ds-btn { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer;
               font-size: 0.83rem; font-weight: 600; color: #fff;
               background: linear-gradient(135deg, var(--cyber-cyan), var(--cyber-violet)); }
@@ -132,22 +141,57 @@
                 body.append('<tr><td colspan="6" style="color:var(--text-secondary);">' +
                             'No schemas yet — one is learned from the first document of each type.</td></tr>');
             }
+            const flagsByType = {};
+            for (const f of (resp.repeating_flags || []))
+                flagsByType[f.document_type] = f;
             for (const s of resp.schemas) {
-                const recs = s.record_sets.length
+                let recs = s.record_sets.length
                     ? s.record_sets.map(r => `<span class="ds-badge records">${esc(r)}</span>`).join(' ')
                     : '<span style="color:var(--text-secondary);">—</span>';
+                const flag = flagsByType[s.document_type];
+                if (flag && !s.record_sets.length) {
+                    // Repeating content observed but no set yet: auto mode
+                    // names when it activates; flag-only names the human path.
+                    recs += ` <span class="ds-badge flag" title="${esc(flag.grain || '')}">⚑ ${esc(flag.unit)}
+                        observed in ${flag.sightings} doc${flag.sightings === 1 ? '' : 's'}
+                        ${flag.auto ? `— auto-activates at ${flag.activates_at}`
+                                     : '— review: delete-to-relearn captures it'}</span>`;
+                }
+                const cov = s.records_coverage;
+                let covLine = '';
+                if (cov) {
+                    const short = cov.covered_docs < cov.total_docs;
+                    covLine = `<div class="ds-cov">rows extracted for
+                        <b class="${short ? 'short' : ''}">${cov.covered_docs} of ${cov.total_docs}</b>
+                        document${cov.total_docs === 1 ? '' : 's'}` +
+                        (short ? ` — <a class="ds-show-missing" data-type="${esc(s.document_type)}">show missing</a>` : '') +
+                        `</div>`;
+                }
                 body.append(`<tr class="ds-row" data-type="${esc(s.document_type)}">
                     <td><b>${esc(s.document_type)}</b></td>
                     <td><span class="ds-badge ${s.auto_learned ? 'auto' : 'manual'}">
                         ${s.auto_learned ? 'AI-learned' : 'hand-written'}</span></td>
                     <td>${s.field_count == null ? '—' : s.field_count}</td>
-                    <td>${recs}</td>
+                    <td>${recs}${covLine}</td>
                     <td><label class="ds-toggle" title="Allow the engine to add newly observed fields">
                         <input type="checkbox" class="ds-evolve" data-type="${esc(s.document_type)}"
                                ${s.allow_evolution ? 'checked' : ''}>
                         <span class="slider"></span></label></td>
                     <td style="color:var(--text-secondary);white-space:nowrap;">${esc(s.modified)}</td>
                 </tr>`);
+                if (cov && cov.missing.length) {
+                    const rows = cov.missing.map(m => `<div class="row">
+                        <span style="flex:1">${esc(m.filename)}</span>
+                        <button class="ds-btn tiny ds-bf-btn" data-doc="${esc(m.document_id)}">Extract rows now</button>
+                    </div>`).join('');
+                    body.append(`<tr class="ds-missing-tr" data-type="${esc(s.document_type)}" style="display:none;">
+                        <td colspan="6"><div class="ds-missing">
+                        <div class="ds-sub" style="margin-bottom:4px;">Documents without rows
+                        (ingested before the record set existed). Extraction runs from stored page
+                        text — no re-upload needed; a big document takes a few minutes. Refresh to
+                        see coverage move.${cov.missing_truncated ? ' Showing the first 50.' : ''}</div>
+                        ${rows}</div></td></tr>`);
+                }
             }
             const pbody = $('#dsPendingTable tbody').empty();
             for (const p of resp.pending) {
@@ -183,8 +227,31 @@
 
     // -- events --
     $(document).on('click', '.ds-row', function (e) {
-        if ($(e.target).closest('.ds-toggle').length) return;   // toggle, not open
+        if ($(e.target).closest('.ds-toggle, .ds-show-missing').length) return;
         openEditor($(this).data('type'));
+    });
+
+    $(document).on('click', '.ds-show-missing', function (e) {
+        e.stopPropagation();
+        $(`.ds-missing-tr[data-type="${CSS.escape($(this).data('type'))}"]`).toggle();
+    });
+
+    $(document).on('click', '.ds-bf-btn', function () {
+        const btn = $(this), docId = btn.data('doc');
+        btn.prop('disabled', true).text('running…');
+        $.ajax({
+            url: '/backfill/document_records', method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ document_id: docId })
+        }).done(resp => {
+            if (resp.status === 'success')
+                flash(resp.state === 'already_running'
+                      ? 'Already running for that document'
+                      : `Extraction started (${resp.pages} pages) — refresh in a few minutes`, true);
+            else { flash(resp.message || 'Backfill failed', false);
+                   btn.prop('disabled', false).text('Extract rows now'); }
+        }).fail(x => { flash((x.responseJSON || {}).message || 'Backfill failed', false);
+                       btn.prop('disabled', false).text('Extract rows now'); });
     });
 
     $(document).on('change', '.ds-evolve', function () {

@@ -656,6 +656,16 @@ DOC_SCHEMA_EXCLUDED_TYPES = os.getenv('DOC_SCHEMA_EXCLUDED_TYPES', 'unknown,unkn
 # each schema YAML (allow_evolution, default true) and is managed on the
 # Document Schemas admin page. Evolved fields carry an 'evolved: <date>' marker.
 DOC_SCHEMA_EVOLUTION = os.getenv('DOC_SCHEMA_EVOLUTION', 'True').lower() == 'true'
+# Record-set auto-define (james, 2026-08-16): when documents of a type whose
+# schema has NO record set keep exhibiting a repeating unit, define the set
+# automatically from the document in hand once it has been seen in
+# DOC_RECORDS_AUTODEFINE_SIGHTINGS distinct documents (2 = a second independent
+# document is evidence; the defining document always exhibits the unit, so
+# nothing depends on the NEXT upload's shape). OFF = flag-only: the evidence
+# still accumulates (Document Schemas page badge + steward FYI) and a human
+# uses delete-to-relearn. Gated by DOC_SCHEMA_EVOLUTION + the per-type toggle.
+DOC_RECORDS_AUTODEFINE = os.getenv('DOC_RECORDS_AUTODEFINE', 'True').lower() == 'true'
+DOC_RECORDS_AUTODEFINE_SIGHTINGS = int(os.getenv('DOC_RECORDS_AUTODEFINE_SIGHTINGS', 2))
 
 # ── Document categories: AI-managed assignment (james, 2026-08-13) ────────────
 # When a NEWLY DETECTED document type has no category, the AI files it into one
