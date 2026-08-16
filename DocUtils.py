@@ -3699,6 +3699,52 @@ def document_search_meaning(conn_string, document_type=None, search_query=None,
         )
 
 
+def _normalize_search_strategy(search_strategy, user_question, search_attempts):
+    """Coerce the strategy LLM's output into the shapes every branch consumes.
+
+    json.loads succeeding does NOT mean the model returned the expected object:
+    it sometimes emits a bare string, or nested sections as strings
+    ('semantic_search': 'vendor compliance'), or field_filters as a dict. Every
+    consumer chains .get()/iterates on these, so a wrong shape raises
+    \"'str' object has no attribute 'get'\" AFTER a successful parse — seen
+    live 2026-08-15 on ACL-clamped searches. Same chokepoint idea as the
+    planner's isinstance(list) guard just above.
+    """
+    if not isinstance(search_strategy, dict):
+        search_attempts.append(
+            "AI search strategy was valid JSON but not an object - using fallback")
+        return {
+            "search_approach": "semantic",
+            "reasoning": "Fallback: strategy JSON was not an object",
+            "confidence": "low",
+            "semantic_search": {"search_terms": [user_question]},
+        }
+    ss = search_strategy.get("semantic_search")
+    if ss is not None and not isinstance(ss, dict):
+        search_strategy["semantic_search"] = {
+            "search_terms": [ss] if isinstance(ss, str) and ss.strip()
+            else [user_question]}
+        search_attempts.append("Coerced non-object semantic_search")
+    terms = (search_strategy.get("semantic_search") or {}).get("search_terms")
+    if isinstance(terms, str):
+        search_strategy["semantic_search"]["search_terms"] = [terms]
+    elif terms is not None and not isinstance(terms, list):
+        search_strategy["semantic_search"]["search_terms"] = [user_question]
+    fs = search_strategy.get("field_search")
+    if fs is not None and not isinstance(fs, dict):
+        search_strategy["field_search"] = {}
+        search_attempts.append("Dropped non-object field_search")
+    ff = (search_strategy.get("field_search") or {}).get("field_filters")
+    if ff is not None and not isinstance(ff, list):
+        search_strategy["field_search"]["field_filters"] = []
+        search_attempts.append("Dropped non-list field_filters")
+    elif isinstance(ff, list) and any(not isinstance(f, dict) for f in ff):
+        search_strategy["field_search"]["field_filters"] = [
+            f for f in ff if isinstance(f, dict)]
+        search_attempts.append("Dropped non-object entries from field_filters")
+    return search_strategy
+
+
 def document_search_super_enhanced_debug(
         conn_string: str,
         user_question: Optional[str] = None,
@@ -3952,7 +3998,12 @@ def document_search_super_enhanced_debug(
             "confidence": "low",
             "semantic_search": {"search_terms": [user_question]}
         }
-    
+
+    # Valid JSON is not necessarily the expected OBJECT — coerce the shapes
+    # every branch below chains .get() on (crashed live on clamped searches).
+    search_strategy = _normalize_search_strategy(
+        search_strategy, user_question, search_attempts)
+
     # Add the document types to the search strategy
     search_strategy["document_types"] = relevant_doc_types
     
