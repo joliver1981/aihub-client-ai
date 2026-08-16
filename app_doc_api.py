@@ -1114,6 +1114,80 @@ def health_check():
     })
 
 
+_records_backfill_inflight = set()
+
+
+@app.route('/document/backfill_records', methods=['POST'])
+@cross_origin()
+def backfill_records_route():
+    """Records-only reprocess of ONE stored document from DocumentPages text.
+
+    Lives HERE (not the main app) because this service's env carries the
+    anthropic dependency the engine needs — the main app's admin route
+    validates and delegates. Runs in a background thread; the __manifest row
+    landing is the completion signal the coverage UI reads."""
+    try:
+        data = request.get_json() or {}
+        doc_id = (data.get('document_id') or '').strip()
+        if not doc_id:
+            return jsonify({'status': 'error',
+                            'message': 'document_id required'}), 400
+        if doc_id in _records_backfill_inflight:
+            return jsonify({'status': 'success', 'state': 'already_running'})
+
+        from CommonUtils import get_db_connection
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+        cursor.execute("SELECT document_type, filename FROM Documents "
+                       "WHERE document_id = ?", doc_id)
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'status': 'error',
+                            'message': 'Unknown document'}), 404
+        doc_type, filename = row[0], row[1]
+        cursor.execute("""SELECT page_number, full_text FROM DocumentPages
+                          WHERE document_id = ? ORDER BY page_number""", doc_id)
+        pages = [{'page_number': r[0], 'text': r[1] or ''}
+                 for r in cursor.fetchall()]
+        conn.close()
+        if not pages:
+            return jsonify({'status': 'error',
+                            'message': 'No stored page text'}), 400
+
+        engine = get_document_processor()
+        engine.schemas = engine._load_schemas()
+        if not (engine.schemas.get(doc_type) or {}).get('records'):
+            return jsonify({'status': 'error',
+                            'message': f"'{doc_type}' has no record set"}), 400
+
+        def _run(doc_id=doc_id, doc_type=doc_type, pages=pages,
+                 filename=filename, engine=engine):
+            try:
+                extracted = engine._extract_records(pages, doc_type,
+                                                    engine.schemas[doc_type])
+                engine._store_records(doc_id, extracted, len(pages))
+                logger.info(f"[records-backfill] {filename} ({doc_id}): done.")
+            except Exception as bf_err:
+                logger.error(f"[records-backfill] {filename} ({doc_id}) "
+                             f"failed: {bf_err}")
+            finally:
+                _records_backfill_inflight.discard(doc_id)
+
+        _records_backfill_inflight.add(doc_id)
+        import threading
+        threading.Thread(target=_run, daemon=True,
+                         name=f"records-backfill-{doc_id[:8]}").start()
+        logger.info(f"[records-backfill] started for {filename} ({doc_id}), "
+                    f"{len(pages)} page(s).")
+        return jsonify({'status': 'success', 'state': 'started',
+                        'pages': len(pages)})
+    except Exception as e:
+        logger.error(f"[backfill_records_route] {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 @app.route('/document/reprocess-vectors', methods=['POST'])
 @cross_origin()
 def reprocess_vectors_route():
