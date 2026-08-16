@@ -5,51 +5,58 @@
 
 <div class="doc-page" id="docPage">
 <style>
+    /* Colors come EXCLUSIVELY from doc-pages-theme.css tokens (--bg-card,
+       --text-primary, ...) so dark and light-mode both work; never mix in
+       literal fallbacks — a white fallback surface under themed white text
+       is exactly the invisible-text bug this replaced. */
     .ds-wrap { max-width: 1200px; margin: 0 auto; padding: 20px; }
-    .ds-card { background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e0e0e0);
+    .ds-wrap h2 { color: var(--text-primary); }
+    .ds-card { background: var(--bg-card); border: 1px solid var(--border-subtle);
                border-radius: 10px; padding: 20px 24px; margin-bottom: 22px; }
-    .ds-card h3 { margin: 0 0 4px 0; font-size: 1.05rem; }
-    .ds-sub { color: var(--text-secondary, #777); font-size: 0.85rem; margin-bottom: 14px; }
+    .ds-card h3 { margin: 0 0 4px 0; font-size: 1.05rem; color: var(--text-primary); }
+    .ds-sub { color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 14px; }
     .ds-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-    .ds-table th { text-align: left; padding: 8px 10px; color: var(--text-secondary, #777);
-                   font-weight: 600; border-bottom: 2px solid var(--border-color, #e0e0e0);
+    .ds-table th { text-align: left; padding: 8px 10px; color: var(--text-secondary);
+                   font-weight: 600; border-bottom: 2px solid var(--border-accent);
                    white-space: nowrap; }
-    .ds-table td { padding: 7px 10px; border-bottom: 1px solid var(--border-color, #eee);
-                   vertical-align: middle; }
+    .ds-table td { padding: 7px 10px; border-bottom: 1px solid var(--border-subtle);
+                   vertical-align: middle; color: var(--text-primary); }
     .ds-table tr.ds-row { cursor: pointer; }
-    .ds-table tr.ds-row:hover td { background: var(--hover-bg, rgba(128,128,128,0.06)); }
-    .ds-table tr.ds-row.sel td { background: rgba(0,123,255,0.08); }
+    .ds-table tr.ds-row:hover td { background: var(--bg-hover); }
+    .ds-table tr.ds-row.sel td { background: rgba(6,182,212,0.10); }
     .ds-badge { display: inline-block; padding: 2px 9px; border-radius: 10px;
-                font-size: 0.72rem; font-weight: 600; white-space: nowrap; }
-    .ds-badge.auto    { background: rgba(0,123,255,0.12); color: #0b5ed7; }
-    .ds-badge.manual  { background: rgba(108,117,125,0.15); color: #5a6268; }
-    .ds-badge.records { background: rgba(111,66,193,0.14); color: #6f42c1; }
-    .ds-badge.pending { background: rgba(255,165,0,0.15); color: #cc7a00; }
+                font-size: 0.72rem; font-weight: 600; white-space: nowrap;
+                background: var(--bg-elevated); color: var(--text-secondary); }
+    .ds-badge.auto    { background: rgba(6,182,212,0.16);   color: var(--cyber-cyan); }
+    .ds-badge.manual  { background: var(--bg-elevated);     color: var(--text-secondary); }
+    .ds-badge.records { background: rgba(167,139,250,0.16); color: var(--cyber-violet); }
+    .ds-badge.pending { background: rgba(251,191,36,0.16);  color: var(--status-warning); }
     .ds-btn { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer;
-              font-size: 0.83rem; font-weight: 600; background: var(--primary-color, #007bff);
-              color: #fff; }
-    .ds-btn:hover { filter: brightness(1.08); }
-    .ds-btn.subtle { background: var(--hover-bg, #e9ecef); color: var(--text-primary, #333); }
+              font-size: 0.83rem; font-weight: 600; color: #fff;
+              background: linear-gradient(135deg, var(--cyber-cyan), var(--cyber-violet)); }
+    .ds-btn:hover { opacity: 0.9; }
+    .ds-btn.subtle { background: var(--bg-input); color: var(--text-primary);
+                     border: 1px solid var(--border-accent); }
     .ds-btn.danger { background: #dc3545; }
     .ds-btn:disabled { opacity: 0.5; cursor: default; }
     .ds-editor { width: 100%; min-height: 420px; font-family: 'Consolas', 'Monaco', monospace;
                  font-size: 0.82rem; line-height: 1.45; padding: 12px;
-                 border: 1px solid var(--border-color, #ccc); border-radius: 8px;
-                 background: var(--input-bg, #fafafa); color: var(--text-primary, #222);
+                 border: 1px solid var(--border-accent); border-radius: 8px;
+                 background: var(--bg-input); color: var(--text-primary);
                  white-space: pre; overflow-x: auto; resize: vertical; }
     .ds-editor-bar { display: flex; gap: 10px; align-items: center; margin: 10px 0; }
     .ds-flash { position: fixed; top: 74px; right: 24px; z-index: 4000; padding: 10px 18px;
                 border-radius: 8px; font-size: 0.86rem; color: #fff; display: none; }
-    .ds-flash.ok { background: #28a745; } .ds-flash.err { background: #dc3545; }
+    .ds-flash.ok { background: #059669; } .ds-flash.err { background: #dc3545; }
     /* evolution toggle */
     .ds-toggle { position: relative; display: inline-block; width: 38px; height: 20px; }
     .ds-toggle input { opacity: 0; width: 0; height: 0; }
-    .ds-toggle .slider { position: absolute; inset: 0; background: #adb5bd;
+    .ds-toggle .slider { position: absolute; inset: 0; background: var(--border-accent);
                          border-radius: 20px; transition: 0.2s; }
     .ds-toggle .slider:before { content: ''; position: absolute; height: 14px; width: 14px;
                                 left: 3px; bottom: 3px; background: #fff; border-radius: 50%;
                                 transition: 0.2s; }
-    .ds-toggle input:checked + .slider { background: var(--primary-color, #007bff); }
+    .ds-toggle input:checked + .slider { background: var(--cyber-cyan); }
     .ds-toggle input:checked + .slider:before { transform: translateX(18px); }
 </style>
 

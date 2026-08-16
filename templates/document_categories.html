@@ -5,45 +5,53 @@
 
 <div class="doc-page" id="docPage">
 <style>
+    /* Colors come EXCLUSIVELY from doc-pages-theme.css tokens (--bg-card,
+       --text-primary, ...) so dark and light-mode both work; never mix in
+       literal fallbacks — a white fallback surface under themed white text
+       is exactly the invisible-text bug this replaced. */
     .dc-wrap { max-width: 1200px; margin: 0 auto; padding: 20px; }
-    .dc-card { background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e0e0e0);
+    .dc-wrap h2 { color: var(--text-primary); }
+    .dc-card { background: var(--bg-card); border: 1px solid var(--border-subtle);
                border-radius: 10px; padding: 20px 24px; margin-bottom: 22px; }
-    .dc-card h3 { margin: 0 0 4px 0; font-size: 1.05rem; }
-    .dc-sub { color: var(--text-secondary, #777); font-size: 0.85rem; margin-bottom: 14px; }
+    .dc-card h3 { margin: 0 0 4px 0; font-size: 1.05rem; color: var(--text-primary); }
+    .dc-sub { color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 14px; }
     .dc-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-    .dc-table th { text-align: left; padding: 8px 10px; color: var(--text-secondary, #777);
-                   font-weight: 600; border-bottom: 2px solid var(--border-color, #e0e0e0);
+    .dc-table th { text-align: left; padding: 8px 10px; color: var(--text-secondary);
+                   font-weight: 600; border-bottom: 2px solid var(--border-accent);
                    white-space: nowrap; }
-    .dc-table td { padding: 7px 10px; border-bottom: 1px solid var(--border-color, #eee);
-                   vertical-align: middle; }
-    .dc-table tr:hover td { background: var(--hover-bg, rgba(128,128,128,0.06)); }
+    .dc-table td { padding: 7px 10px; border-bottom: 1px solid var(--border-subtle);
+                   vertical-align: middle; color: var(--text-primary); }
+    .dc-table tr:hover td { background: var(--bg-hover); }
     .dc-badge { display: inline-block; padding: 2px 9px; border-radius: 10px;
-                font-size: 0.72rem; font-weight: 600; white-space: nowrap; }
-    .dc-badge.pending  { background: rgba(255,165,0,0.15);  color: #cc7a00; }
-    .dc-badge.active   { background: rgba(40,167,69,0.15);  color: #1e7e34; }
-    .dc-badge.stray    { background: rgba(220,53,69,0.15);  color: #b02a37; }
-    .dc-badge.ai       { background: rgba(0,123,255,0.12);  color: #0b5ed7; }
-    .dc-badge.human    { background: rgba(108,117,125,0.15); color: #5a6268; }
-    .dc-select { padding: 5px 8px; border: 1px solid var(--border-color, #ccc);
-                 border-radius: 6px; background: var(--input-bg, #fff);
-                 color: var(--text-primary, #222); max-width: 260px; font-size: 0.85rem; }
-    .dc-input { padding: 6px 10px; border: 1px solid var(--border-color, #ccc);
-                border-radius: 6px; background: var(--input-bg, #fff);
-                color: var(--text-primary, #222); font-size: 0.85rem; }
+                font-size: 0.72rem; font-weight: 600; white-space: nowrap;
+                background: var(--bg-elevated); color: var(--text-secondary); }
+    .dc-badge.pending  { background: rgba(251,191,36,0.16);  color: var(--status-warning); }
+    .dc-badge.active   { background: rgba(52,211,153,0.16);  color: var(--status-success); }
+    .dc-badge.stray    { background: rgba(251,113,133,0.16); color: var(--status-error); }
+    .dc-badge.ai       { background: rgba(6,182,212,0.16);   color: var(--cyber-cyan); }
+    .dc-badge.human    { background: var(--bg-elevated);     color: var(--text-secondary); }
+    .dc-select { padding: 5px 8px; border: 1px solid var(--border-accent);
+                 border-radius: 6px; background: var(--bg-input);
+                 color: var(--text-primary); max-width: 260px; font-size: 0.85rem; }
+    .dc-input { padding: 6px 10px; border: 1px solid var(--border-accent);
+                border-radius: 6px; background: var(--bg-input);
+                color: var(--text-primary); font-size: 0.85rem; }
+    .dc-input::placeholder { color: var(--text-muted); }
     .dc-btn { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer;
-              font-size: 0.83rem; font-weight: 600; background: var(--primary-color, #007bff);
-              color: #fff; }
-    .dc-btn:hover { filter: brightness(1.08); }
-    .dc-btn.subtle { background: var(--hover-bg, #e9ecef); color: var(--text-primary, #333); }
+              font-size: 0.83rem; font-weight: 600; color: #fff;
+              background: linear-gradient(135deg, var(--cyber-cyan), var(--cyber-violet)); }
+    .dc-btn:hover { opacity: 0.9; }
+    .dc-btn.subtle { background: var(--bg-input); color: var(--text-primary);
+                     border: 1px solid var(--border-accent); }
     .dc-btn:disabled { opacity: 0.5; cursor: default; }
     .dc-row-actions { display: flex; gap: 8px; align-items: center; }
     .dc-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 12px;
                   flex-wrap: wrap; }
-    .dc-count-pill { font-size: 0.78rem; color: var(--text-secondary, #888); }
-    .dc-empty { color: var(--text-secondary, #888); font-size: 0.88rem; padding: 10px 0; }
+    .dc-count-pill { font-size: 0.78rem; color: var(--text-muted); }
+    .dc-empty { color: var(--text-muted); font-size: 0.88rem; padding: 10px 0; }
     .dc-flash { position: fixed; top: 74px; right: 24px; z-index: 4000; padding: 10px 18px;
                 border-radius: 8px; font-size: 0.86rem; color: #fff; display: none; }
-    .dc-flash.ok { background: #28a745; } .dc-flash.err { background: #dc3545; }
+    .dc-flash.ok { background: #059669; } .dc-flash.err { background: #dc3545; }
     .dc-conf { font-variant-numeric: tabular-nums; }
 </style>
 
