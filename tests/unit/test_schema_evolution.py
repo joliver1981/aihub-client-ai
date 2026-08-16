@@ -375,3 +375,85 @@ class TestRecordSetAutoDefine:
             _bp, _ul, rep = engine._extract_document_level_fields(
                 self._pages(), 'zz_evo_lease', engine.schemas['zz_evo_lease'])
         assert rep is None
+
+
+@pytest.mark.unit
+class TestLearnTimeMinRowsFloor:
+    """DOC_RECORDS_MIN_LEARN_ROWS: a tiny set judged from ONE document must not
+    become the type's permanent record set (day-1 lockout); it is withheld and
+    seeded as a sighting so the evidence path can define the real unit."""
+
+    def _consolidate(self, engine, records_json, monkeypatch, floor=5):
+        monkeypatch.setattr(cfg, 'DOC_RECORDS_MIN_LEARN_ROWS', floor,
+                            raising=False)
+        reply = json.dumps({'fields': {'program_name': 'The program name'},
+                            'records': records_json})
+        cm1, cm2 = _gate(engine, reply)
+        with cm1, cm2 as mock_client:
+            mock_client.return_value.messages_create.return_value = {
+                'content': [{'text': reply}]}
+            return engine._consolidate_schema_fields('zz_floor_type',
+                                                     ['program_name'])
+
+    SMALL = {'severity_classes': {'grain': 'one row per severity class',
+                                  'expected_rows': 3,
+                                  'columns': {'severity': 'The class',
+                                              'timeframe': 'Response time'}}}
+    BIG = {'requirements': {'grain': 'one row per requirement',
+                            'expected_rows': 112,
+                            'columns': {'requirement': 'The requirement',
+                                        'deadline': 'When'}}}
+
+    def test_small_set_withheld_and_reported(self, engine, monkeypatch):
+        out = self._consolidate(engine, self.SMALL, monkeypatch)
+        assert out['records'] == {}
+        fl = out['floored_records']
+        assert fl['name'] == 'severity_classes'
+        assert 'severity' in fl['example_columns']
+        assert 'source_pages' not in fl['example_columns'], \
+            'provenance columns are not observation evidence'
+
+    def test_big_set_passes_the_floor(self, engine, monkeypatch):
+        out = self._consolidate(engine, self.BIG, monkeypatch)
+        assert 'requirements' in out['records']
+        assert out['floored_records'] is None
+
+    def test_floor_zero_disables(self, engine, monkeypatch):
+        out = self._consolidate(engine, self.SMALL, monkeypatch, floor=0)
+        assert 'severity_classes' in out['records']
+
+    def test_missing_estimate_goes_the_evidence_route(self, engine, monkeypatch):
+        no_est = {'things': {'grain': 'one row per thing',
+                             'columns': {'thing': 'A thing'}}}
+        out = self._consolidate(engine, no_est, monkeypatch)
+        assert out['records'] == {}
+        assert out['floored_records']['name'] == 'things'
+
+    def test_save_ai_schema_seeds_sighting_when_floored(self, engine,
+                                                        monkeypatch):
+        consolidated = {'fields': {'program_name': 'The program name'},
+                        'records': {},
+                        'floored_records': {'name': 'severity_classes',
+                                            'grain': 'one row per class',
+                                            'example_columns': ['severity']}}
+        with patch.object(engine, '_consolidate_schema_fields',
+                          return_value=consolidated):
+            engine._save_ai_schema('zz_floor_type', {'program_name': 'X'},
+                                   doc_id='docA', filename='overview.pdf')
+        on_disk = yaml.safe_load(open(
+            os.path.join(engine.schema_dir, 'zz_floor_type_auto.yml'),
+            encoding='utf-8'))
+        assert 'records' not in on_disk
+        flag = json.load(open(engine._repeating_flag_path('zz_floor_type'),
+                              encoding='utf-8'))
+        entry = flag['units']['severity_classes']
+        assert [s['document_id'] for s in entry['sightings']] == ['docA']
+
+    def test_no_seed_without_doc_identity(self, engine):
+        consolidated = {'fields': {'f': 'd'}, 'records': {},
+                        'floored_records': {'name': 'x', 'grain': '',
+                                            'example_columns': []}}
+        with patch.object(engine, '_consolidate_schema_fields',
+                          return_value=consolidated):
+            engine._save_ai_schema('zz_floor_type', {'f': 'v'})
+        assert not os.path.exists(engine._repeating_flag_path('zz_floor_type'))

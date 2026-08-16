@@ -1050,7 +1050,8 @@ class LLMDocumentProcessor:
                         [p.get('extracted_data') for p in page_data_list]
                     )
                     if merged_shape:
-                        self._save_ai_schema(detected_document_type, merged_shape)
+                        self._save_ai_schema(detected_document_type, merged_shape,
+                                             doc_id=file_id, filename=filename)
                 except Exception as e:
                     self.logger.warning(f"Could not generate schema for "
                                         f"'{detected_document_type}': {e}")
@@ -2933,6 +2934,34 @@ class LLMDocumentProcessor:
             )
 
         records = self._clean_record_spec((data or {}).get('records'))
+        floored = None
+        min_rows = int(getattr(cfg, 'DOC_RECORDS_MIN_LEARN_ROWS', 5))
+        if records and min_rows:
+            name, spec = next(iter(records.items()))
+            expected = spec.get('expected_rows') or 0
+            if expected < min_rows:
+                # The min-rows FLOOR (james, 2026-08-16): a set this small,
+                # judged from ONE document, is how an overview memo's 3-row
+                # governance list became the type's permanent record set and
+                # locked out detection of the corpus's real repeating unit
+                # (one-set rule + detection only asks while no set exists).
+                # Withholding it costs almost nothing: if the unit is real,
+                # the evidence-gated sighting path defines it within a
+                # document or two — from a document that exhibits it. An
+                # absent/zero estimate lands here too: a size the model could
+                # not demonstrate goes the evidence route. Learning-time only;
+                # _define_record_set is already evidence-backed and unfloored.
+                floored = {'name': name,
+                           'grain': spec.get('grain') or '',
+                           'example_columns':
+                               [c for c in (spec.get('columns') or {})
+                                if c not in ('source_pages', 'excerpt')]}
+                self.logger.info(
+                    f"Record set '{name}' proposed at learning time expects only "
+                    f"~{expected} row(s) (< {min_rows}) — withheld; if real, the "
+                    f"sighting path will define it from corroborating documents."
+                )
+                records = {}
         if records:
             name, spec = next(iter(records.items()))
             self.logger.info(
@@ -2940,7 +2969,7 @@ class LLMDocumentProcessor:
                 f"{len(spec.get('columns') or {})} columns, "
                 f"~{spec.get('expected_rows')} rows expected — {spec.get('grain')}"
             )
-        return {'fields': clean, 'records': records}
+        return {'fields': clean, 'records': records, 'floored_records': floored}
 
     @staticmethod
     def _clean_record_spec(records) -> Dict[str, Any]:
@@ -2990,7 +3019,8 @@ class LLMDocumentProcessor:
             break  # at most one record set
         return out
 
-    def _save_ai_schema(self, document_type: str, extracted_data: Dict[str, Any]):
+    def _save_ai_schema(self, document_type: str, extracted_data: Dict[str, Any],
+                        doc_id: str = None, filename: str = None):
         """
         Save an AI-determined schema for future use, from the WHOLE document.
 
@@ -3082,11 +3112,31 @@ class LLMDocumentProcessor:
 
         with open(schema_path, 'w') as f:
             yaml.dump(schema, f, default_flow_style=False)
-            
+
         self.logger.info(f"Saved auto-generated schema for {document_type} to {schema_path}")
-        
+
         # Add to loaded schemas
         self.schemas[document_type] = schema
+
+        # A floored (too-small) record-set proposal still counts as this
+        # document EXHIBITING the unit — seed the sightings ledger so, if any
+        # later document corroborates it, the evidence path defines it one
+        # document sooner (and this document wears the "reported this content"
+        # badge in coverage). Seeded directly, without the first-sighting FYI:
+        # an unconfirmed micro-set is not worth a notification.
+        floored = consolidated.get('floored_records')
+        if floored and doc_id:
+            try:
+                entry = self._note_repeating_unit(
+                    document_type,
+                    {**floored, 'chunks_agreeing': 1}, doc_id, filename or '')
+                self.logger.info(
+                    f"[records-flag] '{document_type}': floored proposal "
+                    f"'{floored['name']}' seeded as sighting "
+                    f"{len(entry['sightings'])}.")
+            except Exception as seed_err:
+                self.logger.info(f"[records-flag] floor seeding skipped: "
+                                 f"{seed_err}")
     
     def _extract_field(self, text: str, pattern: str) -> str:
         """Extract a single field using regex pattern"""

@@ -666,6 +666,15 @@ DOC_SCHEMA_EVOLUTION = os.getenv('DOC_SCHEMA_EVOLUTION', 'True').lower() == 'tru
 # uses delete-to-relearn. Gated by DOC_SCHEMA_EVOLUTION + the per-type toggle.
 DOC_RECORDS_AUTODEFINE = os.getenv('DOC_RECORDS_AUTODEFINE', 'True').lower() == 'true'
 DOC_RECORDS_AUTODEFINE_SIGHTINGS = int(os.getenv('DOC_RECORDS_AUTODEFINE_SIGHTINGS', 2))
+# Min-rows floor at LEARNING-time set definition (james, 2026-08-16): the first
+# document of a type may only exhibit a marginal repeating list (an overview
+# memo's 3-row governance table), and defining a set from it locks out
+# detection of the corpus's real unit forever (one-set rule; detection only
+# asks while no set exists). A learning-time proposal expecting fewer rows than
+# this is WITHHELD and seeded into the sightings ledger instead — if it is
+# real, the evidence-gated path defines it from a corroborating document within
+# a document or two. 0 disables. Sighting-path definition is never floored.
+DOC_RECORDS_MIN_LEARN_ROWS = int(os.getenv('DOC_RECORDS_MIN_LEARN_ROWS', 5))
 
 # ── Document categories: AI-managed assignment (james, 2026-08-13) ────────────
 # When a NEWLY DETECTED document type has no category, the AI files it into one
