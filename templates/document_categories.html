@@ -193,7 +193,7 @@
         for (const c of DATA.categories) {
             cats.append(`<tr>
                 <td><b>${esc(c.category_name)}</b></td>
-                <td style="color:var(--text-secondary,#888);">${esc(c.category_slug)}</td>
+                <td style="color:var(--text-secondary);">${esc(c.category_slug)}</td>
                 <td>${c.type_count}</td>
                 <td>${c.group_count}</td>
             </tr>`);
@@ -218,7 +218,7 @@
                 <td><span class="dc-badge ${esc(m.status)}">${esc(m.status)}</span></td>
                 <td><span class="dc-badge ${esc(m.assigned_by)}">${esc(m.assigned_by)}</span>
                     ${m.assigned_by === 'ai' && m.ai_confidence != null
-                        ? `<span class="dc-conf" style="font-size:0.75rem;color:var(--text-secondary,#888);"> ${Math.round(m.ai_confidence)}%</span>` : ''}</td>
+                        ? `<span class="dc-conf" style="font-size:0.75rem;color:var(--text-secondary);"> ${Math.round(m.ai_confidence)}%</span>` : ''}</td>
                 <td><button class="dc-btn dc-recat-btn" data-type="${esc(m.document_type)}"
                         style="display:none;">Save</button></td>
             </tr>`);

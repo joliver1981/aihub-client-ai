@@ -129,13 +129,13 @@
             if (resp.status !== 'success') { flash(resp.message || 'Load failed', false); return; }
             const body = $('#dsTable tbody').empty();
             if (!resp.schemas.length) {
-                body.append('<tr><td colspan="6" style="color:var(--text-secondary,#888);">' +
+                body.append('<tr><td colspan="6" style="color:var(--text-secondary);">' +
                             'No schemas yet — one is learned from the first document of each type.</td></tr>');
             }
             for (const s of resp.schemas) {
                 const recs = s.record_sets.length
                     ? s.record_sets.map(r => `<span class="ds-badge records">${esc(r)}</span>`).join(' ')
-                    : '<span style="color:var(--text-secondary,#999);">—</span>';
+                    : '<span style="color:var(--text-secondary);">—</span>';
                 body.append(`<tr class="ds-row" data-type="${esc(s.document_type)}">
                     <td><b>${esc(s.document_type)}</b></td>
                     <td><span class="ds-badge ${s.auto_learned ? 'auto' : 'manual'}">
@@ -146,7 +146,7 @@
                         <input type="checkbox" class="ds-evolve" data-type="${esc(s.document_type)}"
                                ${s.allow_evolution ? 'checked' : ''}>
                         <span class="slider"></span></label></td>
-                    <td style="color:var(--text-secondary,#888);white-space:nowrap;">${esc(s.modified)}</td>
+                    <td style="color:var(--text-secondary);white-space:nowrap;">${esc(s.modified)}</td>
                 </tr>`);
             }
             const pbody = $('#dsPendingTable tbody').empty();
