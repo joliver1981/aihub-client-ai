@@ -3826,7 +3826,10 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             }
             headers.update(_doc_identity_headers(state.get("user_context")))
 
-            async with _httpx.AsyncClient(timeout=120.0) as client:
+            # 240s, not 120: an ACL-clamped search whose planner picks were all
+            # stripped falls back to sweeping the user's ENTIRE allow list to
+            # conclude "nothing relevant" — slow but honest; don't cut it off.
+            async with _httpx.AsyncClient(timeout=240.0) as client:
                 resp = await client.post(url, json={"question": question}, headers=headers)
 
             if resp.status_code != 200:
@@ -9066,7 +9069,9 @@ async def _execute_cc_tool(
                 "Connection": "close",
             }
             headers.update(_doc_identity_headers(user_ctx))
-            async with _httpx.AsyncClient(timeout=120.0) as client:
+            # 240s: clamped-miss searches sweep the whole allow list (see the
+            # converse search_documents tool for the full story).
+            async with _httpx.AsyncClient(timeout=240.0) as client:
                 resp = await client.post(url, json={"question": description}, headers=headers)
 
             if resp.status_code != 200:
