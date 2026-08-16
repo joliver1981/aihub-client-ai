@@ -414,6 +414,22 @@ def rank_search_results(results: List[Dict[str, Any]], user_question: str) -> Li
       - On any LLM failure or parse failure, returns the deduplicated cosine-ordered
         list unchanged (today's behavior). Never worse than baseline.
     """
+    # ---- Step 0: shape guard ----
+    # Every search branch feeds this list, and several extend() it straight
+    # from parsed JSON — a "results" that comes back as an error STRING gets
+    # exploded into 1-char entries, and a stray list/None rides along too.
+    # Seen live 2026-08-15 (intermittent 500 on ACL-clamped searches:
+    # "'str' object has no attribute 'get'" right here). Drop and count
+    # non-dict entries; never crash the whole search over one bad producer.
+    non_dict = [r for r in results if not isinstance(r, dict)]
+    if non_dict:
+        from collections import Counter
+        shapes = dict(Counter(type(r).__name__ for r in non_dict))
+        print(f"rank_search_results: dropped {len(non_dict)} non-dict "
+              f"entrie(s) {shapes} — a producer emitted the wrong shape "
+              f"(1-char strs = someone extend()ed an error string)")
+        results = [r for r in results if isinstance(r, dict)]
+
     # ---- Step 1: dedupe (unchanged) ----
     seen_pages = {}
     for result in results:

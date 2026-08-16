@@ -88,3 +88,31 @@ class TestNormalizeSearchStrategy:
         out, attempts = norm({"search_approach": "semantic",
                               "semantic_search": {"search_terms": ["a"]}})
         assert "field_search" not in out and attempts == []
+
+
+@pytest.mark.unit
+class TestRankShapeGuard:
+    """rank_search_results must survive wrong-shape entries from any branch."""
+
+    def _rank(self, results):
+        from DocUtils import rank_search_results
+        return rank_search_results(results, "q")
+
+    def test_exploded_error_string_chars_dropped(self):
+        # extend("error text") puts 1-char strings in the list — the live 500.
+        good = {"document_id": "d1", "page_number": 1, "search_method": "field"}
+        out = self._rank(list("error!") + [good])
+        assert out == [good]
+
+    def test_mixed_garbage_dropped_dicts_kept(self):
+        g1 = {"document_id": "d1", "page_number": 1}
+        g2 = {"document_id": "d2", "page_number": 2}
+        out = self._rank([g1, None, ["nested"], "msg", 3.14, g2])
+        assert {r["document_id"] for r in out} == {"d1", "d2"}
+
+    def test_all_garbage_returns_empty_not_crash(self):
+        assert self._rank(["a", "b", None]) == []
+
+    def test_clean_input_unchanged(self):
+        g1 = {"document_id": "d1", "page_number": 1}
+        assert self._rank([g1]) == [g1]

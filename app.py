@@ -6080,7 +6080,10 @@ def internal_document_search_unified():
         )
         return jsonify({"status": "success", "result": result})
     except Exception as e:
-        logger.error(f"[internal_document_search_unified] Error: {e}")
+        # exc_info matters: "'str' object has no attribute 'get'" without a
+        # stack cost two debugging rounds on 2026-08-15.
+        logger.error(f"[internal_document_search_unified] Error: {e}",
+                     exc_info=True)
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
