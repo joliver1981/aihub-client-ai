@@ -945,11 +945,25 @@ class LLMDocumentProcessor:
                     and detected_document_type in self.schemas
                     and not force_ai_extraction):
                 try:
-                    doc_level_fields = self._extract_document_level_fields(
-                        extracted_pages,
-                        detected_document_type,
-                        self.schemas[detected_document_type]
-                    )
+                    doc_level_fields, unlisted_observations = \
+                        self._extract_document_level_fields(
+                            extracted_pages,
+                            detected_document_type,
+                            self.schemas[detected_document_type]
+                        )
+                    # ---- Schema evolution -------------------------------------
+                    # Fields this document states that the schema lacks: the
+                    # merge gate decides which become schema fields, and the
+                    # approved ones' values from THIS document join the normal
+                    # storage flow below — the document that taught the schema
+                    # a field must not itself be missing it.
+                    if unlisted_observations:
+                        evolved = self._evolve_schema(detected_document_type,
+                                                      unlisted_observations)
+                        for fp, ev in evolved.items():
+                            self._assign_dotted_field(
+                                doc_level_fields.setdefault(ev['page'], {}),
+                                fp, ev['value'])
                 except Exception as e:
                     self.logger.error(
                         f"Document-level extraction failed ({e}); "
@@ -1449,7 +1463,8 @@ class LLMDocumentProcessor:
 
     def _extract_fields_with_llm(self, text: str, field_specs: Dict[str, str],
                                  document_type: str,
-                                 with_pages: bool = False) -> Dict[str, Any]:
+                                 with_pages: bool = False,
+                                 observe_unlisted: bool = False) -> Dict[str, Any]:
         """Extract a KNOWN list of fields from one page of text using the LLM.
 
         This is the schema-driven counterpart to ``_extract_with_ai``: instead of
@@ -1462,10 +1477,16 @@ class LLMDocumentProcessor:
             text: page text
             field_specs: {dotted_field_name: description}
             document_type: used only for prompt context
+            with_pages: values come back as {value, page} objects
+            observe_unlisted: additionally return a ``_unlisted`` key of material
+                document-level facts NOT in the field list — the raw material of
+                schema evolution. The same read the model is already doing, so
+                the observation is close to free.
 
         Returns:
-            {dotted_field_name: value} for fields actually found. Raises on
-            failure so the caller can decide how to degrade.
+            {dotted_field_name: value} for fields actually found (plus
+            ``_unlisted`` when requested). Raises on failure so the caller can
+            decide how to degrade.
         """
         listing = "\n".join(
             f"- {name}" + (f"  ({desc})" if desc and desc != name else "")
@@ -1482,12 +1503,29 @@ class LLMDocumentProcessor:
             value_rule = "Each value is the extracted value itself, or null. "
             unit = "page"
 
+        unlisted_rule = ""
+        unlisted_ask = ""
+        if observe_unlisted:
+            unlisted_rule = (
+                'EXCEPTION — one extra key "_unlisted" IS allowed: an object '
+                'mapping snake_case dotted field names to {"value": <value>, '
+                '"page": <[Page N] number or null>, "description": "<one '
+                'line>"} for clearly material DOCUMENT-LEVEL facts this '
+                f'{unit} states that are NOT in the field list. Only facts of '
+                'the same caliber as the listed fields — a fact a reader of '
+                f'this {document_type} would expect to look up. Never '
+                'restate, rename, or shadow a listed field. Use {} when '
+                'there are none (most extracts have none). '
+            )
+            unlisted_ask = ('Also report material unlisted document-level '
+                            'facts under "_unlisted" (usually {}).\n')
+
         system_prompt = (
             f"You extract specific, named fields from {document_type} documents. "
             "Respond with STRICT JSON only — no prose, no markdown fences. "
             "Return ONE FLAT object whose keys are EXACTLY the field names given to you, "
             "spelled identically, including any dots. Do not nest the KEYS. Do not add keys. "
-            + value_rule +
+            + value_rule + unlisted_rule +
             f"Use null for any field this {unit} does not state. "
             "Never infer, never guess, never carry knowledge in from outside the text — "
             f"if the {unit} does not say it, the value is null."
@@ -1498,6 +1536,7 @@ class LLMDocumentProcessor:
             "Return a JSON object with exactly these keys, using null where the text "
             "does not state a value.\n"
             + ("Cite the [Page N] marker each value came from.\n" if with_pages else "")
+            + unlisted_ask
             + f"\n--- TEXT ---\n{text}\n--- END TEXT ---"
         )
         messages = [{"role": "user", "content": [{"type": "text", "text": user_text}]}]
@@ -1654,25 +1693,34 @@ class LLMDocumentProcessor:
         yields one value per field, attributed to the page it came from so the
         citation survives.
 
-        Returns {page_number: {field_path: value}} — shaped so the caller can attach
-        each fact to the page that evidenced it. Raises on failure; the caller falls
-        back to per-page extraction.
+        Returns ({page_number: {field_path: value}}, unlisted_observations) —
+        the first shaped so the caller can attach each fact to the page that
+        evidenced it; the second is {path: {value, page, description}} of
+        material facts the document states that the SCHEMA lacks, which feeds
+        schema evolution. Raises on failure; the caller falls back to per-page
+        extraction.
         """
         fields = (schema or {}).get('fields') or {}
         if not fields:
-            return {}
+            return {}, {}
 
         field_specs = {name: (info or {}).get('description') or name
                        for name, info in fields.items()}
         max_chars = self._doc_level_char_budget()
         chunks = self._group_pages_for_extraction(pages, max_chars)
 
+        observe = (getattr(cfg, 'DOC_SCHEMA_EVOLUTION', True)
+                   and bool((schema or {}).get('allow_evolution', True))
+                   and not self._schema_excluded(document_type))
+
         self.logger.info(
             f"Document-level extraction: {len(pages)} page(s) -> {len(chunks)} LLM call(s) "
             f"(budget {max_chars:,} chars each) for '{document_type}'"
+            + (" [observing unlisted fields]" if observe else "")
         )
 
         merged = {}      # field_path -> (value, page_number)
+        unlisted = {}    # path -> {value, page, description}; first sighting wins
         conflicts = 0
 
         for idx, chunk in enumerate(chunks, 1):
@@ -1682,8 +1730,25 @@ class LLMDocumentProcessor:
                 f"({len(chunk['text']):,} chars)"
             )
             values = self._extract_fields_with_llm(
-                chunk['text'], field_specs, document_type, with_pages=True
+                chunk['text'], field_specs, document_type, with_pages=True,
+                observe_unlisted=observe
             )
+            raw_unlisted = values.pop('_unlisted', None)
+            if observe and isinstance(raw_unlisted, dict):
+                for path, obs in raw_unlisted.items():
+                    path = str(path).strip()
+                    if (not path or path in field_specs or path in unlisted
+                            or not isinstance(obs, dict)
+                            or obs.get('value') in (None, '', [], {})):
+                        continue
+                    try:
+                        pg = int(obs.get('page'))
+                        pg = pg if pg in page_list else page_list[0]
+                    except (TypeError, ValueError):
+                        pg = page_list[0]
+                    unlisted[path] = {'value': obs['value'], 'page': pg,
+                                      'description':
+                                          str(obs.get('description') or path)[:200]}
             for field_name in field_specs:
                 raw = values.get(field_name)
                 value, page_hint = self._split_value_and_page(raw)
@@ -1710,8 +1775,141 @@ class LLMDocumentProcessor:
         self.logger.info(
             f"Document-level extraction complete: {len(merged)} field value(s) across "
             f"{len(by_page)} page(s), from {len(pages)} page(s) read."
+            + (f" {len(unlisted)} unlisted field(s) observed." if unlisted else "")
         )
-        return by_page
+        return by_page, unlisted
+
+    def _schema_file_for(self, document_type: str) -> Optional[str]:
+        """The on-disk file whose document_type key matches — the file the admin
+        page and _load_schemas would resolve, whatever it happens to be named.
+        Falls back to the auto-learn filename convention."""
+        try:
+            for filename in os.listdir(self.schema_dir):
+                if not filename.endswith(('.yaml', '.yml')):
+                    continue
+                path = os.path.join(self.schema_dir, filename)
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        data = yaml.safe_load(f)
+                    if isinstance(data, dict) and \
+                            data.get('document_type') == document_type:
+                        return path
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        fallback = os.path.join(self.schema_dir, f"{document_type}_auto.yml")
+        return fallback if os.path.exists(fallback) else None
+
+    def _evolve_schema(self, document_type: str,
+                       observations: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+        """Grow the type's schema from fields OBSERVED in this document.
+
+        A schema is learned from the FIRST document of its type, so it can only
+        contain what that document happened to state. Without this step, every
+        later document is extracted strictly within doc #1's horizon — a softer
+        cousin of the self-poisoning trap the schema rework fixed.
+
+        One merge-gate LLM call decides which observed candidates become schema
+        fields. The gate can only ADD: existing fields are never renamed or
+        removed (renames would orphan every stored DocumentFields row), and a
+        candidate that duplicates an existing field under another name is
+        rejected. Approved fields get {'description', 'evolved': <date>} — the
+        marker the admin page can surface — and the previous YAML is kept in
+        schemas/_history like any admin edit.
+
+        Returns {field_path: {'value', 'page'}} for the APPROVED fields, so the
+        CURRENT document's values enter the normal storage flow immediately —
+        the document that taught the schema a field should not itself be missing
+        it. Never raises; on any failure the schema simply does not evolve.
+        """
+        try:
+            schema = self.schemas.get(document_type)
+            if (not observations or not schema
+                    or not getattr(cfg, 'DOC_SCHEMA_EVOLUTION', True)
+                    or not bool(schema.get('allow_evolution', True))
+                    or self._schema_excluded(document_type)):
+                return {}
+            existing = schema.get('fields') or {}
+            existing_lower = {n.lower() for n in existing}
+            candidates = {p: o for p, o in observations.items()
+                          if p not in existing and p.lower() not in existing_lower}
+            if not candidates:
+                return {}
+
+            listing = "\n".join(
+                f"- {name}" + (f"  ({(info or {}).get('description') or name})")
+                for name, info in existing.items())
+            cand_listing = "\n".join(
+                f"- {p}: {o['description']}  (example value: "
+                f"{str(o['value'])[:80]})" for p, o in candidates.items())
+            system_prompt = (
+                f"You maintain the extraction schema for '{document_type}' "
+                "documents. Decide which OBSERVED candidate fields should be "
+                "ADDED to the schema. Respond with STRICT JSON only: "
+                '{"add": {"<candidate name>": "<one-line description>"}} — '
+                "keys MUST come from the candidate list verbatim; {} to add "
+                "none. ADD a candidate only when it is a durable document-level "
+                "fact of this document type that a reader would look up — the "
+                "same caliber as the existing fields. REJECT candidates that "
+                "duplicate an existing field under a different name, describe "
+                "one page rather than the document, or are incidental detail. "
+                "You may never rename or remove existing fields."
+            )
+            user_text = (f"EXISTING SCHEMA FIELDS:\n{listing}\n\n"
+                         f"OBSERVED CANDIDATES (from one new document):\n"
+                         f"{cand_listing}\n\nWhich candidates should be added?")
+            messages = [{"role": "user",
+                         "content": [{"type": "text", "text": user_text}]}]
+            if self._anthropic_config['use_direct_api']:
+                response = anthropic_messages_create(
+                    client=self.anthropic_client, model=cfg.ANTHROPIC_MODEL,
+                    max_tokens=2000, system=system_prompt, messages=messages)
+            else:
+                client = self.anthropic_proxy_client or AnthropicProxyClient()
+                response = client.messages_create(
+                    messages=messages, model=cfg.ANTHROPIC_MODEL,
+                    max_tokens=2000, system=system_prompt)
+            raw = self._response_text(response)
+            m = re.search(r'(\{[\s\S]+\})', raw)
+            decision = json.loads(m.group(1) if m else raw)
+            approved = {p: d for p, d in (decision.get('add') or {}).items()
+                        if p in candidates and isinstance(d, str)}
+            if not approved:
+                self.logger.info(
+                    f"[schema-evolve] '{document_type}': {len(candidates)} "
+                    f"candidate(s) observed, none approved.")
+                return {}
+
+            # Apply — backup first, exactly like an admin edit.
+            path = self._schema_file_for(document_type)
+            if not path:
+                self.logger.warning(
+                    f"[schema-evolve] no schema file found for "
+                    f"'{document_type}' — additions not persisted.")
+                return {}
+            hist = os.path.join(self.schema_dir, '_history')
+            os.makedirs(hist, exist_ok=True)
+            stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            shutil.copy2(path, os.path.join(
+                hist, f"{os.path.basename(path)}.{stamp}.bak"))
+            today = datetime.now().strftime('%Y-%m-%d')
+            for p, desc in approved.items():
+                schema.setdefault('fields', {})[p] = {
+                    'description': desc[:300], 'evolved': today}
+            with open(path, 'w', encoding='utf-8') as f:
+                yaml.dump(schema, f, sort_keys=False, allow_unicode=True,
+                          default_flow_style=False)
+            self.schemas[document_type] = schema
+            self.logger.info(
+                f"[schema-evolve] '{document_type}': +{len(approved)} field(s) "
+                f"{sorted(approved)} ({len(candidates) - len(approved)} "
+                f"rejected); previous schema in _history.")
+            return {p: {'value': candidates[p]['value'],
+                        'page': candidates[p]['page']} for p in approved}
+        except Exception as e:
+            self.logger.warning(f"[schema-evolve] '{document_type}' skipped: {e}")
+            return {}
 
     def _extract_records(self, pages: List[Dict[str, Any]], document_type: str,
                          schema: Dict[str, Any]) -> Dict[str, Any]:

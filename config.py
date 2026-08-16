@@ -646,6 +646,17 @@ DOC_RECORDS_INPUT_TOKENS = int(os.getenv('DOC_RECORDS_INPUT_TOKENS', 12000))
 # first would be meaningless for the next. They always use free-form AI extraction.
 DOC_SCHEMA_EXCLUDED_TYPES = os.getenv('DOC_SCHEMA_EXCLUDED_TYPES', 'unknown,unknown_document')
 
+# ── Schema evolution (james, 2026-08-13: allow evolution ON by default) ───────
+# A schema is learned from the FIRST document of a type, so it can only know the
+# fields that document happened to state. With evolution on, the document-level
+# extraction pass also observes clearly material fields NOT in the schema; one
+# merge-gate LLM call decides which become schema fields (additions only — never
+# a rename or removal), and the current document's values for approved fields
+# are stored immediately. Global kill-switch here; the per-type toggle lives IN
+# each schema YAML (allow_evolution, default true) and is managed on the
+# Document Schemas admin page. Evolved fields carry an 'evolved: <date>' marker.
+DOC_SCHEMA_EVOLUTION = os.getenv('DOC_SCHEMA_EVOLUTION', 'True').lower() == 'true'
+
 # ── Document categories: AI-managed assignment (james, 2026-08-13) ────────────
 # When a NEWLY DETECTED document type has no category, the AI files it into one
 # and a human is told afterwards — because finding people to administer the
