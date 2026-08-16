@@ -114,3 +114,39 @@ class TestLiveGrants:
             pytest.skip("every user is in a group on this box")
         out = acl.accessible_document_types(row[0], user_role=1)
         assert out == [], "no groups -> no grants -> deny-all"
+
+
+@pytest.mark.unit
+class TestFramePredicate:
+    """_frame_predicate must always yield a usable predicate — fail-open to
+    the raw question, never raise into the enumerate run."""
+
+    def test_good_framing_used(self, monkeypatch):
+        from doc_search_v3 import enumerate_engine as ee
+        monkeypatch.setattr(ee, '_llm', lambda *a, **k:
+                            '{"predicate": "Does this lease assign HVAC to '
+                            'the tenant?", "value_guide": "one of: tenant / '
+                            'landlord / split"}')
+        out = ee._frame_predicate("How many leases make HVAC the tenant's job?")
+        assert out['predicate'].startswith('Does this lease')
+        assert 'tenant / landlord' in out['value_guide']
+
+    def test_bad_json_falls_back_to_question(self, monkeypatch):
+        from doc_search_v3 import enumerate_engine as ee
+        monkeypatch.setattr(ee, '_llm', lambda *a, **k: 'not json at all')
+        q = "How many leases make HVAC the tenant's job?"
+        assert ee._frame_predicate(q) == {'predicate': q, 'value_guide': ''}
+
+    def test_llm_exception_falls_back(self, monkeypatch):
+        from doc_search_v3 import enumerate_engine as ee
+        def boom(*a, **k):
+            raise RuntimeError("llm down")
+        monkeypatch.setattr(ee, '_llm', boom)
+        q = "How many?"
+        assert ee._frame_predicate(q) == {'predicate': q, 'value_guide': ''}
+
+    def test_missing_keys_fall_back(self, monkeypatch):
+        from doc_search_v3 import enumerate_engine as ee
+        monkeypatch.setattr(ee, '_llm', lambda *a, **k: '{"predicate": ""}')
+        q = "How many?"
+        assert ee._frame_predicate(q) == {'predicate': q, 'value_guide': ''}

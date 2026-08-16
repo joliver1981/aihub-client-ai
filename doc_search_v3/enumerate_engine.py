@@ -141,7 +141,41 @@ def _pick_field(question: str, fields_by_type: Dict[str, Dict[str, str]]) -> Opt
     return None
 
 
-def _verdict_one(question: str, doc_id: str, filename: str, cur_factory) -> dict:
+def _frame_predicate(question: str) -> dict:
+    """Reframe the COUNT question once into (a) a crisp yes/no predicate asked
+    of ONE document and (b) a value guide naming the short canonical answers.
+
+    Without this, each per-doc call interprets the collective question its own
+    way and the value histogram fragments into near-duplicate phrasings
+    ('Tenant responsible', 'tenant', 'Tenant must maintain HVAC', ...) that
+    GROUP BY can never reunite — seen on the first live Q4 run. One cheap call
+    here buys comparable buckets everywhere. Fail-open: on any failure the raw
+    question is used, which is exactly yesterday's behavior."""
+    try:
+        raw = _llm(
+            f'The counting question over MANY documents is: "{question}"\n'
+            'Return STRICT JSON: {"predicate": "<yes/no question asked of ONE '
+            'document>", "value_guide": "<instruction naming the SHORT '
+            'canonical values, e.g. one of: tenant / landlord / split (state '
+            'threshold) / not addressed>"}. The predicate must be answerable '
+            'from a single document with yes/no; the value_guide must force '
+            'one-or-two-word canonical values so answers from different '
+            'documents land in the same buckets.',
+            system="You design per-document predicates for counting over "
+                   "document sets. STRICT JSON only.",
+            max_tokens=300)
+        out = _parse_json(raw)
+        if (isinstance(out, dict) and str(out.get('predicate') or '').strip()
+                and str(out.get('value_guide') or '').strip()):
+            return {'predicate': str(out['predicate']).strip()[:400],
+                    'value_guide': str(out['value_guide']).strip()[:300]}
+    except Exception as e:
+        logging.info(f"v3 predicate framing skipped: {e}")
+    return {'predicate': question, 'value_guide': ''}
+
+
+def _verdict_one(question: str, doc_id: str, filename: str, cur_factory,
+                 value_guide: str = '') -> dict:
     """One document, one verdict. Never raises."""
     v = dict(document_id=doc_id, filename=filename, status='enumerated',
              label=None, value=None, quote=None, page=None, confidence=None)
@@ -155,7 +189,9 @@ def _verdict_one(question: str, doc_id: str, filename: str, cur_factory) -> dict
             v.update(status='failed', value='no page text stored')
             return v
         text = "\n\n".join(f"[Page {pn}]\n{tx}" for pn, tx in pages if tx)[:480000]
-        raw = _llm(f"Question: {question}\n\nDocument: {filename}\n"
+        guide = (f"\nValue guide (use these canonical values): {value_guide}"
+                 if value_guide else "")
+        raw = _llm(f"Question: {question}{guide}\n\nDocument: {filename}\n"
                    f"--- DOCUMENT TEXT ---\n{text}\n--- END ---",
                    system=_VERDICT_SYSTEM, max_tokens=500)
         data = _parse_json(raw)
@@ -234,11 +270,14 @@ def enumerate_documents(question: str, user_id=None, user_role=None,
 
         types = _pick_types(question, present) or present
         ph = ','.join('?' * len(types))
-        cur.execute(f"""SELECT document_id, filename FROM Documents
+        cur.execute(f"""SELECT document_id, filename, document_type
+                        FROM Documents
                         WHERE is_knowledge_document = 0
                           AND document_type IN ({ph})
                         ORDER BY filename""", *types)
-        docs = cur.fetchall()
+        rows = cur.fetchall()
+        docs = [(r[0], r[1]) for r in rows]
+        doc_type_of = {r[0]: r[2] for r in rows}
         capped = max(0, len(docs) - max_docs)
         docs = docs[:max_docs]
         denominator = len(docs)
@@ -271,10 +310,16 @@ def enumerate_documents(question: str, user_id=None, user_role=None,
         todo = [(d, f) for d, f in docs if d not in pre]
 
         # ---- enumerate the gap, deadline-bounded ---------------------------
+        # ONE framing call turns the collective question into a per-document
+        # predicate + canonical value buckets; every verdict below (and its
+        # write-back) uses it, so stored values stay GROUP-BY-able.
+        framing = _frame_predicate(question) if todo else \
+            {'predicate': question, 'value_guide': ''}
         not_reached: List[str] = []
         if todo:
             pool = ThreadPoolExecutor(max_workers=parallel)
-            futures = {pool.submit(_verdict_one, question, d, f, _connect): (d, f)
+            futures = {pool.submit(_verdict_one, framing['predicate'], d, f,
+                                   _connect, framing['value_guide']): (d, f)
                        for d, f in todo}
             try:
                 for fut in as_completed(futures, timeout=max(5.0, deadline - time.time())):
@@ -304,8 +349,40 @@ def enumerate_documents(question: str, user_id=None, user_role=None,
         label_hist = Counter(v['label'] for v in verdicts if v.get('label'))
         failed = [v for v in verdicts if v['status'] == 'failed']
 
+        # Per-type accounting: "how many LEASES ..." must never be silently
+        # inflated by amendments (or any second type) sharing the scope — the
+        # breakdown makes each type's contribution visible (design decision,
+        # 2026-08-13).
+        answered_ids = set()
+        by_type: Dict[str, Dict[str, Any]] = {}
+        for d, _f in docs:
+            t = doc_type_of.get(d) or 'unknown'
+            by_type.setdefault(t, {'in_scope': 0, 'from_fields': 0,
+                                   'enumerated': 0, 'failed': 0,
+                                   'not_reached': 0, 'labels': {}})
+            by_type[t]['in_scope'] += 1
+        for v in verdicts:
+            t = doc_type_of.get(v['document_id']) or 'unknown'
+            bt = by_type.get(t)
+            if not bt:
+                continue
+            answered_ids.add(v['document_id'])
+            if v['status'] in ('from_fields', 'enumerated'):
+                bt[v['status']] += 1
+                if v.get('label'):
+                    bt['labels'][v['label']] = bt['labels'].get(v['label'], 0) + 1
+            elif v['status'] == 'failed':
+                bt['failed'] += 1
+        for d, _f in docs:
+            if d not in answered_ids:
+                t = doc_type_of.get(d) or 'unknown'
+                by_type[t]['not_reached'] += 1
+
         lines = [f"COUNT over {denominator} document(s) "
                  f"({', '.join(types)}) — question: {question}"]
+        if framing['predicate'] != question:
+            lines.append(f"Predicate applied to each document: "
+                         f"{framing['predicate']}")
         if field_path:
             lines.append(f"Field consulted: {field_path}")
         if value_hist:
@@ -317,6 +394,18 @@ def enumerate_documents(question: str, user_id=None, user_role=None,
             for lab in ('yes', 'yes_qualified', 'no', 'not_addressed'):
                 if label_hist.get(lab):
                     lines.append(f"  {label_hist[lab]:>4}  {lab}")
+        if len(by_type) > 1:
+            lines.append("BY DOCUMENT TYPE (a count of one type must not "
+                         "absorb another's documents):")
+            for t in sorted(by_type):
+                bt = by_type[t]
+                labs = " · ".join(f"{n} {lab}" for lab, n in
+                                  sorted(bt['labels'].items())) or "no verdicts"
+                lines.append(
+                    f"  {t}: {bt['in_scope']} in scope — {labs}"
+                    f" — {bt['from_fields']} from fields, "
+                    f"{bt['enumerated']} read now, {bt['failed']} failed, "
+                    f"{bt['not_reached']} not reached")
         ledger = (f"LEDGER: {denominator} in scope · {len(pre)} answered from "
                   f"stored fields · "
                   f"{sum(1 for v in verdicts if v['status'] == 'enumerated')} read "
@@ -335,8 +424,10 @@ def enumerate_documents(question: str, user_id=None, user_role=None,
 
         return {'ok': True, 'engine': 'doc_search_v3.enumerate',
                 'question': question, 'types': types,
+                'predicate': framing['predicate'],
                 'denominator': denominator, 'field_path': field_path,
                 'counts': dict(value_hist), 'labels': dict(label_hist),
+                'by_type': by_type,
                 'verdicts': verdicts, 'capped': capped,
                 'not_reached': not_reached,
                 'elapsed_s': round(time.time() - started, 1),
