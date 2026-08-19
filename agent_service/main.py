@@ -75,10 +75,13 @@ def _verify_request(request: Request) -> dict:
     auth = request.headers.get("Authorization", "")
     token = auth[7:] if auth.startswith("Bearer ") else request.query_params.get("token", "")
     if not token:
-        raise HTTPException(401, "Missing token — open The Agent from AI Hub.")
+        # Keep "token" phrasing bare of advice: the UI's silent re-auth handles
+        # the normal case, and "reopen from AI Hub" became circular once AI
+        # Hub's front door started redirecting INTO The Agent.
+        raise HTTPException(401, "Missing token — no access token presented.")
     claims, err = shared_auth.verify_token(token, shared_auth.AUD_CC)
     if err:
-        raise HTTPException(401, f"Invalid or expired token ({err}) — reopen from AI Hub.")
+        raise HTTPException(401, f"Invalid or expired token ({err}).")
     role = int(claims.get("role") or 0)
     if role < 2 and not AGENT_ALLOW_ALL_USERS:
         raise HTTPException(403, "The Agent preview is Developer+ only on this install.")

@@ -494,6 +494,30 @@
   const H = () => ({ "Content-Type": "application/json",
                      "Authorization": "Bearer " + token() });
 
+  // ---------- silent re-auth ----------
+  // Token aging is NORMAL, and "reopen from AI Hub" became circular advice the
+  // moment AI Hub's front door started redirecting HERE. So: bounce through
+  // the main app's /the-agent mint route instead — a valid AI Hub session
+  // refreshes the token invisibly; an expired one lands on the login page and
+  // the post-login home redirect leads straight back. The 45s guard keeps a
+  // genuinely broken auth state (role denied, clock skew) from looping the
+  // browser: second failure inside the window falls through to the gate.
+  function reauth(detail) {
+    const why = String(detail || "");
+    if (!/expired|no access token/i.test(why)) return false;
+    const last = +(sessionStorage.getItem("agent_reauth_at") || 0);
+    if (Date.now() - last < 45000) return false;
+    sessionStorage.setItem("agent_reauth_at", String(Date.now()));
+    try {
+      const draft = document.getElementById("input");
+      if (draft && draft.value) localStorage.setItem("agent_draft", draft.value);
+    } catch (e) {}
+    const mp = localStorage.getItem("agent_main_port") || mainPort;
+    gate("Reconnecting to AI Hub…");
+    location.href = `${location.protocol}//${location.hostname}:${mp}/the-agent`;
+    return true;
+  }
+
   const el = (tag, cls, text) => {
     const e = document.createElement(tag);
     if (cls) e.className = cls;
@@ -1546,7 +1570,13 @@
       if (resp.status === 401 || resp.status === 403) {
         think.remove();
         const d = await resp.json().catch(() => ({}));
-        gate(d.detail || "Session expired — reopen from AI Hub."); return;
+        // input was already cleared at send time — stash the message itself so
+        // it survives the reconnect round-trip and reappears in the box.
+        localStorage.setItem("agent_draft", text);
+        if (reauth(d.detail)) return;
+        localStorage.removeItem("agent_draft");
+        gate(d.detail || "Could not refresh your session automatically. Sign in to AI Hub, then choose The Agent.");
+        return;
       }
       const reader = resp.body.getReader();
       const dec = new TextDecoder(); let buf = "";
@@ -2077,15 +2107,24 @@
 
   // ---------- boot ----------
   async function boot() {
-    if (!token()) { gate("No access token. Use the AI Hub menu → The Agent."); return; }
+    if (!token()) {
+      if (reauth("no access token")) return;
+      gate("Could not connect automatically. Sign in to AI Hub, then choose The Agent.");
+      return;
+    }
     try {
       const r = await fetch("/api/me", { headers: { Authorization: "Bearer " + token() } });
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
-        gate(d.detail || "Session expired — reopen from AI Hub."); return;
+        if (reauth(d.detail)) return;
+        gate(d.detail || "Could not refresh your session automatically. Sign in to AI Hub, then choose The Agent.");
+        return;
       }
       const d = await r.json(); me = d.user;
-      if (d.main_port) mainPort = d.main_port;
+      if (d.main_port) { mainPort = d.main_port;
+                         localStorage.setItem("agent_main_port", String(d.main_port)); }
+      const savedDraft = localStorage.getItem("agent_draft");
+      if (savedDraft) { input.value = savedDraft; localStorage.removeItem("agent_draft"); }
       buildPlatformLinks((d.user || {}).role);
       document.getElementById("who").innerHTML =
         `signed in as<b>${d.user.name || d.user.username}</b>`;
