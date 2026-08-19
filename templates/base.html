@@ -1050,10 +1050,15 @@
             {# MODERN NAV: Work / Build / Admin                          #}
             {# ══════════════════════════════════════════════════════════ #}
 
-            {% if FLAG_AGENT_MODE and current_user.is_authenticated and current_user.role >= 2 and not session.get('classic_mode') %}
+            {% if FLAG_AGENT_NAV_LENS and current_user.is_authenticated and current_user.role >= 2 and not session.get('classic_mode') %}
             <!-- ── AGENT MODE ── the noun-collapse lens: talk, decide, done.
-                 Classic Work/Build sections are HIDDEN (never deleted); flip
-                 THE_AGENT_MODE=false in .env to restore them instantly.
+                 Classic Work/Build sections are HIDDEN (never deleted).
+                 Gated by THE_AGENT_NAV_LENS (default OFF — james 2026-08-16:
+                 platform pages opened from The Agent's Platform menu must show
+                 the ORIGINAL full nav, not this slim mix). Deliberately a
+                 SEPARATE switch from THE_AGENT_MODE, which still drives the
+                 home-route redirect into The Agent. Set
+                 THE_AGENT_NAV_LENS=true in .env to bring the lens back.
                  A sticky ?classic=1 session (session['classic_mode'], set by
                  the home route) suppresses the lens: "Classic app" from The
                  Agent means the TRUE classic app, full original nav, until
@@ -1362,7 +1367,7 @@
             </div>
             {% endif %}
 
-            {% endif %}{# end FLAG_AGENT_MODE lens (Work/Build hidden in Agent Mode) #}
+            {% endif %}{# end FLAG_AGENT_NAV_LENS lens (Work/Build hidden in Agent Mode) #}
 
             <!-- ── ADMIN ── What admins MANAGE -->
             {% if current_user.is_authenticated and current_user.role == 3 %}
