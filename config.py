@@ -666,15 +666,18 @@ DOC_SCHEMA_EVOLUTION = os.getenv('DOC_SCHEMA_EVOLUTION', 'True').lower() == 'tru
 # uses delete-to-relearn. Gated by DOC_SCHEMA_EVOLUTION + the per-type toggle.
 DOC_RECORDS_AUTODEFINE = os.getenv('DOC_RECORDS_AUTODEFINE', 'True').lower() == 'true'
 DOC_RECORDS_AUTODEFINE_SIGHTINGS = int(os.getenv('DOC_RECORDS_AUTODEFINE_SIGHTINGS', 2))
-# Min-rows floor at LEARNING-time set definition (james, 2026-08-16): the first
-# document of a type may only exhibit a marginal repeating list (an overview
-# memo's 3-row governance table), and defining a set from it locks out
-# detection of the corpus's real unit forever (one-set rule; detection only
-# asks while no set exists). A learning-time proposal expecting fewer rows than
-# this is WITHHELD and seeded into the sightings ledger instead — if it is
-# real, the evidence-gated path defines it from a corroborating document within
-# a document or two. 0 disables. Sighting-path definition is never floored.
-DOC_RECORDS_MIN_LEARN_ROWS = int(os.getenv('DOC_RECORDS_MIN_LEARN_ROWS', 5))
+# Min-rows floor at LEARNING-time set definition. OFF (0) BY DEFAULT — james,
+# 2026-08-16, reversing the same-day floor=5 decision after weighing it: a
+# marginal day-1 list (an overview memo's 3-row governance table) and a
+# legitimate small set (an invoice's 3 line items) are the SAME SIZE, so no
+# threshold separates them — the floor is a frequency bet, and legitimate small
+# sets are far more common than shape-unrepresentative first documents (which
+# are coachable: "start with a good example" — and recoverable via
+# delete-to-relearn on the Document Schemas page). Set >0 to withhold
+# learning-time proposals expecting fewer rows than this and route them through
+# the evidence-gated sighting path instead (the machinery stays built and
+# tested). Sighting-path definition is never floored either way.
+DOC_RECORDS_MIN_LEARN_ROWS = int(os.getenv('DOC_RECORDS_MIN_LEARN_ROWS', 0))
 
 # ── Document categories: AI-managed assignment (james, 2026-08-13) ────────────
 # When a NEWLY DETECTED document type has no category, the AI files it into one
