@@ -1575,7 +1575,7 @@
         localStorage.setItem("agent_draft", text);
         if (reauth(d.detail)) return;
         localStorage.removeItem("agent_draft");
-        gate(d.detail || "Could not refresh your session automatically. Sign in to AI Hub, then choose The Agent.");
+        gate(d.detail || "Automatic sign-in is not completing — this is a platform configuration problem, not your session. An administrator should check that AI Hub and The Agent share the same signing configuration.");
         return;
       }
       const reader = resp.body.getReader();
@@ -2109,7 +2109,7 @@
   async function boot() {
     if (!token()) {
       if (reauth("no access token")) return;
-      gate("Could not connect automatically. Sign in to AI Hub, then choose The Agent.");
+      gate("Automatic sign-in is not completing — this is a platform configuration problem, not your session. An administrator should check the AI Hub and The Agent services.");
       return;
     }
     try {
@@ -2117,7 +2117,7 @@
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
         if (reauth(d.detail)) return;
-        gate(d.detail || "Could not refresh your session automatically. Sign in to AI Hub, then choose The Agent.");
+        gate(d.detail || "Automatic sign-in is not completing — this is a platform configuration problem, not your session. An administrator should check that AI Hub and The Agent share the same signing configuration.");
         return;
       }
       const d = await r.json(); me = d.user;
