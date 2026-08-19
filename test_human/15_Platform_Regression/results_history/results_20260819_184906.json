@@ -1,0 +1,13 @@
+{
+ "stamp": "20260819_184906",
+ "commit": "27c0c99",
+ "target": "local",
+ "results": [
+  {
+   "id": "automation_lifecycle",
+   "area": "Automations",
+   "status": "ERROR",
+   "evidence": "runner error: HTTPConnectionPool(host='localhost', port=5001): Read timed out. (read timeout=30)"
+  }
+ ]
+}

@@ -1,0 +1,21 @@
+{
+ "stamp": "20260806_202017",
+ "commit": "e4a5717",
+ "target": "10.0.0.6",
+ "results": [
+  {
+   "id": "portal_wf_persist",
+   "area": "Portal WF",
+   "status": "PASS",
+   "evidence": "save=200, slug=regp_portal_temp, listed=True, dup=409 (want 409), del=200",
+   "duration_s": 0.0
+  },
+  {
+   "id": "comp_portal_step_roundtrip_fidelity",
+   "area": "Portal WF",
+   "status": "PASS",
+   "evidence": "saved 6 steps, read back 6; types-match=True; special-chars-intact=True; unicode-url-intact=True",
+   "duration_s": 0.0
+  }
+ ]
+}

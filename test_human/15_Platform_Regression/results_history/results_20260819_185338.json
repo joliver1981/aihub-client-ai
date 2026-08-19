@@ -1,0 +1,14 @@
+{
+ "stamp": "20260819_185338",
+ "commit": "27c0c99",
+ "target": "local",
+ "results": [
+  {
+   "id": "automation_lifecycle",
+   "area": "Automations",
+   "status": "PASS",
+   "evidence": "v=1, dry-run=success, promoted=1, deleted-http=200",
+   "duration_s": 0.9
+  }
+ ]
+}

@@ -117,15 +117,3 @@
 | Environments | environments_provision | ⏭ SKIP | not automated: conda env provisioning is minutes-slow; page render covered under Pages |
 | Data/NLQ | data_explorer_battery | ⏭ SKIP | not automated: deep NLQ competency lives in pack 12 (battery.py); one live probe runs here |
 | Documents | document_qa_battery | ⏭ SKIP | not automated: deep doc-QA competency lives in pack 13; ingest+API-list run here |
-
----
-## Post-run annotation (2026-08-19, same day)
-
-The single regression above — `automation_lifecycle` ERROR (read timeout=30) — was
-retried after the run: the exact call sequence passes standalone (delete measured
-6.8–8.1s quiet), and `--only automation_lifecycle` passed **3/3 at 0.9s**. Classified
-a **contention flake at the 30s client timeout**, most plausibly the automation
-delete's schedule-deactivation crossing a JSS poll/lock window under gate load — not
-a functional regression. Effective verdict: **CLEAN (47 PASS + 1 flake-retried-green
-/ 51 SKIP / 4 XFAIL)** on build 27c0c99. Watch item: delete duration under load sits
-uncomfortably close to the 30s timeout.
