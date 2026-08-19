@@ -1,0 +1,279 @@
+<title>AI Hub — Verification Status Board</title>
+<style>
+  :root {
+    --ground: #F6F7F9;
+    --card: #FFFFFF;
+    --ink: #1B2230;
+    --ink-2: #5B6578;
+    --ink-3: #8A93A6;
+    --line: #E2E6ED;
+    --line-2: #EEF1F5;
+    --accent: #2C7A8C;
+    --ok: #17804C;      --ok-bg: rgba(23,128,76,0.10);
+    --warn: #9A6A06;    --warn-bg: rgba(154,106,6,0.11);
+    --bad: #B03A3A;     --bad-bg: rgba(176,58,58,0.10);
+    --hold: #5B6578;    --hold-bg: rgba(91,101,120,0.10);
+    --mono: Consolas, "Cascadia Mono", ui-monospace, Menlo, monospace;
+  }
+  :root:not([data-theme="light"]) { }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0E1116;
+      --card: #151A22;
+      --ink: #E7EBF3;
+      --ink-2: #9AA4B8;
+      --ink-3: #6C7689;
+      --line: #262D3A;
+      --line-2: #1D232E;
+      --accent: #5FB7C9;
+      --ok: #3FCF8A;    --ok-bg: rgba(63,207,138,0.12);
+      --warn: #E2B44E;  --warn-bg: rgba(226,180,78,0.12);
+      --bad: #F07A7A;   --bad-bg: rgba(240,122,122,0.12);
+      --hold: #9AA4B8;  --hold-bg: rgba(154,164,184,0.12);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0E1116;
+    --card: #151A22;
+    --ink: #E7EBF3;
+    --ink-2: #9AA4B8;
+    --ink-3: #6C7689;
+    --line: #262D3A;
+    --line-2: #1D232E;
+    --accent: #5FB7C9;
+    --ok: #3FCF8A;    --ok-bg: rgba(63,207,138,0.12);
+    --warn: #E2B44E;  --warn-bg: rgba(226,180,78,0.12);
+    --bad: #F07A7A;   --bad-bg: rgba(240,122,122,0.12);
+    --hold: #9AA4B8;  --hold-bg: rgba(154,164,184,0.12);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Segoe UI Variable Text", "Segoe UI", -apple-system, system-ui, sans-serif;
+    margin: 0;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 40px 28px 72px; }
+
+  .eyebrow {
+    font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--accent); font-weight: 600; margin: 0 0 6px;
+  }
+  h1 {
+    font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif;
+    font-size: clamp(24px, 3.4vw, 34px); font-weight: 650;
+    margin: 0 0 4px; text-wrap: balance; letter-spacing: -0.01em;
+  }
+  .sub { color: var(--ink-2); margin: 0 0 26px; max-width: 68ch; }
+  .sub .m { font-family: var(--mono); font-size: 0.92em; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 0 0 14px; }
+  .tile {
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px 16px 12px;
+  }
+  .tile .n { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 30px; font-weight: 600; line-height: 1; }
+  .tile .l { font-size: 12.5px; color: var(--ink-2); margin-top: 6px; }
+  .tile.ok .n { color: var(--ok); }
+  .tile.warn .n { color: var(--warn); }
+  .tile.bad .n { color: var(--bad); }
+  .tile.hold .n { color: var(--hold); }
+
+  .note {
+    background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--warn);
+    border-radius: 8px; padding: 12px 16px; margin: 0 0 34px; color: var(--ink-2); font-size: 14px;
+  }
+  .note b { color: var(--ink); }
+
+  section { margin: 0 0 34px; }
+  h2 {
+    font-size: 16.5px; font-weight: 650; margin: 0 0 3px; letter-spacing: -0.005em;
+  }
+  .h2sub { font-size: 13px; color: var(--ink-3); margin: 0 0 10px; }
+
+  .tblwrap { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th {
+    text-align: left; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--ink-3); font-weight: 600; padding: 10px 14px 8px; border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  td { padding: 9px 14px; border-bottom: 1px solid var(--line-2); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.cap { font-weight: 600; min-width: 210px; }
+  td.ev { font-family: var(--mono); font-size: 12px; color: var(--ink-2); min-width: 230px; font-variant-numeric: tabular-nums; }
+  td.rest { color: var(--ink-2); min-width: 200px; }
+
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+    font-size: 11.5px; font-weight: 650; letter-spacing: 0.02em;
+    padding: 3px 10px 3px 8px; border-radius: 20px;
+  }
+  .chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .chip.ok   { color: var(--ok);   background: var(--ok-bg); }
+  .chip.warn { color: var(--warn); background: var(--warn-bg); }
+  .chip.bad  { color: var(--bad);  background: var(--bad-bg); }
+  .chip.hold { color: var(--hold); background: var(--hold-bg); }
+
+  .actions {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 18px 22px 8px; margin-top: 6px;
+  }
+  .actions h2 { margin-bottom: 10px; }
+  .actions ol { margin: 0 0 12px; padding-left: 20px; color: var(--ink-2); }
+  .actions li { margin-bottom: 7px; }
+  .actions li b { color: var(--ink); font-weight: 600; }
+
+  footer { margin-top: 30px; color: var(--ink-3); font-size: 12.5px; }
+  footer .m { font-family: var(--mono); }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">AI Hub · QA / verification</p>
+  <h1>Verification Status Board</h1>
+  <p class="sub">What is proven, what is provisional, and what has never been exercised — grounded in
+     live end-to-end verifications, the <span class="m">test_human</span> pack reports on disk, and this
+     week's session evidence. Compiled <span class="m">2026-08-19</span>.</p>
+
+  <div class="tiles">
+    <div class="tile ok"><div class="n" id="n-ok">–</div><div class="l">Verified — live-proven and/or green suites</div></div>
+    <div class="tile warn"><div class="n" id="n-warn">–</div><div class="l">Partial — works, but open findings or stale runs</div></div>
+    <div class="tile bad"><div class="n" id="n-bad">–</div><div class="l">Untested / known broken</div></div>
+    <div class="tile hold"><div class="n" id="n-hold">–</div><div class="l">Parked by decision (not a gap)</div></div>
+  </div>
+
+  <div class="note"><b>Read the dates.</b> The three platform-wide pack runs (14, 15, 16) were last executed
+    <b>2026-08-07</b> — before this week's document-engine, governance, and records work landed. Everything
+    marked verified this week was proven individually; the whole-platform regression gate has not been
+    re-run over the combined result yet (action 1 below).</div>
+
+  <section>
+    <h2>Document extraction &amp; search</h2>
+    <p class="h2sub">The re-cored pipeline: schema learning → fields + records → full-page search. All of this landed and was verified Aug 12–16.</p>
+    <div class="tblwrap"><table>
+      <tr><th>Capability</th><th>Status</th><th>Evidence</th><th>Outstanding</th></tr>
+      <tr><td class="cap">Schema-driven field extraction (repair)</td><td><span class="chip ok">Verified</span></td><td class="ev">Live: DG 108-pg + lease e2e · 51 unit tests · Aug 14–15</td><td class="rest">—</td></tr>
+      <tr><td class="cap">Whole-document schema learning + LLM consolidation</td><td><span class="chip ok">Verified</span></td><td class="ev">Live relearn after cover-page &amp; 1,797-field failures fixed</td><td class="rest">—</td></tr>
+      <tr><td class="cap">Records extraction, storage, read tools (CC · GeneralAgent · The Agent)</td><td><span class="chip ok">Verified</span></td><td class="ev">DG re-extract 316/316 rows complete · 38 unit tests · live on all 3 surfaces</td><td class="rest">—</td></tr>
+      <tr><td class="cap">Full-page search results + raised payload caps</td><td><span class="chip ok">Verified</span></td><td class="ev">End-to-end trace: chunks locate, pages returned (600K/150K/4K chain)</td><td class="rest">—</td></tr>
+      <tr><td class="cap">Document-level (one-value-per-doc) extraction</td><td><span class="chip ok">Verified</span></td><td class="ev">Live on 108-pg doc; conflict-free merge w/ page attribution</td><td class="rest">—</td></tr>
+      <tr><td class="cap">Schema evolution — fields</td><td><span class="chip ok">Verified</span></td><td class="ev">Live 3→6 fields w/ real LLM · markers + _history · Aug 16</td><td class="rest">—</td></tr>
+      <tr><td class="cap">Record-set auto-define (sightings → evidence gate)</td><td><span class="chip ok">Verified</span></td><td class="ev">Two live PDF chains incl. the day-1-trap rerun · badge proven</td><td class="rest">—</td></tr>
+      <tr><td class="cap">Rows coverage + per-document backfill</td><td><span class="chip ok">Verified</span></td><td class="ev">Live: lease coverage 2→3 of 344 via doc-api delegation</td><td class="rest">Bulk backfill rejected by decision</td></tr>
+      <tr><td class="cap">Search strategy normalizer + rank shape guard</td><td><span class="chip ok">Verified</span></td><td class="ev">13 tests · 4× restricted soak clean after live 500s</td><td class="rest">Type-histogram print will finger the bad producer if it recurs</td></tr>
+      <tr><td class="cap">Honest-failure ingestion</td><td><span class="chip warn">Partial</span></td><td class="ev">Error surfacing verified; root Chroma 'NoneType.add' race never reproduced</td><td class="rest">Watch item — suspected init race</td></tr>
+      <tr><td class="cap">Min-rows learning floor</td><td><span class="chip hold">Parked</span></td><td class="ev">Built + 6 tests + live trap rerun; default OFF by decision Aug 16</td><td class="rest">Re-enable per install via env if ever needed</td></tr>
+      <tr><td class="cap">Column evolution (existing record sets)</td><td><span class="chip hold">Parked</span></td><td class="ev">Deferred until thin-rows evidence appears</td><td class="rest">—</td></tr>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Governance &amp; access (document search v3)</h2>
+    <p class="h2sub">Category ACL, the admin surfaces, and the counting lane.</p>
+    <div class="tblwrap"><table>
+      <tr><th>Capability</th><th>Status</th><th>Evidence</th><th>Outstanding</th></tr>
+      <tr><td class="cap">Fail-closed category ACL resolver</td><td><span class="chip ok">Verified</span></td><td class="ev">13 tests · live narrow→resolve→restore round-trip (user 125)</td><td class="rest">—</td></tr>
+      <tr><td class="cap">Groups page category grants + stewardship</td><td><span class="chip ok">Verified</span></td><td class="ev">Live round-trip: narrowed to 2 cats, resolved exactly, restored to 89</td><td class="rest">—</td></tr>
+      <tr><td class="cap">AI category assignment at ingest</td><td><span class="chip ok">Verified</span></td><td class="ev">Live: novel type filed w/ sane reasoning, idempotent · 7 tests</td><td class="rest">—</td></tr>
+      <tr><td class="cap">Category review page (/document_categories)</td><td><span class="chip ok">Verified</span></td><td class="ev">25-check live suite: file / re-file / create / merge / self-merge-reject</td><td class="rest">—</td></tr>
+      <tr><td class="cap">Schema admin page (/document_schemas)</td><td><span class="chip ok">Verified</span></td><td class="ev">Live: YAML edit + validation, _history, delete-to-relearn, Evolve toggle</td><td class="rest">—</td></tr>
+      <tr><td class="cap">Counting lane (denominator → verdicts → write-back)</td><td><span class="chip ok">Verified</span></td><td class="ev">Q4 live: 16.8s first ask → 5.0s from fields; multi-type 3.6s $0 path</td><td class="rest">—</td></tr>
+      <tr><td class="cap">Per-type ledger breakdown + predicate framing</td><td><span class="chip ok">Verified</span></td><td class="ev">Live multi-type run; framed predicate echoed; 4 fail-open tests</td><td class="rest">Pre-framing stored values can still mix phrasings</td></tr>
+      <tr><td class="cap">CC user identity on document search</td><td><span class="chip ok">Verified</span></td><td class="ev">Data-level: restricted user's 202 passages all from allowed types · 10 tests</td><td class="rest">Headless automations stay unrestricted by design</td></tr>
+      <tr><td class="cap">Migrations 016 / 017 / 018</td><td><span class="chip ok">Verified</span></td><td class="ev">All run (018 cascade Aug 19); seed 90/90/1,620 re-run as DML</td><td class="rest">—</td></tr>
+      <tr><td class="cap">Clamped-miss search performance</td><td><span class="chip warn">Partial</span></td><td class="ev">Honest but slow: full allow-list sweep to conclude "nothing" (240s cap)</td><td class="rest">Candidate: cap or short-circuit — undecided</td></tr>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Command Center</h2>
+    <div class="tblwrap"><table>
+      <tr><th>Capability</th><th>Status</th><th>Evidence</th><th>Outstanding</th></tr>
+      <tr><td class="cap">Native agent (Option B default)</td><td><span class="chip ok">Verified</span></td><td class="ev">Suite 0048–0057 all signed off</td><td class="rest">—</td></tr>
+      <tr><td class="cap">Build honesty (0015–0022)</td><td><span class="chip ok">Verified</span></td><td class="ev">All fixed · 310-test oracle green</td><td class="rest">—</td></tr>
+      <tr><td class="cap">Tier C simulated-user gate (pack 19)</td><td><span class="chip ok">Verified</span></td><td class="ev">Complete; judge itself tested</td><td class="rest">—</td></tr>
+      <tr><td class="cap">CC agent matrix (pack 16)</td><td><span class="chip warn">Partial</span></td><td class="ev">CLEAN but only 1 scenario · 2026-08-07</td><td class="rest">Coverage is thin — matrix needs more scenarios</td></tr>
+      <tr><td class="cap">SFTP/FTP transfer tool</td><td><span class="chip warn">Partial</span></td><td class="ev">testftp selftest green; committed 93a3e1c-era</td><td class="rest">Never live-verified against a real transfer</td></tr>
+      <tr><td class="cap">Attachment → artifact bridge</td><td><span class="chip warn">Partial</span></td><td class="ev">Committed 6ab8f5b; unit-tested</td><td class="rest">Needs live verification</td></tr>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>The Agent</h2>
+    <div class="tblwrap"><table>
+      <tr><th>Capability</th><th>Status</th><th>Evidence</th><th>Outstanding</th></tr>
+      <tr><td class="cap">Core service A0–A3 (pack 20)</td><td><span class="chip warn">Partial</span></td><td class="ev">23/23 PASS · 2026-08-07 — predates A4–A6</td><td class="rest">Rerun owed over A4–A6</td></tr>
+      <tr><td class="cap">Competency scenarios (pack 21)</td><td><span class="chip bad">Untested</span></td><td class="ev">5 scenarios + fixtures + answer keys built (51c7b9b)</td><td class="rest">Never executed</td></tr>
+      <tr><td class="cap">HTML email + embedded Views</td><td><span class="chip ok">Verified</span></td><td class="ev">Scheduled dashboard email live-fired · job #428 daily 9am ET</td><td class="rest">—</td></tr>
+      <tr><td class="cap">Silent token re-auth (two-state model)</td><td><span class="chip warn">Partial</span></td><td class="ev">Code paths + decorator chain + 401 shapes verified today</td><td class="rest">Real TTL-expiry pass not yet observed in the wild</td></tr>
+      <tr><td class="cap">Platform menu role gating</td><td><span class="chip ok">Verified</span></td><td class="ev">Groups gated on verified JWT role; destinations carry own decorators</td><td class="rest">—</td></tr>
+      <tr><td class="cap">Anthropic relay</td><td><span class="chip warn">Partial</span></td><td class="ev">Passthrough built (c97cd14)</td><td class="rest">Metering table needs migration 001</td></tr>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Workflows &amp; scheduling</h2>
+    <div class="tblwrap"><table>
+      <tr><th>Capability</th><th>Status</th><th>Evidence</th><th>Outstanding</th></tr>
+      <tr><td class="cap">Workflow node matrix (pack 14)</td><td><span class="chip ok">Verified</span></td><td class="ev">CLEAN — 15 PASS / 22 SKIP / 1 XFAIL · 2026-08-07</td><td class="rest">22 skips = nodes without live fixtures</td></tr>
+      <tr><td class="cap">Portal workflow mode</td><td><span class="chip warn">Partial</span></td><td class="ev">34 tests + live e2e green</td><td class="rest">Headless office-download gap</td></tr>
+      <tr><td class="cap">Workflow Portal <em>node</em></td><td><span class="chip bad">Untested</span></td><td class="ev">Feature complete; zero tests ever written</td><td class="rest">Needs a first test pass</td></tr>
+      <tr><td class="cap">File Transfer node</td><td><span class="chip ok">Verified</span></td><td class="ev">Done incl. VALID_WORKFLOW_NODE_TYPES chokepoint lesson</td><td class="rest">—</td></tr>
+      <tr><td class="cap">Scheduling matrix (pack 17)</td><td><span class="chip warn">Partial</span></td><td class="ev">Run complete</td><td class="rest">3 open findings incl. legacy phantom-job trap</td></tr>
+      <tr><td class="cap">Cron day-of-week fix</td><td><span class="chip ok">Verified</span></td><td class="ev">Live post-restart: job 70→Sun, job 376→Mon, 1-5→mon-fri fleet-wide</td><td class="rest">—</td></tr>
+      <tr><td class="cap">Schedule timezone fix</td><td><span class="chip warn">Partial</span></td><td class="ev">Fixed 76e34de</td><td class="rest">DST-offset-at-create still open</td></tr>
+      <tr><td class="cap">v1.7.3 Portal WF bugs #1–4</td><td><span class="chip bad">Untested</span></td><td class="ev">Triage confirmed still live on 1.8</td><td class="rest">Unfixed</td></tr>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Data &amp; NLQ</h2>
+    <div class="tblwrap"><table>
+      <tr><th>Capability</th><th>Status</th><th>Evidence</th><th>Outstanding</th></tr>
+      <tr><td class="cap">NLQ engine re-core (pack 12)</td><td><span class="chip ok">Verified</span></td><td class="ev">Battery + live-oracle runner ≈100%</td><td class="rest">—</td></tr>
+      <tr><td class="cap">query_database non-SELECT commits</td><td><span class="chip bad">Known risk</span></td><td class="ev">Architecture review: LLM-authored non-SELECT SQL is committed</td><td class="rest">CRITICAL — unaddressed</td></tr>
+      <tr><td class="cap">Document competency (pack 13)</td><td><span class="chip ok">Verified</span></td><td class="ev">17 PASS / 1 PARTIAL · FANOUT 86%/83%</td><td class="rest">—</td></tr>
+      <tr><td class="cap">AIRDB2 demo data integrity</td><td><span class="chip warn">Partial</span></td><td class="ev">txn_id / 2024 / margin fixed</td><td class="rest">Plan-vs-actual + employee targets still broken</td></tr>
+      <tr><td class="cap">Excel export AI enrichment</td><td><span class="chip bad">Known bug</span></td><td class="ev">~1.4s/row: per-row AI call fails 100% then falls back</td><td class="rest">1,000 rows ≈ 25 min — unfixed</td></tr>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Platform &amp; security</h2>
+    <div class="tblwrap"><table>
+      <tr><th>Capability</th><th>Status</th><th>Evidence</th><th>Outstanding</th></tr>
+      <tr><td class="cap">Platform regression gate (pack 15)</td><td><span class="chip warn">Partial</span></td><td class="ev">CLEAN — 48 PASS / 51 SKIP / 4 XFAIL · 2026-08-07</td><td class="rest">Predates this week's engine work — rerun before any build</td></tr>
+      <tr><td class="cap">AuthZ middleware (shadow mode)</td><td><span class="chip warn">Partial</span></td><td class="ev">12 days: 8 events, all attributed benign (727 wiring-day blocks drove fixes)</td><td class="rest">Enforcement flip = open decision; test harnesses need keys</td></tr>
+      <tr><td class="cap">Document delete integrity</td><td><span class="chip ok">Verified</span></td><td class="ev">purge fix live + migration 018 cascade run</td><td class="rest">—</td></tr>
+      <tr><td class="cap">Legacy nav on platform pages</td><td><span class="chip ok">Verified</span></td><td class="ev">Lens split to own flag, default off; template branch verified</td><td class="rest">—</td></tr>
+      <tr><td class="cap">Client / frozen build</td><td><span class="chip bad">Untested</span></td><td class="ev">Rebuild owed: onedir app-root fix, GeneralAgent .pyd, v3 hiddenimports</td><td class="rest">None of this week's work exists in a frozen build yet</td></tr>
+    </table></div>
+  </section>
+
+  <div class="actions">
+    <h2>Highest-leverage next test actions</h2>
+    <ol>
+      <li><b>Re-run the pack 15 platform regression gate</b> — the whole-platform CLEAN predates the entire document-engine week.</li>
+      <li><b>Run pack 21 and re-run pack 20</b> — The Agent's competency scenarios have never executed, and 23/23 predates A4–A6.</li>
+      <li><b>Write the first Workflow Portal node tests</b> — the only shipped feature with zero coverage ever.</li>
+      <li><b>Decide the NLQ non-SELECT commit fix</b> — the one item on this board marked critical.</li>
+      <li><b>Fix v1.7.3 Portal WF bugs #1–4</b> — confirmed still live on 1.8.</li>
+      <li><b>Cut a frozen build and install-test it</b> — three accumulated fixes plus all of v3 have never shipped through the installer.</li>
+    </ol>
+  </div>
+
+  <footer>Sources: live session verifications Aug 12–19 · <span class="m">test_human/*/REPORT_LATEST.md</span> ·
+    pack history 11–21 · authz shadow log analysis Aug 19. Status counts are computed from the rows above.</footer>
+</div>
+
+<script>
+  const counts = { ok: 0, warn: 0, bad: 0, hold: 0 };
+  document.querySelectorAll("td .chip").forEach(c => {
+    for (const k of Object.keys(counts)) if (c.classList.contains(k)) counts[k]++;
+  });
+  for (const k of Object.keys(counts))
+    document.getElementById("n-" + k).textContent = counts[k];
+</script>
