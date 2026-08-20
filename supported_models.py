@@ -14,9 +14,14 @@ model). So one list serves both direct-OpenAI and Azure-OpenAI for each role.
 """
 
 # Primary chat/completion model (both OpenAI-direct and Azure deployment name).
-# (o1 was removed from the OpenAI API in 2025; gpt-5.5 is the current frontier
-# model, gpt-5.4 the recommended default.)
+# (o1 was removed from the OpenAI API in 2025. The gpt-5.6 family (GA
+# 2026-07-09) is the current generation — Sol = flagship, Terra = mid,
+# Luna = fast/cheap; 'gpt-5.6' is OpenAI's alias for Sol. gpt-5.4 remains
+# this platform's configured default.)
 OPENAI_PRIMARY_MODELS = [
+    'gpt-5.6',
+    'gpt-5.6-sol',
+    'gpt-5.6-terra',
     'gpt-5.4',
     'gpt-5.5',
     'gpt-5.2',
@@ -27,6 +32,7 @@ OPENAI_PRIMARY_MODELS = [
 
 # Mini/fast chat model.
 OPENAI_MINI_MODELS = [
+    'gpt-5.6-luna',
     'gpt-5.4-mini',
     'gpt-5.4-nano',
     'gpt-4o-mini',
@@ -37,6 +43,8 @@ OPENAI_MINI_MODELS = [
 # Vision-capable model (image analysis fallback in command_center_service).
 OPENAI_VISION_MODELS = [
     'gpt-4o',
+    'gpt-5.6',
+    'gpt-5.6-terra',
     'gpt-5.4',
     'gpt-5.2',
     'gpt-4.1',
