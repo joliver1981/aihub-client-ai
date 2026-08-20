@@ -37,6 +37,10 @@
         background:linear-gradient(135deg,var(--accent),#2563C9);
         display:grid;place-items:center;color:var(--accent-ink);font-weight:800;font-size:13px}
   .brand b{font-size:14px;font-weight:650}
+  .ver{margin-left:auto;font-family:var(--mono);font-size:9.5px;color:var(--text3);
+       background:var(--raised);border:1px solid var(--line);border-radius:6px;
+       padding:1px 5px;white-space:nowrap}
+  .ver:empty{display:none}
   .navlink{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:8px;
            color:var(--text2);font-weight:520;width:100%;text-align:left;font-size:13px}
   .navlink:hover{background:var(--hover);color:var(--text)}
@@ -303,7 +307,7 @@
 <body>
 
 <nav class="rail">
-  <div class="brand"><div class="mark">A</div><b>The Agent</b></div>
+  <div class="brand"><div class="mark">A</div><b>The Agent</b><span class="ver" id="ver" title="AI Hub platform version"></span></div>
   <button class="navlink on" id="nav-chat">◇ Assistant</button>
   <button class="navlink" id="nav-work">▣ My Work <span class="count" id="work-count" style="display:none">0</span></button>
   <button class="navlink" id="nav-views">▦ Views</button>
@@ -2123,6 +2127,7 @@
       const d = await r.json(); me = d.user;
       if (d.main_port) { mainPort = d.main_port;
                          localStorage.setItem("agent_main_port", String(d.main_port)); }
+      if (d.app_version) document.getElementById("ver").textContent = "v" + d.app_version;
       const savedDraft = localStorage.getItem("agent_draft");
       if (savedDraft) { input.value = savedDraft; localStorage.removeItem("agent_draft"); }
       buildPlatformLinks((d.user || {}).role);

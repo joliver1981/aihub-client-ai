@@ -222,6 +222,32 @@ def get_effective_model() -> str:
     return override if override else AGENT_MODEL
 
 
+# ---------------------------------------------------------------------------
+# Platform version (James 2026-08-20): surface the same APP_VERSION the legacy
+# UI badges, without importing the main app. Dev tree: parse app_config.py.
+# Frozen installs bundle app_config inside the onedir exe (not on disk), so
+# AGENT_APP_VERSION env is the install-time override; unresolvable -> "" and
+# the UI hides the badge.
+# ---------------------------------------------------------------------------
+
+def _read_app_version() -> str:
+    env = os.getenv("AGENT_APP_VERSION", "").strip()
+    if env:
+        return env
+    try:
+        with open(os.path.join(APP_ROOT, "app_config.py"), encoding="utf-8") as f:
+            for line in f:
+                m = re.match(r"""^APP_VERSION\s*=\s*["']([^"']+)["']""", line)
+                if m:
+                    return m.group(1)
+    except OSError:
+        pass
+    return ""
+
+
+APP_VERSION = _read_app_version()
+
+
 def set_model_override(model) -> str:
     """Set (or clear, with None/'') the runtime model override. Returns the
     now-effective model. Raises ValueError on a malformed id."""
@@ -292,6 +318,7 @@ def summary() -> dict:
         "port": PORT,
         "model": get_effective_model(),
         "model_default": AGENT_MODEL,
+        "app_version": APP_VERSION,
         "app_root": APP_ROOT,
         "main_app": get_base_url(),
         "allow_all_users": AGENT_ALLOW_ALL_USERS,

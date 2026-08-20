@@ -110,10 +110,11 @@ async def health():
 @app.get("/api/me")
 async def me(request: Request):
     user = _verify_request(request)
-    from agent_config import get_effective_model
+    from agent_config import get_effective_model, APP_VERSION
     return {"user": {k: user[k] for k in ("username", "name", "role")},
             "model": get_effective_model(),
             "model_default": AGENT_MODEL,
+            "app_version": APP_VERSION,
             # Deep links into the legacy app (Playbooks/Platform views) target
             # the same hostname the browser used, on the main app's port.
             "main_port": int(os.getenv("HOST_PORT", "5001"))}
