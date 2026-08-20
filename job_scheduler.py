@@ -119,6 +119,12 @@ class JobSchedulerService:
         # as before.
         self._job_fingerprints = {}
         self._last_written_next_run = {}   # schedule_id -> last persisted value
+        # Stale one-time (date) schedules whose run time is long past: APScheduler
+        # drops them on add (misfire grace 60s), the next poll finds them absent
+        # and re-adds — 21 jobs were thrashing this way every minute, with
+        # misfire warnings. Keyed by apscheduler_job_id -> fingerprint, so
+        # EDITING the schedule (new date) changes the fingerprint and re-adds.
+        self._expired_onetime = {}
         self.scheduler = None
         self.job_types = {
             'document': self._execute_document_job,
@@ -341,6 +347,25 @@ class JobSchedulerService:
                 if existing_job and self._job_fingerprints.get(apscheduler_job_id) == _fp:
                     self._persist_next_run_if_changed(schedule_id, apscheduler_job_id)
                     continue
+
+                # Stale one-time schedule: run time >1h past means APScheduler
+                # would drop it unrun anyway (grace is 60s) — adding it again
+                # every poll is pure thrash + misfire noise. Cached by
+                # fingerprint: editing the schedule to a new date re-adds.
+                if schedule_type == 'date' and not existing_job:
+                    if self._expired_onetime.get(apscheduler_job_id) == _fp:
+                        continue
+                    try:
+                        if start_date is not None and \
+                                start_date < datetime.utcnow() - timedelta(hours=1):
+                            self._expired_onetime[apscheduler_job_id] = _fp
+                            logger.info(
+                                f"One-time schedule {apscheduler_job_id} run time "
+                                f"{start_date} is long past — parking (edit the "
+                                f"schedule to reactivate).")
+                            continue
+                    except TypeError:
+                        pass   # tz-aware/naive mismatch: fall through, add as before
 
                 # For one-time jobs, check if there's already a pending execution
                 if schedule_type == 'date':
@@ -664,6 +689,7 @@ class JobSchedulerService:
     def _forget_job(self, apscheduler_job_id: str, schedule_id: int = None):
         """Evict delta-reload caches when a job leaves the scheduler."""
         self._job_fingerprints.pop(apscheduler_job_id, None)
+        self._expired_onetime.pop(apscheduler_job_id, None)
         if schedule_id is not None:
             self._last_written_next_run.pop(schedule_id, None)
 

@@ -68,6 +68,7 @@ def bare_service():
     svc.tenant_id = None
     svc._job_fingerprints = {}
     svc._last_written_next_run = {}
+    svc._expired_onetime = {}
     return svc
 
 
@@ -158,6 +159,12 @@ class TestEviction:
 
     def test_forget_unknown_job_is_a_noop(self):
         bare_service()._forget_job("never_seen", 99)
+
+    def test_forget_clears_expired_onetime_too(self):
+        svc = bare_service()
+        svc._expired_onetime["document_9_99"] = "fp"
+        svc._forget_job("document_9_99", 99)
+        assert "document_9_99" not in svc._expired_onetime
 
 
 @pytest.mark.unit
