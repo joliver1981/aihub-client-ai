@@ -1420,6 +1420,59 @@ def main():
     except Exception as e:
         check("M-1", "runtime model override", False, e)
 
+    # M-2 timezone-aware agent-task cron (James task 2026-08-20): the engine
+    # pins cron triggers to UTC, so schedule_agent_task converts the cron at
+    # create time from the requested timezone. Seam test via the tool handler
+    # in-process (A6 pattern): local 7am Eastern must store as the correct
+    # UTC hour for TODAY'S offset (EDT/EST safe), with provenance parameters;
+    # an unconvertible cron (day-of-month across midnight) must refuse.
+    try:
+        import asyncio
+        from datetime import datetime as _dtt
+        from zoneinfo import ZoneInfo
+        from platform_tools import CURRENT_USER as _CU
+        import work_tools as _wt
+        _CU.set({"user_id": 1, "role": 3, "username": "pack20-runner"})
+        _off_h = int((_dtt.now(ZoneInfo("America/New_York")).utcoffset()
+                      or __import__("datetime").timedelta()).total_seconds() // 3600)
+        _want_cron = f"0 {(7 - _off_h) % 24} * * 1-5"
+
+        async def _m2():
+            r1 = await _wt.schedule_agent_task.handler({
+                "task_prompt": "pack20 M-2 tz check — delete me",
+                "name": "pack20-m2-tz", "cron_expression": "0 7 * * 1-5",
+                "timezone": "Eastern"})
+            t1 = r1["content"][0]["text"]
+            jid = t1.split("job #")[1].split(",")[0].strip() if "job #" in t1 else None
+            r2 = await _wt.schedule_agent_task.handler({
+                "task_prompt": "x", "name": "pack20-m2-refuse",
+                "cron_expression": "0 23 1 * *", "timezone": "Eastern"})
+            return r1, jid, r2
+
+        m2_res, m2_job, m2_refuse = asyncio.new_event_loop().run_until_complete(_m2())
+        m2_row = {}
+        if m2_job:
+            jr = requests.get(f"{MAIN}/api/scheduler/jobs/{m2_job}",
+                              headers=SVC_HEADERS, timeout=90)
+            m2_row = jr.json() if jr.status_code < 400 else {}
+            requests.delete(f"{MAIN}/api/scheduler/jobs/{m2_job}",
+                            headers=SVC_HEADERS, timeout=90)
+        _sched = (m2_row.get("schedules") or [{}])[0]
+        _params = m2_row.get("parameters") or {}
+        check("M-2", "tz-aware agent-task cron: Eastern 7am stores as correct "
+                     "UTC hour + provenance params; unconvertible cron refused",
+              _sched.get("cron_expression") == _want_cron
+              and (_params.get("timezone") or {}).get("value") == "America/New_York"
+              and (_params.get("local_cron") or {}).get("value") == "0 7 * * 1-5"
+              and bool(m2_refuse.get("is_error"))
+              and not m2_res.get("is_error"),
+              f"stored={_sched.get('cron_expression')!r} want={_want_cron!r} "
+              f"tz={(_params.get('timezone') or {}).get('value')} "
+              f"local={(_params.get('local_cron') or {}).get('value')} "
+              f"refused={bool(m2_refuse.get('is_error'))}")
+    except Exception as e:
+        check("M-2", "tz-aware agent-task cron", False, e)
+
     # P-1 designer deep-link + Playbooks filters tripwire (live-verified in
     # browser 2026-08-09; this guards regressions).
     wf_js = open(os.path.join(APP_ROOT, "static", "js", "workflow.js"),

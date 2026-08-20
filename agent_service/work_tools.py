@@ -101,17 +101,155 @@ async def list_my_work(args: dict[str, Any]) -> dict[str, Any]:
     return _text(f"Open work items ({len(items)}):\n" + "\n".join(lines))
 
 
+# --- timezone support for cron schedules (2026-08-20) -----------------------
+# The scheduler engine pins cron triggers to UTC (deliberate platform
+# invariant; see the 76e34de schedule-timezone fix — conversion happens at the
+# seams, storage stays UTC). So this tool converts the cron's hour field from
+# the requested timezone to UTC at create time, exactly like the typed routes
+# convert date fields. The offset is FROZEN at create time (same accepted
+# platform caveat as date schedules: a DST flip shifts firing by an hour until
+# the job is re-saved).
+
+_TZ_ALIASES = {
+    "eastern": "America/New_York", "et": "America/New_York",
+    "est": "America/New_York", "edt": "America/New_York",
+    "central": "America/Chicago", "ct": "America/Chicago",
+    "cst": "America/Chicago", "cdt": "America/Chicago",
+    "mountain": "America/Denver", "mt": "America/Denver",
+    "mst": "America/Denver", "mdt": "America/Denver",
+    "pacific": "America/Los_Angeles", "pt": "America/Los_Angeles",
+    "pst": "America/Los_Angeles", "pdt": "America/Los_Angeles",
+    "utc": "UTC", "gmt": "UTC", "z": "UTC",
+}
+
+
+def _resolve_tz_offset_minutes(tz_label):
+    """Return (offset_minutes_east_of_utc, canonical_label) for a timezone.
+
+    Accepts IANA names, common US aliases, 'UTC', '+HH:MM'/'-HH:MM'. Empty →
+    AGENT_DEFAULT_TZ env, else the server's local zone. Raises ValueError on
+    anything unrecognized (fail closed — never guess a timezone).
+    """
+    import re
+    import datetime as _dt
+    from zoneinfo import ZoneInfo
+
+    label = str(tz_label or "").strip() or os.getenv("AGENT_DEFAULT_TZ", "").strip()
+    if not label:
+        off = _dt.datetime.now().astimezone().utcoffset() or _dt.timedelta()
+        mins = int(off.total_seconds() // 60)
+        return mins, f"server-local (UTC{'+' if mins >= 0 else '-'}" \
+                     f"{abs(mins) // 60:02d}:{abs(mins) % 60:02d})"
+    m = re.fullmatch(r"(?:UTC)?([+-])(\d{1,2})(?::?(\d{2}))?", label, re.I)
+    if m:
+        mins = int(m.group(2)) * 60 + int(m.group(3) or 0)
+        mins = -mins if m.group(1) == "-" else mins
+        return mins, f"UTC{m.group(1)}{abs(mins) // 60:02d}:{abs(mins) % 60:02d}"
+    name = _TZ_ALIASES.get(label.lower(), label)
+    try:
+        off = _dt.datetime.now(ZoneInfo(name)).utcoffset() or _dt.timedelta()
+    except Exception:
+        raise ValueError(
+            f"unknown timezone '{tz_label}' — use an IANA name like "
+            "America/New_York, an alias like Eastern/Central/Mountain/Pacific, "
+            "'UTC', or an offset like -05:00")
+    return int(off.total_seconds() // 60), name
+
+
+def _shift_field(field, delta, span, what):
+    """Shift a numeric/comma-list cron field by delta within [0, span).
+    Returns (new_field, carry_set) where carry is the day rollover per value."""
+    parts = []
+    carries = set()
+    for p in str(field).split(","):
+        if not p.strip().isdigit():
+            raise ValueError(f"cron {what} field '{field}' is not a plain "
+                             f"number/list — give the cron in UTC instead, or "
+                             "use a simple numeric hour")
+        v = int(p) + delta
+        carry = 0
+        while v < 0:
+            v += span
+            carry -= 1
+        while v >= span:
+            v -= span
+            carry += 1
+        carries.add(carry)
+        parts.append(str(v))
+    return ",".join(parts), carries
+
+
+def _cron_local_to_utc(expr, offset_minutes):
+    """Convert a 5-field cron from a local timezone to engine-UTC.
+
+    Supports the shapes agents actually produce (numeric minute/hour, lists,
+    '*' hour, weekday lists/simple ranges). Anything it cannot convert SAFELY
+    raises ValueError — the caller reports honestly instead of mis-scheduling.
+    """
+    fields = str(expr).split()
+    if len(fields) != 5:
+        raise ValueError(f"cron '{expr}' must have 5 fields")
+    minute, hour, dom, month, dow = fields
+    if offset_minutes == 0:
+        return expr, 0
+    day_delta = 0
+    min_delta = -(offset_minutes % 60) if offset_minutes >= 0 \
+        else (-offset_minutes) % 60
+    hr_borrow = 0
+    if min_delta:
+        # partial-hour zones (e.g. +05:30): minute must be numeric to shift
+        minute, carries = _shift_field(minute, min_delta, 60, "minute")
+        if len(carries) != 1:
+            raise ValueError("minute list straddles the hour boundary after "
+                             "timezone shift — give the cron in UTC")
+        hr_borrow = carries.pop()
+    hour_delta = (-offset_minutes) // 60 if offset_minutes % 60 == 0 \
+        else (-offset_minutes - min_delta) // 60
+    hour_delta += hr_borrow
+    if hour == "*":
+        # every-hour job: only the minute field matters after conversion
+        return " ".join([minute, hour, dom, month, dow]), 0
+    hour, carries = _shift_field(hour, hour_delta, 24, "hour")
+    if len(carries) != 1:
+        raise ValueError("hour list straddles midnight after timezone "
+                         "conversion — split into separate jobs or give the "
+                         "cron in UTC")
+    day_delta = carries.pop()
+    if day_delta:
+        if str(dom).strip() != "*":
+            raise ValueError("day-of-month cron shifts across midnight in "
+                             "this timezone — give the cron in UTC")
+        if dow != "*":
+            m = None
+            import re as _re
+            m = _re.fullmatch(r"(\d)-(\d)", dow.strip())
+            if m:
+                a, b = (int(m.group(1)) + day_delta) % 7, \
+                       (int(m.group(2)) + day_delta) % 7
+                if a > b:
+                    raise ValueError("weekday range wraps after timezone "
+                                     "conversion — give the cron in UTC")
+                dow = f"{a}-{b}"
+            else:
+                dow, _ = _shift_field(dow, day_delta, 7, "day-of-week")
+    return " ".join([minute, hour, dom, month, dow]), day_delta
+
+
 @tool(
     "schedule_agent_task",
     "Schedule a HEADLESS agent task — recurring OR one-shot delayed: at each "
     "firing, a fresh agent session runs the given prompt AS the current user "
     "and reports its result into their My Work queue as an FYI. Recurring "
     "('every morning, check X'): cron_expression OR every_hours/every_days. "
-    "ONE-SHOT DELAYED ('check my email in 2 minutes', 'follow up in an "
-    "hour'): run_in_minutes — fires once, then the job deactivates. The "
-    "engine polls about every minute, so timing is minute-granular, not "
-    "exact seconds. For purely mechanical repetition prefer an automation "
-    "(zero tokens per run). Report ONLY the ids this returns.",
+    "cron_expression is interpreted in `timezone` (IANA name or "
+    "Eastern/Central/Mountain/Pacific/UTC; default = the server's local "
+    "timezone) and converted to the engine's UTC clock at create time — "
+    "always tell the user which timezone was used. ONE-SHOT DELAYED ('check "
+    "my email in 2 minutes', 'follow up in an hour'): run_in_minutes — fires "
+    "once, then the job deactivates. The engine polls about every minute, so "
+    "timing is minute-granular, not exact seconds. For purely mechanical "
+    "repetition prefer an automation (zero tokens per run). Report ONLY the "
+    "ids this returns.",
     {
         "type": "object",
         "properties": {
@@ -119,7 +257,14 @@ async def list_my_work(args: dict[str, Any]) -> dict[str, Any]:
                             "description": "The full instruction the headless "
                                            "session will run each time"},
             "name": {"type": "string", "description": "Short job name"},
-            "cron_expression": {"type": "string"},
+            "cron_expression": {"type": "string",
+                                "description": "5-field cron in the LOCAL "
+                                               "timezone given by `timezone`"},
+            "timezone": {"type": "string",
+                         "description": "Timezone the cron hours mean: IANA "
+                                        "(America/New_York), alias (Eastern), "
+                                        "'UTC', or '-05:00'. Omit for the "
+                                        "server's local timezone."},
             "every_hours": {"type": "integer"},
             "every_days": {"type": "integer"},
             "run_in_minutes": {"type": "integer",
@@ -151,8 +296,19 @@ async def schedule_agent_task(args: dict[str, Any]) -> dict[str, Any]:
                     "start_date": fire_at.strftime("%Y-%m-%d %H:%M:%S")}
         one_shot = True
     elif args.get("cron_expression"):
-        schedule = {"type": "cron",
-                    "cron_expression": str(args["cron_expression"])}
+        local_cron = str(args["cron_expression"]).strip()
+        try:
+            tz_mins, tz_label = _resolve_tz_offset_minutes(args.get("timezone"))
+            utc_cron, _day_shift = _cron_local_to_utc(local_cron, tz_mins)
+        except ValueError as e:
+            return _text(f"Nothing was scheduled: {e}", is_error=True)
+        schedule = {"type": "cron", "cron_expression": utc_cron}
+        tz_note = (f" Cron `{local_cron}` interpreted in {tz_label} "
+                   f"(offset {tz_mins:+d} min at create time) -> engine-UTC "
+                   f"`{utc_cron}`. NOTE: the offset is frozen now; a DST "
+                   "change shifts firing by an hour until re-saved.")
+        if tz_mins == 0:
+            tz_note = f" Cron `{utc_cron}` runs on the engine's UTC clock."
     elif args.get("every_hours") or args.get("every_days"):
         # Interval schedules need an anchored start or the engine's re-create
         # loop pushes the next fire forever (CC lesson).
@@ -182,6 +338,10 @@ async def schedule_agent_task(args: dict[str, Any]) -> dict[str, Any]:
         },
         "schedule": schedule,
     }
+    if schedule.get("type") == "cron":
+        # provenance: what the user meant, so a re-save can re-convert
+        body["parameters"]["timezone"] = {"value": tz_label, "type": "string"}
+        body["parameters"]["local_cron"] = {"value": local_cron, "type": "string"}
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.post(f"{get_base_url()}/api/scheduler/jobs",
@@ -213,7 +373,8 @@ async def schedule_agent_task(args: dict[str, Any]) -> dict[str, Any]:
     return _text(f"Scheduled headless agent task '{body['name']}' (job #{job_id}, "
                  "verified active by read-back). Each firing runs as "
                  f"{user.get('username')} and lands an FYI in their My Work. "
-                 "The engine picks it up on its next poll.")
+                 "The engine picks it up on its next poll."
+                 + (tz_note if schedule.get("type") == "cron" else ""))
 
 
 @tool(
