@@ -46,6 +46,9 @@ already point there).
   `/data_chat` is the lighter data chat; `/data_dictionary` documents tables.
 - **Connections** `/connections` — add/edit database connections and
   credentials (admins).
+- **My Connections** `/my-connections` — the USER'S own page for connecting
+  and managing their personal MCP server accounts (different from the
+  database Connections page above; any signed-in user).
 - **Local Secrets** `/local-secrets` — the encrypted secret store page (see
   the secrets skill; you can also store via `store_platform_secret`).
 - **My Approvals** `/approvals` — the classic approval surface; My Work here
