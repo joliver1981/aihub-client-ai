@@ -240,9 +240,9 @@ def get_openai_config(use_alternate_api: bool = False, use_mini: bool = False) -
 
     # Determine which model name to use for direct OpenAI
     if use_mini:
-        default_model = getattr(cfg, 'OPENAI_DEPLOYMENT_NAME_MINI', 'gpt-5.4-mini')
+        default_model = getattr(cfg, 'OPENAI_DEPLOYMENT_NAME_MINI', 'gpt-5.6-luna')
     else:
-        default_model = getattr(cfg, 'OPENAI_DEPLOYMENT_NAME', 'gpt-5.4')
+        default_model = getattr(cfg, 'OPENAI_DEPLOYMENT_NAME', 'gpt-5.6-terra')
 
     # Priority 1: BYOK with user's key
     if is_byok_enabled() and has_local_secret(OPENAI_API_KEY_SECRET):
