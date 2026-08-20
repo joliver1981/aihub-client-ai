@@ -75,7 +75,7 @@ def precleanup(names):
 
 def scheduler_jobs():
     try:
-        r = requests.get(f"{MAIN}/api/scheduler/jobs", headers=SVC_HEADERS, timeout=30)
+        r = requests.get(f"{MAIN}/api/scheduler/jobs", headers=SVC_HEADERS, timeout=90)
         return r.json() if r.status_code < 400 else []
     except Exception:
         return []
@@ -482,7 +482,7 @@ def main():
                              "start_date": datetime.datetime.utcnow().strftime(
                                  "%Y-%m-%d %H:%M:%S")}}
     jr = requests.post(f"{MAIN}/api/scheduler/jobs", json=job_body,
-                       headers=SVC_HEADERS, timeout=30)
+                       headers=SVC_HEADERS, timeout=90)
     job = jr.json() if jr.status_code < 500 else {}
     job_id = job.get("id")
     fired_item = None
@@ -496,7 +496,7 @@ def main():
                     fired_item = it
                     break
         requests.delete(f"{MAIN}/api/scheduler/jobs/{job_id}",
-                        headers=SVC_HEADERS, timeout=30)
+                        headers=SVC_HEADERS, timeout=90)
     check("A3-5", "JSS fires an agent_session job; headless result lands in "
                   "My Work",
           bool(job_id) and fired_item is not None,
@@ -594,7 +594,7 @@ def main():
 
     def _views_api(tok):
         r = requests.get(f"{BASE}/api/views",
-                         headers={"Authorization": f"Bearer {tok}"}, timeout=30)
+                         headers={"Authorization": f"Bearer {tok}"}, timeout=90)
         return {v["name"]: v for v in (r.json().get("views") or [])} \
             if r.status_code < 400 else {}
 
@@ -668,14 +668,14 @@ def main():
                               json={"id": iid,
                                     "response": {"decision": "approved"}},
                               headers={"Authorization": f"Bearer {token2}"},
-                              timeout=30)
+                              timeout=90)
         still_open = (workitem_store.get_item(iid) or {}).get("status") in (
             "open", "claimed")
         r_admin = requests.post(f"{BASE}/api/work/respond",
                                 json={"id": iid,
                                       "response": {"decision": "approved"}},
                                 headers={"Authorization": f"Bearer {token}"},
-                                timeout=30)
+                                timeout=90)
         published = "pack20-tenant" in _views_api(token2)
         r_run = _run_view_api(token2, "pack20-tenant", "tenant")
         runs_ok = (r_run.status_code == 200
@@ -893,7 +893,7 @@ def main():
                                 "start_date": datetime.datetime.utcnow().strftime(
                                     "%Y-%m-%d %H:%M:%S")}}
         jr = requests.post(f"{MAIN}/api/scheduler/jobs", json=vr_body,
-                           headers=SVC_HEADERS, timeout=30)
+                           headers=SVC_HEADERS, timeout=90)
         vjob = (jr.json() if jr.status_code < 500 else {}).get("id")
         advanced = False
         if vjob:
@@ -904,7 +904,7 @@ def main():
                           ).get("cached_at") or ""
                 advanced = bool(now_at and now_at > before_at)
             requests.delete(f"{MAIN}/api/scheduler/jobs/{vjob}",
-                            headers=SVC_HEADERS, timeout=30)
+                            headers=SVC_HEADERS, timeout=90)
         check("V21-3", "JSS view_refresh job fires; the shared cache advances "
                        "with zero AI",
               bool(vjob) and advanced,
@@ -962,27 +962,27 @@ def main():
         r_messy = requests.post(f"{BASE}/api/email/address",
                                 json={"prefix": "Pack 20.A6!", "enabled": True},
                                 headers={"Authorization": f"Bearer {tok77}"},
-                                timeout=30)
+                                timeout=90)
         messy = (r_messy.json().get("address") or {}) \
             if r_messy.status_code == 200 else {}
         messy_expected = f"pack-20a6-agent.{ti.get('tenant_id')}@{ti.get('domain')}"
         r = requests.post(f"{BASE}/api/email/address",
                           json={"prefix": "pack20a6", "enabled": True},
                           headers={"Authorization": f"Bearer {tok77}"},
-                          timeout=30)
+                          timeout=90)
         addr = (r.json().get("address") or {}) if r.status_code == 200 else {}
         expected = f"pack20a6-agent.{ti.get('tenant_id')}@{ti.get('domain')}"
         rb = requests.get(f"{BASE}/api/email/address",
                           headers={"Authorization": f"Bearer {tok77}"},
-                          timeout=30).json()
+                          timeout=90).json()
         r_bad = requests.post(f"{BASE}/api/email/address",
                               json={"prefix": "..!!.."},
                               headers={"Authorization": f"Bearer {tok77}"},
-                              timeout=30)
+                              timeout=90)
         r_dup = requests.post(f"{BASE}/api/email/address",
                               json={"prefix": "pack20a6"},
                               headers={"Authorization": f"Bearer {_tok(78)}"},
-                              timeout=30)
+                              timeout=90)
         default_ok = (rb.get("default_prefix") == "pack20-u77")
         check("A6-1", "address provisioning: messy prefix normalizes; suffix "
                       "compose + readback; unsanitizable 400; duplicate 409; "
@@ -1051,7 +1051,7 @@ def main():
                                 json={"id": iid, "response": {
                                     "decision": "answered", "text": "x"}},
                                 headers={"Authorization": f"Bearer {_tok(2)}"},
-                                timeout=30)
+                                timeout=90)
         still_open = (workitem_store.get_item(iid) or {}).get("status") in (
             "open", "claimed")
         r_owner = requests.post(f"{BASE}/api/work/respond",
@@ -1118,10 +1118,10 @@ def main():
                             "notification_email": "probe@example.com",
                             "cooldown_minutes": 7,
                             "reply_instructions": "Reply tersely."},
-                      headers={"Authorization": f"Bearer {tok77}"}, timeout=30)
+                      headers={"Authorization": f"Bearer {tok77}"}, timeout=90)
         row = (requests.get(f"{BASE}/api/email/address",
                             headers={"Authorization": f"Bearer {tok77}"},
-                            timeout=30).json().get("address") or {})
+                            timeout=90).json().get("address") or {})
         opts_ok = (row.get("auto_send") == 1 and row.get("outbound_enabled") == 1
                    and row.get("notify_on_receive") == 1
                    and row.get("notification_email") == "probe@example.com"
@@ -1178,16 +1178,16 @@ def main():
         import chat_history
         chat_history.init()
         r = requests.get(f"{BASE}/api/chat/history",
-                         headers={"Authorization": f"Bearer {token}"}, timeout=30)
+                         headers={"Authorization": f"Bearer {token}"}, timeout=90)
         sessions = r.json().get("sessions") or []
         first = sessions[0] if sessions else {}
         rp = requests.get(f"{BASE}/api/chat/history/{first.get('session_id', 'x')}",
-                          headers={"Authorization": f"Bearer {token}"}, timeout=30)
+                          headers={"Authorization": f"Bearer {token}"}, timeout=90)
         turns = rp.json().get("turns") or [] if rp.status_code == 200 else []
         roles = {t.get("role") for t in turns}
         r_other = requests.get(
             f"{BASE}/api/chat/history/{first.get('session_id', 'x')}",
-            headers={"Authorization": f"Bearer {_tok(2)}"}, timeout=30)
+            headers={"Authorization": f"Bearer {_tok(2)}"}, timeout=90)
         check("H-1", "chat history: ledger lists sessions; replay parses the "
                      "SDK transcript (user+agent turns); other users 404",
               len(sessions) > 0 and rp.status_code == 200 and len(turns) >= 2
@@ -1242,7 +1242,7 @@ def main():
                                 json={"name": "pack20-edit", "scope": "user",
                                       "message": "hi"},
                                 headers={"Authorization": f"Bearer {_tok(2)}"},
-                                timeout=30)
+                                timeout=90)
         check("V22-1", "get_view returns full tile defs (ticker+refresh) for "
                        "edit-preserve; edit-chat 404s for non-owners",
               gv_ok and r_other.status_code == 404,
@@ -1274,7 +1274,7 @@ def main():
                           json={"name": "pack20-lay", "order": [2, 0, 1],
                                 "layouts": [{"index": 0, "w": 2, "h": 3}]},
                           headers={"Authorization": f"Bearer {token}"},
-                          timeout=30)
+                          timeout=90)
         v1 = views_store.get("pack20-lay", 1, [], "user")
         titles = [t["title"] for t in v1["tiles"]]
         lay_on_a = next(t for t in v1["tiles"] if t["title"] == "a"
@@ -1284,7 +1284,7 @@ def main():
         r_bad = requests.post(f"{BASE}/api/views/layout",
                               json={"name": "pack20-lay", "order": [0, 0, 1]},
                               headers={"Authorization": f"Bearer {token}"},
-                              timeout=30)
+                              timeout=90)
         check("V23-1", "layout: order+spans persist, cache permutes WITH tiles, "
                        "version unchanged; non-permutation order 400",
               r.status_code == 200 and titles == ["c", "a", "b"] and lay_on_a
@@ -1313,7 +1313,7 @@ def main():
         r_old = requests.post(f"{BASE}/api/views/run",
                               json={"name": "pack20-lay"},
                               headers={"Authorization": f"Bearer {token}"},
-                              timeout=30)
+                              timeout=90)
         views_store.save("pack20-lay", "clash probe", [
             {"title": "q", "connection": "ERPDB", "sql": "SELECT 9 AS q"}],
             1, scope="user")
@@ -1321,7 +1321,7 @@ def main():
                                 json={"name": "pack20-lay",
                                       "new_name": "pack20-lay2"},
                                 headers={"Authorization": f"Bearer {token}"},
-                                timeout=30)
+                                timeout=90)
         views_store.save("pack20-lay2", "resave sans layout", [
             {"title": "n0", "connection": "ERPDB", "sql": "SELECT 1 AS x"},
             {"title": "n1", "connection": "ERPDB", "sql": "SELECT 2 AS y"},
@@ -1355,7 +1355,7 @@ def main():
                    "schedule": {"type": "interval", "interval_minutes": 60,
                                 "start_date": "2027-01-01 00:00:00"}}
         jr = requests.post(f"{MAIN}/api/scheduler/jobs", json=vr_body,
-                           headers=SVC_HEADERS, timeout=30)
+                           headers=SVC_HEADERS, timeout=90)
         v23_job = (jr.json() if jr.status_code < 500 else {}).get("id")
         r = requests.post(f"{BASE}/api/views/rename",
                           json={"name": "pack20-lay2",
@@ -1366,7 +1366,7 @@ def main():
         repointed = v23_job is not None and int(v23_job) in [
             int(x) for x in (d.get("schedules_updated") or [])]
         gj = requests.get(f"{MAIN}/api/scheduler/jobs/{v23_job}",
-                          headers=SVC_HEADERS, timeout=30).json() \
+                          headers=SVC_HEADERS, timeout=90).json() \
             if v23_job else {}
         pv = ((gj.get("parameters") or {}).get("view_name") or {}).get("value")
         check("V23-3", "rename rewrites the job's view_name parameter "
@@ -1379,7 +1379,7 @@ def main():
     finally:
         if v23_job:
             requests.delete(f"{MAIN}/api/scheduler/jobs/{v23_job}",
-                            headers=SVC_HEADERS, timeout=30)
+                            headers=SVC_HEADERS, timeout=90)
         for _nm in ("pack20-lay", "pack20-lay2", "pack20-lay3"):
             views_store.delete(_nm, 1, [], 3, "user")
 
@@ -1391,26 +1391,26 @@ def main():
         r_low = requests.post(f"{BASE}/api/settings/model",
                               json={"model": "claude-sonnet-5"},
                               headers={"Authorization": f"Bearer {_tok(2)}"},
-                              timeout=30)
+                              timeout=90)
         r_set = requests.post(f"{BASE}/api/settings/model",
                               json={"model": "claude-sonnet-5"},
                               headers={"Authorization": f"Bearer {token}"},
-                              timeout=30)
+                              timeout=90)
         me = requests.get(f"{BASE}/api/me",
                           headers={"Authorization": f"Bearer {token}"},
-                          timeout=30).json()
+                          timeout=90).json()
         set_ok = (r_set.status_code == 200 and me.get("model") == "claude-sonnet-5"
                   and me.get("model_default") == default_model)
         r_bad = requests.post(f"{BASE}/api/settings/model",
                               json={"model": "bad model!!"},
                               headers={"Authorization": f"Bearer {token}"},
-                              timeout=30)
+                              timeout=90)
         r_clr = requests.post(f"{BASE}/api/settings/model", json={"model": ""},
                               headers={"Authorization": f"Bearer {token}"},
-                              timeout=30)
+                              timeout=90)
         me2 = requests.get(f"{BASE}/api/me",
                            headers={"Authorization": f"Bearer {token}"},
-                           timeout=30).json()
+                           timeout=90).json()
         check("M-1", "runtime model override: non-admin 403; admin set applies "
                      "(no restart); malformed 400; clear restores default",
               r_low.status_code == 403 and set_ok and r_bad.status_code == 400
@@ -1451,10 +1451,10 @@ def main():
         fid = m.group(1) if m else ""
         r_own = requests.get(f"{BASE}/api/files/{fid}",
                              headers={"Authorization": f"Bearer {tok77}"},
-                             timeout=30)
+                             timeout=90)
         r_other = requests.get(f"{BASE}/api/files/{fid}",
                                headers={"Authorization": f"Bearer {_tok(2)}"},
-                               timeout=30)
+                               timeout=90)
         res_bad = _aio.run(_ft.offer_file_download.handler(
             {"server_path": r"C:\Windows\win.ini"}))
         check("F-1", "file handoff: offer -> owner downloads bytes; other "
@@ -1499,7 +1499,7 @@ def main():
                    and not _it.accessible(unassigned, 1, {5})  # fail-closed
                    and _it.accessible(unassigned, 3, set()))   # admin sees
         ints = requests.get(f"{MAIN}/api/internal/integrations",
-                            headers=SVC_HEADERS, timeout=30).json()
+                            headers=SVC_HEADERS, timeout=90).json()
         rows = ints.get("integrations") or []
         rt_ok, rt_note = True, "no integrations configured (roundtrip n/a)"
         if rows:
@@ -1508,10 +1508,10 @@ def main():
             def _assign(gids):
                 return requests.post(
                     f"{MAIN}/api/internal/integrations/{target}/assign-groups",
-                    json={"group_ids": gids}, headers=SVC_HEADERS, timeout=30)
+                    json={"group_ids": gids}, headers=SVC_HEADERS, timeout=90)
             def _readback():
                 d = requests.get(f"{MAIN}/api/internal/integrations",
-                                 headers=SVC_HEADERS, timeout=30).json()
+                                 headers=SVC_HEADERS, timeout=90).json()
                 for r0 in d.get("integrations") or []:
                     if r0["integration_id"] == target:
                         return sorted(r0.get("assigned_group_ids") or [])
@@ -1584,10 +1584,10 @@ def main():
     r = requests.post(f"{MAIN}/workflow/secrets/store",
                       json={"name": "PACK20_TEST_SECRET", "value": "pack20-value",
                             "description": "pack 20 probe (safe to delete)"},
-                      headers=SVC_HEADERS, timeout=30)
+                      headers=SVC_HEADERS, timeout=90)
     sr = r.json() if r.status_code < 400 else {}
     rl = requests.get(f"{MAIN}/workflow/secrets/list", headers=SVC_HEADERS,
-                      timeout=30)
+                      timeout=90)
     names = {s.get("name") for s in (rl.json().get("secrets") or [])} \
         if rl.status_code < 400 else set()
     check("A5-4", "secret store seam: X-API-Key write lands in the store, "

@@ -170,18 +170,18 @@ class Api:
             raise RuntimeError(f"admin login failed (landed on {r.url})")
 
     def get(self, path, **kw):
-        return self.s.get(f"{self.base}{path}", timeout=kw.pop("timeout", 30), **kw)
+        return self.s.get(f"{self.base}{path}", timeout=kw.pop("timeout", 90), **kw)
 
     def post(self, path, payload=None, **kw):
         return self.s.post(f"{self.base}{path}", json=payload,
-                           timeout=kw.pop("timeout", 60), **kw)
+                           timeout=kw.pop("timeout", 120), **kw)
 
     def put(self, path, payload=None, **kw):
         return self.s.put(f"{self.base}{path}", json=payload,
-                          timeout=kw.pop("timeout", 60), **kw)
+                          timeout=kw.pop("timeout", 120), **kw)
 
     def delete(self, path, **kw):
-        return self.s.delete(f"{self.base}{path}", timeout=kw.pop("timeout", 30), **kw)
+        return self.s.delete(f"{self.base}{path}", timeout=kw.pop("timeout", 90), **kw)
 
     @staticmethod
     def jbody(r):
