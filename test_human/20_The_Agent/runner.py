@@ -1134,7 +1134,7 @@ def main():
         _CU3.set({"user_id": 77, "role": 2, "username": "pack20-u77"})
         sent_calls = []
 
-        async def fake_send(to, subject, body, from_address, from_name):
+        async def fake_send(to, subject, body, from_address, from_name, html_body=None, **_kw):
             sent_calls.append({"to": to, "subject": subject})
             return {"success": True, "message_id": "fake-123"}
 
