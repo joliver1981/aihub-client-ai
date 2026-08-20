@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import json
+import hashlib
 import logging
 import argparse
 import pyodbc
@@ -108,6 +109,16 @@ class JobSchedulerService:
         
         self.db_conn = None
         self.is_running = False
+        # Delta-reload state (james approved 2026-08-19): per-job definition
+        # fingerprints so the 60s sync only touches jobs that actually CHANGED.
+        # Before this, every poll ran reschedule+modify+a next-run UPDATE for
+        # every job (67 jobs = ~200 needless ops/min), and the resulting
+        # lock/CPU window intermittently stalled /api/scheduler/* calls past
+        # 30s (broke packs 15 & 20 on 2026-08-19). Keyed by apscheduler_job_id;
+        # empty after restart, so the first poll registers everything exactly
+        # as before.
+        self._job_fingerprints = {}
+        self._last_written_next_run = {}   # schedule_id -> last persisted value
         self.scheduler = None
         self.job_types = {
             'document': self._execute_document_job,
@@ -267,7 +278,11 @@ class JobSchedulerService:
             """
             
             cursor.execute(query)
-            
+
+            # One query for every job's parameters (was one SELECT per job
+            # per poll) — also feeds the definition fingerprints below.
+            all_params = self._get_all_job_parameters()
+
             # Process each schedule
             for row in cursor.fetchall():
                 job_id = row[0]
@@ -299,15 +314,32 @@ class JobSchedulerService:
                 # If the job exists and is not active, remove it
                 if existing_job and not is_active:
                     self.scheduler.remove_job(apscheduler_job_id)
+                    self._forget_job(apscheduler_job_id, schedule_id)
                     logger.info(f"Removed inactive job: {apscheduler_job_id}")
                     continue
-                
+
                 # If the job has reached its maximum runs, mark it as inactive
                 if max_runs is not None and current_runs >= max_runs:
                     self._update_schedule_status(schedule_id, is_active=False)
                     if existing_job:
                         self.scheduler.remove_job(apscheduler_job_id)
+                    self._forget_job(apscheduler_job_id, schedule_id)
                     logger.info(f"Job {apscheduler_job_id} has reached maximum runs ({max_runs}), marked as inactive")
+                    continue
+
+                # ── Delta-reload skip ──────────────────────────────────────
+                # Unchanged definition + already registered = nothing to do.
+                # Persist next-run only if it moved (it does after each fire).
+                # This is the line that turns 67 reschedules/minute into zero
+                # on a quiet fleet.
+                _params_for_fp = all_params.get(job_id, {})
+                _fp = self._definition_fingerprint(
+                    job_name, job_type, target_id, description, schedule_type,
+                    interval_seconds, interval_minutes, interval_hours,
+                    interval_days, interval_weeks, cron_expression,
+                    start_date, end_date, _params_for_fp)
+                if existing_job and self._job_fingerprints.get(apscheduler_job_id) == _fp:
+                    self._persist_next_run_if_changed(schedule_id, apscheduler_job_id)
                     continue
 
                 # For one-time jobs, check if there's already a pending execution
@@ -357,7 +389,9 @@ class JobSchedulerService:
                     
                     # Add or update the job in the scheduler
                     if existing_job:
-                        # Update existing job
+                        # Update existing job — reached ONLY when the
+                        # definition fingerprint changed (delta-reload skip
+                        # above), so this log line now means a real change.
                         self.scheduler.reschedule_job(
                             apscheduler_job_id,
                             trigger=trigger
@@ -378,15 +412,12 @@ class JobSchedulerService:
                         )
                         logger.info(f"Added new job to scheduler: {apscheduler_job_id}")
 
+                    self._job_fingerprints[apscheduler_job_id] = _fp
+
                     # Persist the engine's computed next fire time so the panel/API can show
                     # "next run" (the DB NextRunTime is otherwise only its initial value).
-                    try:
-                        _ap_job = self.scheduler.get_job(apscheduler_job_id)
-                        self._update_next_run_time(
-                            schedule_id,
-                            getattr(_ap_job, 'next_run_time', None) if _ap_job else None)
-                    except Exception as _nr_err:
-                        logger.debug(f"next_run_time update skipped for {apscheduler_job_id}: {_nr_err}")
+                    # Write-through cache: only lands a SQL UPDATE when the value moved.
+                    self._persist_next_run_if_changed(schedule_id, apscheduler_job_id)
 
             # Get deactivated schedules to remove
             inactive_query = """
@@ -410,6 +441,7 @@ class JobSchedulerService:
                 existing_job = self.scheduler.get_job(apscheduler_job_id)
                 if existing_job:
                     self.scheduler.remove_job(apscheduler_job_id)
+                    self._forget_job(apscheduler_job_id, schedule_id)
                     logger.info(f"Removed inactive schedule from scheduler: {apscheduler_job_id}")
             
             # ── Orphan cleanup: remove APScheduler jobs with no matching DB record ──
@@ -439,6 +471,7 @@ class JobSchedulerService:
                     # If this job ID doesn't match any DB record, it's orphaned
                     if job.id not in valid_job_ids:
                         self.scheduler.remove_job(job.id)
+                        self._forget_job(job.id)
                         logger.info(f"Removed orphaned APScheduler job (no DB record): {job.id}")
             except Exception as orphan_err:
                 logger.warning(f"Error during orphan cleanup: {orphan_err}")
@@ -564,6 +597,76 @@ class JobSchedulerService:
             logger.error(f"Error creating trigger: {str(e)}")
             return None
     
+    def _get_all_job_parameters(self) -> Dict[int, Dict[str, Any]]:
+        """All jobs' parameters in ONE query, keyed by ScheduledJobId — the
+        per-job variant cost one SELECT per job per poll. Same type coercion
+        as _get_job_parameters."""
+        out: Dict[int, Dict[str, Any]] = {}
+        try:
+            cursor = self.db_conn.cursor()
+            if self.tenant_id:
+                cursor.execute("EXEC tenant.sp_setTenantContext ?", self.tenant_id)
+            cursor.execute("""
+                SELECT ScheduledJobId, ParameterName, ParameterValue, ParameterType
+                FROM ScheduledJobParameters
+            """)
+            for job_id, name, value, ptype in cursor.fetchall():
+                if ptype == 'int':
+                    value = int(value) if value else None
+                elif ptype == 'float':
+                    value = float(value) if value else None
+                elif ptype == 'bool':
+                    value = value.lower() in ('true', '1', 'yes') if value else False
+                elif ptype == 'json':
+                    value = json.loads(value) if value else None
+                out.setdefault(job_id, {})[name] = value
+            cursor.close()
+        except Exception as e:
+            logger.error(f"Error getting all job parameters: {str(e)}")
+        return out
+
+    @staticmethod
+    def _definition_fingerprint(job_name, job_type, target_id, description,
+                                schedule_type, interval_seconds, interval_minutes,
+                                interval_hours, interval_days, interval_weeks,
+                                cron_expression, start_date, end_date,
+                                params) -> str:
+        """Stable hash of EVERY field the sync loop feeds into the trigger or
+        job_data. If none of these changed, reschedule/modify would rebuild an
+        identical job — so the loop skips it. Deliberately EXCLUDES
+        NextRunTime/CurrentRuns (they change on every fire, not on definition
+        edits) and IsActive/MaxRuns (their branches run before the skip)."""
+        try:
+            blob = json.dumps([job_name, job_type, target_id, description,
+                               schedule_type, interval_seconds, interval_minutes,
+                               interval_hours, interval_days, interval_weeks,
+                               cron_expression, str(start_date), str(end_date),
+                               params],
+                              sort_keys=True, default=str)
+        except Exception:
+            return f"unhashable-{datetime.utcnow().isoformat()}"   # fail open: resync
+        return hashlib.sha256(blob.encode('utf-8')).hexdigest()
+
+    def _persist_next_run_if_changed(self, schedule_id: int, apscheduler_job_id: str):
+        """Write NextRunTime only when the computed value moved — after a fire
+        or a reschedule. The unconditional per-poll UPDATE was most of the
+        sync's write load."""
+        try:
+            _ap_job = self.scheduler.get_job(apscheduler_job_id)
+            nrt = getattr(_ap_job, 'next_run_time', None) if _ap_job else None
+            if self._last_written_next_run.get(schedule_id) == nrt:
+                return
+            self._update_next_run_time(schedule_id, nrt)
+            self._last_written_next_run[schedule_id] = nrt
+        except Exception as _nr_err:
+            logger.debug(f"next_run_time update skipped for {apscheduler_job_id}: {_nr_err}")
+
+    def _forget_job(self, apscheduler_job_id: str, schedule_id: int = None):
+        """Evict delta-reload caches when a job leaves the scheduler."""
+        self._job_fingerprints.pop(apscheduler_job_id, None)
+        if schedule_id is not None:
+            self._last_written_next_run.pop(schedule_id, None)
+
     def _get_job_parameters(self, job_id: int) -> Dict[str, Any]:
         """
         Get parameters for a scheduled job.
