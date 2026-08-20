@@ -1185,6 +1185,20 @@ class LLMDocumentProcessor:
             media_type, doc_type = self._get_file_and_document_type(file_name=filename)
 
             system_prompt = "You are a document classification expert. Your task is to identify the exact type of document shown in the image. Respond with ONLY the document type as a single term, like 'invoice', 'bill_of_lading', 'purchase_order', etc. Do not include any explanation or extra text."
+            # Free-text naming is unstable across identical documents (one batch of
+            # 12 identical vendor invoices split 11 'vendor_invoice' / 1 'invoice'),
+            # and each new spelling becomes a NEW type with its own learned schema,
+            # fragmenting extraction and counting. Anchor the classifier to the
+            # types this install already has schemas for; a genuinely new kind of
+            # document still coins a new name.
+            known_types = sorted(t for t in self.schemas if not self._schema_excluded(t))
+            if known_types:
+                system_prompt += (
+                    " This system already knows these document types: "
+                    + ", ".join(known_types) + ". "
+                    "If the document genuinely is one of these types, respond with "
+                    "that EXACT name. Only coin a new type name if it is none of them."
+                )
             user_text = "What type of document is this? Respond with only the document type."
 
             if self._anthropic_config['use_direct_api']:

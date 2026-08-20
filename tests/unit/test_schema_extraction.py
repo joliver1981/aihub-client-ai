@@ -563,3 +563,49 @@ class TestPseudoTypesGetNoSchema:
         loaded = engine._load_schemas()
         assert 'invoice' in loaded, "real types still load"
         assert 'unknown_document' not in loaded, "a pseudo-type schema must not take effect"
+
+
+@pytest.mark.unit
+class TestTypeDetectionAnchoring:
+    """Free-text type naming is unstable: one batch of 12 identical vendor
+    invoices split 11 'vendor_invoice' / 1 'invoice', and the stray name then
+    learned its own junk schema (2026-08-19). Detection must offer the
+    classifier the types this install already has schemas for."""
+
+    def _detect(self, engine, tmp_path, schemas):
+        doc = tmp_path / 'sample.txt'
+        doc.write_text('VENDOR INVOICE VINV-1 Acme Industrial Supply')
+        engine.schemas = schemas
+        captured = {}
+
+        class _Proxy:
+            def messages_create(self, **kwargs):
+                captured.update(kwargs)
+                return {'content': [{'text': 'vendor_invoice'}]}
+
+        with patch.object(engine, '_anthropic_config', {'use_direct_api': False}), \
+             patch('LLMDocumentEngine.cfg.ANTHROPIC_API_THROTTLE_CALLS', False):
+            engine.anthropic_proxy_client = _Proxy()
+            result = engine._detect_document_type(str(doc))
+        return result, captured.get('system', '')
+
+    def test_known_types_are_offered_to_the_classifier(self, engine, tmp_path):
+        result, system = self._detect(engine, tmp_path, {
+            'vendor_invoice': {'document_type': 'vendor_invoice'},
+            'lease_agreement': {'document_type': 'lease_agreement'},
+        })
+        assert result == 'vendor_invoice'
+        assert 'vendor_invoice' in system and 'lease_agreement' in system
+        assert 'EXACT name' in system
+
+    def test_excluded_pseudo_types_are_not_offered(self, engine, tmp_path):
+        _, system = self._detect(engine, tmp_path, {
+            'vendor_invoice': {'document_type': 'vendor_invoice'},
+            'unknown_document': {'document_type': 'unknown_document'},
+        })
+        assert 'vendor_invoice' in system
+        assert 'unknown_document' not in system
+
+    def test_no_schemas_leaves_prompt_unanchored(self, engine, tmp_path):
+        _, system = self._detect(engine, tmp_path, {})
+        assert 'already knows these document types' not in system
