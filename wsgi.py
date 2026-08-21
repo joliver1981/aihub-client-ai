@@ -49,7 +49,11 @@ logging.basicConfig(
 # Get configuration from environment variables with sensible defaults
 host = os.getenv('HOST', '0.0.0.0')
 port = int(os.getenv('HOST_PORT', 5001))
-threads = int(os.getenv('SERVER_THREADS', 4))
+# 16 (was 4): the main app fronts every API incl. document search and the
+# records-extraction lane; at 4 threads one long extraction plus a few agent
+# search calls gridlocked the whole stack into client read-timeouts
+# (measured 2026-08-21). Waitress threads are cheap for this I/O-bound app.
+threads = int(os.getenv('SERVER_THREADS', 16))
 connection_limit = int(os.getenv('SERVER_CONNECTION_LIMIT', 1000))
 
 def start_server():

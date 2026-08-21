@@ -52,7 +52,10 @@ logging.basicConfig(
 # installs (the standard case) should leave this as 127.0.0.1.
 host = os.getenv('INTERNAL_HOST', '127.0.0.1')
 port = int(os.getenv('HOST_PORT', 5001)) + 10
-threads = int(os.getenv('SERVER_THREADS', 4))
+# 10 (was 4): /document/process holds a thread for the whole extract+index
+# pipeline (~10-90s each); at 4 threads a burst of imports/purges queued new
+# requests for minutes before the engine even started (measured 2026-08-21).
+threads = int(os.getenv('SERVER_THREADS', 10))
 connection_limit = int(os.getenv('SERVER_CONNECTION_LIMIT', 1000))
 
 channel_timeout = int(os.getenv('WAITRESS_CHANNEL_TIMEOUT', 3600))

@@ -437,6 +437,65 @@ def test_import_documents_resolves_api_files_ref():
         _cleanup_user_files()
 
 
+# ------------------------------------------- doc-stack busy honesty (2026-08-21)
+# Under concurrent doc work the stack queues past client timeouts; a raw
+# ReadTimeout traceback read like an outage and caused retry storms. The tools
+# must say "busy queue, retry once in a minute" instead.
+
+def _timeout_client_factory():
+    import httpx as _hx
+    _Real = _hx.AsyncClient
+
+    def handler(request):
+        raise _hx.ReadTimeout("read timed out")
+
+    def factory(**kw):
+        return _Real(transport=_hx.MockTransport(handler))
+    return _hx, factory
+
+
+def test_search_busy_timeout_is_honest():
+    import document_tools
+    _hx, factory = _timeout_client_factory()
+    _as_user()
+    with patched(_hx, AsyncClient=factory):
+        res = _run({t.name: t for t in document_tools.DOCUMENT_TOOLS}
+                   ["search_documents"], {"query": "anything"})
+    t = _txt(res)
+    assert res.get("is_error") and "BUSY" in t and "not an outage" in t
+    assert "Traceback" not in t
+
+
+def test_records_busy_timeout_is_honest():
+    import document_tools
+    _hx, factory = _timeout_client_factory()
+    _as_user()
+    with patched(_hx, AsyncClient=factory):
+        res = _run({t.name: t for t in document_tools.DOCUMENT_TOOLS}
+                   ["query_document_records"], {"record_set": "x"})
+    t = _txt(res)
+    assert res.get("is_error") and "BUSY" in t
+
+
+def test_import_timeout_gives_verify_guidance():
+    import document_tools
+    _hx, factory = _timeout_client_factory()
+    _as_user()
+    tmp_dir = os.path.join(APP_ROOT, "temp")
+    os.makedirs(tmp_dir, exist_ok=True)
+    src = os.path.join(tmp_dir, f"busy_{uuid.uuid4().hex[:8]}.txt")
+    with open(src, "w", encoding="utf-8") as fh:
+        fh.write("x")
+    try:
+        with patched(_hx, AsyncClient=factory):
+            res = _run({t.name: t for t in document_tools.DOCUMENT_TOOLS}
+                       ["import_documents"], {"path": src, "force": True})
+        t = _txt(res)
+        assert "may still complete" in t and "idempotent" in t
+    finally:
+        os.remove(src)
+
+
 # ----------------------------------------------------------------- save_portal
 
 def test_save_portal_readback_verified_and_no_echo():

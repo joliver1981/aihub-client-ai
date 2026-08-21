@@ -56,7 +56,11 @@ logging.basicConfig(
 # installs (the standard case) should leave this as 127.0.0.1.
 host = os.getenv('INTERNAL_HOST', '127.0.0.1')
 port = int(os.getenv('HOST_PORT', 5001)) + 30
-threads = int(os.getenv('VECTOR_SERVER_THREADS', 2))
+# 8 (was 2): BOTH the import pipeline (chunk adds) and every semantic search
+# (DocUtils VectorEngineClient) funnel through this service — 2 threads made
+# it the stack's serialization point under any concurrent doc work
+# (measured 2026-08-21).
+threads = int(os.getenv('VECTOR_SERVER_THREADS', 8))
 connection_limit = int(os.getenv('SERVER_CONNECTION_LIMIT', 1000))
 
 channel_timeout = int(os.getenv('WAITRESS_CHANNEL_TIMEOUT', 3600))

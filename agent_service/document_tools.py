@@ -118,6 +118,19 @@ async def _post_main(path: str, body: dict, internal: bool = False,
             return {"error": (r.text or "")[:500]}, r.status_code
 
 
+# The document stack serializes concurrent work (4-16 waitress threads across
+# main app / doc API / vector API — see wsgi*.py); under a burst of imports or
+# a running records extraction, calls queue past our client read timeouts. A
+# raw ReadTimeout traceback read to the model like an outage and sent it into
+# retry storms (2026-08-21). Say what it actually is: a busy queue.
+_BUSY_MSG = ("The document stack is BUSY right now — another import or "
+             "extraction is holding it. This is a queue, not an outage, and "
+             "not evidence the document is missing. Wait about a minute and "
+             "call this once more; if it is still busy, tell the user the "
+             "document system is working through a backlog rather than "
+             "retrying in a loop.")
+
+
 def _ext_ok(name: str) -> bool:
     return "." in name and name.rsplit(".", 1)[1].lower() in _ALLOWED_EXTS
 
@@ -356,6 +369,17 @@ async def import_documents(args: dict[str, Any]) -> dict[str, Any]:
                     "detect_document_type": "true",
                     "force_ai_extraction": "true" if force_ai else "false",
                 })
+            except httpx.TimeoutException:
+                # Observed 2026-08-21: the server often FINISHES these late —
+                # the doc lands despite our timeout. Re-import is idempotent
+                # by path, so verifying beats blind retry.
+                failed.append((name, "TIMEOUT waiting for the document stack "
+                                     "(busy queue) — the import may still "
+                                     "complete on the server. Check "
+                                     "list_documents in a minute before "
+                                     "re-importing; re-import is safe "
+                                     "(idempotent by path)."))
+                continue
             except Exception as e:
                 failed.append((name, f"{type(e).__name__}: {e}"))
                 continue
@@ -450,9 +474,12 @@ async def search_documents(args: dict[str, Any]) -> dict[str, Any]:
     # The UNIFIED endpoint (additive) normalizes the engine's variable return
     # (JSON dict for field/hybrid, [Source …] text blob for semantic) into one
     # stable schema server-side, so we consume a consistent shape here.
-    data, status = await _post_main("/api/internal/document-search-unified",
-                                    {"question": query}, internal=True,
-                                    read_timeout=180.0)
+    try:
+        data, status = await _post_main("/api/internal/document-search-unified",
+                                        {"question": query}, internal=True,
+                                        read_timeout=180.0)
+    except httpx.TimeoutException:
+        return _text(_BUSY_MSG, is_error=True)
     if status != 200:
         msg = data.get("message") or data.get("error") if isinstance(data, dict) else data
         return _text(f"Document search failed (HTTP {status}): {msg}", is_error=True)
@@ -659,8 +686,11 @@ async def query_document_records(args: dict[str, Any]) -> dict[str, Any]:
     payload = {k: args.get(k) for k in
                ("record_set", "search", "topic", "document_type", "limit")
                if args.get(k) not in (None, "")}
-    data, status = await _post_main("/api/internal/document-records", payload,
-                                    internal=True, read_timeout=60.0)
+    try:
+        data, status = await _post_main("/api/internal/document-records", payload,
+                                        internal=True, read_timeout=60.0)
+    except httpx.TimeoutException:
+        return _text(_BUSY_MSG, is_error=True)
     if status != 200:
         msg = data.get("message") if isinstance(data, dict) else data
         return _text(f"Record query failed (HTTP {status}): {msg}. Fall back to "
