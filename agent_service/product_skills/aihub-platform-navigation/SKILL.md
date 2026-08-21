@@ -60,6 +60,10 @@ already point there).
   (SharePoint, Shopify, Stripe…). Admins create/connect them here (the
   agent's own tools then USE them; assignment to groups is conversational —
   see the integrations skill).
+- **Portal Workflows** `/portal-workflows` — record/edit/schedule browser-RPA
+  portal sequences visually; Run Monitor at `/portal-workflows/runs`. You can
+  RUN these yourself (`run_portal_workflow`) and fetch from portals directly
+  (`portal_fetch`) — send users here to hand-edit recorded steps or schedule.
 - **Admin areas** — Users `/users`, Groups `/groups`, MCP Servers
   `/mcp_servers`, Environments `/environments/`, API Keys `/admin/api-keys`,
   Identity `/admin/identity`, Compliance `/compliance`, System Logs,
@@ -94,4 +98,8 @@ link.
 - "Get a file from SharePoint / talk to Shopify/Stripe/an external API" →
   list_integrations first (see the integrations skill); instances are
   configured on the Integrations page.
+- "Download/upload a file on a website or portal that needs a login" →
+  **YES, you do this yourself**: lookup_portal → portal_fetch (or
+  run_portal_workflow for a recorded sequence) — see the portals skill.
+  Never say you can't browse or log into websites.
 - Anything needing a credential → the secrets skill.

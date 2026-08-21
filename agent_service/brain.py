@@ -29,6 +29,7 @@ from views_tools import VIEWS_TOOLS
 from integration_tools import INTEGRATION_TOOLS
 from file_tools import FILE_TOOLS
 from document_tools import DOCUMENT_TOOLS
+from portal_tools import PORTAL_TOOLS
 
 from claude_agent_sdk import (
     ClaudeAgentOptions, query, create_sdk_mcp_server,
@@ -43,11 +44,20 @@ except ImportError:  # pragma: no cover
 # ship without them (reverts to the pre-tool, automation-only ingest behavior).
 _DOCUMENT_TOOLS_ON = os.getenv("AGENT_DOCUMENT_TOOLS", "true").lower() == "true"
 
+# Portal tools bridge the SAME Browser Use machinery CC's portal tools drive.
+# Two switches: AGENT_PORTAL_TOOLS (agent-local kill switch) and the platform's
+# BROWSER_USE_ENABLED (default true — the same env CC's nodes.py honors). With
+# the browser service disabled platform-wide the tools unregister, so the agent
+# honestly reports no portal capability instead of erroring against a dead port.
+_PORTAL_TOOLS_ON = (os.getenv("AGENT_PORTAL_TOOLS", "true").lower() == "true"
+                    and os.getenv("BROWSER_USE_ENABLED", "true").lower() == "true")
+
 aihub_server = create_sdk_mcp_server(
-    name="aihub", version="0.5.0",
+    name="aihub", version="0.6.0",
     tools=AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
           + INTEGRATION_TOOLS + FILE_TOOLS
-          + (DOCUMENT_TOOLS if _DOCUMENT_TOOLS_ON else []))
+          + (DOCUMENT_TOOLS if _DOCUMENT_TOOLS_ON else [])
+          + (PORTAL_TOOLS if _PORTAL_TOOLS_ON else []))
 
 # Mutation-claim guard (port of CC nodes.py _claims_completed_mutation,
 # AIHUB-0048 F1): a reply asserting a JUST-COMPLETED change is only honest when
@@ -65,13 +75,18 @@ MUTATING_TOOLS = frozenset({
     "schedule_view_refresh", "draft_email_reply", "setup_agent_email",
     "execute_integration_operation", "assign_integration_groups",
     "import_documents",
+    "portal_fetch", "save_portal", "run_portal_workflow",
 })
 
 # Tool inputs are streamed to the UI (chip click-to-peek) and would otherwise
 # display a pasted credential — redact sensitive fields at the event seam.
 # The SDK transcript already holds the user's own paste; this keeps OUR
 # surfaces from re-displaying it.
-SENSITIVE_TOOL_FIELDS = {"store_platform_secret": ("value",)}
+SENSITIVE_TOOL_FIELDS = {
+    "store_platform_secret": ("value",),
+    "save_portal": ("password", "totp"),
+    "portal_fetch": ("password", "totp"),
+}
 
 MUTATION_CLAIM_RE = re.compile(
     r"(✅\s*(created|saved|scheduled|promoted|deleted|inserted|added|updated|wired))"
@@ -97,6 +112,7 @@ _READ_TOOL_NAMES = [
     "get_agent_email_status", "list_integrations", "get_integration_operations",
     "list_server_files", "search_documents", "list_documents", "get_document",
     "query_document_records",
+    "lookup_portal", "list_portal_workflows", "describe_portal_workflow",
 ]
 _READ_ALLOWED = [f"mcp__aihub__{n}" for n in _READ_TOOL_NAMES]
 
@@ -107,6 +123,8 @@ deterministically on schedules with humans in the loop.
 WHAT YOU CAN DO
 - Explore: list connections, inspect schemas, run read-only probe queries, ask
   data agents questions, list playbooks and run history.
+- Sign into web portals with a real browser (RPA) to download or upload files —
+  ad-hoc, from saved portals, or as recorded portal workflows.
 - Build AUTOMATIONS (single Python scripts) and CODE FLOWS (multi-step Python
   playbooks). The lifecycle is fixed and you must follow it in order:
     draft (create + save code) -> DRY-RUN (real execution, live credentials)
@@ -208,6 +226,26 @@ operations server-side. Instances and their credentials are configured on
 the Integrations page, never through chat. delete_* operations need the
 user's explicit confirmation. Admins can share an integration with a group
 via assign_integration_groups (ask which groups first).
+
+WEB PORTALS (browser RPA — sign in, download / upload files)
+YES — you can log into vendor/customer web portals with a real browser and
+fetch or deliver files. When a user wants a file from (or sent to) a website
+that needs a login, call lookup_portal FIRST:
+- Saved portal -> portal_fetch(portal_name, task). The URL and credentials
+  resolve server-side; NEVER ask the user to re-share a saved login.
+- First time (ad-hoc) -> the user gives the URL and login in chat: portal_fetch
+  with start_url/username/password. Act right away — don't refuse or stall.
+  After a successful ad-hoc run, OFFER save_portal so the name alone works
+  next time.
+- Recorded portal workflows (deterministic replay of saved browser steps) ->
+  list_portal_workflows / describe_portal_workflow / run_portal_workflow.
+  These are DIFFERENT from the regular workflows in Playbooks.
+2FA / verification pauses: the tool returns a take-over LINK — relay it to the
+user VERBATIM, let them finish the step, then call check_portal_run with the
+run_id to collect the result. A run that hasn't finished is NOT a delivered
+file; repeat exactly what the tools said (the run_id lines matter — keep them).
+Downloads arrive as /api/files/ links — include them VERBATIM (FILES rules).
+Uploads: pass upload_file with a server path (list_server_files helps find it).
 
 SECRETS AND CREDENTIALS
 When a user hands you an API key, password, or token in chat, store it

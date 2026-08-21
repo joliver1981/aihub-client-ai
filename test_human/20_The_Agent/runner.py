@@ -1649,6 +1649,136 @@ def main():
           and "pack20-value" not in json.dumps(sr),
           f"store={json.dumps(sr)[:200]} listed={'PACK20_TEST_SECRET' in names}")
 
+    # ------------------------------------------------------------------
+    # P — Web portals (P1 of docs/the-agent-portal-gap-analysis.md):
+    # the same Browser Use machinery CC's portal tools drive, bridged as
+    # first-class agent tools. James's repro 2026-08-20: The Agent said it
+    # couldn't do portals while CC could.
+    # ------------------------------------------------------------------
+    import portal_tools as _pt
+    from command_center.tools import portal_registry as _preg
+    from command_center.tools import portal_workflows as _pwf
+
+    # P-1 capability honesty (the A6-5 lesson, portal edition): "can you
+    # connect to web portals?" must ground in lookup_portal and lead with
+    # the capability — never with "no".
+    try:
+        ev, text = chat_turn(token, "Can you connect to web portals and "
+                                    "download documents from them for me?")
+        used = tools_used(ev)
+        lowered = text.lower().strip()
+        leads_no = lowered.startswith(("no", "unfortunately", "i can't",
+                                       "i cannot", "i'm not able"))
+        check("P-1", "portal-capability ask: lookup_portal consulted; answer "
+                     "leads with the capability, not 'no'",
+              "lookup_portal" in used and "portal" in lowered and not leads_no,
+              f"tools={used} leads_no={leads_no} text={text[:180]!r}")
+    except Exception as e:
+        check("P-1", "portal-capability ask", False, e)
+
+    # P-2 live E2E at the tool chokepoint (no LLM): replay the seeded
+    # "Vendor Invoice Download - 2FA" workflow against the REAL Meridian demo
+    # portal (:3000) through Browser Use (:5101) — file staged per-user,
+    # owner downloads bytes over /api/files, cross-user 404, store's
+    # last_run_status flips to ok. Honest SKIP when the demo portal is down.
+    try:
+        try:
+            portal_up = requests.get("http://127.0.0.1:3000/healthz",
+                                     timeout=5).status_code == 200
+        except Exception:
+            portal_up = False
+        wf13 = _pwf.get_workflow(13, "vendor_invoice_download_2fa")
+        if not (portal_up and wf13):
+            check("P-2", "portal workflow live E2E (agent chokepoint)",
+                  True, f"SKIP: demo portal up={portal_up}, seeded "
+                        f"workflow={bool(wf13)} — run start-meridian in the "
+                        "demo control panel to exercise this live")
+        else:
+            from platform_tools import CURRENT_USER as _CUP
+            import file_tools as _pft
+            _CUP.set({"user_id": 13, "role": 3, "username": "pack20-portal"})
+            pres = _aio.run(_pt.run_portal_workflow.handler(
+                {"name": "vendor_invoice_download_2fa"}))
+            ptxt = str(pres)
+            import re as _pre
+            m = _pre.search(r"/api/files/([a-f0-9-]+)", ptxt)
+            fid = m.group(1) if m else ""
+            tok13 = _tok(13, 3)
+            r_own = requests.get(f"{BASE}/api/files/{fid}",
+                                 headers={"Authorization": f"Bearer {tok13}"},
+                                 timeout=90) if fid else None
+            r_other = requests.get(f"{BASE}/api/files/{fid}",
+                                   headers={"Authorization": f"Bearer {tok77}"},
+                                   timeout=90) if fid else None
+            wf_after = _pwf.get_workflow(13, "vendor_invoice_download_2fa") or {}
+            check("P-2", "portal workflow live E2E: real 2FA replay -> staged "
+                         "file, owner gets bytes, other user 404, "
+                         "last_run_status=ok in the store",
+                  bool(fid) and not pres.get("is_error")
+                  and r_own is not None and r_own.status_code == 200
+                  and len(r_own.content) > 0
+                  and r_other is not None and r_other.status_code == 404
+                  and wf_after.get("last_run_status") == "ok",
+                  f"fid={bool(fid)} own={getattr(r_own, 'status_code', None)} "
+                  f"bytes={len(getattr(r_own, 'content', b''))} "
+                  f"other={getattr(r_other, 'status_code', None)} "
+                  f"store={wf_after.get('last_run_status')!r}")
+            if fid:  # tidy the staged copy out of user 13's downloads area
+                hit = _pft.resolve_offer(13, fid)
+                if hit and os.path.isfile(hit[0]):
+                    os.remove(hit[0])
+    except Exception as e:
+        check("P-2", "portal workflow live E2E", False, e)
+
+    # P-3 chokepoint honesty (no LLM): unknown workflow -> honest error with
+    # the list hint; check_portal_run refuses to guess without a run_id.
+    try:
+        from platform_tools import CURRENT_USER as _CUP3
+        _CUP3.set({"user_id": 424250, "role": 2, "username": "pack20-p3"})
+        miss = _aio.run(_pt.run_portal_workflow.handler(
+            {"name": "no-such-wf-424250"}))
+        no_id = _aio.run(_pt.check_portal_run.handler({}))
+        check("P-3", "chokepoint honesty: unknown workflow -> honest error + "
+                     "list hint; check_portal_run without run_id refuses",
+              bool(miss.get("is_error")) and "list_portal_workflows" in str(miss)
+              and bool(no_id.get("is_error")),
+              f"miss={str(miss)[:120]!r} no_id_err={bool(no_id.get('is_error'))}")
+    except Exception as e:
+        check("P-3", "chokepoint honesty", False, e)
+
+    # P-4 save_portal roundtrip: encrypted store + registry write with
+    # read-back verification, credential never echoed, per-user scoped, and
+    # the UI chip redaction mapping present in the brain. Registry entry
+    # cleaned up after (stored secret stays, inert — CC delete semantics).
+    try:
+        from platform_tools import CURRENT_USER as _CUP4
+        import brain as _pbrain
+        _CUP4.set({"user_id": 424250, "role": 2, "username": "pack20-p4"})
+        pname = "Pack20 Portal Probe"
+        try:
+            sres = _aio.run(_pt.save_portal.handler(
+                {"name": pname, "url": "http://127.0.0.1:3000/login",
+                 "username": "probe-user", "password": "pack20-portal-pw"}))
+            stxt = str(sres)
+            saved_ok = (not sres.get("is_error")) and "read-back verified" in stxt
+            mine = _preg.lookup_portal(424250, pname)
+            other_blind = _preg.lookup_portal(77, pname) is None
+            redact_ok = (_pbrain.SENSITIVE_TOOL_FIELDS.get("save_portal")
+                         == ("password", "totp")
+                         and _pbrain.SENSITIVE_TOOL_FIELDS.get("portal_fetch")
+                         == ("password", "totp"))
+            check("P-4", "save_portal: read-back verified, never echoes the "
+                         "credential, per-user scoped, chip redaction mapped",
+                  saved_ok and "pack20-portal-pw" not in stxt
+                  and bool(mine) and other_blind and redact_ok,
+                  f"saved={saved_ok} no_echo={'pack20-portal-pw' not in stxt} "
+                  f"mine={bool(mine)} other_blind={other_blind} "
+                  f"redact={redact_ok}")
+        finally:
+            _preg.delete_portal(424250, pname)
+    except Exception as e:
+        check("P-4", "save_portal roundtrip", False, e)
+
     _write_report(checks)
     if not all(c["ok"] for c in checks):
         sys.exit(1)

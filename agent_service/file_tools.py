@@ -61,6 +61,39 @@ def _fmt_size(n: int) -> str:
     return f"{n} B"
 
 
+def stage_offer(user_id: int, server_path: str,
+                display_name: Optional[str] = None) -> tuple:
+    """Stage a private copy of a server file for this user and return
+    (True, markdown_link) or (False, honest_error_text). The staging core of
+    offer_file_download, shared with portal_tools so downloaded files become
+    working chat links in one deterministic step (no reliance on the model
+    chaining a second tool call)."""
+    raw = str(server_path or "").strip().strip('"')
+    src = os.path.abspath(raw)
+    root = os.path.abspath(APP_ROOT)
+    if not src.startswith(root + os.sep):
+        return False, ("Refused: that path is outside the platform's data area "
+                       "— only files produced under the AI Hub root can be "
+                       "offered.")
+    if not os.path.isfile(src):
+        return False, (f"No file exists at {raw} — nothing to offer. Check the "
+                       "download step's actual output path.")
+    size = os.path.getsize(src)
+    if size > MAX_OFFER_MB * 1024 * 1024:
+        return False, (f"File is {_fmt_size(size)} — over the "
+                       f"{MAX_OFFER_MB} MB handoff cap.")
+    name = _NAME_RE.sub("_", str(display_name
+                                 or os.path.basename(src)))[:150] or "file"
+    fid = str(uuid.uuid4())
+    dst = os.path.join(downloads_dir(int(user_id)), f"{fid}__{name}")
+    try:
+        shutil.copy2(src, dst)
+    except OSError as e:
+        return False, f"Could not stage the file: {e}"
+    logger.info(f"file offered: user {int(user_id)} <- {src} ({_fmt_size(size)})")
+    return True, f"[⤓ {name} ({_fmt_size(size)})](/api/files/{fid})"
+
+
 @tool(
     "offer_file_download",
     "Give the user a DOWNLOAD LINK in the chat for a file that exists on the "
@@ -86,31 +119,10 @@ def _fmt_size(n: int) -> str:
 async def offer_file_download(args: dict[str, Any]) -> dict[str, Any]:
     user = CURRENT_USER.get()
     uid = int(user.get("user_id") or 0)
-    raw = str(args["server_path"]).strip().strip('"')
-    src = os.path.abspath(raw)
-    root = os.path.abspath(APP_ROOT)
-    if not src.startswith(root + os.sep):
-        return _text("Refused: that path is outside the platform's data area "
-                     "— only files produced under the AI Hub root can be "
-                     "offered.", is_error=True)
-    if not os.path.isfile(src):
-        return _text(f"No file exists at {raw} — nothing to offer. Check the "
-                     "download step's actual output path.", is_error=True)
-    size = os.path.getsize(src)
-    if size > MAX_OFFER_MB * 1024 * 1024:
-        return _text(f"File is {_fmt_size(size)} — over the "
-                     f"{MAX_OFFER_MB} MB handoff cap.", is_error=True)
-    name = _NAME_RE.sub("_", str(args.get("display_name")
-                                 or os.path.basename(src)))[:150] or "file"
-    fid = str(uuid.uuid4())
-    dst = os.path.join(downloads_dir(uid), f"{fid}__{name}")
-    try:
-        shutil.copy2(src, dst)
-    except OSError as e:
-        return _text(f"Could not stage the file: {e}", is_error=True)
-    logger.info(f"file offered: user {uid} <- {src} ({_fmt_size(size)})")
-    return _text(f"Download ready. Include this link verbatim in your reply:\n"
-                 f"[⤓ {name} ({_fmt_size(size)})](/api/files/{fid})")
+    ok, msg = stage_offer(uid, str(args["server_path"]), args.get("display_name"))
+    if not ok:
+        return _text(msg, is_error=True)
+    return _text(f"Download ready. Include this link verbatim in your reply:\n{msg}")
 
 
 FILE_TOOLS = [offer_file_download]
