@@ -65,15 +65,17 @@ async def poll(limit: int = 100) -> list:
         return data.get("emails") or data.get("events") or []
 
 
-async def full_body(message_key: str) -> Optional[str]:
-    """Full body via the cloud message proxy. Poll rows carry NO body at all
-    (metadata only — verified live 2026-08-09), so this fetch is the ONLY
-    body source and its parsing must match the proxy's real shape:
-    {"success": true, "message": {body_text, body_plain, stripped_text,
-    body_html, ...}} — the same envelope email_receive_client unwraps with
-    result.get('message'). The original A6 code looked for a nonexistent
-    'content' key and Mailgun hyphen field names, so every inbound email
-    read as '(empty body)' (James's live repro, event 48)."""
+async def full_message(message_key: str) -> Optional[dict]:
+    """Whole message dict via the cloud message proxy ({body_text,
+    body_plain, stripped_text, body_html, ...}). Poll rows carry NO body at
+    all (metadata only — verified live 2026-08-09), so this fetch is the
+    ONLY body source and its parsing must match the proxy's real shape:
+    {"success": true, "message": {...}} — the same envelope
+    email_receive_client unwraps with result.get('message'). The original A6
+    code looked for a nonexistent 'content' key and Mailgun hyphen field
+    names, so every inbound email read as '(empty body)' (James's live
+    repro, event 48). Returns None on any failure — including the cloud's
+    3-day retention expiring the message."""
     if not message_key:
         return None
     try:
@@ -85,17 +87,28 @@ async def full_body(message_key: str) -> Optional[str]:
                 return None
             data = r.json()
             content = data.get("message") or data.get("content") or data
-            if not isinstance(content, dict):
-                return None
-            # body_text first (legacy dispatcher parity: complete content,
-            # quoted thread included); stripped_text is Mailgun's
-            # new-text-only heuristic and can drop inline replies.
-            return (content.get("body_text") or content.get("stripped_text")
-                    or content.get("body_plain") or content.get("body-plain")
-                    or content.get("stripped-text") or None)
+            return content if isinstance(content, dict) else None
     except Exception as e:
-        logger.warning(f"email full-body fetch failed: {e}")
+        logger.warning(f"email full-message fetch failed: {e}")
         return None
+
+
+def body_text_of(content: Optional[dict]) -> Optional[str]:
+    """Plain-text body from a full_message dict. body_text first (legacy
+    dispatcher parity: complete content, quoted thread included);
+    stripped_text is Mailgun's new-text-only heuristic and can drop inline
+    replies."""
+    if not isinstance(content, dict):
+        return None
+    return (content.get("body_text") or content.get("stripped_text")
+            or content.get("body_plain") or content.get("body-plain")
+            or content.get("stripped-text") or None)
+
+
+async def full_body(message_key: str) -> Optional[str]:
+    """Plain-text body via the cloud message proxy (the poller's prompt
+    source). Thin composition of full_message + body_text_of."""
+    return body_text_of(await full_message(message_key))
 
 
 async def attachments_for(event_id: int) -> list:
@@ -109,6 +122,26 @@ async def attachments_for(event_id: int) -> list:
     except Exception as e:
         logger.warning(f"email attachments list failed: {e}")
         return []
+
+
+async def attachment_bytes(attachment_id: int) -> Optional[tuple]:
+    """(content bytes, content_type) for one attachment, from the cloud's
+    raw-bytes route — the same one the legacy download proxy wraps
+    (agent_email_routes.download_agent_email_attachment). API key rides in
+    the header AND as a query param, matching that proxy exactly."""
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=120.0)) as client:
+            r = await client.get(
+                f"{_cloud_base()}/api/email/attachment/{attachment_id}",
+                params={"api_key": os.getenv("API_KEY", "")},
+                headers=_headers())
+            if r.status_code != 200:
+                return None
+            return (r.content,
+                    r.headers.get("Content-Type", "application/octet-stream"))
+    except Exception as e:
+        logger.warning(f"email attachment fetch failed: {e}")
+        return None
 
 
 async def extract_attachment_text(attachment_id: int,

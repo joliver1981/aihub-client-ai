@@ -743,7 +743,12 @@
         ld.log.forEach(e => {
           const row = el("div", "", "");
           row.style.cssText = "display:flex;gap:10px;padding:4px 0;" +
-            "border-bottom:1px solid var(--line-soft);font-size:12px";
+            "border-bottom:1px solid var(--line-soft);font-size:12px;" +
+            "cursor:pointer;align-items:center";
+          row.title = "Click to view this email";
+          const caret = el("span", "", "▸");
+          caret.style.cssText = "color:var(--text3);width:11px;flex:none";
+          row.appendChild(caret);
           const ts = el("span", "qmeta",
             (e.processed_at || "").slice(0, 16).replace("T", " "));
           // .qmeta's margin-left:auto is for queue rows (meta at the right
@@ -759,6 +764,7 @@
             "text-overflow:ellipsis;white-space:nowrap";
           row.appendChild(what);
           logEl.appendChild(row);
+          row.onclick = () => toggleEmailRow(e, row, caret);
         });
       }
     } catch (e) { note.textContent = "Could not load: " + e.message; }
@@ -777,6 +783,132 @@
       p && emailSuffix
         ? `${saved ? "Your address" : "Will become"}: ${p}${emailSuffix}`
         : "";
+  }
+
+  // ---------- expand-a-row email viewer ----------
+  // Click a Recent-inbound row -> inline panel with the full body (HTML in a
+  // FULLY sandboxed srcdoc iframe — inbound mail is untrusted content, so no
+  // scripts, opaque origin; <base target=_blank> makes link clicks inert) +
+  // attachment downloads. Content is fetched LIVE from the cloud, which
+  // retains mail ~3 days — older rows show their metadata with an honest
+  // "no longer available" note instead.
+  const fmtSize = (n) => !n ? "" : n < 1024 ? `${n} B`
+    : n < 1048576 ? `${(n / 1024).toFixed(1)} KB`
+    : `${(n / 1048576).toFixed(1)} MB`;
+
+  function toggleEmailRow(e, row, caret) {
+    if (row._panel) {
+      const open = row._panel.style.display !== "none";
+      row._panel.style.display = open ? "none" : "";
+      caret.textContent = open ? "▸" : "▾";
+      return;
+    }
+    const panel = el("div", "", "");
+    panel.style.cssText = "padding:10px 12px;margin:2px 0 6px 21px;" +
+      "background:var(--raised);border:1px solid var(--line-soft);" +
+      "border-radius:10px;font-size:12.5px;color:var(--text2)";
+    panel.appendChild(el("div", "qfrom", "Loading…"));
+    row._panel = panel;
+    row.after(panel);
+    caret.textContent = "▾";
+    loadEmailDetail(e, panel);
+  }
+
+  async function loadEmailDetail(e, panel) {
+    let dd;
+    try {
+      const r = await fetch(`/api/email/log/${e.event_id}`, { headers: H() });
+      dd = await r.json();
+      if (!r.ok) throw new Error(dd.detail || `HTTP ${r.status}`);
+    } catch (err) {
+      panel.innerHTML = "";
+      panel.appendChild(el("div", "qfrom", "Could not load: " + err.message));
+      return;
+    }
+    panel.innerHTML = "";
+    // What the agent did (ledger detail: "tools=a,b,c" or a skip/error note)
+    const detail = String((dd.entry || {}).detail || "");
+    if (detail) {
+      const line = detail.startsWith("tools=")
+        ? (detail === "tools=" ? "Agent ran no tools."
+           : "Agent ran: " + detail.slice(6).split(",").join(", "))
+        : detail;
+      const what = el("div", "qfrom", line);
+      what.style.marginBottom = "8px";
+      panel.appendChild(what);
+    }
+    // Body
+    if (dd.body_html) {
+      const frame = document.createElement("iframe");
+      frame.setAttribute("sandbox", "");   // strictest: no scripts, opaque origin
+      frame.style.cssText = "width:100%;height:320px;border:1px solid " +
+        "var(--line-soft);border-radius:8px;background:#ffffff";
+      // Emails are authored for a white page; CSS vars don't cross the
+      // frame boundary — render light regardless of app theme.
+      frame.srcdoc = `<!doctype html><html><head><base target="_blank"><style>
+        html,body{background:#ffffff}
+        body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+             font-size:13px;line-height:1.55;margin:0;padding:12px;color:#222222}
+        img{max-width:100%;height:auto} a{color:#2557d6}
+        </style></head><body>${dd.body_html}</body></html>`;
+      panel.appendChild(frame);
+    } else if (dd.body_text) {
+      const pre = el("div", "", dd.body_text);
+      pre.style.cssText = "white-space:pre-wrap;overflow-wrap:anywhere;" +
+        "max-height:320px;overflow-y:auto;padding:10px 12px;background:var(--panel);" +
+        "border:1px solid var(--line-soft);border-radius:8px;color:var(--text1)";
+      panel.appendChild(pre);
+    } else {
+      panel.appendChild(el("div", "qfrom", dd.retained
+        ? "(empty body)"
+        : "Body no longer available — the cloud mailbox keeps messages for " +
+          "about 3 days. The metadata and outcome above are from the " +
+          "agent's own ledger."));
+    }
+    // Attachments (may still be listable even after the body expires)
+    const atts = dd.attachments || [];
+    if (atts.length) {
+      const head = el("div", "dlabel", `Attachments (${atts.length})`);
+      head.style.cssText = "margin:10px 0 6px";
+      panel.appendChild(head);
+      const list = el("div", "", "");
+      list.style.cssText = "display:flex;flex-wrap:wrap;gap:8px";
+      atts.forEach(a => {
+        const chip = el("button", "btn",
+          `📎 ${a.filename}${a.size ? ` (${fmtSize(a.size)})` : ""}`);
+        chip.style.fontSize = "12px";
+        chip.onclick = async (ev) => {
+          ev.stopPropagation();
+          const orig = chip.textContent;
+          chip.textContent = orig + " …";
+          chip.disabled = true;
+          try {
+            // Same doctrine as chat file links: fetch with the auth header
+            // and hand the browser a blob — no token ever rides in a URL.
+            const r = await fetch(
+              `/api/email/log/${e.event_id}/attachment/${a.attachment_id}`,
+              { headers: H() });
+            if (!r.ok) {
+              const err = await r.json().catch(() => ({}));
+              chip.textContent = orig + " (unavailable)";
+              chip.title = err.detail || `HTTP ${r.status}`;
+              return;
+            }
+            const blob = await r.blob();
+            const url = URL.createObjectURL(blob);
+            const dl = document.createElement("a");
+            dl.href = url;
+            dl.download = a.filename || "attachment";
+            document.body.appendChild(dl); dl.click(); dl.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+            chip.textContent = orig;
+          } catch { chip.textContent = orig + " (download failed)"; }
+          finally { chip.disabled = false; }
+        };
+        list.appendChild(chip);
+      });
+      panel.appendChild(list);
+    }
   }
   document.getElementById("email-save").onclick = async () => {
     const note = document.getElementById("email-note");

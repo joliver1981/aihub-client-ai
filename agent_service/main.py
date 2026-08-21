@@ -13,6 +13,7 @@ Health:     GET /health
 import asyncio
 import json
 import os
+import re
 import sys
 
 import agent_config  # noqa: F401  (must be first: APP_ROOT, .env, secure_config)
@@ -22,7 +23,8 @@ from agent_config import (
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
+from fastapi.responses import (FileResponse, StreamingResponse, JSONResponse,
+                               Response)
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -986,6 +988,92 @@ async def email_log(request: Request):
     if not row:
         return {"log": []}
     return {"log": email_store.recent(row["email_address"], 20)}
+
+
+def _own_ledger_row(user: dict, event_id: int) -> dict:
+    """The expand-a-row viewer's authz: the event must be in the CALLING
+    user's own ledger (scoped by their address) — otherwise any signed-in
+    user could pull arbitrary tenant mail by guessing event ids."""
+    import email_store
+    row = email_store.get_address(int(user["user_id"] or 0))
+    if not row:
+        raise HTTPException(404, "No agent address set up for this user.")
+    entry = email_store.get_processed(int(event_id), row["email_address"])
+    if not entry:
+        raise HTTPException(404, "That email is not in your activity log.")
+    return entry
+
+
+@app.get("/api/email/log/{event_id}")
+async def email_log_detail(event_id: int, request: Request):
+    """Expand one logged inbound email: full body + attachment list, fetched
+    LIVE from the cloud (which retains mail ~3 days — the ledger keeps no
+    content by design). retained=false when the body is gone; metadata and
+    the agent's outcome still come back from the ledger row."""
+    user = _verify_request(request)
+    import email_client
+    entry = _own_ledger_row(user, event_id)
+    key = str(entry.get("message_key") or "")
+    if not key and event_id:
+        # Rows recorded before the message_key column: recover the key from
+        # the live feed while the cloud still retains the event. poll() has
+        # no internal catch (its other caller wants the error) — here a
+        # cloud outage must degrade to retained:false, not a 500.
+        try:
+            for ev in await email_client.poll():
+                if int(ev.get("event_id") or ev.get("id") or 0) == int(event_id):
+                    key = str(ev.get("message_key") or "")
+                    break
+        except Exception as e:
+            logger.warning(f"email log-detail poll fallback failed: {e}")
+    message = await email_client.full_message(key) if key else None
+    atts = await email_client.attachments_for(int(event_id)) if event_id else []
+    return {
+        "entry": entry,
+        "retained": bool(message),
+        "body_html": str((message or {}).get("body_html")
+                         or (message or {}).get("body-html") or ""),
+        "body_text": str(email_client.body_text_of(message) or ""),
+        "attachments": [{
+            "attachment_id": a.get("attachment_id") or a.get("id"),
+            "filename": a.get("filename")
+                        or f"attachment-{a.get('attachment_id') or a.get('id')}",
+            "content_type": a.get("content_type") or "",
+            "size": a.get("size") or 0,
+        } for a in atts],
+    }
+
+
+@app.get("/api/email/log/{event_id}/attachment/{attachment_id}")
+async def email_log_attachment(event_id: int, attachment_id: int,
+                               request: Request):
+    """Download one attachment from a logged email. Ownership = the ledger
+    row; membership = the cloud's attachment list for that event. Both are
+    checked before any bytes are proxied, so an attachment id can never be
+    fetched through someone else's (or no) email."""
+    user = _verify_request(request)
+    import email_client
+    _own_ledger_row(user, event_id)
+    atts = await email_client.attachments_for(int(event_id))
+    match = next((a for a in atts
+                  if int(a.get("attachment_id") or a.get("id") or 0)
+                  == int(attachment_id)), None)
+    if not match:
+        raise HTTPException(404, "That attachment is not on that email.")
+    fetched = await email_client.attachment_bytes(int(attachment_id))
+    if not fetched:
+        raise HTTPException(502, "The cloud mailbox could not serve the "
+                                 "attachment (retention may have expired).")
+    content, content_type = fetched
+    # Filename originates from inbound mail (attacker-controlled): reduce to
+    # a header-safe charset — no quotes, no CR/LF, nothing exotic.
+    safe_name = re.sub(r"[^A-Za-z0-9._ -]", "_",
+                       str(match.get("filename") or ""))[:150].strip() \
+        or f"attachment-{attachment_id}"
+    return Response(
+        content=content,
+        media_type=content_type or "application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'})
 
 
 if __name__ == "__main__":

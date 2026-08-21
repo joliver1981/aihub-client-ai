@@ -122,16 +122,22 @@ async def process_event(ev: dict, owner: dict, own_addresses: set,
     event_id = int(_event_field(ev, "event_id", "id", default=0) or 0)
     sender = str(_event_field(ev, "sender_email", "sender", "from")).lower()
     subject = _event_field(ev, "subject")
+    # Persisted with every ledger row so the Email page can re-fetch the full
+    # body later (skipped mail included — it's still mail the user may want
+    # to read).
+    message_key = str(_event_field(ev, "message_key") or "")
 
     if email_store.already_processed(event_id, address):
         return "skipped_duplicate"
     if sender in own_addresses:
         email_store.record(event_id, address, "skipped_self", sender, subject,
-                           "mail from one of our own agent addresses")
+                           "mail from one of our own agent addresses",
+                           message_key=message_key)
         return "skipped_self"
     if email_store.processed_today(address) >= DAILY_CAP:
         email_store.record(event_id, address, "skipped_rate_limited", sender,
-                           subject, f"daily cap {DAILY_CAP} reached")
+                           subject, f"daily cap {DAILY_CAP} reached",
+                           message_key=message_key)
         return "skipped_rate_limited"
     if _cooldown_blocked(address, owner):
         # NOT recorded as processed — the next poll after the cooldown
@@ -178,7 +184,8 @@ async def process_event(ev: dict, owner: dict, own_addresses: set,
             created_by="email_poller")
 
     email_store.record(event_id, address, outcome, sender, subject,
-                       f"tools={','.join(tools_run[:10])}")
+                       f"tools={','.join(tools_run[:10])}",
+                       message_key=message_key)
 
     # notify_on_receive (parity option): tell the user's notification address
     # an email arrived and what the agent did. Failure is logged, never fatal.
@@ -226,7 +233,9 @@ async def poll_once() -> dict:
                 counts["processed"] += 1
         except Exception as e:
             event_id = int(_event_field(ev, "event_id", "id", default=0) or 0)
-            email_store.record(event_id, address, "error", detail=str(e)[:400])
+            email_store.record(event_id, address, "error", detail=str(e)[:400],
+                               message_key=str(_event_field(ev, "message_key")
+                                               or ""))
             logger.error(f"agent email processing error event {event_id}: {e}")
     return counts
 

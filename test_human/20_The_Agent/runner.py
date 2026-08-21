@@ -1222,6 +1222,52 @@ def main():
     finally:
         email_store.delete_address(77)
 
+    # A6-8 expand-a-row viewer (James 2026-08-21): GET /api/email/log/<id>
+    # is scoped to the CALLER'S OWN ledger (404 otherwise), returns the
+    # ledger entry, and degrades honestly (retained=false) when the cloud no
+    # longer holds the body — including for a stored-but-expired message_key.
+    # Deterministic: no LLM turn; events are seeded, never real cloud mail.
+    try:
+        email_store.delete_address(77)
+        email_store.upsert_address(77, "pack20a68",
+                                   "pack20a68-agent.999@pack20.invalid",
+                                   "pack20-u77", 2, True)
+        email_store.record(987001, "pack20a68-agent.999@pack20.invalid",
+                           "processed", "s@x.io", "expand probe", "tools=")
+        email_store.record(987002, "pack20a68-agent.999@pack20.invalid",
+                           "reply_drafted", "s@x.io", "expand probe 2",
+                           "tools=draft_email_reply",
+                           message_key="pack20-key-expired-xyz")
+        H77 = {"Authorization": f"Bearer {tok77}"}
+        r1 = requests.get(f"{BASE}/api/email/log/987001", headers=H77,
+                          timeout=90)
+        d1 = r1.json() if r1.status_code == 200 else {}
+        leg1 = (r1.status_code == 200 and d1.get("retained") is False
+                and (d1.get("entry") or {}).get("outcome") == "processed")
+        r2 = requests.get(f"{BASE}/api/email/log/987002", headers=H77,
+                          timeout=90)
+        d2 = r2.json() if r2.status_code == 200 else {}
+        leg2 = r2.status_code == 200 and d2.get("retained") is False
+        r_other = requests.get(f"{BASE}/api/email/log/987001",
+                               headers={"Authorization": f"Bearer {_tok(78)}"},
+                               timeout=90)
+        r_missing = requests.get(f"{BASE}/api/email/log/111222333",
+                                 headers=H77, timeout=90)
+        r_att = requests.get(
+            f"{BASE}/api/email/log/987001/attachment/424242",
+            headers=H77, timeout=90)
+        check("A6-8", "expand-a-row viewer: own rows expand w/ honest "
+                      "retained=false; other users 404; unknown event 404; "
+                      "non-member attachment 404",
+              leg1 and leg2 and r_other.status_code == 404
+              and r_missing.status_code == 404 and r_att.status_code == 404,
+              f"leg1={leg1} leg2={leg2} other={r_other.status_code} "
+              f"missing={r_missing.status_code} att={r_att.status_code}")
+    except Exception as e:
+        check("A6-8", "expand-a-row viewer", False, e)
+    finally:
+        email_store.delete_address(77)
+
     # V22-1 view editing seams (James 2026-08-09): get_view returns full tile
     # definitions (edits must preserve them); edit-chat is visibility-gated.
     try:

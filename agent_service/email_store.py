@@ -73,6 +73,15 @@ _OPTION_COLUMNS = {
     "reply_instructions": "TEXT DEFAULT ''",
 }
 
+# Ledger columns added after v1 (same additive pattern). message_key is the
+# cloud message-proxy handle — the ONLY way to re-fetch a body later (poll
+# rows carry no body, and the ledger deliberately stores none): the Email
+# page's expand-a-row viewer needs it. Empty for rows recorded before this
+# column existed; the viewer falls back to matching the live poll feed.
+_LEDGER_COLUMNS = {
+    "message_key": "TEXT DEFAULT ''",
+}
+
 
 def init() -> None:
     with _LOCK, _connect() as c:
@@ -103,6 +112,12 @@ def init() -> None:
         for name, ddl in _OPTION_COLUMNS.items():
             if name not in cols:
                 c.execute(f"ALTER TABLE user_email_addresses "
+                          f"ADD COLUMN {name} {ddl}")
+        cols = {r["name"] for r in c.execute(
+            "PRAGMA table_info(processed_emails)")}
+        for name, ddl in _LEDGER_COLUMNS.items():
+            if name not in cols:
+                c.execute(f"ALTER TABLE processed_emails "
                           f"ADD COLUMN {name} {ddl}")
     logger.info("agent email store ready")
 
@@ -187,13 +202,26 @@ def already_processed(event_id: int, address: str) -> bool:
 
 
 def record(event_id: int, address: str, outcome: str, sender: str = "",
-           subject: str = "", detail: str = "") -> None:
+           subject: str = "", detail: str = "", message_key: str = "") -> None:
     with _LOCK, _connect() as c:
         c.execute("INSERT OR IGNORE INTO processed_emails (event_id, address,"
-                  " sender, subject, outcome, detail, processed_at)"
-                  " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                  " sender, subject, outcome, detail, processed_at,"
+                  " message_key)"
+                  " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                   (int(event_id), address.lower(), sender[:200], subject[:300],
-                   outcome[:60], detail[:500], _now()))
+                   outcome[:60], detail[:500], _now(),
+                   str(message_key or "")[:200]))
+
+
+def get_processed(event_id: int, address: str) -> Optional[dict]:
+    """One ledger row by its natural key — the expand-a-row viewer's
+    ownership check (the address scoping IS the authz: callers pass the
+    requesting user's own address)."""
+    with _connect() as c:
+        r = c.execute("SELECT * FROM processed_emails WHERE event_id = ? "
+                      "AND address = ?",
+                      (int(event_id), address.lower())).fetchone()
+    return dict(r) if r else None
 
 
 def recent(address: str = "", limit: int = 20) -> list:
