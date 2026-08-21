@@ -1669,12 +1669,12 @@ def main():
         lowered = text.lower().strip()
         leads_no = lowered.startswith(("no", "unfortunately", "i can't",
                                        "i cannot", "i'm not able"))
-        check("P-1", "portal-capability ask: lookup_portal consulted; answer "
+        check("PT-1", "portal-capability ask: lookup_portal consulted; answer "
                      "leads with the capability, not 'no'",
               "lookup_portal" in used and "portal" in lowered and not leads_no,
               f"tools={used} leads_no={leads_no} text={text[:180]!r}")
     except Exception as e:
-        check("P-1", "portal-capability ask", False, e)
+        check("PT-1", "portal-capability ask", False, e)
 
     # P-2 live E2E at the tool chokepoint (no LLM): replay the seeded
     # "Vendor Invoice Download - 2FA" workflow against the REAL Meridian demo
@@ -1689,7 +1689,7 @@ def main():
             portal_up = False
         wf13 = _pwf.get_workflow(13, "vendor_invoice_download_2fa")
         if not (portal_up and wf13):
-            check("P-2", "portal workflow live E2E (agent chokepoint)",
+            check("PT-2", "portal workflow live E2E (agent chokepoint)",
                   True, f"SKIP: demo portal up={portal_up}, seeded "
                         f"workflow={bool(wf13)} — run start-meridian in the "
                         "demo control panel to exercise this live")
@@ -1711,7 +1711,7 @@ def main():
                                    headers={"Authorization": f"Bearer {tok77}"},
                                    timeout=90) if fid else None
             wf_after = _pwf.get_workflow(13, "vendor_invoice_download_2fa") or {}
-            check("P-2", "portal workflow live E2E: real 2FA replay -> staged "
+            check("PT-2", "portal workflow live E2E: real 2FA replay -> staged "
                          "file, owner gets bytes, other user 404, "
                          "last_run_status=ok in the store",
                   bool(fid) and not pres.get("is_error")
@@ -1728,7 +1728,7 @@ def main():
                 if hit and os.path.isfile(hit[0]):
                     os.remove(hit[0])
     except Exception as e:
-        check("P-2", "portal workflow live E2E", False, e)
+        check("PT-2", "portal workflow live E2E", False, e)
 
     # P-3 chokepoint honesty (no LLM): unknown workflow -> honest error with
     # the list hint; check_portal_run refuses to guess without a run_id.
@@ -1738,13 +1738,13 @@ def main():
         miss = _aio.run(_pt.run_portal_workflow.handler(
             {"name": "no-such-wf-424250"}))
         no_id = _aio.run(_pt.check_portal_run.handler({}))
-        check("P-3", "chokepoint honesty: unknown workflow -> honest error + "
+        check("PT-3", "chokepoint honesty: unknown workflow -> honest error + "
                      "list hint; check_portal_run without run_id refuses",
               bool(miss.get("is_error")) and "list_portal_workflows" in str(miss)
               and bool(no_id.get("is_error")),
               f"miss={str(miss)[:120]!r} no_id_err={bool(no_id.get('is_error'))}")
     except Exception as e:
-        check("P-3", "chokepoint honesty", False, e)
+        check("PT-3", "chokepoint honesty", False, e)
 
     # P-4 save_portal roundtrip: encrypted store + registry write with
     # read-back verification, credential never echoed, per-user scoped, and
@@ -1767,7 +1767,7 @@ def main():
                          == ("password", "totp")
                          and _pbrain.SENSITIVE_TOOL_FIELDS.get("portal_fetch")
                          == ("password", "totp"))
-            check("P-4", "save_portal: read-back verified, never echoes the "
+            check("PT-4", "save_portal: read-back verified, never echoes the "
                          "credential, per-user scoped, chip redaction mapped",
                   saved_ok and "pack20-portal-pw" not in stxt
                   and bool(mine) and other_blind and redact_ok,
@@ -1777,7 +1777,7 @@ def main():
         finally:
             _preg.delete_portal(424250, pname)
     except Exception as e:
-        check("P-4", "save_portal roundtrip", False, e)
+        check("PT-4", "save_portal roundtrip", False, e)
 
     _write_report(checks)
     if not all(c["ok"] for c in checks):
