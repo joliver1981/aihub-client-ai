@@ -1825,6 +1825,71 @@ def main():
     except Exception as e:
         check("PT-4", "save_portal roundtrip", False, e)
 
+    # PT-5 delivered-file follow-up (James's Alpaca repro 2026-08-21): after a
+    # portal download lands in chat, "what's the total on that invoice?" must
+    # resolve through the /api/files link (import_documents accepts it, owner-
+    # scoped) or the Server-copies path — never a filesystem hunt. Live
+    # two-turn session against the demo portal; honest SKIP when it's down.
+    try:
+        try:
+            portal_up5 = requests.get("http://127.0.0.1:3000/healthz",
+                                      timeout=5).status_code == 200
+        except Exception:
+            portal_up5 = False
+        wf5 = _pwf.get_workflow(13, "vendor_invoice_download_2fa")
+        if not (portal_up5 and wf5):
+            check("PT-5", "delivered-file follow-up (live)", True,
+                  f"SKIP: demo portal up={portal_up5}, workflow={bool(wf5)}")
+        else:
+            import file_tools as _pft5
+            import re as _r5
+            tok13b = _tok(13, 3)
+            ev1, text1 = chat_turn(tok13b, "Run the Vendor Invoice Download - "
+                                   "2FA portal workflow and give me the file.",
+                                   timeout=A1_TURN_TIMEOUT)
+            sid5 = result_of(ev1).get("session_id")
+            m5 = _r5.search(r"/api/files/([a-f0-9-]+)", text1)
+            fid5 = m5.group(1) if m5 else ""
+            ev2, text2 = chat_turn(tok13b, "What is the total amount due on "
+                                   "that invoice?", session_id=sid5,
+                                   timeout=A1_TURN_TIMEOUT)
+            names5 = {}
+            for e in ev2:
+                if e.get("type") == "tool":
+                    names5[e.get("id")] = (
+                        e.get("name", "").replace("mcp__aihub__", ""),
+                        json.dumps(e.get("input", {})))
+            import_ok5 = False
+            for e in ev2:
+                if e.get("type") == "tool_result" and e.get("ok"):
+                    nm, inp = names5.get(e.get("id"), ("", ""))
+                    if nm == "import_documents" and (
+                            "/api/files/" in inp or "downloads" in inp.lower()):
+                        import_ok5 = True
+            hunts5 = sum(1 for v in names5.values() if v[0] == "list_server_files")
+            amount5 = bool(_r5.search(
+                r"(\$\s?\d[\d,]*(\.\d+)?)|(\d[\d,]*\.\d{2})", text2))
+            check("PT-5", "delivered-file follow-up: import_documents resolves "
+                          "the delivered link/copy (ok result) and the answer "
+                          "quotes an amount",
+                  bool(fid5) and bool(sid5) and import_ok5 and amount5,
+                  f"file={bool(fid5)} sid={bool(sid5)} import_ok={import_ok5} "
+                  f"hunts={hunts5} answer={text2[:140]!r}")
+            try:  # cleanup: purge the imported doc + the staged copy
+                if fid5:
+                    dl5 = requests.get(f"{MAIN}/api/documents?search={fid5}",
+                                       headers=SVC_HEADERS, timeout=60).json()
+                    for d5 in (dl5.get("documents") or []):
+                        requests.delete(f"{MAIN}/api/documents/{d5.get('id')}",
+                                        headers=SVC_HEADERS, timeout=60)
+                    hit5 = _pft5.resolve_offer(13, fid5)
+                    if hit5 and os.path.isfile(hit5[0]):
+                        os.remove(hit5[0])
+            except Exception:
+                pass
+    except Exception as e:
+        check("PT-5", "delivered-file follow-up (live)", False, e)
+
     _write_report(checks)
     if not all(c["ok"] for c in checks):
         sys.exit(1)

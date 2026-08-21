@@ -275,6 +275,26 @@ async def import_documents(args: dict[str, Any]) -> dict[str, Any]:
     if not raw:
         return _text("Give me a folder or file path to import.", is_error=True)
     path = os.path.abspath(raw)
+    if not os.path.exists(path):
+        # After delivering a download, the model often holds only the
+        # user-facing /api/files/ link (portal downloads are staged inside the
+        # tool body, so no server path ever entered the transcript). Resolve
+        # the link to THIS user's staged copy instead of failing into a
+        # filesystem hunt (James's Alpaca-statement repro, 2026-08-21).
+        try:
+            from file_tools import resolve_api_files_ref
+            uid = int((CURRENT_USER.get() or {}).get("user_id") or 0)
+            staged, _display = resolve_api_files_ref(raw, uid)
+        except Exception:
+            staged = None
+        if staged:
+            path = staged
+        elif "/api/files/" in raw:
+            return _text("That /api/files/ link doesn't match any download "
+                         "staged for this user (wrong owner, or it was cleaned "
+                         "up). Re-run the download, or use the 'Server copies' "
+                         "path from the tool result that delivered it.",
+                         is_error=True)
     recursive = bool(args.get("recursive"))
     force = bool(args.get("force"))
     force_ai = bool(args.get("force_ai_extraction"))

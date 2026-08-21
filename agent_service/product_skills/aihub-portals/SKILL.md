@@ -52,6 +52,17 @@ nothing is ever delivered automatically.
   find one). Report exactly what the tool said — "uploaded" only when it says
   so.
 
+## Reading / using a downloaded file
+
+To answer questions about a file you delivered ("what's the balance on the
+statement?"): pass its `/api/files/…` link straight to `import_documents` —
+it resolves to this user's staged copy — then `search_documents` /
+`query_document_records` and answer with citations. The portal tool result
+also lists **Server copies** paths; those work anywhere a server path does,
+including `upload_file` (and `upload_file` accepts the `/api/files` link
+directly too). Never go hunting with `list_server_files` for a file you
+already delivered.
+
 ## Recurring portal downloads
 
 Two working patterns today:

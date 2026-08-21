@@ -64,24 +64,27 @@ def _fmt_size(n: int) -> str:
 def stage_offer(user_id: int, server_path: str,
                 display_name: Optional[str] = None) -> tuple:
     """Stage a private copy of a server file for this user and return
-    (True, markdown_link) or (False, honest_error_text). The staging core of
-    offer_file_download, shared with portal_tools so downloaded files become
-    working chat links in one deterministic step (no reliance on the model
-    chaining a second tool call)."""
+    (True, markdown_link, staged_path) or (False, honest_error_text, None).
+    The staging core of offer_file_download, shared with portal_tools so
+    downloaded files become working chat links in one deterministic step.
+    The staged_path is returned so a delivering tool can hand the MODEL its
+    own server-side handle — without it, the transcript holds only the
+    user-facing /api/files/ link and later "read that file" asks degenerate
+    into filesystem hunts (James's Alpaca-statement repro, 2026-08-21)."""
     raw = str(server_path or "").strip().strip('"')
     src = os.path.abspath(raw)
     root = os.path.abspath(APP_ROOT)
     if not src.startswith(root + os.sep):
         return False, ("Refused: that path is outside the platform's data area "
                        "— only files produced under the AI Hub root can be "
-                       "offered.")
+                       "offered."), None
     if not os.path.isfile(src):
         return False, (f"No file exists at {raw} — nothing to offer. Check the "
-                       "download step's actual output path.")
+                       "download step's actual output path."), None
     size = os.path.getsize(src)
     if size > MAX_OFFER_MB * 1024 * 1024:
         return False, (f"File is {_fmt_size(size)} — over the "
-                       f"{MAX_OFFER_MB} MB handoff cap.")
+                       f"{MAX_OFFER_MB} MB handoff cap."), None
     name = _NAME_RE.sub("_", str(display_name
                                  or os.path.basename(src)))[:150] or "file"
     fid = str(uuid.uuid4())
@@ -89,9 +92,27 @@ def stage_offer(user_id: int, server_path: str,
     try:
         shutil.copy2(src, dst)
     except OSError as e:
-        return False, f"Could not stage the file: {e}"
+        return False, f"Could not stage the file: {e}", None
     logger.info(f"file offered: user {int(user_id)} <- {src} ({_fmt_size(size)})")
-    return True, f"[⤓ {name} ({_fmt_size(size)})](/api/files/{fid})"
+    return True, f"[⤓ {name} ({_fmt_size(size)})](/api/files/{fid})", dst
+
+
+_FID_RE = re.compile(
+    r"(?:/api/files/)?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+    r"[0-9a-f]{4}-[0-9a-f]{12})", re.I)
+
+
+def resolve_api_files_ref(text: str, user_id: int) -> tuple:
+    """If `text` references a staged download — an /api/files/<id> link or a
+    bare file id — return (staged_path, original_name) for THIS user's copy,
+    else (None, None). Owner-scoped through resolve_offer: another user's id
+    resolves to nothing (fail closed). Lets tools accept the exact handle the
+    model holds after delivering a file, instead of erroring into a hunt."""
+    m = _FID_RE.search(str(text or ""))
+    if not m:
+        return None, None
+    hit = resolve_offer(int(user_id or 0), m.group(1).lower())
+    return (hit[0], hit[1]) if hit else (None, None)
 
 
 @tool(
@@ -119,7 +140,8 @@ def stage_offer(user_id: int, server_path: str,
 async def offer_file_download(args: dict[str, Any]) -> dict[str, Any]:
     user = CURRENT_USER.get()
     uid = int(user.get("user_id") or 0)
-    ok, msg = stage_offer(uid, str(args["server_path"]), args.get("display_name"))
+    ok, msg, _path = stage_offer(uid, str(args["server_path"]),
+                                 args.get("display_name"))
     if not ok:
         return _text(msg, is_error=True)
     return _text(f"Download ready. Include this link verbatim in your reply:\n{msg}")

@@ -312,6 +312,131 @@ def test_run_workflow_upload_flag_passes_inputs():
             os.remove(src)
 
 
+# --------------------------------------------- delivered-file follow-ups
+# (James's Alpaca repro 2026-08-21: after delivering a download link, the
+# model's only handle was /api/files/<id> — import_documents errored on it
+# and the model hunted the filesystem.)
+
+def test_stage_offer_returns_staged_path():
+    tmp_dir = os.path.join(APP_ROOT, "temp")
+    os.makedirs(tmp_dir, exist_ok=True)
+    src = os.path.join(tmp_dir, f"stage_{uuid.uuid4().hex[:8]}.txt")
+    with open(src, "w", encoding="utf-8") as fh:
+        fh.write("x")
+    try:
+        ok, link, path = file_tools.stage_offer(TEST_UID, src)
+        assert ok and "/api/files/" in link
+        assert path and os.path.isfile(path)
+        assert os.sep + str(TEST_UID) + os.sep in path  # per-user dir
+    finally:
+        os.remove(src)
+        _cleanup_user_files()
+
+
+def test_resolve_api_files_ref_owner_scoped():
+    tmp_dir = os.path.join(APP_ROOT, "temp")
+    os.makedirs(tmp_dir, exist_ok=True)
+    src = os.path.join(tmp_dir, f"ref_{uuid.uuid4().hex[:8]}.pdf")
+    with open(src, "wb") as fh:
+        fh.write(b"%PDF-1.4 fake")
+    try:
+        ok, link, _p = file_tools.stage_offer(TEST_UID, src)
+        assert ok
+        import re
+        fid = re.search(r"/api/files/([a-f0-9-]+)", link).group(1)
+        # link form and bare-id form both resolve for the owner
+        for ref in (f"/api/files/{fid}", fid, f"see [file](/api/files/{fid})"):
+            path, name = file_tools.resolve_api_files_ref(ref, TEST_UID)
+            assert path and os.path.isfile(path) and name.endswith(".pdf"), ref
+        # another user's id resolves to nothing (fail closed)
+        assert file_tools.resolve_api_files_ref(f"/api/files/{fid}", 424299) == (None, None)
+        # garbage never resolves
+        assert file_tools.resolve_api_files_ref("no ref here", TEST_UID) == (None, None)
+        assert file_tools.resolve_api_files_ref("/api/files/not-a-uuid", TEST_UID) == (None, None)
+    finally:
+        os.remove(src)
+        _cleanup_user_files()
+
+
+def test_finish_run_gives_model_server_copies_line():
+    tmp_dir = os.path.join(APP_ROOT, "temp")
+    os.makedirs(tmp_dir, exist_ok=True)
+    src = os.path.join(tmp_dir, f"copies_{uuid.uuid4().hex[:8]}.txt")
+    with open(src, "w", encoding="utf-8") as fh:
+        fh.write("statement")
+    try:
+        res = portal_tools._finish_run({"status": "ok", "files": [src]}, TEST_UID)
+        t = _txt(res)
+        assert "/api/files/" in t
+        assert "Server copies" in t and "NEVER show a raw path" in t
+        assert os.path.join("users", str(TEST_UID), "downloads") in t
+    finally:
+        os.remove(src)
+        _cleanup_user_files()
+
+
+def test_upload_refusal_accepts_api_files_ref():
+    _as_user()
+    tmp_dir = os.path.join(APP_ROOT, "temp")
+    os.makedirs(tmp_dir, exist_ok=True)
+    src = os.path.join(tmp_dir, f"up_{uuid.uuid4().hex[:8]}.csv")
+    with open(src, "w", encoding="utf-8") as fh:
+        fh.write("a\n")
+    try:
+        ok, link, staged = file_tools.stage_offer(TEST_UID, src)
+        assert ok
+        import re
+        fid = re.search(r"/api/files/([a-f0-9-]+)", link).group(1)
+        path, err = portal_tools._upload_refusal(f"/api/files/{fid}")
+        assert err is None and path == staged
+    finally:
+        os.remove(src)
+        _cleanup_user_files()
+
+
+def test_import_documents_resolves_api_files_ref():
+    import document_tools
+    import httpx as _httpx
+    _Real = _httpx.AsyncClient
+    _as_user()
+    tmp_dir = os.path.join(APP_ROOT, "temp")
+    os.makedirs(tmp_dir, exist_ok=True)
+    src = os.path.join(tmp_dir, f"imp_{uuid.uuid4().hex[:8]}.txt")
+    with open(src, "w", encoding="utf-8") as fh:
+        fh.write("Ending balance: $12,345.67")
+    try:
+        ok, link, staged = file_tools.stage_offer(TEST_UID, src)
+        assert ok
+        posted = {}
+
+        def handler(request):
+            posted["url"] = str(request.url)
+            return _httpx.Response(200, json={"status": "success",
+                                              "document_id": 42,
+                                              "page_count": 1})
+
+        def factory(**kw):
+            return _Real(transport=_httpx.MockTransport(handler))
+
+        with patched(_httpx, AsyncClient=factory):
+            # force=true skips the dedupe GET, so only /document/process fires
+            res = _run({t.name: t for t in
+                        document_tools.DOCUMENT_TOOLS}["import_documents"],
+                       {"path": link, "force": True})
+        t = _txt(res)
+        assert not res.get("is_error"), t
+        assert "Imported 1" in t and "document/process" in posted["url"]
+        # unknown / other-owner ref fails honestly, no filesystem hunt hint
+        bogus = "/api/files/00000000-0000-0000-0000-000000000000"
+        res2 = _run({t2.name: t2 for t2 in
+                     document_tools.DOCUMENT_TOOLS}["import_documents"],
+                    {"path": bogus})
+        assert res2.get("is_error") and "doesn't match any download" in _txt(res2)
+    finally:
+        os.remove(src)
+        _cleanup_user_files()
+
+
 # ----------------------------------------------------------------- save_portal
 
 def test_save_portal_readback_verified_and_no_echo():

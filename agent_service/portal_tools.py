@@ -73,12 +73,23 @@ def _session_marker() -> str:
 
 def _upload_refusal(path: str):
     """(abs_path, None) for an uploadable server file, else (None, honest reason).
-    Any OS-readable file may be uploaded (CC parity, on-prem install) EXCEPT the
-    platform's credential files and the OS tree."""
+    Accepts an /api/files/<id> link (or bare file id) for a download the agent
+    itself staged — resolved owner-scoped to this user's copy — as well as any
+    OS-readable server path (CC parity, on-prem install), EXCEPT the platform's
+    credential files and the OS tree."""
     p = str(path or "").strip().strip('"')
     if not p:
         return None, "no file specified"
     ap = os.path.abspath(os.path.expanduser(p))
+    if not os.path.isfile(ap):
+        # The model may hold only the /api/files/ link it delivered earlier.
+        try:
+            from file_tools import resolve_api_files_ref
+            staged, _name = resolve_api_files_ref(p, int(_uid() or 0))
+        except Exception:
+            staged = None
+        if staged:
+            ap = staged
     secrets_dir = os.path.join(os.path.abspath(APP_ROOT), "data", "secrets")
     if ap.startswith(secrets_dir + os.sep) or \
             os.path.basename(ap).lower() in (".env", "secrets.json.enc"):
@@ -88,20 +99,24 @@ def _upload_refusal(path: str):
         return None, "files under the OS directory can't be uploaded"
     if not os.path.isfile(ap):
         return None, (f"I couldn't find '{p}' on the server. Give the full path to a "
-                      "file on this machine (list_server_files can help locate it).")
+                      "file on this machine (list_server_files can help locate it), "
+                      "or the /api/files link of a download you delivered earlier.")
     return ap, None
 
 
 def _stage_files(uid, files):
-    """Stage each downloaded file for this user. Returns (links, errors)."""
-    links, errors = [], []
+    """Stage each downloaded file for this user. Returns (links, paths, errors) —
+    links are user-facing, paths are the staged server copies the MODEL keeps
+    as its own handle for import/upload follow-ups."""
+    links, paths, errors = [], [], []
     for f in files or []:
-        ok, msg = stage_offer(int(uid or 0), f)
+        ok, msg, staged = stage_offer(int(uid or 0), f)
         if ok:
             links.append(msg)
+            paths.append(staged)
         else:
             errors.append(f"{os.path.basename(str(f))}: {msg}")
-    return links, errors
+    return links, paths, errors
 
 
 def _autosave_draft(res: dict, uid) -> str:
@@ -130,11 +145,16 @@ def _finish_run(res: dict, uid, kind: str = "portal task") -> dict:
     links on success; exact failure / upload / no-file texts otherwise (ported
     from CC's _deliver_portal_result — never invent a delivery)."""
     files = res.get("files") or []
-    links, stage_errors = _stage_files(uid, files)
+    links, staged_paths, stage_errors = _stage_files(uid, files)
     if links:
         out = ["The portal run finished. Include each download link VERBATIM "
                "in your reply:"]
         out += links
+        if staged_paths:
+            out.append("Server copies — YOUR OWN handle for follow-ups "
+                       "(import_documents and upload_file accept the "
+                       "/api/files link above or these paths; NEVER show a "
+                       "raw path to the user): " + "; ".join(staged_paths))
         if stage_errors:
             out.append("Some downloaded files could NOT be staged — tell the user "
                        "honestly: " + "; ".join(stage_errors))

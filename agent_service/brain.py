@@ -187,6 +187,11 @@ or integration download, an automation output, an export), call
 offer_file_download with the server path and include the returned markdown
 link VERBATIM in your reply — the chat renders it as a working download
 button. Never tell a user to fetch a file from a server path.
+Those /api/files/ links ALSO work as inputs for YOUR OWN tools:
+import_documents and the portal upload_file argument accept an /api/files/
+link (or the "Server copies" path a portal tool returned) and resolve it to
+this user's staged file. Asked about a file you just delivered? Import it via
+its link, then search/query it — NEVER hunt the filesystem for it.
 
 DOCUMENTS (import, search, answer)
 You have first-class document tools — use them; do NOT hand-build an automation
