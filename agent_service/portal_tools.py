@@ -180,6 +180,22 @@ def _finish_run(res: dict, uid, kind: str = "portal task") -> dict:
         return _text("The run downloaded file(s) but they could not be staged for the "
                      "user: " + "; ".join(stage_errors) + ". Tell the user honestly — "
                      "do NOT invent a download link.", is_error=True)
+    # Read-only tasks ("tell me the balance shown on the account page"): the
+    # browser agent reads the DOM/screenshots and its answer arrives as
+    # final_result. Relay it — framed as a READING of on-screen text, never as a
+    # document — instead of dropping it (James 2026-08-22; CC's wrapper still
+    # drops it).
+    reading = str(res.get("final_result") or "").strip()
+    if reading:
+        return _text(
+            f"The {kind} finished with NO file downloaded. Browser agent's READING "
+            "of the page — text it saw on screen, NOT a downloaded document, and "
+            "only as reliable as its interpretation of the page:\n"
+            f"{reading[:1500]}\n"
+            "If the user asked for a FILE, say plainly that none was downloaded. If "
+            "they asked for information shown on the page, answer from this "
+            "reading and say it came from reading the portal page, not from a "
+            "statement or document.")
     return _text(f"The {kind} ran but NO file was captured (0 files downloaded), so "
                  "there is nothing to deliver. Tell the user plainly that the download "
                  "did not complete — do NOT claim a file was delivered and do NOT "
@@ -346,6 +362,9 @@ async def save_portal(args: dict[str, Any]) -> dict[str, Any]:
     "success OFFER save_portal. "
     "(3) UPLOAD — additionally pass upload_file (a server file path) and describe the "
     "upload in task. "
+    "READ-ONLY tasks work too: ask it to REPORT what is on the page ('open the account "
+    "summary and report the current balance shown') — the result carries the browser "
+    "agent's reading of the screen; no file is produced. "
     "Waits in-tool up to ~2 minutes; a longer run hands back a run_id to collect with "
     "check_portal_run. If the portal pauses for 2FA/verification, this returns a "
     "take-over LINK to relay to the user verbatim. Downloaded files come back as "

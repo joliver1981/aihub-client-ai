@@ -1906,6 +1906,44 @@ def main():
     except Exception as e:
         check("PT-5", "delivered-file follow-up (live)", False, e)
 
+    # PT-6 screen reading (James 2026-08-22): a READ-ONLY portal task — "tell
+    # me what the newest document listed on the Documents page is, don't
+    # download" — must come back as the browser agent's reading (portal_fetch,
+    # no file, no invented link) naming a real fixture document. Ground truth =
+    # the Meridian fixture's files dir. Honest SKIP when the portal is down.
+    try:
+        try:
+            portal_up6 = requests.get("http://127.0.0.1:3000/healthz",
+                                      timeout=5).status_code == 200
+        except Exception:
+            portal_up6 = False
+        fx_dir = os.path.join(APP_ROOT, "test_human", "_portal_test_server", "files")
+        fx_stems = [os.path.splitext(n)[0].lower() for n in os.listdir(fx_dir)] \
+            if os.path.isdir(fx_dir) else []
+        from command_center.tools import portal_registry as _preg6
+        saved6 = _preg6.lookup_portal(13, "meridian_vendor_portal")
+        if not (portal_up6 and fx_stems and saved6):
+            check("PT-6", "portal screen reading (live)", True,
+                  f"SKIP: portal up={portal_up6} fixtures={len(fx_stems)} "
+                  f"saved_portal={bool(saved6)}")
+        else:
+            tok13c = _tok(13, 3)
+            ev6, text6 = chat_turn(tok13c, "Log into the Meridian vendor portal and "
+                                   "tell me the exact file name of the newest "
+                                   "document listed on its Documents page. Do NOT "
+                                   "download anything — just read it off the page.",
+                                   timeout=A1_TURN_TIMEOUT)
+            used6 = tools_used(ev6)
+            low6 = text6.lower()
+            named = any(stem and stem in low6 for stem in fx_stems)
+            check("PT-6", "portal screen reading: read-only task via portal_fetch "
+                          "names a real on-page document, no download link invented",
+                  "portal_fetch" in used6 and named and "/api/files/" not in text6,
+                  f"tools={used6} named_real_doc={named} "
+                  f"link_invented={'/api/files/' in text6} text={text6[:160]!r}")
+    except Exception as e:
+        check("PT-6", "portal screen reading (live)", False, e)
+
     _write_report(checks)
     if not all(c["ok"] for c in checks):
         sys.exit(1)

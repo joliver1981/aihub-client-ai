@@ -267,6 +267,45 @@ def test_finish_run_honest_texts():
     assert up_bad.get("is_error") and "did NOT complete" in _txt(up_bad)
 
 
+# ------------------------------------------- screen reading (James 2026-08-22)
+# Read-only portal tasks: the browser agent's on-screen reading arrives as
+# final_result and must be relayed — framed as a reading, never as a document.
+
+def test_finish_run_relays_page_reading_when_no_files():
+    res = portal_tools._finish_run(
+        {"status": "ok", "files": [],
+         "final_result": "The current balance shown on the account page is $12,345.67"},
+        TEST_UID)
+    t = _txt(res)
+    assert "$12,345.67" in t
+    assert "READING" in t and "NOT a downloaded document" in t
+    assert not res.get("is_error")
+    assert "/api/files/" not in t                       # never invents a download
+
+
+def test_finish_run_no_files_no_reading_keeps_honest_text():
+    res = portal_tools._finish_run({"status": "ok", "files": [], "final_result": ""},
+                                   TEST_UID)
+    assert "NO file was captured" in _txt(res)
+
+
+def test_finish_run_download_branch_unchanged_by_reading():
+    tmp_dir = os.path.join(APP_ROOT, "temp")
+    os.makedirs(tmp_dir, exist_ok=True)
+    src = os.path.join(tmp_dir, f"dl_{uuid.uuid4().hex[:8]}.txt")
+    with open(src, "w", encoding="utf-8") as fh:
+        fh.write("statement")
+    try:
+        res = portal_tools._finish_run(
+            {"status": "ok", "files": [src], "final_result": "downloaded it"}, TEST_UID)
+        t = _txt(res)
+        assert "/api/files/" in t and "Browser agent's note" in t
+        assert "READING" not in t
+    finally:
+        os.remove(src)
+        _cleanup_user_files()
+
+
 # ------------------------------------------------------------ check_portal_run
 
 def test_check_requires_run_id():

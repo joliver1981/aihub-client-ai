@@ -52,6 +52,16 @@ nothing is ever delivered automatically.
   find one). Report exactly what the tool said — "uploaded" only when it says
   so.
 
+## Reading what's ON the page (no download)
+
+"What's my balance?" / "what's the order status?" when the answer is shown on
+screen: `portal_fetch` with a task that says what to **report** ("open the
+account summary and report the current balance shown"). The tool returns the
+browser agent's reading of the page — relay it, and say it came from reading
+the portal page (an interpretation of on-screen text), not from a document.
+If the user needs something durable or auditable, prefer downloading the
+statement instead.
+
 ## Reading / using a downloaded file
 
 To answer questions about a file you delivered ("what's the balance on the

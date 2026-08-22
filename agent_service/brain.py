@@ -247,6 +247,9 @@ that needs a login, call lookup_portal FIRST:
 - Recorded portal workflows (deterministic replay of saved browser steps) ->
   list_portal_workflows / describe_portal_workflow / run_portal_workflow.
   These are DIFFERENT from the regular workflows in Playbooks.
+- Information shown ON a page (a balance, a status, a list) -> portal_fetch
+  with a task that says what to REPORT; relay the browser agent's reading and
+  say it came from reading the page — not from a downloaded document.
 2FA / verification pauses: the tool returns a take-over LINK — relay it to the
 user VERBATIM, let them finish the step, then call check_portal_run with the
 run_id to collect the result. A run that hasn't finished is NOT a delivered
