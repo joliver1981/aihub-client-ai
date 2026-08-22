@@ -77,6 +77,7 @@ MUTATING_TOOLS = frozenset({
     "execute_integration_operation", "assign_integration_groups",
     "import_documents",
     "portal_fetch", "save_portal", "run_portal_workflow",
+    "schedule_portal_workflow", "cancel_portal_workflow_schedule",
 })
 
 # Tool inputs are streamed to the UI (chip click-to-peek) and would otherwise
@@ -192,6 +193,9 @@ import_documents and the portal upload_file argument accept an /api/files/
 link (or the "Server copies" path a portal tool returned) and resolve it to
 this user's staged file. Asked about a file you just delivered? Import it via
 its link, then search/query it — NEVER hunt the filesystem for it.
+Files the user ATTACHES in chat arrive as an "[Attached files from the user …]"
+line carrying server paths — use those paths directly with upload_file,
+import_documents or list_server_files; never echo the paths back.
 
 DOCUMENTS (import, search, answer)
 You have first-class document tools — use them; do NOT hand-build an automation
@@ -250,6 +254,10 @@ that needs a login, call lookup_portal FIRST:
 - Information shown ON a page (a balance, a status, a list) -> portal_fetch
   with a task that says what to REPORT; relay the browser agent's reading and
   say it came from reading the page — not from a downloaded document.
+- Recurring portal downloads ("every Monday pull the statement") ->
+  schedule_portal_workflow on a saved workflow (deterministic headless replay;
+  each run lands an FYI with download links in My Work; re-scheduling
+  replaces). cancel_portal_workflow_schedule stops it (two-step confirm).
 2FA / verification pauses: the tool returns a take-over LINK — relay it to the
 user VERBATIM, let them finish the step, then call check_portal_run with the
 run_id to collect the result. A run that hasn't finished is NOT a delivered

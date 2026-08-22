@@ -146,7 +146,8 @@ async def process_event(ev: dict, owner: dict, own_addresses: set,
 
     user_ctx = {"user_id": int(owner["user_id"]), "role": int(owner.get("role") or 2),
                 "username": owner.get("username") or f"user{owner['user_id']}",
-                "name": owner.get("username") or ""}
+                "name": owner.get("username") or "",
+                "mode": "headless"}   # tools route human-needed pauses to My Work
     prompt = await build_prompt(ev, owner)
 
     if run_turn_fn is None:

@@ -97,6 +97,84 @@ def stage_offer(user_id: int, server_path: str,
     return True, f"[⤓ {name} ({_fmt_size(size)})](/api/files/{fid})", dst
 
 
+UPLOAD_MAX_MB = int(os.getenv("AGENT_UPLOAD_MAX_MB", "50"))
+
+
+def uploads_dir(user_id: int) -> str:
+    d = os.path.join(USERS_DIR, str(int(user_id)), "uploads")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def save_upload(user_id: int, filename: str, data: bytes) -> tuple:
+    """Chat attachment (P2 item 4, 2026-08-22): persist bytes the user attached
+    in chat into their private uploads area and return (file_id, path, size).
+    Same rails as downloads staging: per-user dir, sanitized name, uuid prefix,
+    size cap. Raises ValueError over the cap."""
+    size = len(data or b"")
+    if size > UPLOAD_MAX_MB * 1024 * 1024:
+        raise ValueError(f"File is {_fmt_size(size)} — over the {UPLOAD_MAX_MB} MB "
+                         "upload cap.")
+    name = _NAME_RE.sub("_", str(filename or "file"))[:150] or "file"
+    fid = str(uuid.uuid4())
+    dst = os.path.join(uploads_dir(int(user_id)), f"{fid}__{name}")
+    with open(dst, "wb") as fh:
+        fh.write(data or b"")
+    logger.info(f"chat upload: user {int(user_id)} -> {name} ({_fmt_size(size)})")
+    return fid, dst, size
+
+
+def resolve_upload(user_id: int, file_id: str) -> Optional[tuple]:
+    """(path, original_name) for an upload THIS user made, else None."""
+    safe = "".join(ch for ch in str(file_id) if ch.isalnum() or ch == "-")
+    if safe != file_id or len(safe) < 8:
+        return None
+    d = uploads_dir(user_id)
+    for name in os.listdir(d):
+        if name.startswith(safe + "__"):
+            return os.path.join(d, name), name.split("__", 1)[1]
+    return None
+
+
+def list_uploads(user_id: int) -> list:
+    d = uploads_dir(user_id)
+    out = []
+    for name in sorted(os.listdir(d)):
+        if "__" not in name:
+            continue
+        p = os.path.join(d, name)
+        fid, orig = name.split("__", 1)
+        try:
+            st = os.stat(p)
+        except OSError:
+            continue
+        out.append({"file_id": fid, "name": orig, "size": st.st_size,
+                    "uploaded_at": st.st_mtime})
+    out.sort(key=lambda r: -r["uploaded_at"])
+    return out
+
+
+def attachments_prompt_block(user_id: int, file_ids) -> str:
+    """Model-facing line prepended to a chat turn that carries attachments:
+    the server paths of THIS user's uploads, so every path-taking tool
+    (upload_file, import_documents, list_server_files) just works. Never shown
+    to the user — the FILES doctrine forbids echoing server paths."""
+    rows = []
+    for fid in (file_ids or []):
+        hit = resolve_upload(int(user_id), str(fid))
+        if hit:
+            try:
+                size = _fmt_size(os.path.getsize(hit[0]))
+            except OSError:
+                size = "?"
+            rows.append(f"{hit[1]} ({size}) -> {hit[0]}")
+    if not rows:
+        return ""
+    return ("[Attached files from the user — server paths for YOUR tools "
+            "(upload_file, import_documents, list_server_files); never show "
+            "these paths back to the user:\n  " + "\n  ".join(rows) + "\n]")
+
+
 _FID_RE = re.compile(
     r"(?:/api/files/)?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
     r"[0-9a-f]{4}-[0-9a-f]{12})", re.I)

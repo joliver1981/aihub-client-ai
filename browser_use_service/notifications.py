@@ -21,12 +21,13 @@ def _main_app_base():
     return f"http://{host}:{os.getenv('HOST_PORT', '5001')}"
 
 
-def _post(user_id, run_id, portal):
+def _post(user_id, run_id, portal, reason=None):
     import requests
     try:
         requests.post(
             f"{_main_app_base()}/api/portal-workflows/internal/notify-takeover",
-            json={"user_id": str(user_id), "run_id": run_id, "portal": portal or "portal"},
+            json={"user_id": str(user_id), "run_id": run_id, "portal": portal or "portal",
+                  "reason": reason or None},
             headers={"X-AIHub-Internal": os.getenv("API_KEY", "")},
             timeout=8,
         )
@@ -42,7 +43,8 @@ def notify_takeover(run):
 
     async def _go():
         try:
-            await asyncio.to_thread(_post, run.user_id, run.run_id, run.portal)
+            await asyncio.to_thread(_post, run.user_id, run.run_id, run.portal,
+                                    getattr(run, "reason", None))
         except Exception:
             pass
 

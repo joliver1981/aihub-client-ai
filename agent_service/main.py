@@ -153,6 +153,7 @@ async def headless_run(request: Request):
         "role": int(body.get("role") or 2),
         "username": str(body.get("username") or "scheduler"),
         "name": str(body.get("username") or "scheduler"),
+        "mode": "headless",   # tools route human-needed pauses to My Work
     }
     job_name = str(body.get("job_name") or "Scheduled agent task")
     logger.info(f"headless run start job={job_name!r} as user "
@@ -187,19 +188,99 @@ async def headless_run(request: Request):
             "work_item_id": item["work_item_id"]}
 
 
+@app.post("/api/work/internal/raise")
+async def internal_raise_work(request: Request):
+    """Service-key seam for OTHER services (the main app's portal routes) to put
+    an item in a user's My Work — scheduled portal outcomes, 2FA take-over
+    requests (P2 items 1+2, 2026-08-22). Optional `files` (server paths under
+    APP_ROOT) are staged into the user's private downloads and appended as
+    working links, so the item delivers the actual file."""
+    if not _service_key_ok(request):
+        raise HTTPException(401, "service key required")
+    body = await request.json()
+    uid = int(body.get("user_id") or 0)
+    title = str(body.get("title") or "").strip()
+    if not uid or not title:
+        raise HTTPException(400, "user_id and title are required")
+    payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
+    if payload.get("kind") in ("skill_promotion", "view_promotion", "agent_email_reply"):
+        raise HTTPException(400, "reserved payload kind")
+    summary = str(body.get("summary") or "")
+    import file_tools
+    links = []
+    for p in (body.get("files") or [])[:20]:
+        ok, link, _path = file_tools.stage_offer(uid, str(p))
+        if ok:
+            links.append(link)
+    if links:
+        summary += "\n\nDownloads:\n" + "\n".join(f"- {ln}" for ln in links)
+    try:
+        item = workitem_store.create_item(
+            str(body.get("verb") or "acknowledge"), title[:160],
+            summary=summary[:6000], payload=payload, addressed_user=uid,
+            from_kind=str(body.get("from_kind") or "platform"),
+            from_ref=str(body.get("from_ref") or payload.get("kind") or "portal"),
+            priority=int(body.get("priority") or 0),
+            created_by=str(body.get("created_by") or "platform"))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    logger.info(f"internal work item raised for user {uid}: {title!r} "
+                f"({item['work_item_id']}, {len(links)} file link(s))")
+    return {"work_item_id": item["work_item_id"], "links": len(links)}
+
+
+@app.post("/api/uploads")
+async def upload_attachment(request: Request):
+    """Chat attachment (P2 item 4, 2026-08-22): raw bytes in the body plus an
+    X-File-Name header (URL-encoded) — no multipart dependency. Stored in the
+    caller's private uploads area; the returned file_id is what /api/chat's
+    `attachments` refers to."""
+    user = _verify_request(request)
+    from urllib.parse import unquote
+    import file_tools
+    name = unquote(request.headers.get("X-File-Name") or "").strip() or "file"
+    data = await request.body()
+    if not data:
+        raise HTTPException(400, "empty upload")
+    try:
+        fid, _path, size = file_tools.save_upload(int(user["user_id"] or 0), name, data)
+    except ValueError as e:
+        raise HTTPException(413, str(e))
+    return {"file_id": fid, "name": name, "size": size}
+
+
+@app.get("/api/uploads")
+async def list_attachments(request: Request):
+    user = _verify_request(request)
+    import file_tools
+    return {"uploads": file_tools.list_uploads(int(user["user_id"] or 0))}
+
+
 @app.post("/api/chat")
 async def chat(request: Request):
     user = _verify_request(request)
     body = await request.json()
     message = str(body.get("message") or "").strip()
     session_id = body.get("session_id") or None
-    if not message:
+    attachments = [str(a) for a in (body.get("attachments") or []) if a]
+    if not message and not attachments:
         raise HTTPException(400, "Empty message")
+    if not message:
+        message = "Please look at the attached file(s)."
+    # Attachments ride into the turn as a model-facing line of server paths
+    # (the FILES doctrine keeps them out of the user's view); the history
+    # ledger keeps the user's own words.
+    prompt = message
+    if attachments:
+        import file_tools
+        block = file_tools.attachments_prompt_block(int(user["user_id"] or 0), attachments)
+        if block:
+            prompt = f"{block}\n\n{message}"
 
     async def event_stream():
         final_sid = session_id
         try:
-            async for event in run_turn(message, session_id, user):
+            async for event in run_turn(prompt, session_id, user):
                 if event.get("type") == "result" and event.get("session_id"):
                     final_sid = event["session_id"]
                 yield f"data: {json.dumps(event)}\n\n"

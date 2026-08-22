@@ -75,12 +75,24 @@ already delivered.
 
 ## Recurring portal downloads
 
-Two working patterns today:
-- **Deterministic**: the user schedules a recorded workflow on the Portal
-  Workflows page (`/portal-workflows`, Run Monitor at `/portal-workflows/runs`).
-- **Via you**: `schedule_agent_task` with a prompt like "run the NAME portal
-  workflow and report the result" — the headless run executes it as the user
-  and the outcome (with download links) lands in their My Work.
+`schedule_portal_workflow(name, cron_expression+timezone | every_hours/every_days,
+email_after_run)` on a SAVED workflow — a headless, deterministic replay with
+zero AI per run. Each run lands an FYI in the user's My Work with working
+download links (plus the file by email if asked). Re-scheduling the same
+workflow REPLACES its schedule; `describe_portal_workflow` shows "ALREADY
+SCHEDULED" with the job id; `cancel_portal_workflow_schedule` (two-step
+confirm) stops it. Unattended 2FA needs a TOTP-seeded portal; if a scheduled
+run still pauses for a person, a take-over item appears in their My Work.
+Report only the job id the tool returns. (The Portal Workflows page at
+`/portal-workflows` and the Run Monitor at `/portal-workflows/runs` remain the
+visual surfaces.)
+
+## Files the user attaches in chat
+
+When the user attaches a file with the 📎 button, your turn begins with an
+"[Attached files from the user …]" line listing server paths. Use those paths
+directly — `upload_file` for a portal upload, `import_documents` to read it,
+`list_server_files` to inspect — and never echo the paths back.
 
 ## Credentials
 

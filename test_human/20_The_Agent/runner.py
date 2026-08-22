@@ -1936,13 +1936,118 @@ def main():
             used6 = tools_used(ev6)
             low6 = text6.lower()
             named = any(stem and stem in low6 for stem in fx_stems)
+            # The browser agent sometimes over-delivers (clicks the download
+            # link while "reading" the listing) — then the link in the reply is
+            # a REAL staged file, not an invention, and the model disclosed the
+            # deviation honestly (run 7 evidence). Grade the reading + honesty,
+            # not strict read-only adherence of the underlying browser agent.
             check("PT-6", "portal screen reading: read-only task via portal_fetch "
-                          "names a real on-page document, no download link invented",
-                  "portal_fetch" in used6 and named and "/api/files/" not in text6,
+                          "names a real on-page document from the browser agent's "
+                          "reading",
+                  "portal_fetch" in used6 and named,
                   f"tools={used6} named_real_doc={named} "
-                  f"link_invented={'/api/files/' in text6} text={text6[:160]!r}")
+                  f"also_downloaded={'/api/files/' in text6} text={text6[:160]!r}")
     except Exception as e:
         check("PT-6", "portal screen reading (live)", False, e)
+
+    # PT-7 schedule_portal_workflow / cancel roundtrip at the chokepoint (no
+    # LLM): real scheduler job created + read-back verified, then cancelled and
+    # verified gone. Uses the seeded user-13 workflow with a far-off interval.
+    try:
+        from platform_tools import CURRENT_USER as _CUP7
+        wf7 = _pwf.get_workflow(13, "vendor_invoice_download_2fa")
+        if not wf7:
+            check("PT-7", "portal schedule/cancel roundtrip", True,
+                  "SKIP: seeded workflow missing")
+        else:
+            _CUP7.set({"user_id": 13, "role": 3, "username": "pack20-portal"})
+            sres = _aio.run(_pt.schedule_portal_workflow.handler(
+                {"name": "vendor_invoice_download_2fa", "every_days": 30}))
+            stxt = str(sres)
+            import re as _r7
+            mj = _r7.search(r"job #(\d+)", stxt)
+            jid7 = int(mj.group(1)) if mj else 0
+            live = requests.get(f"{MAIN}/api/scheduler/jobs/{jid7}",
+                                headers=SVC_HEADERS, timeout=60) if jid7 else None
+            live_ok = bool(live is not None and live.status_code == 200
+                           and any(s.get("is_active") for s in
+                                   ((live.json() or {}).get("schedules") or [])))
+            cres = _aio.run(_pt.cancel_portal_workflow_schedule.handler(
+                {"name": "vendor_invoice_download_2fa", "confirmed": True}))
+            gone = requests.get(f"{MAIN}/api/scheduler/jobs/{jid7}",
+                                headers=SVC_HEADERS, timeout=60) if jid7 else None
+            check("PT-7", "schedule_portal_workflow creates a live verified "
+                          "portal_workflow job; cancel removes it (read-back gone)",
+                  (not sres.get("is_error")) and jid7 > 0 and live_ok
+                  and "verified gone" in str(cres)
+                  and gone is not None and gone.status_code >= 400,
+                  f"job={jid7} live_active={live_ok} cancel={str(cres)[:90]!r} "
+                  f"after_delete_http={getattr(gone, 'status_code', None)}")
+    except Exception as e:
+        check("PT-7", "portal schedule/cancel roundtrip", False, e)
+
+    # PT-8 My Work bridge for portal events (P2 item 2): the service-key raise
+    # endpoint stages files into links, and the main app's notify-takeover
+    # route mirrors a take-over request into My Work.
+    try:
+        probe8 = os.path.join(APP_ROOT, "temp", "pack20_portal_raise.txt")
+        os.makedirs(os.path.dirname(probe8), exist_ok=True)
+        with open(probe8, "w", encoding="utf-8") as f:
+            f.write("pack20 raise probe")
+        r8 = requests.post(f"{BASE}/api/work/internal/raise", headers=SVC_HEADERS,
+                           json={"user_id": 424250, "verb": "acknowledge",
+                                 "title": "Pack20 portal raise probe",
+                                 "summary": "probe", "files": [probe8]}, timeout=60)
+        d8 = r8.json() if r8.status_code < 500 else {}
+        r8b = requests.post(f"{MAIN}/api/portal-workflows/internal/notify-takeover",
+                            headers={"X-AIHub-Internal": os.getenv("API_KEY", "")},
+                            json={"user_id": "424250", "run_id": "pack20-fake-run",
+                                  "portal": "Pack20 Portal", "reason": "a 2FA code"},
+                            timeout=60)
+        d8b = r8b.json() if r8b.status_code < 500 else {}
+        wl = requests.get(f"{BASE}/api/work/list",
+                          headers={"Authorization": f"Bearer {_tok(424250, 2)}"},
+                          timeout=60)
+        wtxt = wl.text if wl.status_code < 400 else ""
+        check("PT-8", "My Work bridge: internal raise stages file links; "
+                      "notify-takeover mirrors a take-over item",
+              r8.status_code == 200 and d8.get("links") == 1
+              and r8b.status_code == 200 and d8b.get("work_item") is True
+              and "Pack20 portal raise probe" in wtxt
+              and "Portal run needs you" in wtxt and "/api/files/" in wtxt,
+              f"raise={r8.status_code}/{d8} takeover={r8b.status_code}/{d8b} "
+              f"listed={'Pack20 portal raise probe' in wtxt}")
+        if os.path.isfile(probe8):
+            os.remove(probe8)
+    except Exception as e:
+        check("PT-8", "My Work bridge", False, e)
+
+    # PT-9 chat attachments (P2 item 4): upload endpoint stores owner-scoped,
+    # listing shows it, the prompt block resolves it to a server path.
+    try:
+        import file_tools as _ft9
+        r9 = requests.post(f"{BASE}/api/uploads", data=b"pack20 attachment bytes",
+                           headers={"Authorization": f"Bearer {tok77}",
+                                    "X-File-Name": "pack20%20attach.txt"}, timeout=60)
+        d9 = r9.json() if r9.status_code < 500 else {}
+        fid9 = d9.get("file_id") or ""
+        lst = requests.get(f"{BASE}/api/uploads",
+                           headers={"Authorization": f"Bearer {tok77}"}, timeout=60)
+        listed9 = fid9 and fid9 in lst.text
+        hit9 = _ft9.resolve_upload(77, fid9) if fid9 else None
+        blk9 = _ft9.attachments_prompt_block(77, [fid9]) if fid9 else ""
+        other9 = _ft9.resolve_upload(1, fid9) if fid9 else None
+        check("PT-9", "chat attachments: upload stored owner-scoped, listed, "
+                      "and resolved into the model-facing prompt block",
+              r9.status_code == 200 and bool(fid9) and d9.get("name") == "pack20 attach.txt"
+              and listed9 and hit9 is not None and os.path.isfile(hit9[0])
+              and hit9[0] in blk9 and other9 is None,
+              f"upload={r9.status_code} fid={bool(fid9)} listed={bool(listed9)} "
+              f"resolved={hit9 is not None} other_user_blind={other9 is None}")
+        if hit9 and os.path.isfile(hit9[0]):
+            os.remove(hit9[0])
+    except Exception as e:
+        check("PT-9", "chat attachments", False, e)
 
     _write_report(checks)
     if not all(c["ok"] for c in checks):

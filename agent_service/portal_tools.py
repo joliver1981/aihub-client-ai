@@ -40,6 +40,7 @@ from claude_agent_sdk import tool
 from agent_config import APP_ROOT, logger
 from platform_tools import CURRENT_USER, _text
 from file_tools import stage_offer
+from work_tools import _resolve_tz_offset_minutes, _cron_local_to_utc
 
 # Bounded in-tool waits; runs continue server-side past these and are collected
 # with check_portal_run (the dry_run -> check_automation_run doctrine shape).
@@ -202,6 +203,67 @@ def _finish_run(res: dict, uid, kind: str = "portal task") -> dict:
                  "invent a download link.")
 
 
+def _raise_takeover_item_if_headless(run_id: str, link: str, reason: str) -> str:
+    """P2 item 2: a HEADLESS run (scheduled agent task, email-triggered turn) has
+    no human watching the chat — put the take-over link in the owner's My Work
+    so the pause is recoverable. Interactive turns just relay the link."""
+    user = CURRENT_USER.get() or {}
+    if str(user.get("mode") or "") != "headless":
+        return ""
+    try:
+        import workitem_store
+        item = workitem_store.create_item(
+            "do_offline", f"Portal run needs you — {reason}"[:140],
+            summary=(f"A headless portal run paused waiting for a person ({reason}).\n\n"
+                     f"Take over the browser: {link}\n\nFinish the step there (e.g. type "
+                     f"the code you received), click Hand back, and the run continues. "
+                     f"run_id: {run_id}"),
+            payload={"kind": "portal_takeover", "run_id": run_id, "link": link,
+                     "reason": reason},
+            addressed_user=int(user.get("user_id") or 0) or None,
+            from_kind="agent_headless", from_ref="portal_fetch", priority=1,
+            created_by=str(user.get("username") or "agent"))
+        return (f"\nA My Work item (#{item['work_item_id']}) with this take-over link "
+                "was raised for the user, since this is a headless run.")
+    except Exception as e:
+        logger.warning(f"portal take-over work item failed: {e}")
+        return ""
+
+
+async def _portal_schedule_jobs(client, base: str, headers: dict, uid, slug=None) -> list:
+    """This user's portal_workflow scheduler jobs via the main-app scheduler REST
+    (read-only): [{id, name, slug, active, next_run}], optionally only `slug`."""
+    out = []
+    r = await client.get(f"{base}/api/scheduler/jobs", headers=headers)
+    jobs = r.json() if r.status_code < 400 else []
+    if not isinstance(jobs, list):
+        jobs = []
+    for j in jobs:
+        if str(j.get("type")) != "portal_workflow":
+            continue
+        jid = j.get("id")
+        jr = await client.get(f"{base}/api/scheduler/jobs/{jid}", headers=headers)
+        job = jr.json() if jr.status_code < 400 else {}
+        params = job.get("parameters") or {}
+
+        def _pv(k):
+            v = params.get(k)
+            return v.get("value") if isinstance(v, dict) else v
+        if str(_pv("user_id")) != str(uid):
+            continue
+        if slug and str(_pv("workflow_slug")) != str(slug):
+            continue
+        scheds = job.get("schedules") or []
+        out.append({"id": jid, "name": job.get("name") or j.get("name"),
+                    "slug": _pv("workflow_slug"),
+                    "active": any(s.get("is_active") for s in scheds),
+                    "next_run": next((s.get("next_run_time") or s.get("next_run")
+                                      for s in scheds
+                                      if s.get("next_run_time") or s.get("next_run")),
+                                     None)})
+    return out
+
+
 async def _poll_run(pf, run_id: str, budget_seconds: int, uid) -> dict:
     """Poll an async auto-run until done / needs-human / budget exhausted.
     Every branch returns honest, run_id-carrying text (the model threads the id
@@ -227,6 +289,7 @@ async def _poll_run(pf, run_id: str, budget_seconds: int, uid) -> dict:
         if res.get("needs_human"):
             link = pf.cobrowse_link(run_id)
             reason = res.get("reason") or "a verification / login step"
+            raised = _raise_takeover_item_if_headless(run_id, link, reason)
             return _text(
                 f"PAUSED — the portal needs the user for {reason}.\n"
                 f"Take-over link (relay it to the user VERBATIM): {link}\n"
@@ -234,7 +297,7 @@ async def _poll_run(pf, run_id: str, budget_seconds: int, uid) -> dict:
                 "Tell the user to open the link, finish the step (e.g. type the code "
                 "they received), then click Hand back. When they say they're done, call "
                 f'check_portal_run(run_id="{run_id}") to collect the result. Do NOT '
-                "claim the file has downloaded — nothing is delivered yet.")
+                "claim the file has downloaded — nothing is delivered yet." + raised)
         await asyncio.sleep(2)
     return _text(
         f"The portal run has NOT finished yet (waited {budget_seconds}s) and no file "
@@ -573,9 +636,28 @@ async def describe_portal_workflow(args: dict[str, Any]) -> dict[str, Any]:
     cap = "uploads a file" if "upload" in types else "downloads file(s)"
     summary = "; ".join(f"{i + 1}. {_label(s)}" for i, s in enumerate(steps)) or "(no steps)"
     target = wf.get("portal_slug") or wf.get("start_url") or "—"
+    # Tell the model whether this workflow is ALREADY scheduled (and the job
+    # id) so a "schedule it" ask REPLACES rather than duplicates.
+    sched_line = ""
+    try:
+        import httpx
+        from platform_tools import _headers
+        from agent_config import get_base_url
+        async with httpx.AsyncClient(timeout=30) as client:
+            jobs = await _portal_schedule_jobs(client, get_base_url(), _headers(),
+                                               _uid(), wf.get("slug"))
+        if jobs:
+            j0 = jobs[0]
+            nxt = f", next run {j0['next_run']}" if j0.get("next_run") else ""
+            sched_line = (f"\n- ALREADY SCHEDULED: job #{j0['id']} "
+                          f"({'active' if j0['active'] else 'inactive'}{nxt}). "
+                          "Re-scheduling REPLACES it; cancel_portal_workflow_schedule "
+                          "removes it.")
+    except Exception as e:
+        logger.warning(f"describe_portal_workflow schedule lookup failed: {e}")
     return _text(f"Portal workflow '{wf.get('name', name)}':\n- This workflow {cap}.\n"
                  f"- Target: {target}\n- Goal: {wf.get('goal') or '(none)'}\n"
-                 f"- Last run: {wf.get('last_run_status') or 'never run'}\n"
+                 f"- Last run: {wf.get('last_run_status') or 'never run'}{sched_line}\n"
                  f"- Steps: {summary}")
 
 
@@ -631,7 +713,200 @@ async def run_portal_workflow(args: dict[str, Any]) -> dict[str, Any]:
     return _finish_run(res, uid, kind=f"portal workflow '{name}'")
 
 
+@tool(
+    "schedule_portal_workflow",
+    "Schedule a saved PORTAL workflow to run automatically on a cadence — a headless, "
+    "deterministic replay of its recorded steps (zero AI per run) with credentials from "
+    "the linked saved portal. Each run's outcome lands in the user's My Work as an FYI "
+    "with working download links (and the file by email when email_after_run is true). "
+    "Re-scheduling the same workflow REPLACES its existing schedule. Give cron_expression "
+    "(+timezone) OR every_hours/every_days. Unattended 2FA needs a TOTP-seeded portal; a "
+    "run that still pauses for a human raises a take-over item in My Work. Report ONLY "
+    "the job id this returns.",
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "The saved portal-workflow's name."},
+            "cron_expression": {"type": "string",
+                                "description": "5-field cron in the LOCAL timezone given "
+                                               "by `timezone`."},
+            "timezone": {"type": "string",
+                         "description": "IANA name (America/New_York), alias (Eastern), "
+                                        "'UTC' or '-05:00'; omit for the server's zone."},
+            "every_hours": {"type": "integer"},
+            "every_days": {"type": "integer"},
+            "email_after_run": {"type": "boolean",
+                                "description": "Also email the downloaded file to the "
+                                               "user after each run (default false)."},
+        },
+        "required": ["name"],
+        "additionalProperties": False,
+    },
+)
+async def schedule_portal_workflow(args: dict[str, Any]) -> dict[str, Any]:
+    if not _allowed():
+        return _text(_DENIED, is_error=True)
+    user = CURRENT_USER.get() or {}
+    if int(user.get("role") or 0) < 2 and os.getenv(
+            "AGENT_BUILD_ALLOW_ALL_USERS", "false").lower() != "true":
+        return _text("Scheduling portal workflows requires a Developer role.",
+                     is_error=True)
+    import datetime as _dt
+    import httpx
+    from platform_tools import _headers
+    from agent_config import get_base_url
+    try:
+        from command_center.tools import portal_workflows as wf_store
+    except Exception as e:
+        return _text(f"Portal workflow store unavailable: {e}", is_error=True)
+    uid = _uid()
+    name = str(args.get("name") or "").strip()
+    wf = await asyncio.to_thread(wf_store.get_workflow, uid, name)
+    if not wf:
+        return _text(f"No saved portal workflow matches '{name}'. Call "
+                     "list_portal_workflows to see the exact names.", is_error=True)
+    slug = wf["slug"]
+
+    tz_note = ""
+    if args.get("cron_expression"):
+        local_cron = str(args["cron_expression"]).strip()
+        try:
+            tz_mins, tz_label = _resolve_tz_offset_minutes(args.get("timezone"))
+            utc_cron, _shift = _cron_local_to_utc(local_cron, tz_mins)
+        except ValueError as e:
+            return _text(f"Nothing was scheduled: {e}", is_error=True)
+        schedule = {"type": "cron", "cron_expression": utc_cron}
+        tz_note = (f" Cron `{local_cron}` interpreted in {tz_label} (offset "
+                   f"{tz_mins:+d} min at create time) -> engine-UTC `{utc_cron}`.")
+        if tz_mins == 0:
+            tz_note = f" Cron `{utc_cron}` runs on the engine's UTC clock."
+    elif args.get("every_hours") or args.get("every_days"):
+        schedule = {"type": "interval",
+                    "start_date": _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")}
+        if args.get("every_hours"):
+            schedule["interval_hours"] = int(args["every_hours"])
+        if args.get("every_days"):
+            schedule["interval_days"] = int(args["every_days"])
+    else:
+        return _text("Provide cron_expression (+timezone) or every_hours/every_days.",
+                     is_error=True)
+
+    email_after = bool(args.get("email_after_run"))
+    body = {
+        "name": f"Portal workflow: {wf.get('name') or slug}"[:80],
+        "type": "portal_workflow",
+        "target_id": int(uid) if str(uid).isdigit() else 0,
+        "description": f"Scheduled portal workflow '{slug}' for user {uid}",
+        "created_by": str(user.get("username") or "agent"),
+        "is_active": True,
+        "parameters": {
+            "workflow_slug": {"value": str(slug), "type": "string"},
+            "user_id": {"value": str(uid), "type": "string"},
+            "tenant_id": {"value": str(user.get("tenant_id") or ""), "type": "string"},
+            "email_after": {"value": "1" if email_after else "0", "type": "string"},
+        },
+        "schedule": schedule,
+    }
+    if schedule.get("type") == "cron":
+        body["parameters"]["timezone"] = {"value": tz_label, "type": "string"}
+        body["parameters"]["local_cron"] = {"value": local_cron, "type": "string"}
+
+    base, hdrs = get_base_url(), _headers()
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            # UPDATE-NOT-DUPLICATE (CC parity): replace any existing schedule
+            # for this workflow instead of stacking a second job.
+            replaced = []
+            for j in await _portal_schedule_jobs(client, base, hdrs, uid, slug):
+                dr = await client.delete(f"{base}/api/scheduler/jobs/{j['id']}",
+                                         headers=hdrs)
+                if dr.status_code < 400:
+                    replaced.append(j["id"])
+            r = await client.post(f"{base}/api/scheduler/jobs", json=body, headers=hdrs)
+            data = r.json() if r.status_code < 500 else {}
+            if r.status_code >= 400 or not data.get("id"):
+                return _text(f"Nothing was scheduled (HTTP {r.status_code}: "
+                             f"{data.get('error', r.text[:200])}). Do NOT tell the "
+                             "user it was scheduled.", is_error=True)
+            job_id = data["id"]
+            rb = await client.get(f"{base}/api/scheduler/jobs/{job_id}", headers=hdrs)
+            rbd = rb.json() if rb.status_code < 400 else {}
+            if not any(s.get("is_active") for s in (rbd.get("schedules") or [])):
+                return _text(f"Job #{job_id} was created but NO active schedule row "
+                             "exists — report this as NOT scheduled.", is_error=True)
+    except Exception as e:
+        return _text(f"Scheduling failed: {e}", is_error=True)
+    rep = f" Replaced previous job(s) #{', #'.join(str(x) for x in replaced)}." if replaced else ""
+    return _text(f"Scheduled portal workflow '{wf.get('name') or slug}' (job #{job_id}, "
+                 f"verified active by read-back).{rep} Each run replays the recorded "
+                 f"steps headless as {user.get('username')} and lands an FYI with "
+                 "download links in their My Work"
+                 + (" and emails the file." if email_after else ".") + tz_note)
+
+
+@tool(
+    "cancel_portal_workflow_schedule",
+    "Cancel the recurring schedule of a saved PORTAL workflow (deletes its scheduler "
+    "job). Two-step: call once to see what exists, then again with confirmed=true after "
+    "the user agrees. Says plainly when no schedule exists.",
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "The saved portal-workflow's name."},
+            "confirmed": {"type": "boolean",
+                          "description": "true only after the user confirmed the cancel."},
+        },
+        "required": ["name"],
+        "additionalProperties": False,
+    },
+)
+async def cancel_portal_workflow_schedule(args: dict[str, Any]) -> dict[str, Any]:
+    if not _allowed():
+        return _text(_DENIED, is_error=True)
+    import httpx
+    from platform_tools import _headers
+    from agent_config import get_base_url
+    try:
+        from command_center.tools import portal_workflows as wf_store
+    except Exception as e:
+        return _text(f"Portal workflow store unavailable: {e}", is_error=True)
+    uid = _uid()
+    name = str(args.get("name") or "").strip()
+    wf = await asyncio.to_thread(wf_store.get_workflow, uid, name)
+    if not wf:
+        return _text(f"No saved portal workflow matches '{name}'. Call "
+                     "list_portal_workflows to see the exact names.", is_error=True)
+    base, hdrs = get_base_url(), _headers()
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            jobs = await _portal_schedule_jobs(client, base, hdrs, uid, wf["slug"])
+            if not jobs:
+                return _text(f"No schedule exists for portal workflow '{wf.get('name')}' "
+                             "— nothing to cancel.")
+            desc = ", ".join(f"job #{j['id']} ({'active' if j['active'] else 'inactive'})"
+                             for j in jobs)
+            if not args.get("confirmed"):
+                return _text(f"Found {desc} for '{wf.get('name')}'. Ask the user to "
+                             "confirm, then call again with confirmed=true to delete it.")
+            removed, failed = [], []
+            for j in jobs:
+                dr = await client.delete(f"{base}/api/scheduler/jobs/{j['id']}",
+                                         headers=hdrs)
+                chk = await client.get(f"{base}/api/scheduler/jobs/{j['id']}", headers=hdrs)
+                gone = dr.status_code < 400 and chk.status_code >= 400
+                (removed if gone else failed).append(j["id"])
+    except Exception as e:
+        return _text(f"Cancel failed: {e}", is_error=True)
+    if failed:
+        return _text(f"Could not verify removal of job(s) #{', #'.join(map(str, failed))}"
+                     f"{' (removed: ' + ', '.join(map(str, removed)) + ')' if removed else ''}"
+                     " — report this honestly.", is_error=True)
+    return _text(f"Cancelled the schedule for '{wf.get('name')}': removed job(s) "
+                 f"#{', #'.join(map(str, removed))} (verified gone by read-back).")
+
+
 PORTAL_TOOLS = [
     lookup_portal, save_portal, portal_fetch, check_portal_run,
     list_portal_workflows, describe_portal_workflow, run_portal_workflow,
+    schedule_portal_workflow, cancel_portal_workflow_schedule,
 ]

@@ -162,6 +162,29 @@ def api_run(name):
     return jsonify(result)
 
 
+def _agent_work_notify(user_id, verb, title, summary, payload=None, files=None, priority=0):
+    """Best-effort mirror of a portal event into the owner's My Work queue via The Agent
+    service (P2 items 1+2, 2026-08-22). Additive: skipped when The Agent is disabled or
+    unreachable; never raises. `files` are server paths The Agent stages into the user's
+    private downloads so the item carries working download links."""
+    if os.getenv("THE_AGENT_ENABLED", "false").lower() != "true":
+        return False
+    try:
+        from CommonUtils import get_agent_service_api_base_url
+        import requests
+        r = requests.post(
+            f"{get_agent_service_api_base_url()}/api/work/internal/raise",
+            json={"user_id": str(user_id), "verb": verb, "title": title, "summary": summary,
+                  "payload": payload or {}, "files": list(files or []),
+                  "priority": int(priority or 0)},
+            headers={"X-API-Key": os.getenv("API_KEY", "")}, timeout=8,
+        )
+        return r.status_code == 200
+    except Exception as e:
+        logger.warning("[portal_workflows] agent My Work notify failed: %s", e)
+        return False
+
+
 @portal_workflows_bp.route("/api/portal-workflows/internal/run", methods=["POST"])
 def internal_run():
     """Scheduler-callable run: execute a saved workflow by slug for a given OWNER user_id, gated by
@@ -224,6 +247,25 @@ def internal_run():
                 )
         except Exception as e:
             logger.warning("[portal_workflows] scheduled-run email failed: %s", e)
+    # Scheduled runs also land in the owner's My Work (with download links) so
+    # The Agent's users see the outcome where they already look.
+    if str(body.get("initiator") or "") == "scheduled":
+        files = result.get("files") or []
+        ok = result.get("status") == "ok"
+        if ok and files:
+            summ = f"Your scheduled portal workflow '{slug}' ran and downloaded {len(files)} file(s)."
+        elif ok:
+            summ = (f"Your scheduled portal workflow '{slug}' ran but downloaded no file — "
+                    f"{_why_no_files(result)}")
+        else:
+            summ = f"Your scheduled portal workflow '{slug}' FAILED: {result.get('error') or 'unknown error'}"
+        if result.get("final_result"):
+            summ += f"\n\nRun summary: {str(result.get('final_result'))[:600]}"
+        _agent_work_notify(user_id, "acknowledge",
+                           f"{'✓' if ok else '⚠'} Scheduled portal download — {slug}", summ,
+                           payload={"kind": "portal_scheduled_run", "slug": slug,
+                                    "status": result.get("status"), "file_count": len(files)},
+                           files=files if ok else None)
     return jsonify(result)
 
 
@@ -368,4 +410,14 @@ def internal_notify_takeover():
             sent = bool(send_email([email], subject, html, html_content=True))
         except Exception as e:
             logger.warning("[portal_workflows] takeover email failed: %s", e)
-    return jsonify({"sent": sent})
+    # Also raise a My Work item (P2 item 2): a headless run that needs a human
+    # must not depend on an email being noticed.
+    reason = (body.get("reason") or "a verification / login step")
+    raised = _agent_work_notify(
+        user_id, "do_offline", f"Portal run needs you — {portal}",
+        (f"A portal automation for **{portal}** is paused waiting for you ({reason}).\n\n"
+         f"Take over the browser: {link}\n\nFinish the step there (e.g. type the code you "
+         f"received), click Hand back, and the run continues. Run Monitor: {monitor}"),
+        payload={"kind": "portal_takeover", "run_id": run_id, "portal": portal,
+                 "link": link, "reason": reason}, priority=1)
+    return jsonify({"sent": sent, "work_item": bool(raised)})

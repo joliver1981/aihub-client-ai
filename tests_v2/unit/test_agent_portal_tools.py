@@ -28,7 +28,9 @@ try:
     from command_center.tools import portal_fetch as cc_pf        # noqa: E402
     from command_center.tools import portal_registry as cc_reg    # noqa: E402
     from command_center.tools import portal_workflow_run as cc_wfr  # noqa: E402
+    from command_center.tools import portal_workflows as cc_wf    # noqa: E402
     import local_secrets             # noqa: E402
+    import workitem_store            # noqa: E402
     HAVE_SDK = True
 except ImportError as e:             # main-env pytest sweep: no claude_agent_sdk
     HAVE_SDK = False
@@ -97,8 +99,10 @@ def test_registration_and_lists():
     names = [getattr(t, "name", "") for t in portal_tools.PORTAL_TOOLS]
     assert names == ["lookup_portal", "save_portal", "portal_fetch",
                      "check_portal_run", "list_portal_workflows",
-                     "describe_portal_workflow", "run_portal_workflow"]
-    for n in ("portal_fetch", "save_portal", "run_portal_workflow"):
+                     "describe_portal_workflow", "run_portal_workflow",
+                     "schedule_portal_workflow", "cancel_portal_workflow_schedule"]
+    for n in ("portal_fetch", "save_portal", "run_portal_workflow",
+              "schedule_portal_workflow", "cancel_portal_workflow_schedule"):
         assert n in brain.MUTATING_TOOLS, n
     for n in ("lookup_portal", "list_portal_workflows", "describe_portal_workflow"):
         assert n in brain._READ_TOOL_NAMES, n
@@ -303,6 +307,168 @@ def test_finish_run_download_branch_unchanged_by_reading():
         assert "READING" not in t
     finally:
         os.remove(src)
+        _cleanup_user_files()
+
+
+# ------------------------------------------- P2: schedule / cancel / takeover / uploads
+
+def _sched_router(calls, jobs_list, job_detail, post_id=777):
+    """MockTransport handler for the scheduler REST the tools drive."""
+    import json as _json
+    import httpx as _hx
+    deleted = set()
+
+    def handler(request):
+        p = request.url.path
+        calls.append((request.method, p))
+        if request.method == "GET" and p == "/api/scheduler/jobs":
+            return _hx.Response(200, json=jobs_list)
+        if request.method == "GET" and p.startswith("/api/scheduler/jobs/"):
+            jid = int(p.rsplit("/", 1)[1])
+            if jid in deleted:
+                return _hx.Response(404, json={"error": "not found"})
+            return _hx.Response(200, json=job_detail.get(
+                jid, {"schedules": [{"is_active": True}], "parameters": {}}))
+        if request.method == "POST" and p == "/api/scheduler/jobs":
+            calls.append(("BODY", _json.loads(request.content)))
+            return _hx.Response(200, json={"id": post_id})
+        if request.method == "DELETE" and p.startswith("/api/scheduler/jobs/"):
+            deleted.add(int(p.rsplit("/", 1)[1]))
+            return _hx.Response(200, json={})
+        return _hx.Response(404, json={})
+    return handler
+
+
+def _client_factory(handler):
+    import httpx as _hx
+    _Real = _hx.AsyncClient
+
+    def factory(**kw):
+        return _Real(transport=_hx.MockTransport(handler))
+    return _hx, factory
+
+
+_WF = {"slug": "acme_dl", "name": "Acme DL", "steps": [{"type": "goto", "url": "http://x"}]}
+_EXISTING = {5: {"parameters": {"workflow_slug": {"value": "acme_dl"},
+                                "user_id": {"value": str(TEST_UID)}},
+                 "schedules": [{"is_active": True, "next_run_time": "2026-09-01T06:00:00"}]}}
+
+
+def test_schedule_portal_workflow_creates_verified_job():
+    _as_user(role=3)
+    calls = []
+    _hx, factory = _client_factory(_sched_router(calls, [], {}))
+    with patched(cc_wf, get_workflow=lambda uid, n: dict(_WF)), \
+         patched(_hx, AsyncClient=factory):
+        res = _run(_tool("schedule_portal_workflow"),
+                   {"name": "acme dl", "every_days": 1})
+    t = _txt(res)
+    assert not res.get("is_error"), t
+    assert "job #777" in t and "verified active" in t
+    body = next(c[1] for c in calls if c[0] == "BODY")
+    assert body["type"] == "portal_workflow"
+    assert body["parameters"]["workflow_slug"]["value"] == "acme_dl"
+    assert body["parameters"]["user_id"]["value"] == str(TEST_UID)
+    assert body["schedule"]["type"] == "interval" and body["schedule"]["start_date"]
+
+
+def test_schedule_portal_workflow_replaces_existing():
+    _as_user(role=3)
+    calls = []
+    _hx, factory = _client_factory(_sched_router(
+        calls, [{"id": 5, "type": "portal_workflow"}], dict(_EXISTING)))
+    with patched(cc_wf, get_workflow=lambda uid, n: dict(_WF)), \
+         patched(_hx, AsyncClient=factory):
+        res = _run(_tool("schedule_portal_workflow"),
+                   {"name": "acme dl", "cron_expression": "0 6 * * 1",
+                    "timezone": "UTC"})
+    t = _txt(res)
+    assert ("DELETE", "/api/scheduler/jobs/5") in calls
+    assert "Replaced previous job(s) #5" in t and "job #777" in t
+
+
+def test_cancel_portal_schedule_two_step_verified():
+    _as_user(role=3)
+    calls = []
+    _hx, factory = _client_factory(_sched_router(
+        calls, [{"id": 5, "type": "portal_workflow"}], dict(_EXISTING)))
+    with patched(cc_wf, get_workflow=lambda uid, n: dict(_WF)), \
+         patched(_hx, AsyncClient=factory):
+        first = _run(_tool("cancel_portal_workflow_schedule"), {"name": "acme dl"})
+        assert "confirm" in _txt(first).lower() and \
+            ("DELETE", "/api/scheduler/jobs/5") not in calls
+        second = _run(_tool("cancel_portal_workflow_schedule"),
+                      {"name": "acme dl", "confirmed": True})
+    assert "removed job(s) #5" in _txt(second) and "verified gone" in _txt(second)
+
+
+def test_cancel_when_nothing_scheduled_is_plain():
+    _as_user(role=3)
+    _hx, factory = _client_factory(_sched_router([], [], {}))
+    with patched(cc_wf, get_workflow=lambda uid, n: dict(_WF)), \
+         patched(_hx, AsyncClient=factory):
+        res = _run(_tool("cancel_portal_workflow_schedule"),
+                   {"name": "acme dl", "confirmed": True})
+    assert "No schedule exists" in _txt(res)
+
+
+def test_headless_takeover_raises_work_item():
+    CURRENT_USER.set({"user_id": TEST_UID, "role": 3, "username": "portal-unit",
+                      "tenant_id": "", "mode": "headless"})
+    made = {}
+
+    def fake_create(verb, title, **kw):
+        made.update({"verb": verb, "title": title, **kw})
+        return {"work_item_id": 42, "title": title, "verb": verb}
+
+    with patched(workitem_store, create_item=fake_create), \
+         patched(cc_pf,
+                 start_portal_fetch=lambda *a, **k: {"run_id": "r-h"},
+                 get_portal_result=lambda rid, t=15: {"done": False, "needs_human": True,
+                                                      "reason": "a 2FA code"},
+                 cobrowse_link=lambda rid: f"http://main/portal-workflows/cobrowse/{rid}"), \
+         patched(portal_tools, WAIT_SECONDS=10):
+        with patched(cc_reg, lookup_portal=lambda uid, n: dict(_SAVED_ENTRY)):
+            res = _run(_tool("portal_fetch"), {"portal_name": "acme", "task": "dl"})
+    t = _txt(res)
+    assert "My Work item (#42)" in t
+    assert made["verb"] == "do_offline" and made["payload"]["kind"] == "portal_takeover"
+    assert made["addressed_user"] == TEST_UID and "cobrowse/r-h" in made["summary"]
+
+
+def test_interactive_takeover_raises_nothing():
+    _as_user(role=3)  # no mode key = interactive chat
+    made = []
+    with patched(workitem_store, create_item=lambda *a, **k: made.append(1) or {"work_item_id": 1}), \
+         patched(cc_pf,
+                 start_portal_fetch=lambda *a, **k: {"run_id": "r-i"},
+                 get_portal_result=lambda rid, t=15: {"done": False, "needs_human": True},
+                 cobrowse_link=lambda rid: "http://main/cobrowse/r-i"), \
+         patched(portal_tools, WAIT_SECONDS=10):
+        with patched(cc_reg, lookup_portal=lambda uid, n: dict(_SAVED_ENTRY)):
+            res = _run(_tool("portal_fetch"), {"portal_name": "acme", "task": "dl"})
+    assert not made and "PAUSED" in _txt(res)
+
+
+def test_chat_upload_helpers_roundtrip_and_cap():
+    try:
+        fid, path, size = file_tools.save_upload(TEST_UID, "Q3 report (final).csv", b"a,b\n1,2\n")
+        assert size == 8 and os.path.isfile(path)
+        assert os.sep + str(TEST_UID) + os.sep + "uploads" in path
+        hit = file_tools.resolve_upload(TEST_UID, fid)
+        assert hit and hit[0] == path and hit[1].endswith(".csv")
+        assert file_tools.resolve_upload(424299, fid) is None       # owner-scoped
+        assert any(u["file_id"] == fid for u in file_tools.list_uploads(TEST_UID))
+        block = file_tools.attachments_prompt_block(TEST_UID, [fid, "bogus"])
+        assert path in block and "never show" in block
+        assert file_tools.attachments_prompt_block(TEST_UID, ["bogus"]) == ""
+        with patched(file_tools, UPLOAD_MAX_MB=0):
+            try:
+                file_tools.save_upload(TEST_UID, "big.bin", b"x")
+                assert False, "cap not enforced"
+            except ValueError as e:
+                assert "upload cap" in str(e)
+    finally:
         _cleanup_user_files()
 
 

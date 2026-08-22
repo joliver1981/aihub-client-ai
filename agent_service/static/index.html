@@ -114,6 +114,11 @@
   .gate h1{font-size:18px;color:var(--text);margin-bottom:8px}
   .newchat{border:1px solid var(--line);border-radius:8px;padding:4px 11px;color:var(--text2);font-size:11.5px}
   .newchat:hover{border-color:var(--accent-line);color:var(--text)}
+  .attach-chips{max-width:800px;margin:0 auto 6px;display:flex;gap:6px;flex-wrap:wrap}
+  .achip{display:inline-flex;align-items:center;gap:6px;font-size:11px;border:1px solid var(--line-soft);
+         border-radius:7px;padding:3px 9px;background:var(--raised);color:var(--text2)}
+  .achip b{cursor:pointer;color:var(--text3);font-weight:600}
+  .achip b:hover{color:var(--text)}
 
   /* ===== work view ===== */
   #work-head{display:flex;align-items:center;gap:14px;padding:16px 22px 0}
@@ -326,8 +331,11 @@
 <section class="view on" id="view-chat">
   <div id="chat-main"><div class="thread" id="thread"></div></div>
   <div id="chat-footer">
+    <div id="attach-chips" class="attach-chips"></div>
     <div class="inputrow">
       <textarea id="input" rows="1" placeholder="Ask, analyze, build, schedule…"></textarea>
+      <button class="newchat" id="attachbtn" title="Attach a file for The Agent to use — upload it to a portal, import it, read it">📎</button>
+      <input type="file" id="filein" multiple style="display:none">
       <button class="send" id="send">Send</button>
       <button class="newchat" id="newchat" title="Start fresh">New</button>
       <button class="newchat" id="histbtn" title="Past conversations">⌛</button>
@@ -1678,12 +1686,44 @@
     m.appendChild(el("div", "bubble", text));
     thread.appendChild(m); scroll();
   }
+  // ---- chat attachments (P2 item 4): upload first, then send the ids with the
+  // message; the server hands the model server paths, the user sees names only.
+  const pendingAttachments = [];
+  function fmtSize(n) { return n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : (n / 1048576).toFixed(1) + " MB"; }
+  function renderAttachChips() {
+    const row = document.getElementById("attach-chips"); row.innerHTML = "";
+    pendingAttachments.forEach((a, i) => {
+      const c = el("span", "achip", "📎 " + a.name + " (" + fmtSize(a.size) + ") ");
+      const x = el("b", "", "✕"); x.title = "Remove";
+      x.onclick = () => { pendingAttachments.splice(i, 1); renderAttachChips(); };
+      c.appendChild(x); row.appendChild(c);
+    });
+  }
+  document.getElementById("attachbtn").onclick = () => document.getElementById("filein").click();
+  document.getElementById("filein").onchange = async (e) => {
+    for (const f of Array.from(e.target.files || [])) {
+      try {
+        const r = await fetch("/api/uploads", { method: "POST",
+          headers: { "Authorization": "Bearer " + token(), "X-File-Name": encodeURIComponent(f.name) },
+          body: f });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { alert("Upload failed: " + (d.detail || r.status)); continue; }
+        pendingAttachments.push(d);
+      } catch (err) { alert("Upload failed: " + err); }
+    }
+    e.target.value = ""; renderAttachChips();
+  };
+
   async function sendMsg() {
-    const text = input.value.trim();
-    if (!text || busy) return;
+    const typed = input.value.trim();
+    if ((!typed && !pendingAttachments.length) || busy) return;
+    const text = typed || "Please look at the attached file(s).";
+    const attachIds = pendingAttachments.map(a => a.file_id);
+    const attachNames = pendingAttachments.map(a => a.name);
+    pendingAttachments.splice(0, pendingAttachments.length); renderAttachChips();
     document.getElementById("hello")?.remove();
     busy = true; send.disabled = true; input.value = ""; input.style.height = "auto";
-    addUser(text);
+    addUser(text + (attachNames.length ? "\n📎 " + attachNames.join(", ") : ""));
     const container = el("div", "msg agent");
     container.appendChild(el("span", "au", "The Agent"));
     thread.appendChild(container);
@@ -1703,7 +1743,7 @@
     }
     try {
       const resp = await fetch("/api/chat", { method: "POST", headers: H(),
-        body: JSON.stringify({ message: text, session_id: sessionId }) });
+        body: JSON.stringify({ message: text, session_id: sessionId, attachments: attachIds }) });
       if (resp.status === 401 || resp.status === 403) {
         think.remove();
         const d = await resp.json().catch(() => ({}));
