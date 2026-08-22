@@ -1875,21 +1875,24 @@ def main():
                     names5[e.get("id")] = (
                         e.get("name", "").replace("mcp__aihub__", ""),
                         json.dumps(e.get("input", {})))
-            import_ok5 = False
+            # Either honest path resolves the delivered handle: read_file (the
+            # better no-store path added 2026-08-22) OR import_documents. Both
+            # accept the /api/files link or the staged downloads path.
+            resolve_ok5 = False
             for e in ev2:
                 if e.get("type") == "tool_result" and e.get("ok"):
                     nm, inp = names5.get(e.get("id"), ("", ""))
-                    if nm == "import_documents" and (
+                    if nm in ("read_file", "import_documents") and (
                             "/api/files/" in inp or "downloads" in inp.lower()):
-                        import_ok5 = True
+                        resolve_ok5 = True
             hunts5 = sum(1 for v in names5.values() if v[0] == "list_server_files")
             amount5 = bool(_r5.search(
                 r"(\$\s?\d[\d,]*(\.\d+)?)|(\d[\d,]*\.\d{2})", text2))
-            check("PT-5", "delivered-file follow-up: import_documents resolves "
-                          "the delivered link/copy (ok result) and the answer "
-                          "quotes an amount",
-                  bool(fid5) and bool(sid5) and import_ok5 and amount5,
-                  f"file={bool(fid5)} sid={bool(sid5)} import_ok={import_ok5} "
+            check("PT-5", "delivered-file follow-up: read_file/import_documents "
+                          "resolves the delivered link/copy (ok result), no "
+                          "filesystem hunt, and the answer quotes an amount",
+                  bool(fid5) and bool(sid5) and resolve_ok5 and amount5 and hunts5 == 0,
+                  f"file={bool(fid5)} sid={bool(sid5)} resolve_ok={resolve_ok5} "
                   f"hunts={hunts5} answer={text2[:140]!r}")
             try:  # cleanup: purge the imported doc + the staged copy
                 if fid5:
