@@ -69,6 +69,23 @@ from tool_dependency_manager import (
 
 from CommonUtils import build_filter_conditions, get_base_url, get_agent_api_base_url, estimate_token_count, Timer
 from admin_tier_usage import tier_allows_feature
+from inflight_gate import InflightGate, limit_from_env, gated as _inflight_gated
+
+# ---- Admission gate for the document SEARCH endpoints (fast-busy) -----------
+# Companion to the doc API's /document/process gate (docs/doc-api-concurrency-
+# and-fast-busy.md). Search runs in-process here (LLMDocumentSearch / doc_search_v3
+# + the relay); when the shared Azure SQL tier stalls, each search holds a
+# waitress thread for minutes and NEW callers sit in waitress's queue with no
+# answer until their read timeout. This gate admits at most N concurrent
+# searches and answers the rest IMMEDIATELY with 503 + Retry-After so The Agent
+# / Command Center can say "busy, retry in ~N s" instead of hanging. N defaults
+# to SERVER_THREADS - 4 (threads stay free for the 503, health, and the UI).
+_SEARCH_GATE = InflightGate(
+    'document-search',
+    limit=limit_from_env('DOC_SEARCH_MAX_INFLIGHT', threads_env='SERVER_THREADS',
+                         threads_default=16, headroom=4, floor=2),
+    retry_after_default=int(os.getenv('DOC_BUSY_RETRY_AFTER_SECONDS', 30) or 30),
+)
 from tier_template_context import create_tier_context_processor
 from role_decorators import admin_required, developer_required, internal_api_key_required
 
@@ -6122,6 +6139,7 @@ def internal_execute_integration(integration_id):
 @app.route("/api/internal/document-search", methods=['POST'])
 @cross_origin()
 @internal_api_key_required()
+@_inflight_gated(_SEARCH_GATE, what="document search", logger=logger)
 def internal_document_search():
     """
     AI-driven document search for microservice consumption (Command Center).
@@ -6160,6 +6178,7 @@ def internal_document_search():
 @app.route("/api/internal/document-search-unified", methods=['POST'])
 @cross_origin()
 @internal_api_key_required()
+@_inflight_gated(_SEARCH_GATE, what="document search", logger=logger)
 def internal_document_search_unified():
     """Consistent-shape repository document search for microservice consumers
     (The Agent, Command Center). ADDITIVE wrapper over the SAME enhanced engine
@@ -6219,6 +6238,7 @@ def internal_document_search_unified():
 @app.route("/api/internal/document-records", methods=['POST'])
 @cross_origin()
 @internal_api_key_required()
+@_inflight_gated(_SEARCH_GATE, what="document records query", logger=logger)
 def internal_document_records():
     """Query the structured RECORDS extracted from documents (a manual's
     requirements, an invoice's line items) for microservice consumers (The Agent,
@@ -9814,6 +9834,7 @@ def execute_attribute_filters(cursor, attribute_filters, document_type=None):
 
 @app.route('/api/search-documents-by-attributes', methods=['POST'])
 @api_key_or_session_required(min_role=2)
+@_inflight_gated(_SEARCH_GATE, what="document search", logger=logger)
 def api_search_documents_by_attributes():
     """Search documents using attribute filters"""
     try:
@@ -9950,6 +9971,7 @@ def api_search_documents_by_attributes():
 
 @app.route('/api/search-documents-hybrid', methods=['POST'])
 @api_key_or_session_required(min_role=2)
+@_inflight_gated(_SEARCH_GATE, what="document search", logger=logger)
 def api_search_documents_hybrid():
     """Hybrid search combining field content and attributes"""
     try:
@@ -12647,6 +12669,25 @@ def process_document_as_knowledge(file_path, agent_id, description='', user_id=N
         response = requests.post(process_url, data=form_data, timeout=doc_timeout)
         # print('Response:', response)
         # print('Response Code:', response.status_code)
+        # Fast-busy from the doc API's admission gate (503 + Retry-After): the
+        # document was NOT processed; say so and when to retry, instead of the
+        # misleading "invalid file type" fallthrough below.
+        if response.status_code == 503:
+            try:
+                busy = response.json() or {}
+            except Exception:
+                busy = {}
+            retry_after = busy.get('retry_after') or response.headers.get('Retry-After') or 30
+            logger.warning(f"Document API busy (503) for {file_path}: "
+                           f"{busy.get('message', '')} retry_after={retry_after}s")
+            return {
+                "status": "error",
+                "busy": True,
+                "retry_after": retry_after,
+                "message": busy.get('message') or (
+                    f"The document service is busy right now; the file was not "
+                    f"processed. Please retry in about {retry_after} seconds."),
+            }
         # Check if the request was successful
         if response.status_code == 200:
             result = response.json()

@@ -215,8 +215,13 @@ class ChromaDBStore(VectorStore):
             **kwargs: Additional settings for ChromaDB
         """
         try:
-            # Get settings from kwargs or use defaults
-            settings = kwargs.get('settings', Settings())
+            # Get settings from kwargs or use defaults. Anonymized telemetry is
+            # OFF by default: chromadb's posthog sender thread was logging 15 s
+            # ReadTimeouts to us.i.posthog.com on every client init (this box is
+            # egress-restricted) — pure noise on the critical logs, and one less
+            # background thread per request. Callers can still pass their own
+            # Settings(...) to override.
+            settings = kwargs.get('settings') or Settings(anonymized_telemetry=False)
             
             # Initialize the client
             self.logger.info("Creating persistent chromadb client...")

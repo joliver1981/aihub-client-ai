@@ -5,6 +5,7 @@ import json
 import time
 import uuid
 import logging
+import threading
 import tempfile
 import traceback
 from typing import Dict, Any, Optional, List, Union
@@ -21,6 +22,7 @@ from collections import defaultdict
 
 from request_tracking import RequestTracking
 from CommonUtils import AnthropicProxyClient
+from inflight_gate import InflightGate, limit_from_env, flask_busy_response
 
 # Set up logging
 from logging.handlers import WatchedFileHandler
@@ -35,6 +37,23 @@ logger.addHandler(handler)
 
 app = Flask(__name__)
 
+# ---- Admission gate for /document/process (fast-busy) -----------------------
+# Measured 2026-08-21 (docs/doc-api-concurrency-and-fast-busy.md): nothing in
+# this process serializes ingests — concurrent /document/process calls run their
+# LLM phases side by side. What stalls is the shared Azure SQL tier during the
+# SQL store, and every stalled ingest holds a waitress thread. Once the pool is
+# full, new callers sit in waitress's accept queue with NO response until their
+# own read timeout fires (The Agent gave up at 300 s while the server later
+# stored the document anyway). This gate admits at most N concurrent ingests
+# and answers the (N+1)th IMMEDIATELY with 503 + Retry-After. N defaults to
+# SERVER_THREADS - 2 so a thread is always free to serve the 503 and /health.
+_PROCESS_GATE = InflightGate(
+    'document/process',
+    limit=limit_from_env('DOC_PROCESS_MAX_INFLIGHT', threads_env='SERVER_THREADS',
+                         threads_default=10, headroom=2),
+    retry_after_default=int(os.getenv('DOC_BUSY_RETRY_AFTER_SECONDS', 30) or 30),
+)
+
 # Configuration
 _APP_ROOT = os.getenv('APP_ROOT', os.path.dirname(os.path.abspath(__file__)))
 UPLOAD_FOLDER = os.path.join(_APP_ROOT, 'uploads')
@@ -48,10 +67,13 @@ os.makedirs(TEMP_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max upload
 
-# Document processor instance (initialized lazily)
+# Document processor instance (initialized lazily, ONCE: concurrent first
+# requests used to race this and each build their own engine — SQL connect,
+# schema load, DDL check — wasting the shared DB's budget; 2026-08-21).
 _document_processor = None
 _document_searcher = None
 _anthropic_client = None
+_singleton_lock = threading.Lock()
 
 database_server = cfg.DATABASE_SERVER
 database_name = cfg.DATABASE_NAME
@@ -132,26 +154,30 @@ def get_document_types():
     
 
 def get_document_processor():
-    """Lazy initialization of document processor"""
+    """Lazy initialization of document processor (thread-safe, built once)"""
     global _document_processor
     if _document_processor is None:
-        logger.info("Initializing document processor...")
-        _document_processor = LLMDocumentProcessor(
-            sql_connection_string=get_db_connection_string(),
-            log_level="INFO"
-        )
+        with _singleton_lock:
+            if _document_processor is None:
+                logger.info("Initializing document processor...")
+                _document_processor = LLMDocumentProcessor(
+                    sql_connection_string=get_db_connection_string(),
+                    log_level="INFO"
+                )
     return _document_processor
 
 
 def get_document_searcher():
-    """Lazy initialization of document searcher"""
+    """Lazy initialization of document searcher (thread-safe, built once)"""
     global _document_searcher
     if _document_searcher is None:
-        logger.info("Initializing document searcher...")
-        _document_searcher = LLMDocumentSearch(
-            sql_connection_string=get_db_connection_string(),
-            log_level="INFO"
-        )
+        with _singleton_lock:
+            if _document_searcher is None:
+                logger.info("Initializing document searcher...")
+                _document_searcher = LLMDocumentSearch(
+                    sql_connection_string=get_db_connection_string(),
+                    log_level="INFO"
+                )
     return _document_searcher
 
 # Store config globally alongside client
@@ -242,7 +268,10 @@ class DocumentProcessor:
                 "page_count": result["page_count"],
                 "total_chars": len(document_text),
                 "document_text": document_text,
-                "extracted_data": extracted_data
+                "extracted_data": extracted_data,
+                # Per-phase wall-clock seconds from the engine (additive; lets a
+                # caller or a log reader see WHERE an ingest spent its time).
+                "timings": result.get("timings"),
             }
             
         except Exception as e:
@@ -394,7 +423,35 @@ def document_processor_run_job(job_id):
 @app.route('/document/process', methods=['POST'])
 @cross_origin()
 def process_document_route():
-    """Process a document via API"""
+    """Process a document via API.
+
+    Admission-gated: when _PROCESS_GATE is full this answers 503 + Retry-After
+    at once instead of parking the caller in waitress's queue (see the gate's
+    comment above). Admitted requests are processed exactly as before."""
+    gate_token = _PROCESS_GATE.try_enter()
+    if gate_token is None:
+        snap = _PROCESS_GATE.snapshot()
+        logger.warning(f"[inflight] document/process REJECTED (503 busy): "
+                       f"{snap['in_flight']}/{snap['limit']} in flight, "
+                       f"rejected_total={snap['rejected_total']}, "
+                       f"retry_after={snap['retry_after_s']}s, "
+                       f"file={request.form.get('filePath')}")
+        return flask_busy_response(_PROCESS_GATE, what="document import")
+    snap = _PROCESS_GATE.snapshot()
+    logger.info(f"[inflight] document/process admitted: {snap['in_flight']}/{snap['limit']} "
+                f"in flight (peak {snap['peak_in_flight']}) file={request.form.get('filePath')}")
+    _route_t0 = time.perf_counter()
+    try:
+        return _process_document_route_body()
+    finally:
+        held = _PROCESS_GATE.leave(gate_token)
+        logger.info(f"[inflight] document/process released after "
+                    f"{(held if held is not None else time.perf_counter() - _route_t0):.1f}s "
+                    f"(now {_PROCESS_GATE.snapshot()['in_flight']}/{_PROCESS_GATE.limit})")
+
+
+def _process_document_route_body():
+    """The original /document/process handler body (unchanged semantics)."""
     try:
         set_user_request_id('document_processor')
 
@@ -1106,11 +1163,15 @@ def get_document_types_route():
 @app.route('/document/health', methods=['GET'])
 @cross_origin()
 def health_check():
-    """API health check endpoint"""
+    """API health check endpoint (+ live admission-gate state, so callers and
+    operators can SEE busy rather than infer it from a hung request)."""
+    gate = _PROCESS_GATE.snapshot()
     return jsonify({
         "status": "ok",
         "message": "Document API is operational",
-        "timestamp": time.time()
+        "timestamp": time.time(),
+        "busy": gate["busy"],
+        "process_gate": gate,
     })
 
 

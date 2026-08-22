@@ -1,7 +1,9 @@
 from flask import Flask, request, jsonify
 import os
+import atexit
 import json
 import logging
+import threading
 from logging.handlers import WatchedFileHandler
 from typing import Dict, Any, List, Optional
 
@@ -25,8 +27,20 @@ logger.addHandler(handler)
 # Initialize Flask app
 app = Flask(__name__)
 
-# Global vector engine instance
+# Global vector engine instance.
+#
+# LIFECYCLE (fixed 2026-08-21): this is a PROCESS singleton. It used to be
+# re-created on every request and torn down by a @teardown_appcontext hook
+# (which, despite its docstring, fires after EVERY request, not at shutdown).
+# Under concurrent requests that was a race: request B's teardown closed the
+# engine request A was using ('NoneType' object has no attribute
+# 'add_documents'), and B could see A's half-initialized engine ("Vector
+# engine not initialized") — three concurrent ingests all failed their vector
+# step the first time the document stack ran truly in parallel. All chroma
+# access goes through THIS process (the adapters use use_remote=True), so one
+# long-lived client is correct; it is created under a lock and closed atexit.
 vector_engine = None
+_engine_lock = threading.RLock()
 
 # Configuration from environment variables
 DEFAULT_VECTOR_DB_PATH = os.getenv('VECTOR_DB_PATH', './chroma_db')
@@ -35,16 +49,23 @@ API_KEY = os.getenv('VECTOR_API_KEY', '')  # For basic API security
 
 
 def get_vector_engine():
-    """Initialize and return the vector engine singleton"""
+    """Initialize (once, under a lock) and return the vector engine singleton.
+    The global is assigned only AFTER initialize() succeeds, so a concurrent
+    caller can never observe a half-built engine."""
     global vector_engine
-    if vector_engine is None:
-        logger.info("Initializing vector engine...")
-        vector_engine = LLMDocumentVectorEngine(vector_store_class=ChromaDBStore)
-        vector_engine.initialize(
-            path=DEFAULT_VECTOR_DB_PATH,
-            collection_name=DEFAULT_COLLECTION_NAME
-        )
-    return vector_engine
+    eng = vector_engine
+    if eng is not None:
+        return eng
+    with _engine_lock:
+        if vector_engine is None:
+            logger.info("Initializing vector engine...")
+            eng = LLMDocumentVectorEngine(vector_store_class=ChromaDBStore)
+            eng.initialize(
+                path=DEFAULT_VECTOR_DB_PATH,
+                collection_name=DEFAULT_COLLECTION_NAME
+            )
+            vector_engine = eng
+        return vector_engine
 
 
 @app.before_request
@@ -475,17 +496,23 @@ KNOWLEDGE_COLLECTION = getattr(cfg, 'KNOWLEDGE_VECTOR_COLLECTION', 'agent_knowle
 
 
 def get_knowledge_engine():
-    """Initialize and return the knowledge vector engine singleton"""
+    """Initialize (once, under a lock) and return the knowledge vector engine
+    singleton — same lifecycle rules as get_vector_engine()."""
     global _knowledge_engine
-    if _knowledge_engine is None:
-        logger.info(f"Initializing knowledge vector engine: path={KNOWLEDGE_DB_PATH}, collection={KNOWLEDGE_COLLECTION}")
-        _knowledge_engine = ChromaDBStore()
-        _knowledge_engine.initialize(
-            path=KNOWLEDGE_DB_PATH,
-            collection_name=KNOWLEDGE_COLLECTION,
-        )
-        logger.info(f"Knowledge vector engine ready. Collection count: {_knowledge_engine.collection.count()}")
-    return _knowledge_engine
+    eng = _knowledge_engine
+    if eng is not None:
+        return eng
+    with _engine_lock:
+        if _knowledge_engine is None:
+            logger.info(f"Initializing knowledge vector engine: path={KNOWLEDGE_DB_PATH}, collection={KNOWLEDGE_COLLECTION}")
+            eng = ChromaDBStore()
+            eng.initialize(
+                path=KNOWLEDGE_DB_PATH,
+                collection_name=KNOWLEDGE_COLLECTION,
+            )
+            logger.info(f"Knowledge vector engine ready. Collection count: {eng.collection.count()}")
+            _knowledge_engine = eng
+        return _knowledge_engine
 
 
 @app.route('/knowledge/index', methods=['POST'])
@@ -649,18 +676,32 @@ def knowledge_stats():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
-@app.teardown_appcontext
-def close_vector_engine(error):
-    """Close vector engine connections when the application shuts down"""
+def close_vector_engine(error=None):
+    """Close vector engine connections when the PROCESS shuts down.
+
+    Registered with atexit (below) — NOT as a Flask teardown hook: a
+    teardown_appcontext hook runs after every request, which re-created the
+    chroma client per request (~1 s each) and raced under concurrency (see the
+    note at `vector_engine`). Calling this explicitly is still safe."""
     global vector_engine, _knowledge_engine
-    if vector_engine is not None:
-        vector_engine.close()
-        vector_engine = None
-        logger.info("Vector engine connections closed")
-    if _knowledge_engine is not None:
-        _knowledge_engine.close()
-        _knowledge_engine = None
-        logger.info("Knowledge vector engine connections closed")
+    with _engine_lock:
+        if vector_engine is not None:
+            try:
+                vector_engine.close()
+            except Exception as e:
+                logger.warning(f"Vector engine close failed: {e}")
+            vector_engine = None
+            logger.info("Vector engine connections closed")
+        if _knowledge_engine is not None:
+            try:
+                _knowledge_engine.close()
+            except Exception as e:
+                logger.warning(f"Knowledge vector engine close failed: {e}")
+            _knowledge_engine = None
+            logger.info("Knowledge vector engine connections closed")
+
+
+atexit.register(close_vector_engine)
 
 
 # if __name__ == '__main__':

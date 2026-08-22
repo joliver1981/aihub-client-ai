@@ -43,6 +43,83 @@ except ImportError:
 
 
 # Configure logging
+class _PhaseTimer:
+    """Sequential per-phase wall clock for one document ingest.
+
+    begin(name) closes the open phase (if any) and opens `name`; end() closes
+    the open phase. summary() never mutates: an unfinished phase (an exception
+    escaped it) is reported with a trailing '*' so the [ingest-timing] line
+    still names WHERE the time went. Added 2026-08-21 after a probe showed a
+    1-page TXT spending 6-7 minutes inside the SQL store with nothing in the
+    logs between 'Added 1 pages to vector DB' and 'Stored document'.
+    """
+
+    def __init__(self):
+        self._t0 = time.perf_counter()
+        self._phases = {}          # name -> seconds (insertion ordered)
+        self._open = None
+        self._open_t0 = None
+
+    def begin(self, name):
+        self.end()
+        self._open, self._open_t0 = name, time.perf_counter()
+
+    def end(self):
+        if self._open is not None:
+            dt = time.perf_counter() - self._open_t0
+            self._phases[self._open] = self._phases.get(self._open, 0.0) + dt
+            self._open = self._open_t0 = None
+
+    def total(self):
+        return time.perf_counter() - self._t0
+
+    def as_dict(self):
+        d = {k: round(v, 2) for k, v in self._phases.items()}
+        if self._open is not None:
+            d[self._open + "*"] = round(time.perf_counter() - self._open_t0, 2)
+        d["total"] = round(self.total(), 2)
+        return d
+
+    def summary(self):
+        d = self.as_dict()
+        total = d.pop("total")
+        parts = " ".join(f"{k}={v}s" for k, v in d.items())
+        return f"total={total}s | {parts}"
+
+
+class _TimedCursor:
+    """Transparent pyodbc cursor proxy that times every execute() by statement
+    kind (first words of the SQL), so a slow SQL store can name the statement
+    that stalled instead of just the phase. Delegates everything else."""
+
+    def __init__(self, cursor):
+        self._c = cursor
+        self.stats = {}            # key -> [count, total_s, max_s]
+        self.count = 0
+
+    def execute(self, sql, *args, **kwargs):
+        t0 = time.perf_counter()
+        try:
+            return self._c.execute(sql, *args, **kwargs)
+        finally:
+            dt = time.perf_counter() - t0
+            key = " ".join(str(sql).split())[:48]
+            st = self.stats.setdefault(key, [0, 0.0, 0.0])
+            st[0] += 1
+            st[1] += dt
+            if dt > st[2]:
+                st[2] = dt
+            self.count += 1
+
+    def top(self, n=3):
+        rows = sorted(self.stats.items(), key=lambda kv: kv[1][1], reverse=True)[:n]
+        return "; ".join(f"{k!r} x{c} total={t:.2f}s max={m:.2f}s"
+                         for k, (c, t, m) in rows) or "-"
+
+    def __getattr__(self, name):
+        return getattr(self._c, name)
+
+
 def setup_logging():
     """Configure logging"""
     logger = logging.getLogger("LLMDocumentEngine")
@@ -831,6 +908,7 @@ class LLMDocumentProcessor:
         Returns:
             Dictionary with processing results and document data
         """
+        _pt = _PhaseTimer()   # per-phase wall clock -> one [ingest-timing] line + result["timings"]
         try:
             self.anthropic_proxy_client._set_tracking_params('document_processor')
 
@@ -859,6 +937,7 @@ class LLMDocumentProcessor:
             file_start_time = time.time()
             processing_error = None   # set by the failure path; surfaced in the return
 
+            _pt.begin('context')      # SQL connect + tenant context (+ job row)
             sql_conn = get_db_connection()
             cursor = sql_conn.cursor()
 
@@ -886,6 +965,7 @@ class LLMDocumentProcessor:
                 file_detail_id = ''
         
             # Detect document type if not provided
+            _pt.begin('detect')       # LLM classification via the relay
             print(f"Detecting document type...")
             self.logger.debug(f"Detecting document type...")
             detected_document_type = document_type
@@ -903,6 +983,7 @@ class LLMDocumentProcessor:
                 detected_document_type = 'unknown'
 
             # Process based on file type
+            _pt.begin('extract')      # file handler: text/pages (+ page AI for PDFs)
             print(f"Calling document handler based on type {file_extension}...")
             self.logger.debug(f"Calling document handler based on type {file_extension}...")
             if file_extension == '.pdf':
@@ -922,6 +1003,7 @@ class LLMDocumentProcessor:
                 print(f'ERROR: Invalid document type selected: {document_type}')
                 extracted_pages = []
                 
+            _pt.begin('doclevel')     # document-level field extraction (LLM)
             # ---- Optional: one extraction for the WHOLE document, not one per page ----
             # Per-page extraction re-answers document-level facts on every page that
             # mentions them, producing duplicates and sometimes conflicting values.
@@ -982,6 +1064,7 @@ class LLMDocumentProcessor:
                     doc_level_fields = None
 
             # Process each page
+            _pt.begin('pages')        # per-page extraction / assembly
             self.logger.debug(f"Processing pages...")
             page_data_list = []
             for page in extracted_pages:
@@ -1025,6 +1108,7 @@ class LLMDocumentProcessor:
 
                 page_data_list.append(page_data)
 
+            _pt.begin('category')     # v3 category assignment (LLM + 2 small SQL)
             # ---- Category assignment for NEW document types (v3 ACL) ----------
             # An unmapped type is visible to admins only, so a freshly coined type
             # would silently vanish from every non-admin's search. The AI files it
@@ -1039,6 +1123,7 @@ class LLMDocumentProcessor:
                 except Exception as cat_err:
                     self.logger.info(f"Category assignment skipped: {cat_err}")
 
+            _pt.begin('schema')       # schema learn/save for new types
             # ---- Learn this document type's schema from the WHOLE document ----
             # Once per document, after every page is extracted. Generating from a
             # single page yielded cover-page schemas that then bounded extraction for
@@ -1062,12 +1147,14 @@ class LLMDocumentProcessor:
                 if not is_knowledge_document and cfg.DOC_ENABLE_VECTOR_STORE:
                     print(f"Storing in vector database...")
                     print(f"Page data list: {page_data_list}")
+                    _pt.begin('vector')   # embeddings + chroma add via the vector API
                     self._store_in_vector_db(page_data_list)
                     VECTOR_LOADED = True
 
                 if sql_conn:
                     print(f"Storing in SQL database...")
                     try:
+                        _pt.begin('sql')  # Documents/DocumentPages/DocumentFields inserts + commit
                         self._store_in_sql_db(file_path, file_id, detected_document_type, page_data_list, is_knowledge_document)
 
                         # RECORDS — the document's repeating content (a manual's
@@ -1078,6 +1165,7 @@ class LLMDocumentProcessor:
                                 and extract_fields and not force_ai_extraction
                                 and (self.schemas.get(detected_document_type) or {}).get('records')):
                             try:
+                                _pt.begin('records')   # record-set extraction (LLM) + store
                                 extracted_records = self._extract_records(
                                     extracted_pages, detected_document_type,
                                     self.schemas[detected_document_type])
@@ -1102,6 +1190,7 @@ class LLMDocumentProcessor:
                 print("Do not store flag set, document will not be saved...")
 
             # Update file processing record with success
+            _pt.begin('jobupdate')
             processing_time = time.time() - file_start_time
             # Update job file status in database
             sql_conn = get_db_connection()
@@ -1146,9 +1235,23 @@ class LLMDocumentProcessor:
                 """, (detected_document_type, file_id, len(page_data_list), processing_time, str(e), execution_id, filename))
                 sql_conn.commit()
             
+        # One line per document naming WHERE the wall clock went (an unfinished
+        # phase -- one an exception escaped -- carries a trailing '*').
+        _pt_summary = _pt.summary()
+        _pt.end()
+        try:
+            self.logger.info(
+                f"[ingest-timing] file={locals().get('filename', '?')} "
+                f"id={locals().get('file_id', '?')} pages={len(page_data_list)} "
+                f"type={detected_document_type if 'detected_document_type' in locals() else '?'} "
+                f"{'ERROR ' if processing_error else ''}{_pt_summary}")
+        except Exception:
+            pass
+
         # Return processing results. processing_error is None on success; callers
         # (app_doc_api.DocumentProcessor) turn a non-None value into an HTTP error.
         return {
+            "timings": _pt.as_dict(),
             "document_id": file_id,
             "filename": filename,
             "document_type": detected_document_type,
@@ -3235,16 +3338,22 @@ class LLMDocumentProcessor:
             page_data_list: List of page data dictionaries
         """
         try:
+            _st = {}                                   # phase -> seconds
+            _t = time.perf_counter()
             sql_conn = get_db_connection()
+            _st['connect'] = time.perf_counter() - _t
             if not sql_conn:
                 print('SQL connection not available, skipping database storage')
                 self.logger.warning("SQL connection not available, skipping database storage")
                 return
-            cursor = sql_conn.cursor()
+            cursor = _TimedCursor(sql_conn.cursor())   # per-statement timing (transparent proxy)
 
+            _t = time.perf_counter()
             cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
-            
+            _st['context'] = time.perf_counter() - _t
+
             # Insert document record
+            _t = time.perf_counter()
             cursor.execute("""
                 INSERT INTO Documents (
                     document_id, filename, original_path, document_type, 
@@ -3260,7 +3369,10 @@ class LLMDocumentProcessor:
                 1 if normalize_boolean(is_knowledge_document) else 0
             ))
             
+            _st['doc_insert'] = time.perf_counter() - _t
+
             # Insert page records and fields
+            _t = time.perf_counter()
             for page_data in page_data_list:
                 # Insert page record
                 cursor.execute("""
@@ -3278,9 +3390,28 @@ class LLMDocumentProcessor:
                 # Insert extracted fields (flattening nested structures)
                 self._insert_fields(cursor, page_data["page_id"], page_data["extracted_data"])
 
+            _st['pages_fields'] = time.perf_counter() - _t
+
             # Commit the transaction
+            _t = time.perf_counter()
             sql_conn.commit()
+            _st['commit'] = time.perf_counter() - _t
             self.logger.info(f"Stored document {document_id} in SQL database")
+            # Name the statement kinds that took the time. WARNING above the
+            # slow threshold so a stalled store is visible without DEBUG logs.
+            try:
+                _st_total = sum(_st.values())
+                _slow = float(os.getenv('DOC_SQL_STORE_SLOW_SECONDS', '10') or 10)
+                _msg = (f"[sql-store] doc={document_id} pages={len(page_data_list)} "
+                        f"total={_st_total:.2f}s "
+                        + " ".join(f"{k}={v:.2f}s" for k, v in _st.items())
+                        + f" statements={cursor.count} slowest: {cursor.top(3)}")
+                if _st_total >= _slow:
+                    self.logger.warning(_msg + f"  (>= DOC_SQL_STORE_SLOW_SECONDS={_slow:g})")
+                else:
+                    self.logger.debug(_msg)
+            except Exception:
+                pass
 
             # NEW: Generate and store summaries if enabled
             if self.enable_summarization:
@@ -3391,12 +3522,20 @@ class LLMDocumentProcessor:
                 ))
 
         # After processing all fields, ensure document_type exists (only at root level)
+        # The two SELECTs below compare VARCHAR(100) id columns with parameters
+        # pyodbc sends as NVARCHAR; under this database's SQL_Latin1_General_CP1
+        # collation that implicit conversion is NOT index-seekable, so they ran as
+        # scans: measured 2026-08-21 via [sql-store] at 9.7-11.9 s + 2.4 s PER PAGE
+        # (the INSERTs in the same transaction took milliseconds) -> ~14 s of
+        # every 1-page store, and minutes under IO pressure on the S1 tier.
+        # CAST(? AS VARCHAR(100)) keeps the column side untouched (seekable) and
+        # returns exactly the same rows.
         if not path:  # Only do this at the root level to avoid repetition
             # Check if document_type field was already extracted and inserted
             cursor.execute("""
                 SELECT COUNT(*) 
                 FROM DocumentFields 
-                WHERE page_id = ? AND field_name = 'document_type'
+                WHERE page_id = CAST(? AS VARCHAR(100)) AND field_name = 'document_type'
             """, (page_id,))
             
             document_type_exists = cursor.fetchone()[0] > 0
@@ -3407,7 +3546,7 @@ class LLMDocumentProcessor:
                     SELECT d.document_type 
                     FROM Documents d
                     JOIN DocumentPages dp ON d.document_id = dp.document_id
-                    WHERE dp.page_id = ?
+                    WHERE dp.page_id = CAST(? AS VARCHAR(100))
                 """, (page_id,))
                 
                 result = cursor.fetchone()

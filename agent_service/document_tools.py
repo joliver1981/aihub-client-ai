@@ -118,17 +118,33 @@ async def _post_main(path: str, body: dict, internal: bool = False,
             return {"error": (r.text or "")[:500]}, r.status_code
 
 
-# The document stack serializes concurrent work (4-16 waitress threads across
-# main app / doc API / vector API — see wsgi*.py); under a burst of imports or
-# a running records extraction, calls queue past our client read timeouts. A
-# raw ReadTimeout traceback read to the model like an outage and sent it into
-# retry storms (2026-08-21). Say what it actually is: a busy queue.
+# Under load the document stack's shared Azure SQL tier stalls and every slow
+# request holds a waitress thread (main app / doc API — see wsgi*.py); callers
+# then queue past our client read timeouts. A raw ReadTimeout traceback read to
+# the model like an outage and sent it into retry storms (2026-08-21). Say what
+# it actually is: a busy queue. Since 2026-08-21 the servers ALSO answer
+# 503 + Retry-After the moment their admission gate is full (the doc API's
+# /document/process and the main app's document-search endpoints — see
+# docs/doc-api-concurrency-and-fast-busy.md); _busy_text() relays that.
 _BUSY_MSG = ("The document stack is BUSY right now — another import or "
              "extraction is holding it. This is a queue, not an outage, and "
              "not evidence the document is missing. Wait about a minute and "
              "call this once more; if it is still busy, tell the user the "
              "document system is working through a backlog rather than "
              "retrying in a loop.")
+
+
+def _busy_text(data, retry_after=None) -> str:
+    """Honest busy message from a server 503 (fast-busy gate). Uses the server's
+    own wording + Retry-After when present, else the generic _BUSY_MSG."""
+    msg = data.get("message") if isinstance(data, dict) else None
+    ra = (data.get("retry_after") if isinstance(data, dict) else None) or retry_after
+    if msg:
+        tail = (f" Retry in about {ra} seconds; if it is still busy then, tell the "
+                f"user the document system is working through a backlog rather "
+                f"than retrying in a loop.") if ra else ""
+        return f"{msg}{tail}"
+    return _BUSY_MSG
 
 
 def _ext_ok(name: str) -> bool:
@@ -383,6 +399,17 @@ async def import_documents(args: dict[str, Any]) -> dict[str, Any]:
             except Exception as e:
                 failed.append((name, f"{type(e).__name__}: {e}"))
                 continue
+            if r.status_code == 503:
+                # Fast-busy from the doc API's admission gate: nothing was
+                # processed for this file. Report it as busy (retry later),
+                # not as a broken import.
+                try:
+                    busy = _unwrap(r.json())
+                except Exception:
+                    busy = {}
+                failed.append((name, "BUSY (not imported): "
+                               + _busy_text(busy, r.headers.get("Retry-After"))))
+                continue
             if r.status_code != 200:
                 failed.append((name, f"HTTP {r.status_code}"))
                 continue
@@ -480,6 +507,8 @@ async def search_documents(args: dict[str, Any]) -> dict[str, Any]:
                                         read_timeout=180.0)
     except httpx.TimeoutException:
         return _text(_BUSY_MSG, is_error=True)
+    if status == 503:
+        return _text(_busy_text(data), is_error=True)
     if status != 200:
         msg = data.get("message") or data.get("error") if isinstance(data, dict) else data
         return _text(f"Document search failed (HTTP {status}): {msg}", is_error=True)
@@ -691,6 +720,8 @@ async def query_document_records(args: dict[str, Any]) -> dict[str, Any]:
                                         internal=True, read_timeout=60.0)
     except httpx.TimeoutException:
         return _text(_BUSY_MSG, is_error=True)
+    if status == 503:
+        return _text(_busy_text(data), is_error=True)
     if status != 200:
         msg = data.get("message") if isinstance(data, dict) else data
         return _text(f"Record query failed (HTTP {status}): {msg}. Fall back to "
