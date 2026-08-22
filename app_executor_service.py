@@ -47,6 +47,16 @@ def setup_logging():
     handler = WatchedFileHandler(filename=os.getenv('APP_WORKFLOW_EXECUTOR_LOG', get_log_path('app_workflow_executor_log.txt')), encoding='utf-8')
     handler.setFormatter(formatter)
     logger.addHandler(handler)
+
+    # The one-time startup recovery (workflow_recovery_service.py) logs under
+    # its own "WorkflowRecovery" logger. Attach the same file handler so its
+    # messages land in app_workflow_executor_log.txt -- previously the only
+    # trace was the console line "ERROR:WorkflowRecovery:..." emitted via the
+    # root logger's default format, and nothing reached the file log.
+    recovery_logger = logging.getLogger("WorkflowRecovery")
+    recovery_logger.setLevel(log_level)
+    if handler not in recovery_logger.handlers:
+        recovery_logger.addHandler(handler)
     
     return logger
 
