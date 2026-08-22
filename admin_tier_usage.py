@@ -13,6 +13,7 @@ import requests
 from functools import wraps
 import time
 import threading
+import copy
 from CommonUtils import get_cloud_db_connection_string,  get_db_connection_string, rotate_logs_on_startup, get_log_path
 import config as cfg
 
@@ -51,6 +52,33 @@ _tier_cache = {
 # Longer = fewer API calls but potentially stale data
 TIER_CACHE_TTL = int(cfg.TIER_CACHE_TTL or 900)
 
+# ============================================================================
+# MODULE-LEVEL CACHE FOR USAGE COUNTS (get_agent_user_env_info)
+# ============================================================================
+# The usage counts (monthly request count from PlatformUsageLog on the cloud DB
+# + the local Agents/Environments/Tools/Users counts) used to be recomputed on
+# EVERY call: every @tier_allows_feature route hit, every tier-dashboard load and
+# the email dispatcher's 5-minute enterprise re-check. The PlatformUsageLog count
+# alone costs 30-230 s of IO budget on the S1 tenant DB (logs/admin_tier_usage_log.txt
+# "TIMING:" lines, 2026-08-21; docs/doc-api-concurrency-and-fast-busy.md section 7).
+# The counts are now cached with their own TTL, refreshed by at most one thread
+# at a time (concurrent callers get the last-known values), and invalidated
+# together with the tier cache (invalidate_tier_cache()).
+_usage_cache = {
+    'data': None,         # (user_statistics, current_usage) from the last successful query
+    'timestamp': 0,       # time.time() of that query
+    'lock': threading.Lock(),
+    'generation': 0,      # bumped by invalidate_usage_cache(); a refresh that started
+                          # before an invalidation discards its result
+    'last_error': None,   # str(exception) of the most recent failed refresh (diagnostics)
+}
+
+# Cache TTL in seconds for the usage counts. Env-configurable through config.py
+# (TIER_USAGE_CACHE_TTL, default 300). 60-300 s keeps the dashboard honest while
+# turning the PlatformUsageLog count into a handful of runs per hour instead of
+# one per request.
+USAGE_CACHE_TTL = int(getattr(cfg, 'TIER_USAGE_CACHE_TTL', 0) or 300)
+
 
 def invalidate_tier_cache():
     """
@@ -59,12 +87,44 @@ def invalidate_tier_cache():
     - After subscription upgrade/downgrade
     - After settings change
     - After admin override
+    Also drops the cached usage counts (invalidate_usage_cache()).
     """
     global _tier_cache
     with _tier_cache['lock']:
         _tier_cache['data'] = None
         _tier_cache['timestamp'] = 0
         logger.info("Tier cache invalidated")
+    invalidate_usage_cache()
+
+
+def invalidate_usage_cache():
+    """
+    Drop the cached usage counts so the next caller that needs them re-queries
+    the databases.
+
+    Deliberately does NOT take _usage_cache['lock']: a refresh in progress may
+    hold it for minutes on a busy DB and invalidation must never block. The
+    generation counter makes a refresh that started before the invalidation
+    discard its (pre-invalidation) result instead of re-populating the cache.
+    """
+    _usage_cache['generation'] += 1
+    _usage_cache['data'] = None
+    _usage_cache['timestamp'] = 0
+    logger.info("Usage cache invalidated")
+
+
+def _usage_cache_get(max_age=None):
+    """
+    Return a deep copy of the cached (user_statistics, current_usage) tuple, or
+    None when nothing is cached or the entry is older than max_age seconds
+    (max_age=None -> any age, i.e. "last-known values").
+    """
+    data = _usage_cache['data']
+    if data is None:
+        return None
+    if max_age is not None and (time.time() - _usage_cache['timestamp']) >= max_age:
+        return None
+    return copy.deepcopy(data)
 
 
 def get_tier_cache_status():
@@ -82,6 +142,24 @@ def get_tier_cache_status():
         'ttl_seconds': TIER_CACHE_TTL,
         'is_expired': age > TIER_CACHE_TTL if age else True,
         'next_refresh_in': round(TIER_CACHE_TTL - age, 1) if age and age < TIER_CACHE_TTL else 0
+    }
+
+
+def get_usage_cache_status():
+    """
+    Current state of the usage-count cache (same shape as get_tier_cache_status()
+    plus last_error). Exposed on /admin/tier/api/cache-status and
+    /admin/tier/api/subscription-info.
+    """
+    ts = _usage_cache['timestamp']
+    age = (time.time() - ts) if ts > 0 else None
+    return {
+        'has_data': _usage_cache['data'] is not None,
+        'age_seconds': round(age, 1) if age is not None else None,
+        'ttl_seconds': USAGE_CACHE_TTL,
+        'is_expired': age is None or age > USAGE_CACHE_TTL,
+        'next_refresh_in': round(USAGE_CACHE_TTL - age, 1) if age is not None and age < USAGE_CACHE_TTL else 0,
+        'last_error': _usage_cache['last_error'],
     }
 
 
@@ -114,50 +192,63 @@ def index():
 # HELPER FUNCTIONS
 # ============================================================================
 
-def get_agent_user_env_info():
+def _query_agent_user_env_info():
+    """
+    UNCACHED: run the usage-count queries and return (user_statistics, current_usage).
+    Raises on failure - the cached wrapper get_agent_user_env_info() handles the
+    fallback. Do not call this directly from request code; use the wrapper.
+
+    The first query (monthly request count) runs against the "cloud" DB - on this
+    platform the same Azure SQL server/database as the tenant DB - and is the
+    expensive one: a month-range seek on PlatformUsageLog with one key lookup per
+    row (migrations/019_platform_usage_log_covering_index.sql removes the lookups).
+    The "TIMING:" log lines are cumulative from `start` and are the measurement
+    instrument for that cost.
+    """
+    tenant_id = os.getenv('API_KEY')
+
+    # Time the cloud DB call
+    start = time.time()
+
+    # Get request usage stats
+    connCloud = pyodbc.connect(get_cloud_db_connection_string())
     try:
-        import time
-        tenant_id = os.getenv('API_KEY')
-
-        # Time the cloud DB call
-        start = time.time()
-
-        # Get request usage stats
-        connCloud = pyodbc.connect(get_cloud_db_connection_string())
         cursorCloud = connCloud.cursor()
         cursorCloud.execute("EXEC tenant.sp_setTenantContext ?", tenant_id)
         print(f"TIMING: Cloud Connecting took {time.time() - start:.2f}s")
         logger.debug(f"TIMING: Connecting took {time.time() - start:.2f}s")
         cursorCloud.execute("""
             SELECT COUNT(DISTINCT RequestId) as request_count
-            FROM PlatformUsageLog 
-            WHERE TokensUsed > 0 
+            FROM PlatformUsageLog
+            WHERE TokensUsed > 0
             AND RequestTimestamp >= DATEADD(month, DATEDIFF(month, 0, GETUTCDATE()), 0)
             AND RequestTimestamp < DATEADD(month, DATEDIFF(month, 0, GETUTCDATE()) + 1, 0)
         """)
         usage_req_row = cursorCloud.fetchone()
         current_requests = usage_req_row.request_count
         cursorCloud.close()
+    finally:
         connCloud.close()
-        print(f"TIMING: Cloud DB took {time.time() - start:.2f}s")
-        logger.debug(f"TIMING: Cloud DB took {time.time() - start:.2f}s")
+    print(f"TIMING: Cloud DB took {time.time() - start:.2f}s")
+    logger.debug(f"TIMING: Cloud DB took {time.time() - start:.2f}s")
 
-        # Get local stats
-        conn = pyodbc.connect(get_db_connection_string())
+    # Get local stats
+    conn = pyodbc.connect(get_db_connection_string())
+    try:
         cursor = conn.cursor()
 
         # Set tenant context
         cursor.execute("EXEC tenant.sp_setTenantContext ?", tenant_id)
-        
+
         # Get current usage
         cursor.execute("""
-            SELECT 
+            SELECT
                 (SELECT COUNT(*) FROM AgentEnvironments WHERE is_deleted = 0) as env_count,
                 (SELECT COUNT(*) FROM Agents WHERE [enabled] = 1) as agent_count,
                 (SELECT COUNT(*) FROM AgentTools WHERE custom_tool = 1 AND [enabled] = 1) as tool_count,
                 (SELECT COUNT(*) FROM [User]) as user_count
         """)
-        
+
         usage_row = cursor.fetchone()
         current_usage = {
             'environments': usage_row.env_count,
@@ -169,7 +260,7 @@ def get_agent_user_env_info():
 
         # Get detailed user statistics
         cursor.execute("""
-            SELECT 
+            SELECT
                 COUNT(*) as total_users,
                 SUM(CASE WHEN role = 3 THEN 1 ELSE 0 END) as admin_count,
                 SUM(CASE WHEN role = 2 THEN 1 ELSE 0 END) as developer_count,
@@ -191,16 +282,86 @@ def get_agent_user_env_info():
                 'last_30_days': 0
             }
         }
-        
+
         cursor.close()
+    finally:
         conn.close()
-        logger.debug(f"TIMING: Local DB took {time.time() - start:.2f}s")
-    except Exception as e:
-        print(str(e))
-        user_statistics = {}
-        current_usage = {}
+    logger.debug(f"TIMING: Local DB took {time.time() - start:.2f}s")
 
     return user_statistics, current_usage
+
+
+def get_agent_user_env_info(force_refresh=False):
+    """
+    Usage counts for the tenant - CACHED (TTL = USAGE_CACHE_TTL seconds).
+
+    Returns (user_statistics, current_usage), the same shape as always:
+        user_statistics: {'total', 'by_role': {...}, 'activity': {...}}
+        current_usage:   {'environments', 'agents', 'custom_tools', 'users', 'requests'}
+    and ({}, {}) when the counts cannot be computed and nothing is cached.
+    Never raises.
+
+    Semantics:
+      * cache hit (age < TTL)   -> cached values, no DB access
+      * cache stale / empty     -> ONE thread refreshes (holding _usage_cache['lock']);
+                                   concurrent callers are served the last-known values
+                                   immediately if there are any, else they wait for it
+      * force_refresh=True      -> always re-query (serialised behind the same lock so
+                                   two heavy queries never run at once)
+      * refresh fails           -> last-known values are kept and returned; the error
+                                   is logged and recorded in _usage_cache['last_error']
+    Callers get copies, so mutating the result cannot poison the cache.
+    """
+    if not force_refresh:
+        cached = _usage_cache_get(max_age=USAGE_CACHE_TTL)
+        if cached is not None:
+            logger.debug(f"USAGE-CACHE: hit (age {time.time() - _usage_cache['timestamp']:.1f}s, ttl {USAGE_CACHE_TTL}s)")
+            return cached
+
+    lock = _usage_cache['lock']
+    if force_refresh:
+        lock.acquire()
+    elif not lock.acquire(blocking=False):
+        # Another thread is refreshing. Serve last-known values if we have any,
+        # otherwise wait for that refresh to finish.
+        stale = _usage_cache_get(max_age=None)
+        if stale is not None:
+            logger.debug("USAGE-CACHE: refresh in progress - serving last-known values")
+            return stale
+        lock.acquire()
+
+    try:
+        if not force_refresh:
+            # Double-check after acquiring the lock (another thread may have refreshed)
+            cached = _usage_cache_get(max_age=USAGE_CACHE_TTL)
+            if cached is not None:
+                logger.debug("USAGE-CACHE: hit after lock")
+                return cached
+
+        generation = _usage_cache['generation']
+        try:
+            user_statistics, current_usage = _query_agent_user_env_info()
+        except Exception as e:
+            _usage_cache['last_error'] = str(e)
+            logger.error(f"USAGE-CACHE: refresh failed: {e}")
+            print(str(e))
+            stale = _usage_cache_get(max_age=None)
+            if stale is not None:
+                logger.warning(
+                    f"USAGE-CACHE: serving last-known values (age {time.time() - _usage_cache['timestamp']:.0f}s) after a failed refresh")
+                return stale
+            return {}, {}
+
+        if _usage_cache['generation'] == generation:
+            _usage_cache['data'] = (user_statistics, current_usage)
+            _usage_cache['timestamp'] = time.time()
+            _usage_cache['last_error'] = None
+            logger.info(f"USAGE-CACHE: refreshed (TTL: {USAGE_CACHE_TTL}s)")
+        else:
+            logger.info("USAGE-CACHE: cache was invalidated during refresh - result not cached")
+        return copy.deepcopy((user_statistics, current_usage))
+    finally:
+        lock.release()
 
 def merge_settings_with_tier_features(tier_features, settings):
     """
@@ -356,56 +517,86 @@ def get_subscription_limits_from_cloud(force_refresh=False):
             return _tier_cache['data']
 
 
-def get_cached_tier_data(force_refresh=False):
+def get_cached_tier_data(force_refresh=False, include_usage=True):
     """
-    Get both limits (from Cloud API with settings overrides) and usage (from local DB).
-    
+    Get both limits (from Cloud API with settings overrides) and usage (from the DBs).
+
     This function combines:
     - Cached Cloud API data (tier features, subscription info)
-    - Fresh local database data (current usage counts)
-    
-    Also caches the combined result in Flask's g object for the duration of the 
+    - Cached usage counts (current usage, user statistics) - see get_agent_user_env_info()
+
+    Also caches the combined result in Flask's g object for the duration of the
     current request to avoid redundant processing within a single request.
-    
+
     Args:
-        force_refresh: If True, bypass Cloud API cache and fetch fresh data
-    
+        force_refresh: If True, bypass the Cloud API cache AND the usage cache
+        include_usage: If True (default) the result carries usage counts, loading
+            them (from the TTL cache, or the DBs when it is stale) if needed.
+            If False the caller only needs tier_features/subscription
+            (@tier_allows_feature, @require_tier, the email dispatcher's
+            enterprise check): NO usage query is made; the last-known cached
+            counts are attached when available, otherwise current_usage and
+            user_statistics are {}. A later include_usage=True call in the same
+            request upgrades g.tier_data in place.
+
     Returns dict with:
     - tier_features: The merged limits/features (settings override tier defaults)
-    - current_usage: The actual current usage from local DB
+    - current_usage: The actual current usage (cached)
     - subscription: Subscription details
     - settings: Original settings for reference
     """
     # Check if already processed in this request (g object cache)
     # This prevents multiple calls within the same request from re-processing
     if not force_refresh and hasattr(g, 'tier_data'):
-        return g.tier_data
-    
+        tier_data = g.tier_data
+        if include_usage and not getattr(g, 'tier_usage_loaded', False):
+            _attach_usage(tier_data, required=True)
+            g.tier_usage_loaded = True
+        return tier_data
+
     # Get limits from Cloud API (uses TTL cache internally)
     subscription_data = get_subscription_limits_from_cloud(force_refresh=force_refresh)
-    
+
     if not subscription_data or not subscription_data.get('success'):
         logger.warning("Could not load subscription limits from Cloud API")
         return None
-    
-    # Get current usage from local database (always fresh)
-    user_statistics, current_usage = get_agent_user_env_info()
-    
+
     # Combine into single cached object
     tier_data = {
         'tier_features': subscription_data.get('tier_features', {}),  # Already merged with settings
         'settings': subscription_data.get('settings', {}),
         'subscription': subscription_data.get('subscription', {}),
         'tenant_info': subscription_data.get('tenant_info', {}),
-        'current_usage': current_usage,
-        'user_statistics': user_statistics,
+        'current_usage': {},
+        'user_statistics': {},
         'original_tier_features': subscription_data.get('original_tier_features', {})  # Before settings override
     }
-    
+
+    # Usage counts: required -> TTL cache (query when stale); not required -> last-known only
+    _attach_usage(tier_data, required=bool(include_usage), force_refresh=force_refresh)
+
     # Cache in g object for this request
     g.tier_data = tier_data
-    
+    g.tier_usage_loaded = bool(include_usage)
+
     return tier_data
+
+
+def _attach_usage(tier_data, required, force_refresh=False):
+    """
+    Put usage counts on a tier_data dict.
+    required=True  -> get_agent_user_env_info() (TTL cache; queries the DBs when stale)
+    required=False -> last-known cached values only, never queries; leaves {} if none
+    """
+    if required:
+        user_statistics, current_usage = get_agent_user_env_info(force_refresh=force_refresh)
+    else:
+        cached = _usage_cache_get(max_age=None)
+        if cached is None:
+            return
+        user_statistics, current_usage = cached
+    tier_data['current_usage'] = current_usage
+    tier_data['user_statistics'] = user_statistics
 
 # ============================================================================
 # USAGE TIER DECORATORS
@@ -426,8 +617,8 @@ def tier_allows_feature(feature_name):
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
-            # Load tier data if not already loaded
-            tier_data = get_cached_tier_data()
+            # Load tier data (features only - this check never needs the usage counts)
+            tier_data = get_cached_tier_data(include_usage=False)
             
             if not tier_data:
                 logger.warning("Could not load tier data")
@@ -470,7 +661,7 @@ def tier_allows_resource(resource_type):
         @wraps(f)
         def decorated_function(*args, **kwargs):
             # Load tier data if not already loaded
-            tier_data = get_cached_tier_data()
+            tier_data = get_cached_tier_data()  # include_usage=True: this check compares usage to limits
             
             if not tier_data:
                 logger.warning("Could not load tier data")
@@ -535,7 +726,7 @@ def require_tier(minimum_tier):
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
-            tier_data = get_cached_tier_data()
+            tier_data = get_cached_tier_data(include_usage=False)  # tier level only - no usage counts needed
             
             if not tier_data:
                 logger.warning("Could not load tier data")
@@ -583,8 +774,8 @@ def check_usage_limits(resource_checks=None):
             if not resource_checks:
                 return f(*args, **kwargs)
             
-            # Load tier data if not already loaded
-            tier_data = get_cached_tier_data()
+            # Load tier data; usage counts only when resource limits are being checked
+            tier_data = get_cached_tier_data(include_usage=bool(resource_checks.get('resources')))
             
             if not tier_data:
                 logger.warning("Could not load tier data")
@@ -718,7 +909,7 @@ def get_subscription_info_from_cloud():
             
             # Add current usage from local database
             try:
-                user_statistics, current_usage = get_agent_user_env_info()
+                user_statistics, current_usage = get_agent_user_env_info(force_refresh=force_refresh)
                 data['current_usage'] = current_usage
                 data['user_statistics'] = user_statistics
             except Exception as usage_error:
@@ -728,6 +919,7 @@ def get_subscription_info_from_cloud():
             
             # Add cache status info
             data['cache_status'] = get_tier_cache_status()
+            data['usage_cache_status'] = get_usage_cache_status()
             
             return jsonify(data), 200
             
@@ -778,7 +970,8 @@ def get_cache_status():
     """Get current tier cache status for debugging/monitoring"""
     return jsonify({
         'status': 'success',
-        'cache': get_tier_cache_status()
+        'cache': get_tier_cache_status(),
+        'usage_cache': get_usage_cache_status()
     })
 
 
@@ -789,7 +982,7 @@ def invalidate_cache():
     invalidate_tier_cache()
     return jsonify({
         'status': 'success',
-        'message': 'Tier cache invalidated'
+        'message': 'Tier and usage caches invalidated'
     })
 
 
@@ -938,8 +1131,9 @@ def get_tier_stats():
         cursor.close()
         conn.close()
 
-        # Point to normal and potentially local db
-        user_statistics, current_usage = get_agent_user_env_info()
+        # Usage counts (cached, TTL USAGE_CACHE_TTL); ?force_refresh=true re-queries the DBs
+        force_refresh = request.args.get('force_refresh', 'false').lower() == 'true'
+        user_statistics, current_usage = get_agent_user_env_info(force_refresh=force_refresh)
         
         return jsonify({
             'status': 'success',

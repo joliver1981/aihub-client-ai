@@ -243,6 +243,7 @@ EMAIL_FALLBACK_ENABLED = os.getenv('EMAIL_FALLBACK_ENABLED', 'true').lower() in 
 # Misc Application Parameters
 DEBUG_MODE = False
 TIER_CACHE_TTL = 1800                                   # Cache TTL in seconds
+TIER_USAGE_CACHE_TTL = int(os.getenv('TIER_USAGE_CACHE_TTL', '300'))  # Cache TTL (seconds) for the tenant usage counts (monthly PlatformUsageLog request count + local Agents/Environments/Tools/Users counts) served to the tier dashboard and usage-limit checks; cleared together with the tier cache. 60-300 s recommended; 0/unset -> 300.
 USE_AGENT_API = True                                    # Determines if the agent API is used for all agent executions
 AGENT_API_TIMEOUT = 300                                 # Timeout setting for making agent calls via API
 TEXT_FILE_EXTENSIONS = os.getenv('TEXT_FILE_EXTENSIONS', '').split(',')

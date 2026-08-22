@@ -130,12 +130,15 @@ class EmailAgentDispatcher:
         try:
             from admin_tier_usage import get_cached_tier_data
             
-            # Use Flask app context if available
+            # Use Flask app context if available.
+            # include_usage=False: this check only reads tier_features; it must not
+            # trigger the usage-count queries (the PlatformUsageLog month count cost
+            # 30-230 s of IO on the S1 tenant DB every 5 minutes from this loop).
             if self._flask_app is not None:
                 with self._flask_app.app_context():
-                    tier_data = get_cached_tier_data()
+                    tier_data = get_cached_tier_data(include_usage=False)
             else:
-                tier_data = get_cached_tier_data()
+                tier_data = get_cached_tier_data(include_usage=False)
             
             if not tier_data:
                 logger.warning("Unable to verify enterprise feature flag")

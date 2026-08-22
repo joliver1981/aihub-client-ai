@@ -222,6 +222,13 @@ WHERE r.blocking_session_id <> 0 OR r.wait_time > 5000;
    (`RequestTimestamp` INCLUDE `TokensUsed, RequestId, TenantId`). Today every tier-gated
    page hit and dashboard poll costs 30–230 s of the tenant DB's IO budget. This is the
    single biggest lever on the doc store stalls measured here.
+   **DONE 2026-08-21** — usage counts cached (`TIER_USAGE_CACHE_TTL`, default 300 s,
+   invalidated with the tier cache), feature-only consumers (`@tier_allows_feature`,
+   `@require_tier`, the email dispatcher's 5-minute enterprise check — the ~5-min
+   driver in the log) no longer touch the counts at all, and
+   `migrations/019_platform_usage_log_covering_index.sql` rebuilds
+   `IX_PlatformUsageLog_RequestTimestamp` as the covering index (DDL login, not yet
+   applied). Details + before/after: `docs/tier-usage-cache-and-platformusagelog-index.md`.
 2. **DB tier**: S1 (20 DTU) is under-provisioned for a multi-service tenant plus the relay;
    S3/GP-serverless or at least S2 would end most of the IO queueing.
 3. **Relay per-call DB work**: the monthly-quota count and usage INSERT run on the same DB

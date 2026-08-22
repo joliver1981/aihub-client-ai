@@ -106,7 +106,7 @@ def initialize_email_dispatcher():
     try:
         from admin_tier_usage import get_cached_tier_data
         with app.app_context():
-            tier_data = get_cached_tier_data()
+            tier_data = get_cached_tier_data(include_usage=False)  # features only - no usage-count queries
         if tier_data:
             tier_features = tier_data.get('tier_features', {})
             if not tier_features.get('enterprise_features_enabled', False):
@@ -441,7 +441,7 @@ def start_email_dispatcher():
         # Check if enterprise features are enabled
         try:
             from admin_tier_usage import get_cached_tier_data
-            tier_data = get_cached_tier_data()
+            tier_data = get_cached_tier_data(include_usage=False)  # features only - no usage-count queries
             if tier_data:
                 tier_features = tier_data.get('tier_features', {})
                 if not tier_features.get('enterprise_features_enabled', False):
