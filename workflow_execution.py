@@ -8384,6 +8384,20 @@ Guidelines:
         except Exception as e:
             logger.error(f"Error cleaning up execution {execution_id}: {str(e)}")
 
+    @property
+    def active_executions(self) -> dict:
+        """Read-only snapshot of the in-memory active executions (id -> state).
+
+        External readers (the executor service's /health and
+        /api/workflow/executions/active routes) must use this instead of
+        reaching into ``_active_executions``: it returns a shallow copy, so a
+        worker thread deleting its entry mid-iteration cannot raise
+        "dictionary changed size during iteration" in the reader, and the
+        reader cannot mutate engine state by accident. There is no setter -
+        assigning to it raises AttributeError.
+        """
+        return dict(self._active_executions)
+
     def get_active_executions_count(self) -> int:
         """Get the count of currently active executions"""
         return len(self._active_executions)

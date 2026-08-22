@@ -141,22 +141,88 @@ initialize_email_dispatcher()
 # Health Check
 # ============================================================================
 
+def _active_executions_snapshot(engine):
+    """Best-effort read of the engine's in-memory active executions.
+
+    Prefers the engine's read-only ``active_executions`` snapshot property and
+    falls back to the private ``_active_executions`` dict for an engine (or a
+    test stub) that predates the property. Returns ``{}`` when there is no
+    engine and ``None`` when the engine exposes neither view. Never raises, so
+    the routes can report "engine present but unreadable" instead of 500-ing.
+    """
+    if engine is None:
+        return {}
+    for attr in ("active_executions", "_active_executions"):
+        try:
+            value = getattr(engine, attr)
+        except Exception:
+            continue
+        if value is None:
+            continue
+        try:
+            return dict(value)
+        except Exception:
+            continue
+    return None
+
+
 @app.route('/health', methods=['GET'])
 @cross_origin()
 def health_check():
-    """Health check endpoint."""
+    """Health check endpoint.
+
+    Always answers 200 JSON. ``status`` is liveness ("healthy" = the service
+    is up and serving; WorkflowAPIClient.is_available keys on it). Every
+    informational section is computed on its own: if one cannot be read (the
+    engine/dispatcher exposing a different attribute than expected, a stats
+    call raising, a non-JSON value) that field degrades to ``None`` and the
+    reason is recorded under ``errors`` - the probe itself never fails.
+    (2026-08-21: ``len(workflow_engine.active_executions)`` against an engine
+    that only had ``_active_executions`` raised AttributeError, so every
+    /health call on the live executor returned HTTP 500.)
+    """
+    errors = {}
     status = {
         "status": "healthy",
         "service": "workflow-executor",
         "timestamp": datetime.now().isoformat(),
         "workflow_engine": workflow_engine is not None,
-        "active_executions": len(workflow_engine.active_executions) if workflow_engine else 0,
+        "active_executions": 0,
         "email_dispatcher": {
             "enabled": email_dispatcher is not None,
-            "running": email_dispatcher.is_running() if email_dispatcher else False,
-            "stats": email_dispatcher.get_stats() if email_dispatcher else None
-        }
+            "running": False,
+            "stats": None,
+        },
     }
+
+    try:
+        snapshot = _active_executions_snapshot(workflow_engine)
+        if snapshot is None:
+            status["active_executions"] = None
+            errors["active_executions"] = "engine exposes no active_executions view"
+        else:
+            status["active_executions"] = len(snapshot)
+    except Exception as e:  # defensive: the probe must not fail
+        status["active_executions"] = None
+        errors["active_executions"] = str(e)
+
+    if email_dispatcher is not None:
+        try:
+            status["email_dispatcher"]["running"] = bool(email_dispatcher.is_running())
+        except Exception as e:
+            status["email_dispatcher"]["running"] = None
+            errors["email_dispatcher.running"] = str(e)
+        try:
+            # Round-trip through json so a non-serialisable stat (datetime,
+            # Decimal, an object) cannot make jsonify() raise after the fact.
+            status["email_dispatcher"]["stats"] = json.loads(
+                json.dumps(email_dispatcher.get_stats(), default=str))
+        except Exception as e:
+            errors["email_dispatcher.stats"] = str(e)
+
+    if errors:
+        status["errors"] = errors
+        logger.warning(f"/health answered with partial info: {errors}")
     return jsonify(status)
 
 
@@ -359,7 +425,13 @@ def get_active_executions():
     """Get list of active workflow executions"""
     try:
         active = []
-        for exec_id, state in workflow_engine._active_executions.items():
+        # Snapshot (not the live dict): worker threads delete their entry on
+        # completion, which would otherwise raise "dictionary changed size
+        # during iteration" mid-listing.
+        snapshot = _active_executions_snapshot(workflow_engine) if workflow_engine is not None else None
+        if snapshot is None:
+            raise RuntimeError("Workflow engine not initialized or exposes no active-executions view")
+        for exec_id, state in snapshot.items():
             active.append({
                 "execution_id": exec_id,
                 "workflow_id": state.get('workflow_id'),
