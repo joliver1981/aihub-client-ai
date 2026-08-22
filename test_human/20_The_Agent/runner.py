@@ -1952,17 +1952,26 @@ def main():
 
     # PT-7 schedule_portal_workflow / cancel roundtrip at the chokepoint (no
     # LLM): real scheduler job created + read-back verified, then cancelled and
-    # verified gone. Uses the seeded user-13 workflow with a far-off interval.
+    # verified gone. Uses a THROWAWAY workflow owned by the pack user (424250)
+    # — never the seeded demo workflow: the tool's replace-not-duplicate
+    # semantics would otherwise delete a real schedule on that workflow.
     try:
         from platform_tools import CURRENT_USER as _CUP7
-        wf7 = _pwf.get_workflow(13, "vendor_invoice_download_2fa")
+        wf7 = None
+        try:
+            _pwf.save_workflow(424250, "pack20 schedule probe",
+                               [{"type": "goto", "url": "http://127.0.0.1:3000/login"}],
+                               None, "http://127.0.0.1:3000/login", "pack 20 probe")
+            wf7 = _pwf.get_workflow(424250, "pack20 schedule probe")
+        except Exception as _e7:
+            wf7 = None
         if not wf7:
             check("PT-7", "portal schedule/cancel roundtrip", True,
-                  "SKIP: seeded workflow missing")
+                  "SKIP: could not create the throwaway probe workflow")
         else:
-            _CUP7.set({"user_id": 13, "role": 3, "username": "pack20-portal"})
+            _CUP7.set({"user_id": 424250, "role": 3, "username": "pack20-portal"})
             sres = _aio.run(_pt.schedule_portal_workflow.handler(
-                {"name": "vendor_invoice_download_2fa", "every_days": 30}))
+                {"name": "pack20 schedule probe", "every_days": 30}))
             stxt = str(sres)
             import re as _r7
             mj = _r7.search(r"job #(\d+)", stxt)
@@ -1973,7 +1982,7 @@ def main():
                            and any(s.get("is_active") for s in
                                    ((live.json() or {}).get("schedules") or [])))
             cres = _aio.run(_pt.cancel_portal_workflow_schedule.handler(
-                {"name": "vendor_invoice_download_2fa", "confirmed": True}))
+                {"name": "pack20 schedule probe", "confirmed": True}))
             gone = requests.get(f"{MAIN}/api/scheduler/jobs/{jid7}",
                                 headers=SVC_HEADERS, timeout=60) if jid7 else None
             check("PT-7", "schedule_portal_workflow creates a live verified "
@@ -1983,6 +1992,10 @@ def main():
                   and gone is not None and gone.status_code >= 400,
                   f"job={jid7} live_active={live_ok} cancel={str(cres)[:90]!r} "
                   f"after_delete_http={getattr(gone, 'status_code', None)}")
+            try:
+                _pwf.delete_workflow(424250, "pack20 schedule probe")
+            except Exception:
+                pass
     except Exception as e:
         check("PT-7", "portal schedule/cancel roundtrip", False, e)
 
