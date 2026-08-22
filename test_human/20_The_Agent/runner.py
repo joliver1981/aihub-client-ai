@@ -2062,6 +2062,79 @@ def main():
     except Exception as e:
         check("PT-9", "chat attachments", False, e)
 
+    # PT-10 read_file (2026-08-22): one tool reads any file WITHOUT importing.
+    # (a) deterministic — a text file read locally, whole, not stored, doc-store
+    # count unchanged; (b) live turn — attach a CSV, ask the total, graded on
+    # read_file used + right number + no import + no path echo.
+    try:
+        import document_tools as _dt10
+        from platform_tools import CURRENT_USER as _CU10
+        _CU10.set({"user_id": 424250, "role": 3, "username": "pack20-read"})
+        probe10 = os.path.join(APP_ROOT, "temp", "pack20_readfile.csv")
+        os.makedirs(os.path.dirname(probe10), exist_ok=True)
+        with open(probe10, "w", encoding="utf-8") as f:
+            f.write("item,amount\nA,10.50\nB,4.50\n")
+
+        def _doc_count():
+            try:
+                d = requests.get(f"{MAIN}/api/documents?search=pack20_readfile",
+                                 headers=SVC_HEADERS, timeout=60).json()
+                d = json.loads(d) if isinstance(d, str) else d
+                docs = d.get("documents") if isinstance(d, dict) else d
+                return len(docs or [])
+            except Exception:
+                return -1
+        before10 = _doc_count()
+        rr = _aio.run(_dt10.read_file.handler({"path": probe10}))
+        rtxt = str(rr)
+        after10 = _doc_count()
+        det_ok = (not rr.get("is_error") and "10.50" in rtxt and "B,4.50" in rtxt
+                  and after10 == before10)   # nothing stored
+
+        tok_r = _tok(424250, 3)
+        up = requests.post(f"{BASE}/api/uploads", data=b"vendor,amount\nX,700.00\nY,50.00\n",
+                           headers={"Authorization": f"Bearer {tok_r}",
+                                    "X-File-Name": "totals.csv"}, timeout=60)
+        fidr = up.json().get("file_id") if up.status_code == 200 else ""
+        ev10, txt10 = [], ""
+        if fidr:
+            rr2 = requests.post(f"{BASE}/api/chat", stream=True, timeout=(10, A1_TURN_TIMEOUT),
+                                headers={"Authorization": f"Bearer {tok_r}",
+                                         "Content-Type": "application/json"},
+                                json={"message": "I attached a CSV — what's the total of "
+                                      "the amount column? Just read the file.",
+                                      "session_id": None, "attachments": [fidr]})
+            for raw in rr2.iter_lines(decode_unicode=True):
+                if raw and raw.startswith("data: "):
+                    try:
+                        e = json.loads(raw[6:])
+                    except Exception:
+                        continue
+                    ev10.append(e)
+                    if e.get("type") == "text":
+                        txt10 += e["text"]
+                    if e.get("type") == "done":
+                        break
+        used10 = [e.get("name", "").replace("mcp__aihub__", "")
+                  for e in ev10 if e.get("type") == "tool"]
+        live_ok = ("read_file" in used10 and "750" in txt10.replace(",", "")
+                   and "import_documents" not in used10 and "uploads" not in txt10)
+        check("PT-10", "read_file: reads a text file whole without storing it; "
+                       "an attached CSV is answered via read_file (no import, no "
+                       "path echo)",
+              det_ok and live_ok,
+              f"det(read={not rr.get('is_error')},stored_delta={after10 - before10}) "
+              f"live(tools={used10} total_ok={'750' in txt10.replace(',', '')})")
+        if os.path.isfile(probe10):
+            os.remove(probe10)
+        if fidr:
+            import file_tools as _ft10
+            hit = _ft10.resolve_upload(424250, fidr)
+            if hit and os.path.isfile(hit[0]):
+                os.remove(hit[0])
+    except Exception as e:
+        check("PT-10", "read_file", False, e)
+
     _write_report(checks)
     if not all(c["ok"] for c in checks):
         sys.exit(1)

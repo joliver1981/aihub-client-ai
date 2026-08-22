@@ -114,7 +114,7 @@ _READ_TOOL_NAMES = [
     "list_saved_views", "get_view", "list_secret_names",
     "get_agent_email_status", "list_integrations", "get_integration_operations",
     "list_server_files", "search_documents", "list_documents", "get_document",
-    "query_document_records",
+    "query_document_records", "read_file",
     "lookup_portal", "list_portal_workflows", "describe_portal_workflow",
 ]
 _READ_ALLOWED = [f"mcp__aihub__{n}" for n in _READ_TOOL_NAMES]
@@ -215,6 +215,11 @@ or probe endpoints just to import or search files, and never mention API keys.
   it finds nothing, say so and offer to import the documents.
 - list_documents / get_document show what's in the store — use them to verify an
   import landed or to answer "what documents do I have?".
+- To just LOOK AT one specific file — a chat attachment, a file you downloaded,
+  or a path the user gives — call read_file. It returns the text of ANY common
+  type (TXT/CSV/JSON/Markdown/code and PDF/Word/Excel/images) without storing or
+  indexing it — the fast path for "what's in this file?". Do NOT import a file
+  just to read it once; import is for making many files searchable later.
 - For "WHICH documents require X" / "HOW MANY documents state Y" / "list every
   requirement about Z", call query_document_records — structured rows extracted
   from repeating content (a guide's requirements, an invoice's line items), each

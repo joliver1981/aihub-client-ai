@@ -35,7 +35,20 @@ automation or talk about API keys — that's plumbing the tools already handle.
 4. **`list_documents` / `get_document`** — see what's in the store / verify an
    import landed.
 
-Supported types: PDF, Word, Excel, CSV, TXT, and common images.
+Supported types: PDF, Word, Excel, CSV, TXT/Markdown/JSON/XML/HTML, and common
+images (jpg/png/gif/webp).
+
+## Just READING one file (not importing it)
+
+When the user wants you to **look at one specific file** — a file they attached
+in chat, a file you just downloaded, or a path they gave — call
+**`read_file(path)`**, NOT `import_documents`. It returns the text of any common
+type (TXT/CSV/JSON/Markdown/code and PDF/Word/Excel/images) without storing or
+indexing it: the fast, one-off "what's in this file?" path. Text/code/config are
+read directly (instant); documents are extracted natively (pass `ocr=true` only
+for a scanned PDF or a photo of text). It accepts a server path, an `/api/files`
+link you delivered, or a chat-attachment id. Reserve `import_documents` for when
+the user wants files to be **searchable later** across the whole store.
 
 ## Standing folder-watch pipeline — this is where an automation belongs
 

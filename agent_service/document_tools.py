@@ -29,6 +29,7 @@ Kill switch: brain.py includes DOCUMENT_TOOLS only when AGENT_DOCUMENT_TOOLS is
 true (default true) — flip to false to revert to pre-tool behavior.
 """
 
+import asyncio
 import fnmatch
 import os
 from datetime import datetime
@@ -46,10 +47,33 @@ from platform_tools import CURRENT_USER, _text, _unwrap
 # Doc API lives at HOST_PORT+10 (matches CommonUtils.get_document_api_base_url
 # and wsgi_doc_api.py's bind). Import (/document/process) is the only tool that
 # talks to it; everything else talks to the main app.
+#
+# _ALLOWED_EXTS is aligned to what the ENGINE actually handles (LLMDocumentEngine
+# process_document dispatch): pdf; images jpg/jpeg/png/gif/webp; word docx/doc;
+# excel xlsx/xls; text txt/md/csv/json/xml/html/htm. FIX 2026-08-22: dropped
+# bmp/tiff/tif (the engine's image handler rejects them — they were accepted at
+# import then failed in the engine) and added the text family + webp the engine
+# reads but the old allowlist omitted.
 _ALLOWED_EXTS = {
-    "pdf", "docx", "doc", "txt", "csv", "xls", "xlsx",
-    "jpg", "jpeg", "png", "bmp", "gif", "tiff", "tif",
+    "pdf", "docx", "doc", "xlsx", "xls",
+    "jpg", "jpeg", "png", "gif", "webp",
+    "txt", "md", "csv", "json", "xml", "html", "htm",
 }
+
+# read_file (2026-08-22): plain-text families are read LOCALLY (instant, zero
+# LLM, zero store) — the widest set, not just the engine's. Everything else that
+# is a real document type goes through the engine's extract-WITHOUT-store path.
+_TEXT_READ_EXTS = {
+    "txt", "md", "markdown", "csv", "tsv", "json", "xml", "html", "htm",
+    "log", "yaml", "yml", "ini", "cfg", "conf", "py", "js", "ts", "sql",
+    "sh", "bat", "ps1", "rtf",
+}
+_DOC_EXTRACT_EXTS = {"pdf", "docx", "doc", "xlsx", "xls",
+                     "jpg", "jpeg", "png", "gif", "webp"}
+# Whole-file read; no truncation. This is only a backstop against a pathological
+# file (a multi-GB export) that would compound in the SDK transcript every turn.
+# Generous by default; raise AGENT_READ_FILE_MAX_MB any time.
+_READ_MAX_MB = int(os.getenv("AGENT_READ_FILE_MAX_MB", "25"))
 
 # list_server_files won't enumerate these — the platform's own secret store and
 # OS system dirs. Defense-in-depth / hygiene, not a hard boundary (automations
@@ -736,7 +760,169 @@ async def query_document_records(args: dict[str, Any]) -> dict[str, Any]:
     return _text(result.get("text") or "No output.")
 
 
+def _looks_binary(sample: bytes) -> bool:
+    """Heuristic: NUL byte or a high proportion of non-text bytes => binary."""
+    if b"\x00" in sample:
+        return True
+    if not sample:
+        return False
+    texty = sum(1 for b in sample if b in (9, 10, 13) or 32 <= b <= 126 or b >= 128)
+    return (texty / len(sample)) < 0.85
+
+
+def _resolve_read_path(raw: str):
+    """Map the read_file argument to a concrete server path THIS user may read.
+    Accepts an absolute/relative server path, an /api/files/<id> link (or bare
+    id) for a download the agent delivered, or a chat-attachment file id — the
+    last two resolved owner-scoped through file_tools. Returns (path, err)."""
+    p = str(raw or "").strip().strip('"')
+    if not p:
+        return None, "Give me a file path (or an /api/files link / attachment id) to read."
+    ap = os.path.abspath(os.path.expanduser(p))
+    if os.path.isfile(ap):
+        return ap, None
+    # Not a path on disk — try the delivered-download / attachment resolvers.
+    try:
+        import file_tools
+        uid = int((CURRENT_USER.get() or {}).get("user_id") or 0)
+        hit_path, _name = file_tools.resolve_api_files_ref(p, uid)
+        if hit_path:
+            return hit_path, None
+        up = file_tools.resolve_upload(uid, p)
+        if up:
+            return up[0], None
+    except Exception:
+        pass
+    return None, (f"No such file on the server: {p}. Give a full path "
+                  "(list_server_files can help locate it), or the /api/files link "
+                  "of a file you delivered.")
+
+
+@tool(
+    "read_file",
+    "Read the CONTENTS of a single file on the AI Hub server and return its text "
+    "— plainly, for ANY common type: TXT, CSV, JSON, Markdown, code/config, and "
+    "documents (PDF, Word, Excel, images). Use this when the user wants you to "
+    "LOOK AT or answer from one specific file (a file they attached in chat, a "
+    "file you just downloaded, or a path they gave). It does NOT store or index "
+    "the file — it's a one-off read, the fast path for 'what's in this file?'. "
+    "(To make many files SEARCHABLE later, use import_documents instead; to list "
+    "a folder, list_server_files.) Accepts a server path, an /api/files link you "
+    "delivered, or a chat-attachment id.",
+    {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string",
+                     "description": "Server file path, an /api/files/<id> link, or "
+                                    "a chat-attachment file id."},
+            "ocr": {"type": "boolean",
+                    "description": "Force AI vision/OCR for a scanned PDF or a "
+                                   "photo of text (default false — native text "
+                                   "extraction, which is free and fast)."},
+        },
+        "required": ["path"],
+        "additionalProperties": False,
+    },
+)
+async def read_file(args: dict[str, Any]) -> dict[str, Any]:
+    path, err = _resolve_read_path(args.get("path"))
+    if err:
+        return _text(err, is_error=True)
+    ncase = os.path.normcase(path)
+    for bad in _FORBIDDEN_DIRS:
+        if ncase == bad or ncase.startswith(bad + os.sep):
+            return _text(f"Refused: that file is in a protected system/secret "
+                         "location and won't be read.", is_error=True)
+    name = os.path.basename(path)
+    ext = name.rsplit(".", 1)[1].lower() if "." in name else ""
+    try:
+        size = os.path.getsize(path)
+    except OSError as e:
+        return _text(f"Could not read {name}: {e}", is_error=True)
+    # Whole-file read, no truncation — the cap only guards against a pathological
+    # file that would compound in the transcript. Refuse honestly, never halve.
+    if size > _READ_MAX_MB * 1024 * 1024:
+        return _text(f"'{name}' is {_fmt_size(size)} — too large to read inline "
+                     f"(over the {_READ_MAX_MB} MB read cap; a file this size "
+                     "would bloat every later turn). Import it with "
+                     "import_documents and query it with search_documents "
+                     "instead, or raise AGENT_READ_FILE_MAX_MB.", is_error=True)
+
+    ocr = bool(args.get("ocr"))
+    is_doc = ext in _DOC_EXTRACT_EXTS
+
+    # Plain-text path: read locally — instant, zero LLM, nothing stored. Covers
+    # the widest set (any text/code/config), which is why a 44-byte CSV no longer
+    # detours through the doc engine.
+    if not is_doc:
+        try:
+            raw = await asyncio.to_thread(_read_bytes, path)
+        except OSError as e:
+            return _text(f"Could not read {name}: {e}", is_error=True)
+        if ext not in _TEXT_READ_EXTS and _looks_binary(raw[:4096]):
+            return _text(f"'{name}' looks like a binary file I can't read as text. "
+                         "If it's a document (PDF, Word, Excel, image), tell me and "
+                         "I'll extract it; otherwise it can only be downloaded or "
+                         "uploaded, not read.", is_error=True)
+        text = raw.decode("utf-8-sig", errors="replace")
+        return _text(f"Contents of '{name}' ({_fmt_size(size)}):\n```\n{text}\n```")
+
+    # Document path: extract text via the engine WITHOUT storing or indexing
+    # (do_not_store=true), and without the LLM field/type passes (extract_fields
+    # + detect_document_type false) — native text only unless ocr=true.
+    import httpx
+    doc_url = f"{_doc_api_base()}/document/process"
+    form = {"filePath": path, "do_not_store": "true", "extract_fields": "false",
+            "detect_document_type": "false",
+            "force_ai_extraction": "true" if ocr else "false"}
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=300.0)) as client:
+            r = await client.post(doc_url, data=form)
+    except httpx.TimeoutException:
+        return _text(_BUSY_MSG, is_error=True)
+    except Exception as e:
+        return _text(f"Could not read {name}: {type(e).__name__}: {e}", is_error=True)
+    if r.status_code == 503:
+        try:
+            return _text(_busy_text(r.json()), is_error=True)
+        except Exception:
+            return _text(_BUSY_MSG, is_error=True)
+    if r.status_code != 200:
+        return _text(f"Could not read {name} (HTTP {r.status_code}: "
+                     f"{r.text[:200]}).", is_error=True)
+    try:
+        j = _unwrap(r.json())
+    except Exception:
+        return _text(f"Could not read {name}: non-JSON response from the "
+                     "document engine.", is_error=True)
+    # /document/process returns the full result; concatenate page full_text.
+    text = ""
+    if isinstance(j, dict):
+        if isinstance(j.get("document_text"), str):
+            text = j["document_text"]
+        else:
+            pages = j.get("pages") or j.get("extracted_pages") or []
+            if isinstance(pages, list):
+                text = "\n\n".join(str(p.get("full_text") or p.get("text") or "")
+                                   for p in pages if isinstance(p, dict)).strip()
+    if not text.strip():
+        hint = "" if ocr else " If it's a scanned PDF or a photo, retry with ocr=true."
+        return _text(f"'{name}' extracted no text.{hint}", is_error=True)
+    if len(text.encode("utf-8")) > _READ_MAX_MB * 1024 * 1024:
+        return _text(f"'{name}' extracted more text than the {_READ_MAX_MB} MB read "
+                     "cap — import it and use search_documents, or raise "
+                     "AGENT_READ_FILE_MAX_MB.", is_error=True)
+    kind = "OCR/vision" if ocr else "native"
+    return _text(f"Contents of '{name}' ({_fmt_size(size)}, {kind} extraction, "
+                 f"not stored):\n```\n{text}\n```")
+
+
+def _read_bytes(path: str) -> bytes:
+    with open(path, "rb") as fh:
+        return fh.read()
+
+
 DOCUMENT_TOOLS = [
     list_server_files, import_documents, search_documents,
-    list_documents, get_document, query_document_records,
+    list_documents, get_document, query_document_records, read_file,
 ]

@@ -57,7 +57,7 @@ else:
 # Read-shaped name prefixes. A registered tool matching one of these, not in
 # MUTATING_TOOLS and not excluded below, MUST be in _READ_TOOL_NAMES.
 _READ_PREFIXES = ("list_", "get_", "describe_", "lookup_", "search_",
-                  "query_", "check_")
+                  "query_", "check_", "read_")
 # Curated exclusions from the read allowlist, each with its reason:
 _READ_EXCLUSIONS = {
     # stages a private file copy for the user = a write; side-threads answer
