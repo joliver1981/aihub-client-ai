@@ -844,7 +844,10 @@ class JobSchedulerService:
     
     def _update_last_run_time(self, schedule_id: int, last_run_time: datetime):
         """
-        Update the last run time of a schedule.
+        Update the last run time of a schedule. Callers pass datetime.utcnow():
+        every other stamp in ScheduleDefinitions (StartDate/EndDate/NextRunTime)
+        is UTC and the panels render LastRunTime as UTC too (2026-08-22: the
+        old datetime.now() showed "Last run" 4 h early on this box).
         
         Args:
             schedule_id: ID of the schedule
@@ -1020,7 +1023,7 @@ class JobSchedulerService:
             
             # Update schedule metadata
             self._increment_run_count(schedule_id)
-            self._update_last_run_time(schedule_id, datetime.now())
+            self._update_last_run_time(schedule_id, datetime.utcnow())
             
             logger.info(f"Document job execution completed: {job_name} with status {status}")
             
@@ -1183,7 +1186,7 @@ class JobSchedulerService:
             
             # Update schedule metadata
             self._increment_run_count(schedule_id)
-            self._update_last_run_time(schedule_id, datetime.now())
+            self._update_last_run_time(schedule_id, datetime.utcnow())
 
             _ = self._log_agent_job(target_id, f"Agent job completed successfully. Response: {response_data.get('response', '')[:3000]}...")
             
@@ -1255,7 +1258,7 @@ class JobSchedulerService:
                 result_message=f"CC task {status}. {summary}"
             )
             self._increment_run_count(schedule_id)
-            self._update_last_run_time(schedule_id, datetime.now())
+            self._update_last_run_time(schedule_id, datetime.utcnow())
             logger.info(f"command_center job execution completed: {job_name}")
 
         except Exception as e:
@@ -1313,7 +1316,7 @@ class JobSchedulerService:
                                f"({response.status_code}). {response.text[:400]}"
             )
             self._increment_run_count(schedule_id)
-            self._update_last_run_time(schedule_id, datetime.now())
+            self._update_last_run_time(schedule_id, datetime.utcnow())
             logger.info(f"portal_workflow job execution {'completed' if ok else 'failed'}: {job_name}")
 
         except Exception as e:
@@ -1387,7 +1390,7 @@ class JobSchedulerService:
             record_status = 'completed' if outcome in ('success', 'skipped', 'unverified') else 'failed'
             self._update_execution_record(execution_id, record_status, result_message=message[:500])
             self._increment_run_count(schedule_id)
-            self._update_last_run_time(schedule_id, datetime.now())
+            self._update_last_run_time(schedule_id, datetime.utcnow())
             logger.info(f"automation job {record_status}: {job_name} ({message})")
 
         except Exception as e:
@@ -1441,6 +1444,9 @@ class JobSchedulerService:
                 # Agent appends each firing's result to that conversation when it
                 # can (AGENT_DEFER_TO_CHAT) and falls back to My Work only.
                 'session_id': _pv('session_id') or '',
+                # the zone the user thinks in (set by schedule_agent_task) — The
+                # Agent states times in it and defaults chained schedules to it
+                'timezone': _pv('user_timezone') or _pv('timezone') or '',
             }
             headers = {'X-API-Key': os.getenv('API_KEY', '')}
             response = requests.post(api_url, json=payload, headers=headers,
@@ -1454,7 +1460,7 @@ class JobSchedulerService:
             self._update_execution_record(execution_id, record_status,
                                           result_message=message[:500])
             self._increment_run_count(schedule_id)
-            self._update_last_run_time(schedule_id, datetime.now())
+            self._update_last_run_time(schedule_id, datetime.utcnow())
             logger.info(f"agent session job {record_status}: {job_name} ({message})")
 
         except Exception as e:
@@ -1512,7 +1518,7 @@ class JobSchedulerService:
             self._update_execution_record(execution_id, record_status,
                                           result_message=message[:500])
             self._increment_run_count(schedule_id)
-            self._update_last_run_time(schedule_id, datetime.now())
+            self._update_last_run_time(schedule_id, datetime.utcnow())
             logger.info(f"view refresh job {record_status}: {job_name} ({message})")
 
         except Exception as e:
@@ -1586,7 +1592,7 @@ class JobSchedulerService:
                                           'completed' if ok else 'failed',
                                           result_message=message[:500])
             self._increment_run_count(schedule_id)
-            self._update_last_run_time(schedule_id, datetime.now())
+            self._update_last_run_time(schedule_id, datetime.utcnow())
             logger.info(f"view email job {'completed' if ok else 'FAILED'}: "
                         f"{job_name} ({message})")
 
@@ -1651,7 +1657,7 @@ class JobSchedulerService:
             
             # Update schedule metadata
             self._increment_run_count(schedule_id)
-            self._update_last_run_time(schedule_id, datetime.now())
+            self._update_last_run_time(schedule_id, datetime.utcnow())
             
             logger.info(f"Workflow job execution completed: {job_name}")
             

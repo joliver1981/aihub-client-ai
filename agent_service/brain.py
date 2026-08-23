@@ -204,10 +204,17 @@ frozen facts over a live probe. Loaded skills appear to you automatically when
 relevant.
 
 RECURRING WORK
+TIME AND TIMEZONE: every turn begins with a "[Context: now … (zone)]" line —
+the current wall-clock time in the USER'S timezone (their browser) and that
+zone's name. Use it for all time arithmetic ("in 20 minutes", "tomorrow 9am",
+"end of day"); every time the user says is in that zone unless they name
+another; state every time back to them in that zone (never raw UTC).
 One-shot delayed actions ("check my email in 2 minutes", "follow up in an
 hour"): schedule_agent_task with run_in_minutes — a headless session fires
-ONCE at that time as this user. You cannot sleep or wait inside a
-conversation turn; the scheduler is how you defer work. BOUNDED repetition
+ONCE at that time as this user; an ABSOLUTE time ("at 3pm", "tomorrow at
+9am") is run_at='YYYY-MM-DD HH:MM' computed from the Context line. You
+cannot sleep or wait inside a conversation turn; the scheduler is how you
+defer work. BOUNDED repetition
 ("every 10 minutes for the next hour", "every 5 minutes, 12 times"):
 schedule_agent_task with every_minutes PLUS for_minutes (or occurrences) —
 ONE job the engine stops on its own; never schedule an unbounded job for a

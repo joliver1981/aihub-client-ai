@@ -218,7 +218,10 @@ def test_run_without_session_id_is_fresh_as_before():
         r = h.post(dict(_RUN))
     assert r.status_code == 200, r.text
     assert h.calls[0]["session_id"] is None
-    assert h.calls[0]["prompt"] == _RUN["prompt"]            # no scheduled-run framing
+    # every turn now starts with the [Context: now …] line; the task follows unframed
+    p0 = h.calls[0]["prompt"]
+    assert p0.startswith(chat_history.CONTEXT_MARKER)
+    assert chat_history.strip_context_line(p0) == _RUN["prompt"]   # no scheduled-run framing
     d = r.json()
     assert d["ok"] and d["work_item_id"] == "wi-1" and d["resumed_chat"] is False
     assert h.items[0]["verb"] == "acknowledge"
@@ -233,8 +236,11 @@ def test_run_with_session_id_resumes_that_conversation():
     assert r.status_code == 200, r.text
     c = h.calls[0]
     assert c["session_id"] == "conv-1"
-    assert c["prompt"].startswith(chat_history.SCHEDULED_RUN_MARKER)
-    assert "Agent: defer unit" in c["prompt"] and c["prompt"].endswith(_RUN["prompt"])
+    body_prompt = chat_history.strip_context_line(c["prompt"])
+    assert c["prompt"].startswith(chat_history.CONTEXT_MARKER)
+    assert body_prompt.startswith(chat_history.SCHEDULED_RUN_MARKER)
+    assert "Agent: defer unit" in body_prompt and body_prompt.endswith(_RUN["prompt"])
+    assert " UTC " not in body_prompt.split("\n")[0]   # fired-at is in the user's zone
     assert c["user_ctx"].get("chat_session_id") == "conv-1"   # chaining seam for tools
     assert c["user_ctx"].get("mode") == "headless"
     d = r.json()
@@ -246,12 +252,25 @@ def test_run_with_session_id_resumes_that_conversation():
     assert not brain.is_inflight("conv-1")
 
 
+def test_run_forwards_the_users_zone_into_the_envelope_and_header():
+    h = Harness(owns=True)
+    with env(AGENT_DEFER_TO_CHAT=None):
+        r = h.post(dict(_RUN, session_id="conv-9", timezone="America/Chicago"))
+    assert r.status_code == 200, r.text
+    c = h.calls[0]
+    assert c["user_ctx"].get("browser_timezone") == "America/Chicago"
+    assert "(America/Chicago)" in c["prompt"].split("\n")[0]          # Context line
+    header = chat_history.strip_context_line(c["prompt"]).split("\n")[0]
+    assert ("CDT" in header or "CST" in header) and "UTC" not in header
+
+
 def test_run_flag_off_is_exactly_the_old_behavior():
     h = Harness(owns=True)
     with env(AGENT_DEFER_TO_CHAT="false"):
         r = h.post(dict(_RUN, session_id="conv-2"))
     assert r.status_code == 200
-    assert h.calls[0]["session_id"] is None and h.calls[0]["prompt"] == _RUN["prompt"]
+    assert h.calls[0]["session_id"] is None
+    assert chat_history.strip_context_line(h.calls[0]["prompt"]) == _RUN["prompt"]
     assert h.items[0]["payload"]["chat_session_id"] is None
     assert r.json()["resumed_chat"] is False
 
@@ -288,7 +307,7 @@ def test_run_resume_failure_before_any_work_retries_fresh():
         r = h.post(dict(_RUN, session_id="conv-5"))
     assert r.status_code == 200, r.text
     assert [c["session_id"] for c in h.calls] == ["conv-5", None]
-    assert h.calls[1]["prompt"] == _RUN["prompt"]
+    assert chat_history.strip_context_line(h.calls[1]["prompt"]) == _RUN["prompt"]
     d = r.json()
     assert d["ok"] is True and d["resumed_chat"] is False
     assert h.items[0]["payload"]["chat_session_id"] is None
@@ -329,6 +348,33 @@ def test_chat_waits_while_a_deferred_run_holds_the_session():
     assert not brain.is_inflight("conv-6")
 
 
+def test_chat_stamps_browser_zone_and_prefixes_the_context_line():
+    calls = []
+
+    def fake_run_turn(prompt, session_id, user, tool_scope="full"):
+        async def gen():
+            calls.append({"prompt": prompt, "zone": user.get("browser_timezone")})
+            yield {"type": "result", "session_id": "s-x", "ok": True, "subtype": "success"}
+        return gen()
+
+    user = {"user_id": TEST_UID, "role": 3, "username": "defer-unit", "name": "", "tenant_id": ""}
+    # a fresh envelope per request, as _verify_request really returns
+    with patched(main, run_turn=fake_run_turn, _verify_request=lambda r: dict(user)), \
+         patched(chat_history, touch=lambda *a, **k: None):
+        client = TestClient(main.app)
+        r = client.post("/api/chat", json={"message": "what time is it?",
+                                           "timezone": "Europe/London"})
+        assert r.status_code == 200
+        r2 = client.post("/api/chat", json={"message": "hi", "timezone": "Nowhere/Land"})
+        assert r2.status_code == 200
+    assert calls[0]["zone"] == "Europe/London"
+    p = calls[0]["prompt"]
+    assert p.startswith(chat_history.CONTEXT_MARKER) and "(Europe/London)" in p.split("\n")[0]
+    assert chat_history.strip_context_line(p) == "what time is it?"
+    assert calls[1]["zone"] is None                      # unusable zone ignored -> server default
+    assert "(" in calls[1]["prompt"].split("\n")[0]
+
+
 # --------------------------------------------------------------- replay tag
 
 def test_replay_tags_scheduled_run_turns():
@@ -338,11 +384,12 @@ def test_replay_tags_scheduled_run_turns():
     os.makedirs(proj)
     deferred = chat_history.build_deferred_prompt("Agent: nightly", "2026-08-22 20:00",
                                                   "Check ERPDB and summarize.")
+    ctx = "[Context: now Saturday 2026-08-22 21:40 EDT (America/New_York) — the user's timezone.]"
     lines = [
-        {"type": "user", "message": {"role": "user", "content": "schedule a nightly check"}},
+        {"type": "user", "message": {"role": "user", "content": ctx + "\n\nschedule a nightly check"}},
         {"type": "assistant", "message": {"role": "assistant", "content": [
             {"type": "text", "text": "Scheduled."}]}},
-        {"type": "user", "message": {"role": "user", "content": deferred}},
+        {"type": "user", "message": {"role": "user", "content": ctx + "\n\n" + deferred}},
         {"type": "assistant", "message": {"role": "assistant", "content": [
             {"type": "tool_use", "name": "mcp__aihub__probe_connection_query", "input": {}}]}},
         {"type": "user", "message": {"role": "user", "content": [
@@ -359,6 +406,7 @@ def test_replay_tags_scheduled_run_turns():
     # so the tool round and the final text replay as two agent turns)
     assert [t["role"] for t in turns] == ["user", "agent", "user", "agent", "agent"]
     assert "kind" not in turns[0]
+    assert turns[0]["text"] == "schedule a nightly check"        # context line stripped
     d = turns[2]
     assert d["kind"] == "scheduled_run"
     assert "Agent: nightly" in d["header"] and "2026-08-22 20:00" in d["header"]

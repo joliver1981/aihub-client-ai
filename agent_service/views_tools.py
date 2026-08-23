@@ -507,7 +507,9 @@ async def delete_view(args: dict[str, Any]) -> dict[str, Any]:
     "per refresh). This is how NON-developer viewers get current automation-"
     "tile data: the scheduled refresh runs as the schedule's creator and "
     "updates the cache everyone sees. Provide every_minutes (>=15) OR a cron "
-    "expression. Report ONLY the ids this returns.",
+    "expression (cron wall-clock times are in the user's zone — the [Context] "
+    "line — unless they name another via timezone). Report ONLY the ids this "
+    "returns.",
     {
         "type": "object",
         "properties": {
@@ -516,6 +518,10 @@ async def delete_view(args: dict[str, Any]) -> dict[str, Any]:
             "group_id": {"type": "integer"},
             "every_minutes": {"type": "integer", "description": "Interval, min 15"},
             "cron_expression": {"type": "string"},
+            "timezone": {"type": "string",
+                         "description": "Only when the user names a zone "
+                                        "('Eastern', 'America/New_York'); omit "
+                                        "to use the user's own zone."},
         },
         "required": ["name"],
         "additionalProperties": False,
@@ -542,9 +548,25 @@ async def schedule_view_refresh(args: dict[str, Any]) -> dict[str, Any]:
         return _text(f"No view named '{name}' is visible to this user — "
                      "nothing scheduled.", is_error=True)
 
+    tz_canonical, tz_note = "", ""
     if args.get("cron_expression"):
         schedule = {"type": "cron",
                     "cron_expression": str(args["cron_expression"])}
+        # Cron wall-clock times fire in the USER'S zone (named > browser >
+        # AGENT_DEFAULT_TZ > server) — the engine reads parameters.timezone
+        # (DST-aware). Before 2026-08-22 refresh crons silently fired in UTC.
+        from work_tools import (_resolve_tz_offset_minutes, default_zone_label,
+                                _ZONE_SOURCE_TEXT)
+        try:
+            if args.get("timezone"):
+                tz_canonical = _resolve_tz_offset_minutes(args["timezone"])[1]
+                why = _ZONE_SOURCE_TEXT["explicit"]
+            else:
+                tz_canonical, src = default_zone_label(user)
+                why = _ZONE_SOURCE_TEXT.get(src, _ZONE_SOURCE_TEXT["server"])
+        except ValueError as e:
+            return _text(f"Nothing was scheduled: {e}", is_error=True)
+        tz_note = f" Cron times are in {tz_canonical} ({why})."
     elif args.get("every_minutes"):
         mins = max(int(args["every_minutes"]), 15)
         schedule = {"type": "interval", "interval_minutes": mins,
@@ -575,6 +597,8 @@ async def schedule_view_refresh(args: dict[str, Any]) -> dict[str, Any]:
         },
         "schedule": schedule,
     }
+    if tz_canonical:
+        body["parameters"]["timezone"] = {"value": tz_canonical, "type": "string"}
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.post(f"{get_base_url()}/api/scheduler/jobs",
@@ -596,7 +620,7 @@ async def schedule_view_refresh(args: dict[str, Any]) -> dict[str, Any]:
     except Exception as e:
         return _text(f"Scheduling failed: {e}", is_error=True)
     return _text(f"Scheduled cache refresh for view '{view['name']}' (job "
-                 f"#{job_id}, verified active by read-back). Each firing "
+                 f"#{job_id}, verified active by read-back).{tz_note} Each firing "
                  f"refreshes the tiles as {user.get('username')} and updates "
                  "the cache every viewer sees — zero AI per refresh.")
 
@@ -607,10 +631,10 @@ async def schedule_view_refresh(args: dict[str, Any]) -> dict[str, Any]:
     "cadence — 'email me this dashboard every weekday at 9am'. Zero AI per "
     "send: the tiles are re-run deterministically and rendered by the service. "
     "It sends from the user's own agent email address and does NOT go through "
-    "the approval queue — scheduling it IS the consent. ALWAYS pass timezone "
-    "when the user names a clock time, in their words ('9am Eastern' -> "
-    "timezone 'Eastern'); without it a cron fires in UTC and '9am' is wrong. "
-    "Report ONLY the ids this returns.",
+    "the approval queue — scheduling it IS the consent. Cron wall-clock times "
+    "are in the USER'S zone (the [Context] line — their browser) unless they "
+    "name another: pass timezone only when they name one ('9am Eastern' -> "
+    "timezone 'Eastern'). Report ONLY the ids this returns.",
     {
         "type": "object",
         "properties": {
@@ -626,8 +650,9 @@ async def schedule_view_refresh(args: dict[str, Any]) -> dict[str, Any]:
                                 "description": "e.g. '0 9 * * 1-5' = weekdays 9am"},
             "every_hours": {"type": "integer"},
             "timezone": {"type": "string",
-                         "description": "The user's zone, as they said it "
-                                        "('Eastern', 'America/New_York', 'UTC+05:30')"},
+                         "description": "Only when the user NAMES a zone, as "
+                                        "they said it ('Eastern', 'America/New_York', "
+                                        "'UTC+05:30'); omit to use their own zone."},
             "scope": {"type": "string", "enum": ["user", "group", "tenant"]},
             "group_id": {"type": "integer"},
         },
@@ -706,9 +731,12 @@ async def schedule_view_email(args: dict[str, Any]) -> dict[str, Any]:
                          "the wrong zone fires at the wrong hour every day.",
                          is_error=True)
     elif schedule["type"] == "cron":
-        tz_note = (" NOTE: no timezone was given, so this fires on the "
-                   "scheduler's default zone (UTC) — tell the user, and offer "
-                   "to reschedule with their zone.")
+        # No zone named -> the USER'S zone (browser > AGENT_DEFAULT_TZ > server),
+        # never silent UTC (2026-08-22; CC parity).
+        from work_tools import default_zone_label, _ZONE_SOURCE_TEXT
+        tz_canonical, src = default_zone_label(user)
+        tz_note = (f" No timezone was named, so times are {tz_canonical} "
+                   f"({_ZONE_SOURCE_TEXT.get(src, _ZONE_SOURCE_TEXT['server'])}).")
 
     def _p(v):
         return {"value": str(v), "type": "string"}

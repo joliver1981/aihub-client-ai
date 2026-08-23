@@ -41,7 +41,7 @@ from agent_config import APP_ROOT, logger
 from platform_tools import CURRENT_USER, _text
 from file_tools import stage_offer
 from work_tools import (_build_schedule, _bound_was_recorded, _bound_text,
-                        _cadence_text)
+                        _cadence_text, default_zone_label, fmt_local)
 
 # Bounded in-tool waits; runs continue server-side past these and are collected
 # with check_portal_run (the dry_run -> check_automation_run doctrine shape).
@@ -649,7 +649,14 @@ async def describe_portal_workflow(args: dict[str, Any]) -> dict[str, Any]:
                                                _uid(), wf.get("slug"))
         if jobs:
             j0 = jobs[0]
-            nxt = f", next run {j0['next_run']}" if j0.get("next_run") else ""
+            nxt = ""
+            if j0.get("next_run"):
+                try:
+                    import datetime as _dt2
+                    _nr = _dt2.datetime.fromisoformat(str(j0["next_run"]).replace("Z", ""))
+                    nxt = f", next run {fmt_local(_nr, default_zone_label(CURRENT_USER.get() or {})[0])}"
+                except (ValueError, TypeError):
+                    nxt = f", next run {j0['next_run']} UTC"
             sched_line = (f"\n- ALREADY SCHEDULED: job #{j0['id']} "
                           f"({'active' if j0['active'] else 'inactive'}{nxt}). "
                           "Re-scheduling REPLACES it; cancel_portal_workflow_schedule "
@@ -782,8 +789,9 @@ async def schedule_portal_workflow(args: dict[str, Any]) -> dict[str, Any]:
     # pre-shifting to UTC double-shifts) and engine-native bounds
     # (end_date / max_runs) for "every N minutes for M minutes".
     _now = _dt.datetime.utcnow()
+    _dz, _dsrc = default_zone_label(user)      # browser > AGENT_DEFAULT_TZ > server
     try:
-        plan = _build_schedule(args, now=_now)
+        plan = _build_schedule(args, now=_now, default_tz=_dz, default_src=_dsrc)
     except ValueError as e:
         return _text(f"Nothing was scheduled: {e}", is_error=True)
     if plan["kind"] == "one_shot":
@@ -806,6 +814,7 @@ async def schedule_portal_workflow(args: dict[str, Any]) -> dict[str, Any]:
             "user_id": {"value": str(uid), "type": "string"},
             "tenant_id": {"value": str(user.get("tenant_id") or ""), "type": "string"},
             "email_after": {"value": "1" if email_after else "0", "type": "string"},
+            "user_timezone": {"value": str(plan.get("display_tz") or ""), "type": "string"},
         },
         "schedule": schedule,
     }

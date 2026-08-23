@@ -2,11 +2,11 @@
 
 Two things are pinned down here:
 
-  * TIMEZONE. schedule_view_refresh passes none, so its crons fire on the
-    scheduler's default zone (UTC) and a user's "9am" is simply wrong. This tool
-    must carry parameters.timezone, which job_scheduler.py reads to build a
-    DST-aware CronTrigger — and must warn when the user gave a clock time with
-    no zone.
+  * TIMEZONE. This tool must carry parameters.timezone, which job_scheduler.py
+    reads to build a DST-aware CronTrigger. A named zone wins; with none named
+    the USER'S zone is assumed (browser zone on the envelope > AGENT_DEFAULT_TZ >
+    the server's zone) and the text says which — never silent UTC (james
+    2026-08-22; schedule_view_refresh now does the same).
 
   * FAIL AT SCHEDULE TIME, NOT AT 9AM. A job whose sender has no active address,
     or whose outbound is switched off, would fail silently every morning. Those
@@ -40,7 +40,7 @@ ADDRESS = {"email_address": "j-agent.1@mail.everiai.ai", "prefix": "j",
            "is_active": 1, "outbound_enabled": 1, "auto_send": 1}
 
 
-def _call(args, view=VIEW, address=ADDRESS):
+def _call(args, view=VIEW, address=ADDRESS, user=None):
     """Invoke the tool with the scheduler API stubbed; returns (result, posted)."""
     posted = {}
 
@@ -60,7 +60,7 @@ def _call(args, view=VIEW, address=ADDRESS):
     orig_client = _h.AsyncClient
     _h.AsyncClient = lambda **kw: _RealAsyncClient(
         transport=httpx.MockTransport(handle))
-    CURRENT_USER.set({"user_id": 13, "role": 3, "username": "admin"})
+    CURRENT_USER.set(user or {"user_id": 13, "role": 3, "username": "admin"})
     try:
         result = asyncio.run(_handler(args))
     finally:
@@ -91,13 +91,23 @@ def test_a_spoken_timezone_is_resolved_and_carried_as_a_job_parameter():
     assert "Eastern" in _says(result) or "America/New_York" in _says(result)
 
 
-def test_a_cron_without_a_timezone_warns_instead_of_silently_using_utc():
+def test_a_cron_without_a_timezone_uses_the_users_zone_and_says_so():
+    """Browser zone on the envelope -> that zone; none -> the server's zone.
+    Either way the zone is STORED (engine reads it) and named in the text."""
+    import work_tools as W
+    result, posted = _call({"name": "Ops Board", "to": ["j@x.co"],
+                            "cron_expression": "0 9 * * *"},
+                           user={"user_id": 13, "role": 3, "username": "admin",
+                                 "browser_timezone": "America/Chicago"})
+    assert not _is_error(result), _says(result)
+    assert posted["parameters"]["timezone"]["value"] == "America/Chicago"
+    said = _says(result)
+    assert "No timezone was named" in said and "America/Chicago" in said
+    assert "browser" in said
     result, posted = _call({"name": "Ops Board", "to": ["j@x.co"],
                             "cron_expression": "0 9 * * *"})
-    assert not _is_error(result)
-    assert "timezone" not in posted["parameters"]
-    said = _says(result)
-    assert "UTC" in said and "no timezone" in said.lower()
+    assert posted["parameters"]["timezone"]["value"] == W.server_zone_label()
+    assert "server" in _says(result) or "AGENT_DEFAULT_TZ" in _says(result)
 
 
 def test_weekday_cron_is_stored_as_day_names_not_numbers():

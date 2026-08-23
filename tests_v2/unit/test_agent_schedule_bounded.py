@@ -16,6 +16,10 @@ imports httpx per call, so patching httpx.AsyncClient is picked up):
   * honesty: no active row -> NOT scheduled; bound not recorded -> job DELETED +
     NOT scheduled; HTTP failure -> NOT scheduled
   * Part 2 seam: the originating chat session_id rides in the job parameters
+  * USER-ZONE DEFAULT (james 2026-08-22): when no zone is named the BROWSER zone
+    (user["browser_timezone"], stamped by main.py) wins, then AGENT_DEFAULT_TZ,
+    then the server's zone (Windows zone -> IANA, else a fixed offset); every
+    time the tool states is rendered in that zone; run_at = absolute one-shot
 
 Runs standalone (C:\\Users\\james\\miniconda3\\envs\\aihub-agent\\python.exe
 test_agent_schedule_bounded.py) or under pytest in an env with claude_agent_sdk;
@@ -223,7 +227,10 @@ def test_cron_fixed_offset_and_utc_labels():
     assert s.posted["schedule"]["cron_expression"] == "30 9 * * *"
 
 
-def test_cron_server_local_default_is_engine_parsable():
+def test_cron_server_default_is_engine_parsable_and_named_as_the_server_zone():
+    """No zone named and NO browser zone on the envelope -> the server's zone:
+    an IANA name when the Windows zone maps (DST-aware), else a fixed offset —
+    either way a label schedule_tz.to_tzinfo() accepts; the text says so."""
     saved = os.environ.pop("AGENT_DEFAULT_TZ", None)
     try:
         res, s = _call(dict(BASE, cron_expression="0 9 * * *"))
@@ -232,8 +239,110 @@ def test_cron_server_local_default_is_engine_parsable():
             os.environ["AGENT_DEFAULT_TZ"] = saved
     assert not res.get("is_error"), _txt(res)
     tz = s.posted["parameters"]["timezone"]["value"]
-    assert re.fullmatch(r"UTC[+-]\d\d:\d\d", tz), tz   # schedule_tz.to_tzinfo accepts this
+    assert ("/" in tz) or tz == "UTC" or re.fullmatch(r"UTC[+-]\d\d:\d\d", tz), tz
+    assert tz == W.server_zone_label()
     assert s.posted["schedule"]["cron_expression"] == "0 9 * * *"
+    assert "server's timezone" in _txt(res)
+    assert s.posted["parameters"]["user_timezone"]["value"] == tz
+
+
+def test_browser_zone_is_the_default_when_none_is_named():
+    res, s = _call(dict(BASE, cron_expression="0 9 * * 1-5"),
+                   user={"user_id": 7, "role": 3, "username": "unit",
+                         "browser_timezone": "America/Chicago"})
+    assert not res.get("is_error"), _txt(res)
+    assert s.posted["parameters"]["timezone"]["value"] == "America/Chicago"
+    assert s.posted["parameters"]["user_timezone"]["value"] == "America/Chicago"
+    assert s.posted["schedule"]["cron_expression"] == "0 9 * * 1-5"   # as written
+    assert "browser's timezone" in _txt(res)
+
+
+def test_named_zone_beats_the_browser_zone():
+    res, s = _call(dict(BASE, cron_expression="0 9 * * 1-5", timezone="Eastern"),
+                   user={"user_id": 7, "role": 3, "username": "unit",
+                         "browser_timezone": "America/Chicago"})
+    assert s.posted["parameters"]["timezone"]["value"] == "America/New_York"
+    assert "the zone you named" in _txt(res)
+    # the user still THINKS in their own zone: display zone = the named one here
+    assert s.posted["parameters"]["user_timezone"]["value"] == "America/New_York"
+
+
+def test_unusable_browser_zone_falls_back_to_agent_default_then_server():
+    saved = os.environ.get("AGENT_DEFAULT_TZ")
+    try:
+        os.environ["AGENT_DEFAULT_TZ"] = "Europe/London"
+        res, s = _call(dict(BASE, cron_expression="0 9 * * *"),
+                       user={"user_id": 7, "role": 3, "username": "unit",
+                             "browser_timezone": "Mars/Olympus"})
+        assert s.posted["parameters"]["timezone"]["value"] == "Europe/London"
+        assert "AGENT_DEFAULT_TZ" in _txt(res)
+        os.environ.pop("AGENT_DEFAULT_TZ", None)
+        res, s = _call(dict(BASE, cron_expression="0 9 * * *"),
+                       user={"user_id": 7, "role": 3, "username": "unit",
+                             "browser_timezone": "Mars/Olympus"})
+        assert s.posted["parameters"]["timezone"]["value"] == W.server_zone_label()
+    finally:
+        os.environ.pop("AGENT_DEFAULT_TZ", None)
+        if saved is not None:
+            os.environ["AGENT_DEFAULT_TZ"] = saved
+
+
+def test_platform_abbreviations_and_ambiguity():
+    assert W._resolve_tz_offset_minutes("BST")[1] == "Europe/London"
+    assert W._resolve_tz_offset_minutes("AEST")[1] == "Australia/Sydney"
+    try:
+        W._resolve_tz_offset_minutes("IST")
+        assert False, "IST must be refused as ambiguous"
+    except ValueError as e:
+        assert "ambiguous" in str(e) and "Asia/Kolkata" in str(e)
+
+
+def test_times_are_stated_in_the_users_zone():
+    now = dt.datetime.utcnow()
+    res, s = _call(dict(BASE, every_minutes=10, for_minutes=60),
+                   user={"user_id": 7, "role": 3, "username": "unit",
+                         "browser_timezone": "America/Chicago"})
+    t = _txt(res)
+    first = W.fmt_local(now + dt.timedelta(minutes=10), "America/Chicago", "%H:%M")
+    assert first.split()[1] in ("CDT", "CST") and first in t, (first, t)
+    assert "UTC" not in t
+
+
+def test_run_at_absolute_one_shot_in_the_users_zone():
+    now = dt.datetime.utcnow()
+    target_local = (now + dt.timedelta(hours=5)).replace(second=0, microsecond=0)
+    # pick a wall-clock in Chicago 5h from now, by converting the UTC instant
+    local = W.fmt_local(target_local, "America/Chicago", "%Y-%m-%d %H:%M").rsplit(" ", 1)[0]
+    res, s = _call(dict(BASE, run_at=local),
+                   user={"user_id": 7, "role": 3, "username": "unit",
+                         "browser_timezone": "America/Chicago"})
+    assert not res.get("is_error"), _txt(res)
+    sch = s.posted["schedule"]
+    assert sch["type"] == "date" and _near(sch["start_date"], target_local)
+    t = _txt(res)
+    assert "fires ONCE at " + local in t and ("CDT" in t or "CST" in t)
+    assert s.posted["parameters"]["user_timezone"]["value"] == "America/Chicago"
+
+
+def test_run_at_refusals():
+    res, s = _call(dict(BASE, run_at="2020-01-01 09:00"))
+    assert res.get("is_error") and "already in the past" in _txt(res) and s.posted is None
+    res, s = _call(dict(BASE, run_at="2099-01-01 09:00", run_in_minutes=5))
+    assert res.get("is_error") and "not both" in _txt(res)
+    res, s = _call(dict(BASE, run_at="2099-01-01 09:00", for_minutes=30))
+    assert res.get("is_error") and "fires exactly once" in _txt(res)
+    res, s = _call(dict(BASE, run_at="sometime tomorrow"))
+    assert res.get("is_error") and "not a date-time I can read" in _txt(res)
+
+
+def test_fmt_local_now_line_and_local_to_utc():
+    t = dt.datetime(2026, 8, 23, 1, 45)
+    assert W.fmt_local(t, "America/New_York") == "2026-08-22 21:45 EDT"
+    assert W.fmt_local(t, "UTC-04:00") == "2026-08-22 21:45 UTC-04:00"
+    assert W.fmt_local(t, "UTC") == "2026-08-23 01:45 UTC"
+    assert W.local_to_utc(dt.datetime(2026, 9, 1, 9, 0), "America/Chicago") == dt.datetime(2026, 9, 1, 14, 0)
+    line = W.now_line("America/Chicago")
+    assert line.startswith("[Context: now ") and "(America/Chicago)" in line and "\n" not in line
 
 
 def test_cron_with_for_minutes_sets_end_date_only():

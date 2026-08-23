@@ -34,10 +34,26 @@ _LOCK = threading.Lock()
 # task text follows a '---' separator line.
 SCHEDULED_RUN_MARKER = "[SCHEDULED RUN]"
 
+# Every turn is prefixed by main.py with one "[Context: now … (zone) …]" line
+# (current time in the user's zone). It is for the model; replay strips it so
+# the user sees only their own words.
+CONTEXT_MARKER = "[Context:"
 
-def build_deferred_prompt(job_name: str, fired_at_utc: str, task_prompt: str) -> str:
-    """The model-facing prompt for a deferred run appended to a live chat."""
-    return (f"{SCHEDULED_RUN_MARKER} '{job_name}' fired {fired_at_utc} UTC — this is "
+
+def strip_context_line(text: str) -> str:
+    t = str(text or "")
+    if not t.startswith(CONTEXT_MARKER):
+        return t
+    nl = t.find("\n")
+    if nl < 0:
+        return ""
+    return t[nl + 1:].lstrip("\n")
+
+
+def build_deferred_prompt(job_name: str, fired_at: str, task_prompt: str) -> str:
+    """The model-facing prompt for a deferred run appended to a live chat.
+    `fired_at` is already rendered in the user's zone ('2026-08-22 21:40 EDT')."""
+    return (f"{SCHEDULED_RUN_MARKER} '{job_name}' fired {fired_at} — this is "
             "the automatic firing of the task scheduled in this conversation. The "
             "user is NOT present right now: do the task below now (use tools as "
             "needed) and write the result so they can read it when they return. "
@@ -152,7 +168,9 @@ def replay(session_id: str, max_turns: int = 400) -> list:
                 if rtype == "user":
                     content = msg.get("content")
                     if isinstance(content, str) and content.strip():
-                        text = content.strip()
+                        text = strip_context_line(content.strip()).strip()
+                        if not text:
+                            continue
                         dp = split_deferred_prompt(text)
                         if dp:
                             turns.append({"role": "user", "kind": "scheduled_run",

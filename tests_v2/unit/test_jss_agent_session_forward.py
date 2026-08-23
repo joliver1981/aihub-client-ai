@@ -58,11 +58,13 @@ def test_session_id_forwarded_to_agent_run():
         svc._execute_agent_session_job({
             "scheduled_job_id": 1, "schedule_id": 2, "job_name": "Agent: x",
             "parameters": {"prompt": "p", "user_id": "7", "role": "3",
-                           "username": "u", "session_id": "s-9"}})
+                           "username": "u", "session_id": "s-9",
+                           "user_timezone": "America/Chicago"}})
     finally:
         JS.requests.post = orig
     assert captured["url"].endswith("/api/run")
     assert captured["body"]["session_id"] == "s-9"
+    assert captured["body"]["timezone"] == "America/Chicago"   # the user's zone rides along
     assert captured["body"]["prompt"] == "p" and captured["body"]["job_name"] == "Agent: x"
     assert str(captured["body"]["user_id"]) == "7"
 
@@ -79,6 +81,7 @@ def test_legacy_job_sends_empty_session_id():
     finally:
         JS.requests.post = orig
     assert captured["body"]["session_id"] == ""      # present, empty — never missing
+    assert captured["body"]["timezone"] == ""
 
 
 def test_dict_shaped_parameters_also_work():

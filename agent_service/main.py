@@ -97,6 +97,24 @@ def _verify_request(request: Request) -> dict:
     }
 
 
+def _turn_envelope(user: dict, body: dict) -> str:
+    """Stamp the user's BROWSER timezone (sent by the UI as body.timezone, the
+    IANA zone from Intl — exactly the Command Center contract) onto the
+    envelope the tools read, and return the one-line [Context: now … (zone)]
+    the model needs for any time arithmetic. Invalid/missing zone -> the
+    server-side default order (AGENT_DEFAULT_TZ, then the server's zone)."""
+    import work_tools
+    tz = str((body or {}).get("timezone") or "").strip()[:64]
+    if tz:
+        canon = work_tools._zone_canonical(tz)
+        if canon:
+            user["browser_timezone"] = canon
+        else:
+            logger.info(f"ignoring unusable browser timezone {tz!r}")
+    zone, _src = work_tools.default_zone_label(user)
+    return work_tools.now_line(zone)
+
+
 @app.get("/")
 async def index():
     index_path = os.path.join(_static_dir, "index.html")
@@ -120,7 +138,9 @@ async def me(request: Request):
             "app_version": APP_VERSION,
             # Deep links into the legacy app (Playbooks/Platform views) target
             # the same hostname the browser used, on the main app's port.
-            "main_port": int(os.getenv("HOST_PORT", "5001"))}
+            "main_port": int(os.getenv("HOST_PORT", "5001")),
+            # the zone the service falls back to when the browser sends none
+            "server_timezone": __import__("work_tools").server_zone_label()}
 
 
 def _service_key_ok(request: Request) -> bool:
@@ -185,6 +205,12 @@ async def headless_run(request: Request):
         "mode": "headless",   # tools route human-needed pauses to My Work
     }
     job_name = str(body.get("job_name") or "Scheduled agent task")
+    # the zone the user thinks in (stored on the job by schedule_agent_task as
+    # user_timezone; forwarded by the JSS) — times in this run are stated in it
+    # and any schedule the run creates defaults to it
+    ctx_line = _turn_envelope(user_ctx, body)
+    import work_tools as _wt
+    user_zone = _wt.default_zone_label(user_ctx)[0]
     want_sid = str(body.get("session_id") or "").strip() or None
     resume_sid, skip_reason = _resume_target(want_sid, user_ctx["user_id"])
     logger.info(f"headless run start job={job_name!r} as user "
@@ -207,13 +233,14 @@ async def headless_run(request: Request):
     if resume_sid:
         import chat_history
         import datetime as _dt
-        fired_at = _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+        fired_at = _wt.fmt_local(_dt.datetime.utcnow(), user_zone)   # user's zone
         # claim the conversation BEFORE the first await (no race with /api/chat)
         mark_inflight(resume_sid)
         try:
             user_ctx["chat_session_id"] = resume_sid   # tools: chaining keeps the thread
             texts, tools_run, final = await _drive(
-                resume_sid, chat_history.build_deferred_prompt(job_name, fired_at, prompt))
+                resume_sid, ctx_line + "\n\n"
+                + chat_history.build_deferred_prompt(job_name, fired_at, prompt))
         finally:
             clear_inflight(resume_sid)
         resumed = True
@@ -224,11 +251,11 @@ async def headless_run(request: Request):
                            f"({final.get('error')}) — falling back to a fresh session")
             resumed = False
             user_ctx.pop("chat_session_id", None)
-            texts, tools_run, final = await _drive(None, prompt)
+            texts, tools_run, final = await _drive(None, ctx_line + "\n\n" + prompt)
         else:
             chat_history.touch(user_ctx["user_id"], resume_sid, "")  # float to the top of history
     else:
-        texts, tools_run, final = await _drive(None, prompt)
+        texts, tools_run, final = await _drive(None, ctx_line + "\n\n" + prompt)
     ok = bool(final.get("ok"))
     summary_text = "\n\n".join(texts).strip()
 
@@ -342,6 +369,9 @@ async def chat(request: Request):
         block = file_tools.attachments_prompt_block(int(user["user_id"] or 0), attachments)
         if block:
             prompt = f"{block}\n\n{message}"
+    # Current time + the user's zone ride in front of every turn (the UI sends
+    # the browser's IANA zone as body.timezone); replay strips the line.
+    prompt = _turn_envelope(user, body) + "\n\n" + prompt
 
     async def event_stream():
         final_sid = session_id
@@ -681,7 +711,8 @@ async def work_thread(request: Request):
 
     workitem_store.append_thread(anchor_id, "human", question,
                                  actor=user.get("username"))
-    prompt = ("You are answering a question asked ON a work item in My Work. "
+    prompt = (_turn_envelope(user, body) + "\n\n"
+              "You are answering a question asked ON a work item in My Work. "
               "Answer with evidence from your read-only tools; you cannot and "
               "must not change anything from this thread. Work item context:\n"
               f"{json.dumps({'source': source, 'title': item.get('title'), 'summary': item.get('summary'), 'payload': context}, default=str)[:3000]}\n\n"
@@ -752,8 +783,9 @@ async def views_edit_chat(request: Request):
             "the view after each of your turns.\n\nUser: ")
     from platform_tools import CURRENT_USER
     CURRENT_USER.set(user)
+    ctx_line = _turn_envelope(user, body)
     reply_parts, out_session = [], session_id
-    async for ev in run_turn(preamble + message, session_id, user,
+    async for ev in run_turn(ctx_line + "\n\n" + preamble + message, session_id, user,
                              tool_scope="full"):
         if ev.get("type") == "text":
             reply_parts.append(ev["text"])

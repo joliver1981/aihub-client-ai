@@ -542,6 +542,23 @@
     if (text !== undefined) e.textContent = text;
     return e;
   };
+  // ---- timezone (2026-08-22, james): the BROWSER's IANA zone rides on every
+  // turn (same contract as Command Center) so the service defaults schedule
+  // times to it and states times back in it; and every stamp the service
+  // returns (UTC: ISO with an offset, or a naive "YYYY-MM-DD HH:MM:SS" from the
+  // platform DBs, which store getutcdate()) renders in the browser's zone.
+  function browserTz() {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { return ""; }
+  }
+  function fmtLocal(s, opts) {
+    if (!s) return "";
+    let str = String(s).trim();
+    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(str)) str = str.replace(" ", "T") + "Z";
+    const d = new Date(str);
+    if (isNaN(d)) return String(s).slice(0, 16).replace("T", " ");
+    return d.toLocaleString([], opts || { year: "numeric", month: "short", day: "2-digit",
+                                          hour: "2-digit", minute: "2-digit" });
+  }
 
   // ---------- markdown (agent output only; sanitized — table cells carry DB data) ----------
   if (window.marked) marked.setOptions({ gfm: true, breaks: true });
@@ -1490,7 +1507,8 @@
         headers: H(), body: JSON.stringify({
           name: currentView.name, scope: currentView.scope,
           group_id: currentView.group_id || 0, message: msg,
-          session_id: editSessions.get(viewKeyStr(currentView)) || null }) });
+          session_id: editSessions.get(viewKeyStr(currentView)) || null,
+          timezone: browserTz() }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { editMsg("agent", d.detail || "edit failed"); }
       else {
@@ -1763,7 +1781,8 @@
     }
     try {
       const resp = await fetch("/api/chat", { method: "POST", headers: H(),
-        body: JSON.stringify({ message: text, session_id: sessionId, attachments: attachIds }) });
+        body: JSON.stringify({ message: text, session_id: sessionId, attachments: attachIds,
+                               timezone: browserTz() }) });
       if (resp.status === 401 || resp.status === 403) {
         think.remove();
         const d = await resp.json().catch(() => ({}));
@@ -1878,7 +1897,7 @@
         const b = el("button", "histitem");
         b.appendChild(el("div", "ht", s.title || "(untitled conversation)"));
         b.appendChild(el("div", "hm",
-          `${(s.updated_at || "").slice(0, 16).replace("T", " ")} · ${s.turns} turn${s.turns === 1 ? "" : "s"}`
+          `${fmtLocal(s.updated_at)} · ${s.turns} turn${s.turns === 1 ? "" : "s"}`
           + (s.session_id === sessionId ? " · current" : "")));
         b.onclick = () => { histPop.style.display = "none"; openHistory(s); };
         histPop.appendChild(b);
@@ -2024,8 +2043,7 @@
       const row = el("div", "qrow");
       row.appendChild(el("span", "tchip t-" + item.verb,
                          VERB_LABEL[item.verb] || item.verb));
-      row.appendChild(el("span", "qmeta",
-                         (item.requested_at || "").slice(0, 16).replace("T", " ")));
+      row.appendChild(el("span", "qmeta", fmtLocal(item.requested_at)));
       b.appendChild(row);
       b.appendChild(el("div", "qtitle", item.title));
       const from = el("div", "qfrom");
@@ -2064,7 +2082,7 @@
   function renderDetail(item) {
     detailEl.innerHTML = "";
     detailEl.appendChild(el("div", "crumb",
-      `${item.source} · ${item.verb.replace("_", " ")} · raised ${item.requested_at || ""}`));
+      `${item.source} · ${item.verb.replace("_", " ")} · raised ${fmtLocal(item.requested_at) || ""}`));
     detailEl.appendChild(el("div", "dtitle", item.title));
     // (email drafts render structured To/From/Subject rows instead of the
     // plain summary text — showing both would duplicate)
@@ -2288,7 +2306,7 @@
         const r = await fetch("/api/work/thread", { method: "POST", headers: H(),
           body: JSON.stringify({ source: item.source, id: item.id,
                                  question, title: item.title,
-                                 context: item.payload }) });
+                                 context: item.payload, timezone: browserTz() }) });
         const d = await r.json();
         renderThread(d.thread); q.value = "";
       } catch (e) { note(ts, "err-note", e.message); }

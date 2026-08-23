@@ -116,3 +116,14 @@ Restart 5111 only (targeted recipe) for agent-side changes; the JSS (`app_jss_ma
 conda env `jss`) must be restarted for the executor change. Flags: `AGENT_DEFER_TO_CHAT`
 (default true), `AGENT_CHAT_BUSY_WAIT_SECONDS` (90; 0 disables), `AGENT_INFLIGHT_STALE_SECONDS`
 (7200), `AGENT_DEFAULT_TZ` (zone for crons given without one).
+
+## Timezone contract (added 2026-08-22 evening; see docs/the-agent-timezone-analysis.md)
+- The UI sends the browser's IANA zone with every turn; `main._turn_envelope` stamps
+  `user["browser_timezone"]` and prefixes the prompt with one `[Context: now … (zone)]` line
+  (replay strips it). Zone order when none is named: browser > `AGENT_DEFAULT_TZ` > server
+  (Windows zone → IANA, else fixed offset). Every time the tools state is in that zone.
+- `schedule_agent_task`: `run_at` (absolute one-shot in the user's zone) joined `run_in_minutes`;
+  `user_timezone` is stored on every job and forwarded by the JSS to `/api/run` (`timezone`).
+- `schedule_view_refresh` / `schedule_view_email` crons carry `parameters.timezone` (user's zone)
+  instead of silent UTC. JSS `LastRunTime` is UTC now.
+

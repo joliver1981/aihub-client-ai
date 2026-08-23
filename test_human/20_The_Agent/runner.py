@@ -88,11 +88,15 @@ def mint_token():
     })
 
 
+BROWSER_TZ = "America/New_York"   # what a real browser on this box sends (Intl zone)
+
+
 def chat_turn(token, message, session_id=None, timeout=TURN_TIMEOUT):
-    """POST /api/chat and consume the SSE stream into (events, full_text)."""
+    """POST /api/chat and consume the SSE stream into (events, full_text).
+    Sends the browser timezone exactly like the UI does (2026-08-22)."""
     r = requests.post(
         f"{BASE}/api/chat",
-        json={"message": message, "session_id": session_id},
+        json={"message": message, "session_id": session_id, "timezone": BROWSER_TZ},
         headers={"Authorization": f"Bearer {token}"},
         stream=True, timeout=(10, timeout),
     )
@@ -1538,6 +1542,63 @@ def main():
     except Exception as e:
         check("M-2", "tz-aware agent-task cron", False, e)
 
+    # M-3 user-zone default (james 2026-08-22): when the user names NO zone,
+    # schedule_agent_task must assume their BROWSER zone (stamped on the
+    # envelope from the UI's Intl zone) — stored as parameters.timezone, cron
+    # AS WRITTEN — and the ENGINE's NextRunTime must be 09:00 in that zone.
+    # Deterministic (tool handler in-process, browser zone America/Chicago so
+    # it differs from this server's Eastern zone) + the engine's own clock.
+    try:
+        import asyncio
+        import time as _tm3
+        from datetime import datetime as _dtt3, timezone as _tzu3
+        from zoneinfo import ZoneInfo as _ZI3
+        from platform_tools import CURRENT_USER as _CU3
+        import work_tools as _wt3
+        _CU3.set({"user_id": 1, "role": 3, "username": "pack20-runner",
+                  "browser_timezone": "America/Chicago"})
+
+        async def _m3():
+            return await _wt3.schedule_agent_task.handler({
+                "task_prompt": "pack20 M-3 zone-default check — delete me",
+                "name": "pack20-m3-browser-tz", "cron_expression": "0 9 * * *"})
+
+        m3_res = asyncio.new_event_loop().run_until_complete(_m3())
+        m3_txt = m3_res["content"][0]["text"]
+        m3_job = m3_txt.split("job #")[1].split(",")[0].strip() if "job #" in m3_txt else None
+        m3_row, m3_next_local = {}, None
+        if m3_job:
+            deadline = _tm3.time() + 150
+            while _tm3.time() < deadline:
+                jr = requests.get(f"{MAIN}/api/scheduler/jobs/{m3_job}",
+                                  headers=SVC_HEADERS, timeout=90)
+                m3_row = jr.json() if jr.status_code < 400 else {}
+                nrt = ((m3_row.get("schedules") or [{}])[0]).get("next_run_time")
+                if nrt:
+                    m3_next_local = _dtt3.fromisoformat(nrt).replace(
+                        tzinfo=_tzu3.utc).astimezone(_ZI3("America/Chicago"))
+                    break
+                _tm3.sleep(10)
+            requests.delete(f"{MAIN}/api/scheduler/jobs/{m3_job}",
+                            headers=SVC_HEADERS, timeout=90)
+        _p3 = m3_row.get("parameters") or {}
+        _s3 = (m3_row.get("schedules") or [{}])[0]
+        check("M-3", "no zone named -> the user's BROWSER zone is assumed (stored as "
+                     "parameters.timezone, cron as written, text says 'browser'); ENGINE "
+                     "next run = 09:00 America/Chicago",
+              not m3_res.get("is_error")
+              and (_p3.get("timezone") or {}).get("value") == "America/Chicago"
+              and (_p3.get("user_timezone") or {}).get("value") == "America/Chicago"
+              and _s3.get("cron_expression") == "0 9 * * *"
+              and "browser" in m3_txt
+              and m3_next_local is not None
+              and (m3_next_local.hour, m3_next_local.minute) == (9, 0),
+              f"tz={(_p3.get('timezone') or {}).get('value')} stored={_s3.get('cron_expression')!r} "
+              f"engine_next_local={m3_next_local.isoformat() if m3_next_local else None} "
+              f"text={m3_txt[:120]!r}")
+    except Exception as e:
+        check("M-3", "user-zone default", False, e)
+
     # P-1 designer deep-link + Playbooks filters tripwire (live-verified in
     # browser 2026-08-09; this guards regressions).
     wf_js = open(os.path.join(APP_ROOT, "static", "js", "workflow.js"),
@@ -2247,7 +2308,7 @@ def main():
                 if m:
                     jid12 = int(m.group(1))
                     break
-        appended, item12, turns12, kinds12 = False, None, [], []
+        appended, item12, turns12, kinds12, hdr12 = False, None, [], [], ""
         if sid12 and jid12:
             deadline = _t12.time() + 300
             while _t12.time() < deadline and not appended:
@@ -2262,6 +2323,7 @@ def main():
                     after = turns12[idx + 1:]
                     appended = any(t.get("role") == "agent" and "pack20 deferred ok"
                                    in (t.get("text") or "").lower() for t in after)
+                    hdr12 = str(turns12[idx].get("header") or "")
             # The SDK appends the reply to the transcript a few seconds BEFORE
             # /api/run files the FYI (first gate run raced this) — give the item
             # up to 60s after the reply is visible.
@@ -2280,14 +2342,16 @@ def main():
         _sweep12()
         if item12 and item12.get("status") in ("open", "claimed"):
             _ws12.respond(item12["work_item_id"], 1, {"decision": "acknowledged"})
+        hdr_local = bool(hdr12) and ("EDT" in hdr12 or "EST" in hdr12) and " UTC" not in hdr12
         check("PT-12", "deferred result lands in the originating conversation "
-                       "(scheduled_run turn + agent reply in history replay) and the "
-                       "My Work FYI deep-links to it (payload.chat_session_id)",
+                       "(scheduled_run turn + agent reply in history replay), its header "
+                       "is stamped in the user's zone, and the My Work FYI deep-links to "
+                       "it (payload.chat_session_id)",
               "schedule_agent_task" in used12 and bool(sid12) and bool(jid12)
-              and appended and item12 is not None,
+              and appended and item12 is not None and hdr_local,
               f"tools={used12} session={sid12} job={jid12} appended={appended} "
-              f"item={bool(item12)} turns={len(turns12)} kinds={kinds12} "
-              f"text={txt12[:120]!r}")
+              f"item={bool(item12)} header={hdr12[:60]!r} turns={len(turns12)} "
+              f"kinds={kinds12} text={txt12[:100]!r}")
     except Exception as e:
         check("PT-12", "deferred result -> chat", False, e)
 
