@@ -40,7 +40,8 @@ from claude_agent_sdk import tool
 from agent_config import APP_ROOT, logger
 from platform_tools import CURRENT_USER, _text
 from file_tools import stage_offer
-from work_tools import _resolve_tz_offset_minutes, _cron_local_to_utc
+from work_tools import (_build_schedule, _bound_was_recorded, _bound_text,
+                        _cadence_text)
 
 # Bounded in-tool waits; runs continue server-side past these and are collected
 # with check_portal_run (the dry_run -> check_automation_run doctrine shape).
@@ -720,9 +721,12 @@ async def run_portal_workflow(args: dict[str, Any]) -> dict[str, Any]:
     "the linked saved portal. Each run's outcome lands in the user's My Work as an FYI "
     "with working download links (and the file by email when email_after_run is true). "
     "Re-scheduling the same workflow REPLACES its existing schedule. Give cron_expression "
-    "(+timezone) OR every_hours/every_days. Unattended 2FA needs a TOTP-seeded portal; a "
-    "run that still pauses for a human raises a take-over item in My Work. Report ONLY "
-    "the job id this returns.",
+    "(+timezone) OR every_minutes/every_hours/every_days; add for_minutes or occurrences "
+    "for a BOUNDED repeat ('every 10 minutes for an hour' = every_minutes=10, "
+    "for_minutes=60 — one job the engine stops on its own). The cron fires in `timezone` "
+    "(engine applies the zone at fire time, DST-aware). Unattended 2FA needs a "
+    "TOTP-seeded portal; a run that still pauses for a human raises a take-over item in "
+    "My Work. Report ONLY the job id and cadence/bound facts this returns.",
     {
         "type": "object",
         "properties": {
@@ -733,8 +737,14 @@ async def run_portal_workflow(args: dict[str, Any]) -> dict[str, Any]:
             "timezone": {"type": "string",
                          "description": "IANA name (America/New_York), alias (Eastern), "
                                         "'UTC' or '-05:00'; omit for the server's zone."},
+            "every_minutes": {"type": "integer",
+                              "description": "Interval in minutes (min 1)."},
             "every_hours": {"type": "integer"},
             "every_days": {"type": "integer"},
+            "for_minutes": {"type": "integer",
+                            "description": "BOUND: stop this many minutes from now."},
+            "occurrences": {"type": "integer",
+                            "description": "BOUND: stop after this many runs."},
             "email_after_run": {"type": "boolean",
                                 "description": "Also email the downloaded file to the "
                                                "user after each run (default false)."},
@@ -767,29 +777,21 @@ async def schedule_portal_workflow(args: dict[str, Any]) -> dict[str, Any]:
                      "list_portal_workflows to see the exact names.", is_error=True)
     slug = wf["slug"]
 
-    tz_note = ""
-    if args.get("cron_expression"):
-        local_cron = str(args["cron_expression"]).strip()
-        try:
-            tz_mins, tz_label = _resolve_tz_offset_minutes(args.get("timezone"))
-            utc_cron, _shift = _cron_local_to_utc(local_cron, tz_mins)
-        except ValueError as e:
-            return _text(f"Nothing was scheduled: {e}", is_error=True)
-        schedule = {"type": "cron", "cron_expression": utc_cron}
-        tz_note = (f" Cron `{local_cron}` interpreted in {tz_label} (offset "
-                   f"{tz_mins:+d} min at create time) -> engine-UTC `{utc_cron}`.")
-        if tz_mins == 0:
-            tz_note = f" Cron `{utc_cron}` runs on the engine's UTC clock."
-    elif args.get("every_hours") or args.get("every_days"):
-        schedule = {"type": "interval",
-                    "start_date": _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")}
-        if args.get("every_hours"):
-            schedule["interval_hours"] = int(args["every_hours"])
-        if args.get("every_days"):
-            schedule["interval_days"] = int(args["every_days"])
-    else:
-        return _text("Provide cron_expression (+timezone) or every_hours/every_days.",
-                     is_error=True)
+    # Same schedule builder as schedule_agent_task: engine-native cron timezone
+    # (store the cron as written + the zone; the engine applies it, DST-aware —
+    # pre-shifting to UTC double-shifts) and engine-native bounds
+    # (end_date / max_runs) for "every N minutes for M minutes".
+    _now = _dt.datetime.utcnow()
+    try:
+        plan = _build_schedule(args, now=_now)
+    except ValueError as e:
+        return _text(f"Nothing was scheduled: {e}", is_error=True)
+    if plan["kind"] == "one_shot":
+        return _text("Portal workflow schedules are recurring — give cron_expression "
+                     "(+timezone) or every_minutes/every_hours/every_days (optionally "
+                     "with for_minutes/occurrences).", is_error=True)
+    schedule = plan["schedule"]
+    tz_note = plan["note"]
 
     email_after = bool(args.get("email_after_run"))
     body = {
@@ -807,9 +809,9 @@ async def schedule_portal_workflow(args: dict[str, Any]) -> dict[str, Any]:
         },
         "schedule": schedule,
     }
-    if schedule.get("type") == "cron":
-        body["parameters"]["timezone"] = {"value": tz_label, "type": "string"}
-        body["parameters"]["local_cron"] = {"value": local_cron, "type": "string"}
+    for k, v in (plan.get("params") or {}).items():
+        # cron provenance; the engine reads `timezone` to fire in that zone
+        body["parameters"][k] = {"value": str(v), "type": "string"}
 
     base, hdrs = get_base_url(), _headers()
     try:
@@ -834,11 +836,23 @@ async def schedule_portal_workflow(args: dict[str, Any]) -> dict[str, Any]:
             if not any(s.get("is_active") for s in (rbd.get("schedules") or [])):
                 return _text(f"Job #{job_id} was created but NO active schedule row "
                              "exists — report this as NOT scheduled.", is_error=True)
+            if not _bound_was_recorded(plan, rbd.get("schedules")):
+                try:   # fail closed: a bounded ask must never leave an unbounded job
+                    await client.delete(f"{base}/api/scheduler/jobs/{job_id}", headers=hdrs)
+                except Exception:
+                    pass
+                return _text(f"Job #{job_id} was created but the engine did NOT record "
+                             "the requested bound (end_date/max_runs) — it was removed "
+                             "so nothing runs forever. Report this as NOT scheduled.",
+                             is_error=True)
     except Exception as e:
         return _text(f"Scheduling failed: {e}", is_error=True)
     rep = f" Replaced previous job(s) #{', #'.join(str(x) for x in replaced)}." if replaced else ""
+    bound = _bound_text(plan, _now)
     return _text(f"Scheduled portal workflow '{wf.get('name') or slug}' (job #{job_id}, "
-                 f"verified active by read-back).{rep} Each run replays the recorded "
+                 f"verified active by read-back): {_cadence_text(plan)}"
+                 + (f", {bound}; the engine stops it on its own" if bound else "")
+                 + f".{rep} Each run replays the recorded "
                  f"steps headless as {user.get('username')} and lands an FYI with "
                  "download links in their My Work"
                  + (" and emails the file." if email_after else ".") + tz_note)

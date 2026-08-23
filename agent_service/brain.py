@@ -40,6 +40,51 @@ try:  # tool results ride on UserMessage blocks; import defensively across SDK v
 except ImportError:  # pragma: no cover
     UserMessage = ToolResultBlock = None
 
+# ---------------------------------------------------------------------------
+# Per-session in-flight registry (deferred-results-to-chat, 2026-08-22).
+# A scheduled/delayed run may RESUME the chat session it was asked from, which
+# makes two writers on one SDK transcript possible. run_turn marks the session
+# it is driving; main.py /api/run resumes only an IDLE session (else it falls
+# back to the old fresh-session + My Work FYI), and /api/chat waits (bounded)
+# for an in-flight deferred run on the same conversation. Counter-based so
+# nested mark/clear pairs are safe; stale marks self-expire (crash safety).
+# ---------------------------------------------------------------------------
+import time as _time
+
+_INFLIGHT: dict = {}          # session_id -> [count, last_mark_monotonic]
+INFLIGHT_STALE_SECONDS = int(os.getenv("AGENT_INFLIGHT_STALE_SECONDS", "7200"))
+
+
+def mark_inflight(session_id: Optional[str]) -> None:
+    if not session_id:
+        return
+    ent = _INFLIGHT.setdefault(session_id, [0, 0.0])
+    ent[0] += 1
+    ent[1] = _time.monotonic()
+
+
+def clear_inflight(session_id: Optional[str]) -> None:
+    if not session_id:
+        return
+    ent = _INFLIGHT.get(session_id)
+    if not ent:
+        return
+    ent[0] -= 1
+    if ent[0] <= 0:
+        _INFLIGHT.pop(session_id, None)
+
+
+def is_inflight(session_id: Optional[str]) -> bool:
+    if not session_id:
+        return False
+    ent = _INFLIGHT.get(session_id)
+    if not ent or ent[0] <= 0:
+        return False
+    if _time.monotonic() - ent[1] > INFLIGHT_STALE_SECONDS:
+        _INFLIGHT.pop(session_id, None)   # a crashed turn must never wedge a chat
+        return False
+    return True
+
 # Document tools are additive and reversible: flip AGENT_DOCUMENT_TOOLS=false to
 # ship without them (reverts to the pre-tool, automation-only ingest behavior).
 _DOCUMENT_TOOLS_ON = os.getenv("AGENT_DOCUMENT_TOOLS", "true").lower() == "true"
@@ -160,10 +205,16 @@ relevant.
 
 RECURRING WORK
 One-shot delayed actions ("check my email in 2 minutes", "follow up in an
-hour"): schedule_agent_task with run_in_minutes — a fresh headless session
-fires ONCE at that time as this user and reports into their My Work. You
-cannot sleep or wait inside a conversation turn; the scheduler is how you
-defer work.
+hour"): schedule_agent_task with run_in_minutes — a headless session fires
+ONCE at that time as this user. You cannot sleep or wait inside a
+conversation turn; the scheduler is how you defer work. BOUNDED repetition
+("every 10 minutes for the next hour", "every 5 minutes, 12 times"):
+schedule_agent_task with every_minutes PLUS for_minutes (or occurrences) —
+ONE job the engine stops on its own; never schedule an unbounded job for a
+bounded ask and never fan out one-shots. Results of deferred and scheduled
+runs are appended to THIS conversation (when scheduled from a chat) and land
+as an FYI in My Work — say so when you confirm, and relay the cadence/bound
+facts the tool returns (first run, stop time, about how many runs).
 Three ladders, pick deliberately: something to LOOK AT repeatedly (numbers,
 top-N lists, a pulse) -> save a VIEW (save_view: the exact recipe you verified
 is pinned; the Views screen refreshes it deterministically, zero AI per
@@ -173,8 +224,8 @@ automation). View scopes mirror skills: private by default, group after the
 user confirms which group, tenant files an admin approval. Mechanical
 repetition that DOES something -> build an AUTOMATION (deterministic, zero
 tokens per run). Recurring judgment ('check X each morning, flag what's odd')
--> schedule_agent_task (a fresh headless session runs the prompt as this user
-and reports into their My Work). After an analysis the user liked, offer to
+-> schedule_agent_task (a headless session runs the prompt as this user
+and reports into their My Work and this conversation). After an analysis the user liked, offer to
 pin it as a View.
 To RENAME a view use rename_view (in place, schedules follow) — never
 save_view under a new name, which forks a copy. When re-saving tiles,
@@ -349,6 +400,11 @@ async def run_turn(prompt: str, session_id: Optional[str],
       {"type": "result", "session_id": ..., "ok": bool, "subtype": ..., "cost_usd": ...}
       {"type": "error", "error": ...}
     """
+    # Expose the conversation id to tools (schedule_agent_task captures "the
+    # chat I was asked from"). On a NEW session the id arrives with the SDK's
+    # init message and is set then — the contextvar holds this same dict, so
+    # tools called later in the turn see it.
+    user_ctx["session_id"] = session_id or None
     CURRENT_USER.set(user_ctx)
     logger.info(f"turn start user={user_ctx.get('username')} "
                 f"session={session_id or '(new)'} prompt={prompt[:200]!r}")
@@ -362,6 +418,10 @@ async def run_turn(prompt: str, session_id: Optional[str],
         logger.warning(f"skills mount failed (continuing without): {e}")
         ws = None
     new_session_id = session_id
+    marked = None                # session id this turn holds in-flight
+    if session_id:
+        mark_inflight(session_id)
+        marked = session_id
     all_text = []                # for the mutation-claim guard
     tool_names = {}              # tool_use_id -> tool name
     mutation_succeeded = False
@@ -374,6 +434,10 @@ async def run_turn(prompt: str, session_id: Optional[str],
                     sid = (getattr(message, "data", {}) or {}).get("session_id")
                     if sid:
                         new_session_id = sid
+                        user_ctx["session_id"] = sid
+                        if not marked:
+                            mark_inflight(sid)
+                            marked = sid
             elif isinstance(message, AssistantMessage):
                 for block in message.content:
                     if hasattr(block, "text") and getattr(block, "text", None):
@@ -433,3 +497,6 @@ async def run_turn(prompt: str, session_id: Optional[str],
         logger.error(f"turn error user={user_ctx.get('username')} "
                      f"session={new_session_id}: {e}")
         yield {"type": "error", "error": str(e), "session_id": new_session_id}
+    finally:
+        if marked:
+            clear_inflight(marked)

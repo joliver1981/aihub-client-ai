@@ -504,7 +504,9 @@
   const params = new URLSearchParams(location.search);
   if (params.get("token")) {
     localStorage.setItem("agent_token", params.get("token"));
-    history.replaceState({}, "", location.pathname);
+    // keep the #hash: deep links (#view=…, #chat=<session>) must survive the
+    // ?token= redirect from AI Hub (replaceState with pathname alone dropped them)
+    history.replaceState({}, "", location.pathname + location.hash);
   }
   const token = () => localStorage.getItem("agent_token") || "";
   const H = () => ({ "Content-Type": "application/json",
@@ -1690,14 +1692,28 @@
     m.appendChild(el("div", "bubble", text));
     thread.appendChild(m); scroll();
   }
+  // Deferred result (Level 1, 2026-08-22): a scheduled / delayed task that fired
+  // INTO this conversation replays as a "Scheduled run" marker + the task it
+  // ran — never as something the user typed.
+  function addScheduledRun(t) {
+    const m = el("div", "msg user");
+    m.appendChild(el("span", "au", "Scheduled run"));
+    const b = el("div", "bubble");
+    b.appendChild(el("div", "meta", "⏰ " + (t.header || "scheduled task fired")));
+    if (t.text) b.appendChild(el("div", "", t.text));
+    m.appendChild(b);
+    thread.appendChild(m); scroll();
+  }
   // ---- chat attachments (P2 item 4): upload first, then send the ids with the
   // message; the server hands the model server paths, the user sees names only.
   const pendingAttachments = [];
-  function fmtSize(n) { return n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : (n / 1048576).toFixed(1) + " MB"; }
+  // (named fmtAttachSize: a `const fmtSize` already lives in this scope (email viewer) —
+  //  the duplicate declaration was a page-level SyntaxError that killed the whole UI script)
+  function fmtAttachSize(n) { return n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : (n / 1048576).toFixed(1) + " MB"; }
   function renderAttachChips() {
     const row = document.getElementById("attach-chips"); row.innerHTML = "";
     pendingAttachments.forEach((a, i) => {
-      const c = el("span", "achip", "📎 " + a.name + " (" + fmtSize(a.size) + ") ");
+      const c = el("span", "achip", "📎 " + a.name + " (" + fmtAttachSize(a.size) + ") ");
       const x = el("b", "", "✕"); x.title = "Remove";
       x.onclick = () => { pendingAttachments.splice(i, 1); renderAttachChips(); };
       c.appendChild(x); row.appendChild(c);
@@ -1811,6 +1827,8 @@
           } else if (ev.type === "guard") {
             const g = el("div", "guard-note", "⚠ " + ev.warning);
             container.appendChild(g);
+          } else if (ev.type === "status") {
+            container.appendChild(el("span", "meta", ev.text || ""));
           } else if (ev.type === "result") {
             if (ev.session_id) { sessionId = ev.session_id;
               sessionStorage.setItem("agent_session", sessionId); }
@@ -1880,7 +1898,9 @@
       document.getElementById("hello")?.remove();
       thread.innerHTML = "";
       (d.turns || []).forEach(t => {
-        if (t.role === "user") { addUser(t.text); return; }
+        if (t.role === "user") {
+          if (t.kind === "scheduled_run") { addScheduledRun(t); return; }
+          addUser(t.text); return; }
         const m = el("div", "msg agent");
         m.appendChild(el("span", "au", "The Agent"));
         (t.tools || []).forEach(name => {
@@ -1923,6 +1943,38 @@
       const d = await r.json();
       const c = document.getElementById("work-count");
       c.textContent = d.total; c.style.display = d.total ? "" : "none";
+      announceDeferred(d.items || []);
+    } catch {}
+  }
+  // ---- deferred-result nudge (Level 1, no live push): when a scheduled task
+  // has landed its result in a conversation, say so ONCE — on open and after
+  // turns (refreshWorkCount runs at both) — with a one-click way to read it.
+  function announceDeferred(items) {
+    try {
+      const seen = new Set(JSON.parse(sessionStorage.getItem("agent_deferred_seen") || "[]"));
+      const fresh = items.filter(i => i.source === "agent" && i.status === "open"
+        && (i.payload || {}).kind === "headless_run" && i.payload.chat_session_id
+        && !seen.has(i.id));
+      if (!fresh.length) return;
+      fresh.forEach(i => seen.add(i.id));
+      sessionStorage.setItem("agent_deferred_seen", JSON.stringify([...seen].slice(-200)));
+      const first = fresh[0];
+      document.getElementById("deferred-toast")?.remove();
+      const t = el("div", "guard-note"); t.id = "deferred-toast";
+      t.style.cssText = "position:fixed;right:18px;bottom:96px;z-index:60;max-width:380px;"
+        + "border-color:var(--accent-line);display:flex;gap:8px;align-items:center;flex-wrap:wrap";
+      const title = String(first.title || "").replace(/^[✓⚠] /, "");
+      t.appendChild(el("span", "", "⏰ " + (fresh.length === 1
+        ? `"${title}" finished — its result was added to your conversation.`
+        : `${fresh.length} scheduled tasks finished — results were added to your conversations.`)));
+      const open = el("button", "btn primary", "Open");
+      open.onclick = () => { t.remove(); show("chat");
+                             openHistory({ session_id: first.payload.chat_session_id }); };
+      const later = el("button", "btn", "Later");
+      later.onclick = () => t.remove();
+      t.append(open, later);
+      document.body.appendChild(t);
+      setTimeout(() => { if (t.isConnected) t.remove(); }, 45000);
     } catch {}
   }
 
@@ -2144,7 +2196,8 @@
       // Friendly details (James 2026-08-09): readable key-value lines, not a
       // raw JSON "Payload" dump. Internal keys (kind, _*) are hidden.
       const shown = Object.entries(p).filter(([k]) =>
-        k !== "kind" && !k.startsWith("_"));
+        k !== "kind" && k !== "session_id" && k !== "chat_session_id"
+        && !k.startsWith("_"));
       if (shown.length) {
         const sec = el("div", "dsection");
         sec.appendChild(el("div", "dlabel", "Details"));
@@ -2160,6 +2213,14 @@
           sec.appendChild(row);
         });
         detailEl.appendChild(sec);
+      }
+      if (p.chat_session_id) {
+        // deferred result: this FYI's full result also lives in the conversation
+        // it was scheduled from — open it there (history replay)
+        const open = el("button", "btn", "Open the conversation");
+        open.title = "This result was also added to the conversation it was scheduled from";
+        open.onclick = () => { show("chat"); openHistory({ session_id: p.chat_session_id }); };
+        actions.appendChild(open);
       }
       const cs = el("div", "dsection");
       let answer = null;
@@ -2317,6 +2378,10 @@
       // Deep link (v2.1): #view=<name>&scope=&gid= opens straight to a view.
       const hv = viewFromHash();
       if (hv) { currentView = hv; show("views"); runView(hv); }
+      // Deep link (2026-08-22): #chat=<session_id> opens that conversation —
+      // the target for My Work / notification links to a deferred result.
+      const hc = new URLSearchParams(location.hash.replace(/^#/, "")).get("chat");
+      if (hc) { show("chat"); openHistory({ session_id: hc }); }
     } catch (e) { gate("The Agent service is unreachable: " + e.message); }
   }
   boot();

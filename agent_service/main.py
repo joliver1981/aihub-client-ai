@@ -19,6 +19,7 @@ import sys
 import agent_config  # noqa: F401  (must be first: APP_ROOT, .env, secure_config)
 from agent_config import (
     HOST, PORT, DEBUG, AGENT_MODEL, AGENT_ALLOW_ALL_USERS, logger, summary,
+    defer_to_chat_enabled, CHAT_BUSY_WAIT_SECONDS,
 )
 
 from contextlib import asynccontextmanager
@@ -29,7 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 import shared_auth  # from APP_ROOT (agent_config put it on sys.path)
-from brain import run_turn
+from brain import run_turn, is_inflight, mark_inflight, clear_inflight
 import workitem_store
 import views_store
 import readthrough
@@ -134,6 +135,25 @@ def _service_key_ok(request: Request) -> bool:
             or _hmac.compare_digest(key, get_internal_api_key()))
 
 
+def _resume_target(want_sid, user_id):
+    """Decide whether a deferred run may RESUME the chat it was scheduled from.
+    Returns (session_id | None, reason_when_none). Fails closed on every doubt
+    so the fallback is always the old fresh-session + My Work FYI behavior."""
+    if not want_sid:
+        return None, "no session_id on the job"
+    if not defer_to_chat_enabled():
+        return None, "AGENT_DEFER_TO_CHAT is off"
+    safe = "".join(ch for ch in str(want_sid) if ch.isalnum() or ch == "-")
+    if safe != want_sid:
+        return None, "malformed session id"
+    import chat_history
+    if not chat_history.owns_session(int(user_id or 0), want_sid):
+        return None, "not a conversation owned by this user"
+    if is_inflight(want_sid):
+        return None, "conversation is busy (a turn is in flight)"
+    return want_sid, ""
+
+
 @app.post("/api/run")
 async def headless_run(request: Request):
     """
@@ -141,6 +161,15 @@ async def headless_run(request: Request):
     email triggers). Runs AS the principal stored on the trigger — the user
     who created the schedule — and reports the outcome into that user's
     My Work queue as an acknowledge (FYI) item. Auth: platform service key.
+
+    Deferred results -> chat (2026-08-22, AGENT_DEFER_TO_CHAT, Level 1): when
+    the job carries the `session_id` of the conversation it was scheduled
+    from, the turn RESUMES that SDK session, so the result becomes the next
+    turn of that conversation (history replay renders it; no push channel)
+    and the FYI deep-links to it. Guarded: resume only a conversation this
+    user owns that is not in flight — anything else falls back to exactly the
+    old fresh-session behavior. A resume that fails before doing any work
+    (missing/corrupt transcript) also falls back, so the task still runs.
     """
     if not _service_key_ok(request):
         raise HTTPException(401, "service key required")
@@ -156,17 +185,50 @@ async def headless_run(request: Request):
         "mode": "headless",   # tools route human-needed pauses to My Work
     }
     job_name = str(body.get("job_name") or "Scheduled agent task")
+    want_sid = str(body.get("session_id") or "").strip() or None
+    resume_sid, skip_reason = _resume_target(want_sid, user_ctx["user_id"])
     logger.info(f"headless run start job={job_name!r} as user "
-                f"{user_ctx['user_id']}/{user_ctx['username']}")
+                f"{user_ctx['user_id']}/{user_ctx['username']} "
+                f"resume={resume_sid or '-'}"
+                + (f" (no resume: {skip_reason})" if want_sid and not resume_sid else ""))
 
-    texts, tools_run, final = [], [], {}
-    async for ev in run_turn(prompt, None, user_ctx, tool_scope="full"):
-        if ev.get("type") == "text":
-            texts.append(ev["text"])
-        elif ev.get("type") == "tool":
-            tools_run.append(ev.get("name", "?").replace("mcp__aihub__", ""))
-        elif ev.get("type") in ("result", "error"):
-            final = ev
+    async def _drive(sid, model_prompt):
+        texts, tools_run, final = [], [], {}
+        async for ev in run_turn(model_prompt, sid, user_ctx, tool_scope="full"):
+            if ev.get("type") == "text":
+                texts.append(ev["text"])
+            elif ev.get("type") == "tool":
+                tools_run.append(ev.get("name", "?").replace("mcp__aihub__", ""))
+            elif ev.get("type") in ("result", "error"):
+                final = ev
+        return texts, tools_run, final
+
+    resumed = False
+    if resume_sid:
+        import chat_history
+        import datetime as _dt
+        fired_at = _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+        # claim the conversation BEFORE the first await (no race with /api/chat)
+        mark_inflight(resume_sid)
+        try:
+            user_ctx["chat_session_id"] = resume_sid   # tools: chaining keeps the thread
+            texts, tools_run, final = await _drive(
+                resume_sid, chat_history.build_deferred_prompt(job_name, fired_at, prompt))
+        finally:
+            clear_inflight(resume_sid)
+        resumed = True
+        if final.get("type") == "error" and not texts and not tools_run:
+            # the resume itself failed before any work: run it the old way so
+            # the task still happens (never lose a scheduled run to a transcript)
+            logger.warning(f"headless resume of {resume_sid} failed before any work "
+                           f"({final.get('error')}) — falling back to a fresh session")
+            resumed = False
+            user_ctx.pop("chat_session_id", None)
+            texts, tools_run, final = await _drive(None, prompt)
+        else:
+            chat_history.touch(user_ctx["user_id"], resume_sid, "")  # float to the top of history
+    else:
+        texts, tools_run, final = await _drive(None, prompt)
     ok = bool(final.get("ok"))
     summary_text = "\n\n".join(texts).strip()
 
@@ -177,15 +239,19 @@ async def headless_run(request: Request):
         payload={"kind": "headless_run", "ok": ok,
                  "subtype": final.get("subtype") or final.get("error"),
                  "session_id": final.get("session_id"),
+                 # deep-link: the conversation this result was appended to
+                 "chat_session_id": resume_sid if resumed else None,
                  "tools_used": tools_run[:30], "prompt": prompt[:500]},
         addressed_user=user_ctx["user_id"] or None,
         from_kind="agent_headless", from_ref=job_name,
         created_by="scheduler")
     logger.info(f"headless run done job={job_name!r} ok={ok} "
-                f"item={item['work_item_id']}")
+                f"item={item['work_item_id']} resumed_chat={resumed}")
     return {"ok": ok, "subtype": final.get("subtype") or final.get("error"),
             "session_id": final.get("session_id"),
-            "work_item_id": item["work_item_id"]}
+            "work_item_id": item["work_item_id"],
+            "resumed_chat": resumed,
+            "chat_session_id": resume_sid if resumed else None}
 
 
 @app.post("/api/work/internal/raise")
@@ -280,6 +346,17 @@ async def chat(request: Request):
     async def event_stream():
         final_sid = session_id
         try:
+            if session_id and CHAT_BUSY_WAIT_SECONDS > 0 and is_inflight(session_id):
+                # A deferred run is appending its result to THIS conversation:
+                # wait (bounded) rather than race it onto the same transcript.
+                yield "data: " + json.dumps({
+                    "type": "status",
+                    "text": "A scheduled task is adding its result to this "
+                            "conversation — waiting for it to finish…"}) + "\n\n"
+                waited = 0.0
+                while is_inflight(session_id) and waited < CHAT_BUSY_WAIT_SECONDS:
+                    await asyncio.sleep(1.0)
+                    waited += 1.0
             async for event in run_turn(prompt, session_id, user):
                 if event.get("type") == "result" and event.get("session_id"):
                     final_sid = event["session_id"]

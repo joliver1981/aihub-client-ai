@@ -190,6 +190,24 @@ AI_HUB_API_KEY = os.getenv("AI_HUB_API_KEY", "") or get_internal_api_key()
 
 
 # ---------------------------------------------------------------------------
+# Deferred results -> chat (2026-08-22, Level 1). When a scheduled / delayed
+# agent task fires, its result is appended as the next turn of the conversation
+# it was scheduled from (SDK session resume) and the My Work FYI deep-links to
+# it. Flag OFF = exactly the prior behavior (fresh headless session + FYI only).
+# Read at call time so tests / ops can flip it without a restart of the module.
+# ---------------------------------------------------------------------------
+
+def defer_to_chat_enabled() -> bool:
+    return os.getenv("AGENT_DEFER_TO_CHAT", "true").strip().lower() == "true"
+
+
+# A chat turn that arrives while a deferred run is being appended to the SAME
+# conversation waits (bounded) instead of racing it — two writers on one SDK
+# transcript is the one real risk of the resume design. 0 disables the wait.
+CHAT_BUSY_WAIT_SECONDS = int(os.getenv("AGENT_CHAT_BUSY_WAIT_SECONDS", "90"))
+
+
+# ---------------------------------------------------------------------------
 # Anthropic key for the SDK — same fail-soft decrypt-and-export pattern as
 # browser_use_config.ensure_llm_api_key(): AI Hub stores the key only as
 # Fernet-encrypted ANTHROPIC_API_KEY_ENCRYPTED; the SDK reads the plain env.

@@ -1405,8 +1405,10 @@ class JobSchedulerService:
         """Execute a scheduled Agent session: POST the stored prompt to The
         Agent service (agent_service, HOST_PORT+110) which runs a headless
         brain turn AS the user who created the schedule and reports the result
-        into that user's My Work queue. Mirrors the automation dispatch; the
-        honest subtype string always travels in the message."""
+        into that user's My Work queue (and, when the job carries the chat
+        session it was scheduled from, into that conversation). Mirrors the
+        automation dispatch; the honest subtype string always travels in the
+        message."""
         scheduled_job_id = job_data['scheduled_job_id']
         schedule_id = job_data['schedule_id']
         job_name = job_data['job_name']
@@ -1434,6 +1436,11 @@ class JobSchedulerService:
                 'username': _pv('username') or 'scheduler',
                 'job_name': job_name,
                 'scheduled_job_id': scheduled_job_id,
+                # Deferred-results-to-chat (2026-08-22): the chat session the task
+                # was scheduled from (set by The Agent's schedule_agent_task). The
+                # Agent appends each firing's result to that conversation when it
+                # can (AGENT_DEFER_TO_CHAT) and falls back to My Work only.
+                'session_id': _pv('session_id') or '',
             }
             headers = {'X-API-Key': os.getenv('API_KEY', '')}
             response = requests.post(api_url, json=payload, headers=headers,

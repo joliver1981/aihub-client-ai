@@ -1474,22 +1474,22 @@ def main():
     except Exception as e:
         check("M-1", "runtime model override", False, e)
 
-    # M-2 timezone-aware agent-task cron (James task 2026-08-20): the engine
-    # pins cron triggers to UTC, so schedule_agent_task converts the cron at
-    # create time from the requested timezone. Seam test via the tool handler
-    # in-process (A6 pattern): local 7am Eastern must store as the correct
-    # UTC hour for TODAY'S offset (EDT/EST safe), with provenance parameters;
-    # an unconvertible cron (day-of-month across midnight) must refuse.
+    # M-2 timezone-aware agent-task cron (James task 2026-08-20; CORRECTED
+    # 2026-08-22): the engine fires cron triggers in the per-schedule `timezone`
+    # parameter (job_scheduler._create_trigger, DST-aware), so schedule_agent_task
+    # must store the cron AS WRITTEN + that zone — and must NOT pre-shift the hour
+    # to UTC (the old contract this check pinned made the engine double-shift:
+    # live job 453 "0 7 * * 1-5" Eastern computed next run 15:00 UTC = 11am ET).
+    # Ground truth = the ENGINE's computed NextRunTime (written on its next ~60s
+    # poll): it must be 07:00 in America/New_York. Unknown zones are refused.
     try:
         import asyncio
-        from datetime import datetime as _dtt
+        import time as _tm2
+        from datetime import datetime as _dtt, timezone as _tzu
         from zoneinfo import ZoneInfo
         from platform_tools import CURRENT_USER as _CU
         import work_tools as _wt
         _CU.set({"user_id": 1, "role": 3, "username": "pack20-runner"})
-        _off_h = int((_dtt.now(ZoneInfo("America/New_York")).utcoffset()
-                      or __import__("datetime").timedelta()).total_seconds() // 3600)
-        _want_cron = f"0 {(7 - _off_h) % 24} * * 1-5"
 
         async def _m2():
             r1 = await _wt.schedule_agent_task.handler({
@@ -1500,29 +1500,40 @@ def main():
             jid = t1.split("job #")[1].split(",")[0].strip() if "job #" in t1 else None
             r2 = await _wt.schedule_agent_task.handler({
                 "task_prompt": "x", "name": "pack20-m2-refuse",
-                "cron_expression": "0 23 1 * *", "timezone": "Eastern"})
+                "cron_expression": "0 23 1 * *", "timezone": "Narnia/Nowhere"})
             return r1, jid, r2
 
         m2_res, m2_job, m2_refuse = asyncio.new_event_loop().run_until_complete(_m2())
-        m2_row = {}
+        m2_row, m2_next_local = {}, None
         if m2_job:
-            jr = requests.get(f"{MAIN}/api/scheduler/jobs/{m2_job}",
-                              headers=SVC_HEADERS, timeout=90)
-            m2_row = jr.json() if jr.status_code < 400 else {}
+            deadline = _tm2.time() + 150    # engine poll ~60s; NextRunTime lands then
+            while _tm2.time() < deadline:
+                jr = requests.get(f"{MAIN}/api/scheduler/jobs/{m2_job}",
+                                  headers=SVC_HEADERS, timeout=90)
+                m2_row = jr.json() if jr.status_code < 400 else {}
+                nrt = ((m2_row.get("schedules") or [{}])[0]).get("next_run_time")
+                if nrt:
+                    m2_next_local = _dtt.fromisoformat(nrt).replace(
+                        tzinfo=_tzu.utc).astimezone(ZoneInfo("America/New_York"))
+                    break
+                _tm2.sleep(10)
             requests.delete(f"{MAIN}/api/scheduler/jobs/{m2_job}",
                             headers=SVC_HEADERS, timeout=90)
         _sched = (m2_row.get("schedules") or [{}])[0]
         _params = m2_row.get("parameters") or {}
-        check("M-2", "tz-aware agent-task cron: Eastern 7am stores as correct "
-                     "UTC hour + provenance params; unconvertible cron refused",
-              _sched.get("cron_expression") == _want_cron
+        check("M-2", "tz-aware agent-task cron: Eastern 7am stored AS WRITTEN + engine "
+                     "zone param; ENGINE next run = 07:00 America/New_York; unknown "
+                     "zone refused",
+              _sched.get("cron_expression") == "0 7 * * 1-5"
               and (_params.get("timezone") or {}).get("value") == "America/New_York"
               and (_params.get("local_cron") or {}).get("value") == "0 7 * * 1-5"
+              and m2_next_local is not None
+              and (m2_next_local.hour, m2_next_local.minute) == (7, 0)
               and bool(m2_refuse.get("is_error"))
               and not m2_res.get("is_error"),
-              f"stored={_sched.get('cron_expression')!r} want={_want_cron!r} "
+              f"stored={_sched.get('cron_expression')!r} "
               f"tz={(_params.get('timezone') or {}).get('value')} "
-              f"local={(_params.get('local_cron') or {}).get('value')} "
+              f"engine_next_local={m2_next_local.isoformat() if m2_next_local else None} "
               f"refused={bool(m2_refuse.get('is_error'))}")
     except Exception as e:
         check("M-2", "tz-aware agent-task cron", False, e)
@@ -2137,6 +2148,148 @@ def main():
                 os.remove(hit[0])
     except Exception as e:
         check("PT-10", "read_file", False, e)
+
+    # PT-11 bounded recurrence (2026-08-22): "every 2 minutes for 6 minutes" via
+    # a REAL model turn must become ONE agent_session job whose read-back carries
+    # interval_minutes=2 + an end_date ≈ now+6min(+slack) + max_runs=3 — the
+    # engine stops it on its own. Deleted right after the read-back (never leave
+    # a live recurring job on the box); a second job by that name = fan-out = FAIL.
+    try:
+        import re as _r11
+        from datetime import datetime as _d11, timedelta as _td11
+
+        def _sweep(prefix):
+            gone = []
+            for j in scheduler_jobs():
+                if str(j.get("name", "")).lower().startswith(prefix):
+                    requests.delete(f"{MAIN}/api/scheduler/jobs/{j['id']}",
+                                    headers=SVC_HEADERS, timeout=90)
+                    gone.append(j["id"])
+            return gone
+        _sweep("agent: pack20 bounded")          # leftovers from a crashed run
+        tok11 = _tok(1, 3)
+        t0_11 = _d11.utcnow()
+        ev11, txt11 = chat_turn(
+            tok11, "Every 2 minutes for the next 6 minutes, say the words 'pack20 "
+                   "bounded ok' and stop (those runs must use no tools). Schedule "
+                   "that now as ONE bounded agent task named 'pack20 bounded' — "
+                   "do not ask me to confirm.", timeout=A1_TURN_TIMEOUT)
+        used11 = tools_used(ev11)
+        inputs11 = [e.get("input") or {} for e in ev11
+                    if e.get("type") == "tool"
+                    and "schedule_agent_task" in (e.get("name") or "")]
+        jid11 = None
+        for e in ev11:
+            if e.get("type") == "tool_result" and "job #" in (e.get("preview") or ""):
+                m = _r11.search(r"job #(\d+)", e["preview"])
+                if m:
+                    jid11 = int(m.group(1))
+                    break
+        named11 = [j for j in scheduler_jobs()
+                   if str(j.get("name", "")).lower().startswith("agent: pack20 bounded")]
+        if not jid11 and named11:
+            jid11 = int(named11[0]["id"])
+        rb11, row11, ok11 = {}, {}, False
+        if jid11:
+            jr = requests.get(f"{MAIN}/api/scheduler/jobs/{jid11}",
+                              headers=SVC_HEADERS, timeout=90)
+            rb11 = jr.json() if jr.status_code < 400 else {}
+            row11 = (rb11.get("schedules") or [{}])[0]
+            end_ok = False
+            if row11.get("end_date"):
+                e_dt = _d11.fromisoformat(row11["end_date"])
+                end_ok = _td11(minutes=5) <= (e_dt - t0_11) <= _td11(minutes=8)
+            ok11 = bool(row11.get("is_active") and row11.get("type") == "interval"
+                        and row11.get("interval_minutes") == 2 and end_ok
+                        and row11.get("max_runs") == 3)
+        gone11 = _sweep("agent: pack20 bounded")
+        shape_ok = bool(inputs11) and inputs11[0].get("every_minutes") == 2 and (
+            inputs11[0].get("for_minutes") == 6 or inputs11[0].get("occurrences") == 3)
+        check("PT-11", "bounded recurrence: 'every 2 min for 6 min' -> ONE verified job "
+                       "(interval_minutes=2, end_date≈now+6m, max_runs=3, engine-stopped); "
+                       "no fan-out",
+              "schedule_agent_task" in used11 and bool(jid11) and ok11
+              and len(inputs11) == 1 and shape_ok and len(named11) <= 1,
+              f"tools={used11} inputs={inputs11[:2]} job={jid11} "
+              f"readback={ {k: row11.get(k) for k in ('type', 'interval_minutes', 'end_date', 'max_runs', 'is_active')} } "
+              f"jobs_by_name={len(named11)} cleaned={gone11} text={txt11[:140]!r}")
+    except Exception as e:
+        check("PT-11", "bounded recurrence", False, e)
+
+    # PT-12 deferred results -> chat (2026-08-22, Level 1): a one-shot scheduled
+    # FROM a chat turn must, when the engine fires it, append its result to THAT
+    # conversation (history replay shows a scheduled_run turn followed by the
+    # agent's reply) and file a My Work FYI deep-linked to it
+    # (payload.chat_session_id). Waits for the real fire (~1-2.5 min). Cleans up.
+    try:
+        import re as _r12
+        import time as _t12
+        import workitem_store as _ws12
+
+        def _sweep12():
+            for j in scheduler_jobs():
+                if str(j.get("name", "")).lower().startswith("agent: pack20 deferred"):
+                    requests.delete(f"{MAIN}/api/scheduler/jobs/{j['id']}",
+                                    headers=SVC_HEADERS, timeout=90)
+        _sweep12()
+        tok12 = _tok(1, 3)
+        ev12, txt12 = chat_turn(
+            tok12, "In 1 minute, say the words 'pack20 deferred ok' and nothing else "
+                   "(that run must use no tools). Schedule that now as a ONE-SHOT "
+                   "agent task named 'pack20 deferred' — do not ask me to confirm.",
+            timeout=A1_TURN_TIMEOUT)
+        sid12 = result_of(ev12).get("session_id")
+        used12 = tools_used(ev12)
+        jid12 = None
+        for e in ev12:
+            if e.get("type") == "tool_result" and "job #" in (e.get("preview") or ""):
+                m = _r12.search(r"job #(\d+)", e["preview"])
+                if m:
+                    jid12 = int(m.group(1))
+                    break
+        appended, item12, turns12, kinds12 = False, None, [], []
+        if sid12 and jid12:
+            deadline = _t12.time() + 300
+            while _t12.time() < deadline and not appended:
+                _t12.sleep(10)
+                hr = requests.get(f"{BASE}/api/chat/history/{sid12}",
+                                  headers={"Authorization": f"Bearer {tok12}"}, timeout=60)
+                turns12 = ((hr.json() or {}).get("turns") or []) if hr.status_code == 200 else []
+                kinds12 = [t.get("kind") for t in turns12 if t.get("kind")]
+                idx = next((i for i, t in enumerate(turns12)
+                            if t.get("kind") == "scheduled_run"), None)
+                if idx is not None:
+                    after = turns12[idx + 1:]
+                    appended = any(t.get("role") == "agent" and "pack20 deferred ok"
+                                   in (t.get("text") or "").lower() for t in after)
+            # The SDK appends the reply to the transcript a few seconds BEFORE
+            # /api/run files the FYI (first gate run raced this) — give the item
+            # up to 60s after the reply is visible.
+            item_deadline = _t12.time() + 60
+            while item12 is None and _t12.time() < item_deadline:
+                for it in _ws12.list_items(1, include_closed=True):
+                    if (it.get("from_kind") == "agent_headless"
+                            and (it.get("payload") or {}).get("chat_session_id") == sid12):
+                        item12 = it
+                        break
+                if item12 is None:
+                    _t12.sleep(5)
+        if jid12:
+            requests.delete(f"{MAIN}/api/scheduler/jobs/{jid12}",
+                            headers=SVC_HEADERS, timeout=90)
+        _sweep12()
+        if item12 and item12.get("status") in ("open", "claimed"):
+            _ws12.respond(item12["work_item_id"], 1, {"decision": "acknowledged"})
+        check("PT-12", "deferred result lands in the originating conversation "
+                       "(scheduled_run turn + agent reply in history replay) and the "
+                       "My Work FYI deep-links to it (payload.chat_session_id)",
+              "schedule_agent_task" in used12 and bool(sid12) and bool(jid12)
+              and appended and item12 is not None,
+              f"tools={used12} session={sid12} job={jid12} appended={appended} "
+              f"item={bool(item12)} turns={len(turns12)} kinds={kinds12} "
+              f"text={txt12[:120]!r}")
+    except Exception as e:
+        check("PT-12", "deferred result -> chat", False, e)
 
     _write_report(checks)
     if not all(c["ok"] for c in checks):

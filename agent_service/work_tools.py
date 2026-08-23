@@ -6,6 +6,13 @@ question it needs answered, something to review, a draft to edit, an FYI. In
 interactive chat the human is right there — so the tool is mostly for things
 addressed to OTHER people or for work that should outlive the conversation;
 headless runs (A3) will lean on it heavily.
+
+schedule_agent_task (A3) schedules headless runs: recurring, BOUNDED-recurring
+("every 10 minutes for the next hour" — engine-native end_date + max_runs, one
+job the engine stops itself) and one-shot delayed; cron timezones are engine-
+native (the per-schedule `timezone` parameter, DST-aware). Since 2026-08-22 it
+also captures the chat session it was asked from so each firing can append its
+result to that conversation (main.py /api/run resume, AGENT_DEFER_TO_CHAT).
 """
 
 import json
@@ -101,14 +108,15 @@ async def list_my_work(args: dict[str, Any]) -> dict[str, Any]:
     return _text(f"Open work items ({len(items)}):\n" + "\n".join(lines))
 
 
-# --- timezone support for cron schedules (2026-08-20) -----------------------
-# The scheduler engine pins cron triggers to UTC (deliberate platform
-# invariant; see the 76e34de schedule-timezone fix — conversion happens at the
-# seams, storage stays UTC). So this tool converts the cron's hour field from
-# the requested timezone to UTC at create time, exactly like the typed routes
-# convert date fields. The offset is FROZEN at create time (same accepted
-# platform caveat as date schedules: a DST flip shifts firing by an hour until
-# the job is re-saved).
+# --- timezone support for cron schedules (2026-08-20; engine-native 2026-08-22) ---
+# The scheduler engine fires CRON triggers in the per-schedule `timezone` job
+# parameter (job_scheduler._create_trigger -> schedule_tz.to_tzinfo, DST-aware,
+# shipped 2b15fd3). So this tool stores the cron AS THE USER WROTE IT plus the
+# canonical zone, and the engine does the (DST-correct) math at fire time.
+# ⚠ It must NOT also pre-convert the hour field to UTC: the engine re-applies
+# the zone and the job fires double-shifted (live repro 2026-08-22: job 453,
+# "0 7 * * 1-5" Eastern stored as "0 11 * * 1-5" + timezone America/New_York ->
+# engine next run 15:00 UTC = 11am Eastern, four hours late).
 
 _TZ_ALIASES = {
     "eastern": "America/New_York", "et": "America/New_York",
@@ -156,100 +164,217 @@ def _resolve_tz_offset_minutes(tz_label):
     return int(off.total_seconds() // 60), name
 
 
-def _shift_field(field, delta, span, what):
-    """Shift a numeric/comma-list cron field by delta within [0, span).
-    Returns (new_field, carry_set) where carry is the day rollover per value."""
+def _engine_tz_label(label, offset_minutes):
+    """The canonical zone string the engine's schedule_tz.to_tzinfo() accepts:
+    an IANA name, 'UTC', or a fixed 'UTC+HH:MM' offset. The server-local
+    default has no IANA name we can trust on Windows, so it becomes a fixed
+    offset (frozen at create time — the one remaining DST caveat; pass an IANA
+    name or set AGENT_DEFAULT_TZ for DST-correct firing)."""
+    if str(label).startswith("server-local"):
+        sign = "+" if offset_minutes >= 0 else "-"
+        return f"UTC{sign}{abs(offset_minutes) // 60:02d}:{abs(offset_minutes) % 60:02d}"
+    return str(label)
+
+
+# --- bounded recurrence (2026-08-22) -----------------------------------------
+# "Every 10 minutes for the next hour" is ONE job the ENGINE stops on its own:
+#   * interval_minutes        -> IntervalTrigger(minutes=N) (engine-native)
+#   * for_minutes             -> ScheduleDefinitions.EndDate -> trigger end_date
+#   * occurrences             -> ScheduleDefinitions.MaxRuns (engine deactivates
+#                                the row once CurrentRuns reaches it)
+# Interval bounds set BOTH (end_date is the hard time stop; max_runs gives the
+# exact count + a clean deactivation) — never a fan-out of one-shot jobs.
+
+_BOUND_SLACK_SECONDS = 30   # end_date lands just past the last planned fire
+
+
+def _build_schedule(args, now=None):
+    """Turn the tool's cadence + bound arguments into the scheduler's `schedule`
+    dict plus the facts the success text reports. Raises ValueError with an
+    honest, user-facing reason — it never guesses a cadence or a zone.
+
+    Returns a dict: schedule, kind ('one_shot'|'cron'|'interval'), params
+    (extra provenance job parameters), interval_seconds, first_run_at, end_at,
+    max_runs, expected_runs, tz_label, local_cron, note."""
+    import datetime as _dt
+
+    now = now or _dt.datetime.utcnow()
+
+    def _fmt(d):
+        return d.strftime("%Y-%m-%d %H:%M:%S")
+
+    def _int(key):
+        v = args.get(key)
+        if v in (None, "", False):
+            return None
+        try:
+            v = int(v)
+        except (TypeError, ValueError):
+            raise ValueError(f"{key} must be a whole number of minutes/runs")
+        if v == 0:
+            return None          # absent (mirrors the tool's truthiness rule)
+        if v < 1:
+            raise ValueError(f"{key} must be at least 1")
+        return v
+
+    run_in = _int("run_in_minutes")
+    every_minutes, every_hours, every_days = (_int("every_minutes"),
+                                              _int("every_hours"), _int("every_days"))
+    for_minutes, occurrences = _int("for_minutes"), _int("occurrences")
+    cron = str(args.get("cron_expression") or "").strip()
+
+    out = {"schedule": None, "kind": None, "params": {}, "interval_seconds": None,
+           "first_run_at": None, "end_at": None, "max_runs": None,
+           "expected_runs": None, "tz_label": None, "local_cron": None, "note": ""}
+
+    if run_in:
+        if for_minutes or occurrences:
+            raise ValueError(
+                "run_in_minutes fires exactly once, so for_minutes/occurrences do "
+                "not apply — for a bounded repeat use every_minutes (or "
+                "every_hours/every_days) together with for_minutes or occurrences")
+        fire_at = now + _dt.timedelta(minutes=run_in)
+        out.update(kind="one_shot", first_run_at=fire_at, expected_runs=1,
+                   schedule={"type": "date", "start_date": _fmt(fire_at)})
+        return out
+
+    if cron:
+        if len(cron.split()) != 5:
+            raise ValueError(f"cron '{cron}' must have 5 fields "
+                             "(minute hour day-of-month month day-of-week)")
+        tz_mins, tz_label = _resolve_tz_offset_minutes(args.get("timezone"))
+        engine_tz = _engine_tz_label(tz_label, tz_mins)
+        out.update(kind="cron", tz_label=engine_tz, local_cron=cron,
+                   schedule={"type": "cron", "cron_expression": cron},
+                   params={"timezone": engine_tz, "local_cron": cron})
+        if engine_tz.startswith("UTC") and engine_tz != "UTC":
+            out["note"] = (f" Cron `{cron}` fires at fixed offset {engine_tz} "
+                           "(no IANA zone given, so the offset is frozen now; a "
+                           "DST change shifts firing by an hour until re-saved "
+                           "— name a zone like America/New_York to avoid that).")
+        else:
+            out["note"] = (f" Cron `{cron}` fires in {engine_tz} — the engine "
+                           "applies that zone at fire time (DST-aware).")
+    elif every_minutes or every_hours or every_days:
+        # Interval schedules need an anchored start or the engine's re-create
+        # loop pushes the next fire forever (CC lesson).
+        sched = {"type": "interval", "start_date": _fmt(now)}
+        secs = 0
+        if every_minutes:
+            sched["interval_minutes"] = every_minutes
+            secs += every_minutes * 60
+        if every_hours:
+            sched["interval_hours"] = every_hours
+            secs += every_hours * 3600
+        if every_days:
+            sched["interval_days"] = every_days
+            secs += every_days * 86400
+        out.update(kind="interval", schedule=sched, interval_seconds=secs,
+                   first_run_at=now + _dt.timedelta(seconds=secs))
+    else:
+        raise ValueError("Provide cron_expression, every_minutes/every_hours/"
+                         "every_days, or run_in_minutes for a one-shot.")
+
+    if for_minutes or occurrences:
+        end_at, max_runs = None, None
+        if for_minutes:
+            end_at = now + _dt.timedelta(minutes=for_minutes)
+            if out["kind"] == "interval":
+                count = (for_minutes * 60) // out["interval_seconds"]
+                if count < 1:
+                    raise ValueError(
+                        f"for_minutes={for_minutes} is shorter than the interval "
+                        f"({out['interval_seconds'] // 60} min) — nothing would "
+                        "ever fire; make the window at least one interval long")
+                max_runs = count
+        if occurrences:
+            max_runs = occurrences if max_runs is None else min(max_runs, occurrences)
+            if out["kind"] == "interval":
+                by_count = now + _dt.timedelta(
+                    seconds=occurrences * out["interval_seconds"])
+                end_at = by_count if end_at is None else min(end_at, by_count)
+        if end_at is not None:
+            out["schedule"]["end_date"] = _fmt(
+                end_at + _dt.timedelta(seconds=_BOUND_SLACK_SECONDS))
+            out["end_at"] = end_at
+        if max_runs is not None:
+            out["schedule"]["max_runs"] = max_runs
+            out["max_runs"] = max_runs
+        out["expected_runs"] = max_runs   # None: cron + for_minutes (uncounted)
+    return out
+
+
+def _bound_was_recorded(plan, readback_schedules):
+    """Read-back honesty for bounds: the ACTIVE schedule row must carry the
+    end_date / max_runs the plan asked for. If the engine dropped them the job
+    would run forever — the caller deletes it and reports NOT scheduled."""
+    if not (plan.get("end_at") or plan.get("max_runs")):
+        return True
+    rows = [s for s in (readback_schedules or []) if s.get("is_active")]
+    if not rows:
+        return False
+    row = rows[0]
+    ok_end = bool(row.get("end_date")) if plan.get("end_at") else True
+    ok_max = (row.get("max_runs") is not None) if plan.get("max_runs") else True
+    return ok_end and ok_max
+
+
+def _cadence_text(plan):
+    """Human-readable cadence for the success text (UTC stamps + relative)."""
+    if plan["kind"] == "cron":
+        return f"cron `{plan['local_cron']}` in {plan['tz_label']}"
+    secs = plan["interval_seconds"] or 0
+    if secs % 86400 == 0:
+        n = secs // 86400
+        return f"every {n} day{'s' if n != 1 else ''}"
+    if secs % 3600 == 0:
+        n = secs // 3600
+        return f"every {n} hour{'s' if n != 1 else ''}"
+    n = max(secs // 60, 1)
+    return f"every {n} minute{'s' if n != 1 else ''}"
+
+
+def _bound_text(plan, now):
+    """'stops by …' / 'stops after N runs' phrasing, honest about approximation
+    (the engine polls ~every minute; the last fire can land a little after)."""
     parts = []
-    carries = set()
-    for p in str(field).split(","):
-        if not p.strip().isdigit():
-            raise ValueError(f"cron {what} field '{field}' is not a plain "
-                             f"number/list — give the cron in UTC instead, or "
-                             "use a simple numeric hour")
-        v = int(p) + delta
-        carry = 0
-        while v < 0:
-            v += span
-            carry -= 1
-        while v >= span:
-            v -= span
-            carry += 1
-        carries.add(carry)
-        parts.append(str(v))
-    return ",".join(parts), carries
-
-
-def _cron_local_to_utc(expr, offset_minutes):
-    """Convert a 5-field cron from a local timezone to engine-UTC.
-
-    Supports the shapes agents actually produce (numeric minute/hour, lists,
-    '*' hour, weekday lists/simple ranges). Anything it cannot convert SAFELY
-    raises ValueError — the caller reports honestly instead of mis-scheduling.
-    """
-    fields = str(expr).split()
-    if len(fields) != 5:
-        raise ValueError(f"cron '{expr}' must have 5 fields")
-    minute, hour, dom, month, dow = fields
-    if offset_minutes == 0:
-        return expr, 0
-    day_delta = 0
-    min_delta = -(offset_minutes % 60) if offset_minutes >= 0 \
-        else (-offset_minutes) % 60
-    hr_borrow = 0
-    if min_delta:
-        # partial-hour zones (e.g. +05:30): minute must be numeric to shift
-        minute, carries = _shift_field(minute, min_delta, 60, "minute")
-        if len(carries) != 1:
-            raise ValueError("minute list straddles the hour boundary after "
-                             "timezone shift — give the cron in UTC")
-        hr_borrow = carries.pop()
-    hour_delta = (-offset_minutes) // 60 if offset_minutes % 60 == 0 \
-        else (-offset_minutes - min_delta) // 60
-    hour_delta += hr_borrow
-    if hour == "*":
-        # every-hour job: only the minute field matters after conversion
-        return " ".join([minute, hour, dom, month, dow]), 0
-    hour, carries = _shift_field(hour, hour_delta, 24, "hour")
-    if len(carries) != 1:
-        raise ValueError("hour list straddles midnight after timezone "
-                         "conversion — split into separate jobs or give the "
-                         "cron in UTC")
-    day_delta = carries.pop()
-    if day_delta:
-        if str(dom).strip() != "*":
-            raise ValueError("day-of-month cron shifts across midnight in "
-                             "this timezone — give the cron in UTC")
-        if dow != "*":
-            m = None
-            import re as _re
-            m = _re.fullmatch(r"(\d)-(\d)", dow.strip())
-            if m:
-                a, b = (int(m.group(1)) + day_delta) % 7, \
-                       (int(m.group(2)) + day_delta) % 7
-                if a > b:
-                    raise ValueError("weekday range wraps after timezone "
-                                     "conversion — give the cron in UTC")
-                dow = f"{a}-{b}"
-            else:
-                dow, _ = _shift_field(dow, day_delta, 7, "day-of-week")
-    return " ".join([minute, hour, dom, month, dow]), day_delta
+    if plan["kind"] == "interval" and plan["first_run_at"]:
+        mins = max(int((plan["first_run_at"] - now).total_seconds() // 60), 1)
+        parts.append(f"first run ~{mins} min from now "
+                     f"(≈{plan['first_run_at'].strftime('%H:%M')} UTC)")
+    if plan["end_at"] is not None:
+        span = int((plan["end_at"] - now).total_seconds() // 60)
+        parts.append(f"stops by ≈{plan['end_at'].strftime('%H:%M')} UTC "
+                     f"(~{span} min from now)")
+    elif plan["max_runs"]:
+        parts.append(f"stops after {plan['max_runs']} run(s)")
+    if plan["end_at"] is not None and plan["expected_runs"]:
+        parts.append(f"about {plan['expected_runs']} run(s) in total")
+    return ", ".join(parts)
 
 
 @tool(
     "schedule_agent_task",
-    "Schedule a HEADLESS agent task — recurring OR one-shot delayed: at each "
-    "firing, a fresh agent session runs the given prompt AS the current user "
-    "and reports its result into their My Work queue as an FYI. Recurring "
-    "('every morning, check X'): cron_expression OR every_hours/every_days. "
-    "cron_expression is interpreted in `timezone` (IANA name or "
-    "Eastern/Central/Mountain/Pacific/UTC; default = the server's local "
-    "timezone) and converted to the engine's UTC clock at create time — "
-    "always tell the user which timezone was used. ONE-SHOT DELAYED ('check "
-    "my email in 2 minutes', 'follow up in an hour'): run_in_minutes — fires "
-    "once, then the job deactivates. The engine polls about every minute, so "
-    "timing is minute-granular, not exact seconds. For purely mechanical "
-    "repetition prefer an automation (zero tokens per run). Report ONLY the "
-    "ids this returns.",
+    "Schedule a HEADLESS agent task — recurring, BOUNDED-recurring, or one-shot "
+    "delayed: at each firing an agent session runs the given prompt AS the "
+    "current user and reports its result into their My Work queue (and, when "
+    "scheduled from a chat, appends it to THAT conversation). Cadence shapes: "
+    "(1) RECURRING forever — cron_expression (+timezone) OR every_minutes/"
+    "every_hours/every_days. (2) BOUNDED REPEAT — the SAME interval params "
+    "PLUS a bound: for_minutes (stop after this many minutes) or occurrences "
+    "(stop after this many runs): 'every 10 minutes for the next hour' = "
+    "every_minutes=10, for_minutes=60; 'every 5 minutes, 12 times' = "
+    "every_minutes=5, occurrences=12. This is ONE job the engine stops on its "
+    "own — never schedule an unbounded job for a bounded ask and never fan out "
+    "one-shots. (3) ONE-SHOT DELAYED ('check my email in 2 minutes', 'follow up "
+    "in an hour'): run_in_minutes — fires once, then the job deactivates. "
+    "cron_expression is interpreted in `timezone` (IANA name or Eastern/Central/"
+    "Mountain/Pacific/UTC; default = the server's local timezone) and the "
+    "engine applies that zone at fire time (DST-aware) — always tell the user "
+    "which timezone was used. The engine polls about every minute, so timing is "
+    "minute-granular, not exact seconds. For purely mechanical repetition prefer "
+    "an automation (zero tokens per run). Report ONLY the ids and the cadence/"
+    "bound facts this returns.",
     {
         "type": "object",
         "properties": {
@@ -265,11 +390,23 @@ def _cron_local_to_utc(expr, offset_minutes):
                                         "(America/New_York), alias (Eastern), "
                                         "'UTC', or '-05:00'. Omit for the "
                                         "server's local timezone."},
+            "every_minutes": {"type": "integer",
+                              "description": "Interval in minutes (min 1). "
+                                             "Combine with for_minutes or "
+                                             "occurrences for a bounded repeat."},
             "every_hours": {"type": "integer"},
             "every_days": {"type": "integer"},
+            "for_minutes": {"type": "integer",
+                            "description": "BOUND: stop firing this many minutes "
+                                           "from now ('for the next hour' = 60). "
+                                           "Must be at least one interval long."},
+            "occurrences": {"type": "integer",
+                            "description": "BOUND: stop after this many runs "
+                                           "('12 times' = 12)."},
             "run_in_minutes": {"type": "integer",
                                "description": "One-shot: fire once this many "
-                                              "minutes from now (min 1)"},
+                                              "minutes from now (min 1). A "
+                                              "one-shot takes no bound."},
         },
         "required": ["task_prompt", "name"],
         "additionalProperties": False,
@@ -279,48 +416,27 @@ async def schedule_agent_task(args: dict[str, Any]) -> dict[str, Any]:
     import datetime as _dt
     import httpx
     from platform_tools import _headers
-    from agent_config import get_base_url
+    from agent_config import get_base_url, defer_to_chat_enabled
 
     user = CURRENT_USER.get()
     if int(user.get("role") or 0) < 2 and os.getenv(
             "AGENT_BUILD_ALLOW_ALL_USERS", "false").lower() != "true":
         return _text("Scheduling agent tasks requires a Developer role.",
                      is_error=True)
-    one_shot = False
-    if args.get("run_in_minutes"):
-        # ONE-SHOT (James 2026-08-09): a 'date' schedule = the engine's
-        # DateTrigger — fires once (pending-execution dedupe engine-side).
-        mins = max(int(args["run_in_minutes"]), 1)
-        fire_at = _dt.datetime.utcnow() + _dt.timedelta(minutes=mins)
-        schedule = {"type": "date",
-                    "start_date": fire_at.strftime("%Y-%m-%d %H:%M:%S")}
-        one_shot = True
-    elif args.get("cron_expression"):
-        local_cron = str(args["cron_expression"]).strip()
-        try:
-            tz_mins, tz_label = _resolve_tz_offset_minutes(args.get("timezone"))
-            utc_cron, _day_shift = _cron_local_to_utc(local_cron, tz_mins)
-        except ValueError as e:
-            return _text(f"Nothing was scheduled: {e}", is_error=True)
-        schedule = {"type": "cron", "cron_expression": utc_cron}
-        tz_note = (f" Cron `{local_cron}` interpreted in {tz_label} "
-                   f"(offset {tz_mins:+d} min at create time) -> engine-UTC "
-                   f"`{utc_cron}`. NOTE: the offset is frozen now; a DST "
-                   "change shifts firing by an hour until re-saved.")
-        if tz_mins == 0:
-            tz_note = f" Cron `{utc_cron}` runs on the engine's UTC clock."
-    elif args.get("every_hours") or args.get("every_days"):
-        # Interval schedules need an anchored start or the engine's re-create
-        # loop pushes the next fire forever (CC lesson).
-        schedule = {"type": "interval",
-                    "start_date": _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")}
-        if args.get("every_hours"):
-            schedule["interval_hours"] = int(args["every_hours"])
-        if args.get("every_days"):
-            schedule["interval_days"] = int(args["every_days"])
-    else:
-        return _text("Provide cron_expression, every_hours/every_days, or "
-                     "run_in_minutes for a one-shot.", is_error=True)
+    now = _dt.datetime.utcnow()
+    try:
+        plan = _build_schedule(args, now=now)
+    except ValueError as e:
+        return _text(f"Nothing was scheduled: {e}", is_error=True)
+    schedule = plan["schedule"]
+    one_shot = plan["kind"] == "one_shot"
+
+    # Deferred-results-to-chat (Level 1): remember the conversation this was
+    # asked from so each firing can append its result there. A headless run
+    # only carries a chat id when it is itself a resumed chat (chaining).
+    chat_sid = (user.get("chat_session_id")
+                or (user.get("session_id") if user.get("mode") != "headless" else None))
+    chat_sid = str(chat_sid or "").strip() or None
 
     body = {
         "name": f"Agent: {str(args['name']).strip()[:80]}",
@@ -338,10 +454,12 @@ async def schedule_agent_task(args: dict[str, Any]) -> dict[str, Any]:
         },
         "schedule": schedule,
     }
-    if schedule.get("type") == "cron":
-        # provenance: what the user meant, so a re-save can re-convert
-        body["parameters"]["timezone"] = {"value": tz_label, "type": "string"}
-        body["parameters"]["local_cron"] = {"value": local_cron, "type": "string"}
+    for k, v in (plan.get("params") or {}).items():
+        # provenance: what the user meant (cron + zone), and the engine reads
+        # `timezone` to fire the cron in that zone
+        body["parameters"][k] = {"value": str(v), "type": "string"}
+    if chat_sid:
+        body["parameters"]["session_id"] = {"value": chat_sid, "type": "string"}
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.post(f"{get_base_url()}/api/scheduler/jobs",
@@ -361,20 +479,42 @@ async def schedule_agent_task(args: dict[str, Any]) -> dict[str, Any]:
                 return _text(f"Job #{job_id} was created but NO active schedule "
                              "row exists — report this as NOT scheduled.",
                              is_error=True)
+            if not _bound_was_recorded(plan, rbd.get("schedules")):
+                # Fail closed: a bounded ask must never leave an unbounded job.
+                try:
+                    await client.delete(f"{get_base_url()}/api/scheduler/jobs/{job_id}",
+                                        headers=_headers())
+                except Exception:
+                    pass
+                return _text(f"Job #{job_id} was created but the engine did NOT "
+                             "record the requested bound (end_date/max_runs) — "
+                             "it was removed so nothing runs forever. Report "
+                             "this as NOT scheduled.", is_error=True)
     except Exception as e:
         return _text(f"Scheduling failed: {e}", is_error=True)
+
+    deliver = ("lands its result as an FYI in their My Work"
+               + (" and appends it to this conversation (open it from history "
+                  "if you have moved on)" if chat_sid and defer_to_chat_enabled()
+                  else ""))
     if one_shot:
         return _text(f"One-shot task '{body['name']}' scheduled (job #{job_id}, "
                      "verified active by read-back). It fires ONCE in about "
                      f"{max(int(args['run_in_minutes']), 1)} minute(s) (the "
                      "engine polls ~every minute), runs as "
-                     f"{user.get('username')}, and lands its result as an FYI "
-                     "in their My Work.")
+                     f"{user.get('username')}, and {deliver}.")
+    bound = _bound_text(plan, now)
+    if plan["end_at"] is not None or plan["max_runs"]:
+        return _text(f"Bounded headless agent task '{body['name']}' scheduled "
+                     f"(job #{job_id}, verified active by read-back — the bound "
+                     f"is recorded on the schedule): {_cadence_text(plan)}, "
+                     f"{bound}; the engine stops it on its own. Each firing runs "
+                     f"as {user.get('username')} and {deliver}.")
     return _text(f"Scheduled headless agent task '{body['name']}' (job #{job_id}, "
-                 "verified active by read-back). Each firing runs as "
-                 f"{user.get('username')} and lands an FYI in their My Work. "
-                 "The engine picks it up on its next poll."
-                 + (tz_note if schedule.get("type") == "cron" else ""))
+                 f"verified active by read-back): {_cadence_text(plan)}"
+                 + (f", {bound}" if bound else "")
+                 + f". Each firing runs as {user.get('username')} and {deliver}. "
+                 "The engine picks it up on its next poll." + plan["note"])
 
 
 @tool(

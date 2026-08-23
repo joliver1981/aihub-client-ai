@@ -26,6 +26,36 @@ from agent_config import CLAUDE_CONFIG_DIR, logger
 
 _LOCK = threading.Lock()
 
+# Deferred-results-to-chat (2026-08-22): a scheduled / delayed run that RESUMES
+# the conversation it was asked from posts its task as a user line that starts
+# with this marker (see build_deferred_prompt; main.py /api/run). replay() tags
+# those lines kind="scheduled_run" so the UI renders "scheduled run fired" +
+# the task instead of pretending the user typed it. First line = human header,
+# task text follows a '---' separator line.
+SCHEDULED_RUN_MARKER = "[SCHEDULED RUN]"
+
+
+def build_deferred_prompt(job_name: str, fired_at_utc: str, task_prompt: str) -> str:
+    """The model-facing prompt for a deferred run appended to a live chat."""
+    return (f"{SCHEDULED_RUN_MARKER} '{job_name}' fired {fired_at_utc} UTC — this is "
+            "the automatic firing of the task scheduled in this conversation. The "
+            "user is NOT present right now: do the task below now (use tools as "
+            "needed) and write the result so they can read it when they return. "
+            "Do NOT schedule anything new and do NOT ask the user questions — if "
+            "something needs them, raise a work item.\n---\n" + str(task_prompt or ""))
+
+
+def split_deferred_prompt(text: str):
+    """(display_header, task_text) for a marker line, else None."""
+    if not str(text or "").startswith(SCHEDULED_RUN_MARKER):
+        return None
+    head, sep, body = text.partition("\n---\n")
+    header = head[len(SCHEDULED_RUN_MARKER):].strip()
+    cut = header.find(" — ")           # keep "'name' fired … UTC" for display
+    if cut > 0:
+        header = header[:cut]
+    return header, (body if sep else "").strip()
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -102,7 +132,8 @@ def _find_transcript(session_id: str) -> Optional[str]:
 
 def replay(session_id: str, max_turns: int = 400) -> list:
     """Parse the SDK transcript into simple replay turns:
-    [{"role": "user"|"agent", "text": str, "tools": [names]}]."""
+    [{"role": "user"|"agent", "text": str, "tools": [names]}]; deferred-run
+    user lines carry kind="scheduled_run" + a display header."""
     path = _find_transcript(session_id)
     if not path:
         return []
@@ -121,8 +152,13 @@ def replay(session_id: str, max_turns: int = 400) -> list:
                 if rtype == "user":
                     content = msg.get("content")
                     if isinstance(content, str) and content.strip():
-                        turns.append({"role": "user",
-                                      "text": content.strip()[:8000]})
+                        text = content.strip()
+                        dp = split_deferred_prompt(text)
+                        if dp:
+                            turns.append({"role": "user", "kind": "scheduled_run",
+                                          "header": dp[0], "text": dp[1][:8000]})
+                        else:
+                            turns.append({"role": "user", "text": text[:8000]})
                 elif rtype == "assistant":
                     text_parts, tools = [], []
                     for block in (msg.get("content") or []):
