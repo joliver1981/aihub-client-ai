@@ -13,7 +13,12 @@ as the model relays it, and proves:
   * clicking the take-over link opens a NEW tab and the conversation tab
     stays exactly where it was,
   * the document-level safety net retargets an anchor from ANY other render
-    path, but never hash anchors or programmatic download anchors.
+    path, but never hash anchors or programmatic download anchors,
+  * LIVE UPDATE (hand-back bridge, 2026-08-23): while a conversation is open
+    the page polls /api/chat/version; `inflight` shows the "adding a result"
+    line, a version bump re-renders the thread from the replay — the
+    [PORTAL RUN UPDATE] turn renders as a "Portal run update" bubble (header
+    only) followed by the delivered link — with an "Updated" note.
 
 Needs Playwright + Chromium (on the dev box: conda env aihub2.1). Run:
   C:/Users/james/miniconda3/envs/aihub2.1/python.exe test_human/20_The_Agent/ui_smoke_links.py
@@ -48,6 +53,10 @@ def check(name, ok, detail=""):
 
 
 def main():
+    try:  # emoji in evidence must not kill the run on a cp1252 console
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
     with sync_playwright() as p:
         b = p.chromium.launch(headless=True)
         ctx = b.new_context()
@@ -60,7 +69,14 @@ def main():
         ctx.route("**/api/work/list", j({"items": []}))
         ctx.route("**/api/me", j({"user": {"username": "ui-smoke", "name": "UI Smoke", "role": 3},
                                   "main_port": 5001, "app_version": "smoke"}))
-        ctx.route("**/api/chat/history/" + SID, j(TURNS))
+        live = {"version": 0, "inflight": False, "turns": TURNS}
+        ctx.route("**/api/chat/history/" + SID,
+                  lambda r: r.fulfill(status=200, content_type="application/json",
+                                      body=json.dumps(live["turns"])))
+        ctx.route("**/api/chat/version**",
+                  lambda r: r.fulfill(status=200, content_type="application/json",
+                                      body=json.dumps({"session_id": SID, "version": live["version"],
+                                                       "inflight": live["inflight"]})))
         ctx.route("**/portal-workflows/cobrowse/**", html("TAKEOVER"))
         ctx.route("**/runs", html("RUNS"))
         ctx.route("https://example.com/**", html("EX"))
@@ -116,6 +132,35 @@ def main():
                                       a.download='f.csv'; document.body.appendChild(a);
                                       try { a.click(); } catch (e) {} return a.getAttribute('target') || ''; }""")
         check("safety net: download anchor not retargeted", t2 == "", t2)
+        # ---- live update (the UI polls /api/chat/version every 4s while idle)
+        page.wait_for_timeout(4500)                 # baseline tick (version 0)
+        live["inflight"] = True
+        page.wait_for_timeout(4500)
+        working = page.evaluate("() => Array.from(document.querySelectorAll('#thread .guard-note'))"
+                                ".some(n => n.textContent.includes('adding a result'))")
+        check("live: inflight shows the 'adding a result' line", working)
+        live["inflight"] = False
+        live["turns"] = {"turns": TURNS["turns"] + [
+            {"role": "user", "kind": "portal_update",
+             "header": "'Vantage' finished 2026-08-23 13:40 EDT (1 file(s) downloaded)",
+             "text": "Collect it NOW: call check_portal_run(run_id=\"abc\")."},
+            {"role": "agent", "tools": ["check_portal_run"],
+             "text": "Done — here's the file: [⤓ price-list.xlsx (9.7 KB)](/api/files/xyz789)"}]}
+        live["version"] = 1
+        page.wait_for_timeout(5000)
+        state = page.evaluate("""() => ({
+            working: Array.from(document.querySelectorAll('#thread .guard-note')).some(n => n.textContent.includes('adding a result')),
+            updated: Array.from(document.querySelectorAll('#thread .guard-note')).some(n => n.textContent.includes('Updated')),
+            portalBubble: Array.from(document.querySelectorAll('#thread .msg.user .au')).some(n => n.textContent === 'Portal run update'),
+            header: Array.from(document.querySelectorAll('#thread .msg.user .meta')).map(n => n.textContent).join(' | '),
+            instructionShown: document.querySelector('#thread').textContent.includes('Collect it NOW'),
+            link: !!document.querySelector('#thread a.filelink[href="/api/files/xyz789"]'),
+            msgs: document.querySelectorAll('#thread .msg').length })""")
+        check("live: version bump re-renders the thread with the delivered link", state["link"], json.dumps(state))
+        check("live: portal update renders as a 'Portal run update' bubble (header only)",
+              state["portalBubble"] and "Vantage" in state["header"] and not state["instructionShown"],
+              state["header"])
+        check("live: 'Updated' note shown, working line gone", state["updated"] and not state["working"])
         check("still no page-level JS error", not errors, "; ".join(errors)[:300])
         b.close()
 

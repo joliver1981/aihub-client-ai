@@ -265,16 +265,45 @@ async def _portal_schedule_jobs(client, base: str, headers: dict, uid, slug=None
     return out
 
 
-async def _poll_run(pf, run_id: str, budget_seconds: int, uid) -> dict:
+def _arm_watch(run_id: str, phase: str, label: str, reason: str = "") -> str:
+    """Hand-back -> conversation bridge (2026-08-23, portal_watch.py): the
+    run outlives this tool call, so hand it to the service-side watcher. Returns
+    the model-facing sentence describing what will happen (or '' when no watch
+    could be armed — the old 'say when you're done' contract then applies)."""
+    try:
+        import portal_watch
+        watch = portal_watch.arm(run_id, CURRENT_USER.get() or {}, phase,
+                                 label=label, reason=reason)
+    except Exception as e:
+        logger.warning(f"portal watch arm failed run={run_id}: {e}")
+        watch = None
+    if not watch:
+        return ""
+    if watch.get("session_id"):
+        return ("\nAUTOMATIC FOLLOW-UP IS ON: the service keeps watching this run and "
+                "will WAKE YOU IN THIS CONVERSATION (a [PORTAL RUN UPDATE] turn) the "
+                "moment it finishes — you then collect it with check_portal_run and "
+                "deliver. So tell the user the result will appear HERE automatically; "
+                "they do NOT need to come back and tell you when they are done. If they "
+                "do say so anyway, just call check_portal_run.")
+    return ("\nAUTOMATIC FOLLOW-UP IS ON: the service keeps watching this run; when it "
+            "finishes, the outcome (with any download links) is filed in the user's My "
+            "Work.")
+
+
+async def _poll_run(pf, run_id: str, budget_seconds: int, uid, label: str = "") -> dict:
     """Poll an async auto-run until done / needs-human / budget exhausted.
     Every branch returns honest, run_id-carrying text (the model threads the id
-    into check_portal_run — no hidden in-process run map, unlike CC)."""
+    into check_portal_run — no hidden in-process run map, unlike CC). A run
+    handed back to the model still running is put under watch (portal_watch)
+    so its completion wakes this conversation; a collected result disarms it."""
     deadline = time.time() + budget_seconds
     gone_strikes = 0
     res = {}
     while time.time() < deadline:
         res = await asyncio.to_thread(pf.get_portal_result, run_id, 15)
         if res.get("done"):
+            _disarm_watch(run_id, "collected")
             return _finish_run(res, uid)
         err = str(res.get("error") or "")
         if "404" in err or "no such run" in err.lower():
@@ -282,6 +311,7 @@ async def _poll_run(pf, run_id: str, budget_seconds: int, uid) -> dict:
             # Tolerate a few transient misses (worker may still be registering);
             # only give up after consecutive strikes (CC parity).
             if gone_strikes >= 5:
+                _disarm_watch(run_id, "gone")
                 return _text(f"Portal run {run_id} is no longer active (the browser "
                              "service may have restarted). Start the portal task "
                              "again.", is_error=True)
@@ -291,22 +321,35 @@ async def _poll_run(pf, run_id: str, budget_seconds: int, uid) -> dict:
             link = pf.cobrowse_link(run_id)
             reason = res.get("reason") or "a verification / login step"
             raised = _raise_takeover_item_if_headless(run_id, link, reason)
+            watched = _arm_watch(run_id, "paused", label, reason)
             return _text(
                 f"PAUSED — the portal needs the user for {reason}.\n"
                 f"Take-over link (relay it to the user VERBATIM): {link}\n"
                 f"run_id: {run_id}\n"
                 "Tell the user to open the link, finish the step (e.g. type the code "
-                "they received), then click Hand back. When they say they're done, call "
-                f'check_portal_run(run_id="{run_id}") to collect the result. Do NOT '
-                "claim the file has downloaded — nothing is delivered yet." + raised)
+                "they received), then click Hand back. Do NOT claim the file has "
+                "downloaded — nothing is delivered yet."
+                + (watched or (" When they say they're done, call "
+                               f'check_portal_run(run_id="{run_id}") to collect the result.'))
+                + raised)
         await asyncio.sleep(2)
+    watched = _arm_watch(run_id, "running", label)
     return _text(
         f"The portal run has NOT finished yet (waited {budget_seconds}s) and no file "
         f"has been captured so far. run_id: {run_id}\n"
-        "It keeps running in the background, but nothing is delivered automatically — "
-        f'call check_portal_run(run_id="{run_id}") in a moment to collect the result. '
-        "Do NOT tell the user the file is downloading or that the task succeeded — "
-        "that is not known yet.")
+        "It keeps running in the background. Do NOT tell the user the file is "
+        "downloading or that the task succeeded — that is not known yet."
+        + (watched or (" Nothing is delivered automatically — call "
+                       f'check_portal_run(run_id="{run_id}") in a moment to collect '
+                       "the result.")))
+
+
+def _disarm_watch(run_id: str, reason: str) -> None:
+    try:
+        import portal_watch
+        portal_watch.disarm(run_id, reason)
+    except Exception as e:
+        logger.warning(f"portal watch disarm failed run={run_id}: {e}")
 
 
 @tool(
@@ -504,7 +547,7 @@ async def portal_fetch(args: dict[str, Any]) -> dict[str, Any]:
     run_id = start.get("run_id")
     if not run_id:
         return _text("I couldn't start the portal run (no run id returned).", is_error=True)
-    return await _poll_run(pf, run_id, WAIT_SECONDS, uid)
+    return await _poll_run(pf, run_id, WAIT_SECONDS, uid, label=portal_name or eff_url)
 
 
 @tool(
@@ -534,7 +577,7 @@ async def check_portal_run(args: dict[str, Any]) -> dict[str, Any]:
     if not run_id:
         return _text("No run_id given — pass the run_id from the portal_fetch result.",
                      is_error=True)
-    return await _poll_run(pf, run_id, CHECK_WAIT_SECONDS, _uid())
+    return await _poll_run(pf, run_id, CHECK_WAIT_SECONDS, _uid())  # label kept from the armed watch
 
 
 @tool(

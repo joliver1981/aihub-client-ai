@@ -85,6 +85,25 @@ def is_inflight(session_id: Optional[str]) -> bool:
         return False
     return True
 
+
+# Session version (2026-08-23, hand-back bridge): a per-conversation counter
+# bumped whenever something OTHER than the user's own turn appends to it (a
+# portal-run update, a deferred scheduled result). The UI polls
+# GET /api/chat/version while a conversation is open and re-renders on change
+# — the live-update channel the Level-1 "replay on open" design lacked.
+_SESSION_VERSION: dict = {}   # session_id -> int (in-memory; resets on restart)
+
+
+def bump_session_version(session_id: Optional[str]) -> int:
+    if not session_id:
+        return 0
+    _SESSION_VERSION[session_id] = _SESSION_VERSION.get(session_id, 0) + 1
+    return _SESSION_VERSION[session_id]
+
+
+def session_version(session_id: Optional[str]) -> int:
+    return _SESSION_VERSION.get(session_id or "", 0)
+
 # Document tools are additive and reversible: flip AGENT_DOCUMENT_TOOLS=false to
 # ship without them (reverts to the pre-tool, automation-only ingest behavior).
 _DOCUMENT_TOOLS_ON = os.getenv("AGENT_DOCUMENT_TOOLS", "true").lower() == "true"
@@ -322,8 +341,12 @@ that needs a login, call lookup_portal FIRST:
   each run lands an FYI with download links in My Work; re-scheduling
   replaces). cancel_portal_workflow_schedule stops it (two-step confirm).
 2FA / verification pauses: the tool returns a take-over LINK — relay it to the
-user VERBATIM, let them finish the step, then call check_portal_run with the
-run_id to collect the result. A run that hasn't finished is NOT a delivered
+user VERBATIM and tell them to finish the step there and click Hand back. The
+service then keeps watching the run and WAKES YOU in this conversation the
+moment it finishes (a "[PORTAL RUN UPDATE]" turn): call check_portal_run with
+the run_id, deliver the links, done — so tell the user the result will appear
+HERE on its own; they do not have to come back and say "done" (if they do,
+just call check_portal_run). A run that hasn't finished is NOT a delivered
 file; repeat exactly what the tools said (the run_id lines matter — keep them).
 Downloads arrive as /api/files/ links — include them VERBATIM (FILES rules).
 Uploads: pass upload_file with a server path (list_server_files helps find it).

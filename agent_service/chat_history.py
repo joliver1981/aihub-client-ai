@@ -33,6 +33,14 @@ _LOCK = threading.Lock()
 # the task instead of pretending the user typed it. First line = human header,
 # task text follows a '---' separator line.
 SCHEDULED_RUN_MARKER = "[SCHEDULED RUN]"
+# Hand-back -> conversation bridge (2026-08-23, portal_watch.py): the service
+# that kept watching a portal run the model handed to the user wakes the
+# conversation with this marker once the run finishes. replay() tags those
+# lines kind="portal_update" (UI: "Portal run update" bubble, header only —
+# the body is the model-facing instruction, not something the user wrote).
+PORTAL_UPDATE_MARKER = "[PORTAL RUN UPDATE]"
+DEFERRED_MARKERS = {SCHEDULED_RUN_MARKER: "scheduled_run",
+                    PORTAL_UPDATE_MARKER: "portal_update"}
 
 # Every turn is prefixed by main.py with one "[Context: now … (zone) …]" line
 # (current time in the user's zone). It is for the model; replay strips it so
@@ -61,12 +69,44 @@ def build_deferred_prompt(job_name: str, fired_at: str, task_prompt: str) -> str
             "something needs them, raise a work item.\n---\n" + str(task_prompt or ""))
 
 
+def build_portal_update_prompt(label: str, finished_at: str, run_id: str, ok: bool,
+                               what: str, handed_back: bool) -> str:
+    """The model-facing wake-up appended to a live chat when a portal run the
+    model handed off (2FA take-over / outlived the wait) has FINISHED. The
+    header (before ' — ') is what the user sees in the replay; the body after
+    '---' is the instruction to collect and deliver."""
+    status = ("finished" if ok else "failed")
+    how = ("after the user finished the take-over step and handed control back"
+           if handed_back else "on its own")
+    return (f"{PORTAL_UPDATE_MARKER} '{label}' {status} {finished_at} ({what}) — this is an "
+            "AUTOMATIC wake-up from the service that kept watching the portal run you handed "
+            f"off earlier; it completed {how}. It is NOT a message the user typed.\n---\n"
+            f'Collect it NOW: call check_portal_run(run_id="{run_id}"). Then tell the user the '
+            "outcome right here, in this conversation: include each /api/files download link "
+            "VERBATIM, or report the failure honestly (never invent a link, never claim a file "
+            "when none was captured). They may be reading this conversation right now — keep it "
+            "short and natural (e.g. \"Done — here's the file you asked for: …\"). Do NOT start "
+            "another portal run, do NOT schedule anything, and do NOT ask them to hand anything "
+            "back — that already happened.")
+
+
+def deferred_kind(text: str):
+    """'scheduled_run' | 'portal_update' for a marker line, else None."""
+    t = str(text or "")
+    for marker, kind in DEFERRED_MARKERS.items():
+        if t.startswith(marker):
+            return kind
+    return None
+
+
 def split_deferred_prompt(text: str):
     """(display_header, task_text) for a marker line, else None."""
-    if not str(text or "").startswith(SCHEDULED_RUN_MARKER):
+    t = str(text or "")
+    marker = next((m for m in DEFERRED_MARKERS if t.startswith(m)), None)
+    if marker is None:
         return None
-    head, sep, body = text.partition("\n---\n")
-    header = head[len(SCHEDULED_RUN_MARKER):].strip()
+    head, sep, body = t.partition("\n---\n")
+    header = head[len(marker):].strip()
     cut = header.find(" — ")           # keep "'name' fired … UTC" for display
     if cut > 0:
         header = header[:cut]
@@ -173,7 +213,8 @@ def replay(session_id: str, max_turns: int = 400) -> list:
                             continue
                         dp = split_deferred_prompt(text)
                         if dp:
-                            turns.append({"role": "user", "kind": "scheduled_run",
+                            turns.append({"role": "user",
+                                          "kind": deferred_kind(text) or "scheduled_run",
                                           "header": dp[0], "text": dp[1][:8000]})
                         else:
                             turns.append({"role": "user", "text": text[:8000]})

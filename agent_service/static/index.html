@@ -1744,12 +1744,18 @@
   // Deferred result (Level 1, 2026-08-22): a scheduled / delayed task that fired
   // INTO this conversation replays as a "Scheduled run" marker + the task it
   // ran — never as something the user typed.
+  // A portal-run update (2026-08-23, hand-back bridge: the service woke the
+  // conversation because a run the user took over / handed back finished)
+  // renders the same way — header only: its body is the instruction to the
+  // model, not something the user wrote.
   function addScheduledRun(t) {
+    const portal = t.kind === "portal_update";
     const m = el("div", "msg user");
-    m.appendChild(el("span", "au", "Scheduled run"));
+    m.appendChild(el("span", "au", portal ? "Portal run update" : "Scheduled run"));
     const b = el("div", "bubble");
-    b.appendChild(el("div", "meta", "⏰ " + (t.header || "scheduled task fired")));
-    if (t.text) b.appendChild(el("div", "", t.text));
+    b.appendChild(el("div", "meta", (portal ? "🌐 " : "⏰ ")
+      + (t.header || (portal ? "portal run finished" : "scheduled task fired"))));
+    if (t.text && !portal) b.appendChild(el("div", "", t.text));
     m.appendChild(b);
     thread.appendChild(m); scroll();
   }
@@ -1880,7 +1886,8 @@
           } else if (ev.type === "status") {
             container.appendChild(el("span", "meta", ev.text || ""));
           } else if (ev.type === "result") {
-            if (ev.session_id) { sessionId = ev.session_id;
+            if (ev.session_id) { if (ev.session_id !== sessionId) liveVersion = null;
+              sessionId = ev.session_id;
               sessionStorage.setItem("agent_session", sessionId); }
             finalizeChips(ev.ok ? "stale" : "fail");
             if (!ev.ok) container.appendChild(el("span", "meta err",
@@ -1908,7 +1915,8 @@
     input.style.height = "auto";
     input.style.height = Math.min(input.scrollHeight, 160) + "px"; });
   document.getElementById("newchat").onclick = () => {
-    sessionId = null; sessionStorage.removeItem("agent_session");
+    sessionId = null; sessionStorage.removeItem("agent_session"); liveVersion = null;
+    if (liveBusyNote) { liveBusyNote.remove(); liveBusyNote = null; }
     thread.innerHTML = ""; boot(); };
 
   // ---------- chat history (CC-parity) ----------
@@ -1939,33 +1947,37 @@
     if (histPop.style.display !== "none" && !histPop.contains(e.target)
         && e.target.id !== "histbtn") histPop.style.display = "none";
   });
+  function renderTurns(turns) {
+    document.getElementById("hello")?.remove();
+    thread.innerHTML = "";
+    (turns || []).forEach(t => {
+      if (t.role === "user") {
+        if (t.kind === "scheduled_run" || t.kind === "portal_update") { addScheduledRun(t); return; }
+        addUser(t.text); return; }
+      const m = el("div", "msg agent");
+      m.appendChild(el("span", "au", "The Agent"));
+      (t.tools || []).forEach(name => {
+        const chip = el("div", "toolchip");
+        chip.appendChild(el("span", "dot stale"));
+        chip.appendChild(document.createTextNode(name));
+        m.appendChild(chip);
+      });
+      if (t.text) { const bub = el("div", "bubble"); renderMd(bub, t.text);
+                    m.appendChild(bub); }
+      thread.appendChild(m);
+    });
+  }
   async function openHistory(s) {
     try {
       const r = await fetch(`/api/chat/history/${encodeURIComponent(s.session_id)}`,
                             { headers: H() });
       if (!r.ok) return;
       const d = await r.json();
-      document.getElementById("hello")?.remove();
-      thread.innerHTML = "";
-      (d.turns || []).forEach(t => {
-        if (t.role === "user") {
-          if (t.kind === "scheduled_run") { addScheduledRun(t); return; }
-          addUser(t.text); return; }
-        const m = el("div", "msg agent");
-        m.appendChild(el("span", "au", "The Agent"));
-        (t.tools || []).forEach(name => {
-          const chip = el("div", "toolchip");
-          chip.appendChild(el("span", "dot stale"));
-          chip.appendChild(document.createTextNode(name));
-          m.appendChild(chip);
-        });
-        if (t.text) { const bub = el("div", "bubble"); renderMd(bub, t.text);
-                      m.appendChild(bub); }
-        thread.appendChild(m);
-      });
+      renderTurns(d.turns);
       // Resume: the next message continues THIS conversation.
       sessionId = s.session_id;
       sessionStorage.setItem("agent_session", sessionId);
+      liveVersion = null;           // re-baseline the live-update poll for this conversation
       const note = el("div", "guard-note",
         "Resumed past conversation — your next message continues it. "
         + "Use New to start fresh.");
@@ -1973,6 +1985,50 @@
       thread.appendChild(note); scroll();
     } catch {}
   }
+
+  // ---- live updates for the OPEN conversation (2026-08-23, hand-back bridge):
+  // the service appends to a conversation on its own when a portal run the user
+  // took over finishes (or a scheduled task fires into it). While this tab is
+  // idle on a conversation, poll its version; on change re-render the thread
+  // from the replay and say what happened. `inflight` shows a working line.
+  let liveVersion = null, liveTimer = null, liveBusyNote = null;
+  async function liveTick() {
+    if (!sessionId || busy || document.visibilityState !== "visible") return;
+    let d;
+    try {
+      const r = await fetch(`/api/chat/version?session_id=${encodeURIComponent(sessionId)}`,
+                            { headers: H() });
+      if (!r.ok) return;
+      d = await r.json();
+    } catch { return; }
+    if (d.inflight) {
+      if (!liveBusyNote) {
+        liveBusyNote = el("div", "guard-note", "⏳ The Agent is adding a result to this conversation…");
+        liveBusyNote.style.borderColor = "var(--accent-line)";
+        thread.appendChild(liveBusyNote); scroll();
+      }
+    } else if (liveBusyNote) { liveBusyNote.remove(); liveBusyNote = null; }
+    if (liveVersion === null) { liveVersion = d.version; return; }
+    if (d.version === liveVersion || d.inflight || busy) return;
+    liveVersion = d.version;
+    try {
+      const r2 = await fetch(`/api/chat/history/${encodeURIComponent(sessionId)}`, { headers: H() });
+      if (!r2.ok) return;
+      const h = await r2.json();
+      if (busy) return;                       // the user started typing/sending meanwhile
+      renderTurns(h.turns);
+      const last = [...(h.turns || [])].reverse().find(t => t.role === "user" && t.kind);
+      const note = el("div", "guard-note",
+        (last && last.kind === "portal_update")
+          ? "↻ Updated — a portal run you handed off finished and The Agent added the result above."
+          : "↻ Updated — The Agent added a result to this conversation.");
+      note.style.borderColor = "var(--accent-line)";
+      thread.appendChild(note); scroll();
+      refreshWorkCount();
+    } catch {}
+  }
+  liveTimer = setInterval(liveTick, 4000);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") liveTick(); });
 
   // =====================================================
   // MY WORK
@@ -1999,24 +2055,32 @@
   // ---- deferred-result nudge (Level 1, no live push): when a scheduled task
   // has landed its result in a conversation, say so ONCE — on open and after
   // turns (refreshWorkCount runs at both) — with a one-click way to read it.
+  // Also for portal-run updates (2026-08-23): a run the user took over /
+  // handed back finished and its result landed in the conversation. Not shown
+  // when THAT conversation is already open here — the live poll renders it in
+  // place (the toast would only repeat it).
   function announceDeferred(items) {
     try {
       const seen = new Set(JSON.parse(sessionStorage.getItem("agent_deferred_seen") || "[]"));
+      const KINDS = { headless_run: "scheduled", portal_run_update: "portal" };
       const fresh = items.filter(i => i.source === "agent" && i.status === "open"
-        && (i.payload || {}).kind === "headless_run" && i.payload.chat_session_id
+        && KINDS[(i.payload || {}).kind] && i.payload.chat_session_id
         && !seen.has(i.id));
       if (!fresh.length) return;
       fresh.forEach(i => seen.add(i.id));
       sessionStorage.setItem("agent_deferred_seen", JSON.stringify([...seen].slice(-200)));
       const first = fresh[0];
+      if (fresh.length === 1 && first.payload.chat_session_id === sessionId
+          && views.chat.classList.contains("on")) return;
       document.getElementById("deferred-toast")?.remove();
       const t = el("div", "guard-note"); t.id = "deferred-toast";
       t.style.cssText = "position:fixed;right:18px;bottom:96px;z-index:60;max-width:380px;"
         + "border-color:var(--accent-line);display:flex;gap:8px;align-items:center;flex-wrap:wrap";
       const title = String(first.title || "").replace(/^[✓⚠] /, "");
-      t.appendChild(el("span", "", "⏰ " + (fresh.length === 1
-        ? `"${title}" finished — its result was added to your conversation.`
-        : `${fresh.length} scheduled tasks finished — results were added to your conversations.`)));
+      const portal = KINDS[first.payload.kind] === "portal";
+      t.appendChild(el("span", "", (portal ? "🌐 " : "⏰ ") + (fresh.length === 1
+        ? `"${title}" — the result was added to your conversation.`
+        : `${fresh.length} results were added to your conversations.`)));
       const open = el("button", "btn primary", "Open");
       open.onclick = () => { t.remove(); show("chat");
                              openHistory({ session_id: first.payload.chat_session_id }); };

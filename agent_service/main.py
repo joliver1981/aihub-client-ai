@@ -30,7 +30,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 import shared_auth  # from APP_ROOT (agent_config put it on sys.path)
-from brain import run_turn, is_inflight, mark_inflight, clear_inflight
+from brain import (run_turn, is_inflight, mark_inflight, clear_inflight,
+                   bump_session_version, session_version)
 import workitem_store
 import views_store
 import readthrough
@@ -51,10 +52,22 @@ async def lifespan(app):
             email_poller.run_forever())
     else:
         logger.info("agent email poller disabled (AGENT_EMAIL_ENABLED != true)")
+    # Hand-back -> conversation bridge (2026-08-23): DB-backed watches over
+    # portal runs the model handed off; the supervisor wakes the originating
+    # conversation when a run finishes (portal_watch.py).
+    watch_task = None
+    import portal_watch
+    portal_watch.init()
+    if portal_watch.ENABLED:
+        watch_task = asyncio.get_event_loop().create_task(portal_watch.run_forever())
+    else:
+        logger.info("portal watch disabled (AGENT_PORTAL_WATCH != true)")
     logger.info(f"The Agent starting: {json.dumps(summary())}")
     yield
     if poller_task:
         poller_task.cancel()
+    if watch_task:
+        watch_task.cancel()
     logger.info("The Agent stopped")
 
 
@@ -254,6 +267,7 @@ async def headless_run(request: Request):
             texts, tools_run, final = await _drive(None, ctx_line + "\n\n" + prompt)
         else:
             chat_history.touch(user_ctx["user_id"], resume_sid, "")  # float to the top of history
+            bump_session_version(resume_sid)      # live UI: the conversation changed
     else:
         texts, tools_run, final = await _drive(None, ctx_line + "\n\n" + prompt)
     ok = bool(final.get("ok"))
@@ -1168,6 +1182,35 @@ async def chat_history_replay(hist_session_id: str, request: Request):
         raise HTTPException(404, "conversation not found")
     return {"session_id": hist_session_id,
             "turns": chat_history.replay(hist_session_id)}
+
+
+@app.get("/api/chat/version")
+async def chat_version(request: Request, session_id: str = ""):
+    """Live-update channel for an OPEN conversation (2026-08-23, hand-back
+    bridge): the UI polls this while idle on a conversation and re-renders the
+    thread when `version` changes — a portal-run update or a deferred scheduled
+    result was appended by the service, not by the user. `inflight` lets the
+    UI show "The Agent is adding a result…" while such a turn runs."""
+    user = _verify_request(request)
+    import chat_history
+    sid = str(session_id or "").strip()
+    if not sid or not chat_history.owns_session(int(user["user_id"] or 0), sid):
+        raise HTTPException(404, "conversation not found")
+    return {"session_id": sid, "version": session_version(sid), "inflight": is_inflight(sid)}
+
+
+@app.get("/api/portal/watches")
+async def portal_watches(request: Request):
+    """This user's portal-run watches (hand-back bridge): which runs the
+    service is following, their phase (paused = waiting for the user's
+    take-over, running = handed back / still working), and how each ended."""
+    user = _verify_request(request)
+    import portal_watch
+    rows = portal_watch.list_for_user(int(user["user_id"] or 0))
+    keep = ("run_id", "session_id", "label", "kind", "phase", "reason", "status",
+            "created_at", "updated_at", "handback_at", "done_at", "outcome")
+    return {"watches": [{k: r.get(k) for k in keep} for r in rows],
+            "enabled": portal_watch.ENABLED}
 
 
 @app.get("/api/email/log")

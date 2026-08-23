@@ -2392,6 +2392,113 @@ def main():
     except Exception as e:
         check("UI-1", "UI smoke: links open in a new tab", False, e)
 
+    # PT-13 hand-back -> conversation bridge (james 2026-08-23, portal_watch):
+    # a REAL chat turn starts an ad-hoc run against the Vantage test portal's
+    # 2FA flow (localhost:3000/login-2fa, code 123456) -> PAUSED + take-over
+    # link + an armed watch on THIS conversation; a simulated human (headless
+    # Chromium on the REAL co-browse page, cobrowse_human.py) types the code
+    # and clicks Hand back; the watch sees the hand-back, the run finishes,
+    # the conversation is WOKEN with a [PORTAL RUN UPDATE] turn and the model
+    # delivers the /api/files link (bytes served to the owner), the session
+    # version bumps (live UI), and a deep-linked FYI lands in My Work. Honest
+    # SKIP when the Vantage portal or the Playwright env is missing.
+    try:
+        import re as _re13
+        import subprocess as _sp13
+        import time as _tm13
+        try:
+            vantage_up = requests.get("http://localhost:3000/login-2fa",
+                                      timeout=5).status_code == 200
+        except Exception:
+            vantage_up = False
+        ui_py13 = next((c for c in [os.getenv("PACK20_UI_PYTHON", ""),
+                                    r"C:\Users\james\miniconda3\envs\aihub2.1\python.exe"]
+                        if c and os.path.isfile(c)), None)
+        if not (vantage_up and ui_py13):
+            check("PT-13", "hand-back -> conversation bridge (live)", True,
+                  f"SKIP: Vantage 2FA portal up={vantage_up} (C:\\src\\aihub-test-portal "
+                  f"start.cmd), playwright python={bool(ui_py13)}")
+        else:
+            ev13, txt13 = chat_turn(
+                token,
+                "Go to the portal at http://localhost:3000/login-2fa, log in with username "
+                "pack20 and password pack20, then open the Download Center and download the "
+                "master price list (price-list.xlsx). Stop right after that one download.",
+                timeout=A1_TURN_TIMEOUT)
+            sid13 = result_of(ev13).get("session_id")
+            m13 = _re13.search(r"cobrowse/([0-9a-f]{32})", txt13)
+            run13 = m13.group(1) if m13 else ""
+            hdr13 = {"Authorization": f"Bearer {token}"}
+
+            def _watch13():
+                w = requests.get(f"{BASE}/api/portal/watches", headers=hdr13, timeout=60).json()
+                return next((x for x in w.get("watches", []) if x["run_id"] == run13), {})
+            w0 = _watch13() if run13 else {}
+            armed = (w0.get("status") == "active" and w0.get("phase") == "paused"
+                     and w0.get("session_id") == sid13)
+            human = {}
+            if armed:
+                from CommonUtils import get_browser_use_api_base_url as _bu13
+                cb_tok = shared_auth.sign_cobrowse_token(run13, 1, 3)
+                cb_url = f"{_bu13()}/cobrowse?run={run13}&token={cb_tok}"
+                pr13 = _sp13.run([ui_py13, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                        "cobrowse_human.py"), cb_url, "123456"],
+                                 capture_output=True, text=True, timeout=240)
+                try:
+                    human = json.loads((pr13.stdout or "").strip().splitlines()[-1])
+                except Exception:
+                    human = {"ok": False, "raw": (pr13.stdout or pr13.stderr or "")[-200:]}
+            # the watch: hand-back seen -> finished -> the conversation woken + delivered
+            final13, deadline13 = {}, _tm13.time() + 480
+            while _tm13.time() < deadline13:
+                final13 = _watch13()
+                busy = requests.get(f"{BASE}/api/chat/version", params={"session_id": sid13},
+                                    headers=hdr13, timeout=60).json() if sid13 else {}
+                if final13.get("status") in ("done", "gone", "expired", "disarmed") \
+                        and not busy.get("inflight"):
+                    break
+                _tm13.sleep(4)
+            ver13 = requests.get(f"{BASE}/api/chat/version", params={"session_id": sid13},
+                                 headers=hdr13, timeout=60).json() if sid13 else {}
+            turns13 = requests.get(f"{BASE}/api/chat/history/{sid13}", headers=hdr13,
+                                   timeout=60).json().get("turns", []) if sid13 else []
+            upd13 = next((i for i, t in enumerate(turns13) if t.get("kind") == "portal_update"), None)
+            after13 = " ".join(t.get("text", "") for t in turns13[(upd13 or 0) + 1:]
+                               if t.get("role") == "agent") if upd13 is not None else ""
+            lm13 = _re13.search(r"/api/files/([a-f0-9-]+)", after13)
+            link13 = lm13.group(0) if lm13 else ""
+            dl13 = requests.get(f"{BASE}{link13}", headers=hdr13, timeout=90) if link13 else None
+            items13 = requests.get(f"{BASE}/api/work/list", headers=hdr13,
+                                   timeout=60).json().get("items", [])
+            fyi13 = [i for i in items13 if (i.get("payload") or {}).get("kind") == "portal_run_update"
+                     and i["payload"].get("run_id") == run13]
+            check("PT-13", "hand-back -> conversation bridge (LIVE): 2FA pause arms a watch on "
+                           "this conversation; a simulated human types the code + hands back on "
+                           "the real co-browse page; the watch records the hand-back, the run "
+                           "finishes, the conversation is woken with a [PORTAL RUN UPDATE] turn "
+                           "and the model delivers the /api/files link (bytes served); session "
+                           "version bumped; deep-linked FYI in My Work",
+                  bool(run13) and armed and human.get("ok") is True
+                  and final13.get("status") == "done" and bool(final13.get("handback_at"))
+                  and upd13 is not None and bool(link13)
+                  and dl13 is not None and dl13.status_code == 200 and len(dl13.content) > 0
+                  and int(ver13.get("version") or 0) >= 1 and not ver13.get("inflight")
+                  and len(fyi13) >= 1 and fyi13[0]["payload"].get("chat_session_id") == sid13,
+                  f"run={bool(run13)} armed={armed} human={human.get('status')!r} "
+                  f"watch={final13.get('status')}/{final13.get('phase')} "
+                  f"handback={bool(final13.get('handback_at'))} outcome={final13.get('outcome')!r} "
+                  f"update_turn={upd13} link={bool(link13)} "
+                  f"bytes={len(getattr(dl13, 'content', b''))} version={ver13.get('version')} "
+                  f"fyi={len(fyi13)} tools={tools_used(ev13)}")
+            for it in fyi13:                       # tidy: acknowledge the probe's FYI
+                try:
+                    requests.post(f"{BASE}/api/work/respond", headers=hdr13, timeout=30,
+                                  json={"id": it["id"], "response": {"decision": "acknowledged"}})
+                except Exception:
+                    pass
+    except Exception as e:
+        check("PT-13", "hand-back -> conversation bridge", False, e)
+
     _write_report(checks)
     if not all(c["ok"] for c in checks):
         sys.exit(1)

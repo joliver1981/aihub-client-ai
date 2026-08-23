@@ -24,6 +24,7 @@ try:
     import brain                     # noqa: E402
     import file_tools                # noqa: E402
     import portal_tools              # noqa: E402
+    import portal_watch              # noqa: E402
     from platform_tools import CURRENT_USER  # noqa: E402
     from command_center.tools import portal_fetch as cc_pf        # noqa: E402
     from command_center.tools import portal_registry as cc_reg    # noqa: E402
@@ -187,7 +188,7 @@ def test_fetch_needs_human_returns_takeover_link_immediately():
                  get_portal_result=lambda rid, t=15: {
                      "done": False, "needs_human": True, "reason": "a 2FA code"},
                  cobrowse_link=lambda rid: f"http://main/portal-workflows/cobrowse/{rid}"), \
-         patched(portal_tools, WAIT_SECONDS=10):
+         patched(portal_tools, WAIT_SECONDS=10), patched(portal_watch, ENABLED=False):
         with patched(cc_reg, lookup_portal=lambda uid, n: dict(_SAVED_ENTRY)):
             res = _run(_tool("portal_fetch"),
                        {"portal_name": "acme", "task": "download"})
@@ -196,6 +197,8 @@ def test_fetch_needs_human_returns_takeover_link_immediately():
     assert "http://main/portal-workflows/cobrowse/r-2fa" in t
     assert "run_id: r-2fa" in t and "check_portal_run" in t
     assert "do NOT claim" in t or "Do NOT claim" in t
+    # (the watch-ON default — result auto-delivered to the conversation instead
+    #  of "say when you're done" — is covered by test_agent_portal_watch.py)
 
 
 def test_fetch_budget_exhausted_is_honest():
@@ -203,7 +206,7 @@ def test_fetch_budget_exhausted_is_honest():
     with patched(cc_pf,
                  start_portal_fetch=lambda *a, **k: {"run_id": "r-slow"},
                  get_portal_result=lambda rid, t=15: {"done": False}), \
-         patched(portal_tools, WAIT_SECONDS=0):
+         patched(portal_tools, WAIT_SECONDS=0), patched(portal_watch, ENABLED=False):
         with patched(cc_reg, lookup_portal=lambda uid, n: dict(_SAVED_ENTRY)):
             res = _run(_tool("portal_fetch"),
                        {"portal_name": "acme", "task": "download"})
