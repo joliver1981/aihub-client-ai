@@ -656,10 +656,25 @@
     });
   }
 
+  // Links the agent renders (portal take-over links, platform pages, web URLs)
+  // must NEVER navigate this tab away: the conversation and its live stream
+  // live here (2026-08-23: a take-over link replaced the chat tab mid-turn).
+  // DOMPurify strips `target`, so it is applied AFTER sanitizing. In-page
+  // #anchors, mailto:/tel:, and /api/files/ handoffs (fetch + download, no
+  // navigation at all) are left alone.
+  function newTabLinks(root) {
+    root.querySelectorAll("a[href]").forEach(a => {
+      const href = a.getAttribute("href") || "";
+      if (/^\s*(#|mailto:|tel:|blob:)/i.test(href) || href.startsWith("/api/files/")) return;
+      a.target = "_blank"; a.rel = "noopener noreferrer";
+    });
+  }
+
   function renderMd(target, text) {
     target.classList.add("md");
     target.innerHTML = md(text);
     enhanceTables(target);
+    newTabLinks(target);
     // File handoff links: fetch with the auth header and trigger a real
     // browser download (no token ever rides in a URL).
     target.querySelectorAll('a[href^="/api/files/"]').forEach(a => {
@@ -684,6 +699,22 @@
       };
     });
   }
+
+  // Safety net for EVERY other anchor in the app (any render path, now or
+  // later): a plain click on a link that would navigate this tab is retargeted
+  // to a new tab before the browser acts on it (capture phase runs first).
+  // Skips anchors that already carry a target, in-page/mailto/tel links,
+  // programmatic blob/download anchors, and /api/files handoffs (own handler).
+  document.addEventListener("click", (e) => {
+    if (e.button !== 0) return;
+    const a = e.target && e.target.closest ? e.target.closest("a[href]") : null;
+    if (!a || a.getAttribute("target") || a.hasAttribute("download")
+        || a.classList.contains("filelink")) return;
+    const href = a.getAttribute("href") || "";
+    if (/^\s*(#|mailto:|tel:|blob:|javascript:)/i.test(href)
+        || href.startsWith("/api/files/")) return;
+    a.target = "_blank"; a.rel = "noopener noreferrer";
+  }, true);
 
   // ---------- view switching ----------
   const views = { chat: document.getElementById("view-chat"),

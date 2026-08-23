@@ -2355,6 +2355,43 @@ def main():
     except Exception as e:
         check("PT-12", "deferred result -> chat", False, e)
 
+    # UI-1 (2026-08-23, james): links the agent renders — the portal take-over
+    # link above all — must open in a NEW tab; the conversation tab (and its
+    # live stream) must never be navigated away. Runs ui_smoke_links.py, which
+    # loads the REAL page in headless Chromium with the /api/* calls stubbed
+    # (no real token). Needs Playwright: PACK20_UI_PYTHON, else the dev box's
+    # aihub2.1 env. Missing Playwright is reported as a FAIL with the fix —
+    # never silently skipped (the API-only checks cannot see a dead UI).
+    try:
+        import subprocess
+        here = os.path.dirname(os.path.abspath(__file__))
+        cands = [os.getenv("PACK20_UI_PYTHON", ""),
+                 r"C:\Users\james\miniconda3\envs\aihub2.1\python.exe", sys.executable]
+        ui_py = next((c for c in cands if c and os.path.isfile(c) and subprocess.run(
+            [c, "-c", "import playwright"], capture_output=True).returncode == 0), None)
+        if not ui_py:
+            check("UI-1", "UI smoke: links open in a new tab", False,
+                  "no Python with Playwright found — set PACK20_UI_PYTHON to one "
+                  "(dev box: conda env aihub2.1)")
+        else:
+            pr = subprocess.run([ui_py, os.path.join(here, "ui_smoke_links.py")],
+                                capture_output=True, text=True, timeout=300,
+                                env={**os.environ, "AGENT_UI_BASE": BASE})
+            out = (pr.stdout or "") + (pr.stderr or "")
+            fails = [ln for ln in out.splitlines() if ln.startswith("FAIL")]
+            tally = next((ln for ln in reversed(out.splitlines()) if ln.endswith("PASS")), "")
+            check("UI-1", "UI smoke (headless Chromium, real page): no page-level JS error; "
+                          "take-over / platform / https links carry target=_blank+noopener; "
+                          "#hash, mailto and /api/files handoffs untouched; clicking the "
+                          "take-over link opens a NEW tab and the conversation tab stays put; "
+                          "document-level safety net retargets any other anchor",
+                  pr.returncode == 0 and tally.endswith("PASS") and not fails,
+                  (tally or "no tally") + ("; " + "; ".join(fails)[:400] if fails else "")
+                  + ("" if out.strip() else "; no output")
+                  + (f"; exit {pr.returncode}" if pr.returncode else ""))
+    except Exception as e:
+        check("UI-1", "UI smoke: links open in a new tab", False, e)
+
     _write_report(checks)
     if not all(c["ok"] for c in checks):
         sys.exit(1)
