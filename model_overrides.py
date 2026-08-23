@@ -5,7 +5,7 @@ Persists admin-UI-set LLM model overrides to data/model_overrides.json and
 applies them to os.environ at startup so config.py's existing env-first
 resolution picks them up.
 
-There are ONLY 6 override keys, enumerated in KEY_TO_ENV_VARS below. Each
+The override keys are enumerated in KEY_TO_ENV_VARS below (nothing else is accepted). Each
 key maps to one or more environment variable names that config.py reads.
 
 Resolution order (unchanged from prior work):
@@ -82,9 +82,26 @@ KEY_TO_ENV_VARS: Dict[str, List[str]] = {
     'anthropic_mini': [
         'ANTHROPIC_MINI',
     ],
+    # Browser Use service — the LLM that DRIVES portal runs (browser_use_service, its own
+    # isolated env). The service cannot inherit this process's os.environ, so it reads
+    # data/model_overrides.json DIRECTLY and LIVE on every run
+    # (browser_use_config.resolve_llm_model): a saved change applies to the next portal run
+    # with no restart. Listed here so the mapping stays the single source of truth for the
+    # env var the service honors; see LIVE_RELOAD_KEYS for why apply/restart skip it.
+    'browser_use_model': [
+        'BROWSER_USE_LLM_MODEL',
+    ],
 }
 
 ALLOWED_KEYS = frozenset(KEY_TO_ENV_VARS.keys())
+
+# Keys whose consumer re-reads data/model_overrides.json itself on every use (no env hop,
+# no restart). apply_overrides_to_env() does NOT export these into this process's env —
+# nothing in-process reads them, and leaving the env untouched keeps
+# os.environ[<var>] equal to the .env fallback, so the status/"default" the UI shows stays
+# truthful even after an override is cleared without a restart. get_override_status()
+# excludes them from restart_required for the same reason.
+LIVE_RELOAD_KEYS = frozenset({'browser_use_model'})
 
 
 # -----------------------------------------------------------------------------
@@ -159,7 +176,7 @@ def apply_overrides_to_env() -> Dict[str, str]:
     overrides = load_overrides()
     applied: Dict[str, str] = {}
     for key, value in overrides.items():
-        if not value:
+        if not value or key in LIVE_RELOAD_KEYS:
             continue
         for env_var in KEY_TO_ENV_VARS.get(key, []):
             os.environ[env_var] = value
@@ -212,11 +229,22 @@ def get_override_status() -> Dict[str, Any]:
 
     overrides = load_overrides()
 
+    # "Defaults" == what's in the env right now if NO override were active.
+    # We can't know that perfectly without restarting, but we approximate by
+    # reading the first env var and flagging it as "current effective".
+    # For a cleaner UX we also expose the bare config.py defaults.
+    defaults = _read_config_defaults()
+
     # Look up the "effective" value for each role by reading its representative
     # env var. If not set, report blank (config default will fill in).
     effective: Dict[str, str] = {}
     restart_required = False
     for key, env_vars in KEY_TO_ENV_VARS.items():
+        if key in LIVE_RELOAD_KEYS:
+            # The consumer re-reads the file per use, so the file IS the live
+            # value: override if set, else the fallback chain. Never gates restart.
+            effective[key] = overrides.get(key, '') or defaults.get(key, '')
+            continue
         first_env = _representative_env_var(key, env_vars)
         current = os.environ.get(first_env, '') if first_env else ''
         effective[key] = current
@@ -227,12 +255,6 @@ def get_override_status() -> Dict[str, Any]:
         if not desired and current and _value_came_from_previous_override(key, current):
             # overrides file was cleared but the old value is still live
             restart_required = True
-
-    # "Defaults" == what's in the env right now if NO override were active.
-    # We can't know that perfectly without restarting, but we approximate by
-    # reading the first env var and flagging it as "current effective".
-    # For a cleaner UX we also expose the bare config.py defaults.
-    defaults = _read_config_defaults()
 
     # BYOK state — used by the UI to decide whether to show the extra warning.
     try:
@@ -308,7 +330,27 @@ def _read_config_defaults() -> Dict[str, str]:
         'openai_image':      cc_image_model,
         'anthropic_primary': getattr(cfg, 'ANTHROPIC_ADVANCED', '') or getattr(cfg, 'ANTHROPIC_MODEL', ''),
         'anthropic_mini':    getattr(cfg, 'ANTHROPIC_MINI', ''),
+        'browser_use_model': _browser_use_model_default(cfg),
     }
+
+
+# Keep in lock-step with browser_use_service/browser_use_config.py DEFAULT_LLM_MODEL —
+# the literal the service falls back to when nothing else resolves.
+BROWSER_USE_BUILTIN_DEFAULT = 'gpt-5.4'
+
+
+def _browser_use_model_default(cfg) -> str:
+    """What the Browser Use service drives with when its own override is blank.
+    Mirrors browser_use_config.resolve_llm_model() steps 2–5 (the service can't
+    import config.py, so it reads .env/env + the openai_primary override + its
+    built-in literal): BROWSER_USE_LLM_MODEL (.env) → platform OpenAI primary
+    (the openai_primary override is already applied to AZURE_OPENAI_DEPLOYMENT_NAME
+    in this process's env) → built-in default.
+    """
+    return (os.environ.get('BROWSER_USE_LLM_MODEL', '')
+            or os.environ.get('AZURE_OPENAI_DEPLOYMENT_NAME', '')
+            or getattr(cfg, 'AZURE_OPENAI_DEPLOYMENT_NAME', '')
+            or BROWSER_USE_BUILTIN_DEFAULT)
 
 
 def _value_came_from_previous_override(key: str, current_value: str) -> bool:

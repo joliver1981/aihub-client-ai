@@ -79,8 +79,12 @@ if AUTH_ENFORCE and not INTERNAL_TOKEN:
         "runs) will be rejected with 401 'invalid or missing internal token'.")
 
 # Resolve the driver transport up front so a misconfiguration is obvious at startup rather
-# than on the first portal run. Never logs key material.
+# than on the first portal run. Never logs key material. This is the STARTUP snapshot; each run
+# re-resolves via config.resolve_llm_model(), so an admin-UI override saved later applies to the
+# next run without a restart (its transport is built per run in portal_runner._build_llm).
 _provider, _want = config._provider_for_model(config.LLM_MODEL)
+log.info("LLM driver model=%s resolved from %s (re-resolved per run)",
+         config.LLM_MODEL, config.describe_llm_model_source())
 if _provider == "anthropic":
     # Explicit Claude override — needs a raw/BYOK/encrypted Anthropic key.
     _llm_env = config.ensure_llm_api_key()
@@ -164,7 +168,10 @@ class PortalFetchRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "browser_use", "port": config.PORT, "enabled": config.ENABLED}
+    # llm_model is resolved LIVE (admin-UI override in data/model_overrides.json > .env), so this
+    # is the model the NEXT run will use — a cheap way to confirm a UI change landed without a run.
+    return {"status": "ok", "service": "browser_use", "port": config.PORT, "enabled": config.ENABLED,
+            "llm_model": config.resolve_llm_model()}
 
 
 def _portal_call_kwargs(req: "PortalFetchRequest", run_id=None):
@@ -188,7 +195,7 @@ def _portal_call_kwargs(req: "PortalFetchRequest", run_id=None):
         start_url=req.start_url,
         creds=creds,
         download_dir=os.path.join(config.DOWNLOAD_DIR, req.session_id or "adhoc"),
-        llm_model=config.LLM_MODEL,
+        llm_model=config.resolve_llm_model(),  # live: admin-UI override applies per run
         # FORCE headless for chat-driven/unattended runs, ignoring config.HEADLESS. Headed is
         # wrong here for three reasons: (1) under an NSSM service (session 0) headed Chrome has
         # no desktop to draw on; (2) the robust download capturer (_make_download_capturer's
@@ -331,7 +338,7 @@ async def workflow_run(req: WorkflowRunRequest, _: None = Depends(require_intern
             workflow=wf,
             creds=creds,
             download_dir=os.path.join(config.DOWNLOAD_DIR, req.session_id or "adhoc"),
-            llm_model=config.LLM_MODEL,
+            llm_model=config.resolve_llm_model(),  # live: admin-UI override applies per run
             # Force headless (see _portal_call_kwargs) — the in-page-fetch download capturer is
             # headless-only, and headed is meaningless/broken for an unattended service run.
             headless=True,

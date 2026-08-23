@@ -84,6 +84,25 @@ ANTHROPIC_MINI_MODELS = [
 ]
 
 
+# Browser Use service driver model — the LLM that runs the portal agent loop
+# (browser_use_service). Rides the platform OpenAI/Azure transport for gpt-*;
+# a claude-* choice drives via Anthropic and needs a resolvable Anthropic key
+# (BYOK / provisioned) or the service falls back to the OpenAI stack. Read
+# LIVE by the service from data/model_overrides.json — no restart.
+BROWSER_USE_MODELS = [
+    'gpt-5.6-terra',
+    'gpt-5.6',
+    'gpt-5.6-sol',
+    'gpt-5.6-luna',
+    'gpt-5.4',
+    'gpt-5.4-mini',
+    'gpt-4.1',
+    'gpt-4o',
+    'claude-opus-4-8',
+    'claude-sonnet-5',
+]
+
+
 # Map each override key (used by model_overrides.py) to its dropdown list.
 # model_overrides.get_override_status() serves this to the UI.
 DROPDOWNS = {
@@ -94,4 +113,5 @@ DROPDOWNS = {
     'openai_image':     OPENAI_IMAGE_MODELS,
     'anthropic_primary': ANTHROPIC_PRIMARY_MODELS,
     'anthropic_mini':    ANTHROPIC_MINI_MODELS,
+    'browser_use_model': BROWSER_USE_MODELS,
 }

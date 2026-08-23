@@ -85,16 +85,8 @@ ENABLED = os.getenv("BROWSER_USE_ENABLED", "true").lower() == "true"
 ALLOW_ALL_USERS = os.getenv("BROWSER_USE_ALLOW_ALL_USERS", "false").lower() == "true"
 
 # --- browser-use runtime ---
-# The LLM that DRIVES the agent loop. Platform convention: AGENTIC work runs on the OpenAI
-# stack (the same get_openai_config()-shaped Azure/OpenAI transport the Command Center agent
-# uses — which is also the only transport a CLIENT install can use with BYOK off, because the
-# Azure endpoint + encrypted key are baked in via _build_config); Anthropic is reserved for
-# document processing and one-off calls. Default therefore follows the platform's Azure
-# deployment. Set BROWSER_USE_LLM_MODEL=claude-* to explicitly drive with Claude instead
-# (requires BYOK or a provisioned Anthropic key — see ensure_llm_api_key).
-LLM_MODEL = (os.getenv("BROWSER_USE_LLM_MODEL")
-             or os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
-             or "gpt-5.4")
+# The LLM that DRIVES the agent loop is resolved by resolve_llm_model() (defined below, after
+# the _env_or_build helper it needs); LLM_MODEL is the startup snapshot of it.
 # Headless (true) is the DEFAULT. Headless Chrome drops office/binary download-navigations,
 # but portal_runner re-pulls them via an in-page fetch (see _make_download_capturer), so
 # downloads work headless AND need no interactive desktop - the right mode for an NSSM service
@@ -220,6 +212,79 @@ def _decrypt(enc):
         return None
 
 
+# --- Driver LLM resolution ---
+# Platform convention: AGENTIC work runs on the OpenAI stack (the same get_openai_config()-
+# shaped Azure/OpenAI transport the Command Center agent uses — also the only transport a
+# CLIENT install can use with BYOK off, because the Azure endpoint + encrypted key are baked in
+# via _build_config); Anthropic is reserved for document processing and one-off calls. A
+# claude-* value explicitly drives with Claude instead (requires BYOK or a provisioned
+# Anthropic key — see ensure_llm_api_key / portal_runner._build_llm's keyless fallback).
+DEFAULT_LLM_MODEL = "gpt-5.4"
+
+# The admin UI (Settings → API Keys → Model Overrides) persists model choices in
+# {APP_ROOT}\data\model_overrides.json — the same file model_overrides.py writes. This service
+# cannot import that module's siblings (config.py pulls Flask, absent from this isolated env),
+# and it does NOT inherit the main app's os.environ, so the override never reaches us via env:
+# we read the JSON directly. Path mirrors model_overrides.OVERRIDES_PATH (APP_ROOT/data).
+MODEL_OVERRIDES_PATH = os.path.join(APP_ROOT, "data", "model_overrides.json")
+
+
+def _read_model_overrides():
+    """The admin-UI model overrides as a {key: str} dict, or {} when the file is missing or
+    unreadable. Fail-soft by design — a garbled file must never break a portal run. Values
+    are stripped; blank = 'no override' (same contract as model_overrides.load_overrides)."""
+    try:
+        import json as _json
+        with open(MODEL_OVERRIDES_PATH, "r", encoding="utf-8") as _fh:
+            data = _json.load(_fh)
+        if not isinstance(data, dict):
+            return {}
+        return {str(k): ("" if v is None else str(v).strip()) for k, v in data.items()}
+    except Exception:
+        return {}
+
+
+def resolve_llm_model():
+    """The model that drives the NEXT run. Highest wins:
+      1. admin-UI override for this service  — model_overrides.json 'browser_use_model'
+      2. BROWSER_USE_LLM_MODEL               — .env / process env (the dedicated pin)
+      3. admin-UI platform OpenAI primary     — model_overrides.json 'openai_primary'
+      4. AZURE_OPENAI_DEPLOYMENT_NAME         — .env / process env / _build_config
+      5. DEFAULT_LLM_MODEL
+    Call this PER RUN (main.py does) rather than caching LLM_MODEL: the JSON is re-read each
+    time, so a change saved in the admin UI applies on the next portal run with NO service
+    restart. (2) above (3) on purpose — the dedicated .env pin beats the generic platform
+    primary, exactly as .env beats config.py defaults everywhere else. Steps 3–4 together are
+    what 'unset = follow the platform's primary OpenAI deployment' means."""
+    return _resolve_llm_model_with_source()[0]
+
+
+def _resolve_llm_model_with_source():
+    """(model, source) — the chain documented on resolve_llm_model(); `source` names the layer
+    that won, for the startup log / health surface."""
+    ov = _read_model_overrides()
+    chain = (
+        (ov.get("browser_use_model"), "admin-UI override browser_use_model (data/model_overrides.json)"),
+        (os.getenv("BROWSER_USE_LLM_MODEL"), "BROWSER_USE_LLM_MODEL (.env/env)"),
+        (ov.get("openai_primary"), "admin-UI override openai_primary (data/model_overrides.json)"),
+        (_env_or_build("AZURE_OPENAI_DEPLOYMENT_NAME"), "AZURE_OPENAI_DEPLOYMENT_NAME (.env/env/_build_config)"),
+    )
+    for value, source in chain:
+        if value:
+            return value, source
+    return DEFAULT_LLM_MODEL, "built-in default"
+
+
+def describe_llm_model_source():
+    """Human-readable name of the layer the driver model currently resolves from."""
+    return _resolve_llm_model_with_source()[1]
+
+
+# Startup snapshot — used for the startup transport check/log in main.py and as the default
+# for ensure_llm_api_key(). Per-run code must call resolve_llm_model() instead.
+LLM_MODEL = resolve_llm_model()
+
+
 def resolve_openai_driver(model=None):
     """Resolve the OpenAI-stack transport for the driver LLM, mirroring the platform's
     api_keys_config.get_openai_config() priorities WITHOUT importing it (it pulls Flask,
@@ -250,7 +315,7 @@ def resolve_openai_driver(model=None):
         if key:
             return {"api_type": "open_ai", "api_key": key,
                     "base_url": _env_or_build("OPENAI_API_BASE_URL", "https://api.openai.com/v1"),
-                    "model": wanted or _env_or_build("OPENAI_DEPLOYMENT_NAME", "gpt-5.4")}
+                    "model": wanted or _env_or_build("OPENAI_DEPLOYMENT_NAME", DEFAULT_LLM_MODEL)}
 
     # 2. Direct OpenAI when the install is configured for it
     if str(_env_or_build("USE_OPENAI_API", "")).lower() in ("true", "1", "yes"):
@@ -258,14 +323,14 @@ def resolve_openai_driver(model=None):
         if key:
             return {"api_type": "open_ai", "api_key": key,
                     "base_url": _env_or_build("OPENAI_API_BASE_URL", "https://api.openai.com/v1"),
-                    "model": wanted or _env_or_build("OPENAI_DEPLOYMENT_NAME", "gpt-5.4")}
+                    "model": wanted or _env_or_build("OPENAI_DEPLOYMENT_NAME", DEFAULT_LLM_MODEL)}
 
     # 3. Azure OpenAI (platform default)
     endpoint = _env_or_build("AZURE_OPENAI_BASE_URL")
     if endpoint:
         key = os.getenv("AZURE_OPENAI_API_KEY") or _decrypt(_env_or_build("AZURE_OPENAI_API_KEY_ENCRYPTED"))
         if key:
-            deployment = wanted or _env_or_build("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5.4")
+            deployment = wanted or _env_or_build("AZURE_OPENAI_DEPLOYMENT_NAME", DEFAULT_LLM_MODEL)
             return {"api_type": "azure", "api_key": key,
                     "azure_endpoint": endpoint,
                     "api_version": _env_or_build("AZURE_OPENAI_API_VERSION", "2024-12-01-preview"),
@@ -287,7 +352,7 @@ def ensure_llm_api_key(model=None):
     provider SDK raise its own clear "missing api key" error. Returns the env-var name on
     success, else None. Never returns or logs the secret value.
     """
-    _, env_name = _provider_for_model(model or LLM_MODEL)
+    _, env_name = _provider_for_model(model or resolve_llm_model())
     if os.getenv(env_name):
         return env_name  # already plaintext (explicit override or a prior call)
 

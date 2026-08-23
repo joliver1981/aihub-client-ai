@@ -192,3 +192,111 @@ class TestPathAwareDisplay:
         monkeypatch.setenv('AZURE_OPENAI_DEPLOYMENT_NAME', 'gpt-azure-live')
         status = model_overrides.get_override_status()
         assert status['effective_values']['openai_primary'] == 'gpt-azure-live'
+
+
+# =============================================================================
+# 3. BROWSER USE — a LIVE-RELOAD key (the service re-reads the file per run)
+# =============================================================================
+
+class TestBrowserUseLiveReloadKey:
+    """'browser_use_model' is consumed by browser_use_service, which runs in its
+    own env and re-reads data/model_overrides.json on every run. So: it must be
+    an accepted key with a dropdown, it must NOT be exported into this process's
+    env, it must never gate the restart banner, and its effective value must be
+    the file (override) or the .env/platform fallback chain.
+    """
+    AZURE_CFG = dict(
+        USE_OPENAI_API=False,
+        OPENAI_DEPLOYMENT_NAME='gpt-direct',
+        AZURE_OPENAI_DEPLOYMENT_NAME='gpt-azure',
+        AZURE_OPENAI_DEPLOYMENT_NAME_MINI='gpt-azure-mini',
+        AZURE_OPENAI_DEPLOYMENT_NAME_EMBEDDING='embed',
+        OPENAI_VISION_MODEL='vision',
+        ANTHROPIC_ADVANCED='claude-a', ANTHROPIC_MODEL='claude-m', ANTHROPIC_MINI='claude-mini',
+    )
+
+    def test_key_is_allowed_and_maps_to_service_env_var(self):
+        assert 'browser_use_model' in model_overrides.ALLOWED_KEYS
+        assert model_overrides.KEY_TO_ENV_VARS['browser_use_model'] == ['BROWSER_USE_LLM_MODEL']
+        assert 'browser_use_model' in model_overrides.LIVE_RELOAD_KEYS
+
+    def test_dropdown_exists_for_key(self):
+        from supported_models import DROPDOWNS
+        assert DROPDOWNS['browser_use_model'], 'browser_use_model needs a non-empty dropdown list'
+
+    def test_save_accepts_key(self, overrides_file):
+        merged = model_overrides.save_overrides({'browser_use_model': ' gpt-5.6-terra '})
+        assert merged['browser_use_model'] == 'gpt-5.6-terra'
+        assert json.loads(overrides_file.read_text())['browser_use_model'] == 'gpt-5.6-terra'
+
+    def test_apply_does_not_export_live_key_into_env(self, overrides_file, monkeypatch):
+        import os
+        monkeypatch.setenv('BROWSER_USE_LLM_MODEL', 'from-dot-env')
+        overrides_file.write_text(json.dumps({'browser_use_model': 'gpt-ui-pick'}))
+
+        applied = model_overrides.apply_overrides_to_env()
+
+        assert 'BROWSER_USE_LLM_MODEL' not in applied
+        assert os.environ['BROWSER_USE_LLM_MODEL'] == 'from-dot-env'
+
+    def test_status_effective_is_override_when_set(self, overrides_file, monkeypatch):
+        monkeypatch.setitem(sys.modules, 'config', _stub_config(**self.AZURE_CFG))
+        monkeypatch.setenv('BROWSER_USE_LLM_MODEL', 'from-dot-env')
+        overrides_file.write_text(json.dumps({'browser_use_model': 'gpt-ui-pick'}))
+
+        status = model_overrides.get_override_status()
+
+        assert status['effective_values']['browser_use_model'] == 'gpt-ui-pick'
+        assert status['any_override_active'] is True
+
+    def test_status_default_follows_dot_env_pin_then_platform_primary(
+            self, overrides_file, monkeypatch):
+        monkeypatch.setitem(sys.modules, 'config', _stub_config(**self.AZURE_CFG))
+        overrides_file.write_text(json.dumps({'browser_use_model': ''}))
+        # _read_config_defaults lazily imports command_center_service/cc_config,
+        # whose module body calls load_dotenv() — and under the stubbed `config`
+        # that import fails, so it is never cached and would re-populate
+        # BROWSER_USE_LLM_MODEL from the repo .env on EVERY call. Stub it out.
+        monkeypatch.setitem(sys.modules, 'cc_config', types.ModuleType('cc_config'))
+
+        monkeypatch.setenv('BROWSER_USE_LLM_MODEL', 'from-dot-env')
+        monkeypatch.setenv('AZURE_OPENAI_DEPLOYMENT_NAME', 'gpt-azure-live')
+        status = model_overrides.get_override_status()
+        assert status['defaults']['browser_use_model'] == 'from-dot-env'
+        assert status['effective_values']['browser_use_model'] == 'from-dot-env'
+
+        # No dedicated pin → the platform's primary OpenAI deployment.
+        monkeypatch.delenv('BROWSER_USE_LLM_MODEL', raising=False)
+        status = model_overrides.get_override_status()
+        assert status['defaults']['browser_use_model'] == 'gpt-azure-live'
+
+        # Nothing anywhere → the service's built-in literal.
+        monkeypatch.delenv('AZURE_OPENAI_DEPLOYMENT_NAME', raising=False)
+        monkeypatch.setitem(sys.modules, 'config',
+                            _stub_config(**dict(self.AZURE_CFG, AZURE_OPENAI_DEPLOYMENT_NAME='')))
+        status = model_overrides.get_override_status()
+        assert status['defaults']['browser_use_model'] == model_overrides.BROWSER_USE_BUILTIN_DEFAULT
+
+    def test_live_key_never_gates_restart_required(self, overrides_file, monkeypatch):
+        monkeypatch.setitem(sys.modules, 'config', _stub_config(**self.AZURE_CFG))
+        # Make every non-live role consistent so they don't trip the banner.
+        for key, env_vars in model_overrides.KEY_TO_ENV_VARS.items():
+            for v in env_vars:
+                monkeypatch.delenv(v, raising=False)
+        for key in ('openai_primary', 'openai_mini', 'openai_vision', 'openai_embedding',
+                    'openai_image', 'anthropic_primary', 'anthropic_mini'):
+            default = {'openai_primary': 'gpt-5.6-terra', 'openai_mini': 'gpt-5.6-luna',
+                       'openai_vision': 'gpt-4o', 'openai_embedding': 'text-embedding-3-small',
+                       'openai_image': 'gpt-image-2', 'anthropic_primary': 'claude-opus-4-8',
+                       'anthropic_mini': 'claude-sonnet-5'}[key]
+            for v in model_overrides.KEY_TO_ENV_VARS[key]:
+                monkeypatch.setenv(v, default)
+
+        # Override set, env differs (it ALWAYS differs — the service never goes via env).
+        monkeypatch.setenv('BROWSER_USE_LLM_MODEL', 'from-dot-env')
+        overrides_file.write_text(json.dumps({'browser_use_model': 'gpt-ui-pick'}))
+        assert model_overrides.get_override_status()['restart_required'] is False
+
+        # Override cleared, .env pin differs from the built-in literal — still no banner.
+        overrides_file.write_text(json.dumps({'browser_use_model': ''}))
+        assert model_overrides.get_override_status()['restart_required'] is False

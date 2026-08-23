@@ -376,6 +376,7 @@
         { key: 'openai_image',      label: 'OpenAI Image Model',     help: 'Used by the Command Center generate_image tool. Default gpt-image-2.' },
         { key: 'anthropic_primary', label: 'Anthropic Primary Model', help: 'Default Claude model and "advanced" Claude for strong prompts.' },
         { key: 'anthropic_mini',    label: 'Anthropic Mini Model',    help: 'Fast Claude used for short internal prompts.' },
+        { key: 'browser_use_model', label: 'Browser Use Driver Model', help: 'LLM that drives portal runs (Browser Use service). Default follows BROWSER_USE_LLM_MODEL in .env, else the OpenAI primary. A claude-* choice needs an Anthropic key. Applies to the next run — no restart needed.', live: true },
     ];
 
     async function loadModelOverrides() {
@@ -438,9 +439,15 @@
             const customDisplay = (selectValue === '__custom__') ? '' : 'none';
             const customValue   = (selectValue === '__custom__') ? currentValue : '';
 
+            // Roles the consuming service re-reads from data/model_overrides.json on every
+            // use take effect on the next run without a restart — say so inline.
+            const liveBadge = role.live
+              ? ' <span class="badge badge-success ml-1" title="Re-read by the service on every run; no restart needed">live</span>'
+              : '';
+
             const html = ''
               + '<div class="form-group mb-3">'
-              + '  <label for="' + fieldId + '" class="mb-1"><strong>' + role.label + '</strong></label>'
+              + '  <label for="' + fieldId + '" class="mb-1"><strong>' + role.label + '</strong>' + liveBadge + '</label>'
               + '  <select id="' + fieldId + '" class="form-control form-control-sm" data-key="' + role.key + '" onchange="onModelSelectChange(this)">'
               +      optionsHtml
               + '  </select>'
