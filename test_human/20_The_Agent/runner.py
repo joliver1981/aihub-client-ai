@@ -2499,6 +2499,50 @@ def main():
     except Exception as e:
         check("PT-13", "hand-back -> conversation bridge", False, e)
 
+    # PT-14 Playbooks surface portal workflows (james 2026-08-23): the
+    # Playbooks inventory (/api/playbooks) lists the caller's saved portal
+    # workflows as their OWN kind (portal_workflow, id = the slug — there is
+    # no numeric id — goal as the description) next to workflows/code flows/
+    # automations. Deliberately NOT merged into "workflow": separate
+    # subsystem, this only makes them discoverable. Seeds a probe row in the
+    # shared store, asserts it appears with ONLY the four inventory fields
+    # (steps/secrets never leave the store), then deletes it.
+    _pb_slug = None
+    try:
+        seeded = _pwf.save_workflow(
+            1, "Pack20 Playbooks Probe",
+            [{"type": "goto", "url": "http://localhost:3000/login"}],
+            start_url="http://localhost:3000/login",
+            goal="pack20: prove portal workflows appear in Playbooks")
+        _pb_slug = seeded["slug"]
+        rp = requests.get(f"{BASE}/api/playbooks",
+                          headers={"Authorization": f"Bearer {token}"},
+                          timeout=90)
+        pb = rp.json() if rp.status_code == 200 else {}
+        rows = [p for p in pb.get("playbooks", [])
+                if p.get("kind") == "portal_workflow"]
+        mine = next((p for p in rows if p.get("id") == _pb_slug), {})
+        pw_errors = [e for e in pb.get("errors", [])
+                     if "portal workflow" in str(e).lower()]
+        check("PT-14", "Playbooks list portal workflows as their own kind "
+                       "(id = slug, goal as description, only the four "
+                       "inventory fields, no errors)",
+              rp.status_code == 200 and bool(mine)
+              and mine.get("name") == "Pack20 Playbooks Probe"
+              and "prove portal workflows appear" in (mine.get("description") or "")
+              and set(mine) == {"kind", "id", "name", "description"}
+              and not pw_errors,
+              f"http={rp.status_code} portal_rows={len(rows)} "
+              f"mine={json.dumps(mine)[:160]} errors={pw_errors}")
+    except Exception as e:
+        check("PT-14", "Playbooks list portal workflows", False, e)
+    finally:
+        try:
+            if _pb_slug:
+                _pwf.delete_workflow(1, _pb_slug)
+        except Exception:
+            pass
+
     _write_report(checks)
     if not all(c["ok"] for c in checks):
         sys.exit(1)

@@ -1557,10 +1557,12 @@
 
   // ---------- playbooks ----------
   const PB_STYLE = { workflow: "t-review", code_flow: "t-provide_input",
-                     automation: "t-approve_deny" };
+                     automation: "t-approve_deny",
+                     portal_workflow: "t-edit_and_return" };
   let pbData = [], pbFilter = "all", pbQuery = "";
   const PB_FILTERS = [["all", "All"], ["workflow", "Workflows"],
-                      ["code_flow", "Code Flows"], ["automation", "Automations"]];
+                      ["code_flow", "Code Flows"], ["automation", "Automations"],
+                      ["portal_workflow", "Portal workflows"]];
   function renderPbFilters() {
     const box = document.getElementById("pb-filters");
     box.innerHTML = "";
@@ -1630,10 +1632,12 @@
         b.onclick = () => {
           // Workflows/code flows deep-link straight into the designer with
           // THAT workflow loaded (?load_workflow_id — workflow.js handles it);
+          // portal workflows open the Portal Workflows page with that slug
+          // loaded (?load= — same deep link the co-browse save flow uses);
           // automations open Mission Control (no per-item deep link exists).
-          const url = p.kind === "automation"
-            ? platUrl("/automations/")
-            : platUrl(`/workflow_tool?load_workflow_id=${encodeURIComponent(p.id)}`);
+          const url = p.kind === "automation"      ? platUrl("/automations/")
+                    : p.kind === "portal_workflow" ? platUrl(`/portal-workflows?load=${encodeURIComponent(p.id)}`)
+                    : platUrl(`/workflow_tool?load_workflow_id=${encodeURIComponent(p.id)}`);
           window.open(url, "_blank", "noopener");
         };
         list.appendChild(b);

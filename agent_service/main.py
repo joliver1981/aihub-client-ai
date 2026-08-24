@@ -852,6 +852,18 @@ async def playbooks(request: Request):
             errors.append(f"automations: HTTP {status}")
     except Exception as e:
         errors.append(f"automations: {e}")
+    try:
+        # Portal workflows live in their own per-user store (NOT /get/workflows);
+        # list_workflows scopes to the caller and never returns a secret. Keyed
+        # by slug — there is no numeric id.
+        from command_center.tools import portal_workflows as _pwf
+        for w in _pwf.list_workflows(int(user.get("user_id") or 0)):
+            out.append({"kind": "portal_workflow",
+                        "id": w.get("slug"),
+                        "name": w.get("name"),
+                        "description": w.get("goal") or w.get("start_url") or ""})
+    except Exception as e:
+        errors.append(f"portal workflows: {e}")
     return {"playbooks": out, "errors": errors}
 
 
