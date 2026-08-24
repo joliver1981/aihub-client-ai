@@ -21,6 +21,7 @@ Step schema (see browser_use_service/workflow_runner.py for the executor):
 """
 import json
 import os
+import re
 import threading
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -46,6 +47,73 @@ def _store_path() -> str:
 def slug(name: str) -> str:
     """Canonical lookup key: lowercased, runs of non-alphanumerics collapsed to one '_'."""
     return "_".join("".join(c if c.isalnum() else " " for c in (name or "")).split()).lower()
+
+
+# Generic auto-record names that must NEVER become a shared lookup key. Every
+# recorded run used to save as "Recorded workflow" -> slug "recorded_workflow",
+# so each new recording silently OVERWROTE the previous one (they all collided
+# on the single key). A generic/blank recording is now re-named from its goal
+# and given a collision-safe slug (see save_workflow's auto_record path).
+GENERIC_NAMES = ("Recorded workflow", "Recorded portal run", "Recorded portal workflow")
+_GENERIC_SLUGS = frozenset(slug(n) for n in GENERIC_NAMES)
+
+
+def is_generic_name(name: str) -> bool:
+    """True for a blank name or one of the canned auto-record placeholders."""
+    s = slug(name)
+    return (not s) or s in _GENERIC_SLUGS
+
+
+_NAME_FILLER_RE = re.compile(
+    r"^(please\s+|kindly\s+|can you\s+|could you\s+|go to\s+|goto\s+|navigate to\s+|"
+    r"open\s+|visit\s+|log ?in( to)?\s+(and\s+)?|sign ?in( to)?\s+(and\s+)?)", re.I)
+
+
+def derive_name_from_goal(goal: str, max_words: int = 8, max_chars: int = 60) -> str:
+    """A deterministic, human-readable workflow name distilled from the run's
+    goal (the task text) — the no-LLM fallback when nothing better was supplied.
+    Strips leading filler ('go to', 'log in and', ...) and trims to a few words.
+    Returns '' if the goal has no usable (sluggable) words."""
+    g = re.sub(r"\s+", " ", str(goal or "").strip())
+    prev = None
+    while g and g != prev:           # peel repeated leading filler ("go to log in and ...")
+        prev = g
+        g = _NAME_FILLER_RE.sub("", g).strip()
+    if not g:
+        return ""
+    g = " ".join(g.split()[:max_words])
+    if len(g) > max_chars:
+        g = g[:max_chars].rsplit(" ", 1)[0].strip()
+    g = g.rstrip(".!,;:").strip()
+    if not any(c.isalnum() for c in g):
+        return ""
+    return g[:1].upper() + g[1:]
+
+
+def _find_by_task(wfs: Dict[str, Any], start_url: Optional[str],
+                  goal: Optional[str]) -> Optional[str]:
+    """The slug of an existing workflow that is the SAME task (same start_url +
+    goal, both non-empty), else None. Lets a re-record update in place even when
+    its name differs — e.g. an LLM namer phrased the same task differently the
+    second time — instead of piling up near-duplicates."""
+    if not (start_url and goal):
+        return None
+    for k, e in wfs.items():
+        if (e or {}).get("start_url") == start_url and (e or {}).get("goal") == goal:
+            return k
+    return None
+
+
+def _unique_slug(wfs: Dict[str, Any], base: str) -> str:
+    """A slug that never overwrites a DIFFERENT saved workflow: `base` if free,
+    else the first free `base_2`, `base_3`, … (caller has already ruled out a
+    same-task match via _find_by_task)."""
+    if base not in wfs:
+        return base
+    i = 2
+    while f"{base}_{i}" in wfs:
+        i += 1
+    return f"{base}_{i}"
 
 
 def _now() -> str:
@@ -209,18 +277,34 @@ def save_workflow(user_id: Any, name: str, steps: List[Dict[str, Any]],
                   portal_slug: Optional[str] = None, start_url: Optional[str] = None,
                   goal: Optional[str] = None,
                   agent_oversight: Optional[bool] = None,
-                  takeover_timeout: Optional[int] = None) -> Dict[str, Any]:
+                  takeover_timeout: Optional[int] = None,
+                  auto_record: bool = False) -> Dict[str, Any]:
     """Persist (create or update) a workflow's non-sensitive definition. Raises ValueError if
     the steps fail structural validation. Returns the saved {slug, name, step_count}.
 
     `agent_oversight` (default ON) lets a supervising LLM step in when a recorded step gets stuck.
     `takeover_timeout` (seconds, optional) is the per-workflow human/2FA take-over window; None
-    keeps the prior value (or the service default), 0 also clears it back to the default."""
+    keeps the prior value (or the service default), 0 also clears it back to the default.
+
+    `auto_record` marks a RECORDED run (not an intentional builder save): a generic/blank name
+    is re-derived from `goal`, and the slug is made collision-safe so distinct recordings never
+    overwrite each other (a re-record of the SAME task still updates in place). Intentional saves
+    (auto_record=False with a real name) keep the exact prior overwrite-in-place semantics.
+    A generic/blank name ALWAYS gets this treatment even when auto_record is False, since that is
+    only ever an auto-recording — it fixes the historical 'Recorded workflow' clobber."""
     problems = validate_steps(steps)
     if problems:
         raise ValueError("; ".join(problems))
     if start_url and not valid_url(start_url):
         raise ValueError(f"invalid start_url {start_url!r} — use a full http(s):// address")
+    generic = is_generic_name(name)
+    # Auto-name a generic/blank recording from its goal (deterministic; a caller that already
+    # computed a good name — e.g. an LLM suggestion — passes it and this is skipped).
+    if generic and goal:
+        derived = derive_name_from_goal(goal)
+        if derived:
+            name = derived
+            generic = is_generic_name(name)   # a derived name is no longer generic
     s = slug(name)
     if not s:
         # A name made entirely of special characters (e.g. '<') slugs to '' — it would save
@@ -231,6 +315,18 @@ def save_workflow(user_id: Any, name: str, steps: List[Dict[str, Any]],
         data = _load()
         wfs = data.setdefault("users", {}).setdefault(
             str(user_id or "anon"), {}).setdefault("workflows", {})
+        # Recordings never clobber a DIFFERENT saved workflow (the historical
+        # "Recorded workflow" collision). A re-record of the SAME task updates
+        # in place (keeping its established name, so the name doesn't flip on
+        # every re-record); a genuinely different one gets a fresh slug.
+        # Intentional builder saves of a real name overwrite in place as before.
+        if auto_record or generic:
+            same_task = _find_by_task(wfs, start_url, goal)
+            if same_task:
+                s = same_task
+                name = (wfs[same_task].get("name") or name)   # keep the established name
+            else:
+                s = _unique_slug(wfs, s)
         prev = wfs.get(s, {})
         wfs[s] = {
             "name": name,

@@ -735,6 +735,95 @@ def test_save_portal_readback_failure_is_loud():
     assert res.get("is_error") and "did NOT verify" in _txt(res)
 
 
+# -------------------------------------------------------------------- auto-naming (2026-08-23)
+
+def test_clean_name_sanitizes():
+    assert portal_tools._clean_name('"Master Price List"') == "Master Price List"
+    assert portal_tools._clean_name("Download Invoice.\n\nblah") == "Download Invoice"
+    assert portal_tools._clean_name("`Vendor Portal Export`;") == "Vendor Portal Export"
+    assert portal_tools._clean_name("one two three four five six seven eight") \
+        == "one two three four five six"          # 6-word cap
+    assert portal_tools._clean_name("   ") == ""
+    assert portal_tools._clean_name("###") == ""   # not sluggable
+
+
+class _FakeResp:
+    def __init__(self, status, text_out=""):
+        self.status_code = status
+        self._t = text_out
+
+    def json(self):
+        return {"content": [{"type": "text", "text": self._t}]}
+
+
+def test_suggest_name_uses_haiku_when_available():
+    import httpx
+    captured = {}
+
+    def fake_post(url, **kw):
+        captured["url"] = url
+        captured["model"] = kw.get("json", {}).get("model")
+        return _FakeResp(200, "Master Price List Download")
+    with patched(portal_tools, NAMING_ENABLED=True), \
+         patched(os, environ={**os.environ, "ANTHROPIC_API_KEY": "k",
+                              "ANTHROPIC_BASE_URL": "http://relay.local/api/agent-llm"}), \
+         patched(httpx, post=fake_post):
+        name = portal_tools._suggest_workflow_name(
+            "download the master price list", "http://portal.local/login",
+            [{"type": "goto"}, {"type": "login"}])
+    assert name == "Master Price List Download"
+    assert captured["url"].endswith("/v1/messages")
+    assert captured["model"] == portal_tools.NAMING_MODEL
+
+
+def test_suggest_name_falls_back_on_non_200_or_disabled():
+    import httpx
+    with patched(portal_tools, NAMING_ENABLED=True), \
+         patched(os, environ={**os.environ, "ANTHROPIC_API_KEY": "k"}), \
+         patched(httpx, post=lambda url, **kw: _FakeResp(404, "")):
+        assert portal_tools._suggest_workflow_name("do a thing", "http://x/login", []) == ""
+    # disabled -> no call at all
+    with patched(portal_tools, NAMING_ENABLED=False):
+        assert portal_tools._suggest_workflow_name("do a thing", "http://x/login", []) == ""
+
+
+def test_autosave_prefers_llm_name_and_marks_auto_record():
+    from command_center.tools import portal_workflows as wf
+    seen = {}
+
+    def fake_save(uid, name, steps, portal_slug=None, start_url=None, goal=None, **kw):
+        seen.update(name=name, auto_record=kw.get("auto_record"), goal=goal)
+        return {"slug": wf.slug(name), "name": name, "step_count": len(steps)}
+    res = {"draft_workflow": {"name": "Recorded workflow", "goal": "download the master price list",
+                              "start_url": "http://portal.local/login",
+                              "steps": [{"type": "goto"}, {"type": "login"}]}}
+    with patched(portal_tools, _suggest_workflow_name=lambda *a, **k: "Master Price List"), \
+         patched(wf, save_workflow=fake_save):
+        note = portal_tools._autosave_draft(res, TEST_UID)
+    assert seen["name"] == "Master Price List" and seen["auto_record"] is True
+    assert "Master Price List" in note
+
+
+def test_autosave_falls_back_to_store_goal_naming_when_llm_blank():
+    from command_center.tools import portal_workflows as wf
+    seen = {}
+
+    def fake_save(uid, name, steps, portal_slug=None, start_url=None, goal=None, **kw):
+        # the store would derive from goal; here we just confirm the generic
+        # placeholder was passed through (not a hallucinated name) with the goal
+        seen.update(name=name, goal=goal, auto_record=kw.get("auto_record"))
+        return {"slug": "download_the_master_price_list",
+                "name": wf.derive_name_from_goal(goal), "step_count": len(steps)}
+    res = {"draft_workflow": {"name": "Recorded workflow", "goal": "download the master price list",
+                              "start_url": "http://portal.local/login",
+                              "steps": [{"type": "goto"}]}}
+    with patched(portal_tools, _suggest_workflow_name=lambda *a, **k: ""), \
+         patched(wf, save_workflow=fake_save):
+        note = portal_tools._autosave_draft(res, TEST_UID)
+    assert seen["name"] == "Recorded workflow" and seen["auto_record"] is True
+    assert "Download the master price list" in note   # store-derived name surfaced
+
+
 # -------------------------------------------------------------------- runner
 
 if __name__ == "__main__":

@@ -49,6 +49,15 @@ WAIT_SECONDS = int(os.getenv("AGENT_PORTAL_WAIT_SECONDS", "120"))
 CHECK_WAIT_SECONDS = int(os.getenv("AGENT_PORTAL_CHECK_WAIT_SECONDS", "60"))
 WORKFLOW_TIMEOUT_SECONDS = int(os.getenv("AGENT_PORTAL_WORKFLOW_TIMEOUT", "600"))
 
+# Auto-naming for recorded portal workflows (2026-08-23): a cheap Haiku call
+# turns the run's goal into a crisp title instead of the generic "Recorded
+# workflow". Fails soft to a deterministic goal-derived name in the store, so
+# naming can never block or fail a save. Routes through whatever Anthropic
+# endpoint the service uses (the relay in relay mode, direct otherwise).
+NAMING_ENABLED = os.getenv("AGENT_WORKFLOW_NAMING", "true").lower() == "true"
+NAMING_MODEL = os.getenv("AGENT_WORKFLOW_NAMING_MODEL", "claude-haiku-4-5-20251001")
+NAMING_TIMEOUT = float(os.getenv("AGENT_WORKFLOW_NAMING_TIMEOUT", "8"))
+
 _ALLOW_ALL = os.getenv("BROWSER_USE_ALLOW_ALL_USERS", "false").lower() == "true"
 _DENIED = ("Portal access requires a Developer role on this instance. Your "
            "account doesn't have permission to drive web portals.")
@@ -121,18 +130,96 @@ def _stage_files(uid, files):
     return links, paths, errors
 
 
+def _clean_name(txt: str) -> str:
+    """Sanitize a model-suggested name: first line only; strip quotes/backticks
+    and trailing punctuation; cap to ~6 words / 60 chars; require at least one
+    alphanumeric so it slugs to a reachable key."""
+    if not txt:
+        return ""
+    # strip any mix of surrounding quotes / backticks / punctuation / dashes
+    _EDGE = " \t\"'`.!,;:—-"
+    line = txt.splitlines()[0].strip(_EDGE)
+    words = line.split()
+    if len(words) > 6:
+        line = " ".join(words[:6])
+    if len(line) > 60:
+        line = line[:60].rsplit(" ", 1)[0].strip()
+    return line if any(c.isalnum() for c in line) else ""
+
+
+def _suggest_workflow_name(goal, start_url, steps) -> str:
+    """Cheap Haiku call → a crisp 2–5 word Title Case name for a recorded portal
+    workflow, or "" on ANY problem (the store then falls back to a deterministic
+    goal-derived name). Never raises — naming must never break saving."""
+    if not NAMING_ENABLED or not (goal or start_url):
+        return ""
+    try:
+        import httpx
+        from urllib.parse import urlparse
+        from agent_config import ensure_anthropic_key
+        ensure_anthropic_key()
+        base = (os.getenv("ANTHROPIC_BASE_URL") or "https://api.anthropic.com").rstrip("/")
+        key = os.getenv("ANTHROPIC_API_KEY", "")
+        if not key:
+            return ""
+        try:
+            host = urlparse(start_url or "").netloc
+        except Exception:
+            host = ""
+        types = [s.get("type") for s in (steps or [])
+                 if isinstance(s, dict) and s.get("type")][:12]
+        prompt = (
+            "Give a short, human-friendly NAME (2-5 words, Title Case, no quotes, no "
+            "trailing punctuation) for a saved web-portal automation, so a person can "
+            "recognize it in a list. Base it on the task.\n"
+            f"Task: {str(goal or '').strip()[:300]}\n"
+            f"Portal host: {host or '(unknown)'}\n"
+            f"Steps: {', '.join(types) or '(n/a)'}\n"
+            "Reply with ONLY the name.")
+        r = httpx.post(
+            f"{base}/v1/messages", timeout=NAMING_TIMEOUT,
+            headers={"x-api-key": key, "anthropic-version": "2023-06-01",
+                     "content-type": "application/json"},
+            json={"model": NAMING_MODEL, "max_tokens": 24,
+                  "messages": [{"role": "user", "content": prompt}]})
+        if r.status_code != 200:
+            logger.info(f"workflow naming: HTTP {r.status_code} from {NAMING_MODEL}; "
+                        "falling back to the goal-derived name")
+            return ""
+        d = r.json()
+        txt = "".join(b.get("text", "") for b in d.get("content", [])
+                      if isinstance(b, dict) and b.get("type") == "text")
+        name = _clean_name(txt)
+        if name:
+            logger.info(f"workflow naming: {NAMING_MODEL} -> {name!r}")
+        return name
+    except Exception as e:
+        logger.info(f"workflow naming failed ({e}); falling back to the goal-derived name")
+        return ""
+
+
 def _autosave_draft(res: dict, uid) -> str:
     """CC parity: a successful ad-hoc run may carry a recorded, re-runnable
-    draft workflow — save it so next time is a deterministic replay."""
+    draft workflow — save it so next time is a deterministic replay. The generic
+    "Recorded workflow" placeholder is replaced with a real name (a cheap Haiku
+    call, else a deterministic goal-derived one in the store), and the slug is
+    collision-safe so distinct recordings never overwrite each other."""
     draft = res.get("draft_workflow") or {}
     steps = draft.get("steps") or []
     if not steps:
         return ""
     try:
         from command_center.tools import portal_workflows as wf_store
-        saved = wf_store.save_workflow(uid, draft.get("name") or "Recorded portal run",
-                                       steps, None, draft.get("start_url"),
-                                       draft.get("goal"))
+        raw_name = str(draft.get("name") or "")
+        goal = draft.get("goal")
+        start_url = draft.get("start_url")
+        # A blank/generic recording name → propose a crisp one; if the model
+        # yields nothing, save_workflow derives a name from the goal itself.
+        name = raw_name
+        if wf_store.is_generic_name(raw_name):
+            name = _suggest_workflow_name(goal, start_url, steps) or raw_name
+        saved = wf_store.save_workflow(uid, name or "Recorded portal run",
+                                       steps, None, start_url, goal, auto_record=True)
         return (f"This run was RECORDED as reusable portal workflow "
                 f"'{saved['name']}' ({saved['step_count']} steps) — next time the user "
                 f"can just ask to run that portal workflow for a deterministic replay "
