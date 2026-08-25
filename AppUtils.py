@@ -2604,12 +2604,12 @@ def send_email_smtp(
     body: str,
     attachment_path: Optional[str] = None,
     html_content: bool = False,
-    smtp_host: str = cfg.SMTP_HOST,
-    smtp_port: int = cfg.SMTP_PORT,
-    smtp_user: str = cfg.SMTP_USER,
-    smtp_password: str = cfg.SMTP_PASSWORD,
-    smtp_use_tls: bool = cfg.SMTP_USE_TLS,
-    smtp_from: str = cfg.SMTP_FROM
+    smtp_host: Optional[str] = None,
+    smtp_port: Optional[int] = None,
+    smtp_user: Optional[str] = None,
+    smtp_password: Optional[str] = None,
+    smtp_use_tls: Optional[bool] = None,
+    smtp_from: Optional[str] = None
 ) -> bool:
     """
     Send an email using SMTP server with optional attachment.
@@ -2636,7 +2636,18 @@ def send_email_smtp(
         from email.mime.multipart import MIMEMultipart
         from email.mime.application import MIMEApplication
         from email.utils import formatdate
-        
+
+        # Resolve config at CALL time — admin Email Settings page wins, .env
+        # is the fallback; explicit keyword args from a caller still override.
+        from email_settings import get_email_config
+        _conf = get_email_config()
+        smtp_host = _conf['smtp_host'] if smtp_host is None else smtp_host
+        smtp_port = _conf['smtp_port'] if smtp_port is None else smtp_port
+        smtp_user = _conf['smtp_user'] if smtp_user is None else smtp_user
+        smtp_password = _conf['smtp_password'] if smtp_password is None else smtp_password
+        smtp_use_tls = _conf['smtp_use_tls'] if smtp_use_tls is None else smtp_use_tls
+        smtp_from = _conf['smtp_from'] if smtp_from is None else smtp_from
+
         # Convert single recipient to list
         if isinstance(recipients, str):
             recipients = [recipients]

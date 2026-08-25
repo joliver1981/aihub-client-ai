@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/css/doc-pages-theme.css">
+
+<div class="doc-page" id="docPage">
+<div style="position:fixed;bottom:20px;right:20px;z-index:100;">
+    <button class="doc-theme-toggle" onclick="toggleDocTheme()" title="Toggle theme">
+        <i class="fas fa-moon" id="docThemeIcon"></i> <span id="docThemeLabel">Dark</span>
+    </button>
+</div>
+<div class="container-fluid py-4">
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="mb-1">
+                <i class="fas fa-envelope text-primary mr-2"></i>
+                Email Settings
+            </h2>
+            <p class="text-muted mb-0">Outbound notification email (SMTP relay / Azure Communication Services)</p>
+        </div>
+        <div>
+            <span class="badge badge-pill px-3 py-2" id="sourceBadge" style="font-size:0.9rem;">
+                <i class="fas fa-spinner fa-spin mr-1"></i> Loading...
+            </span>
+        </div>
+    </div>
+
+    <div class="alert alert-info mb-4">
+        <div class="d-flex align-items-start">
+            <i class="fas fa-info-circle mr-3 mt-1" style="font-size:1.2rem;"></i>
+            <div>
+                <strong>How this works</strong>
+                <p class="mb-0 mt-1">
+                    These settings control the email the platform <em>sends</em> — batch notifications,
+                    review reminders, workflow alerts. Saving here overrides the server's .env values and
+                    takes effect on the next email, no restart. Passwords and connection strings are stored
+                    in the machine's encrypted secrets store and are never shown back.
+                    (Inbound email processing is configured elsewhere and is not affected.)
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8">
+
+            <div class="card shadow-sm mb-4">
+                <div class="card-body py-3">
+                    <h5 class="mb-3">Sending method</h5>
+                    <div class="custom-control custom-radio custom-control-inline">
+                        <input type="radio" name="provider" id="provSmtp" value="smtp" class="custom-control-input">
+                        <label class="custom-control-label" for="provSmtp">SMTP (relay / connector)</label>
+                    </div>
+                    <div class="custom-control custom-radio custom-control-inline">
+                        <input type="radio" name="provider" id="provAzure" value="azure" class="custom-control-input">
+                        <label class="custom-control-label" for="provAzure">Azure Communication Services</label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card shadow-sm mb-4" id="smtpCard">
+                <div class="card-body">
+                    <h5 class="mb-3"><i class="fas fa-server mr-2 text-muted"></i>SMTP</h5>
+                    <div class="form-row">
+                        <div class="form-group col-md-8">
+                            <label for="smtpHost">Host</label>
+                            <input type="text" class="form-control" id="smtpHost" placeholder="relay.company.local">
+                        </div>
+                        <div class="form-group col-md-2">
+                            <label for="smtpPort">Port</label>
+                            <input type="number" class="form-control" id="smtpPort" placeholder="25">
+                        </div>
+                        <div class="form-group col-md-2 d-flex align-items-end">
+                            <div class="custom-control custom-checkbox mb-2">
+                                <input type="checkbox" class="custom-control-input" id="smtpTls">
+                                <label class="custom-control-label" for="smtpTls">STARTTLS</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group col-md-6">
+                            <label for="smtpUser">Username <span class="text-muted small">(blank = anonymous / IP-allowlisted relay)</span></label>
+                            <input type="text" class="form-control" id="smtpUser" autocomplete="off">
+                        </div>
+                        <div class="form-group col-md-6">
+                            <label for="smtpPassword">Password <span class="text-muted small" id="smtpPwHint"></span></label>
+                            <input type="password" class="form-control" id="smtpPassword" autocomplete="new-password"
+                                   placeholder="leave blank to keep the stored value">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="smtpFrom">From address</label>
+                        <input type="text" class="form-control" id="smtpFrom" placeholder="aihub-notifications@company.com">
+                    </div>
+                </div>
+            </div>
+
+            <div class="card shadow-sm mb-4" id="azureCard">
+                <div class="card-body">
+                    <h5 class="mb-3"><i class="fab fa-microsoft mr-2 text-muted"></i>Azure Communication Services</h5>
+                    <div class="form-group">
+                        <label for="azureSender">Sender address</label>
+                        <input type="text" class="form-control" id="azureSender" placeholder="DoNotReply@verified-domain.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="azureConn">Connection string <span class="text-muted small" id="azureConnHint"></span></label>
+                        <input type="password" class="form-control" id="azureConn" autocomplete="new-password"
+                               placeholder="leave blank to keep the stored value">
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex align-items-center mb-4">
+                <button class="btn btn-primary mr-2" id="saveBtn"><i class="fas fa-save mr-1"></i> Save</button>
+                <button class="btn btn-outline-secondary mr-3" id="revertBtn"
+                        title="Remove the UI configuration and go back to the server's .env values">
+                    Revert to server defaults
+                </button>
+                <span id="saveResult" class="small"></span>
+            </div>
+
+            <div class="card shadow-sm mb-4">
+                <div class="card-body py-3">
+                    <h5 class="mb-2">Send a test email</h5>
+                    <p class="text-muted small mb-2">Uses whatever configuration is active right now (see badge above)
+                        and shows the real transport error if it fails.</p>
+                    <div class="form-row align-items-center">
+                        <div class="col-md-6 mb-2">
+                            <input type="email" class="form-control" id="testTo" placeholder="you@company.com">
+                        </div>
+                        <div class="col-auto mb-2">
+                            <button class="btn btn-outline-primary" id="testBtn">
+                                <i class="fas fa-paper-plane mr-1"></i> Send test
+                            </button>
+                        </div>
+                    </div>
+                    <div id="testResult" class="small"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card shadow-sm mb-4">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase mb-3" style="letter-spacing:.04em;">Server .env defaults</h6>
+                    <div id="envDefaults" class="small" style="line-height:1.9;"></div>
+                    <hr>
+                    <p class="small text-muted mb-0">
+                        When nothing is configured on this page, the platform uses these values.
+                        Saving here overrides them; "Revert" returns to them.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+
+<script>
+(function () {
+    const $id = (i) => document.getElementById(i);
+    const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    function showCards() {
+        const p = document.querySelector('input[name="provider"]:checked');
+        $id('smtpCard').style.display = (p && p.value === 'smtp') ? '' : 'none';
+        $id('azureCard').style.display = (p && p.value === 'azure') ? '' : 'none';
+    }
+    document.querySelectorAll('input[name="provider"]').forEach(r => r.addEventListener('change', showCards));
+
+    function setBadge(source, provider) {
+        const b = $id('sourceBadge');
+        if (source === 'ui') {
+            b.className = 'badge badge-pill badge-success px-3 py-2';
+            b.innerHTML = '<i class="fas fa-check mr-1"></i> UI configuration active (' + esc(provider) + ')';
+        } else {
+            b.className = 'badge badge-pill badge-secondary px-3 py-2';
+            b.innerHTML = 'Using server .env defaults (' + esc(provider) + ')';
+        }
+    }
+
+    function load() {
+        fetch('/api/email-settings/status')
+            .then(r => r.json())
+            .then(d => {
+                if (!d.success) throw new Error(d.error || 'load failed');
+                setBadge(d.source, d.provider);
+                const ui = d.ui || {};
+                const prov = ui.provider || d.env_defaults.provider || 'smtp';
+                const radio = $id(prov === 'azure' ? 'provAzure' : 'provSmtp');
+                if (radio) radio.checked = true;
+                $id('smtpHost').value = ui.smtp.host || '';
+                $id('smtpPort').value = ui.smtp.port || '';
+                $id('smtpUser').value = ui.smtp.user || '';
+                $id('smtpFrom').value = ui.smtp.from || '';
+                $id('smtpTls').checked = !!ui.smtp.use_tls;
+                $id('azureSender').value = ui.azure.sender || '';
+                $id('smtpPwHint').textContent = ui.smtp_password_set ? '(a value is stored)' : '(none stored)';
+                $id('azureConnHint').textContent = ui.azure_conn_str_set ? '(a value is stored)' : '(none stored)';
+                const e = d.env_defaults;
+                $id('envDefaults').innerHTML =
+                    '<div><strong>Provider:</strong> ' + esc(e.provider) + '</div>' +
+                    '<div><strong>SMTP:</strong> ' + esc(e.smtp_host || '—') + (e.smtp_port ? ':' + esc(e.smtp_port) : '') +
+                    (e.smtp_use_tls ? ' (STARTTLS)' : '') + '</div>' +
+                    '<div><strong>SMTP user:</strong> ' + esc(e.smtp_user || '—') +
+                    (e.smtp_password_set ? ' <span class="text-muted">(password set)</span>' : '') + '</div>' +
+                    '<div><strong>From:</strong> ' + esc(e.smtp_from || '—') + '</div>' +
+                    '<div><strong>Azure sender:</strong> ' + esc(e.azure_sender || '—') +
+                    (e.azure_conn_str_set ? ' <span class="text-muted">(conn. string set)</span>' : '') + '</div>';
+                showCards();
+            })
+            .catch(err => { $id('sourceBadge').textContent = 'Load failed: ' + err.message; });
+    }
+
+    function post(url, body) {
+        return fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        }).then(r => r.json());
+    }
+
+    $id('saveBtn').addEventListener('click', () => {
+        const prov = document.querySelector('input[name="provider"]:checked');
+        const out = $id('saveResult');
+        out.textContent = 'Saving...';
+        post('/api/email-settings/save', {
+            provider: prov ? prov.value : '',
+            smtp: {
+                host: $id('smtpHost').value, port: $id('smtpPort').value,
+                user: $id('smtpUser').value, from: $id('smtpFrom').value,
+                use_tls: $id('smtpTls').checked, password: $id('smtpPassword').value
+            },
+            azure: { sender: $id('azureSender').value, connection_string: $id('azureConn').value }
+        }).then(d => {
+            out.className = d.success ? 'small text-success' : 'small text-danger';
+            out.textContent = d.success ? d.message : (d.error || 'save failed');
+            if (d.success) { $id('smtpPassword').value = ''; $id('azureConn').value = ''; load(); }
+        }).catch(e => { out.className = 'small text-danger'; out.textContent = e.message; });
+    });
+
+    $id('revertBtn').addEventListener('click', () => {
+        if (!confirm('Remove the UI configuration and go back to the server .env values?')) return;
+        post('/api/email-settings/revert', {}).then(d => {
+            const out = $id('saveResult');
+            out.className = d.success ? 'small text-success' : 'small text-danger';
+            out.textContent = d.success ? d.message : (d.error || 'revert failed');
+            load();
+        });
+    });
+
+    $id('testBtn').addEventListener('click', () => {
+        const out = $id('testResult');
+        out.className = 'small';
+        out.textContent = 'Sending...';
+        post('/api/email-settings/test', { to: $id('testTo').value }).then(d => {
+            out.className = d.success ? 'small text-success' : 'small text-danger';
+            out.textContent = d.success ? d.message : (d.error || 'test failed');
+        }).catch(e => { out.className = 'small text-danger'; out.textContent = e.message; });
+    });
+
+    load();
+})();
+</script>
+{% endblock %}

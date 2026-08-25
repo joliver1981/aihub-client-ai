@@ -32,8 +32,11 @@ def send_email_azure(
         bool: True if email was sent successfully, False otherwise
     """
     try:
-        connection_string = cfg.API_AZURE_EMAIL_CONN_STR
-        sender = cfg.API_AZURE_EMAIL_SENDER
+        # Admin Email Settings (UI) wins; .env is the fallback.
+        from email_settings import get_email_config
+        _conf = get_email_config()
+        connection_string = _conf['azure_conn_str'] or cfg.API_AZURE_EMAIL_CONN_STR
+        sender = _conf['azure_sender'] or cfg.API_AZURE_EMAIL_SENDER
 
         # Initialize the email client
         email_client = EmailClient.from_connection_string(connection_string)
@@ -86,12 +89,12 @@ def send_email_smtp(
     body: str,
     attachment_path: Optional[str] = None,
     html_content: bool = False,
-    smtp_host: str = cfg.SMTP_HOST,
-    smtp_port: int = cfg.SMTP_PORT,
-    smtp_user: str = cfg.SMTP_USER,
-    smtp_password: str = cfg.SMTP_PASSWORD,
-    smtp_use_tls: bool = cfg.SMTP_USE_TLS,
-    smtp_from: str = cfg.SMTP_FROM
+    smtp_host: Optional[str] = None,
+    smtp_port: Optional[int] = None,
+    smtp_user: Optional[str] = None,
+    smtp_password: Optional[str] = None,
+    smtp_use_tls: Optional[bool] = None,
+    smtp_from: Optional[str] = None
 ) -> bool:
     """
     Send an email using SMTP server with optional attachment.
@@ -113,10 +116,23 @@ def send_email_smtp(
         bool: True if email was sent successfully, False otherwise
     """
     try:
+        # Resolve config at CALL time (admin Email Settings page wins, .env is
+        # the fallback). Explicit keyword args from a caller still override.
+        # This replaces the old import-time default-arg binding, which froze
+        # .env values until a service restart.
+        from email_settings import get_email_config
+        _conf = get_email_config()
+        smtp_host = _conf['smtp_host'] if smtp_host is None else smtp_host
+        smtp_port = _conf['smtp_port'] if smtp_port is None else smtp_port
+        smtp_user = _conf['smtp_user'] if smtp_user is None else smtp_user
+        smtp_password = _conf['smtp_password'] if smtp_password is None else smtp_password
+        smtp_use_tls = _conf['smtp_use_tls'] if smtp_use_tls is None else smtp_use_tls
+        smtp_from = _conf['smtp_from'] if smtp_from is None else smtp_from
+
         # Convert single recipient to list
         if isinstance(recipients, str):
             recipients = [recipients]
-            
+
         # Create message container
         msg = MIMEMultipart()
         msg['Subject'] = subject
@@ -183,8 +199,10 @@ def send_email(
         bool: True if email was sent successfully, False otherwise
     """
     try:
-        # Use SMTP if configured, otherwise use Azure
-        if cfg.EMAIL_PROVIDER == 'smtp':
+        # Provider from the admin Email Settings page when configured there,
+        # else the .env EMAIL_PROVIDER — resolved per call, no restart needed.
+        from email_settings import get_email_config
+        if get_email_config()['provider'] == 'smtp':
             return send_email_smtp(
                 recipients=recipients,
                 subject=subject,

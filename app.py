@@ -142,6 +142,7 @@ from local_history_routes import (
 
 # BYOK (Bring Your Own Key) Configuration
 from api_keys_config import api_keys_bp, register_page_route, init_byok
+from email_settings import email_settings_bp, register_email_settings_page
 
 from role_decorators import api_key_or_session_required
 
@@ -13763,6 +13764,10 @@ app.register_blueprint(api_keys_bp)
 register_page_route(app)
 # Initialize BYOK configuration
 init_byok()
+
+# Email Settings (outbound notification email) — admin UI over the .env values
+app.register_blueprint(email_settings_bp)
+register_email_settings_page(app)
 
 # Register the System Prompts admin screen (view/search/filter/override every
 # LLM prompt). Guarded so that a problem in this optional admin surface can

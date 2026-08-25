@@ -1413,6 +1413,13 @@
                             <span class="nav-text">API Keys (BYOK)</span>
                         </a>
 
+                        {# Hardcoded path (same rationale as System Prompts below):
+                           registration is fault-tolerant, url_for would 500 every
+                           page render if it ever failed to register. #}
+                        <a href="/admin/email-settings" class="new-nav-link">
+                            <span class="nav-text">Email Settings</span>
+                        </a>
+
                         <a href="{{ url_for('identity.identity_settings_page') }}" class="new-nav-link">
                             <span class="nav-text">Identity & Security</span>
                         </a>
@@ -1756,6 +1763,13 @@
 
                         <a href="{{ url_for('api_keys_config_page') }}" class="new-nav-link">
                             <span class="nav-text">API Keys (BYOK)</span>
+                        </a>
+
+                        {# Hardcoded path (same rationale as System Prompts below):
+                           registration is fault-tolerant, url_for would 500 every
+                           page render if it ever failed to register. #}
+                        <a href="/admin/email-settings" class="new-nav-link">
+                            <span class="nav-text">Email Settings</span>
                         </a>
 
                         <a href="{{ url_for('identity.identity_settings_page') }}" class="new-nav-link">
