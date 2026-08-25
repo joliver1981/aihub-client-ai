@@ -2906,7 +2906,7 @@ class GeneralAgent():
         2. cfg.USE_OPENAI_API=True → Direct OpenAI with system key
         3. Default → Azure OpenAI
         """
-        from api_keys_config import get_openai_config
+        from api_keys_config import get_openai_config, reasoning_effort_for_tools
 
         config = get_openai_config(use_alternate_api=True)
 
@@ -2914,6 +2914,9 @@ class GeneralAgent():
         reasoning_effort = config.get('reasoning_effort')
         if reasoning_effort:
             temperature = 1.0
+        # This agent ALWAYS binds function tools; gpt-5.6-terra rejects tools +
+        # reasoning_effort on chat/completions (400) unless effort is 'none'.
+        reasoning_effort = reasoning_effort_for_tools(reasoning_effort)
 
         # Hard per-response deadline. max_retries=0 so a timed-out call is
         # NOT retried (langchain's default of 2 retries would otherwise

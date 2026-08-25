@@ -348,6 +348,20 @@ def get_openai_config(use_alternate_api: bool = False, use_mini: bool = False) -
     return config
 
 
+def reasoning_effort_for_tools(configured_effort):
+    """Reasoning effort for a call that BINDS FUNCTION TOOLS on
+    /chat/completions. gpt-5.6-terra 400s on tools + any effort except the
+    literal 'none' there ("use /v1/responses or set reasoning_effort to
+    'none'"), so tool-binding agents (GeneralAgent, WorkflowAgent) must use
+    the tools-compatible effort. Returns None unchanged for non-reasoning
+    models. Configurable via OPENAI_REASONING_EFFORT_WITH_TOOLS for installs
+    pinned to models that do allow the combo."""
+    import config as cfg
+    if not configured_effort:
+        return None
+    return getattr(cfg, 'OPENAI_REASONING_EFFORT_WITH_TOOLS', 'none')
+
+
 def is_using_byok_openai() -> bool:
     """
     Check if currently using BYOK for OpenAI.

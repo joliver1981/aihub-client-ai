@@ -161,7 +161,7 @@ class WorkflowAgent:
     
     def _initialize_llm(self):
         """Initialize the OpenAI LLM (supports BYOK, direct OpenAI, and Azure)."""
-        from api_keys_config import get_openai_config
+        from api_keys_config import get_openai_config, reasoning_effort_for_tools
 
         config = get_openai_config(use_alternate_api=False)
 
@@ -171,6 +171,9 @@ class WorkflowAgent:
             temperature = 0.4
         else:
             temperature = 1.0 if reasoning_effort else 0.7
+        # This agent binds function tools; gpt-5.6-terra rejects tools +
+        # reasoning_effort on chat/completions (400) unless effort is 'none'.
+        reasoning_effort = reasoning_effort_for_tools(reasoning_effort)
 
         # AIHUB-0024 F3: a per-request timeout + bounded retries so a hung LLM
         # call fails fast (caught by process_message -> honest fallback -> HTTP

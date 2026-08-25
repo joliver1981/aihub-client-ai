@@ -269,6 +269,13 @@ AI_HUB_BYPASS_DOCUMENT_PROXY = False
 USE_MINI_MODELS_WHEN_POSSIBLE = False
 MINI_MODEL_REASONING_EFFORT = os.getenv('MINI_MODEL_REASONING_EFFORT', 'medium')  # gpt-5.x no longer accepts 'low'
 OPENAI_REASONING_EFFORT = os.getenv('OPENAI_REASONING_EFFORT', 'medium')  # none, low, medium, high, xhigh ('low' rejected by gpt-5.x)
+# Effort used when the call BINDS FUNCTION TOOLS on /chat/completions.
+# gpt-5.6-terra rejects tools + any reasoning_effort except 'none' there
+# (400: "Function tools with reasoning_effort are not supported ... use
+# /v1/responses or set reasoning_effort to 'none'"), which broke EVERY
+# General Agent / Workflow Agent turn on terra. 'none' is accepted by all
+# gpt-5.1+ reasoning models; raise it only for models that allow the combo.
+OPENAI_REASONING_EFFORT_WITH_TOOLS = os.getenv('OPENAI_REASONING_EFFORT_WITH_TOOLS', 'none')
 DATA_AGENT_FALLBACK_RESPONSE = "I'm sorry, I encountered an issue processing your request. Please try a different question or contact support if the problem persists."
 GENERAL_AGENT_FALLBACK_RESPONSE = "I'm sorry, I encountered an issue processing your request. Please try a different question or contact support if the problem persists."
 WORKFLOW_AGENT_FALLBACK_RESPONSE = "I'm having trouble processing that request. This could be due to content filtering or message complexity. Could you try rephrasing your request or breaking it into smaller steps?"
