@@ -1615,8 +1615,10 @@ def home():
                 and os.getenv('THE_AGENT_MODE', 'false').lower() == 'true'
                 and os.getenv('THE_AGENT_ENABLED', 'false').lower() == 'true'
                 and request.args.get('classic') != '1'
-                and not session.get('classic_mode')
-                and getattr(current_user, 'role', 0) >= 2):
+                and not session.get('classic_mode')):
+            # All-users rollout (james 2026-08-24): every signed-in user lands
+            # in The Agent — no role floor here anymore. ?classic=1 stays the
+            # sticky escape hatch for everyone.
             return redirect(url_for('the_agent_redirect'))
 
         # If user is authenticated, redirect to dashboard
@@ -1946,14 +1948,16 @@ def command_center_redirect():
 
 
 @app.route('/the-agent')
-@developer_required()
+@login_required
 def the_agent_redirect():
     """
     Token redirect to The Agent service (agent_service, HOST_PORT+110) — the
     Claude-brained next-gen assistant. Same shared_auth JWT handshake as the
     /command-center redirect; The Agent verifies the token locally. Flag-gated:
-    THE_AGENT_ENABLED gates the nav entry; this route is Developer+ regardless
-    (AGENT_ALLOW_ALL_USERS relaxes the role check service-side later).
+    THE_AGENT_ENABLED gates the nav entry. All-users rollout (james
+    2026-08-24): any signed-in user may enter — the SERVICE still enforces
+    role>=2 unless AGENT_ALLOW_ALL_USERS=true, so this route alone opens
+    nothing on installs that keep the flag off.
     """
     if os.getenv('THE_AGENT_ENABLED', 'false').lower() != 'true':
         flash('The Agent is not enabled on this install.', 'warning')

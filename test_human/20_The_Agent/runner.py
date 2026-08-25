@@ -2559,8 +2559,13 @@ def main():
                   "no Python with Playwright found — set PACK20_UI_PYTHON to one "
                   "(dev box: conda env aihub2.1)")
         else:
+            # encoding= is LOAD-BEARING: without it, text=True decodes the
+            # pipe with cp1252 and the smoke's UTF-8 evidence (🌐 = ..0x90..)
+            # kills subprocess's reader THREAD — stdout comes back empty with
+            # exit 0 and the check reads "no output" (2026-08-24 gate).
             pr = subprocess.run([ui_py, os.path.join(here, "ui_smoke_links.py")],
                                 capture_output=True, text=True, timeout=300,
+                                encoding="utf-8", errors="replace",
                                 env={**os.environ, "AGENT_UI_BASE": BASE})
             out = (pr.stdout or "") + (pr.stderr or "")
             fails = [ln for ln in out.splitlines() if ln.startswith("FAIL")]
@@ -2628,7 +2633,8 @@ def main():
                 cb_url = f"{_bu13()}/cobrowse?run={run13}&token={cb_tok}"
                 pr13 = _sp13.run([ui_py13, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                                         "cobrowse_human.py"), cb_url, "123456"],
-                                 capture_output=True, text=True, timeout=240)
+                                 capture_output=True, text=True, timeout=240,
+                                 encoding="utf-8", errors="replace")
                 try:
                     human = json.loads((pr13.stdout or "").strip().splitlines()[-1])
                 except Exception:
