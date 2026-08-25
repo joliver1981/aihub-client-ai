@@ -210,6 +210,39 @@ def _is_reasoning_model(model_name: str) -> bool:
     return any(name.startswith(prefix) or f'/{prefix}' in name for prefix in reasoning_prefixes)
 
 
+def _create_dropping_unsupported_params(create_fn, kwargs, _max_drops=4):
+    """Call an OpenAI chat-completions create; if the API rejects a parameter
+    WE sent with a 400 `unsupported_parameter`, drop it and retry.
+
+    Providers move parameters between model families (gpt-5/o-series reject
+    `max_tokens` and require `max_completion_tokens`), so a call that is
+    correct for one model 400s on the next. This only runs after the call has
+    already failed, reads the structured `param`/`code` fields off the SDK
+    error body (no message parsing), and only ever removes a parameter that
+    is actually in OUR kwargs — any other error re-raises untouched.
+    `max_tokens` is renamed to `max_completion_tokens` rather than dropped,
+    since that is the documented replacement.
+    """
+    dropped = []
+    while True:
+        try:
+            return create_fn(**kwargs)
+        except Exception as e:
+            body = getattr(e, 'body', None)
+            param = body.get('param') if isinstance(body, dict) else None
+            code = body.get('code') if isinstance(body, dict) else None
+            if code != 'unsupported_parameter' or param not in kwargs or len(dropped) >= _max_drops:
+                raise
+            value = kwargs.pop(param)
+            if param == 'max_tokens' and 'max_completion_tokens' not in dropped:
+                kwargs['max_completion_tokens'] = value
+            dropped.append(param)
+            logger.warning(
+                "[param-fallback] model rejected %r (unsupported_parameter) — "
+                "retrying without it (dropped so far: %s). This is provider "
+                "parameter drift, not a caller bug.", param, dropped)
+
+
 def get_openai_config(use_alternate_api: bool = False, use_mini: bool = False) -> Dict[str, Any]:
     """
     Get the complete OpenAI configuration based on current settings.
@@ -438,7 +471,27 @@ def create_pandasai_llm(use_alternate_api=True):
         # that may not include newer models (e.g. gpt-5.2)
         if model not in PandasAIOpenAI._supported_chat_models:
             PandasAIOpenAI._supported_chat_models.append(model)
-        return PandasAIOpenAI(
+
+        # Stock PandasAIOpenAI._default_params always sends max_tokens (plus
+        # top_p/penalties), which gpt-5/o-series models reject with a 400
+        # (they require max_completion_tokens). Build the request from
+        # scratch instead, mirroring _CleanAzureOpenAI below.
+        class _CleanOpenAI(PandasAIOpenAI):
+            def chat_completion(self, value, memory):
+                messages = memory.to_openai_messages() if memory else []
+                messages.append({"role": "user", "content": value})
+                kwargs = {"messages": messages, "model": self.model}
+                if _is_reasoning_model(self.model):
+                    kwargs["temperature"] = 1.0
+                    kwargs["reasoning_effort"] = getattr(cfg, 'OPENAI_REASONING_EFFORT', 'low')
+                else:
+                    kwargs["temperature"] = self.temperature
+                    kwargs["max_tokens"] = self.max_tokens
+                    kwargs["seed"] = self.seed
+                response = _create_dropping_unsupported_params(self.client.create, kwargs)
+                return response.choices[0].message.content
+
+        return _CleanOpenAI(
             api_token=config['api_key'],
             model=model,
             temperature=temperature,
@@ -467,7 +520,7 @@ def create_pandasai_llm(use_alternate_api=True):
                     kwargs["reasoning_effort"] = getattr(cfg, 'OPENAI_REASONING_EFFORT', 'low')
                 else:
                     kwargs["temperature"] = self.temperature
-                response = self._clean_client.create(**kwargs)
+                response = _create_dropping_unsupported_params(self._clean_client.create, kwargs)
                 return response.choices[0].message.content
 
         return _CleanAzureOpenAI(
