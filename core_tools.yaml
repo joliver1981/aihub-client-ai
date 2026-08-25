@@ -167,9 +167,10 @@ tools:
   - name: get_document_universe_metadata
     description: "Provides comprehensive metadata about the document universe to help AI understand document types, fields, relationships, and usage patterns."
     
-  - name: get_document_fields
-    description: "Execute a query to extract all document types and their fields with sample values, returning a JSON structure for AI analysis."
-    
+  # get_document_fields REMOVED 2026-08-25: it named a raw DocUtils helper,
+  # not a decorated tool — selecting it appended a plain function to the
+  # agent's tool list. The real tool wrapping it is list_document_fields.
+
   - name: get_next_document_page
     description: "Retrieve the next page in a document based on the current page ID."
     

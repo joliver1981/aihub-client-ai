@@ -525,9 +525,20 @@ def search_in_text_files(folder_path: str, search_string: str) -> str:
 
 @tool
 def send_email_message(email_to: str, subject: str, message: str, attachment_file_path: Optional[str] = None, is_html: Optional[bool] = False) -> str:
-    """Sends an email message to specified email addresses with optional file attachment."""
+    """Sends an email message to specified email addresses with optional file
+    attachment. attachment_file_path accepts a server path OR — for a file the
+    user uploaded to this agent — just its filename or document_id (uploaded
+    files are resolved automatically; do NOT guess an uploads/ temp path)."""
     email_list = [email.strip() for email in email_to.split(',')]
-    result = send_email(email_list, subject, message, attachment_file_path, is_html)
+    resolved_attachment = None
+    if attachment_file_path:
+        resolved_attachment, resolve_err = _resolve_uploaded_file_path(
+            attachment_file_path, kind="file")
+        if resolve_err:
+            # Fail closed: never silently send WITHOUT the attachment the
+            # user asked for.
+            return f"Email NOT sent — the attachment could not be found. {resolve_err}"
+    result = send_email(email_list, subject, message, resolved_attachment, is_html)
     if result:
         return 'Successfully sent the email'
     else:
@@ -614,12 +625,19 @@ def load_text_file(file_path: str) -> str:
     Loads the content of a text file and returns it as a string.
 
     Parameters:
-    file_path (str): The full path to the file to be read.
+    file_path (str): The full path to the file to be read, OR — for a file the
+        user uploaded to this agent — just its filename (e.g. "notes.txt") or
+        its document_id. Uploaded files are resolved automatically; do NOT
+        guess an uploads/ temp path.
 
     Returns:
     str: The content of the file as a string.
     """
-    return load_from_file(file_path)
+    resolved, resolve_err = _resolve_uploaded_file_path(
+        file_path, extensions=_TEXT_FILE_EXTS, kind="text file")
+    if resolve_err:
+        return resolve_err
+    return load_from_file(resolved)
 
 
 def dataframe_to_markdown(df):
@@ -1576,20 +1594,28 @@ def query_database(connection_id: int, query: str) -> str:
         return f"Error executing query: {str(e)}"
 
 
-def _resolve_uploaded_csv_path(file_path):
-    """Resolve the legacy CSV tools' file_path argument to a real file.
+def _resolve_uploaded_file_path(file_path, extensions=None, kind="file"):
+    """Resolve a path-taking tool's file_path argument to a real file.
 
-    Chat-uploaded CSVs are DELETED from the temp uploads dir after ingestion,
-    so the literal path the model guesses ("uploads\\<uuid>_name.csv") almost
-    never exists — which made process_csv/show_csv answer "could not open the
-    file path" for every uploaded file. Accepts, in order:
+    Chat-uploaded files are DELETED from the temp uploads dir after ingestion,
+    so the literal path the model guesses ("uploads\\<uuid>_name.ext") almost
+    never exists — which made path-based tools (process_csv, show_csv,
+    load_text_file, send_email_message attachments) fail on every uploaded
+    file. Accepts, in order:
       1. a literal server path that exists;
       2. an uploaded agent-file reference — the display filename, the stored
          "uuid_name" from the prompt, or the document_id — resolved through
          Documents.original_path (persisted tabular originals) and falling
          back to the agent_files raw-bytes tee;
-      3. when nothing matches but the agent has exactly ONE uploaded CSV,
-         that file.
+      3. when nothing matches but the agent has exactly ONE uploaded file of
+         the requested kind, that file.
+
+    Args:
+        extensions: when set (tuple of lowercase suffixes), restricts the
+            single-candidate auto-pick and the suggestion list to those
+            extensions. An exact name/id match always wins regardless.
+        kind: noun used in error messages, e.g. "CSV file", "text file".
+
     Returns (path, None) on success or (None, helpful_error) listing the
     resolvable files so the model can retry with a real name.
     """
@@ -1623,20 +1649,31 @@ def _resolve_uploaded_csv_path(file_path):
                 if wanted and wanted in (display.lower(), stored.lower(), doc_id.lower()):
                     return path, None
     except Exception as e:
-        logger.warning(f"Uploaded-CSV path resolution errored: {e}")
+        logger.warning(f"Uploaded-file path resolution errored: {e}")
 
-    csv_candidates = [c for c in candidates
-                      if c[0].lower().endswith(('.csv', '.tsv'))]
-    if len(csv_candidates) == 1:
-        return csv_candidates[0][3], None
-    if csv_candidates:
-        names = ", ".join(sorted({c[0] for c in csv_candidates}))
+    matching = [c for c in candidates
+                if extensions is None or c[0].lower().endswith(extensions)]
+    if len(matching) == 1:
+        return matching[0][3], None
+    if matching:
+        names = ", ".join(sorted({c[0] for c in matching}))
         return None, (f"Error: File not found at '{file_path}'. Uploaded files are not "
-                      f"kept at that path. This agent's uploaded CSV files (pass one of "
-                      f"these names as file_path): {names}")
+                      f"kept at that path. This agent's uploaded {kind}s (pass one of "
+                      f"these names as the file path): {names}")
     return None, (f"Error: File not found at '{file_path}', and this agent has no "
-                  f"uploaded CSV files to resolve it against. Provide the full server "
-                  f"path of an existing CSV file.")
+                  f"uploaded {kind}s to resolve it against. Provide the full server "
+                  f"path of an existing file.")
+
+
+def _resolve_uploaded_csv_path(file_path):
+    """CSV/TSV specialization of _resolve_uploaded_file_path (process_csv/show_csv)."""
+    return _resolve_uploaded_file_path(file_path, extensions=('.csv', '.tsv'),
+                                       kind="CSV file")
+
+
+# Text formats load_text_file can sensibly return as a string
+_TEXT_FILE_EXTS = ('.txt', '.md', '.log', '.json', '.xml', '.html', '.htm',
+                   '.csv', '.tsv')
 
 
 # CSV Processor Tool
@@ -2631,15 +2668,26 @@ class GeneralAgent():
                 logger.debug(f"Including mandatory tools for agent {agent_id}: {mandatory}")
                 #print(f"Including mandatory tools: {mandatory}")
 
-            # Load the tools
+            # Load the tools. The isinstance guard is the chokepoint every
+            # catalog/config entry converges on: a name that resolves to a
+            # PLAIN function (catalog drift, or an @tool decorator stolen by
+            # an interposed helper) must be skipped loudly — appending it
+            # would poison the whole agent's tool binding.
+            from langchain_core.tools import BaseTool as _LCBaseTool
             self.tools = []
             for core_tool in final_core_tools:
                 tool_func = globals().get(core_tool)
-                if tool_func:
-                    self.tools.append(tool_func)
-                else:
+                if tool_func is None:
                     logger.warning(f"Tool '{core_tool}' not found in globals")
                     print(f"Warning: Tool '{core_tool}' not found")
+                elif not isinstance(tool_func, _LCBaseTool):
+                    logger.error(
+                        f"Tool '{core_tool}' resolved to {type(tool_func).__name__}, "
+                        f"not a tool object — SKIPPED. This is catalog drift or a "
+                        f"lost @tool decorator; fix core_tools.yaml or the decorator.")
+                    print(f"Warning: Tool '{core_tool}' is not a valid tool object — skipped")
+                else:
+                    self.tools.append(tool_func)
 
             # Auto-attach the `calculator` tool to EVERY agent regardless
             # of their configured core_tool_names. LLMs are unreliable

@@ -134,3 +134,144 @@ class TestToolsEndToEnd:
         out = ga.process_csv.func(file_path=r"C:\nope\ghost.csv",
                                   operation="summarize")
         assert "Error: File not found" in out
+
+
+# ---------------------------------------------------------------------------
+# Generalized resolver: load_text_file + send_email_message attachments
+# (audit follow-up 2026-08-25 — same dead-path class as process_csv/show_csv)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def mixed_uploads(tmp_path, monkeypatch):
+    """Agent with TWO uploads: a CSV and a TXT — exercises extension filters."""
+    csv_path = tmp_path / "data.csv"
+    pd.DataFrame({"a": [1]}).to_csv(csv_path, index=False)
+    txt_path = tmp_path / "notes.txt"
+    txt_path.write_text("hello uploaded world", encoding="utf-8")
+    docs = [
+        {"document_id": "d-csv", "filename": "u1_data.csv",
+         "original_path": str(csv_path)},
+        {"document_id": "d-txt", "filename": "u2_notes.txt",
+         "original_path": str(txt_path)},
+    ]
+    monkeypatch.setattr(aki, "get_agent_knowledge_documents",
+                        lambda agent_id, user_id=None: docs)
+    ga._current_agent_context.agent_id = 7007
+    ga._current_agent_context.user_id = 1
+    yield csv_path, txt_path
+    for attr in ("agent_id", "user_id"):
+        if hasattr(ga._current_agent_context, attr):
+            delattr(ga._current_agent_context, attr)
+
+
+class TestGeneralizedResolver:
+    def test_csv_auto_pick_ignores_txt(self, mixed_uploads):
+        csv_path, _ = mixed_uploads
+        path, err = ga._resolve_uploaded_csv_path("wrong_name.csv")
+        assert err is None and path == str(csv_path)
+
+    def test_text_auto_pick_ignores_nothing_wrongly(self, mixed_uploads):
+        # extensions=_TEXT_FILE_EXTS covers BOTH .txt and .csv → two matches,
+        # so no auto-pick: the error must list both by name.
+        _, _ = mixed_uploads
+        path, err = ga._resolve_uploaded_file_path(
+            "ghost.txt", extensions=ga._TEXT_FILE_EXTS, kind="text file")
+        assert path is None
+        assert "data.csv" in err and "notes.txt" in err
+
+    def test_load_text_file_by_display_name(self, mixed_uploads):
+        out = ga.load_text_file.func(file_path="notes.txt")
+        assert "hello uploaded world" in out
+
+    def test_load_text_file_literal_path_still_works(self, mixed_uploads, tmp_path):
+        p = tmp_path / "direct.txt"
+        p.write_text("direct read", encoding="utf-8")
+        out = ga.load_text_file.func(file_path=str(p))
+        assert "direct read" in out
+
+    def test_send_email_resolves_uploaded_attachment(self, mixed_uploads, monkeypatch):
+        _, txt_path = mixed_uploads
+        sent = {}
+        monkeypatch.setattr(ga, "send_email",
+                            lambda to, subj, msg, attach, is_html: sent.update(
+                                attach=attach) or True)
+        out = ga.send_email_message.func(
+            email_to="a@b.com", subject="s", message="m",
+            attachment_file_path="notes.txt")
+        assert "Successfully sent" in out
+        assert sent["attach"] == str(txt_path)
+
+    def test_send_email_fails_closed_on_missing_attachment(self, mixed_uploads, monkeypatch):
+        called = {}
+        monkeypatch.setattr(ga, "send_email",
+                            lambda *a, **k: called.update(sent=True) or True)
+        monkeypatch.setattr(aki, "get_agent_knowledge_documents",
+                            lambda agent_id, user_id=None: [])
+        out = ga.send_email_message.func(
+            email_to="a@b.com", subject="s", message="m",
+            attachment_file_path=r"C:\nope\ghost.pdf")
+        assert "NOT sent" in out
+        assert "sent" not in called   # never silently sent without attachment
+
+    def test_send_email_without_attachment_unchanged(self, monkeypatch):
+        monkeypatch.setattr(ga, "send_email", lambda *a, **k: True)
+        out = ga.send_email_message.func(email_to="a@b.com", subject="s",
+                                         message="m")
+        assert "Successfully sent" in out
+
+
+# ---------------------------------------------------------------------------
+# Catalog hygiene + binding-loop type guard (audit fixes 3 + 4)
+# ---------------------------------------------------------------------------
+
+class TestCatalogAndBindingGuard:
+    def test_get_document_fields_removed_from_catalog(self):
+        import yaml
+        with open(_ROOT / "core_tools.yaml", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+        names = []
+        def walk(node):
+            if isinstance(node, dict):
+                if isinstance(node.get("name"), str):
+                    names.append(node["name"])
+                for v in node.values():
+                    walk(v)
+            elif isinstance(node, list):
+                for v in node:
+                    walk(v)
+        walk(cfg)
+        assert "get_document_fields" not in names
+        assert "list_document_fields" in names   # the real tool stays
+
+    def test_every_catalog_tool_is_a_real_tool_or_special_cased(self):
+        """The audit that found the drift, now standing guard: every catalog
+        name must resolve to a BaseTool in GeneralAgent globals, except the
+        names bound by dedicated loaders."""
+        import yaml
+        from langchain_core.tools import BaseTool
+        SPECIAL = {"manage_knowledge", "list_integrations",
+                   "get_integration_operations", "execute_integration"}
+        with open(_ROOT / "core_tools.yaml", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+        names = set()
+        def walk(node):
+            if isinstance(node, dict):
+                if isinstance(node.get("name"), str):
+                    names.add(node["name"])
+                for v in node.values():
+                    walk(v)
+            elif isinstance(node, list):
+                for v in node:
+                    walk(v)
+        walk(cfg)
+        bad = []
+        for n in sorted(names - SPECIAL):
+            obj = getattr(ga, n, None)
+            if not isinstance(obj, BaseTool):
+                bad.append(f"{n} -> {type(obj).__name__}")
+        assert not bad, f"catalog names not resolving to tools: {bad}"
+
+    def test_binding_loop_has_type_guard(self):
+        src = (_ROOT / "GeneralAgent.py").read_text(encoding="utf-8")
+        assert "not isinstance(tool_func, _LCBaseTool)" in src
+        assert "SKIPPED" in src
