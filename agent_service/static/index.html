@@ -2409,55 +2409,111 @@
     };
   }
 
-  // ---------- model note (admins can change the brain model, no restart) ----
+  // ---------- model note (admins can change the brain models + the daily ----
+  // ---------- turn cap, no restart — the next message picks it up) ----------
+  function pickModelRow(box, d, labelText, key, defKey, url, resKey) {
+    const row = el("div", "");
+    const isDefault = d[key] === d[defKey];
+    const label = el("span", "", labelText + d[key] + (isDefault ? "" : " *"));
+    label.style.cursor = "pointer";
+    label.title = "Admin: click to change (applies to the next message; "
+                + "* = override of the default " + d[defKey] + ")";
+    label.onclick = () => {
+      row.innerHTML = "";
+      const inp = document.createElement("input");
+      inp.value = d[key]; inp.setAttribute("list", "model-suggestions-" + key);
+      inp.style.cssText = "width:150px;padding:3px 8px;border-radius:7px;" +
+        "font-family:var(--mono);font-size:10.5px";
+      const dl = document.createElement("datalist");
+      dl.id = "model-suggestions-" + key;
+      ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001",
+       d[defKey]].forEach(m => {
+        const o = document.createElement("option"); o.value = m;
+        dl.appendChild(o);
+      });
+      const save = el("button", "btn", "Set");
+      save.style.cssText = "padding:2px 9px;font-size:10.5px;margin-left:5px";
+      const reset = el("button", "btn", "Default");
+      reset.style.cssText = save.style.cssText;
+      reset.title = "Clear the override (back to " + d[defKey] + ")";
+      const apply = async (value) => {
+        const r = await fetch(url, { method: "POST",
+          headers: H(), body: JSON.stringify({ model: value }) });
+        const res = await r.json().catch(() => ({}));
+        if (!r.ok) { row.textContent = res.detail || "failed";
+                     setTimeout(() => renderModelNote(d), 2000); return; }
+        d[key] = res[resKey];
+        renderModelNote(d);
+      };
+      save.onclick = () => apply(inp.value.trim());
+      reset.onclick = () => apply("");
+      inp.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") apply(inp.value.trim());
+        if (e.key === "Escape") renderModelNote(d);
+      });
+      row.append(inp, dl, save, reset);
+      inp.focus();
+    };
+    row.appendChild(label);
+    box.appendChild(row);
+  }
+  function capRow(box, d) {
+    const row = el("div", "");
+    const on = (d.turns_per_day || 0) > 0;
+    const label = el("span", "", "daily cap: "
+                     + (on ? d.turns_per_day + " turns/user" : "off"));
+    label.style.cursor = "pointer";
+    label.title = "Admin: per-user daily turn limit (Off = unlimited; admins "
+                + "are exempt; applies to the next message)";
+    label.onclick = () => {
+      row.innerHTML = "";
+      const inp = document.createElement("input");
+      inp.type = "number"; inp.min = "0"; inp.value = d.turns_per_day || 0;
+      inp.style.cssText = "width:64px;padding:3px 8px;border-radius:7px;" +
+        "font-family:var(--mono);font-size:10.5px";
+      const save = el("button", "btn", "Set");
+      save.style.cssText = "padding:2px 9px;font-size:10.5px;margin-left:5px";
+      const off = el("button", "btn", "Off");
+      off.style.cssText = save.style.cssText;
+      off.title = "Turn the cap off (unlimited)";
+      const apply = async (value) => {
+        const r = await fetch("/api/settings/turn-cap", { method: "POST",
+          headers: H(), body: JSON.stringify({ turns_per_day: value }) });
+        const res = await r.json().catch(() => ({}));
+        if (!r.ok) { row.textContent = res.detail || "failed";
+                     setTimeout(() => renderModelNote(d), 2000); return; }
+        d.turns_per_day = res.turns_per_day;
+        renderModelNote(d);
+      };
+      save.onclick = () => apply(parseInt(inp.value, 10) || 0);
+      off.onclick = () => apply(0);
+      inp.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") apply(parseInt(inp.value, 10) || 0);
+        if (e.key === "Escape") renderModelNote(d);
+      });
+      row.append(inp, save, off);
+      inp.focus();
+    };
+    row.appendChild(label);
+    box.appendChild(row);
+  }
   function renderModelNote(d) {
     const box = document.getElementById("model");
     box.innerHTML = "";
-    const isDefault = d.model === d.model_default;
-    const label = el("span", "", "brain: " + d.model + (isDefault ? "" : " *"));
-    box.appendChild(label);
-    if ((d.user || {}).role >= 3) {
-      label.style.cursor = "pointer";
-      label.title = "Admin: click to change the model (applies to the next "
-                  + "message; * = override of the install default "
-                  + d.model_default + ")";
-      label.onclick = () => {
-        box.innerHTML = "";
-        const inp = document.createElement("input");
-        inp.value = d.model; inp.setAttribute("list", "model-suggestions");
-        inp.style.cssText = "width:150px;padding:3px 8px;border-radius:7px;" +
-          "font-family:var(--mono);font-size:10.5px";
-        const dl = document.createElement("datalist");
-        dl.id = "model-suggestions";
-        ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001",
-         d.model_default].forEach(m => {
-          const o = document.createElement("option"); o.value = m;
-          dl.appendChild(o);
-        });
-        const save = el("button", "btn", "Set");
-        save.style.cssText = "padding:2px 9px;font-size:10.5px;margin-left:5px";
-        const reset = el("button", "btn", "Default");
-        reset.style.cssText = save.style.cssText;
-        reset.title = "Clear the override (back to " + d.model_default + ")";
-        const apply = async (value) => {
-          const r = await fetch("/api/settings/model", { method: "POST",
-            headers: H(), body: JSON.stringify({ model: value }) });
-          const res = await r.json().catch(() => ({}));
-          if (!r.ok) { box.textContent = res.detail || "failed";
-                       setTimeout(() => renderModelNote(d), 2000); return; }
-          d.model = res.model;
-          renderModelNote(d);
-        };
-        save.onclick = () => apply(inp.value.trim());
-        reset.onclick = () => apply("");
-        inp.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") apply(inp.value.trim());
-          if (e.key === "Escape") renderModelNote(d);
-        });
-        box.append(inp, dl, save, reset);
-        inp.focus();
-      };
+    const role = (d.user || {}).role || 0;
+    if (role < 3) {
+      // Non-admins see what powers THEIR turns: regular users run the
+      // regular-users model, so the label stays honest per viewer.
+      const mine = role < 2 ? (d.model_role1 || d.model) : d.model;
+      box.appendChild(el("span", "", "brain: " + mine
+        + (role >= 2 && d.model !== d.model_default ? " *" : "")));
+      return;
     }
+    pickModelRow(box, d, "brain: ", "model", "model_default",
+                 "/api/settings/model", "model");
+    pickModelRow(box, d, "users: ", "model_role1", "model_role1_default",
+                 "/api/settings/role1-model", "model_role1");
+    capRow(box, d);
   }
 
   // ---------- boot ----------

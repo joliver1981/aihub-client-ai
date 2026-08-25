@@ -417,13 +417,16 @@ HONESTY DOCTRINE (non-negotiable)
 
 def build_options(session_id: Optional[str] = None,
                   tool_scope: str = "full",
-                  cwd: Optional[str] = None) -> ClaudeAgentOptions:
+                  cwd: Optional[str] = None,
+                  role: Optional[int] = None) -> ClaudeAgentOptions:
     ensure_anthropic_key()
     allowed = (_READ_ALLOWED if tool_scope == "read" else ["mcp__aihub__*"])
     from agent_config import get_effective_model
     return ClaudeAgentOptions(
         system_prompt=SYSTEM_PROMPT,
-        model=get_effective_model(),   # admin runtime override > AGENT_MODEL
+        # Per-role model (all-users D4): role<2 gets the role1 chain (admin
+        # override > AGENT_MODEL_ROLE1); everyone else the original chain.
+        model=get_effective_model(role),
         tools=["Skill"],            # ONLY the Skill loader — no Bash/Read/Write
         mcp_servers={"aihub": aihub_server},
         allowed_tools=allowed + ["Skill"],
@@ -455,6 +458,17 @@ async def run_turn(prompt: str, session_id: Optional[str],
     CURRENT_USER.set(user_ctx)
     logger.info(f"turn start user={user_ctx.get('username')} "
                 f"session={session_id or '(new)'} prompt={prompt[:200]!r}")
+    # Turn counter + optional daily cap (all-users D2/D6): EVERY turn converges
+    # here (chat, side threads, /api/run, email, portal watch), so this is the
+    # one place to count. Refusal happens BEFORE any LLM call; the counter
+    # itself fails open (usage_store logs and allows on any store error).
+    import usage_store
+    allowed_turn, cap_note = usage_store.count_turn(user_ctx)
+    if not allowed_turn:
+        yield {"type": "text", "text": cap_note}
+        yield {"type": "result", "session_id": session_id, "ok": False,
+               "subtype": "turn_limit", "cost_usd": 0}
+        return
     # Mount this user's skills view: product + tenant + their groups + private.
     uid = int(user_ctx.get("user_id") or 0)
     try:
@@ -475,7 +489,8 @@ async def run_turn(prompt: str, session_id: Optional[str],
     try:
         async for message in query(prompt=prompt,
                                    options=build_options(session_id, tool_scope,
-                                                         cwd=ws)):
+                                                         cwd=ws,
+                                                         role=int(user_ctx.get("role") or 0))):
             if isinstance(message, SystemMessage):
                 if getattr(message, "subtype", "") == "init":
                     sid = (getattr(message, "data", {}) or {}).get("session_id")

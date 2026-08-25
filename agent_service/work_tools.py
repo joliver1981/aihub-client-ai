@@ -634,10 +634,13 @@ async def schedule_agent_task(args: dict[str, Any]) -> dict[str, Any]:
     from agent_config import get_base_url, defer_to_chat_enabled
 
     user = CURRENT_USER.get()
+    # All-users rollout D1 (james 2026-08-24): scheduling YOUR OWN agent tasks
+    # is a regular-user capability, split off the build gate. The flag exists
+    # only as a per-install retreat; default is open.
     if int(user.get("role") or 0) < 2 and os.getenv(
-            "AGENT_BUILD_ALLOW_ALL_USERS", "false").lower() != "true":
-        return _text("Scheduling agent tasks requires a Developer role.",
-                     is_error=True)
+            "AGENT_SCHEDULE_ALLOW_ALL_USERS", "true").lower() != "true":
+        return _text("Scheduling agent tasks requires a Developer role on "
+                     "this install.", is_error=True)
     now = _dt.datetime.utcnow()
     dz, dsrc = default_zone_label(user)
     try:

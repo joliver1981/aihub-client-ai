@@ -536,10 +536,12 @@ async def schedule_view_refresh(args: dict[str, Any]) -> dict[str, Any]:
 
     user = CURRENT_USER.get()
     uid = int(user.get("user_id") or 0)
+    # All-users rollout D1: view-refresh scheduling rides the SCHEDULE gate
+    # (default open), not the build gate — same split as schedule_agent_task.
     if int(user.get("role") or 0) < 2 and os.getenv(
-            "AGENT_BUILD_ALLOW_ALL_USERS", "false").lower() != "true":
-        return _text("Scheduling view refreshes requires a Developer role.",
-                     is_error=True)
+            "AGENT_SCHEDULE_ALLOW_ALL_USERS", "true").lower() != "true":
+        return _text("Scheduling view refreshes requires a Developer role on "
+                     "this install.", is_error=True)
     name = str(args["name"]).strip()
     scope = str(args.get("scope") or "")
     gid = int(args.get("group_id") or 0)
@@ -670,10 +672,11 @@ async def schedule_view_email(args: dict[str, Any]) -> dict[str, Any]:
 
     user = CURRENT_USER.get()
     uid = int(user.get("user_id") or 0)
+    # All-users rollout D1: same schedule-gate split as schedule_agent_task.
     if int(user.get("role") or 0) < 2 and os.getenv(
-            "AGENT_BUILD_ALLOW_ALL_USERS", "false").lower() != "true":
-        return _text("Scheduling view emails requires a Developer role.",
-                     is_error=True)
+            "AGENT_SCHEDULE_ALLOW_ALL_USERS", "true").lower() != "true":
+        return _text("Scheduling view emails requires a Developer role on "
+                     "this install.", is_error=True)
 
     name = str(args["name"]).strip()
     scope = str(args.get("scope") or "")

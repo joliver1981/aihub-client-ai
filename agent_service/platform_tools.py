@@ -399,6 +399,13 @@ async def list_recent_runs(args: dict[str, Any]) -> dict[str, Any]:
     {},
 )
 async def list_secret_names(args: dict[str, Any]) -> dict[str, Any]:
+    # All-users rollout (james 2026-08-24): the Local Secrets store is
+    # TENANT-GLOBAL (list/store take no user identity — verified in app.py
+    # /workflow/secrets/*), so both secrets tools are Developer+. Revisit with
+    # per-user scoping when portals open to regular users (Phase 3).
+    if int((CURRENT_USER.get() or {}).get("role") or 0) < 2:
+        return _text("The Local Secrets store is shared platform-wide and "
+                     "requires a Developer role.", is_error=True)
     try:
         data = await _get("/workflow/secrets/list")
         secrets = data.get("secrets") or []
@@ -434,6 +441,13 @@ async def list_secret_names(args: dict[str, Any]) -> dict[str, Any]:
     },
 )
 async def store_platform_secret(args: dict[str, Any]) -> dict[str, Any]:
+    # Same Developer+ gate as list_secret_names: the store is tenant-global,
+    # and a regular user writing SENDGRID_API_KEY would clobber the shared
+    # credential every automation references. Never echo the value regardless.
+    if int((CURRENT_USER.get() or {}).get("role") or 0) < 2:
+        return _text("Secret NOT stored: the Local Secrets store is shared "
+                     "platform-wide and requires a Developer role.",
+                     is_error=True)
     try:
         data, status = await _post("/workflow/secrets/store", {
             "name": str(args["name"]).strip().upper(),

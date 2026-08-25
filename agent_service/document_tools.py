@@ -83,6 +83,27 @@ _FORBIDDEN_DIRS = [
     os.path.normcase(os.environ.get("SystemRoot", r"C:\Windows")),
 ]
 
+
+# Role scoping (all-users rollout, james 2026-08-24): the host filesystem is
+# Developer+ territory. Regular users (role < 2) keep the delivered-file magic
+# — /api/files links, chat attachments — and their own staged tree, nothing
+# else. Developer+ behavior is unchanged.
+def _own_user_tree(uid: int) -> str:
+    """The one server directory a regular user's files live under."""
+    return os.path.normcase(os.path.join(APP_ROOT, "data", "agent", "users", str(uid)))
+
+
+def _under_own_tree(path: str, uid: int) -> bool:
+    ncase = os.path.normcase(os.path.abspath(path))
+    own = _own_user_tree(uid)
+    return ncase == own or ncase.startswith(own + os.sep)
+
+
+_ROLE1_FS_REFUSAL = ("Browsing arbitrary server paths requires a Developer "
+                     "role. I can still read files delivered to you here — an "
+                     "/api/files link, a chat attachment, or a file in your "
+                     "own agent workspace.")
+
 # Importing many files in one call: cap the batch so a single tool call stays
 # bounded. Because import is idempotent, calling again simply continues with the
 # not-yet-imported files.
@@ -221,6 +242,12 @@ async def list_server_files(args: dict[str, Any]) -> dict[str, Any]:
     if not raw:
         return _text("Give me a directory path to list.", is_error=True)
     path = os.path.abspath(raw)
+    # Role scoping (all-users rollout): regular users may only list their OWN
+    # data/agent/users/<uid>/ tree — the host filesystem stays Developer+.
+    user = CURRENT_USER.get() or {}
+    if int(user.get("role") or 0) < 2 and not _under_own_tree(
+            path, int(user.get("user_id") or 0)):
+        return _text(_ROLE1_FS_REFUSAL, is_error=True)
     ncase = os.path.normcase(path)
     for bad in _FORBIDDEN_DIRS:
         if ncase == bad or ncase.startswith(bad + os.sep):
@@ -348,6 +375,16 @@ async def import_documents(args: dict[str, Any]) -> dict[str, Any]:
                          "up). Re-run the download, or use the 'Server copies' "
                          "path from the tool result that delivered it.",
                          is_error=True)
+    # Role scoping (all-users rollout): importing from arbitrary host paths is
+    # Developer+ — regular users import only from their own staged/delivered
+    # tree (the /api/files resolution above already lands there).
+    user = CURRENT_USER.get() or {}
+    if int(user.get("role") or 0) < 2 and not _under_own_tree(
+            path, int(user.get("user_id") or 0)):
+        return _text("Importing from arbitrary server paths requires a "
+                     "Developer role. I can import files delivered to you here "
+                     "(/api/files links) or your chat attachments.",
+                     is_error=True)
     recursive = bool(args.get("recursive"))
     force = bool(args.get("force"))
     force_ai = bool(args.get("force_ai_extraction"))
@@ -774,17 +811,46 @@ def _resolve_read_path(raw: str):
     """Map the read_file argument to a concrete server path THIS user may read.
     Accepts an absolute/relative server path, an /api/files/<id> link (or bare
     id) for a download the agent delivered, or a chat-attachment file id — the
-    last two resolved owner-scoped through file_tools. Returns (path, err)."""
+    last two resolved owner-scoped through file_tools. Returns (path, err).
+
+    Role scoping (all-users rollout, james 2026-08-24): Developer+ keeps full
+    host access (minus _FORBIDDEN_DIRS, as before). Regular users (role < 2)
+    resolve delivered/attachment refs first and may only touch raw paths under
+    their OWN data/agent/users/<uid>/ tree — everything else is an honest
+    refusal, never a silent miss."""
     p = str(raw or "").strip().strip('"')
     if not p:
         return None, "Give me a file path (or an /api/files link / attachment id) to read."
+    user = CURRENT_USER.get() or {}
+    uid = int(user.get("user_id") or 0)
+    role = int(user.get("role") or 0)
+    if role < 2:
+        # Delivered downloads and chat attachments first — the refs regular
+        # users actually hold (owner-scoped resolvers, fail closed).
+        try:
+            import file_tools
+            hit_path, _name = file_tools.resolve_api_files_ref(p, uid)
+            if hit_path:
+                return hit_path, None
+            up = file_tools.resolve_upload(uid, p)
+            if up:
+                return up[0], None
+        except Exception:
+            pass
+        ap = os.path.abspath(os.path.expanduser(p))
+        if os.path.isfile(ap) and _under_own_tree(ap, uid):
+            return ap, None
+        if os.path.isfile(ap):
+            return None, _ROLE1_FS_REFUSAL
+        return None, (f"No such file among your delivered files or attachments: "
+                      f"{p}. Give the /api/files link of a file delivered to "
+                      "you, or an attachment from this chat.")
     ap = os.path.abspath(os.path.expanduser(p))
     if os.path.isfile(ap):
         return ap, None
     # Not a path on disk — try the delivered-download / attachment resolvers.
     try:
         import file_tools
-        uid = int((CURRENT_USER.get() or {}).get("user_id") or 0)
         hit_path, _name = file_tools.resolve_api_files_ref(p, uid)
         if hit_path:
             return hit_path, None

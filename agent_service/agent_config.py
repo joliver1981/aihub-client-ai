@@ -102,6 +102,9 @@ AGENT_ALLOW_ALL_USERS = os.getenv("AGENT_ALLOW_ALL_USERS", "false").lower() == "
 
 # Brain model (James, plan §8: Claude, default opus, env-overridable)
 AGENT_MODEL = os.getenv("AGENT_MODEL", "claude-opus-5")
+# Regular users (role < 2) run their own — typically cheaper — model (james
+# 2026-08-24, all-users rollout): admin-settable at runtime, haiku by default.
+AGENT_MODEL_ROLE1 = os.getenv("AGENT_MODEL_ROLE1", "claude-haiku-4-5-20251001")
 AGENT_MAX_TURNS = int(os.getenv("AGENT_MAX_TURNS", "40"))
 
 
@@ -245,8 +248,15 @@ def _read_runtime_settings() -> dict:
         return {}
 
 
-def get_effective_model() -> str:
-    override = str(_read_runtime_settings().get("model") or "").strip()
+def get_effective_model(role=None) -> str:
+    """Model for a turn. No role (or Developer+) keeps the original chain:
+    runtime override > AGENT_MODEL. Regular users (role < 2) get their own
+    chain: role1_model override > AGENT_MODEL_ROLE1 (all-users rollout D4)."""
+    settings = _read_runtime_settings()
+    if role is not None and int(role) < 2:
+        override = str(settings.get("role1_model") or "").strip()
+        return override if override else AGENT_MODEL_ROLE1
+    override = str(settings.get("model") or "").strip()
     return override if override else AGENT_MODEL
 
 
@@ -276,27 +286,66 @@ def _read_app_version() -> str:
 APP_VERSION = _read_app_version()
 
 
-def set_model_override(model) -> str:
-    """Set (or clear, with None/'') the runtime model override. Returns the
-    now-effective model. Raises ValueError on a malformed id."""
+def _write_runtime_settings(settings: dict) -> None:
+    os.makedirs(os.path.dirname(RUNTIME_SETTINGS_PATH), exist_ok=True)
+    tmp = RUNTIME_SETTINGS_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(settings, f, indent=1)
+    os.replace(tmp, RUNTIME_SETTINGS_PATH)
+
+
+def _set_model_key(key: str, model, label: str) -> None:
     settings = _read_runtime_settings()
     m = str(model or "").strip()
     if m:
         if not _MODEL_RE.match(m):
             raise ValueError("model id may only contain letters, digits, "
                              "dots, colons, underscores and hyphens")
-        settings["model"] = m
+        settings[key] = m
     else:
-        settings.pop("model", None)
-    os.makedirs(os.path.dirname(RUNTIME_SETTINGS_PATH), exist_ok=True)
-    tmp = RUNTIME_SETTINGS_PATH + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(settings, f, indent=1)
-    os.replace(tmp, RUNTIME_SETTINGS_PATH)
-    effective = get_effective_model()
-    logger.info(f"model override {'set to ' + m if m else 'CLEARED'} — "
-                f"effective model now {effective}")
-    return effective
+        settings.pop(key, None)
+    _write_runtime_settings(settings)
+    logger.info(f"{label} override {'set to ' + m if m else 'CLEARED'}")
+
+
+def set_model_override(model) -> str:
+    """Set (or clear, with None/'') the runtime model override. Returns the
+    now-effective model. Raises ValueError on a malformed id."""
+    _set_model_key("model", model, "model")
+    return get_effective_model()
+
+
+def set_role1_model_override(model) -> str:
+    """Same, for the regular-user (role < 2) model. Clearing falls back to
+    AGENT_MODEL_ROLE1. Returns the now-effective role-1 model."""
+    _set_model_key("role1_model", model, "role1 model")
+    return get_effective_model(role=1)
+
+
+def get_turn_cap() -> int:
+    """Per-user daily turn cap (all-users rollout D6). 0 = OFF (the default);
+    admins (role >= 3) are always exempt. Stored in the runtime settings."""
+    try:
+        return max(0, int(_read_runtime_settings().get("turns_per_day") or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def set_turn_cap(value) -> int:
+    """Set (or clear, with 0/None/'') the daily turn cap. Returns the
+    now-effective cap. Raises ValueError on a non-integer."""
+    settings = _read_runtime_settings()
+    raw = str(value if value is not None else "").strip()
+    n = int(raw) if raw else 0
+    if n < 0:
+        raise ValueError("turns_per_day must be 0 (off) or a positive integer")
+    if n:
+        settings["turns_per_day"] = n
+    else:
+        settings.pop("turns_per_day", None)
+    _write_runtime_settings(settings)
+    logger.info(f"daily turn cap {'set to ' + str(n) if n else 'turned OFF'}")
+    return n
 
 
 def ensure_anthropic_key() -> bool:
@@ -346,6 +395,9 @@ def summary() -> dict:
         "port": PORT,
         "model": get_effective_model(),
         "model_default": AGENT_MODEL,
+        "model_role1": get_effective_model(role=1),
+        "model_role1_default": AGENT_MODEL_ROLE1,
+        "turns_per_day": get_turn_cap(),
         "app_version": APP_VERSION,
         "app_root": APP_ROOT,
         "main_app": get_base_url(),

@@ -41,6 +41,8 @@ import readthrough
 async def lifespan(app):
     workitem_store.init()
     views_store.init()
+    import usage_store
+    usage_store.init()
     import email_store
     email_store.init()
     import chat_history
@@ -144,10 +146,14 @@ async def health():
 @app.get("/api/me")
 async def me(request: Request):
     user = _verify_request(request)
-    from agent_config import get_effective_model, APP_VERSION
+    from agent_config import (get_effective_model, get_turn_cap, APP_VERSION,
+                              AGENT_MODEL_ROLE1)
     return {"user": {k: user[k] for k in ("username", "name", "role")},
             "model": get_effective_model(),
             "model_default": AGENT_MODEL,
+            "model_role1": get_effective_model(role=1),
+            "model_role1_default": AGENT_MODEL_ROLE1,
+            "turns_per_day": get_turn_cap(),
             "app_version": APP_VERSION,
             # Deep links into the legacy app (Playbooks/Platform views) target
             # the same hostname the browser used, on the main app's port.
@@ -1155,6 +1161,46 @@ async def settings_model(request: Request):
                 f"({user.get('username')}) -> effective {effective}")
     return {"model": effective, "model_default": AGENT_MODEL,
             "override_active": effective != AGENT_MODEL}
+
+
+@app.post("/api/settings/role1-model")
+async def settings_role1_model(request: Request):
+    """Set (or clear with empty string) the model REGULAR users (role < 2) run
+    on (all-users rollout D4). Admin only; applies from the very next turn.
+    Clearing falls back to AGENT_MODEL_ROLE1 (haiku by default)."""
+    user = _verify_request(request)
+    if int(user.get("role") or 0) < 3:
+        raise HTTPException(403, "Changing the model requires an admin.")
+    from agent_config import set_role1_model_override, AGENT_MODEL_ROLE1
+    body = await request.json()
+    try:
+        effective = set_role1_model_override(body.get("model"))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    logger.info(f"role1 model override changed by user {user['user_id']} "
+                f"({user.get('username')}) -> effective {effective}")
+    return {"model_role1": effective, "model_role1_default": AGENT_MODEL_ROLE1,
+            "override_active": effective != AGENT_MODEL_ROLE1}
+
+
+@app.post("/api/settings/turn-cap")
+async def settings_turn_cap(request: Request):
+    """Set (or clear with 0/empty) the per-user daily turn cap (all-users
+    rollout D6 — DEFAULT OFF). Admin only; admins are always exempt from the
+    cap itself; applies from the very next turn."""
+    user = _verify_request(request)
+    if int(user.get("role") or 0) < 3:
+        raise HTTPException(403, "Changing the turn cap requires an admin.")
+    from agent_config import set_turn_cap
+    body = await request.json()
+    try:
+        cap = set_turn_cap(body.get("turns_per_day"))
+    except (ValueError, TypeError) as e:
+        raise HTTPException(400, f"turns_per_day must be 0 (off) or a positive "
+                                 f"integer: {e}")
+    logger.info(f"daily turn cap changed by user {user['user_id']} "
+                f"({user.get('username')}) -> {cap or 'OFF'}")
+    return {"turns_per_day": cap}
 
 
 # ---------------------------------------------------------------------------
