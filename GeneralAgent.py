@@ -1576,6 +1576,69 @@ def query_database(connection_id: int, query: str) -> str:
         return f"Error executing query: {str(e)}"
 
 
+def _resolve_uploaded_csv_path(file_path):
+    """Resolve the legacy CSV tools' file_path argument to a real file.
+
+    Chat-uploaded CSVs are DELETED from the temp uploads dir after ingestion,
+    so the literal path the model guesses ("uploads\\<uuid>_name.csv") almost
+    never exists — which made process_csv/show_csv answer "could not open the
+    file path" for every uploaded file. Accepts, in order:
+      1. a literal server path that exists;
+      2. an uploaded agent-file reference — the display filename, the stored
+         "uuid_name" from the prompt, or the document_id — resolved through
+         Documents.original_path (persisted tabular originals) and falling
+         back to the agent_files raw-bytes tee;
+      3. when nothing matches but the agent has exactly ONE uploaded CSV,
+         that file.
+    Returns (path, None) on success or (None, helpful_error) listing the
+    resolvable files so the model can retry with a real name.
+    """
+    if file_path and os.path.isfile(str(file_path)):
+        return str(file_path), None
+
+    agent_id = getattr(_current_agent_context, 'agent_id', None)
+    user_id = getattr(_current_agent_context, 'user_id', None)
+    wanted = os.path.basename(str(file_path or '')).strip().lower()
+
+    candidates = []  # (display_name, stored_name, document_id, resolved_path)
+    try:
+        if agent_id is not None:
+            import chat_file_manager
+            from agent_knowledge_integration import get_agent_knowledge_documents
+            for doc in (get_agent_knowledge_documents(agent_id, user_id=user_id) or []):
+                stored = str(doc.get('filename') or '')
+                doc_id = str(doc.get('document_id') or '')
+                display = stored.split('_', 1)[1] if '_' in stored else stored
+                path = None
+                original = doc.get('original_path')
+                if original and os.path.isfile(str(original)):
+                    path = str(original)
+                elif user_id is not None and doc_id:
+                    tee = chat_file_manager.get_agent_input_path(agent_id, user_id, doc_id)
+                    if tee and os.path.isfile(str(tee)):
+                        path = str(tee)
+                if not path:
+                    continue
+                candidates.append((display, stored, doc_id, path))
+                if wanted and wanted in (display.lower(), stored.lower(), doc_id.lower()):
+                    return path, None
+    except Exception as e:
+        logger.warning(f"Uploaded-CSV path resolution errored: {e}")
+
+    csv_candidates = [c for c in candidates
+                      if c[0].lower().endswith(('.csv', '.tsv'))]
+    if len(csv_candidates) == 1:
+        return csv_candidates[0][3], None
+    if csv_candidates:
+        names = ", ".join(sorted({c[0] for c in csv_candidates}))
+        return None, (f"Error: File not found at '{file_path}'. Uploaded files are not "
+                      f"kept at that path. This agent's uploaded CSV files (pass one of "
+                      f"these names as file_path): {names}")
+    return None, (f"Error: File not found at '{file_path}', and this agent has no "
+                  f"uploaded CSV files to resolve it against. Provide the full server "
+                  f"path of an existing CSV file.")
+
+
 # CSV Processor Tool
 @tool
 def process_csv(file_path: str, operation: str, parameters: Optional[Dict[str, Any]] = None) -> str:
@@ -1584,7 +1647,10 @@ def process_csv(file_path: str, operation: str, parameters: Optional[Dict[str, A
     Use this tool when you need to analyze or manipulate data in CSV files.
 
     Args:
-        file_path: The path to the CSV file
+        file_path: The path to the CSV file, OR — for a file the user uploaded
+            to this agent — just its filename (e.g. "invoice.csv") or its
+            document_id. Uploaded files are resolved automatically; do NOT
+            guess an uploads/ temp path.
         operation: The operation to perform (summarize, filter, transform, etc.)
         parameters: Optional parameters specific to the operation
             - For 'summarize': 'columns' (list of column names to include)
@@ -1595,12 +1661,14 @@ def process_csv(file_path: str, operation: str, parameters: Optional[Dict[str, A
         The result of the operation as a formatted string
     """
     try:
-        # Check if file exists
-        if not os.path.isfile(file_path):
-            return f"Error: File not found at {file_path}"
+        # Resolve literal paths OR uploaded-file references (name/document_id)
+        file_path, resolve_err = _resolve_uploaded_csv_path(file_path)
+        if resolve_err:
+            return resolve_err
 
-        # Read the CSV file
-        df = pd.read_csv(file_path)
+        # Read the CSV file (cp1252-tolerant, same loader as the tabular lane)
+        from agent_excel_tools import load_tabular_dataframe
+        df = load_tabular_dataframe(file_path)
 
         # Initialize parameters if not provided
         if parameters is None:
@@ -1711,19 +1779,24 @@ def show_csv(file_path: str, rows: int = 20) -> str:
     Use this tool when a user wants to see what's inside a CSV file.
 
     Args:
-        file_path: The path to the CSV file
+        file_path: The path to the CSV file, OR — for a file the user uploaded
+            to this agent — just its filename (e.g. "invoice.csv") or its
+            document_id. Uploaded files are resolved automatically; do NOT
+            guess an uploads/ temp path.
         rows: Number of rows to show (default: 20)
 
     Returns:
         The contents of the CSV file as a formatted table
     """
     try:
-        # Check if file exists
-        if not os.path.isfile(file_path):
-            return f"Error: File not found at {file_path}"
+        # Resolve literal paths OR uploaded-file references (name/document_id)
+        file_path, resolve_err = _resolve_uploaded_csv_path(file_path)
+        if resolve_err:
+            return resolve_err
 
-        # Read the CSV file
-        df = pd.read_csv(file_path)
+        # Read the CSV file (cp1252-tolerant, same loader as the tabular lane)
+        from agent_excel_tools import load_tabular_dataframe
+        df = load_tabular_dataframe(file_path)
 
         # Get basic file info
         total_rows = len(df)
@@ -3899,6 +3972,9 @@ class GeneralAgent():
                     # IMPORTANT: Set in thread-local storage for tools to access
                     _current_agent_context.user_id = self.user_id
                     _current_agent_context.request_id = RequestTracking.get_user_request_id()
+                # agent_id lets path-based tools (process_csv/show_csv) resolve
+                # uploaded agent files by name instead of failing on guessed paths
+                _current_agent_context.agent_id = self.agent_id
 
                 # Set email tool context if tools are loaded
                 try:
@@ -4047,6 +4123,8 @@ class GeneralAgent():
                 delattr(_current_agent_context, 'user_id')
             if hasattr(_current_agent_context, 'request_id'):
                 delattr(_current_agent_context, 'request_id')
+            if hasattr(_current_agent_context, 'agent_id'):
+                delattr(_current_agent_context, 'agent_id')
 
             # Clean up any leftover rich content files on error
             if user_id:
