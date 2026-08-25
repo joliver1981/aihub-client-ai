@@ -1130,12 +1130,14 @@ async def setup_agent_email(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "get_agent_email_status",
-    "Your INBOX VIEW for the current user: their agent address (or that none "
-    "exists yet), settings, poller state, and recent inbound activity "
-    "(sender/subject/outcome). Questions like 'did you get any email?' are "
-    "answered from THIS — call it and report the activity directly, without "
-    "capability disclaimers. Use it whenever a user asks about receiving, "
-    "getting, or handling email.",
+    "The QUICK PULSE on the current user's agent email: their address (or "
+    "that none exists yet), settings, poller state, and the last few inbound "
+    "rows (sender/subject/outcome). Questions like 'did you get any email?' "
+    "are answered from THIS — call it and report the activity directly, "
+    "without capability disclaimers. For anything deeper — paging or "
+    "searching past mail, opening a message's body, reading or saving "
+    "attachments — use list_my_email / read_email / list_email_attachments "
+    "/ read_attachment / save_attachment.",
     {},
 )
 async def get_agent_email_status(args: dict[str, Any]) -> dict[str, Any]:
@@ -1174,6 +1176,12 @@ async def get_agent_email_status(args: dict[str, Any]) -> dict[str, Any]:
                              f"{(e.get('subject') or '(no subject)')[:60]}")
         else:
             lines.append("No inbound mail processed yet.")
+        from agent_config import email_tools_enabled
+        if email_tools_enabled():
+            lines.append("Deeper reads: list_my_email pages/searches the "
+                         "whole log (each row's event_id opens with "
+                         "read_email); read_attachment / save_attachment "
+                         "handle attachments.")
     else:
         default = email_store.sanitize_prefix(user.get("username")) or str(uid)
         lines.append("No agent email address set up yet for this user. OFFER "

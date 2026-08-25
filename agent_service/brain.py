@@ -20,7 +20,7 @@ from typing import AsyncIterator, Optional
 
 from agent_config import (
     AGENT_MODEL, AGENT_MAX_TURNS, CLAUDE_CONFIG_DIR, WORKSPACE_DIR,
-    ensure_anthropic_key, logger,
+    ensure_anthropic_key, email_tools_enabled, logger,
 )
 from platform_tools import AIHUB_TOOLS, CURRENT_USER
 from authoring_tools import AUTHORING_TOOLS
@@ -30,6 +30,7 @@ from integration_tools import INTEGRATION_TOOLS
 from file_tools import FILE_TOOLS
 from document_tools import DOCUMENT_TOOLS
 from portal_tools import PORTAL_TOOLS
+from email_tools import EMAIL_TOOLS
 
 from claude_agent_sdk import (
     ClaudeAgentOptions, query, create_sdk_mcp_server,
@@ -116,12 +117,18 @@ _DOCUMENT_TOOLS_ON = os.getenv("AGENT_DOCUMENT_TOOLS", "true").lower() == "true"
 _PORTAL_TOOLS_ON = (os.getenv("AGENT_PORTAL_TOOLS", "true").lower() == "true"
                     and os.getenv("BROWSER_USE_ENABLED", "true").lower() == "true")
 
+# Email READING tools (open the mail A6 already receives): same additive /
+# reversible doctrine — AGENT_EMAIL_TOOLS=false reverts to the status-only
+# view. The inbound loop itself stays separately gated by AGENT_EMAIL_ENABLED.
+_EMAIL_TOOLS_ON = email_tools_enabled()
+
 aihub_server = create_sdk_mcp_server(
     name="aihub", version="0.6.0",
     tools=AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
           + INTEGRATION_TOOLS + FILE_TOOLS
           + (DOCUMENT_TOOLS if _DOCUMENT_TOOLS_ON else [])
-          + (PORTAL_TOOLS if _PORTAL_TOOLS_ON else []))
+          + (PORTAL_TOOLS if _PORTAL_TOOLS_ON else [])
+          + (EMAIL_TOOLS if _EMAIL_TOOLS_ON else []))
 
 # Mutation-claim guard (port of CC nodes.py _claims_completed_mutation,
 # AIHUB-0048 F1): a reply asserting a JUST-COMPLETED change is only honest when
@@ -137,7 +144,7 @@ MUTATING_TOOLS = frozenset({
     "raise_work_item", "save_skill", "schedule_agent_task",
     "save_view", "delete_view", "rename_view", "store_platform_secret",
     "schedule_view_refresh", "schedule_view_email",
-    "draft_email_reply", "setup_agent_email",
+    "draft_email_reply", "setup_agent_email", "save_attachment",
     "execute_integration_operation", "assign_integration_groups",
     "import_documents",
     "portal_fetch", "save_portal", "run_portal_workflow",
@@ -176,7 +183,9 @@ _READ_TOOL_NAMES = [
     "check_automation_run", "get_automation", "list_code_flows",
     "get_code_flow", "list_my_work", "list_skills",
     "list_saved_views", "get_view", "list_secret_names",
-    "get_agent_email_status", "list_integrations", "get_integration_operations",
+    "get_agent_email_status", "list_my_email", "read_email",
+    "list_email_attachments", "read_attachment",
+    "list_integrations", "get_integration_operations",
     "list_server_files", "search_documents", "list_documents", "get_document",
     "query_document_records", "read_file",
     "lookup_portal", "list_portal_workflows", "describe_portal_workflow",
@@ -362,21 +371,29 @@ a View. If they'd rather not paste it in chat at all, point them to Settings ->
 Local Secrets and agree on the name.
 
 EMAIL
-YES — you can receive email. Every user gets a personal agent address (Email
-screen in the rail); mail sent there reaches you as a headless session run as
-them, and your results land in their My Work. When a user asks whether you can
-get/receive/handle email, the answer is YES: call get_agent_email_status
-FIRST and answer from their actual state — show their address and recent
-activity, or if none exists OFFER TO SET IT UP yourself: propose the default
-address, note they can pick a different prefix, and after they explicitly
-agree call setup_agent_email with confirmed=true (never create it without
-their permission).
-get_agent_email_status IS your inbox view: "did you get any email?" / "any
-mail?" = call it and answer from the activity it reports — directly, with NO
-capability disclaimers or preambles about what you can't do. (Full message
-bodies arrive only in the per-message sessions; if asked for an old email's
-contents, say the activity log has sender/subject/outcome and offer to act
-on future mail instead.) To send, use draft_email_reply — it honors the address's
+YES — you can receive email AND open it. Every user gets a personal agent
+address (Email screen in the rail); mail sent there reaches you as a headless
+session run as them, and your results land in their My Work. When a user asks
+whether you can get/receive/handle email, the answer is YES: call
+get_agent_email_status FIRST and answer from their actual state — show their
+address and recent activity, or if none exists OFFER TO SET IT UP yourself:
+propose the default address, note they can pick a different prefix, and after
+they explicitly agree call setup_agent_email with confirmed=true (never
+create it without their permission).
+get_agent_email_status is the quick pulse (address, settings, last few
+arrivals). To actually OPEN mail: list_my_email pages and searches the whole
+inbox history (and shows PENDING mail not yet processed); read_email(event_id)
+returns the full body plus the attachment list; read_attachment(event_id,
+attachment_id) returns an attachment's extracted text (PDF/Word/Excel/images,
+OCR fallback); save_attachment writes the original file into the server so
+import_documents can ingest it or offer_file_download can hand it to the
+user. Answer "did I get mail / what does it say / what's in the attachment"
+from these tools directly, with NO capability disclaimers. The cloud retains
+full bodies ~3 days — when read_email says a body is no longer retained,
+report that honestly (the log still has sender/subject/outcome). In an
+INBOUND EMAIL session the context lines carry the event_id and attachment
+ids of the very mail you are handling — use them when its pre-extracted
+preview is not enough. To send, use draft_email_reply — it honors the address's
 settings: auto-send OFF (default) files an EDITABLE approval in My Work and
 nothing sends until they approve; auto-send ON sends immediately and the tool
 says so. Report exactly what the tool result says — "sent" only when it says

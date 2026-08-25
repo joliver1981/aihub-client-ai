@@ -201,6 +201,16 @@ def defer_to_chat_enabled() -> bool:
     return os.getenv("AGENT_DEFER_TO_CHAT", "true").strip().lower() == "true"
 
 
+# Agent Email READING tools (list_my_email / read_email / attachments) — one
+# flag reverts the whole family. It lives HERE (not brain.py) because three
+# SDK-free callers need it too: the poller's prompt hints + pre-extraction
+# budget and the status tool's pointer line. Default true: these are read
+# tools plus one sandboxed save, and inbound email itself stays separately
+# gated by AGENT_EMAIL_ENABLED (the poller kill switch, default false).
+def email_tools_enabled() -> bool:
+    return os.getenv("AGENT_EMAIL_TOOLS", "true").strip().lower() == "true"
+
+
 # A chat turn that arrives while a deferred run is being appended to the SAME
 # conversation waits (bounded) instead of racing it — two writers on one SDK
 # transcript is the one real risk of the resume design. 0 disables the wait.

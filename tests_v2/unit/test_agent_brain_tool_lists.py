@@ -34,6 +34,7 @@ try:
     from file_tools import FILE_TOOLS               # noqa: E402
     from document_tools import DOCUMENT_TOOLS       # noqa: E402
     from portal_tools import PORTAL_TOOLS           # noqa: E402
+    from email_tools import EMAIL_TOOLS             # noqa: E402
     HAVE_SDK = True
 except ImportError as e:
     HAVE_SDK = False
@@ -51,7 +52,8 @@ else:
     # concat) so the check is independent of AGENT_DOCUMENT_TOOLS /
     # AGENT_PORTAL_TOOLS settings on the box running the suite.
     ALL_TOOLS = (AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
-                 + INTEGRATION_TOOLS + FILE_TOOLS + DOCUMENT_TOOLS + PORTAL_TOOLS)
+                 + INTEGRATION_TOOLS + FILE_TOOLS + DOCUMENT_TOOLS
+                 + PORTAL_TOOLS + EMAIL_TOOLS)
     ALL_NAMES = {getattr(t, "name", "") for t in ALL_TOOLS}
 
 # Read-shaped name prefixes. A registered tool matching one of these, not in
@@ -121,6 +123,12 @@ def test_known_drift_regressions_pinned():
     assert "list_code_flows" in brain._READ_TOOL_NAMES
     assert "list_skills" in brain._READ_TOOL_NAMES
     assert "schedule_view_email" in brain.MUTATING_TOOLS
+    # Email READING family (2026-08-24): reads are side-thread-visible, the
+    # save is mutation-guarded — pinned so a refactor can't silently drop them.
+    for n in ("list_my_email", "read_email", "list_email_attachments",
+              "read_attachment"):
+        assert n in brain._READ_TOOL_NAMES, n
+    assert "save_attachment" in brain.MUTATING_TOOLS
 
 
 def test_sensitive_fields_map_to_real_tools():

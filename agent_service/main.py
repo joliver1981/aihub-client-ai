@@ -1238,14 +1238,17 @@ async def email_log(request: Request):
 def _own_ledger_row(user: dict, event_id: int) -> dict:
     """The expand-a-row viewer's authz: the event must be in the CALLING
     user's own ledger (scoped by their address) — otherwise any signed-in
-    user could pull arbitrary tenant mail by guessing event ids."""
-    import email_store
-    row = email_store.get_address(int(user["user_id"] or 0))
-    if not row:
-        raise HTTPException(404, "No agent address set up for this user.")
-    entry = email_store.get_processed(int(event_id), row["email_address"])
-    if not entry:
-        raise HTTPException(404, "That email is not in your activity log.")
+    user could pull arbitrary tenant mail by guessing event ids. The lookup
+    itself lives in email_tools.ledger_entry_for — ONE chokepoint shared
+    with the email READING tools (which additionally accept live-feed
+    ownership; these routes deliberately stay ledger-only, matching what
+    the Email page lists)."""
+    from email_tools import ledger_entry_for, EmailAccess
+    try:
+        entry, _address = ledger_entry_for(int(user["user_id"] or 0),
+                                           int(event_id))
+    except EmailAccess as e:
+        raise HTTPException(404, str(e))
     return entry
 
 

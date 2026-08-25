@@ -237,6 +237,40 @@ def recent(address: str = "", limit: int = 20) -> list:
     return [dict(r) for r in rows]
 
 
+def search(address: str, limit: int = 20, offset: int = 0, since: str = "",
+           sender: str = "", subject_contains: str = "",
+           include_skipped: bool = True) -> tuple:
+    """Filtered page over ONE address's ledger, newest first — the
+    list_my_email tool's query (recent() stays the 5-row status view).
+    Returns (rows, total_matching). `since` is a plain string >= compare,
+    which is correct because processed_at is UTC ISO; sender/subject are
+    case-folded substring matches; include_skipped=False hides the
+    skipped_* outcomes (self-mail, rate-limited)."""
+    where, params = ["address = ?"], [address.lower()]
+    if since:
+        where.append("processed_at >= ?")
+        params.append(str(since))
+    if sender:
+        where.append("LOWER(sender) LIKE ?")
+        params.append(f"%{str(sender).lower()}%")
+    if subject_contains:
+        where.append("LOWER(subject) LIKE ?")
+        params.append(f"%{str(subject_contains).lower()}%")
+    if not include_skipped:
+        where.append("outcome NOT LIKE 'skipped%'")
+    clause = " AND ".join(where)
+    with _connect() as c:
+        r = c.execute(f"SELECT COUNT(*) AS n FROM processed_emails "
+                      f"WHERE {clause}", params).fetchone()
+        total = int(r["n"] if r else 0)
+        rows = c.execute(
+            f"SELECT * FROM processed_emails WHERE {clause} "
+            f"ORDER BY processed_at DESC LIMIT ? OFFSET ?",
+            params + [max(1, min(int(limit), 100)),
+                      max(0, int(offset))]).fetchall()
+    return [dict(r) for r in rows], total
+
+
 def processed_today(address: str) -> int:
     day = _now()[:10]
     with _connect() as c:

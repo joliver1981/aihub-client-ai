@@ -23,7 +23,7 @@ import asyncio
 import os
 from typing import Awaitable, Callable, Optional
 
-from agent_config import logger
+from agent_config import logger, email_tools_enabled
 import email_client
 import email_store
 import workitem_store
@@ -32,7 +32,13 @@ POLL_SECONDS = max(int(os.getenv("AGENT_EMAIL_POLL_SECONDS", "60")), 30)
 COOLDOWN_MINUTES = int(os.getenv("AGENT_EMAIL_COOLDOWN_MINUTES", "2"))
 DAILY_CAP = int(os.getenv("AGENT_EMAIL_MAX_PER_DAY", "100"))
 MAX_ATTACHMENTS = int(os.getenv("AGENT_EMAIL_MAX_ATTACHMENTS", "10"))
-ATTACH_CHARS_EACH = int(os.getenv("AGENT_EMAIL_ATTACH_CHARS", "20000"))
+# Pre-extracted attachment text is a PROMPT budget, not a platform cap. With
+# the email READING tools registered the default halves: the turn can call
+# read_attachment for the full text (up to the platform cap) whenever the
+# preview is not enough. Without the tools the preview is all the turn will
+# ever see, so the old 20k stands. AGENT_EMAIL_ATTACH_CHARS overrides either.
+ATTACH_CHARS_EACH = int(os.getenv(
+    "AGENT_EMAIL_ATTACH_CHARS", "10000" if email_tools_enabled() else "20000"))
 
 
 def enabled() -> bool:
@@ -86,31 +92,47 @@ async def build_prompt(ev: dict, owner: dict) -> str:
         parts.append("The user's STANDING INSTRUCTIONS for handling their "
                      "email (style, personality, rules — follow them):\n"
                      + str(owner["reply_instructions"]).strip()[:2000])
+    event_id = int(_event_field(ev, "event_id", "id", default=0) or 0)
     parts += [
         f"From: {sender}",
         f"To: {_event_field(ev, 'recipient_email', 'recipient')}",
         f"Subject: {subject}",
+    ]
+    # The ids the email READING tools take. Without this line the turn holds
+    # no handle to the very mail it is processing (its ledger row is only
+    # written AFTER the turn; the tools' live-feed fallback covers ownership).
+    if event_id and email_tools_enabled():
+        parts.append(f"Email event_id: {event_id} — read_email / "
+                     "list_email_attachments / read_attachment / "
+                     "save_attachment accept this id.")
+    parts += [
         "",
         str(body or "(empty body)")[:15000],
     ]
 
-    event_id = int(_event_field(ev, "event_id", "id", default=0) or 0)
     if event_id and _event_field(ev, "has_attachments", "attachment_count",
                                  default=None):
         atts = (await email_client.attachments_for(event_id))[:MAX_ATTACHMENTS]
         if atts:
             parts.append("\nAttachments (extracted text):")
+            if email_tools_enabled():
+                parts.append(
+                    "(previews below may be truncated — "
+                    f"read_attachment(event_id={event_id}, attachment_id=...) "
+                    "returns the full text; save_attachment writes the "
+                    "original file for import_documents / "
+                    "offer_file_download)")
             for a in atts:
                 aid = a.get("attachment_id") or a.get("id")
                 name = a.get("filename", f"attachment {aid}")
                 ext = await email_client.extract_attachment_text(
                     int(aid), ATTACH_CHARS_EACH)
                 if ext.get("success"):
-                    parts.append(f"--- {name} ---\n"
+                    parts.append(f"--- {name} (attachment_id {aid}) ---\n"
                                  f"{str(ext.get('text') or '')[:ATTACH_CHARS_EACH]}")
                 else:
-                    parts.append(f"--- {name} --- (extraction failed: "
-                                 f"{ext.get('error')})")
+                    parts.append(f"--- {name} (attachment_id {aid}) --- "
+                                 f"(extraction failed: {ext.get('error')})")
     return "\n".join(parts)
 
 
