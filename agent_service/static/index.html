@@ -1824,6 +1824,18 @@
       if (files.length) uploadAttachments(files);
     });
   }
+  // Paste (CC parity): files on the clipboard — a screenshot arrives as a File
+  // literally named "image.png" — become attachments; text pastes untouched.
+  // Generic screenshot names get a timestamp so two pastes don't make
+  // identical chips (and identical model-facing names).
+  input.addEventListener("paste", (e) => {
+    const files = Array.from(e.clipboardData?.files || []);
+    if (!files.length) return;
+    e.preventDefault();
+    uploadAttachments(files.map(f => (f.name && f.name !== "image.png") ? f
+      : new File([f], "pasted-" + new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19) + ".png",
+                  { type: f.type || "image/png" })));
+  });
 
   async function sendMsg() {
     const typed = input.value.trim();
