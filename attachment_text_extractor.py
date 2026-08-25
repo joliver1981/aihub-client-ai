@@ -380,11 +380,22 @@ def extract_xlsx_text(file_bytes: bytes, filename: str = "spreadsheet.xlsx") -> 
             if not rows:
                 continue
             
-            sheet_text = [f"\n## Sheet: {sheet_name}\n"]
-            
             # Find max columns with data
             max_cols = max(len(row) for row in rows) if rows else 0
-            
+
+            # Lead with exact totals so the model never infers row counts from
+            # a truncated preview (that is how "how many rows?" goes wrong).
+            sheet_data_rows = len(rows) - 1  # excluding header row
+            sheet_header = (f"\n## Sheet: {sheet_name} "
+                            f"({sheet_data_rows} data rows + 1 header row, "
+                            f"{max_cols} columns")
+            if len(rows) > 500:
+                sheet_header += ("; PREVIEW below shows only the first 500 rows "
+                                 "— for counts/totals, run code against the "
+                                 "original file")
+            sheet_header += ")\n"
+            sheet_text = [sheet_header]
+
             # Build markdown table
             for row_idx, row in enumerate(rows[:500]):  # Limit to 500 rows
                 # Pad row to max_cols
@@ -409,7 +420,9 @@ def extract_xlsx_text(file_bytes: bytes, filename: str = "spreadsheet.xlsx") -> 
                     sheet_text.append(separator)
             
             if len(rows) > 500:
-                sheet_text.append(f"\n... (truncated, {len(rows) - 500} more rows)")
+                sheet_text.append(f"\n... (PREVIEW truncated: {len(rows) - 500} more "
+                                  f"rows exist but are not shown — this sheet has "
+                                  f"{sheet_data_rows} data rows in total)")
             
             text_parts.append("\n".join(sheet_text))
         
@@ -464,21 +477,37 @@ def extract_csv_text(file_bytes: bytes, filename: str = "file.csv") -> str:
         if not rows:
             return text
         
-        # Build markdown table
+        # Build markdown table. Lead with exact totals so the model never has
+        # to infer row counts from a (possibly truncated) preview — that is how
+        # "how many rows?" gets answered wrong.
         output = []
         max_cols = max(len(row) for row in rows)
-        
+        data_rows = len(rows) - 1  # excluding header row
+        truncated = len(rows) > 500
+
+        fact_line = (f"[CSV file facts: {data_rows} data rows + 1 header row, "
+                     f"{max_cols} columns.")
+        if truncated:
+            fact_line += (" The table below is a PREVIEW of the first 500 rows "
+                          "only — NOT the whole file. For any row counts, "
+                          "totals, or other computation, run code against the "
+                          "original file instead of counting the preview.")
+        fact_line += "]"
+        output.append(fact_line)
+
         for row_idx, row in enumerate(rows[:500]):
             padded = row + [''] * (max_cols - len(row))
             cleaned = [cell.replace('|', '\\|').replace('\n', ' ') for cell in padded]
             output.append("| " + " | ".join(cleaned) + " |")
-            
+
             if row_idx == 0:
                 output.append("| " + " | ".join(["---"] * max_cols) + " |")
-        
-        if len(rows) > 500:
-            output.append(f"\n... (truncated, {len(rows) - 500} more rows)")
-        
+
+        if truncated:
+            output.append(f"\n... (PREVIEW truncated: {len(rows) - 500} more rows "
+                          f"exist but are not shown — the file has {data_rows} "
+                          "data rows in total)")
+
         return "\n".join(output)
         
     except Exception as e:

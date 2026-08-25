@@ -1,8 +1,10 @@
 """
-Excel Live Data Source Tools for AI Hub Agents
+Excel/CSV Live Data Source Tools for AI Hub Agents
 
-Provides query-time access to Excel files uploaded as agent knowledge.
-Auto-activated when an agent has Excel knowledge documents.
+Provides query-time access to tabular data files (.xlsx/.xls/.csv/.tsv)
+uploaded as agent knowledge. Auto-activated when an agent has tabular
+knowledge documents. Tool names keep the historical "excel_" prefix for
+stability, but every tool works on CSV/TSV files too (single sheet "data").
 
 Tools:
     get_excel_summary       - Get file structure, columns, types, stats
@@ -48,13 +50,54 @@ if not logger.handlers:
 # Module-Level Helper Functions
 # ============================================================================
 
+# Tabular data files that get the structured query lane (persisted original +
+# metadata profile + query tools). CSV/TSV are single-"sheet" files: they load
+# via pandas read_csv and report one logical sheet named CSV_SHEET_NAME.
+EXCEL_EXTENSIONS = ('.xlsx', '.xls')
+CSV_EXTENSIONS = ('.csv', '.tsv')
+TABULAR_DATA_EXTENSIONS = EXCEL_EXTENSIONS + CSV_EXTENSIONS
+CSV_SHEET_NAME = 'data'
+
+
+def is_tabular_data_file(filename: str) -> bool:
+    """True if the filename is a tabular data file eligible for the structured
+    query lane (Excel workbook or CSV/TSV)."""
+    return bool(filename) and filename.lower().endswith(TABULAR_DATA_EXTENSIONS)
+
+
+def _is_csv_file(file_path: str) -> bool:
+    return bool(file_path) and file_path.lower().endswith(CSV_EXTENSIONS)
+
+
+def _read_csv_dataframe(file_path: str) -> pd.DataFrame:
+    """Read a CSV/TSV into a DataFrame, tolerating non-UTF-8 encodings
+    (Windows exports are commonly cp1252)."""
+    sep = '\t' if file_path.lower().endswith('.tsv') else ','
+    try:
+        return pd.read_csv(file_path, sep=sep)
+    except UnicodeDecodeError:
+        return pd.read_csv(file_path, sep=sep, encoding='cp1252')
+
+
+def load_tabular_dataframe(file_path: str, sheet_name: Optional[str] = None) -> pd.DataFrame:
+    """
+    Load a tabular data file into a DataFrame regardless of format.
+    Excel files honor sheet_name (default: first sheet); CSV/TSV files have a
+    single logical sheet, so sheet_name is ignored for them.
+    """
+    if _is_csv_file(file_path):
+        return _read_csv_dataframe(file_path)
+    return pd.read_excel(file_path, sheet_name=sheet_name if sheet_name else 0)
+
+
 def generate_excel_metadata(file_path: str) -> dict:
     """
-    Generate a lightweight metadata profile for an Excel file.
+    Generate a lightweight metadata profile for a tabular data file
+    (.xlsx/.xls workbook or .csv/.tsv).
     Called at ingest time. Stored in Documents.document_metadata as JSON.
 
     Args:
-        file_path: Absolute path to the .xlsx/.xls file
+        file_path: Absolute path to the .xlsx/.xls/.csv/.tsv file
 
     Returns:
         dict with structure:
@@ -89,6 +132,16 @@ def generate_excel_metadata(file_path: str) -> dict:
     }
 
     try:
+        # CSV/TSV: single logical sheet, no workbook to enumerate
+        if _is_csv_file(file_path):
+            df = _read_csv_dataframe(file_path)
+            if not df.empty:
+                metadata["total_rows"] += len(df)
+                metadata["sheets"].append(
+                    _profile_dataframe(df, CSV_SHEET_NAME, sample_count, max_stats_cols)
+                )
+            return metadata
+
         # Get sheet names and visibility
         wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
         all_sheets = wb.sheetnames
@@ -108,67 +161,75 @@ def generate_excel_metadata(file_path: str) -> dict:
             if df.empty:
                 continue
 
-            sheet_meta = {
-                "name": sheet_name,
-                "row_count": len(df),
-                "column_count": len(df.columns),
-                "columns": [],
-                "sample_rows": [],
-                "has_headers": True
-            }
-
             metadata["total_rows"] += len(df)
-
-            # Profile each column
-            for i, col_name in enumerate(df.columns):
-                col_info = {"name": str(col_name)}
-                series = df[col_name]
-
-                # Detect dtype
-                if pd.api.types.is_numeric_dtype(series):
-                    col_info["dtype"] = "number"
-                    if i < max_stats_cols:
-                        col_info["min"] = float(series.min()) if not pd.isna(series.min()) else None
-                        col_info["max"] = float(series.max()) if not pd.isna(series.max()) else None
-                        col_info["mean"] = round(float(series.mean()), 2) if not pd.isna(series.mean()) else None
-                elif pd.api.types.is_datetime64_any_dtype(series):
-                    col_info["dtype"] = "date"
-                    non_null = series.dropna()
-                    if len(non_null) > 0:
-                        col_info["min"] = str(non_null.min().date())
-                        col_info["max"] = str(non_null.max().date())
-                else:
-                    col_info["dtype"] = "text"
-                    unique_vals = series.dropna().unique()[:5]
-                    col_info["sample_values"] = [str(v)[:100] for v in unique_vals]
-
-                sheet_meta["columns"].append(col_info)
-
-            # Sample rows
-            sample_df = df.head(sample_count).fillna("")
-            for _, row in sample_df.iterrows():
-                row_dict = {}
-                for col in df.columns:
-                    val = row[col]
-                    if pd.isna(val):
-                        row_dict[str(col)] = None
-                    elif isinstance(val, (np.integer,)):
-                        row_dict[str(col)] = int(val)
-                    elif isinstance(val, (np.floating,)):
-                        row_dict[str(col)] = round(float(val), 4)
-                    elif isinstance(val, pd.Timestamp):
-                        row_dict[str(col)] = str(val.date())
-                    else:
-                        row_dict[str(col)] = str(val)[:200]
-                sheet_meta["sample_rows"].append(row_dict)
-
-            metadata["sheets"].append(sheet_meta)
+            metadata["sheets"].append(
+                _profile_dataframe(df, sheet_name, sample_count, max_stats_cols)
+            )
 
         return metadata
 
     except Exception as e:
         logger.error(f"Error generating Excel metadata for '{file_path}': {e}")
         return {"sheets": [], "total_rows": 0, "file_size_bytes": 0, "error": str(e)}
+
+
+def _profile_dataframe(df: pd.DataFrame, sheet_name: str,
+                       sample_count: int, max_stats_cols: int) -> dict:
+    """Build the per-sheet metadata profile (columns, dtypes, stats, samples)
+    for one DataFrame. Shared by the Excel and CSV metadata paths."""
+    sheet_meta = {
+        "name": sheet_name,
+        "row_count": len(df),
+        "column_count": len(df.columns),
+        "columns": [],
+        "sample_rows": [],
+        "has_headers": True
+    }
+
+    # Profile each column
+    for i, col_name in enumerate(df.columns):
+        col_info = {"name": str(col_name)}
+        series = df[col_name]
+
+        # Detect dtype
+        if pd.api.types.is_numeric_dtype(series):
+            col_info["dtype"] = "number"
+            if i < max_stats_cols:
+                col_info["min"] = float(series.min()) if not pd.isna(series.min()) else None
+                col_info["max"] = float(series.max()) if not pd.isna(series.max()) else None
+                col_info["mean"] = round(float(series.mean()), 2) if not pd.isna(series.mean()) else None
+        elif pd.api.types.is_datetime64_any_dtype(series):
+            col_info["dtype"] = "date"
+            non_null = series.dropna()
+            if len(non_null) > 0:
+                col_info["min"] = str(non_null.min().date())
+                col_info["max"] = str(non_null.max().date())
+        else:
+            col_info["dtype"] = "text"
+            unique_vals = series.dropna().unique()[:5]
+            col_info["sample_values"] = [str(v)[:100] for v in unique_vals]
+
+        sheet_meta["columns"].append(col_info)
+
+    # Sample rows
+    sample_df = df.head(sample_count).fillna("")
+    for _, row in sample_df.iterrows():
+        row_dict = {}
+        for col in df.columns:
+            val = row[col]
+            if pd.isna(val):
+                row_dict[str(col)] = None
+            elif isinstance(val, (np.integer,)):
+                row_dict[str(col)] = int(val)
+            elif isinstance(val, (np.floating,)):
+                row_dict[str(col)] = round(float(val), 4)
+            elif isinstance(val, pd.Timestamp):
+                row_dict[str(col)] = str(val.date())
+            else:
+                row_dict[str(col)] = str(val)[:200]
+        sheet_meta["sample_rows"].append(row_dict)
+
+    return sheet_meta
 
 
 def get_excel_file_path(document_id: str) -> Optional[str]:
@@ -263,6 +324,274 @@ def _update_excel_metadata(document_id: str, metadata: dict):
 
 
 # ============================================================================
+# Path-based query core (shared by the ExcelTool closures below and by the
+# /api/internal/tabular/query endpoint that serves The Agent)
+# ============================================================================
+
+def format_tabular_summary(meta: dict, label: str) -> str:
+    """Format a metadata profile (from generate_excel_metadata) as readable
+    text: exact row counts, columns with dtypes/stats, and sample rows."""
+    lines = [f"Tabular File Summary ({label})"]
+    lines.append(f"Total rows across all sheets: {meta.get('total_rows', 'unknown')}")
+    lines.append(f"Number of sheets: {len(meta.get('sheets', []))}")
+    lines.append(f"File size: {meta.get('file_size_bytes', 0):,} bytes")
+    lines.append("")
+
+    for sheet in meta.get('sheets', []):
+        lines.append(f"=== Sheet: \"{sheet['name']}\" ===")
+        lines.append(f"Rows: {sheet['row_count']}, Columns: {sheet['column_count']}")
+        lines.append("Columns:")
+
+        for col in sheet.get('columns', []):
+            col_line = f"  - {col['name']} ({col['dtype']})"
+            if col['dtype'] == 'number':
+                stats_parts = []
+                if col.get('min') is not None:
+                    stats_parts.append(f"min={col['min']}")
+                if col.get('max') is not None:
+                    stats_parts.append(f"max={col['max']}")
+                if col.get('mean') is not None:
+                    stats_parts.append(f"mean={col['mean']:.2f}")
+                if stats_parts:
+                    col_line += f" [{', '.join(stats_parts)}]"
+            elif col['dtype'] == 'date':
+                if col.get('min') and col.get('max'):
+                    col_line += f" [range: {col['min']} to {col['max']}]"
+            elif col.get('sample_values'):
+                samples = col['sample_values'][:3]
+                col_line += f" [examples: {', '.join(str(s) for s in samples)}]"
+            lines.append(col_line)
+
+        if sheet.get('sample_rows'):
+            lines.append(f"\nSample data (first {len(sheet['sample_rows'])} rows):")
+            cols = [c['name'] for c in sheet.get('columns', [])[:10]]
+            header = " | ".join(str(c) for c in cols)
+            separator = " | ".join("---" for _ in cols)
+            lines.append(header)
+            lines.append(separator)
+            for sample_row in sheet['sample_rows'][:3]:
+                vals = [str(sample_row.get(c, ''))[:30] for c in cols]
+                lines.append(" | ".join(vals))
+        lines.append("")
+
+    return '\n'.join(lines)
+
+
+def read_tabular_slice(file_path: str, sheet_name: Optional[str] = None,
+                       columns: Optional[str] = None,
+                       start_row: Optional[int] = None,
+                       end_row: Optional[int] = None,
+                       filter_condition: Optional[str] = None) -> str:
+    """Read a slice of a tabular file as a markdown table with a row-count
+    summary line. Shared core of the read_excel_data tool."""
+    max_rows = int(getattr(cfg, 'EXCEL_QUERY_MAX_ROWS', 500))
+    default_rows = int(getattr(cfg, 'EXCEL_QUERY_DEFAULT_ROWS', 100))
+
+    df = load_tabular_dataframe(file_path, sheet_name)
+    total_rows = len(df)
+
+    # Apply column filter
+    if columns:
+        col_list = [c.strip() for c in columns.split(',')]
+        missing = [c for c in col_list if c not in df.columns]
+        if missing:
+            return (
+                f"Error: Columns not found: {missing}. "
+                f"Available columns: {list(df.columns)}"
+            )
+        df = df[col_list]
+
+    # Apply pandas query filter
+    if filter_condition:
+        try:
+            df = df.query(filter_condition)
+        except Exception as e:
+            return (
+                f"Error applying filter '{filter_condition}': "
+                f"{str(e)}. Use pandas query syntax, e.g. "
+                f"\"Column == 'value'\" or \"Amount > 100\"."
+            )
+
+    filtered_rows = len(df)
+
+    # Apply row range
+    actual_start = max(0, (start_row or 1) - 1)
+    df = df.iloc[actual_start:]
+
+    if end_row is not None:
+        row_limit = min(end_row - actual_start, max_rows)
+        df = df.head(row_limit)
+    else:
+        df = df.head(default_rows)
+
+    result_rows = len(df)
+
+    # Convert to markdown table
+    md_table = df.to_markdown(index=False)
+
+    # Build summary line
+    summary_parts = [f"Showing {result_rows} of {filtered_rows} rows"]
+    if filter_condition:
+        summary_parts.append(f"(filtered from {total_rows} total)")
+    else:
+        summary_parts.append(f"(total: {total_rows})")
+    if result_rows < filtered_rows:
+        summary_parts.append(
+            "Use start_row/end_row to page through more data."
+        )
+
+    return f"{' '.join(summary_parts)}\n\n{md_table}"
+
+
+def aggregate_tabular(file_path: str, sheet_name: Optional[str] = None,
+                      group_by: Optional[str] = None,
+                      aggregations: Optional[str] = None,
+                      filter_condition: Optional[str] = None) -> str:
+    """Run aggregation/groupby over a tabular file, returning a markdown table.
+    Shared core of the aggregate_excel_data tool."""
+    max_source = int(getattr(cfg, 'EXCEL_AGGREGATION_MAX_ROWS', 50000))
+
+    df = load_tabular_dataframe(file_path, sheet_name)
+
+    if len(df) > max_source:
+        return (
+            f"Error: Sheet has {len(df)} rows, exceeding "
+            f"limit of {max_source} for aggregation."
+        )
+
+    source_rows = len(df)
+
+    # Apply pre-filter
+    if filter_condition:
+        try:
+            df = df.query(filter_condition)
+        except Exception as e:
+            return f"Error applying filter: {str(e)}"
+
+    filtered_rows = len(df)
+
+    # Parse aggregations
+    if aggregations:
+        try:
+            agg_dict = json.loads(aggregations)
+        except json.JSONDecodeError:
+            return (
+                "Error: 'aggregations' must be valid JSON. "
+                "Example: '{\"Revenue\": \"sum\", \"Units\": \"mean\"}'"
+            )
+        # Validate column names
+        for col_name in agg_dict:
+            if col_name not in df.columns:
+                return (
+                    f"Error: Column '{col_name}' not found. "
+                    f"Available: {list(df.columns)}"
+                )
+    else:
+        # Default: summarize all numeric columns
+        numeric_cols = df.select_dtypes(include='number').columns.tolist()
+        if not numeric_cols:
+            return (
+                "Error: No numeric columns found for default aggregation. "
+                "Specify 'aggregations' parameter."
+            )
+        agg_dict = {col: ['sum', 'mean', 'count'] for col in numeric_cols[:5]}
+
+    # Perform aggregation
+    if group_by:
+        group_cols = [c.strip() for c in group_by.split(',')]
+        missing = [c for c in group_cols if c not in df.columns]
+        if missing:
+            return (
+                f"Error: Group-by columns not found: {missing}. "
+                f"Available: {list(df.columns)}"
+            )
+        result_df = df.groupby(group_cols).agg(agg_dict)
+        # Flatten multi-level column names
+        if isinstance(result_df.columns, pd.MultiIndex):
+            result_df.columns = [
+                f"{col[0]}_{col[1]}" if col[1] else col[0]
+                for col in result_df.columns
+            ]
+        result_df = result_df.reset_index()
+    else:
+        # Global aggregation (no groupby)
+        result_series = df.agg(agg_dict)
+        if isinstance(result_series, pd.DataFrame):
+            result_df = result_series.T
+            if isinstance(result_df.columns, pd.MultiIndex):
+                result_df.columns = [
+                    f"{col[0]}_{col[1]}" if col[1] else col[0]
+                    for col in result_df.columns
+                ]
+        else:
+            result_df = pd.DataFrame([result_series])
+
+    md_table = result_df.to_markdown(index=False)
+
+    summary_parts = [f"Aggregation result: {len(result_df)} row(s)"]
+    if group_by:
+        summary_parts.append(f"(grouped by: {group_by})")
+    summary_parts.append(f"from {filtered_rows} source rows")
+    if filter_condition:
+        summary_parts.append(f"(filtered from {source_rows})")
+
+    return f"{' '.join(summary_parts)}\n\n{md_table}"
+
+
+def run_tabular_query(path: str, operation: str, params: Optional[dict] = None) -> dict:
+    """
+    Path-based entry point for structured tabular queries — the backend of
+    /api/internal/tabular/query (The Agent's query_tabular_file tool).
+
+    operations: 'summary' | 'read' | 'aggregate'
+    Returns: {"ok": bool, "text": str} or {"ok": False, "error": str}
+    """
+    params = params or {}
+    try:
+        if not path or not os.path.isfile(path):
+            return {"ok": False, "error": f"No such file: {path}"}
+        if not is_tabular_data_file(path):
+            return {"ok": False, "error": (
+                f"'{os.path.basename(path)}' is not a tabular data file. "
+                f"Supported: {', '.join(TABULAR_DATA_EXTENSIONS)}")}
+
+        if operation == 'summary':
+            meta = generate_excel_metadata(path)
+            if meta.get('error'):
+                return {"ok": False, "error": f"Could not profile file: {meta['error']}"}
+            return {"ok": True,
+                    "text": format_tabular_summary(meta, os.path.basename(path))}
+
+        if operation == 'read':
+            text = read_tabular_slice(
+                path,
+                sheet_name=params.get('sheet_name'),
+                columns=params.get('columns'),
+                start_row=params.get('start_row'),
+                end_row=params.get('end_row'),
+                filter_condition=params.get('filter_condition'),
+            )
+            return {"ok": True, "text": text}
+
+        if operation == 'aggregate':
+            text = aggregate_tabular(
+                path,
+                sheet_name=params.get('sheet_name'),
+                group_by=params.get('group_by'),
+                aggregations=params.get('aggregations'),
+                filter_condition=params.get('filter_condition'),
+            )
+            return {"ok": True, "text": text}
+
+        return {"ok": False, "error": (
+            f"Unknown operation '{operation}'. "
+            "Use 'summary', 'read', or 'aggregate'.")}
+    except Exception as e:
+        logger.error(f"run_tabular_query failed for '{path}' ({operation}): {e}")
+        return {"ok": False, "error": str(e)}
+
+
+# ============================================================================
 # ExcelTool Class
 # ============================================================================
 
@@ -280,7 +609,8 @@ class ExcelTool:
         """
         Args:
             agent_id: The agent ID
-            excel_docs: List of knowledge doc dicts that are Excel files.
+            excel_docs: List of knowledge doc dicts that are tabular data
+                files (.xlsx/.xls/.csv/.tsv).
                 Each dict has keys: knowledge_id, agent_id, document_id,
                 description, filename, document_type
         """
@@ -316,7 +646,8 @@ class ExcelTool:
         lines = [
             "",
             "",
-            "You have access to Excel data query tools for the following spreadsheet files:"
+            "You have access to structured data query tools for the following "
+            "spreadsheet/CSV data files:"
         ]
 
         for doc in self.excel_docs:
@@ -344,7 +675,7 @@ class ExcelTool:
 
         lines.extend([
             "",
-            "EXCEL TOOL INSTRUCTIONS:",
+            "TABULAR DATA TOOL INSTRUCTIONS (Excel AND CSV/TSV files):",
             "- PREFERRED: Use analyze_excel_data for ANY analytical question about the data",
             "  (counts, totals, averages, comparisons, filtering, rankings, complex analysis).",
             "  This tool accepts natural language questions and returns accurate analytical results.",
@@ -353,9 +684,14 @@ class ExcelTool:
             "- Use create_excel_chart to generate interactive charts for the user.",
             "- Use update_excel_data to modify cells or add rows in-place.",
             "- Do NOT use aggregate_excel_data for analytical questions; use analyze_excel_data instead.",
-            "- These Excel tools are ONLY for spreadsheet (.xlsx/.xls) files. For other document types",
-            "  (PDFs, resumes, Word documents, text files, etc.), use the get_user_specific_knowledge tool instead.",
-            "- Always pass the document_id as a string parameter to Excel tools."
+            "- These tools work on spreadsheet (.xlsx/.xls) AND CSV/TSV files. CSV/TSV files have a",
+            "  single sheet named \"data\" — you can simply omit sheet_name for them.",
+            "- For other document types (PDFs, resumes, Word documents, etc.), use the",
+            "  get_user_specific_knowledge tool instead.",
+            "- CRITICAL: For row counts, totals, or any arithmetic over these files, ALWAYS use these",
+            "  tools. NEVER count or compute from document page text: pages are storage chunks whose",
+            "  text may be truncated, and a file's page count is NOT its row count.",
+            "- Always pass the document_id as a string parameter to these tools."
         ])
 
         return '\n'.join(lines)
@@ -370,15 +706,16 @@ class ExcelTool:
         @tool
         def get_excel_summary(document_id: str) -> str:
             """
-            Get a summary of an Excel file's structure and content.
-            Returns sheet names, column headers with data types, row counts,
-            sample data, and basic statistics for numeric columns.
+            Get a summary of an Excel or CSV file's structure and content.
+            Returns sheet names, column headers with data types, EXACT row
+            counts, sample data, and basic statistics for numeric columns.
+            (CSV/TSV files report a single sheet named "data".)
 
-            ALWAYS call this FIRST before using other Excel tools so you
-            understand the file structure, column names, and data types.
+            ALWAYS call this FIRST before using the other tabular data tools
+            so you understand the file structure, column names, and data types.
 
             Parameters:
-                document_id: The document ID of the Excel file (string)
+                document_id: The document ID of the Excel or CSV data file (string)
 
             Returns:
                 Formatted text summary of file structure and content
@@ -398,51 +735,7 @@ class ExcelTool:
                     meta = generate_excel_metadata(file_path)
                     _update_excel_metadata(document_id, meta)
 
-                # Format as readable text
-                lines = [f"Excel File Summary (document_id: {document_id})"]
-                lines.append(f"Total rows across all sheets: {meta.get('total_rows', 'unknown')}")
-                lines.append(f"Number of sheets: {len(meta.get('sheets', []))}")
-                lines.append(f"File size: {meta.get('file_size_bytes', 0):,} bytes")
-                lines.append("")
-
-                for sheet in meta.get('sheets', []):
-                    lines.append(f"=== Sheet: \"{sheet['name']}\" ===")
-                    lines.append(f"Rows: {sheet['row_count']}, Columns: {sheet['column_count']}")
-                    lines.append("Columns:")
-
-                    for col in sheet.get('columns', []):
-                        col_line = f"  - {col['name']} ({col['dtype']})"
-                        if col['dtype'] == 'number':
-                            stats_parts = []
-                            if col.get('min') is not None:
-                                stats_parts.append(f"min={col['min']}")
-                            if col.get('max') is not None:
-                                stats_parts.append(f"max={col['max']}")
-                            if col.get('mean') is not None:
-                                stats_parts.append(f"mean={col['mean']:.2f}")
-                            if stats_parts:
-                                col_line += f" [{', '.join(stats_parts)}]"
-                        elif col['dtype'] == 'date':
-                            if col.get('min') and col.get('max'):
-                                col_line += f" [range: {col['min']} to {col['max']}]"
-                        elif col.get('sample_values'):
-                            samples = col['sample_values'][:3]
-                            col_line += f" [examples: {', '.join(str(s) for s in samples)}]"
-                        lines.append(col_line)
-
-                    if sheet.get('sample_rows'):
-                        lines.append(f"\nSample data (first {len(sheet['sample_rows'])} rows):")
-                        cols = [c['name'] for c in sheet.get('columns', [])[:10]]
-                        header = " | ".join(str(c) for c in cols)
-                        separator = " | ".join("---" for _ in cols)
-                        lines.append(header)
-                        lines.append(separator)
-                        for sample_row in sheet['sample_rows'][:3]:
-                            vals = [str(sample_row.get(c, ''))[:30] for c in cols]
-                            lines.append(" | ".join(vals))
-                    lines.append("")
-
-                return '\n'.join(lines)
+                return format_tabular_summary(meta, f"document_id: {document_id}")
 
             except Exception as e:
                 logger.error(f"Error in get_excel_summary: {e}")
@@ -467,10 +760,10 @@ class ExcelTool:
             filter_condition: Optional[str] = None
         ) -> str:
             """
-            Read specific data from an Excel file. Returns a markdown table.
+            Read specific data from an Excel or CSV file. Returns a markdown table.
 
             Parameters:
-                document_id: The document ID of the Excel file (string)
+                document_id: The document ID of the Excel or CSV data file (string)
                 sheet_name: Name of the sheet to read (default: first visible sheet)
                 columns: Comma-separated column names to include (default: all columns)
                 start_row: Starting data row, 1-based (default: 1)
@@ -492,67 +785,10 @@ class ExcelTool:
                         f"available documents."
                     )
 
-                max_rows = int(getattr(cfg, 'EXCEL_QUERY_MAX_ROWS', 500))
-                default_rows = int(getattr(cfg, 'EXCEL_QUERY_DEFAULT_ROWS', 100))
-
-                # Read the sheet
-                df = pd.read_excel(
-                    file_path,
-                    sheet_name=sheet_name if sheet_name else 0
-                )
-                total_rows = len(df)
-
-                # Apply column filter
-                if columns:
-                    col_list = [c.strip() for c in columns.split(',')]
-                    missing = [c for c in col_list if c not in df.columns]
-                    if missing:
-                        return (
-                            f"Error: Columns not found: {missing}. "
-                            f"Available columns: {list(df.columns)}"
-                        )
-                    df = df[col_list]
-
-                # Apply pandas query filter
-                if filter_condition:
-                    try:
-                        df = df.query(filter_condition)
-                    except Exception as e:
-                        return (
-                            f"Error applying filter '{filter_condition}': "
-                            f"{str(e)}. Use pandas query syntax, e.g. "
-                            f"\"Column == 'value'\" or \"Amount > 100\"."
-                        )
-
-                filtered_rows = len(df)
-
-                # Apply row range
-                actual_start = max(0, (start_row or 1) - 1)
-                df = df.iloc[actual_start:]
-
-                if end_row is not None:
-                    row_limit = min(end_row - actual_start, max_rows)
-                    df = df.head(row_limit)
-                else:
-                    df = df.head(default_rows)
-
-                result_rows = len(df)
-
-                # Convert to markdown table
-                md_table = df.to_markdown(index=False)
-
-                # Build summary line
-                summary_parts = [f"Showing {result_rows} of {filtered_rows} rows"]
-                if filter_condition:
-                    summary_parts.append(f"(filtered from {total_rows} total)")
-                else:
-                    summary_parts.append(f"(total: {total_rows})")
-                if result_rows < filtered_rows:
-                    summary_parts.append(
-                        "Use start_row/end_row to page through more data."
-                    )
-
-                return f"{' '.join(summary_parts)}\n\n{md_table}"
+                return read_tabular_slice(
+                    file_path, sheet_name=sheet_name, columns=columns,
+                    start_row=start_row, end_row=end_row,
+                    filter_condition=filter_condition)
 
             except Exception as e:
                 logger.error(f"Error in read_excel_data: {e}")
@@ -576,11 +812,11 @@ class ExcelTool:
             filter_condition: Optional[str] = None
         ) -> str:
             """
-            Run aggregation/groupby operations on Excel data.
+            Run aggregation/groupby operations on Excel or CSV data.
             Returns a markdown table of results.
 
             Parameters:
-                document_id: The document ID of the Excel file (string)
+                document_id: The document ID of the Excel or CSV data file (string)
                 sheet_name: Sheet name (default: first sheet)
                 group_by: Comma-separated column names to group by,
                     e.g. "Region" or "Region,Product"
@@ -599,96 +835,9 @@ class ExcelTool:
                 if not file_path:
                     return f"Error: Excel file not found for document {document_id}"
 
-                max_source = int(getattr(cfg, 'EXCEL_AGGREGATION_MAX_ROWS', 50000))
-
-                df = pd.read_excel(
-                    file_path,
-                    sheet_name=sheet_name if sheet_name else 0
-                )
-
-                if len(df) > max_source:
-                    return (
-                        f"Error: Sheet has {len(df)} rows, exceeding "
-                        f"limit of {max_source} for aggregation."
-                    )
-
-                source_rows = len(df)
-
-                # Apply pre-filter
-                if filter_condition:
-                    try:
-                        df = df.query(filter_condition)
-                    except Exception as e:
-                        return f"Error applying filter: {str(e)}"
-
-                filtered_rows = len(df)
-
-                # Parse aggregations
-                if aggregations:
-                    try:
-                        agg_dict = json.loads(aggregations)
-                    except json.JSONDecodeError:
-                        return (
-                            "Error: 'aggregations' must be valid JSON. "
-                            "Example: '{\"Revenue\": \"sum\", \"Units\": \"mean\"}'"
-                        )
-                    # Validate column names
-                    for col_name in agg_dict:
-                        if col_name not in df.columns:
-                            return (
-                                f"Error: Column '{col_name}' not found. "
-                                f"Available: {list(df.columns)}"
-                            )
-                else:
-                    # Default: summarize all numeric columns
-                    numeric_cols = df.select_dtypes(include='number').columns.tolist()
-                    if not numeric_cols:
-                        return (
-                            "Error: No numeric columns found for default aggregation. "
-                            "Specify 'aggregations' parameter."
-                        )
-                    agg_dict = {col: ['sum', 'mean', 'count'] for col in numeric_cols[:5]}
-
-                # Perform aggregation
-                if group_by:
-                    group_cols = [c.strip() for c in group_by.split(',')]
-                    missing = [c for c in group_cols if c not in df.columns]
-                    if missing:
-                        return (
-                            f"Error: Group-by columns not found: {missing}. "
-                            f"Available: {list(df.columns)}"
-                        )
-                    result_df = df.groupby(group_cols).agg(agg_dict)
-                    # Flatten multi-level column names
-                    if isinstance(result_df.columns, pd.MultiIndex):
-                        result_df.columns = [
-                            f"{col[0]}_{col[1]}" if col[1] else col[0]
-                            for col in result_df.columns
-                        ]
-                    result_df = result_df.reset_index()
-                else:
-                    # Global aggregation (no groupby)
-                    result_series = df.agg(agg_dict)
-                    if isinstance(result_series, pd.DataFrame):
-                        result_df = result_series.T
-                        if isinstance(result_df.columns, pd.MultiIndex):
-                            result_df.columns = [
-                                f"{col[0]}_{col[1]}" if col[1] else col[0]
-                                for col in result_df.columns
-                            ]
-                    else:
-                        result_df = pd.DataFrame([result_series])
-
-                md_table = result_df.to_markdown(index=False)
-
-                summary_parts = [f"Aggregation result: {len(result_df)} row(s)"]
-                if group_by:
-                    summary_parts.append(f"(grouped by: {group_by})")
-                summary_parts.append(f"from {filtered_rows} source rows")
-                if filter_condition:
-                    summary_parts.append(f"(filtered from {source_rows})")
-
-                return f"{' '.join(summary_parts)}\n\n{md_table}"
+                return aggregate_tabular(
+                    file_path, sheet_name=sheet_name, group_by=group_by,
+                    aggregations=aggregations, filter_condition=filter_condition)
 
             except Exception as e:
                 logger.error(f"Error in aggregate_excel_data: {e}")
@@ -716,11 +865,11 @@ class ExcelTool:
             aggregation: Optional[str] = None
         ) -> str:
             """
-            Generate an interactive Chart.js chart from Excel data.
+            Generate an interactive Chart.js chart from Excel or CSV data.
             The chart is rendered interactively in the chat interface.
 
             Parameters:
-                document_id: The document ID of the Excel file (string)
+                document_id: The document ID of the Excel or CSV data file (string)
                 chart_type: Chart type - one of: bar, line, pie, scatter, doughnut
                 x_column: Column name for X-axis labels
                 y_columns: Comma-separated column names for Y-axis data series,
@@ -742,10 +891,7 @@ class ExcelTool:
 
                 max_points = int(getattr(cfg, 'EXCEL_CHART_MAX_DATA_POINTS', 1000))
 
-                df = pd.read_excel(
-                    file_path,
-                    sheet_name=sheet_name if sheet_name else 0
-                )
+                df = load_tabular_dataframe(file_path, sheet_name)
 
                 # Apply filter
                 if filter_condition:
@@ -900,11 +1046,12 @@ class ExcelTool:
             updates: Optional[str] = None
         ) -> str:
             """
-            Modify the original Excel file in-place.
-            Changes are saved immediately to the file.
+            Modify the original Excel or CSV file in-place.
+            Changes are saved immediately to the file. (For CSV/TSV files,
+            use 'rows'/'add_rows' — cell references like "A1" are Excel-only.)
 
             Parameters:
-                document_id: The document ID of the Excel file (string)
+                document_id: The document ID of the Excel or CSV data file (string)
                 sheet_name: Sheet name to modify (default: active sheet)
                 updates: JSON string describing changes. Supported formats:
 
@@ -942,6 +1089,70 @@ class ExcelTool:
                     update_data = json.loads(updates)
                 except json.JSONDecodeError as e:
                     return f"Error: 'updates' must be valid JSON. Parse error: {str(e)}"
+
+                # CSV/TSV: no workbook — apply row-level updates via pandas.
+                # Row numbers keep Excel semantics (row 1 = header, row 2 =
+                # first data row) so the tool contract is identical.
+                if _is_csv_file(file_path):
+                    if 'cells' in update_data:
+                        return (
+                            "Error: cell-reference updates (e.g. \"A1\") are not "
+                            "supported for CSV/TSV files. Use 'rows' (by row "
+                            "number + column name) or 'add_rows' instead."
+                        )
+                    df = _read_csv_dataframe(file_path)
+                    changes_made = 0
+
+                    if 'rows' in update_data:
+                        for row_num_str, row_data in update_data['rows'].items():
+                            try:
+                                row_idx = int(row_num_str) - 2  # row 2 = df index 0
+                            except ValueError:
+                                logger.warning(f"Invalid row number: {row_num_str}")
+                                continue
+                            if row_idx < 0 or row_idx >= len(df):
+                                logger.warning(f"Row {row_num_str} out of range for CSV update")
+                                continue
+                            for col_name, value in row_data.items():
+                                if col_name in df.columns:
+                                    # Column dtype may reject the new value (e.g.
+                                    # text into an int64 column) — widen to object
+                                    try:
+                                        df.at[df.index[row_idx], col_name] = value
+                                    except (ValueError, TypeError):
+                                        df[col_name] = df[col_name].astype(object)
+                                        df.at[df.index[row_idx], col_name] = value
+                                    changes_made += 1
+                                else:
+                                    logger.warning(f"Column '{col_name}' not found in CSV headers")
+
+                    if 'add_rows' in update_data:
+                        new_rows = []
+                        for new_row_data in update_data['add_rows']:
+                            known = {k: v for k, v in new_row_data.items() if k in df.columns}
+                            unknown = [k for k in new_row_data if k not in df.columns]
+                            for k in unknown:
+                                logger.warning(f"Column '{k}' not in CSV headers for add_row")
+                            if known:
+                                new_rows.append(known)
+                                changes_made += len(known)
+                        if new_rows:
+                            df = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
+
+                    sep = '\t' if file_path.lower().endswith('.tsv') else ','
+                    df.to_csv(file_path, sep=sep, index=False)
+
+                    # Regenerate metadata profile to reflect changes
+                    try:
+                        new_meta = generate_excel_metadata(file_path)
+                        _update_excel_metadata(document_id, new_meta)
+                    except Exception as e:
+                        logger.warning(f"Failed to update metadata after changes: {e}")
+
+                    return (
+                        f"Successfully applied {changes_made} change(s) to "
+                        f"the CSV file."
+                    )
 
                 wb = load_workbook(file_path)
                 if sheet_name and sheet_name in wb.sheetnames:
@@ -1043,11 +1254,11 @@ class ExcelTool:
             sheet_name: Optional[str] = None
         ) -> str:
             """
-            Ask a natural language question about an Excel file and get an
-            accurate analytical answer. Uses AI-powered code generation to
+            Ask a natural language question about an Excel or CSV file and get
+            an accurate analytical answer. Uses AI-powered code generation to
             run the correct pandas operations on the data.
 
-            PREFERRED tool for ANY analytical question about Excel data
+            PREFERRED tool for ANY analytical question about Excel/CSV data
             including:
             - Counting (how many orders, unique customers, etc.)
             - Aggregations (total revenue, average price, sum of quantities)
@@ -1056,7 +1267,7 @@ class ExcelTool:
             - Complex analysis (year-over-year growth, rankings, trends)
 
             Parameters:
-                document_id: The document ID of the Excel file (string)
+                document_id: The document ID of the Excel or CSV data file (string)
                 question: Natural language question about the data
                 sheet_name: Optional sheet name (default: first sheet)
 
@@ -1073,10 +1284,7 @@ class ExcelTool:
                     )
 
                 # Load the DataFrame as-is (no fragile pre-cleaning)
-                df = pd.read_excel(
-                    file_path,
-                    sheet_name=sheet_name if sheet_name else 0
-                )
+                df = load_tabular_dataframe(file_path, sheet_name)
 
                 if df.empty:
                     return "The spreadsheet sheet is empty — no data to analyze."

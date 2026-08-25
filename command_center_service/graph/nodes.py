@@ -2893,6 +2893,7 @@ If the user asks to use a tool that was previously created, use run_generated_to
 ## CODE INTERPRETER (run_python)
 {'''You have a run_python tool that executes real Python (pandas, numpy, matplotlib, scipy, seaborn, openpyxl available). USE IT for: calculations, statistics, parsing/transforming data, and creating charts, plots, or spreadsheet/CSV files. PREFER computing real numbers over estimating them.
 - Files the user uploaded to this chat are already in the working directory — read them by filename (e.g. pd.read_csv('data.csv')).
+- CRITICAL for uploaded CSV/Excel files: the table you see in the chat context is a PREVIEW that may show only the first rows of a larger file. For ANY row count, total, sum, average, group-by, or other computation over an uploaded tabular file, ALWAYS run_python against the actual file — NEVER count or compute from the preview table.
 - ANY file your code writes (plt.savefig('chart.png'), df.to_excel('out.xlsx'), etc.) is automatically returned to the user as a downloadable artifact; images also display inline. Use print() for text results.
 - Write complete, self-contained scripts. You cannot ask the user mid-execution.''' if _CODE_INTERPRETER_ENABLED else "Code execution is not available on this instance."}
 {_portal_prompt}

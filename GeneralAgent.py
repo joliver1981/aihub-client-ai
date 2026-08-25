@@ -2669,9 +2669,10 @@ class GeneralAgent():
             # user-specific Excel docs in the ExcelTool creation block below)
             #########################
             if knowledge_docs:
+                # Tabular lane covers Excel AND CSV/TSV (see agent_excel_tools)
                 agent_excel_docs = [
                     doc for doc in knowledge_docs
-                    if doc.get('filename', '').lower().endswith(('.xlsx', '.xls'))
+                    if doc.get('filename', '').lower().endswith(('.xlsx', '.xls', '.csv', '.tsv'))
                     and doc.get('original_path')
                 ]
 
@@ -2692,7 +2693,7 @@ class GeneralAgent():
                 all_user_docs = get_agent_knowledge_documents(agent_id, user_id=user_id)
                 user_excel_docs = [
                     doc for doc in all_user_docs
-                    if doc.get('filename', '').lower().endswith(('.xlsx', '.xls'))
+                    if doc.get('filename', '').lower().endswith(('.xlsx', '.xls', '.csv', '.tsv'))
                     and doc.get('original_path')
                     and doc['document_id'] not in agent_excel_doc_ids
                 ]

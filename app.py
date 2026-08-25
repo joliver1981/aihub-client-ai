@@ -6272,6 +6272,38 @@ def internal_document_records():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route("/api/internal/tabular/query", methods=['POST'])
+@cross_origin()
+@internal_api_key_required()
+def internal_tabular_query():
+    """Structured queries over a tabular data file ON DISK (.xlsx/.xls/.csv/.tsv)
+    for microservice consumers (The Agent's query_tabular_file tool). Runs
+    pandas in THIS app's environment so consumers don't need pandas installed —
+    exact row counts and real computation instead of LLM mental arithmetic.
+
+    Body: {"path": str, "operation": "summary"|"read"|"aggregate",
+           optional per operation: sheet_name, columns, start_row, end_row,
+           filter_condition, group_by, aggregations}
+    Returns: {"status":"success","result":{ok, text}} or {ok:false, error}.
+    The CALLER owns path authorization (The Agent resolves/role-fences paths
+    before calling); this endpoint is internal-key-gated and never reachable
+    from a browser session.
+    """
+    try:
+        data = request.get_json() or {}
+        path = (data.get("path") or "").strip()
+        operation = (data.get("operation") or "summary").strip().lower()
+        if not path:
+            return jsonify({"status": "error", "message": "path is required"}), 400
+
+        from agent_excel_tools import run_tabular_query
+        result = run_tabular_query(path, operation, params=data)
+        return jsonify({"status": "success", "result": result})
+    except Exception as e:
+        logger.error(f"[internal_tabular_query] Error: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 # ─── End Internal API Endpoints ──────────────────────────────────────────────
 
 
@@ -12960,11 +12992,15 @@ def add_agent_knowledge_route():
             print(f'Reloading agent {agent_id}...')
             load_agents(agent_id=agent_id)
 
-            # For Excel files: persist original and generate metadata
+            # For tabular data files (Excel AND CSV/TSV): persist the original
+            # and generate a metadata profile (exact row counts, columns, stats)
+            # so agent_excel_tools' structured query lane can serve them.
+            # Without this, CSV questions fall back to chunked/truncated page
+            # text and the agent invents row counts (FedEx-invoice bug 2026-08).
             original_filename = file.filename
-            is_excel = original_filename.lower().endswith(('.xlsx', '.xls'))
+            is_tabular = original_filename.lower().endswith(('.xlsx', '.xls', '.csv', '.tsv'))
 
-            if is_excel and result.get('status') == 'success' and result.get('document_id'):
+            if is_tabular and result.get('status') == 'success' and result.get('document_id'):
                 import shutil
                 from agent_excel_tools import generate_excel_metadata
 
@@ -12976,7 +13012,7 @@ def add_agent_knowledge_route():
                 os.makedirs(persist_dir, exist_ok=True)
                 persistent_path = os.path.join(persist_dir, original_filename)
                 shutil.copy2(file_path, persistent_path)
-                print(f'Excel file persisted to: {persistent_path}')
+                print(f'Tabular data file persisted to: {persistent_path}')
 
                 # Update Documents.original_path to the persistent location
                 try:
@@ -13006,9 +13042,9 @@ def add_agent_knowledge_route():
                     conn_meta.commit()
                     cursor_meta.close()
                     conn_meta.close()
-                    print(f'Excel metadata stored ({metadata.get("total_rows", 0)} total rows)')
+                    print(f'Tabular metadata stored ({metadata.get("total_rows", 0)} total rows)')
                 except Exception as meta_err:
-                    logger.warning(f"Failed to generate Excel metadata: {meta_err}")
+                    logger.warning(f"Failed to generate tabular metadata: {meta_err}")
 
             # Remove the temp upload file (always, including Excel - we already copied it)
             # But NOT if processing timed out — the Doc API may still be working on it

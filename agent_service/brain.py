@@ -187,7 +187,7 @@ _READ_TOOL_NAMES = [
     "list_email_attachments", "read_attachment",
     "list_integrations", "get_integration_operations",
     "list_server_files", "search_documents", "list_documents", "get_document",
-    "query_document_records", "read_file",
+    "query_document_records", "read_file", "query_tabular_file",
     "lookup_portal", "list_portal_workflows", "describe_portal_workflow",
 ]
 _READ_ALLOWED = [f"mcp__aihub__{n}" for n in _READ_TOOL_NAMES]
@@ -306,6 +306,12 @@ or probe endpoints just to import or search files, and never mention API keys.
   type (TXT/CSV/JSON/Markdown/code and PDF/Word/Excel/images) without storing or
   indexing it — the fast path for "what's in this file?". Do NOT import a file
   just to read it once; import is for making many files searchable later.
+- For NUMBERS about a CSV/TSV/Excel file — how many rows, totals, sums,
+  averages, per-category breakdowns — call query_tabular_file (summary first).
+  It computes with pandas on the full file. NEVER answer these by counting or
+  adding up file text yourself: in-context arithmetic over many rows produces
+  wrong answers. read_file is for looking at content, query_tabular_file is for
+  computing over it.
 - For "WHICH documents require X" / "HOW MANY documents state Y" / "list every
   requirement about Z", call query_document_records — structured rows extracted
   from repeating content (a guide's requirements, an invoice's line items), each
