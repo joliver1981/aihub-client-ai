@@ -2,11 +2,16 @@
 
 **Owner:** `agent_service` (:5111) + main app (3 small edits)
 **Type:** guarded feature rollout
-**Status:** decided by james 2026-08-24. **Items 3–8 BUILT + live-verified
-2026-08-24** (unit suite `tests_v2/unit/test_agent_allusers_gates.py` 16/16;
-pack-20 gains U-1..U-7; live replay of U-1..U-6 6/6 against the restarted
-service; UI smokes 20/20 + 10/10). Items 1–2 (open the doors) remain TODO —
-run the full pack green first, then flip.
+**Status: FULLY SHIPPED 2026-08-24.** Items 3–8 in commit dac9ce6 (unit suite
+`tests_v2/unit/test_agent_allusers_gates.py` 16/16; pack-20 U-1..U-7; live
+replay 6/6; UI smokes 20/20 + 10/10). Full gate ran 83/84 — the lone FAIL was
+the runner's cp1252 subprocess decode eating the UI smoke's UTF-8 output
+(smoke itself 20/20 directly; decode pinned to utf-8 and replayed PASS in
+44ecb08), so the gate was green in substance. Items 1–2 in commit 44ecb08 +
+`AGENT_ALLOW_ALL_USERS=true` in the machine-local .env; both services
+restarted. Live role-1 E2E 3/3: /api/me 200 with haiku surfaced, live turn
+grounded + honestly refused a nonexistent connection, anonymous /the-agent →
+302 login.
 
 ## Vision (james, verbatim intent)
 
