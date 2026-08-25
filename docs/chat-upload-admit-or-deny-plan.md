@@ -1,6 +1,21 @@
 # Chat Uploads: Admit Everything or Deny — No Silent Truncation
 
-**Status: PLAN (not built). 2026-08-25.**
+**Status: P1 + P2 BUILT 2026-08-25 (James approved, defaults 300K/600K);
+P3 (The Agent conversation budget) and P4 (admin UI rows + fixture-trio
+regression pack) remain planned.** Built pieces: shared policy module
+`chat_upload_admission.py`; General Agent admission gate in
+`process_document_as_knowledge` (deny purges the stored doc) + budgeted
+whole-page readers with `start_page` continuation in DocUtils (the 500-char
+slice now applies ONLY to search snippets) + page-boundary
+`_format_knowledge_response` + labeled retrieval excerpts; CC eager
+extraction with FULL-fidelity cache, upload-time deny (413 with numbers),
+session budget, stale-truncated-cache repair, meta sidecars (ownership
+survives restart), and the interpreter-off honesty note. Config:
+`CHAT_UPLOAD_MAX_TOKENS_PER_FILE=300000`,
+`CHAT_CONVERSATION_ATTACHMENT_BUDGET_TOKENS=600000`,
+`CHAT_UPLOAD_TOKENS_SOFT_WARN=150000`, `AGENT_PAGE_READ_BUDGET_TOKENS=60000`.
+Tests: tests_v2/unit/test_chat_upload_admission.py (15) +
+test_cc_upload_admission.py (10).
 Scope: files a user uploads **directly to an agent in chat** — General Agent chat
 (Agent Files), Command Center chat attachments, The Agent chat attachments.
 Explicitly OUT of scope: backend document processing (Doc API ingest for the

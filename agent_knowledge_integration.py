@@ -146,46 +146,64 @@ def _format_chunk_for_ai(meta: dict, chunk_text: str, filename: str, page) -> st
 
 
 def _format_knowledge_response(document_contents, apply_caps=True):
-    """Format document contents into a response string. When apply_caps=True, enforces size limits to prevent LLM overflow."""
-    MAX_TOTAL_CHARS = 400_000  # ~100K tokens — safe for Claude's context window
-    MAX_CHARS_PER_PAGE = 50_000  # ~12.5K tokens per page
-    
+    """Format document contents into a response string.
+
+    Admit-or-deny policy (2026-08-25): pages are emitted WHOLE, in order,
+    until the total budget is reached — then we stop AT A PAGE BOUNDARY and
+    enumerate exactly which pages of which documents were omitted, with the
+    tools that return them. A page is never sliced mid-text (the old 50K
+    per-page cut mangled tabular pages into miscounted fragments).
+    """
+    MAX_TOTAL_CHARS = 400_000  # ~100K tokens — page-boundary budget, not a slicer
+
     response_parts = []
     total_chars = 0
-    truncated_notice = False
-    
+    budget_hit = False
+    omitted = []  # (filename, page_num) pairs not emitted
+
     for doc_id, content in document_contents.items():
         filename = content['filename']
         doc_type = content['document_type']
-        
+
         doc_header = f"Document: {filename}"
         if doc_type:
             doc_header += f" (Type: {doc_type})"
-        
-        response_parts.append(doc_header)
-        total_chars += len(doc_header)
-        
+
+        emitted_header = False
         for page_num in sorted(content['pages'].keys()):
-            if apply_caps and total_chars >= MAX_TOTAL_CHARS:
-                if not truncated_notice:
-                    response_parts.append(
-                        f"\n[... remaining pages omitted — document context capped at ~{MAX_TOTAL_CHARS:,} chars "
-                        f"to fit within model limits. Ask about specific sections for more detail.]"
-                    )
-                    truncated_notice = True
-                break
-            
             page_text = content['pages'][page_num]
-            
-            if apply_caps and len(page_text) > MAX_CHARS_PER_PAGE:
-                page_text = page_text[:MAX_CHARS_PER_PAGE] + f"\n... [page {page_num} truncated at {MAX_CHARS_PER_PAGE:,} chars]"
-            
+
+            # Stop BETWEEN pages once the budget is spent (always emit at
+            # least one page overall so the response is never empty).
+            if apply_caps and response_parts \
+                    and total_chars + len(page_text) > MAX_TOTAL_CHARS:
+                budget_hit = True
+                omitted.append((filename, page_num))
+                continue
+
+            if not emitted_header:
+                response_parts.append(doc_header)
+                total_chars += len(doc_header)
+                emitted_header = True
             response_parts.append(f"Page {page_num}:\n{page_text}\n")
             total_chars += len(page_text)
-        
-        if truncated_notice:
-            break
-    
+
+    if budget_hit and omitted:
+        by_file = {}
+        for fname, pnum in omitted:
+            by_file.setdefault(fname, []).append(pnum)
+        omitted_desc = "; ".join(
+            f"{fname} pages {min(ps)}-{max(ps)}" if len(ps) > 1 else f"{fname} page {ps[0]}"
+            for fname, ps in by_file.items()
+        )
+        response_parts.append(
+            f"\n[NOT INCLUDED (response budget of ~{MAX_TOTAL_CHARS:,} chars reached — "
+            f"every page shown above is COMPLETE): {omitted_desc}. Fetch them in full "
+            f"with get_document_pages(start_page=...) or get_document_page_by_number. "
+            f"Do not answer counting or arithmetic questions as if this were the "
+            f"whole content.]"
+        )
+
     return "\n\n".join(response_parts)
 
 
@@ -2012,10 +2030,18 @@ def _parent_child_format(results: list, agent_id: int, user_id: Optional[str],
             page_text = row[0]
             filename = row[1] or meta.get('filename', 'unknown')
 
-            # Per-page truncation safety belt.
+            # Per-page retrieval cap. Retrieval snippets are legitimately
+            # partial, but must SAY what they are and where the rest lives
+            # (admit-or-deny policy 2026-08-25): full length + the tool that
+            # returns the whole page, so the model never mistakes the excerpt
+            # for the entire page.
             if len(page_text) > per_page_cap:
+                full_len = len(page_text)
                 page_text = page_text[:per_page_cap] + (
-                    f"\n... [page truncated at {per_page_cap:,} chars to fit context]"
+                    f"\n... [page {page} shown IN PART — first {per_page_cap:,} of "
+                    f"{full_len:,} chars. get_document_page_by_number(document_id="
+                    f"'{doc_id}', page_number={page}) returns the full page. Do "
+                    f"not count or compute from this excerpt.]"
                 )
 
             # Total-context safety belt: stop adding pages once we've used the
@@ -2023,9 +2049,15 @@ def _parent_child_format(results: list, agent_id: int, user_id: Optional[str],
             # preferred — this is why we walk parent_order in discovery order.
             if total_chars + len(page_text) > total_cap:
                 pages_skipped_cap = len(parent_order) - parent_order.index((doc_id, page))
+                omitted = parent_order[parent_order.index((doc_id, page)):]
+                omitted_desc = ", ".join(f"{d} p.{p}" for d, p in omitted[:10])
+                if len(omitted) > 10:
+                    omitted_desc += f", +{len(omitted) - 10} more"
                 formatted_blocks.append(
-                    f"\n[... {pages_skipped_cap} additional parent page(s) omitted "
-                    f"to stay under {total_cap:,}-char context cap.]"
+                    f"\n[... {pages_skipped_cap} additional matching page(s) omitted "
+                    f"to stay under the {total_cap:,}-char retrieval cap: {omitted_desc}. "
+                    f"Fetch any of them in full with get_document_page_by_number or "
+                    f"get_document_pages.]"
                 )
                 break
 

@@ -930,9 +930,14 @@ def get_previous_document_page(page_id: str) -> str:
     return get_previous_document_page_util(get_db_connection_string(), page_id)
 
 @tool
-def get_document_pages_legacy(document_id: Optional[str] = None, filename: Optional[str] = None) -> str:
+def get_document_pages_legacy(document_id: Optional[str] = None, filename: Optional[str] = None,
+                              start_page: int = 1) -> str:
     """
-    Retrieve all pages from a specific document using either document ID or filename.
+    Retrieve a document's pages with FULL page text using either document ID
+    or filename. Whole pages are served in order until the per-call read
+    budget is reached; the response then includes a "continuation" object —
+    call again with its next_start_page to keep reading. A response with a
+    continuation is NOT the whole document.
 
     Parameters:
     -----------
@@ -940,6 +945,8 @@ def get_document_pages_legacy(document_id: Optional[str] = None, filename: Optio
         The ID of the document
     filename : Optional[str] = None
         The filename to search for
+    start_page : int = 1
+        First page to return (1-based); pass a continuation's next_start_page
 
     Returns:
     --------
@@ -981,7 +988,8 @@ def get_document_pages_legacy(document_id: Optional[str] = None, filename: Optio
             return json.dumps({"error": f"Invalid response when looking up filename: {filename}"})
 
     # Now get the document pages using the document_id
-    return get_document_by_id(get_db_connection_string(), document_id=document_id)
+    return get_document_by_id(get_db_connection_string(), document_id=document_id,
+                              start_page=start_page)
 
 @tool
 def get_document_page_by_number(document_id: str, page_number: int) -> str:
@@ -1001,9 +1009,16 @@ def get_document_page_by_number(document_id: str, page_number: int) -> str:
     return get_document_page_by_number_util(get_db_connection_string(), document_id=document_id, page_number=page_number)
 
 @tool
-def get_document_pages(document_ids: Optional[List[str]] = None, filenames: Optional[List[str]] = None) -> str:
+def get_document_pages(document_ids: Optional[List[str]] = None, filenames: Optional[List[str]] = None,
+                       start_page: int = 1) -> str:
     """
-    Retrieve all pages from multiple documents using either document IDs or filenames.
+    Retrieve documents' pages with FULL page text using either document IDs or
+    filenames. Whole pages are served in order until the per-call read budget
+    is reached; the response then includes a "continuation" object naming the
+    document and page where serving stopped and any documents not served yet —
+    follow it (call again with document_ids=[that doc] and start_page) to keep
+    reading. A response with a continuation is NOT the full content. start_page
+    applies to the first document served; use it to continue one large document.
 
     Parameters:
     -----------
@@ -1011,6 +1026,9 @@ def get_document_pages(document_ids: Optional[List[str]] = None, filenames: Opti
         List of document IDs to retrieve
     filenames : Optional[List[str]] = None
         List of filenames to search for
+    start_page : int = 1
+        First page to return for the first document (1-based); pass a
+        continuation's next_start_page to keep reading that document
 
     Returns:
     --------
@@ -1023,6 +1041,7 @@ def get_document_pages(document_ids: Optional[List[str]] = None, filenames: Opti
                 ...
             },
             "summary": {...},
+            "continuation": {...},   # only when the read budget stopped the call
             "error": None
         }
     """
@@ -1074,7 +1093,8 @@ def get_document_pages(document_ids: Optional[List[str]] = None, filenames: Opti
         final_document_ids = document_ids
 
     # Now get all document pages using the document IDs
-    documents_result = get_documents_by_ids(get_db_connection_string(), final_document_ids)
+    documents_result = get_documents_by_ids(get_db_connection_string(), final_document_ids,
+                                            start_page=start_page)
 
     try:
         # Parse the result to add additional metadata if needed

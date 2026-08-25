@@ -1756,7 +1756,8 @@ def get_next_document_page_util(conn_string: str, page_id: str) -> str:
         # Extract page data
         next_page_id, next_page_number, full_text, doc_id, filename, doc_type, page_count = next_page
         
-        # Create result object
+        # Create result object (full page text — single-page reads are never
+        # sliced; admit-or-deny policy 2026-08-25)
         result = {
             "page_id": next_page_id,
             "document_id": doc_id,
@@ -1764,7 +1765,7 @@ def get_next_document_page_util(conn_string: str, page_id: str) -> str:
             "document_type": doc_type,
             "page_number": next_page_number,
             "page_count": page_count,
-            "text": full_text[:int(cfg.DOC_PAGE_TEXT_LIMIT_IN_RESULTS)],
+            "text": full_text,
             "is_last_page": (next_page_number == page_count)
         }
         
@@ -1877,92 +1878,137 @@ def get_previous_document_page_util(conn_string: str, page_id: str) -> str:
         return json.dumps({"error": str(e), "page": None})
 
 
-def get_document_by_id(conn_string: str, document_id: str) -> str:
+def _page_read_budget_chars() -> int:
+    """Per-call character budget for the document READ tools (admit-or-deny
+    policy, 2026-08-25): whole pages are served until the budget is reached,
+    then the call stops AT A PAGE BOUNDARY with an explicit continuation.
+    Pages are NEVER sliced mid-text — the old 500-char-per-page cut
+    (DOC_PAGE_TEXT_LIMIT_IN_RESULTS) now applies only to search snippets."""
+    return int(getattr(cfg, 'AGENT_PAGE_READ_BUDGET_TOKENS', 60_000)) * 4
+
+
+def get_document_by_id(conn_string: str, document_id: str, start_page: int = 1) -> str:
     """
-    Retrieve a document by its document id.
-    
+    Retrieve a document's pages with FULL page text, serving whole pages in
+    order until the per-call read budget is reached, then stopping at a page
+    boundary with a continuation hint.
+
     Parameters:
     -----------
     conn_string : str
         Database connection string for SQL Server
     document_id : str
         The ID of the document
-        
+    start_page : int
+        First page to serve (1-based) — pass the continuation's
+        next_start_page to keep reading a large document
+
     Returns:
     --------
     str
-        JSON string containing the document data or an error message
+        JSON string containing the pages data (full text), an optional
+        "continuation" object when the budget stopped the call early,
+        or an error message
     """
     try:
         # Connect to database
         conn = pyodbc.connect(conn_string)
         cursor = conn.cursor()
-        
+
         # Set tenant context
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
-        
+
         # Verify the document exists and check its page count
         cursor.execute("""
             SELECT page_count
             FROM Documents
             WHERE document_id = ?
         """, (document_id,))
-        
+
         doc_data = cursor.fetchone()
         if not doc_data:
             return json.dumps({"error": f"Document with ID {document_id} not found", "page": None})
-        
+
         page_count = doc_data[0]
         # Get all pages for the document
         cursor.execute("""
-            SELECT dp.page_id, dp.page_number, dp.full_text, d.document_id, 
+            SELECT dp.page_id, dp.page_number, dp.full_text, d.document_id,
                    d.filename, d.document_type, d.page_count
             FROM DocumentPages dp
             JOIN Documents d ON dp.document_id = d.document_id
-            WHERE dp.document_id = ? 
+            WHERE dp.document_id = ?
             ORDER BY dp.page_number
         """, (document_id,))
-        
+
         page_data = cursor.fetchall()
         if not page_data:
             return json.dumps({"error": f"No pages found for document {document_id}", "pages": None})
-        
-        print('page_data', page_data)
-        # Extract page data
+
+        try:
+            start_page = max(1, int(start_page or 1))
+        except (TypeError, ValueError):
+            start_page = 1
+
+        budget_chars = _page_read_budget_chars()
+        used_chars = 0
         results = []
+        stopped_at = None
         for page_id, page_num, full_text, doc_id, filename, doc_type, total_pages in page_data:
-            # Create result object
-            result = {
+            if page_num < start_page:
+                continue
+            text = full_text or ""
+            # Whole pages only: stop BEFORE the page that would blow the
+            # budget (but always serve at least one page per call).
+            if results and used_chars + len(text) > budget_chars:
+                stopped_at = page_num
+                break
+            used_chars += len(text)
+            results.append({
                 "page_id": page_id,
                 "document_id": doc_id,
                 "filename": filename,
                 "document_type": doc_type,
                 "page_number": page_num,
                 "page_count": total_pages,
-                "text": full_text[:int(cfg.DOC_PAGE_TEXT_LIMIT_IN_RESULTS)],
+                "text": text,
                 "is_first_page": (page_num == 1),
                 "is_last_page": (page_num == total_pages)
-            }
-            results.append(result)
-        print('results', results)
+            })
         conn.close()
-        return json.dumps({"pages": results, "error": None}, default=str)
-        
+        if not results:
+            return json.dumps({"error": f"start_page {start_page} is past the last page ({page_count}) of document {document_id}", "pages": None})
+        payload = {"pages": results, "error": None}
+        if stopped_at is not None:
+            payload["continuation"] = {
+                "served_pages": f"{results[0]['page_number']}-{results[-1]['page_number']}",
+                "next_start_page": stopped_at,
+                "note": (f"Pages {results[0]['page_number']}-{results[-1]['page_number']} of "
+                         f"{page_count} returned IN FULL (per-call read budget reached). "
+                         f"Call again with start_page={stopped_at} for the rest — "
+                         f"do NOT treat this response as the whole document.")
+            }
+        return json.dumps(payload, default=str)
+
     except Exception as e:
         return json.dumps({"error": str(e), "pages": None})
 
 
-def get_documents_by_ids(conn_string: str, document_ids: List[str]) -> str:
+def get_documents_by_ids(conn_string: str, document_ids: List[str], start_page: int = 1) -> str:
     """
-    Retrieve multiple documents by their document IDs.
-    
+    Retrieve multiple documents' pages with FULL page text, serving whole
+    pages until the per-call read budget is reached, then stopping at a page
+    boundary with a continuation hint (admit-or-deny policy, 2026-08-25).
+
     Parameters:
     -----------
     conn_string : str
         Database connection string for SQL Server
     document_ids : List[str]
         List of document IDs to retrieve
-        
+    start_page : int
+        First page to serve for the FIRST document only (1-based) — used to
+        continue a single large document; later documents always start at 1
+
     Returns:
     --------
     str
@@ -1973,6 +2019,7 @@ def get_documents_by_ids(conn_string: str, document_ids: List[str]) -> str:
                 "document_id_2": {"pages": [...], "error": None},
                 ...
             },
+            "continuation": {...}   # only when the budget stopped the call
             "error": None
         }
     """
@@ -2033,9 +2080,46 @@ def get_documents_by_ids(conn_string: str, document_ids: List[str]) -> str:
                     "error": None
                 }
         
-        # Process pages data
+        # Process pages data: FULL page text, whole pages only, stopping at a
+        # page boundary once the per-call read budget is spent. start_page
+        # applies to the first document in served order (the continuation
+        # use-case); later documents start at page 1.
+        try:
+            start_page = max(1, int(start_page or 1))
+        except (TypeError, ValueError):
+            start_page = 1
+
+        budget_chars = _page_read_budget_chars()
+        used_chars = 0
+        served_any = False
+        first_doc_id = all_pages_data[0][3] if all_pages_data else None
+        continuation = None
         for page_id, page_num, full_text, doc_id, filename, doc_type, total_pages, link_to_document in all_pages_data:
-            # Create result object
+            if doc_id == first_doc_id and page_num < start_page:
+                continue
+            if continuation is not None:
+                # Budget already exhausted — record the remaining documents
+                # so the agent knows they were not served at all.
+                if doc_id not in continuation["unserved_document_ids"] \
+                        and not documents_result[doc_id]["pages"]:
+                    continuation["unserved_document_ids"].append(doc_id)
+                continue
+            text = full_text or ""
+            if served_any and used_chars + len(text) > budget_chars:
+                continuation = {
+                    "stopped_at_document_id": doc_id,
+                    "next_start_page": page_num,
+                    "unserved_document_ids": [],
+                    "note": (f"Per-call read budget reached. Pages served so far are "
+                             f"COMPLETE, but document {doc_id} stops before page "
+                             f"{page_num} — call get_document_pages with "
+                             f"document_ids=['{doc_id}'] and start_page={page_num} "
+                             f"to continue, then request any unserved documents. "
+                             f"Do NOT treat this response as the full content.")
+                }
+                continue
+            used_chars += len(text)
+            served_any = True
             page_result = {
                 "page_id": page_id,
                 "document_id": doc_id,
@@ -2043,22 +2127,27 @@ def get_documents_by_ids(conn_string: str, document_ids: List[str]) -> str:
                 "document_type": doc_type,
                 "page_number": page_num,
                 "page_count": total_pages,
-                "text": full_text[:int(cfg.DOC_PAGE_TEXT_LIMIT_IN_RESULTS)],
+                "text": text,
                 "document_link": link_to_document if link_to_document else '',
                 "is_first_page": (page_num == 1),
                 "is_last_page": (page_num == total_pages)
             }
             documents_result[doc_id]["pages"].append(page_result)
-        
+
         # Check for documents with no pages
         for doc_id in existing_docs:
             if not documents_result[doc_id]["pages"]:
-                documents_result[doc_id]["error"] = f"No pages found for document {doc_id}"
+                if continuation is not None:
+                    documents_result[doc_id]["error"] = (
+                        f"Not served in this call (read budget reached first) — "
+                        f"request document {doc_id} in a follow-up call")
+                else:
+                    documents_result[doc_id]["error"] = f"No pages found for document {doc_id}"
                 documents_result[doc_id]["pages"] = None
-        
+
         conn.close()
-        return json.dumps({
-            "documents": documents_result, 
+        payload = {
+            "documents": documents_result,
             "error": None,
             "summary": {
                 "total_requested": len(document_ids),
@@ -2066,8 +2155,11 @@ def get_documents_by_ids(conn_string: str, document_ids: List[str]) -> str:
                 "not_found": len(not_found_docs),
                 "not_found_ids": not_found_docs
             }
-        }, default=str)
-        
+        }
+        if continuation is not None:
+            payload["continuation"] = continuation
+        return json.dumps(payload, default=str)
+
     except Exception as e:
         return json.dumps({"error": str(e), "documents": None})
 

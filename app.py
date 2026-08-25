@@ -12672,6 +12672,38 @@ def update_documents_batch_id(document_ids, batch_id=None):
     return batch_id
 
 # Function to process a document and add it as knowledge using the API
+def _agent_files_admitted_chars(agent_id, user_id):
+    """Total extracted characters of the ACTIVE knowledge documents this user
+    sees on this agent (agent-level + their user-specific files), EXCLUDING
+    tabular files — those are served by the structured query lane and never
+    enter context wholesale. Feeds the conversation attachment budget in the
+    admit-or-deny gate. Returns 0 on any error (fail open — admission must
+    never block on a ledger hiccup)."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+        cursor.execute("""
+            SELECT COALESCE(SUM(CAST(LEN(dp.full_text) AS BIGINT)), 0)
+            FROM AgentKnowledge ak
+            JOIN Documents d ON ak.document_id = d.document_id
+            JOIN DocumentPages dp ON dp.document_id = d.document_id
+            WHERE ak.agent_id = ? AND ak.is_active = 1
+              AND (ak.user_id IS NULL OR ak.user_id = ?)
+              AND LOWER(d.filename) NOT LIKE '%.csv'
+              AND LOWER(d.filename) NOT LIKE '%.tsv'
+              AND LOWER(d.filename) NOT LIKE '%.xlsx'
+              AND LOWER(d.filename) NOT LIKE '%.xls'
+        """, (agent_id, user_id))
+        row = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return int(row[0]) if row and row[0] else 0
+    except Exception as e:
+        logger.warning(f"Agent-files ledger query failed (treating as 0): {e}")
+        return 0
+
+
 def process_document_as_knowledge(file_path, agent_id, description='', user_id=None, batch_id=None):
     """
     Process a document and add it as knowledge for an agent using the document API
@@ -12739,6 +12771,47 @@ def process_document_as_knowledge(file_path, agent_id, description='', user_id=N
 
             # Add as knowledge if document was processed successfully
             if result['status'] == 'success' and 'document_id' in result:
+                # ── Admit-or-deny gate (2026-08-25) ──────────────────────────
+                # A chat-uploaded file is either fully usable or rejected with
+                # the numbers — never stored and then silently truncated later.
+                # Tabular files bypass (structured query lane). On deny, the
+                # just-stored document is purged so nothing half-exists.
+                try:
+                    import chat_upload_admission as _adm
+                    original_name = os.path.basename(file_path)
+                    # Strip the temp-upload uuid prefix for the user-facing name
+                    if '_' in original_name:
+                        original_name = original_name.split('_', 1)[1]
+                    existing_chars = _agent_files_admitted_chars(agent_id, user_id)
+                    admission = _adm.check_admission(
+                        original_name,
+                        int(result.get('total_chars', 0) or 0),
+                        existing_conversation_chars=existing_chars,
+                    )
+                except Exception as adm_err:
+                    logger.error(f"Admission check errored (admitting file): {adm_err}")
+                    admission = {"admit": True, "warning": None}
+
+                if not admission.get("admit"):
+                    logger.warning(
+                        f"Chat upload DENIED ({admission.get('reason')}): "
+                        f"{file_path} file_tokens={admission.get('file_tokens')} "
+                        f"existing_tokens={admission.get('existing_tokens')}"
+                    )
+                    try:
+                        purge_status, purge_msg, _code = purge_document(result['document_id'])
+                        if purge_status != 'success':
+                            logger.error(f"Purge after denial incomplete for "
+                                         f"{result['document_id']}: {purge_msg}")
+                    except Exception as purge_err:
+                        logger.error(f"Purge after denial failed for "
+                                     f"{result['document_id']}: {purge_err}")
+                    return {
+                        "status": "error",
+                        "admission_denied": True,
+                        "message": admission.get("message"),
+                    }
+
                 knowledge_id = add_agent_knowledge(
                     agent_id=agent_id,
                     document_id=result['document_id'],
@@ -12773,6 +12846,10 @@ def process_document_as_knowledge(file_path, agent_id, description='', user_id=N
                         "page_count": page_count,
                         "total_chars": total_chars
                     }
+                    # Admit-or-deny soft warn: large but admitted in full
+                    if admission.get("warning"):
+                        resp["admission_warning"] = admission["warning"]
+                        resp["message"] += f" NOTE: {admission['warning']}"
                     # Warn when a text-based document extracted very little — often means
                     # scanned content, embedded images, password-protected, or shapes the
                     # extractor could not read. User may want to convert to PDF and retry.

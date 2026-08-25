@@ -742,7 +742,22 @@ DOC_IGNORE_FIELDS_IN_FIELD_METADATA = "'page_number', 'page_count', 'page_id', '
 DOC_KNOWLEDGE_SPECIAL_INSTRUCTIONS = "First decide on your response to the user and then add all document ID and filename to your knowledge base using your knowledge management tools. This is so you do not solely base your answer on the data you just added to the knowledge base. Be sure to always include clickable_link to the documents in your response."
 DOC_INCLUDE_SNIPPET_IN_RESULT = True        # *IMPORTANT*: Include snippet for context (uses more tokens but limits context if not enabled - try to limit the snippet w/ other settings before disabling if running into token limits)
 DOC_TOP_N_FIELDS_INCLUDED_IN_RESULTS = 200  # *IMPORTANT*: These are the fields the AI will "see" in the results - each document will typically add new useless fields therefore cannot include everything
-DOC_PAGE_TEXT_LIMIT_IN_RESULTS = 500        # *IMPORTANT*: This limits the page text results the AI will see. Limit this for large documents to avoid token limits or use summary settings below.
+DOC_PAGE_TEXT_LIMIT_IN_RESULTS = 500        # SEARCH-RESULT SNIPPETS ONLY: per-result excerpt length in document SEARCH results. The document READ tools (get_document_pages etc.) no longer use this — they serve WHOLE pages under AGENT_PAGE_READ_BUDGET_TOKENS with explicit continuation (admit-or-deny policy, 2026-08-25).
+
+# ── Chat-upload admit-or-deny policy (2026-08-25) ────────────────────────────
+# Files uploaded DIRECTLY to an agent in chat are either fully usable or denied
+# at upload with the numbers — never silently truncated. Shared logic lives in
+# chat_upload_admission.py (used by app.py /add/agent_knowledge and the CC
+# upload route). Tabular files (.csv/.tsv/.xlsx/.xls) bypass the ceilings —
+# they are served by the structured query lane, which computes over the full
+# file on disk without loading it into context.
+CHAT_UPLOAD_MAX_TOKENS_PER_FILE = int(os.getenv('CHAT_UPLOAD_MAX_TOKENS_PER_FILE', 300_000))
+CHAT_CONVERSATION_ATTACHMENT_BUDGET_TOKENS = int(os.getenv('CHAT_CONVERSATION_ATTACHMENT_BUDGET_TOKENS', 600_000))
+CHAT_UPLOAD_TOKENS_SOFT_WARN = int(os.getenv('CHAT_UPLOAD_TOKENS_SOFT_WARN', 150_000))
+# Per-call budget for the document page-READ tools: whole pages are served in
+# order until the budget is reached, then the call stops AT A PAGE BOUNDARY
+# and tells the agent how to continue (start_page). Never slices inside a page.
+AGENT_PAGE_READ_BUDGET_TOKENS = int(os.getenv('AGENT_PAGE_READ_BUDGET_TOKENS', 60_000))
 
 # Additional note that gets added to the user-specific document context injection prompt
 DOC_USER_SPECIFIC_PROMPT_NOTE = "\nNote: Documents shown as a 'Document Group' were uploaded together and are likely related.\n"          

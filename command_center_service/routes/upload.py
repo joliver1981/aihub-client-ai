@@ -30,12 +30,46 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 _file_store: Dict[str, dict] = {}
 
 
+def _meta_sidecar_path(file_id: str) -> Path:
+    """Sidecar JSON holding the full upload metadata (owner, session) so
+    ownership survives a service restart — before this, reconstructed entries
+    had user_id=None and a normal user's own files vanished from their
+    attachment context after every restart."""
+    return UPLOAD_DIR / f"{file_id}_meta.json"
+
+
+def _write_meta_sidecar(meta: dict):
+    try:
+        import json
+        _meta_sidecar_path(meta["file_id"]).write_text(
+            json.dumps(meta, default=str), encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"[upload] Could not write meta sidecar for {meta.get('file_id')}: {e}")
+
+
 def _reconstruct_file_store():
-    """Scan uploads dir on startup to rebuild _file_store from disk."""
+    """Rebuild _file_store from disk on startup: meta sidecars first (full
+    fidelity, incl. ownership), then a legacy scan for files that predate
+    sidecars (those keep the old owner-less reconstruction)."""
+    import json
     import re
     count = 0
+    # Pass 1: sidecars (authoritative)
+    for spath in UPLOAD_DIR.glob("*_meta.json"):
+        try:
+            meta = json.loads(spath.read_text(encoding="utf-8"))
+            file_id = meta.get("file_id")
+            if not file_id or file_id in _file_store:
+                continue
+            if not Path(meta.get("path", "")).exists():
+                continue
+            _file_store[file_id] = meta
+            count += 1
+        except Exception as e:
+            logger.warning(f"[upload] Bad meta sidecar {spath.name}: {e}")
+    # Pass 2: legacy files without sidecars
     for fpath in UPLOAD_DIR.iterdir():
-        if fpath.name.endswith("_analysis.txt") or fpath.is_dir():
+        if fpath.name.endswith(("_analysis.txt", "_meta.json")) or fpath.is_dir():
             continue
         # Files are stored as: {file_id}_{original_name}
         # file_id is first 12 chars of a UUID (e.g., "2ced4636-b85")
@@ -108,6 +142,7 @@ def associate_files_to_session(file_ids: List[str], session_id: str):
     for fid in file_ids:
         if fid in _file_store:
             _file_store[fid]["session_id"] = session_id
+            _write_meta_sidecar(_file_store[fid])
 
 
 def _is_image_file(filename: str, content_type: str = None) -> bool:
@@ -239,6 +274,50 @@ def _get_analysis_path(file_id: str) -> Path:
     return UPLOAD_DIR / f"{file_id}_analysis.txt"
 
 
+def _extraction_ceiling_chars() -> int:
+    """Extraction cap = the admission per-file ceiling in chars (tokens*4),
+    plus headroom so a file cut exactly AT the ceiling still measures as
+    over-limit and gets denied rather than sneaking under it. Admission
+    guarantees admitted non-tabular files fit under the ceiling, so the cache
+    holds FULL fidelity — never a truncated shadow of the file. (The old fixed
+    50K cap permanently cached the first ~20 pages of big PDFs.)"""
+    try:
+        import chat_upload_admission as _adm
+        return _adm.per_file_limit_tokens() * 4 + 4096
+    except Exception:
+        return 1_204_096
+
+
+def _session_admitted_chars(session_id: Optional[str]) -> int:
+    """Chars already admitted to this session's context: cached-analysis sizes
+    of its non-tabular, non-image files. Feeds the conversation attachment
+    budget. (st_size is utf-8 bytes ≈ chars — close enough for budgeting.)"""
+    if not session_id:
+        return 0
+    total = 0
+    for meta in _file_store.values():
+        if meta.get("session_id") != session_id:
+            continue
+        fname = meta.get("filename", "")
+        if _is_image_file(fname, meta.get("content_type")):
+            continue
+        try:
+            import chat_upload_admission as _adm
+            if _adm.is_tabular_filename(fname):
+                continue
+        except Exception:
+            pass
+        ap = _get_analysis_path(meta["file_id"])
+        if ap.exists():
+            total += ap.stat().st_size
+    return total
+
+
+# Markers the OLD truncating pipeline left in cached analyses. A cache
+# containing one is a lossy pre-policy artifact — re-extract at full fidelity.
+_STALE_CACHE_MARKERS = ("Content truncated.", "... (truncated,")
+
+
 def _extract_and_cache(file_id: str, meta: dict, user_message: str = "") -> dict:
     """
     Extract or analyze a file, caching the result to disk.
@@ -247,12 +326,19 @@ def _extract_and_cache(file_id: str, meta: dict, user_message: str = "") -> dict
     """
     analysis_path = _get_analysis_path(file_id)
 
-    # Return cached result if available
+    # Return cached result if available — unless it is a lossy cache written
+    # by the pre-2026-08-25 truncating pipeline (marker present AND cut well
+    # below today's ceiling), in which case re-extract. The length guard stops
+    # a legacy over-ceiling file from re-extracting on every turn.
     if analysis_path.exists():
         cached = analysis_path.read_text(encoding="utf-8")
-        logger.info(f"[upload] Using cached analysis for {meta.get('filename', file_id)} ({len(cached)} chars)")
-        is_img = _is_image_file(meta.get("filename", ""), meta.get("content_type"))
-        return {"content": cached, "chars": len(cached), "method": "cached", "is_image": is_img}
+        if any(m in cached for m in _STALE_CACHE_MARKERS) \
+                and len(cached) < int(_extraction_ceiling_chars() * 0.9):
+            logger.info(f"[upload] Stale truncated cache for {meta.get('filename', file_id)} — re-extracting at full fidelity")
+        else:
+            logger.info(f"[upload] Using cached analysis for {meta.get('filename', file_id)} ({len(cached)} chars)")
+            is_img = _is_image_file(meta.get("filename", ""), meta.get("content_type"))
+            return {"content": cached, "chars": len(cached), "method": "cached", "is_image": is_img}
 
     filename = meta["filename"]
     file_path = Path(meta["path"])
@@ -274,7 +360,7 @@ def _extract_and_cache(file_id: str, meta: dict, user_message: str = "") -> dict
                 file_bytes=file_bytes,
                 filename=filename,
                 content_type=meta.get("content_type"),
-                max_chars=50000,
+                max_chars=_extraction_ceiling_chars(),
             )
             if result.get("success") and result.get("text"):
                 text = result["text"]
@@ -295,6 +381,15 @@ def _extract_and_cache(file_id: str, meta: dict, user_message: str = "") -> dict
         except Exception as e:
             logger.error(f"[upload] Error extracting content from {filename}: {e}")
             return {"content": None, "error": str(e)}
+
+
+def _run_python_available(role: int) -> bool:
+    """Mirror of graph.nodes' code-interpreter gate (enabled + all-users or
+    Developer role) so the attachment context can be honest about whether the
+    full-file compute lane exists for this user."""
+    enabled = os.getenv("CODE_INTERPRETER_ENABLED", "true").lower() == "true"
+    allow_all = os.getenv("CODE_INTERPRETER_ALLOW_ALL_USERS", "true").lower() == "true"
+    return enabled and (allow_all or role >= 2)
 
 
 def build_attachment_context(file_ids: List[str], user_message: str = "",
@@ -343,6 +438,20 @@ def build_attachment_context(file_ids: List[str], user_message: str = "",
             else:
                 lines.append(f"*Extracted via {method}:*")
             lines.append(f"```\n{content}\n```")
+            # Honesty line when the compute lane is off for this user: the
+            # tabular preview above is all they get, and the model must say so
+            # rather than eyeball-count it (admit-or-deny policy 2026-08-25).
+            try:
+                import chat_upload_admission as _adm
+                is_tab = _adm.is_tabular_filename(filename)
+            except Exception:
+                is_tab = filename.lower().endswith(('.csv', '.tsv', '.xlsx', '.xls'))
+            if is_tab and not _run_python_available(role):
+                lines.append(
+                    "*NOTE: the code interpreter is disabled for this user's role, "
+                    "so computation over this file's FULL contents is unavailable — "
+                    "only the preview above is accessible. Say so when asked for "
+                    "counts or totals; do not compute them from the preview.*")
         elif result.get("error"):
             lines.append(f"*Could not extract content: {result['error']}*")
         else:
@@ -441,13 +550,52 @@ async def upload_files(
             "uploaded_at": datetime.utcnow().isoformat(),
         }
 
+        # ── Admit-or-deny gate (2026-08-25) ──────────────────────────────────
+        # Extract EAGERLY (full fidelity, cached) so the file's real token size
+        # is known NOW: it is either fully usable or denied here with the
+        # numbers — never accepted and then silently truncated later. Images
+        # skip admission (vision analysis is bounded); tabular files bypass the
+        # ceilings (run_python computes over the full file on disk).
+        admission_warning = None
+        if not _is_image_file(filename, meta.get("content_type")):
+            import asyncio
+            extraction = await asyncio.to_thread(_extract_and_cache, file_id, meta)
+            extracted_chars = len(extraction.get("content") or "")
+            if extraction.get("content") is not None:
+                try:
+                    import chat_upload_admission as _adm
+                    admission = _adm.check_admission(
+                        filename, extracted_chars,
+                        existing_conversation_chars=_session_admitted_chars(session_id),
+                    )
+                except Exception as adm_err:
+                    logger.error(f"[upload] Admission check errored (admitting): {adm_err}")
+                    admission = {"admit": True, "warning": None}
+                if not admission.get("admit"):
+                    # Deny: nothing may half-exist — remove bytes + cache.
+                    try:
+                        file_path.unlink(missing_ok=True)
+                        _get_analysis_path(file_id).unlink(missing_ok=True)
+                    except Exception as rm_err:
+                        logger.warning(f"[upload] Cleanup after denial failed: {rm_err}")
+                    logger.warning(
+                        f"[upload] DENIED ({admission.get('reason')}): {filename} "
+                        f"file_tokens={admission.get('file_tokens')} "
+                        f"existing_tokens={admission.get('existing_tokens')}")
+                    raise HTTPException(status_code=413, detail=admission.get("message"))
+                admission_warning = admission.get("warning")
+
         _file_store[file_id] = meta
-        results.append({
+        _write_meta_sidecar(meta)
+        entry = {
             "file_id": file_id,
             "filename": meta["filename"],
             "size": meta["size"],
             "content_type": meta["content_type"],
-        })
+        }
+        if admission_warning:
+            entry["warning"] = admission_warning
+        results.append(entry)
 
         logger.info(f"[upload] File uploaded: {meta['filename']} ({len(content)} bytes) -> {file_id} (owner={meta['user_id']}/{meta['tenant_id']})")
 
@@ -518,10 +666,15 @@ async def delete_upload(file_id: str):
     if not meta:
         raise HTTPException(status_code=404, detail="File not found")
 
-    # Remove from filesystem
+    # Remove from filesystem (bytes + analysis cache + meta sidecar)
     file_path = Path(meta["path"])
     if file_path.exists():
         file_path.unlink()
+    for extra in (_get_analysis_path(file_id), _meta_sidecar_path(file_id)):
+        try:
+            extra.unlink(missing_ok=True)
+        except Exception:
+            pass
 
     logger.info(f"[upload] File deleted: {meta['filename']} ({file_id})")
     return {"deleted": True}

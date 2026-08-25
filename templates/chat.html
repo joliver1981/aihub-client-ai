@@ -1578,7 +1578,7 @@ async function uploadSingleDocumentWithRetry(file, agentId, batchId, maxRetries)
                 return {
                     success: true,
                     message: 'Uploaded successfully',
-                    warning: result.extraction_warning || null
+                    warning: result.extraction_warning || result.admission_warning || null
                 };
             } else {
                 lastError = result.message || 'Upload failed';
