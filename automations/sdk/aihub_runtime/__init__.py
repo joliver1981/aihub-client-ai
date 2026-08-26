@@ -37,7 +37,7 @@ import urllib.request as _urlrequest
 
 __all__ = ["connection", "secret", "input", "inputs", "log", "checkpoint", "query",
            "review_item", "review_decisions", "review_decisions_detailed",
-           "send_email", "llm", "ai_extract",
+           "send_email", "llm", "ai_extract", "help",
            "AutomationRuntimeError", "AutomationAborted"]
 
 _RESOLVE_PATH = "/automations/api/runtime/resolve"
@@ -120,6 +120,44 @@ def secret(name):
     """Return the value of a local secret by name.
     The name must be declared in the automation manifest's "secrets"."""
     return _resolve("secret", name)
+
+
+def _token_scope():
+    """(connections, secrets) name lists read from this run's own token payload.
+
+    Unverified base64 read of a token WE were handed — it exposes names only
+    (never values); the server still verifies signature+scope on every resolve."""
+    token = _os.environ.get("AIHUB_RUN_TOKEN") or ""
+    try:
+        import base64 as _b64
+        seg = token.split(".")[1]
+        seg += "=" * (-len(seg) % 4)
+        claims = _json.loads(_b64.urlsafe_b64decode(seg.encode("ascii")).decode("utf-8"))
+        return (list(claims.get("connections") or []), list(claims.get("secrets") or []))
+    except Exception:
+        return ([], [])
+
+
+def help():  # noqa: A001 - deliberate, reads naturally in scripts
+    """Print the SDK cheat sheet plus the connection/secret NAMES this run can
+    resolve (names only — values are only ever resolved server-side)."""
+    conns, secs = _token_scope()
+    lines = [
+        "aihub_runtime — AI Hub in-script SDK",
+        "  aihub.connection(name)          -> ODBC connection string for a platform Connection",
+        "  aihub.secret(name)              -> value from the local secrets store",
+        "  aihub.query(conn_name, sql, params=None) -> list of dict rows (parameterized SQL)",
+        "  aihub.input(name, default=None) / aihub.inputs() -> run inputs",
+        "  aihub.log(message)              -> line in the run log",
+        "  aihub.send_email(to, subject, body='', html_body=None, files=None)",
+        "  aihub.checkpoint(message, files=None, assignee=None) -> pause for human approval",
+        "  aihub.review_item(message, ...) / aihub.review_decisions(ids) -> My Approvals bridge",
+        "  aihub.llm(prompt, system=None, images=None) -> str  |  aihub.ai_extract(prompt, schema=None, ...)",
+        "",
+        "Connections this run can resolve: " + (", ".join(sorted(conns)) if conns else "(none)"),
+        "Secrets this run can resolve:     " + (", ".join(sorted(secs)) if secs else "(none)"),
+    ]
+    print("\n".join(lines))
 
 
 # --- dead-predicate detection -------------------------------------------------

@@ -618,6 +618,10 @@ except Exception as e:
                 # Set up environment variables
                 env = os.environ.copy()
                 env['PYTHONIOENCODING'] = 'utf-8'
+                # Mark the assigned venv's interpreter so run_python_code
+                # executes user code with this environment's packages instead
+                # of the default code-interpreter chain (code_exec.interpreter).
+                env['AIHUB_AGENT_ENV_PYTHON'] = python_path
                 # ================================================================
                 # KEY FIX: Set PYTHONPATH to include application directory
                 # ================================================================

@@ -85,43 +85,22 @@ _BUNDLE_REL = os.path.join("agent_environments", "python-bundle", "python.exe")
 
 def _bundle_python() -> Optional[str]:
     """The shipped portable-Python bundle under APP_ROOT, if it exists.
-
-    On a client install APP_ROOT points at the install dir (the installer writes
-    it to .env), so this resolves to {app}\\agent_environments\\python-bundle\\
-    python.exe — a real CPython with the data-science stack, NOT the frozen
-    service exe.
-    """
-    app_root = os.environ.get("APP_ROOT")
-    if app_root:
-        cand = Path(app_root) / _BUNDLE_REL
-        if cand.exists():
-            return str(cand)
-    return None
+    Delegates to the shared code_exec backend (one resolution for every
+    surface — docs/code-interpreter-unification-plan.md §3)."""
+    from code_exec import interpreter as _shared
+    return _shared.bundle_python()
 
 
 def _resolve_interpreter(explicit: Optional[str] = None) -> str:
     """Resolve which Python actually executes user code, validating existence.
 
-    Order: (1) the caller/configured path, but ONLY if it exists — a stale dev
-    path baked into a client's .env (e.g. a developer's personal conda env) must
-    fall through, not be used blindly; (2) the shipped python-bundle; (3) the
-    current interpreter as a last resort. Callers guard case (3) on frozen
-    builds via _interpreter_is_runnable(), since there sys.executable is the
-    service bootloader exe and cannot run a passed-in script.
-    """
-    for cand in (explicit, os.environ.get("CODE_INTERPRETER_PYTHON")):
-        if not cand:
-            continue
-        if Path(cand).exists():
-            return cand
-        logger.warning(
-            "[code_interpreter] configured interpreter %r does not exist; falling back to the bundled Python",
-            cand,
-        )
-    bundled = _bundle_python()
-    if bundled:
-        return bundled
-    return sys.executable
+    Delegates to code_exec.resolve_interpreter (explicit/CODE_INTERPRETER_PYTHON
+    → shipped bundle → sys.executable only when not frozen). The shared resolver
+    returns None on a frozen build with nothing usable; keep this wrapper's
+    historical contract of always returning a string — _interpreter_is_runnable
+    then rejects the frozen bootloader with the clear error."""
+    from code_exec import interpreter as _shared
+    return _shared.resolve_interpreter(explicit) or sys.executable
 
 
 def _interpreter_is_runnable(python_exe: str) -> bool:
@@ -276,6 +255,11 @@ async def run_python(code: str, workdir: str, python_exe: Optional[str] = None,
         return {"stdout": "", "stderr": f"Could not write script: {e}", "returncode": -1, "timed_out": False}
 
     def _run():
+        # Denylist secret-scrub (code_exec.envbuild): the child sees everything
+        # EXCEPT the app's .env-defined vars, secret-pattern names, and
+        # PYTHONHOME/PYTHONPATH — LLM-authored code must never inherit
+        # credentials by accident. docs/code-interpreter-unification-plan.md §5.2
+        from code_exec.envbuild import build_child_env
         return subprocess.run(
             [python_exe, str(script_path)],
             cwd=workdir,
@@ -284,7 +268,7 @@ async def run_python(code: str, workdir: str, python_exe: Optional[str] = None,
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
-            env={**os.environ, "MPLBACKEND": "Agg", "PYTHONIOENCODING": "utf-8"},
+            env=build_child_env(workdir),
         )
 
     try:

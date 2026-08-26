@@ -35,8 +35,12 @@ logger = logging.getLogger(__name__)
 
 GET_PIP_URL = "https://bootstrap.pypa.io/get-pip.py"
 
-# Probe modules whose presence means "extras already provisioned".
-PROBE_MODULES = ["scipy", "sklearn", "seaborn", "statsmodels", "requests", "bs4", "lxml"]
+# Probe modules whose presence means "provisioned". The CORE stack is normally
+# baked into the bundle at build time, but a bare/partial bundle (seen on dev
+# trees, and possible after a broken build) would otherwise stay broken forever
+# — so the probe covers core + extras and provisioning self-heals both.
+PROBE_MODULES = ["numpy", "pandas", "matplotlib", "openpyxl",
+                 "scipy", "sklearn", "seaborn", "statsmodels", "requests", "bs4", "lxml"]
 
 _REQ_REL = os.path.join(
     "agent_environments", "python-bundle-requirements", "code_interpreter_requirements.txt"

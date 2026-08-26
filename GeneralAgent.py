@@ -1185,47 +1185,182 @@ def find_potential_search_fields_deprecated(original_field: str, document_type: 
 
 @tool
 def run_python_code(code: str) -> str:
-    """
-    This function accepts a string of Python code, executes it, and captures any output or errors as a string.
-    This function will allow you to execute code dynamically if you do not have a specific tool to fulfill a users request.
+    """Execute Python in the platform's sandboxed code interpreter and return its output.
 
-    Parameters: Python code as a string.
-    Returns: The output of the code execution as a string, or any exceptions raised.
+    THE tool for any computation over uploaded files (CSV/Excel/JSON/text):
+    row counts, totals, averages, group-bys, joins, dedup, reformatting, and
+    chart generation. Tables shown in chat are PREVIEWS — never count or sum
+    from them; compute here against the real file instead.
+
+    The user's uploaded files are copied into the working directory under their
+    original filenames — open them directly (e.g. pd.read_csv("sales.csv")).
+    pandas/numpy/matplotlib/openpyxl are preinstalled; call install("pkg")
+    inside your code for anything else. Any NEW file your code writes to the
+    working directory is returned to the user as a downloadable artifact (save
+    charts as .png). Platform data is reachable via the aihub_runtime SDK:
+    `import aihub_runtime as aihub` then aihub.query("CONNECTION", "SELECT ..."),
+    aihub.send_email(...), aihub.help() for the full verb list.
+
+    Args:
+        code: Python source to run. print() everything you want to see.
     """
-    # Runs in a subprocess of the SAME interpreter (sys.executable), so an
-    # agent executing inside its assigned environment keeps that venv's
-    # packages, while a crash/hang/os._exit in generated code can no longer
-    # take down or stall the host process (the old in-process exec could).
+    # Execution is delegated to the shared code_exec backend: separate
+    # interpreter (never the frozen service exe), denylist secret-scrub of the
+    # child environment, SDK run-token wiring, and the install() preamble.
+    # docs/code-interpreter-unification-plan.md §4.1
+    import json as _json
     import os
-    import subprocess
-    import sys
+    import shutil
     import tempfile
+    from pathlib import Path as _Path
+
+    import active_chat_context
+    import chat_file_manager
+    from code_exec import (
+        NOT_CONFIGURED_MSG,
+        adhoc_package_dir,
+        build_child_env,
+        build_preamble,
+        new_files,
+        policy_files,
+        resolve_interpreter,
+        run_script,
+        snapshot,
+    )
+    from code_exec import sdkwire
 
     try:
         timeout = int(os.getenv('GENERAL_AGENT_RUN_PYTHON_TIMEOUT', '120'))
     except (TypeError, ValueError):
         timeout = 120
 
-    with tempfile.TemporaryDirectory(prefix='ga_runpy_') as workdir:
-        script_path = os.path.join(workdir, '_ga_run.py')
-        with open(script_path, 'w', encoding='utf-8') as f:
-            f.write(code)
-        try:
-            proc = subprocess.run(
-                [sys.executable, script_path],
-                cwd=workdir, capture_output=True, text=True,
-                encoding='utf-8', errors='replace', timeout=timeout,
-            )
-        except subprocess.TimeoutExpired:
-            return f"Error: code execution timed out after {timeout} seconds"
-        except Exception as e:
-            return f"Error: could not execute code: {e}"
+    # Kick bundle provisioning (idempotent daemon thread, no-op off-bundle) so
+    # a stock client heals its python-bundle even if no other service did.
+    try:
+        from command_center.tools import code_interpreter_env
+        code_interpreter_env.ensure_async()
+    except Exception:
+        pass
 
-    result = proc.stdout or ''
-    if proc.returncode != 0:
-        stderr_tail = (proc.stderr or '').strip()[-4000:]
-        result += ('\n' if result else '') + f"Error (exit {proc.returncode}): {stderr_tail}"
-    return result[:20000] if result else "(no output)"
+    # An agent hosted inside its assigned custom environment keeps that venv's
+    # packages: agent_environment_executor marks the venv interpreter for us.
+    python_exe = resolve_interpreter(prefer=os.environ.get('AIHUB_AGENT_ENV_PYTHON'))
+    if not python_exe:
+        return NOT_CONFIGURED_MSG
+
+    workdir = tempfile.mkdtemp(prefix='ga_runpy_')
+    try:
+        conv_id = active_chat_context.get_active_conversation_id()
+        agent_id_ctx = active_chat_context.get_active_agent_id()
+        user_id_ctx = active_chat_context.get_active_user_id()
+
+        # -- stage the session's files into the workdir by original filename
+        # (conversation inputs first, then durable agent files; first name wins)
+        def _stage(src_path, name):
+            if not src_path:
+                return
+            try:
+                dest = _Path(workdir) / _Path(name or _Path(src_path).name).name
+                if dest.exists():
+                    return
+                shutil.copyfile(src_path, dest)
+            except Exception as stage_err:
+                logger.warning(f"run_python_code: could not stage {name}: {stage_err}")
+
+        try:
+            if conv_id:
+                for meta in (chat_file_manager.list_files(conv_id).get('inputs') or []):
+                    _stage(chat_file_manager.get_input_path(conv_id, meta.get('file_id')),
+                           meta.get('filename'))
+            if agent_id_ctx is not None and user_id_ctx is not None:
+                for meta in (chat_file_manager.list_agent_files(agent_id_ctx, user_id_ctx) or []):
+                    _stage(chat_file_manager.get_agent_input_path(agent_id_ctx, user_id_ctx,
+                                                                  meta.get('file_id')),
+                           meta.get('filename'))
+        except Exception as e:
+            logger.warning(f"run_python_code: file staging unavailable: {e}")
+
+        # -- aihub_runtime SDK wiring (user parity: the token can resolve the
+        # same platform Connections the session's normal tools can reach).
+        # Deliberate grant, added AFTER the env scrub. Kill switch:
+        # GENERAL_AGENT_SDK_IN_CODE=false.
+        extra_env = {}
+        sdk_path = None
+        if os.getenv('GENERAL_AGENT_SDK_IN_CODE', 'true').strip().lower() != 'false':
+            sdk_path = sdkwire.sdk_dir()
+            conn_names = []
+            try:
+                from AppUtils import select_all_database_connections
+                df = select_all_database_connections()
+                if df is not None and 'connection_name' in getattr(df, 'columns', []):
+                    conn_names = sorted({str(n).strip() for n in df['connection_name'].dropna().tolist()
+                                         if str(n).strip()})
+            except Exception as e:
+                logger.debug(f"run_python_code: connection listing unavailable: {e}")
+            extra_env = sdkwire.sdk_env(
+                'general-agent',
+                connections=conn_names,
+                ttl_seconds=timeout + 180,
+                user_id=user_id_ctx,
+                agent_id=agent_id_ctx,
+            )
+
+        pkg_dir = adhoc_package_dir(python_exe)
+        denylist_path, constraints_path = policy_files()
+        preamble = build_preamble(sdk_dir=sdk_path, pkg_dir=pkg_dir,
+                                  denylist_path=denylist_path,
+                                  constraints_path=constraints_path)
+        env = build_child_env(workdir, extra=extra_env)
+
+        baseline = snapshot(workdir)
+        res = run_script(code, workdir, python_exe, timeout=timeout,
+                         env=env, preamble=preamble)
+
+        if res['timed_out']:
+            return f"Error: code execution timed out after {timeout} seconds"
+
+        out = res['stdout'] or ''
+        if res['returncode'] != 0:
+            stderr_tail = (res['stderr'] or '').strip()[-4000:]
+            out += ('\n' if out else '') + f"Error (exit {res['returncode']}): {stderr_tail}"
+
+        # -- harvest: every new file becomes a downloadable artifact block
+        # (same block contract as manipulate_pdf / create_excel); images also
+        # get an inline image block so charts render in the chat.
+        blocks = []
+        for produced in new_files(workdir, baseline):
+            try:
+                fbytes = produced.read_bytes()
+                if not fbytes:
+                    continue
+                ext = produced.suffix.lstrip('.').lower() or 'file'
+                block_json = _save_artifact_and_block(produced.name, fbytes, ext)
+                parsed = _json.loads(block_json) if block_json.lstrip().startswith('[') else None
+                if parsed:
+                    blocks.extend(parsed)
+            except Exception as e:
+                logger.warning(f"run_python_code: could not save artifact {produced.name}: {e}")
+
+        image_blocks = [
+            {"type": "image", "content": b.get("download_url"),
+             "metadata": {"caption": b.get("name", "")}}
+            for b in blocks
+            if str(b.get("artifactType", "")).lower() in ("png", "jpg", "jpeg", "gif", "svg")
+            and b.get("download_url")
+        ]
+
+        result = out.strip()
+        if not result and not blocks:
+            result = "(no output)"
+        result = result[:18000]
+        if blocks:
+            result += (("\n\n" if result else "") +
+                       "Files created — include this artifact JSON verbatim in your reply "
+                       "so the user gets the download/image cards:\n" +
+                       _json.dumps(blocks + image_blocks))
+        return result
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
 
 
 @tool
@@ -2727,6 +2862,17 @@ class GeneralAgent():
                         tool_obj.description = tool_obj.description.rstrip() + f"\n\n[ROUTING]: {hint}"
             except Exception as e:
                 logger.debug(f"Could not apply routing hints: {e}")
+
+            # Code-interpreter doctrine: when run_python_code is bound, the
+            # system prompt must make computation-over-files the default lane
+            # (previews are previews). Shared text so every surface teaches the
+            # same rules. docs/code-interpreter-unification-plan.md §4.1
+            try:
+                if any(getattr(t, 'name', None) == 'run_python_code' for t in self.tools):
+                    from code_exec.doctrine import RUN_PYTHON_DOCTRINE_GA
+                    self.SYSTEM += RUN_PYTHON_DOCTRINE_GA
+            except Exception as e:
+                logger.debug(f"run_python doctrine not applied: {e}")
 
         except Exception as e:
             print(str(e))

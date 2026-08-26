@@ -1807,28 +1807,42 @@ def runtime_resolve():
     name-in-allowlist, and the run must still be 'running' in AutomationRuns
     (a leaked token is useless once the run finishes). Values are returned
     once over localhost and never logged."""
-    if not getattr(cfg, "AUTOMATIONS_ENABLED", False):
-        return jsonify({"error": "Automations feature is disabled"}), 403
     data = request.get_json(silent=True) or {}
     token, kind, name = data.get("token"), data.get("kind"), data.get("name")
     if not token or kind not in ("connection", "secret") or not name:
         return jsonify({"error": "token, kind (connection|secret), and name are required"}), 400
 
-    from shared_auth import verify_automation_run_token
+    # Two token flavors share this chokepoint: automation runs (manifest-scoped,
+    # liveness = AutomationRuns row) and chat-lane code-interpreter runs
+    # (user-parity-scoped, liveness = the token's short TTL — no run row
+    # exists). Distinct JWT audiences keep them from impersonating each other.
+    from shared_auth import verify_automation_run_token, verify_code_run_token
     claims, err = verify_automation_run_token(token)
+    token_flavor = "automation"
+    if err:
+        code_claims, code_err = verify_code_run_token(token)
+        if not code_err:
+            claims, err, token_flavor = code_claims, None, "code_run"
     if err:
         return jsonify({"error": f"invalid run token: {err}"}), 403
+
+    # The automations feature gate applies to automation runs only; the code
+    # interpreter is its own feature and works with Automations disabled.
+    if token_flavor == "automation" and not getattr(cfg, "AUTOMATIONS_ENABLED", False):
+        return jsonify({"error": "Automations feature is disabled"}), 403
 
     allowed = claims.get("connections" if kind == "connection" else "secrets") or []
     if name not in allowed:
         logger.warning(f"runtime_resolve: run {claims.get('run_id')} asked for undeclared {kind} '{name}'")
-        return jsonify({"error": f"{kind} '{name}' is not declared in this automation's manifest"}), 403
+        scope_word = "this automation's manifest" if token_flavor == "automation" else "this run's scope"
+        return jsonify({"error": f"{kind} '{name}' is not declared in {scope_word}"}), 403
 
-    from .runner import LIVE_STATUSES
-    run = _get_runner().get_run(claims.get("run_id", ""))
-    if (not run or run.get("status") not in LIVE_STATUSES
-            or run.get("automation_id") != claims.get("automation_id")):
-        return jsonify({"error": "run token does not match a live run"}), 403
+    if token_flavor == "automation":
+        from .runner import LIVE_STATUSES
+        run = _get_runner().get_run(claims.get("run_id", ""))
+        if (not run or run.get("status") not in LIVE_STATUSES
+                or run.get("automation_id") != claims.get("automation_id")):
+            return jsonify({"error": "run token does not match a live run"}), 403
 
     if kind == "connection":
         value = _get_runner()._resolve_connection(name)

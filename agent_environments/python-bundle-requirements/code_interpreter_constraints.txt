@@ -1,0 +1,14 @@
+# Code Interpreter — core-stack constraints
+# ==========================================
+# Passed to every ad-hoc `install()` (pip -c this file) so a runtime install
+# can ADD packages but can never move the baked/provisioned baseline out from
+# under everyone else. Keep aligned with the python-bundle build (Python 3.11,
+# numpy 1.26.x / pandas 1.5.x baseline) and code_interpreter_requirements.txt.
+numpy==1.26.*
+pandas==1.5.*
+matplotlib>=3.7,<3.9
+openpyxl>=3.1,<3.3
+scipy>=1.11,<1.14
+scikit-learn>=1.3,<1.6
+seaborn>=0.12,<0.14
+statsmodels>=0.14,<0.15

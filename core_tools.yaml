@@ -22,7 +22,8 @@ tools:
     
   - name: run_python_code
     display_name: "Run Python Code"
-    description: "This function allows for the creation of tools dynamically by accepting a string of Python code, executing it, and capturing any output or errors as a string."
+    description: "Executes Python in the platform's sandboxed code interpreter with the user's uploaded files staged into the working directory. The primary tool for calculations over uploaded CSV/Excel/JSON/text files (row counts, totals, group-bys, joins), data transformation, and chart generation; files the code writes come back as downloadable artifacts. pandas/numpy/matplotlib/openpyxl preinstalled, install() for more, aihub_runtime SDK for platform connections."
+    routing_hint: "For ANY count, total, average, group-by, or other computation over an uploaded tabular file, ALWAYS run real code against the staged file — the table shown in chat is a preview and must never be counted or summed."
 
   - name: calculator
     display_name: "Calculator"

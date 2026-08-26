@@ -67,6 +67,17 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Command Center Service...")
     print_service_urls()
 
+    # Provision the code-interpreter extras into the shipped python-bundle in
+    # the background (idempotent, non-fatal, bundle-only — no-op when an
+    # external CODE_INTERPRETER_PYTHON is configured). This call was designed
+    # for startup but was never wired anywhere; without it a stock client's
+    # bundle never gets scipy/sklearn/seaborn/etc.
+    try:
+        from command_center.tools import code_interpreter_env
+        code_interpreter_env.ensure_async()
+    except Exception as e:
+        logger.warning(f"code-interpreter env provisioning not started: {e}")
+
     # Create the LangGraph agent
     compiled_graph = None
     try:

@@ -1,0 +1,7 @@
+# Code Interpreter — package denylist
+# ====================================
+# Packages install() refuses to install. DEFAULT-OPEN: this list starts empty
+# and grows ONLY from observation of actual harm — never preemptively.
+# (docs/code-interpreter-unification-plan.md §5.1; installs are logged to
+# automations/_pkg_cache/_adhoc/<env>/_install_log.jsonl for that observation.)
+# One package name per line; '#' starts a comment.

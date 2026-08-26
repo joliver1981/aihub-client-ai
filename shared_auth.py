@@ -44,6 +44,7 @@ AUD_CC = "command-center"
 AUD_INTERNAL = "aihub-internal"
 AUD_COBROWSE = "portal-cobrowse"
 AUD_AUTOMATION_RUN = "automation-run"
+AUD_CODE_RUN = "code-interpreter-run"
 
 # Default lifetimes (seconds).
 DEFAULT_CC_TTL = 172800
@@ -177,6 +178,38 @@ def verify_automation_run_token(token: str,
     """Verify an automation run token; returns (claims, error). Claims carry
     automation_id, run_id, and the connections/secrets allowlists."""
     return verify_token(token, AUD_AUTOMATION_RUN, secret)
+
+
+def sign_code_run_token(surface: str, run_id: str,
+                        connections: Optional[list] = None,
+                        secrets: Optional[list] = None,
+                        ttl_seconds: int = 900,
+                        user_id=None,
+                        agent_id=None,
+                        secret: Optional[str] = None) -> str:
+    """Chat-lane sibling of sign_automation_run_token: scopes ONE
+    run_python/code-interpreter execution (GeneralAgent / CC / The Agent).
+
+    A chat turn has no manifest and no AutomationRuns row, so the allowlist is
+    derived by the caller from what the session could already reach through its
+    normal tools (user parity), and liveness is the short TTL itself
+    (execution timeout + a small buffer). Distinct audience so an automation
+    endpoint can never be satisfied by a chat token or vice versa."""
+    payload = {
+        "surface": surface,
+        "run_id": run_id,
+        "connections": list(connections or []),
+        "secrets": list(secrets or []),
+        "user_id": user_id,
+        "agent_id": agent_id,
+    }
+    return _encode(payload, AUD_CODE_RUN, ttl_seconds, secret)
+
+
+def verify_code_run_token(token: str,
+                          secret: Optional[str] = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Verify a code-interpreter run token; returns (claims, error)."""
+    return verify_token(token, AUD_CODE_RUN, secret)
 
 
 def verify_token(token: str, expected_aud: str,
