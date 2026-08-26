@@ -1032,10 +1032,23 @@ class TestSdkPromptLawsCurrent:
         for fn in ("def llm(", "def ai_extract(", "def review_item(", "def checkpoint(",
                    "def query(", "def connection(", "def secret(", "def input("):
             assert fn in sdk, f"prompt teaches a function missing from the SDK: {fn}"
+        # The reverse direction is DERIVED FROM __all__, not a hand-kept list.
+        # It used to be seven remembered names, so send_email, review_decisions,
+        # log and inputs shipped undocumented — and on 2026-08-05 a generated
+        # automation invented `aihub.email(...)` (AttributeError at run time)
+        # because the prompt never mentioned how to send mail. Deriving the list
+        # means adding a function to __all__ without teaching it fails HERE.
+        import re as _re
+        all_block = _re.search(r"__all__\s*=\s*\[(.*?)\]", sdk, _re.S).group(1)
+        exported = [n for n in _re.findall(r'"([^"]+)"', all_block)
+                    if not n[0].isupper()]          # skip exception classes
+        assert exported, "could not parse the SDK's __all__"
         prompt_src = self._src()
-        for name in ("aihub.llm", "aihub.ai_extract", "aihub.review_item",
-                     "aihub.checkpoint", "aihub.query", "aihub.connection", "aihub.secret"):
-            assert name in prompt_src, f"SDK function not taught in the CC prompt: {name}"
+        missing = [n for n in exported if f"aihub.{n}(" not in prompt_src]
+        assert not missing, (
+            "SDK functions exported but never taught in the CC prompt — the "
+            "generator cannot use what it is not told about, and will invent a "
+            f"plausible name instead: {missing}")
 
 
 class TestApprovalsNudgeAndResizablePanel:
