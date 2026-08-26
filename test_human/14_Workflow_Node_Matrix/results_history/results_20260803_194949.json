@@ -1,0 +1,31 @@
+{
+ "stamp": "20260803_194949",
+ "out_dir": "C:\\temp\\aihub_test\\nodereg\\20260803_194949",
+ "env": {
+  "remote_disk": "True",
+  "airdb": "58",
+  "sftp": "True",
+  "sftp_secret": "SFTP_TEST_PASSWORD",
+  "portal": "nodereg_portal_probe",
+  "admin_id": "13"
+ },
+ "results": [
+  {
+   "id": "comp_excel_export_throughput",
+   "title": "COMPETENCY: Excel Export sustains a usable rows-per-second",
+   "tier": 3,
+   "status": "PASS",
+   "evidence": "status=completed; 40 rows in 4.9s = 8.15 rows/sec (want >= 5.0); 1000 rows would take ~2.0 min",
+   "workflow_id": 1391,
+   "execution_id": "42039964-8009-4e0f-ae3a-1ea8c326068f",
+   "duration_s": 5.7
+  }
+ ],
+ "lint": null,
+ "created": [
+  [
+   1391,
+   "NODEREG-comp_excel_export_throughput"
+  ]
+ ]
+}

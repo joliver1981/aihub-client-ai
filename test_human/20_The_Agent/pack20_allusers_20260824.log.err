@@ -1,0 +1,50 @@
+2026-08-24 21:15:31,942 - INFO - agent_config loaded: {"service": "agent_service", "host": "0.0.0.0", "port": 5111, "model": "claude-sonnet-5", "model_default": "claude-sonnet-5", "model_role1": "claude-haiku-4-5-20251001", "model_role1_default": "claude-haiku-4-5-20251001", "turns_per_day": 0, "app_version": "2.0", "app_root": "C:\\src\\aihub-client-ai-dev", "main_app": "http://127.0.0.1:5001", "allow_all_users": false, "anthropic_key_present": true}
+2026-08-24 21:18:34,781 - INFO - views store ready (v2)
+2026-08-24 21:18:34,798 - INFO - view saved: [user:1] pack20-direct v1 (1 tiles)
+2026-08-24 21:18:35,409 - INFO - view deleted: [user:1] pack20-direct by user 1
+2026-08-24 21:18:47,320 - INFO - view deleted: [user:1] pack20-pulse by user 1
+2026-08-24 21:18:47,461 - INFO - view saved: [user:1] pack20-private v1 (1 tiles)
+2026-08-24 21:18:47,679 - INFO - view deleted: [user:1] pack20-private by user 1
+2026-08-24 21:18:47,813 - INFO - view saved: [group:1] pack20-group v1 (1 tiles)
+2026-08-24 21:18:47,835 - INFO - view deleted: [group:1] pack20-group by user 1
+2026-08-24 21:18:48,122 - INFO - view deleted: [tenant] pack20-tenant by user 1
+2026-08-24 21:18:48,539 - INFO - view saved: [user:1] pack20-autoview v1 (1 tiles)
+2026-08-24 21:18:49,196 - INFO - view deleted: [user:1] pack20-autoview by user 1
+2026-08-24 21:18:49,461 - INFO - view saved: [user:1] pack20-cpview v1 (1 tiles)
+2026-08-24 21:18:55,179 - INFO - view deleted: [user:1] pack20-cpview by user 1
+2026-08-24 21:18:55,383 - INFO - view saved: [user:1] pack20-nojson v1 (1 tiles)
+2026-08-24 21:18:56,602 - INFO - view deleted: [user:1] pack20-nojson by user 1
+2026-08-24 21:18:57,172 - INFO - views store migrated v1 -> v2: 1 row(s) -> tenant scope
+2026-08-24 21:18:57,179 - INFO - views store ready (v2)
+2026-08-24 21:18:57,196 - INFO - view saved: [user:1] pack20-two v1 (2 tiles)
+2026-08-24 21:19:47,745 - INFO - view deleted: [user:1] pack20-two by user 1
+2026-08-24 21:19:47,748 - INFO - agent email store ready
+2026-08-24 21:19:48,133 - INFO - agent email processed: event 990001 -> pack20a6-agent.1@mail.everiai.ai (sender outsider@example.com, subject 'pack20 inbound probe')
+2026-08-24 21:19:57,711 - INFO - chat history ledger ready
+2026-08-24 21:19:57,874 - INFO - agent email address saved: user 77 -> pack20-chosen-agent.1@mail.everiai.ai (active=True)
+2026-08-24 21:19:57,890 - INFO - agent email address saved: user 77 -> pack20a68-agent.999@pack20.invalid (active=True)
+2026-08-24 21:19:58,550 - INFO - agent email address saved: user 77 -> pack20a69-agent.999@pack20.invalid (active=True)
+2026-08-24 21:19:58,586 - INFO - email attachment saved: user 77 event 987101 attachment 55001 -> C:\Users\james\AppData\Local\Temp\pack20_a69_r5x9_hg5\77\email\987101\55001__statement.pdf (21 B)
+2026-08-24 21:19:58,617 - INFO - agent email address saved: user 77 -> pack20a610-agent.999@pack20.invalid (active=True)
+2026-08-24 21:20:06,763 - INFO - view saved: [user:1] pack20-edit v1 (2 tiles)
+2026-08-24 21:20:06,866 - INFO - view deleted: [user:1] pack20-edit by user 1
+2026-08-24 21:20:06,875 - INFO - view saved: [user:1] pack20-lay v1 (3 tiles)
+2026-08-24 21:20:07,251 - INFO - view saved: [user:1] pack20-lay v1 (1 tiles)
+2026-08-24 21:20:07,282 - INFO - view saved: [user:1] pack20-lay2 v2 (3 tiles)
+2026-08-24 21:20:08,032 - INFO - view deleted: [user:1] pack20-lay by user 1
+2026-08-24 21:20:08,042 - INFO - view deleted: [user:1] pack20-lay3 by user 1
+2026-08-24 21:21:39,351 - INFO - file offered: user 77 <- C:\src\aihub-client-ai-dev\uploads\pack20_file_probe.txt (25 B)
+2026-08-24 21:21:57,780 - INFO - run_portal_workflow user=424250 name='no-such-wf-424250' upload=no
+Exception in thread Thread-9 (_readerthread):
+Traceback (most recent call last):
+  File "C:\Users\james\miniconda3\envs\aihub-agent\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\james\miniconda3\envs\aihub-agent\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\james\miniconda3\envs\aihub-agent\Lib\subprocess.py", line 1599, in _readerthread
+    buffer.append(fh.read())
+                  ^^^^^^^^^
+  File "C:\Users\james\miniconda3\envs\aihub-agent\Lib\encodings\cp1252.py", line 23, in decode
+    return codecs.charmap_decode(input,self.errors,decoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeDecodeError: 'charmap' codec can't decode byte 0x90 in position 1453: character maps to <undefined>

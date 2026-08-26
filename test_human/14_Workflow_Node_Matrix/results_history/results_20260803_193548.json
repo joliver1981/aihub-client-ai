@@ -1,0 +1,498 @@
+{
+ "stamp": "20260803_193548",
+ "out_dir": "C:\\temp\\aihub_test\\nodereg\\20260803_193548",
+ "env": {
+  "remote_disk": "True",
+  "airdb": "58",
+  "sftp": "True",
+  "sftp_secret": "SFTP_TEST_PASSWORD",
+  "portal": "nodereg_portal_probe",
+  "admin_id": "13"
+ },
+ "results": [
+  {
+   "id": "setvar_file_write",
+   "title": "Set Variable -> File write: variable substitution lands in the file",
+   "tier": 1,
+   "status": "PASS",
+   "evidence": "status=completed; file='value=hello-nodereg'",
+   "workflow_id": 1319,
+   "execution_id": "9bb0b4d2-4863-451c-af7a-539b271bc431",
+   "duration_s": 2.1
+  },
+  {
+   "id": "file_write_append",
+   "title": "File write + append: both contents present in order",
+   "tier": 1,
+   "status": "PASS",
+   "evidence": "status=completed; lines=['line1', 'line2']",
+   "workflow_id": 1320,
+   "execution_id": "2a1c4bb6-2b03-47eb-bdc9-f267cc26553a",
+   "duration_s": 1.9
+  },
+  {
+   "id": "file_check_delete",
+   "title": "File check + delete: check passes on existing file, delete removes it",
+   "tier": 1,
+   "status": "PASS",
+   "evidence": "status=completed; deleted=True; steps=File:Completed,File:Completed,File:Completed",
+   "workflow_id": 1321,
+   "execution_id": "e40e9430-0c20-467d-bfca-fff9428006fa",
+   "duration_s": 1.9
+  },
+  {
+   "id": "conditional_true",
+   "title": "Conditional: true edge fires (and false edge does not)",
+   "tier": 1,
+   "status": "PASS",
+   "evidence": "status=completed; TRUE-file=True; FALSE-file=False",
+   "workflow_id": 1322,
+   "execution_id": "63d39c01-86f9-4154-81f3-4d9ba87f3845",
+   "duration_s": 1.8
+  },
+  {
+   "id": "conditional_false",
+   "title": "Conditional: false edge fires (and true edge does not)",
+   "tier": 1,
+   "status": "PASS",
+   "evidence": "status=completed; TRUE-file=False; FALSE-file=True",
+   "workflow_id": 1323,
+   "execution_id": "fae004fb-ab42-48d5-a7fa-25df3fc9ab5b",
+   "duration_s": 1.8
+  },
+  {
+   "id": "loop_list_append",
+   "title": "Loop over JSON list -> File append per item -> End Loop",
+   "tier": 1,
+   "status": "PASS",
+   "evidence": "status=completed; lines=['alpha', 'beta', 'gamma']; continuation-ran=True",
+   "workflow_id": 1324,
+   "execution_id": "2a83bacd-aa77-470e-962c-24e2d8f65bcd",
+   "duration_s": 3.4
+  },
+  {
+   "id": "setvar_expression_eval",
+   "title": "Set Variable evaluateAsExpression: simple expression evaluates",
+   "tier": 1,
+   "status": "PASS",
+   "evidence": "status=completed; file='n=21' (oracle 'n=21')",
+   "workflow_id": 1338,
+   "execution_id": "e34e9b04-465f-4881-ad10-a81a0c42601e",
+   "duration_s": 1.8
+  },
+  {
+   "id": "setvar_expression_failure_honesty",
+   "title": "Set Variable: a FAILING expression must not silently store the literal",
+   "tier": 1,
+   "status": "XFAIL",
+   "evidence": "status=completed; literal-leaked=True; file='\\'\\'.join([f\"{row[\\'x\\']}\" for row in nonexistent_var])' | log-tail: Executing node: bad calc (Set Variable) ~ Workflow execution started: NODEREG-setvar_expression_failure_honesty",
+   "workflow_id": 1339,
+   "execution_id": "c6677ab4-bc67-4ea6-9ea1-486255954822",
+   "duration_s": 1.8,
+   "xfail_reason": "Engine Fix-3 backlog (found 2026-07-30, wf 1337): when expression evaluation fails (e.g. f-string comprehension over a DB envelope), the engine silently stores the LITERAL source text and the step 'Completes' \u2014 dishonest fallback"
+  },
+  {
+   "id": "database_select_vars",
+   "title": "Database (AIRDB select) -> rows land in execution variables",
+   "tier": 2,
+   "status": "PASS",
+   "evidence": "status=completed; dbrows type=dict; rows=10 (oracle 10)",
+   "workflow_id": 1325,
+   "execution_id": "0481f152-af1b-4efa-bc94-a9388300e68c",
+   "duration_s": 1.8
+  },
+  {
+   "id": "database_fail_edge",
+   "title": "Database failure routes the fail edge (honest failure handling)",
+   "tier": 2,
+   "status": "PASS",
+   "evidence": "status=completed; fail-edge-file=True; pass-edge-file=False",
+   "workflow_id": 1326,
+   "execution_id": "2477d0d6-c308-4144-a42f-0b8e9fd5788e",
+   "duration_s": 1.8
+  },
+  {
+   "id": "setvar_to_excel",
+   "title": "Set Variable (JSON rows) -> Excel Export: xlsx with exact rows",
+   "tier": 2,
+   "status": "PASS",
+   "evidence": "status=completed; xlsx rows=[{'store': 'Manhattan', 'units': 1000, 'revenue': 30000}, {'store': 'Brooklyn', 'units': 770, 'revenue': 23100}]",
+   "workflow_id": 1327,
+   "execution_id": "8eb4ffa2-ddcb-43bd-8c5e-cf693807a941",
+   "duration_s": 4.6
+  },
+  {
+   "id": "database_to_excel",
+   "title": "Database -> Excel Export handoff (the pairing that was silently broken)",
+   "tier": 2,
+   "status": "PASS",
+   "evidence": "status=completed; xlsx-rows=10 (oracle 10x headcount=8)",
+   "workflow_id": 1328,
+   "execution_id": "117f655f-0989-4dcf-be33-c2c3807553b9",
+   "duration_s": 14.1
+  },
+  {
+   "id": "human_approval_approve",
+   "title": "Human Approval pauses -> approve via approvals API -> workflow resumes",
+   "tier": 2,
+   "status": "PASS",
+   "evidence": "status=completed; decided=True (req=632E0442-7969-42FB-9344-7EC84A1869E5, http=200); post-approval file=True",
+   "workflow_id": 1329,
+   "execution_id": "f129707a-40bf-4f04-8e78-ee23b1426b07",
+   "duration_s": 7.0
+  },
+  {
+   "id": "human_approval_reject",
+   "title": "Human Approval rejected -> downstream does NOT run",
+   "tier": 2,
+   "status": "PASS",
+   "evidence": "status=completed; decided=True; downstream-file=False (must be False)",
+   "workflow_id": 1330,
+   "execution_id": "f81c8fc7-9afd-4c0e-920d-f2910fdc6dd2",
+   "duration_s": 6.8
+  },
+  {
+   "id": "folder_selector_count",
+   "title": "Folder Selector: lists exactly the fixture files",
+   "tier": 2,
+   "status": "PASS",
+   "evidence": "status=completed; files-found=3 (oracle 3)",
+   "workflow_id": 1331,
+   "execution_id": "2e2d2c24-dd48-4290-b180-e1b7d4128582",
+   "duration_s": 1.8
+  },
+  {
+   "id": "portal_node_run",
+   "title": "Portal node: runs a saved portal workflow via browser-use, result lands in variables",
+   "tier": 2,
+   "status": "PASS",
+   "evidence": "status=completed; portal-status=ok; files=0",
+   "workflow_id": 1335,
+   "execution_id": "1fda7691-c442-4de8-9ba7-553dd21d20cb",
+   "duration_s": 21.8
+  },
+  {
+   "id": "file_transfer_sftp_upload",
+   "title": "File Transfer node: SFTP upload lands on the test server",
+   "tier": 2,
+   "status": "PASS",
+   "evidence": "status=completed; remote-file=True (xfer_20260803_193548.txt); content-ok=True",
+   "workflow_id": 1332,
+   "execution_id": "d9da88ce-1a01-4d43-bc92-4312e05922ec",
+   "duration_s": 1.9
+  },
+  {
+   "id": "comp_midchain_failure_honesty",
+   "title": "COMPETENCY: a mid-chain failure must fail the RUN and stop downstream work",
+   "tier": 3,
+   "status": "PASS",
+   "evidence": "status=failed (want failed); step1-ran=True; step3-ran-after-failure=False (must be False)",
+   "workflow_id": 1382,
+   "execution_id": "f7dccc35-034e-479b-8ae7-8b2aa66506eb",
+   "duration_s": 1.8
+  },
+  {
+   "id": "comp_real_error_text_propagates",
+   "title": "COMPETENCY: the REAL database error reaches the run record, not a generic message",
+   "tier": 3,
+   "status": "PASS",
+   "evidence": "status=failed; run record names the real SQL cause=True",
+   "workflow_id": 1383,
+   "execution_id": "8ce81ac0-7d6b-432f-b423-9dc8282ca46b",
+   "duration_s": 3.7
+  },
+  {
+   "id": "comp_variable_survives_long_chain",
+   "title": "COMPETENCY: a variable set at step 1 is still intact five nodes later",
+   "tier": 3,
+   "status": "PASS",
+   "evidence": "status=completed; value after 5 hops='carried-value-9f3' (oracle 'carried-value-9f3')",
+   "workflow_id": 1384,
+   "execution_id": "5d9d291c-f005-47c6-b4b7-fa81edea6e5c",
+   "duration_s": 1.8
+  },
+  {
+   "id": "comp_loop_zero_items",
+   "title": "COMPETENCY: an EMPTY loop runs the body zero times and still continues",
+   "tier": 3,
+   "status": "PASS",
+   "evidence": "status=completed; body-executed=False (must be False); continuation-ran=True",
+   "workflow_id": 1385,
+   "execution_id": "e8349860-ed60-4fc2-a56b-e23d949da711",
+   "duration_s": 1.8
+  },
+  {
+   "id": "comp_loop_single_item",
+   "title": "COMPETENCY: a ONE-item loop runs exactly once (off-by-one guard)",
+   "tier": 3,
+   "status": "PASS",
+   "evidence": "status=completed; iterations=1 (oracle 1); lines=['only']",
+   "workflow_id": 1386,
+   "execution_id": "9d787a5f-4474-48a6-916d-33a32240de5c",
+   "duration_s": 1.8
+  },
+  {
+   "id": "comp_conditional_boundary",
+   "title": "COMPETENCY: '>' at the exact boundary (5 > 5) is FALSE, not true",
+   "tier": 3,
+   "status": "PASS",
+   "evidence": "status=completed; 5>5 took TRUE branch=False (must be False); FALSE branch=True",
+   "workflow_id": 1387,
+   "execution_id": "fd565841-e0b3-40ad-ae29-f5d0561b7875",
+   "duration_s": 1.8
+  },
+  {
+   "id": "comp_type_fidelity_db_to_excel",
+   "title": "COMPETENCY: decimals, leading zeros, dates and NULLs survive Database -> Excel",
+   "tier": 3,
+   "status": "XFAIL",
+   "evidence": "status=completed; decimal='1234.5678'(True); leading-zeros='007'(True); date='2026-03-04'(True); NULL='None'(False); every-cell-written-as-text=True | log-tail: Executing node: types (Database) ~ Workflow execution started: NODEREG-comp_type_fidelity_db_to_excel",
+   "workflow_id": 1388,
+   "execution_id": "760c1247-2e99-4980-ad10-e365901e031a",
+   "duration_s": 1.8,
+   "xfail_reason": "FOUND 2026-08-02: a SQL NULL arrives in the spreadsheet as the literal four-character text 'None' - the user sees the word None in the cell instead of an empty one, and any downstream SUM/filter treats it as data. Related but milder: Excel Export writes EVERY value as a text cell (data_type 's'), so numbers cannot be summed and dates cannot be sorted without the user converting the column first. Values themselves are correct - '007' really is preserved. OWNER DECISION PENDING."
+  },
+  {
+   "id": "comp_unicode_through_chain",
+   "title": "COMPETENCY: non-ASCII text survives Database -> Excel intact",
+   "tier": 3,
+   "status": "PASS",
+   "evidence": "status=completed; got='caf\u00e9-\u4e2d\u6587-\u00f1' (oracle 'caf\u00e9-\u4e2d\u6587-\u00f1')",
+   "workflow_id": 1389,
+   "execution_id": "e5cc39ef-b957-4167-b53d-f3692b3add0b",
+   "duration_s": 1.8
+  },
+  {
+   "id": "comp_large_result_no_truncation",
+   "title": "COMPETENCY: a multi-row result reaches Excel with every row intact",
+   "tier": 3,
+   "status": "PASS",
+   "evidence": "status=completed; xlsx data rows=120 (oracle exactly 120)",
+   "workflow_id": 1390,
+   "execution_id": "09141450-c742-450c-b0ea-315ae63ab505",
+   "duration_s": 404.7
+  },
+  {
+   "id": "comp_excel_export_throughput",
+   "title": "COMPETENCY: Excel Export sustains a usable rows-per-second",
+   "tier": 3,
+   "status": "XFAIL",
+   "evidence": "status=completed; 40 rows in 51.0s = 0.78 rows/sec (want >= 5.0); 1000 rows would take ~21.2 min | log-tail: Executing node: big (Database) ~ Workflow execution started: NODEREG-comp_excel_export_throughput",
+   "workflow_id": 1391,
+   "execution_id": "26bf7f61-8554-4e91-9970-02bd72cbf5cd",
+   "duration_s": 51.0,
+   "xfail_reason": "FOUND 2026-08-02: Database -> Excel Export sustains 0.66 ROWS/SEC (~1.5 s/row), linear in row count. Three independent measurements on an IDLE executor agree to two decimals: 40 rows/60.6s, 120 rows/182.9s, and a live sample of a 1000-row export = 0.66-0.67 rows/sec; the small tier-1/2 exports fit the same line (1 row 3.1s, 2 rows 5.3s, 10 rows 15.7-17.2s). So 1,000 rows takes ~25 minutes and 10,000 rows ~4 hours - a realistic export is effectively unusable. Correctness is fine: a 1000-row export DID write all 1000 rows, it just took ~30 min. Tiers 1-2 never saw this because they only ever export 2 or 10 rows. OWNER DECISION PENDING."
+  },
+  {
+   "id": "alert_email",
+   "title": "Alert (email) node",
+   "tier": 0,
+   "status": "SKIP",
+   "evidence": "not yet automated: excluded by owner decision (james 2026-07-30) \u2014 do NOT automate (sends real email)"
+  },
+  {
+   "id": "ai_extract",
+   "title": "AI Extract node",
+   "tier": 0,
+   "status": "SKIP",
+   "evidence": "not yet automated: excluded by owner decision (james 2026-07-30) \u2014 do NOT automate (live LLM cost)"
+  },
+  {
+   "id": "ai_action",
+   "title": "AI Action node",
+   "tier": 0,
+   "status": "SKIP",
+   "evidence": "not yet automated: excluded by owner decision (james 2026-07-30) \u2014 do NOT automate (live LLM cost)"
+  },
+  {
+   "id": "document_node",
+   "title": "Document node",
+   "tier": 0,
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a document-pipeline fixture)"
+  },
+  {
+   "id": "excel_update",
+   "title": "Excel Update node",
+   "tier": 0,
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a template .xlsx fixture)"
+  },
+  {
+   "id": "execute_application",
+   "title": "Execute Application node",
+   "tier": 0,
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a harmless fixture app to run)"
+  },
+  {
+   "id": "integration_node",
+   "title": "Integration node",
+   "tier": 0,
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a configured integration instance)"
+  },
+  {
+   "id": "compliance_process",
+   "title": "Compliance Process node",
+   "tier": 0,
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a retailer document set)"
+  },
+  {
+   "id": "compliance_excel_export",
+   "title": "Compliance Excel Export node",
+   "tier": 0,
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs compliance fixtures)"
+  },
+  {
+   "id": "automation_node",
+   "title": "Automation node",
+   "tier": 0,
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a promoted automation)"
+  },
+  {
+   "id": "code_step",
+   "title": "Code Step node",
+   "tier": 0,
+   "status": "SKIP",
+   "evidence": "not yet automated: not automated (needs a saved code flow)"
+  }
+ ],
+ "lint": {
+  "scanned": 261,
+  "excel_bad": [
+   "wf 1225 'test-AIHUB0016-Broken': Excel Export missing ['inputVariable', 'excelOutputPath'] invalid excelOperation=None",
+   "wf 1277 'truth-native-1': Excel Export missing ['inputVariable'] invalid excelOperation='create'",
+   "wf 1281 'nreg-native-1': Excel Export missing ['inputVariable'] invalid excelOperation='create'",
+   "wf 1288 'n50-branch': Excel Export missing ['inputVariable'] invalid excelOperation='create'",
+   "wf 1290 'n50r-branch': Excel Export missing ['inputVariable'] invalid excelOperation='create'",
+   "wf 1302 'daily-store-headcount-2': Excel Export missing ['inputVariable'] invalid excelOperation='create'",
+   "wf 1307 'REG-headcount': Excel Export missing ['inputVariable'] invalid excelOperation='create'",
+   "wf 437 'Customer Onboarding - Global Corp (Demo)': Excel Export invalid excelOperation='update'",
+   "wf 447 'Customer Onboarding - Horizon Replica (w SP)': Excel Export invalid excelOperation='update'",
+   "wf 448 'Customer Onboarding - Horizon Replica (w SP v2)': Excel Export invalid excelOperation='update'",
+   "wf 290 'Customer Onboarding - AI Guided v3 (w Update)': Excel Export invalid excelOperation='update'",
+   "wf 292 'Customer Onboarding - AI Guided v4 (w Bulk Update)': Excel Export invalid excelOperation='update'",
+   "wf 1218 'Customer Onboarding - Horizon Replica _w SP v2_ (Imported)': Excel Export invalid excelOperation='update'"
+  ],
+  "unknown_types": [
+   "wf 1225 'test-AIHUB0016-Broken': unknown node type 'Server'",
+   "wf 1226 'test-AIHUB0016-InertUnknown': unknown node type 'Server'",
+   "wf 382 'Inventory Record Count': unknown node type 'Database Query'"
+  ],
+  "dead_edges": []
+ },
+ "created": [
+  [
+   1319,
+   "NODEREG-setvar_file_write"
+  ],
+  [
+   1320,
+   "NODEREG-file_write_append"
+  ],
+  [
+   1321,
+   "NODEREG-file_check_delete"
+  ],
+  [
+   1322,
+   "NODEREG-conditional_true"
+  ],
+  [
+   1323,
+   "NODEREG-conditional_false"
+  ],
+  [
+   1324,
+   "NODEREG-loop_list_append"
+  ],
+  [
+   1338,
+   "NODEREG-setvar_expression_eval"
+  ],
+  [
+   1339,
+   "NODEREG-setvar_expression_failure_honesty"
+  ],
+  [
+   1325,
+   "NODEREG-database_select_vars"
+  ],
+  [
+   1326,
+   "NODEREG-database_fail_edge"
+  ],
+  [
+   1327,
+   "NODEREG-setvar_to_excel"
+  ],
+  [
+   1328,
+   "NODEREG-database_to_excel"
+  ],
+  [
+   1329,
+   "NODEREG-human_approval_approve"
+  ],
+  [
+   1330,
+   "NODEREG-human_approval_reject"
+  ],
+  [
+   1331,
+   "NODEREG-folder_selector_count"
+  ],
+  [
+   1335,
+   "NODEREG-portal_node_run"
+  ],
+  [
+   1332,
+   "NODEREG-file_transfer_sftp_upload"
+  ],
+  [
+   1382,
+   "NODEREG-comp_midchain_failure_honesty"
+  ],
+  [
+   1383,
+   "NODEREG-comp_real_error_text_propagates"
+  ],
+  [
+   1384,
+   "NODEREG-comp_variable_survives_long_chain"
+  ],
+  [
+   1385,
+   "NODEREG-comp_loop_zero_items"
+  ],
+  [
+   1386,
+   "NODEREG-comp_loop_single_item"
+  ],
+  [
+   1387,
+   "NODEREG-comp_conditional_boundary"
+  ],
+  [
+   1388,
+   "NODEREG-comp_type_fidelity_db_to_excel"
+  ],
+  [
+   1389,
+   "NODEREG-comp_unicode_through_chain"
+  ],
+  [
+   1390,
+   "NODEREG-comp_large_result_no_truncation"
+  ],
+  [
+   1391,
+   "NODEREG-comp_excel_export_throughput"
+  ]
+ ]
+}

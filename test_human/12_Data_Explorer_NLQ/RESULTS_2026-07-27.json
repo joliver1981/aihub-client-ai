@@ -1,0 +1,84 @@
+{
+  "generated": "2026-07-27 20:40:17",
+  "engine": "AgenticNLQEngine",
+  "agent": 281,
+  "db": "AIRDB2",
+  "summary": {
+    "n": 3,
+    "pass": 3,
+    "partial": 0,
+    "fail": 0,
+    "error": 0,
+    "p50_s": 8.8,
+    "max_s": 15.8
+  },
+  "rows": [
+    {
+      "id": "T2-03",
+      "tier": 2,
+      "chain": null,
+      "kind": "value",
+      "comp": [
+        "aggregate-avg",
+        "grain",
+        "closed-year"
+      ],
+      "prompt": "What was the average sale value (revenue per transaction) in 2025?",
+      "expected": "\u2248 $1,570 per transaction (average order value over 789,731 distinct 2025 orders, \u22481.85 sales lines / 4.13 items each).",
+      "answer": "The average sale value (total revenue per transaction) in 2025 was 1,570.43.",
+      "answer_type": "string",
+      "engine_sql": "SELECT TOP 10000 CAST(SUM(total_revenue) * 1.0 / COUNT(DISTINCT transaction_id) AS NUMERIC(18, 2)) AS average_sale_value_2025 FROM TS.sales WHERE sale_date >= '2025-01-01' AND sale_date < '2026-01-01'",
+      "truth": 1570.4289083372435,
+      "oracle_err": null,
+      "verdict": "PASS",
+      "note": "\u22481570.4289083372435 matched",
+      "elapsed_s": 8.8,
+      "engine_class": "AgenticNLQEngine"
+    },
+    {
+      "id": "T3-06",
+      "tier": 3,
+      "chain": null,
+      "kind": "count",
+      "comp": [
+        "where",
+        "count",
+        "grain",
+        "closed-year"
+      ],
+      "prompt": "How many sales transactions did Central Plaza record in 2025?",
+      "expected": "\u2248 108,088 transactions (distinct transaction_id). NOTE: those baskets expand to ~175,688 line-item rows \u2014 'transactions' means distinct baskets, not rows.",
+      "answer": "Central Plaza recorded 108,088 distinct sales transactions in 2025.",
+      "answer_type": "string",
+      "engine_sql": "SELECT TOP 10000 COUNT(DISTINCT s.transaction_id) AS sales_transactions FROM TS.sales AS s INNER JOIN TS.location_master AS l ON s.store_id = l.store_id WHERE l.store_name = 'Central Plaza' AND s.sale_date >= '2025-01-01' AND s.sale_date < '2026-01-01'",
+      "truth": 108088,
+      "oracle_err": null,
+      "verdict": "PASS",
+      "note": "count 108088 present",
+      "elapsed_s": 6.2,
+      "engine_class": "AgenticNLQEngine"
+    },
+    {
+      "id": "T4-05",
+      "tier": 4,
+      "chain": null,
+      "kind": "value",
+      "comp": [
+        "profit",
+        "join",
+        "multi-join"
+      ],
+      "prompt": "What was our overall gross profit margin across all sales (revenue minus product cost)?",
+      "expected": "\u2248 30% all-time gross margin. By category (2025): Beauty 54.4%, Clothing 46.2%, Home & Kitchen 38.6%, Electronics 27.1% \u2014 thin on the big-ticket category that is 80% of revenue.",
+      "answer": "Across all sales, the overall gross profit margin was 30.24%.\n\nBased on the available data:\n- Total revenue: approximately 3.03 billion\n- Estimated product cost: approximately 2.11 billion\n- Gross profit: approximately 916.01 million\n\nThe product cost was calculated using the average supplier cost per product from the current cost table.",
+      "answer_type": "string",
+      "engine_sql": "SELECT TOP 10000 SUM(s.total_revenue) AS total_revenue, SUM(s.quantity_sold * cp.avg_cost_price) AS total_product_cost, SUM(s.total_revenue) - SUM(s.quantity_sold * cp.avg_cost_price) AS gross_profit, CASE WHEN SUM(s.total_revenue) = 0 THEN 0 ELSE ROUND(((SUM(s.total_revenue) - SUM(s.quantity_sold * cp.avg_cost_price)) * 100.0) / SUM(s.total_revenue), 2) END AS gross_profit_margin_pct FROM TS.sale",
+      "truth": 30.238092305856735,
+      "oracle_err": null,
+      "verdict": "PASS",
+      "note": "\u224830.238092305856735 matched",
+      "elapsed_s": 15.8,
+      "engine_class": "AgenticNLQEngine"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "anchor": "2026-08-25",
+  "generated_at": "2026-08-25T11:27:06",
+  "day": 2,
+  "counts": {
+    "invoices": 20,
+    "sftp": 16,
+    "email": 2,
+    "folder": 2,
+    "eml_messages": 2,
+    "packing_slips": 0,
+    "statements": 3,
+    "terms_letters": 4
+  },
+  "manifest_phantom_row": "CGV004_CG-VINV-10917.pdf",
+  "policy_manual": "AP_Policy_and_Tolerance_Manual.docx"
+}

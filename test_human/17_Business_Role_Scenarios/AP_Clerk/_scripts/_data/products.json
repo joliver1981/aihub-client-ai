@@ -1,0 +1,602 @@
+[
+[
+1,
+"Beige Bath Mat (Large)",
+"Bath Mat",
+"Large",
+"Beige",
+16.0
+],
+[
+2,
+"Black Bath Mat (Large)",
+"Bath Mat",
+"Large",
+"Black",
+24.96
+],
+[
+3,
+"Blue Bath Mat (Large)",
+"Bath Mat",
+"Large",
+"Blue",
+7.92
+],
+[
+4,
+"Blush Bath Mat (Large)",
+"Bath Mat",
+"Large",
+"Blush",
+15.36
+],
+[
+5,
+"Burgundy Bath Mat (Large)",
+"Bath Mat",
+"Large",
+"Burgundy",
+20.4
+],
+[
+6,
+"Charcoal Bath Mat (Large)",
+"Bath Mat",
+"Large",
+"Charcoal",
+7.6
+],
+[
+7,
+"Forest Bath Mat (Large)",
+"Bath Mat",
+"Large",
+"Forest",
+12.12
+],
+[
+8,
+"Gray Bath Mat (Large)",
+"Bath Mat",
+"Large",
+"Gray",
+24.24
+],
+[
+9,
+"Ivory Bath Mat (Large)",
+"Bath Mat",
+"Large",
+"Ivory",
+7.68
+],
+[
+10,
+"Linen Bath Mat (Large)",
+"Bath Mat",
+"Large",
+"Linen",
+16.0
+],
+[
+11,
+"Mustard Bath Mat (Large)",
+"Bath Mat",
+"Large",
+"Mustard",
+19.0
+],
+[
+12,
+"Navy Bath Mat (Large)",
+"Bath Mat",
+"Large",
+"Navy",
+8.24
+],
+[
+13,
+"Sage Bath Mat (Large)",
+"Bath Mat",
+"Large",
+"Sage",
+11.76
+],
+[
+14,
+"White Bath Mat (Large)",
+"Bath Mat",
+"Large",
+"White",
+20.4
+],
+[
+15,
+"Beige Bath Mat (Small)",
+"Bath Mat",
+"Small",
+"Beige",
+23.28
+],
+[
+16,
+"Black Bath Mat (Small)",
+"Bath Mat",
+"Small",
+"Black",
+7.76
+],
+[
+17,
+"Blue Bath Mat (Small)",
+"Bath Mat",
+"Small",
+"Blue",
+12.36
+],
+[
+18,
+"Blush Bath Mat (Small)",
+"Bath Mat",
+"Small",
+"Blush",
+19.2
+],
+[
+19,
+"Burgundy Bath Mat (Small)",
+"Bath Mat",
+"Small",
+"Burgundy",
+24.48
+],
+[
+20,
+"Charcoal Bath Mat (Small)",
+"Bath Mat",
+"Small",
+"Charcoal",
+11.88
+],
+[
+21,
+"Forest Bath Mat (Small)",
+"Bath Mat",
+"Small",
+"Forest",
+16.8
+],
+[
+22,
+"Gray Bath Mat (Small)",
+"Bath Mat",
+"Small",
+"Gray",
+23.52
+],
+[
+23,
+"Ivory Bath Mat (Small)",
+"Bath Mat",
+"Small",
+"Ivory",
+8.32
+],
+[
+24,
+"Linen Bath Mat (Small)",
+"Bath Mat",
+"Small",
+"Linen",
+20.8
+],
+[
+25,
+"Mustard Bath Mat (Small)",
+"Bath Mat",
+"Small",
+"Mustard",
+23.76
+],
+[
+26,
+"Navy Bath Mat (Small)",
+"Bath Mat",
+"Small",
+"Navy",
+12.36
+],
+[
+27,
+"Sage Bath Mat (Small)",
+"Bath Mat",
+"Small",
+"Sage",
+15.68
+],
+[
+28,
+"White Bath Mat (Small)",
+"Bath Mat",
+"Small",
+"White",
+22.8
+],
+[
+29,
+"Beige Bath Towel (Oversized)",
+"Bath Towel",
+"Oversized",
+"Beige",
+8.08
+],
+[
+30,
+"Black Bath Towel (Oversized)",
+"Bath Towel",
+"Oversized",
+"Black",
+16.8
+],
+[
+31,
+"Blue Bath Towel (Oversized)",
+"Bath Towel",
+"Oversized",
+"Blue",
+20.0
+],
+[
+32,
+"Blush Bath Towel (Oversized)",
+"Bath Towel",
+"Oversized",
+"Blush",
+24.0
+],
+[
+33,
+"Burgundy Bath Towel (Oversized)",
+"Bath Towel",
+"Oversized",
+"Burgundy",
+7.6
+],
+[
+34,
+"Charcoal Bath Towel (Oversized)",
+"Bath Towel",
+"Oversized",
+"Charcoal",
+15.84
+],
+[
+35,
+"Forest Bath Towel (Oversized)",
+"Bath Towel",
+"Oversized",
+"Forest",
+21.0
+],
+[
+36,
+"Gray Bath Towel (Oversized)",
+"Bath Towel",
+"Oversized",
+"Gray",
+8.16
+],
+[
+37,
+"Ivory Bath Towel (Oversized)",
+"Bath Towel",
+"Oversized",
+"Ivory",
+11.64
+],
+[
+38,
+"Linen Bath Towel (Oversized)",
+"Bath Towel",
+"Oversized",
+"Linen",
+20.2
+],
+[
+39,
+"Mustard Bath Towel (Oversized)",
+"Bath Towel",
+"Oversized",
+"Mustard",
+23.04
+],
+[
+40,
+"Navy Bath Towel (Oversized)",
+"Bath Towel",
+"Oversized",
+"Navy",
+15.36
+],
+[
+41,
+"Sage Bath Towel (Oversized)",
+"Bath Towel",
+"Oversized",
+"Sage",
+20.4
+],
+[
+42,
+"White Bath Towel (Oversized)",
+"Bath Towel",
+"Oversized",
+"White",
+7.6
+],
+[
+43,
+"Beige Bath Towel (Standard)",
+"Bath Towel",
+"Standard",
+"Beige",
+12.12
+],
+[
+44,
+"Black Bath Towel (Standard)",
+"Bath Towel",
+"Standard",
+"Black",
+19.6
+],
+[
+45,
+"Blue Bath Towel (Standard)",
+"Bath Towel",
+"Standard",
+"Blue",
+24.96
+],
+[
+46,
+"Blush Bath Towel (Standard)",
+"Bath Towel",
+"Standard",
+"Blush",
+11.64
+],
+[
+47,
+"Burgundy Bath Towel (Standard)",
+"Bath Towel",
+"Standard",
+"Burgundy",
+16.48
+],
+[
+48,
+"Charcoal Bath Towel (Standard)",
+"Bath Towel",
+"Standard",
+"Charcoal",
+20.6
+],
+[
+49,
+"Forest Bath Towel (Standard)",
+"Bath Towel",
+"Standard",
+"Forest",
+23.52
+],
+[
+50,
+"Gray Bath Towel (Standard)",
+"Bath Towel",
+"Standard",
+"Gray",
+12.24
+],
+[
+51,
+"Ivory Bath Towel (Standard)",
+"Bath Towel",
+"Standard",
+"Ivory",
+15.52
+],
+[
+52,
+"Linen Bath Towel (Standard)",
+"Bath Towel",
+"Standard",
+"Linen",
+25.2
+],
+[
+53,
+"Mustard Bath Towel (Standard)",
+"Bath Towel",
+"Standard",
+"Mustard",
+8.0
+],
+[
+54,
+"Navy Bath Towel (Standard)",
+"Bath Towel",
+"Standard",
+"Navy",
+16.64
+],
+[
+55,
+"Sage Bath Towel (Standard)",
+"Bath Towel",
+"Standard",
+"Sage",
+19.8
+],
+[
+56,
+"White Bath Towel (Standard)",
+"Bath Towel",
+"Standard",
+"White",
+11.88
+],
+[
+57,
+"Beige Hand Towel (Standard)",
+"Hand Towel",
+"Standard",
+"Beige",
+16.8
+],
+[
+58,
+"Black Hand Towel (Standard)",
+"Hand Towel",
+"Standard",
+"Black",
+23.52
+],
+[
+59,
+"Blue Hand Towel (Standard)",
+"Hand Towel",
+"Standard",
+"Blue",
+8.32
+],
+[
+60,
+"Blush Hand Towel (Standard)",
+"Hand Towel",
+"Standard",
+"Blush",
+16.16
+],
+[
+61,
+"Burgundy Hand Towel (Standard)",
+"Hand Towel",
+"Standard",
+"Burgundy",
+19.2
+],
+[
+62,
+"Charcoal Hand Towel (Standard)",
+"Hand Towel",
+"Standard",
+"Charcoal",
+8.0
+],
+[
+63,
+"Forest Hand Towel (Standard)",
+"Hand Towel",
+"Standard",
+"Forest",
+11.4
+],
+[
+64,
+"Gray Hand Towel (Standard)",
+"Hand Towel",
+"Standard",
+"Gray",
+16.64
+],
+[
+65,
+"Ivory Hand Towel (Standard)",
+"Hand Towel",
+"Standard",
+"Ivory",
+19.8
+],
+[
+66,
+"Linen Hand Towel (Standard)",
+"Hand Towel",
+"Standard",
+"Linen",
+8.24
+],
+[
+67,
+"Mustard Hand Towel (Standard)",
+"Hand Towel",
+"Standard",
+"Mustard",
+11.76
+],
+[
+68,
+"Navy Hand Towel (Standard)",
+"Hand Towel",
+"Standard",
+"Navy",
+19.0
+],
+[
+69,
+"Sage Hand Towel (Standard)",
+"Hand Towel",
+"Standard",
+"Sage",
+24.24
+],
+[
+70,
+"White Hand Towel (Standard)",
+"Hand Towel",
+"Standard",
+"White",
+12.6
+],
+[
+71,
+"Beige Shower Curtain (Standard)",
+"Shower Curtain",
+"Standard",
+"Beige",
+16.0
+],
+[
+72,
+"Black Shower Curtain (Standard)",
+"Shower Curtain",
+"Standard",
+"Black",
+8.0
+],
+[
+73,
+"Blue Shower Curtain (Standard)",
+"Shower Curtain",
+"Standard",
+"Blue",
+11.4
+],
+[
+74,
+"Blush Shower Curtain (Standard)",
+"Shower Curtain",
+"Standard",
+"Blush",
+19.8
+],
+[
+75,
+"Burgundy Shower Curtain (Standard)",
+"Shower Curtain",
+"Standard",
+"Burgundy",
+25.2
+]
+]

@@ -1,0 +1,31 @@
+{
+ "stamp": "20260806_201924",
+ "out_dir": "C:\\temp\\aihub_test\\nodereg\\20260806_201924",
+ "env": {
+  "remote_disk": "True",
+  "airdb": "None",
+  "sftp": "None",
+  "sftp_secret": "SFTP_TEST_PASSWORD",
+  "portal": "nodereg_portal_probe",
+  "admin_id": "1"
+ },
+ "results": [
+  {
+   "id": "portal_node_run",
+   "title": "Portal node: runs a saved portal workflow via browser-use, result lands in variables",
+   "tier": 2,
+   "status": "PASS",
+   "evidence": "status=completed; portal-status=ok; files=0",
+   "workflow_id": 2007,
+   "execution_id": "c1248c9e-d195-4947-a3f4-9490024d3572",
+   "duration_s": 32.3
+  }
+ ],
+ "lint": null,
+ "created": [
+  [
+   2007,
+   "NODEREG-portal_node_run"
+  ]
+ ]
+}

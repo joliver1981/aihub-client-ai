@@ -1,0 +1,32 @@
+{
+ "stamp": "20260803_194650",
+ "out_dir": "C:\\temp\\aihub_test\\nodereg\\20260803_194650",
+ "env": {
+  "remote_disk": "True",
+  "airdb": "58",
+  "sftp": "True",
+  "sftp_secret": "SFTP_TEST_PASSWORD",
+  "portal": "nodereg_portal_probe",
+  "admin_id": "13"
+ },
+ "results": [
+  {
+   "id": "comp_excel_export_throughput",
+   "title": "COMPETENCY: Excel Export sustains a usable rows-per-second",
+   "tier": 3,
+   "status": "XPASS",
+   "evidence": "status=completed; 40 rows in 5.0s = 7.93 rows/sec (want >= 5.0); 1000 rows would take ~2.1 min",
+   "workflow_id": 1391,
+   "execution_id": "5d6ba3f4-bf14-42f8-9b82-dfb6ef550db2",
+   "duration_s": 5.8,
+   "xfail_reason": "FOUND 2026-08-02: Database -> Excel Export sustains 0.66 ROWS/SEC (~1.5 s/row), linear in row count. Three independent measurements on an IDLE executor agree to two decimals: 40 rows/60.6s, 120 rows/182.9s, and a live sample of a 1000-row export = 0.66-0.67 rows/sec; the small tier-1/2 exports fit the same line (1 row 3.1s, 2 rows 5.3s, 10 rows 15.7-17.2s). So 1,000 rows takes ~25 minutes and 10,000 rows ~4 hours - a realistic export is effectively unusable. Correctness is fine: a 1000-row export DID write all 1000 rows, it just took ~30 min. Tiers 1-2 never saw this because they only ever export 2 or 10 rows. OWNER DECISION PENDING."
+  }
+ ],
+ "lint": null,
+ "created": [
+  [
+   1391,
+   "NODEREG-comp_excel_export_throughput"
+  ]
+ ]
+}

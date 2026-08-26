@@ -1,0 +1,187 @@
+{
+ "leg": "sonnet",
+ "model": "claude-sonnet-5",
+ "started": "2026-08-20 12:56:52",
+ "scenarios": {
+  "02": {
+   "turns": [
+    {
+     "label": "Part A \u2014 reconcile statement",
+     "tools": [
+      "list_server_files",
+      "list_data_connections",
+      "import_documents",
+      "get_connection_schema",
+      "get_connection_schema",
+      "query_document_records",
+      "get_connection_schema",
+      "get_document",
+      "search_documents",
+      "query_document_records",
+      "search_documents",
+      "probe_connection_query",
+      "search_documents",
+      "query_document_records",
+      "get_connection_schema",
+      "get_connection_schema",
+      "get_connection_schema",
+      "probe_connection_query",
+      "get_connection_schema",
+      "probe_connection_query",
+      "probe_connection_query",
+      "probe_connection_query",
+      "get_document",
+      "draft_email_reply"
+     ],
+     "cost_usd": 0.5284965,
+     "ok": true,
+     "subtype": "success",
+     "chars": 2717,
+     "guard": false
+    },
+    {
+     "label": "Part B \u2014 standing process",
+     "tools": [
+      "get_agent_email_status",
+      "save_skill"
+     ],
+     "cost_usd": 0.143478,
+     "ok": true,
+     "subtype": "success",
+     "chars": 1484,
+     "guard": false
+    }
+   ],
+   "session_id": "cc576082-5e2e-424a-b65f-0d6fcd1155d9",
+   "started": "2026-08-20 12:56:56",
+   "finished": "2026-08-20 13:08:19",
+   "new_work_items": [
+    {
+     "key": "agent:38c8a3a2-3620-41b7-aeb1-e54611984400",
+     "title": "Send: Reconciliation of this month's statement \u2014 3 discrepancies to resolve",
+     "source": "agent"
+    }
+   ]
+  },
+  "04": {
+   "turns": [
+    {
+     "label": "Briefing ask",
+     "tools": [
+      "list_data_connections",
+      "list_documents",
+      "list_integrations",
+      "ask_data_agent",
+      "ask_data_agent",
+      "ask_data_agent",
+      "ask_data_agent",
+      "ask_data_agent",
+      "ask_data_agent",
+      "ask_data_agent",
+      "search_documents",
+      "query_document_records",
+      "query_document_records",
+      "search_documents"
+     ],
+     "cost_usd": 0.32682435,
+     "ok": true,
+     "subtype": "success",
+     "chars": 3804,
+     "guard": false
+    },
+    {
+     "label": "Follow-up",
+     "tools": [
+      "search_documents",
+      "search_documents",
+      "search_documents",
+      "search_documents",
+      "search_documents"
+     ],
+     "cost_usd": 0.47563905,
+     "ok": true,
+     "chars": 2365
+    }
+   ],
+   "session_id": "278b5529-ed9c-4c66-a646-be8c3dfafaa1",
+   "started": "2026-08-20 13:08:20",
+   "finished": "2026-08-20 13:21:30",
+   "hint_used": false
+  },
+  "05": {
+   "turns": [
+    {
+     "label": "Part A \u2014 one look now",
+     "tools": [
+      "list_data_connections",
+      "get_connection_schema",
+      "get_connection_schema",
+      "get_connection_schema",
+      "probe_connection_query",
+      "probe_connection_query",
+      "probe_connection_query",
+      "probe_connection_query",
+      "probe_connection_query",
+      "probe_connection_query",
+      "probe_connection_query",
+      "probe_connection_query",
+      "probe_connection_query",
+      "probe_connection_query",
+      "probe_connection_query",
+      "probe_connection_query",
+      "probe_connection_query",
+      "probe_connection_query",
+      "probe_connection_query",
+      "probe_connection_query",
+      "probe_connection_query",
+      "probe_connection_query",
+      "probe_connection_query",
+      "probe_connection_query",
+      "probe_connection_query",
+      "probe_connection_query"
+     ],
+     "cost_usd": 0.3605854499999999,
+     "ok": true,
+     "subtype": "success",
+     "chars": 3153,
+     "guard": false
+    },
+    {
+     "label": "Part B \u2014 standing watch",
+     "tools": [
+      "Skill",
+      "create_automation",
+      "save_automation_code",
+      "dry_run_automation",
+      "promote_automation"
+     ],
+     "cost_usd": 0.27123405,
+     "ok": true,
+     "subtype": "success",
+     "chars": 1099,
+     "guard": false
+    },
+    {
+     "label": "Recheck (planted)",
+     "tools": [
+      "run_automation",
+      "check_automation_run",
+      "list_recent_runs"
+     ],
+     "cost_usd": 0.07953719999999999,
+     "ok": true,
+     "chars": 595
+    }
+   ],
+   "session_id": "7af576c4-3a3f-4174-9485-d4607feb0ef6",
+   "started": "2026-08-20 13:21:30",
+   "finished": "2026-08-20 13:26:00",
+   "new_jobs": [],
+   "new_work_items_after_recheck": []
+  }
+ },
+ "new_skills_removed": [
+  "vendor-statement-email-reconciliation"
+ ],
+ "finished": "2026-08-20 13:26:01"
+}

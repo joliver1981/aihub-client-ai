@@ -1,0 +1,12 @@
+{
+ "stamp": "20260804_083747",
+ "tier": "AB",
+ "results": [
+  {
+   "id": "b5_agent_by_name",
+   "cls": "reference",
+   "status": "SKIP",
+   "evidence": "SQL Server 10.0.0.6:1433 unreachable - data-grounded oracle unavailable"
+  }
+ ]
+}

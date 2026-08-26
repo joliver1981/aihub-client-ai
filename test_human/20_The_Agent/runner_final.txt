@@ -1,0 +1,75 @@
+2026-08-09 08:23:07,439 - INFO - agent_config loaded: {"service": "agent_service", "host": "0.0.0.0", "port": 5111, "model": "claude-opus-5", "app_root": "C:\\src\\aihub-client-ai-dev", "main_app": "http://127.0.0.1:5001", "allow_all_users": false, "anthropic_key_present": true}
+2026-08-09 08:34:23,501 - INFO - views store ready (v2)
+2026-08-09 08:34:23,510 - INFO - view saved: [user:1] pack20-direct v1 (1 tiles)
+2026-08-09 08:34:53,916 - INFO - view deleted: [user:1] pack20-direct by user 1
+2026-08-09 08:36:58,041 - INFO - view saved: [user:1] pack20-private v1 (1 tiles)
+2026-08-09 08:37:28,563 - INFO - view deleted: [user:1] pack20-private by user 1
+2026-08-09 08:37:28,726 - INFO - view saved: [group:1] pack20-group v1 (1 tiles)
+2026-08-09 08:37:28,757 - INFO - view deleted: [group:1] pack20-group by user 1
+2026-08-09 08:38:00,100 - INFO - view deleted: [tenant] pack20-tenant by user 1
+2026-08-09 08:38:00,588 - INFO - view saved: [user:1] pack20-autoview v1 (1 tiles)
+2026-08-09 08:38:02,446 - INFO - view deleted: [user:1] pack20-autoview by user 1
+2026-08-09 08:38:02,794 - INFO - view saved: [user:1] pack20-cpview v1 (1 tiles)
+2026-08-09 08:38:10,460 - INFO - view deleted: [user:1] pack20-cpview by user 1
+2026-08-09 08:38:10,699 - INFO - view saved: [user:1] pack20-nojson v1 (1 tiles)
+2026-08-09 08:38:11,295 - INFO - view deleted: [user:1] pack20-nojson by user 1
+2026-08-09 08:38:11,833 - INFO - views store migrated v1 -> v2: 1 row(s) -> tenant scope
+2026-08-09 08:38:11,851 - INFO - views store ready (v2)
+2026-08-09 08:38:11,866 - INFO - view saved: [user:1] pack20-two v1 (2 tiles)
+2026-08-09 08:43:12,982 - INFO - view deleted: [user:1] pack20-two by user 1
+2026-08-09 08:43:12,991 - INFO - agent email store ready
+2026-08-09 08:43:13,429 - INFO - agent email processed: event 990001 -> pack20a6-agent.1@mail.everiai.ai (sender outsider@example.com, subject 'pack20 inbound probe')
+2026-08-09 08:43:24,533 - INFO - chat history ledger ready
+2026-08-09 08:43:24,723 - INFO - agent email address saved: user 77 -> pack20-chosen-agent.1@mail.everiai.ai (active=True)
+[PASS] A0-1 health endpoint up, correct service/model
+[PASS] A0-2 chat without token is rejected (401)
+[PASS] A0-3 signed platform JWT accepted
+[PASS] A0-4 lists connections via the tool (grounded, not invented)
+[PASS] A0-5 inspects schema via the tool in a continued session
+[PASS] A0-6 refuses to fabricate data for a nonexistent connection
+[PASS] A0-7 answers run-history from execution rows
+[FAIL] A1-1 builds + dry-runs an ERPDB automation through conversation
+[FAIL] A1-2 promotes; pin verified via direct manage read-back
+[FAIL] A1-3 schedules; real active scheduler job row exists
+[PASS] A1-4 reports a checkpoint pause honestly (run truly 'waiting')
+[PASS] A1-5 decides the checkpoint and reports the real aftermath
+[PASS] A1-6 confirmed delete removes both; schedule deactivated
+[PASS] A2-1 agent raises a work item; respond closes it with full lifecycle
+[PASS] A2-2 paused checkpoint appears in My Work; approving there resumes the run to success
+[PASS] A2-3 claim hides a shared item from others; release restores it
+[PASS] A2-4 email-approvals seam reachable via X-API-Key (list contract)
+[PASS] A2-5 side-thread answers on the item (read-only tools, stored)
+[PASS] A3-1 agent saves a private skill; SKILL.md exists on disk
+[PASS] A3-2 a fresh session loads the skill and answers from it
+[PASS] A3-3 approving the promotion item publishes the tenant skill
+[PASS] A3-4 headless /api/run works and lands an FYI in the creator's My Work
+[PASS] A3-5 JSS fires an agent_session job; headless result lands in My Work
+[PASS] A4-1 mutation-claim guard: catches fabricated claims, spares honest failures and plans
+[FAIL] A5-1 saved view refreshes deterministically via the probe seam
+[FAIL] A5-2 agent verifies SQL then saves a View (ground-truthed in store)
+[PASS] A5-3 playbooks endpoint returns the real inventory
+[FAIL] V2-1 private view: owner sees+runs it; another user cannot
+[PASS] V2-2 group views: non-member rejected at the store chokepoint; member saves directly (no approval)
+[FAIL] V2-3 tenant promotion: not published until a role>=3 My Work approval; role<3 rejected and item stays open
+[PASS] V2-4 automation tile: pinned run renders JSON rows; real run row exists
+[PASS] V2-5 checkpoint tile: honest error, run settled, NO pending approval left behind
+[PASS] V2-6 tile contract violation: honest per-tile error naming the contract
+[PASS] V2-7 v1->v2 migration: legacy rows land in tenant scope, version preserved
+[FAIL] V21-1 tile_index runs a single tile; cache merges per-slot
+[FAIL] V21-2 refresh-cache: service-key headless refresh fills every slot; wrong principal cannot reach the view
+[FAIL] V21-3 JSS view_refresh job fires; the shared cache advances with zero AI
+[PASS] A6-1 address provisioning: messy prefix normalizes; suffix compose + readback; unsanitizable 400; duplicate 409; default = username
+[PASS] A6-2 poller: processes once (FYI in owner's My Work), dedupes repeats, skips self-mail without a brain call
+[PASS] A6-3 reply approval: non-owner 403 (item stays open); owner approval sends via the real cloud transport and closes
+[PASS] A6-4 reserved-kind guard: generic items cannot impersonate an email reply
+[PASS] A6-5 email-capability ask: status tool consulted; answer leads with the personal-address capability, not 'no'
+[PASS] A6-6 email options: roundtrip persists; auto-send sends + audit FYI; failed auto-send falls back to approval; outbound-off refuses
+[PASS] H-1 chat history: ledger lists sessions; replay parses the SDK transcript (user+agent turns); other users 404
+[PASS] A6-7 setup_agent_email: proposal creates nothing; consent + custom prefix (normalized) creates ACTIVE
+[PASS] P-1 designer deep-link handler + Playbooks emits it + filter chips/search present
+[PASS] I-1 integration access rule (dev-all, member-only, fail-closed) + assignment roundtrip persists in instance_config and restores
+[PASS] I-2 tool chokepoint: role-1 no-groups user sees none (honest guidance); role-2 sees everything
+[PASS] I-3 live SharePoint health_check + model turn discovers integrations via the tool
+[PASS] A5-4 secret store seam: X-API-Key write lands in the store, response never echoes the value
+
+Report written: REPORT_LATEST.md (40/50 PASS)

@@ -1,0 +1,82 @@
+{
+  "anchor": "2026-08-25",
+  "seeded_at": "2026-08-25T11:27:04",
+  "scale": 1,
+  "seed": 4242,
+  "day": 2,
+  "row_counts": {
+    "T052": 3,
+    "LFA1": 12,
+    "EKKO": 150,
+    "EKPO": 457,
+    "EKBE": 393,
+    "CG_VendorInvoices": 120,
+    "CG_VendorInvoiceLines": 359,
+    "GeneralLedger": 360,
+    "CG_APPaymentRuns": 0
+  },
+  "book": {
+    "anchor": "2026-08-25",
+    "scale": 1,
+    "seed": 4242,
+    "day": 2,
+    "documents_arrived": 240,
+    "documents_by_arrival_day": {
+      "0": 190,
+      "1": 30,
+      "2": 20
+    },
+    "parked_now": 11,
+    "parked_auto_cleared": 9,
+    "parked_by_reason": {
+      "awaiting_receipt_not_due": 6,
+      "awaiting_receipt_in_grace": 5,
+      "receipt_lands_day1": 0,
+      "receipt_lands_day2": 0
+    },
+    "grace_days": 5,
+    "vendors": 12,
+    "purchase_orders": 150,
+    "po_lines": 457,
+    "goods_receipts": 393,
+    "history_invoices": 120,
+    "batch_documents": 240,
+    "exceptions": 44,
+    "parked": 20,
+    "decoys": 14,
+    "clean": 162,
+    "by_channel": {
+      "sftp": 191,
+      "folder": 39,
+      "email": 10
+    },
+    "by_class": {
+      "freight_not_on_po": 4,
+      "price_within_tolerance": 8,
+      "price_over_tolerance": 6,
+      "receipt_lands_day1": 5,
+      "awaiting_receipt_not_due": 6,
+      "receipt_lands_day2": 4,
+      "qty_over_receipt": 3,
+      "unearned_discount": 3,
+      "duplicate": 5,
+      "po_not_found": 3,
+      "tax_mismatch": 3,
+      "qty_short_receipt": 5,
+      "awaiting_receipt_in_grace": 5,
+      "uom_mismatch": 3,
+      "legitimate_rebill": 2,
+      "bank_detail_change": 1,
+      "vendor_not_in_master": 2,
+      "missing_receipt": 3,
+      "freight_on_po": 2,
+      "qty_over_po": 3,
+      "earned_discount": 2
+    },
+    "cross_channel_duplicates": 2,
+    "injections": 2,
+    "batch_total_value": "2837748.56",
+    "variance_exposure": "9719.27",
+    "blocked_invoice_value": "160540.33"
+  }
+}
