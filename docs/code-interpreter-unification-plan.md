@@ -441,6 +441,16 @@ automations lifecycle. **Live 3/3 on :5111** (SSE tool events + ledger): exact
 `aihub.query` == direct-DB oracle. The "free ride" held: ~150 lines of surface
 adapter, zero model-specific work.
 
+**Phase 3 T1 (same day, commit `f642a18`) — DONE.** `code_exec/jobguard.py`:
+every run executes inside a per-run Windows Job Object (suspended launch →
+assign → resume, so nothing escapes the job): timeout kills the whole tree,
+kill-on-close reaps stragglers on the normal path, job-wide memory cap
+(`CODE_INTERPRETER_MEMORY_MB`, default 4096). Fail-open; contract unchanged —
+all three surfaces inherited it with zero changes. Units 13/13 (incl.
+grandchild-reap + memory-cap proofs); live regression pack 22 9/9 + The Agent
+3/3 through the guard. **T2 deliberately deferred** (opt-in-strict per the
+default-open directive; .iss mid-flight with unrelated changes).
+
 **Follow-ups surfaced:** (a) `AgentAPIAdapter.chat` does not forward
 `conversation_id`, so conversation-scoped staging is unavailable in UI+adapter
 mode (agent-files/knowledge staging covers most cases); (b) `delete_agent`
@@ -454,7 +464,13 @@ be spot-checked post-install now that provisioning self-heals.
 2. ~~Network egress~~ **RESOLVED 2026-08-26** by the package directive (§5.1): egress
    stays ON by default (runtime installs need PyPI); T2 egress block = opt-in strict
    mode only.
-3. **PandasAI:** retire outright after the gate, or keep as fallback one release?
+3. ~~PandasAI: retire outright or keep as fallback?~~ **REFRAMED 2026-08-26**
+   (James: don't isolate one tool): retirement is a CLASS decision governed by
+   the observation doctrine — all overlapping computation lanes are demoted
+   (done), the invocation ledger measures which lanes still win turns, and
+   Phase 4 removes what the data shows is dead weight or observed-harmful
+   (first observation on record: the legacy ingest-side lane produced a wrong
+   total on the pack-22 plant fixture). No per-tool referendum.
 4. Any client with a **compliance posture** that would ever require the managed-cloud
    sandbox (Foundry/ACA)? If no, Phase 4's cloud branch drops off the roadmap entirely.
 5. CC's per-user gating (`_code_interpreter_allowed`) — mirror the same tier/user policy
