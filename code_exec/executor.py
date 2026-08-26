@@ -82,20 +82,20 @@ def run_script(code: str, workdir: str, python_exe: str, timeout: int,
                 "returncode": -1, "timed_out": False}
 
     try:
-        result = subprocess.run(
-            [python_exe, str(script_path)],
-            cwd=workdir,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-            env=env,
-        )
+        # T1 guard (jobguard): the child runs inside a Windows Job Object —
+        # timeout/close kills the WHOLE tree (a hung pip from install(), a
+        # stuck driver process) and a job-wide memory cap contains runaway
+        # allocations. Fail-open: guard problems log and run unguarded.
+        from code_exec.jobguard import run_guarded
+        returncode, stdout, stderr, timed_out = run_guarded(
+            [python_exe, str(script_path)], workdir, env, timeout)
+        if timed_out:
+            return {"stdout": "", "stderr": f"Execution timed out after {timeout}s.",
+                    "returncode": -1, "timed_out": True}
         return {
-            "stdout": truncate(result.stdout or "", max_output_chars),
-            "stderr": truncate(result.stderr or "", max_output_chars),
-            "returncode": result.returncode,
+            "stdout": truncate(stdout, max_output_chars),
+            "stderr": truncate(stderr, max_output_chars),
+            "returncode": returncode,
             "timed_out": False,
         }
     except subprocess.TimeoutExpired:

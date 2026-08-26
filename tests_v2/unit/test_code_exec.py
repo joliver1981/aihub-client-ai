@@ -207,3 +207,62 @@ def test_sdk_help_lists_verbs_and_token_scope(monkeypatch):
     assert "aihub.checkpoint(" in out
     assert "ERPDB" in out
     assert "(none)" in out  # no secrets in scope
+
+
+# ─── T1 hardening: job-object guard ──────────────────────────────────────────
+
+def test_timeout_kills_the_whole_process_tree(tmp_path, monkeypatch):
+    """A grandchild spawned by the user code must NOT survive the timeout —
+    plain subprocess kill leaves it; the job object reaps it."""
+    _fresh_dotenv_cache()
+    monkeypatch.setenv("APP_ROOT", str(tmp_path))
+    workdir = tmp_path / "tree"
+    workdir.mkdir()
+    pid_file = workdir / "grandchild_pid.txt"
+
+    code = textwrap.dedent(f"""
+        import subprocess, sys, time
+        p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])
+        open(r'{pid_file}', 'w').write(str(p.pid))
+        time.sleep(120)
+    """)
+    env = envbuild.build_child_env(str(workdir))
+    res = executor.run_script(code, str(workdir), sys.executable,
+                              timeout=4, env=env)
+    assert res["timed_out"] is True
+    assert pid_file.is_file(), "child never started"
+    gpid = int(pid_file.read_text().strip())
+
+    import time as _t
+    from code_exec.jobguard import pid_alive
+    for _ in range(20):                     # give the OS a moment to reap
+        if not pid_alive(gpid):
+            break
+        _t.sleep(0.25)
+    assert not pid_alive(gpid), f"grandchild {gpid} survived the timeout"
+
+
+def test_memory_cap_contains_runaway_allocation(tmp_path, monkeypatch):
+    _fresh_dotenv_cache()
+    monkeypatch.setenv("APP_ROOT", str(tmp_path))
+    monkeypatch.setenv("CODE_INTERPRETER_MEMORY_MB", "128")
+    workdir = tmp_path / "mem"
+    workdir.mkdir()
+    code = "b = bytearray(400 * 1024 * 1024)\nprint('ALLOCATED', len(b))\n"
+    env = envbuild.build_child_env(str(workdir))
+    res = executor.run_script(code, str(workdir), sys.executable,
+                              timeout=60, env=env)
+    assert res["returncode"] != 0, res
+    assert "ALLOCATED" not in res["stdout"]
+
+
+def test_guard_is_transparent_on_the_happy_path(tmp_path, monkeypatch):
+    _fresh_dotenv_cache()
+    monkeypatch.setenv("APP_ROOT", str(tmp_path))
+    workdir = tmp_path / "happy"
+    workdir.mkdir()
+    env = envbuild.build_child_env(str(workdir))
+    res = executor.run_script("print('guarded fine')", str(workdir),
+                              sys.executable, timeout=30, env=env)
+    assert res["returncode"] == 0
+    assert "guarded fine" in res["stdout"]
