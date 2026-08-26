@@ -24,6 +24,7 @@ from agent_config import (
 )
 from platform_tools import AIHUB_TOOLS, CURRENT_USER
 from authoring_tools import AUTHORING_TOOLS
+from code_tools import CODE_TOOLS
 from work_tools import WORK_TOOLS
 from views_tools import VIEWS_TOOLS
 from integration_tools import INTEGRATION_TOOLS
@@ -122,10 +123,17 @@ _PORTAL_TOOLS_ON = (os.getenv("AGENT_PORTAL_TOOLS", "true").lower() == "true"
 # view. The inbound loop itself stays separately gated by AGENT_EMAIL_ENABLED.
 _EMAIL_TOOLS_ON = email_tools_enabled()
 
+# Code interpreter (run_python): same additive/reversible doctrine —
+# AGENT_RUN_PYTHON_TOOL=false ships without the immediate-execution lane
+# (the automations lifecycle is unaffected). Phase 2 of
+# docs/code-interpreter-unification-plan.md.
+_CODE_TOOLS_ON = os.getenv("AGENT_RUN_PYTHON_TOOL", "true").lower() == "true"
+
 aihub_server = create_sdk_mcp_server(
     name="aihub", version="0.6.0",
     tools=AIHUB_TOOLS + AUTHORING_TOOLS + WORK_TOOLS + VIEWS_TOOLS
           + INTEGRATION_TOOLS + FILE_TOOLS
+          + (CODE_TOOLS if _CODE_TOOLS_ON else [])
           + (DOCUMENT_TOOLS if _DOCUMENT_TOOLS_ON else [])
           + (PORTAL_TOOLS if _PORTAL_TOOLS_ON else [])
           + (EMAIL_TOOLS if _EMAIL_TOOLS_ON else []))
@@ -220,6 +228,25 @@ Declare every connection/secret the code uses in the manifest (save_automation_c
 manifest_json). Probe the schema FIRST — never trust remembered table or column
 names — and use ? parameter placeholders, never string-formatted SQL. Never
 hard-code credentials; the server rejects them.
+
+CODE INTERPRETER (run_python) — IMMEDIATE ANALYSIS
+run_python executes Python NOW (pandas/numpy/matplotlib/openpyxl preinstalled)
+— use it for conversational computation; use the automations lifecycle for
+saved, scheduled, repeatable work. Rules:
+- For ANY row count, total, average, group-by, join, or other computation over
+  a file the user uploaded in chat, ALWAYS run_python against the actual file —
+  NEVER count or estimate from a preview. The user's uploads are staged into
+  the working directory under their ORIGINAL filenames
+  (pd.read_csv("sales.csv")); server-side files (e.g. a portal download) can be
+  staged via the tool's `files` parameter.
+- Any NEW file the code writes to the working directory is delivered as a
+  download link — include the returned links VERBATIM in your reply. Save
+  charts as .png.
+- Missing a package? Call install("package_name") inside the code (counts
+  toward the execution timeout).
+- The same `import aihub_runtime as aihub` SDK works here (aihub.query,
+  aihub.help(), ...) — no manifest needed for run_python; credentials still
+  never appear in code or output.
 
 SKILLS — YOUR PROCEDURAL MEMORY
 When you solve something non-obvious (a process, a data model's quirks, a
