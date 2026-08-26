@@ -1280,6 +1280,29 @@ def run_python_code(code: str) -> str:
         except Exception as e:
             logger.warning(f"run_python_code: file staging unavailable: {e}")
 
+        # Knowledge store is the third source (chat uploads win name clashes):
+        # agent-level knowledge is uploaded by ONE user (often an admin) but
+        # must be computable by EVERY user of the agent — the agent_files tee
+        # above only covers the uploader. original_path is the ingested file
+        # on disk (same source the name resolver at _resolve_uploaded_file_path
+        # uses).
+        try:
+            if agent_id_ctx is not None:
+                from agent_knowledge_integration import get_agent_knowledge_documents
+                for doc in (get_agent_knowledge_documents(agent_id_ctx,
+                                                          user_id=user_id_ctx) or []):
+                    src = doc.get('original_path')
+                    if not (src and os.path.isfile(src)):
+                        # Non-Excel ingest deletes its temp file, so
+                        # original_path is often dead — the tee'd raw bytes
+                        # (any uploader's dir) are the durable source.
+                        src = chat_file_manager.find_agent_file_any_user(
+                            agent_id_ctx, doc.get('document_id'))
+                    if src and os.path.isfile(src) and os.path.getsize(src) <= 200 * 1024 * 1024:
+                        _stage(src, doc.get('filename'))
+        except Exception as e:
+            logger.warning(f"run_python_code: knowledge staging unavailable: {e}")
+
         # -- aihub_runtime SDK wiring (user parity: the token can resolve the
         # same platform Connections the session's normal tools can reach).
         # Deliberate grant, added AFTER the env scrub. Kill switch:
@@ -1338,6 +1361,19 @@ def run_python_code(code: str) -> str:
                 parsed = _json.loads(block_json) if block_json.lstrip().startswith('[') else None
                 if parsed:
                     blocks.extend(parsed)
+                elif agent_id_ctx is not None:
+                    # No active conversation (headless API chat) — deliver via
+                    # the durable agent-files store instead of dropping the file.
+                    meta = chat_file_manager.save_agent_input(
+                        agent_id_ctx,
+                        user_id_ctx if user_id_ctx is not None else 0,
+                        fbytes, produced.name)
+                    blocks.append({
+                        "type": "artifact", "name": meta["filename"],
+                        "artifactType": ext, "size": meta["size_display"],
+                        "artifact_id": meta["file_id"],
+                        "download_url": meta["download_url"],
+                    })
             except Exception as e:
                 logger.warning(f"run_python_code: could not save artifact {produced.name}: {e}")
 

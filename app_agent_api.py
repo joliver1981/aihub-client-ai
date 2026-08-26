@@ -556,7 +556,13 @@ def chat():
 
         artifacts = []
         try:
-            response = agent.run(prompt, use_smart_render=use_smart_render, user_id=user_id)
+            # Bind the tool context: GeneralAgent executes IN THIS PROCESS, so
+            # module-level tools (run_python_code staging, manipulate_pdf,
+            # artifact delivery) resolve agent/user/conversation from here —
+            # the caller's contextvars cannot cross the HTTP hop.
+            from active_chat_context import bind_active_chat
+            with bind_active_chat(data.get('conversation_id'), user_id, agent_id):
+                response = agent.run(prompt, use_smart_render=use_smart_render, user_id=user_id)
         finally:
             if _cap_token is not None:
                 try:

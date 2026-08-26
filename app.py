@@ -2696,6 +2696,19 @@ def api_agent_chat(agent_id):
             # agent-UI calls (no session_id). docs/agent-artifact-sharing-plan.md P3
             cc_session_id = data.get('session_id')
             caller_user_id = data.get('user_id')
+            if caller_user_id is None:
+                # Headless callers authenticate with an X-AIHub-User assertion
+                # rather than a payload user_id — that identity must reach the
+                # tool context (file staging, artifact delivery) too.
+                try:
+                    _assertion = request.headers.get('X-AIHub-User', '')
+                    if _assertion:
+                        import shared_auth as _sa
+                        _claims, _err = _sa.verify_token(_assertion, _sa.AUD_INTERNAL)
+                        if _claims:
+                            caller_user_id = _sa.claim_user_id(_claims)
+                except Exception as _e:
+                    logger.debug(f'[api_agent_chat] assertion user resolve failed: {_e}')
 
             # The agent may run HERE (USE_AGENT_API=False -> a real GeneralAgent)
             # or in the agent-API service (the default -> an AgentAPIAdapter, an
@@ -2711,9 +2724,15 @@ def api_agent_chat(agent_id):
                 _before_ids = _dc.snapshot_ids(cc_session_id, caller_user_id)
 
             try:
-                response_text = agent_instance.run(
-                    prompt, use_smart_render=False,
-                    cc_session_id=cc_session_id, cc_user_id=caller_user_id)
+                # Bind the tool context for the in-process case (contextvars
+                # cannot cross the agent-API HTTP hop — the service binds its
+                # own from the forwarded user_id; passing user_id here covers
+                # both). No conversation exists on this headless path.
+                from active_chat_context import bind_active_chat
+                with bind_active_chat(None, caller_user_id, int(agent_id)):
+                    response_text = agent_instance.run(
+                        prompt, use_smart_render=False, user_id=caller_user_id,
+                        cc_session_id=cc_session_id, cc_user_id=caller_user_id)
             finally:
                 local_blocks = []
                 if _cap_token is not None:

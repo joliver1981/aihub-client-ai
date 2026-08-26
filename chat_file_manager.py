@@ -288,6 +288,28 @@ def get_agent_input_path(agent_id, user_id, file_id: str) -> Optional[Path]:
     return None
 
 
+def find_agent_file_any_user(agent_id, file_id: str) -> Optional[Path]:
+    """Locate a tee'd agent file regardless of which user uploaded it.
+
+    Agent-level knowledge is agent-scoped (every user of the agent may read
+    it), but the tee stores bytes under the UPLOADER's user dir — so compute
+    lanes resolving a knowledge document_id must be able to fall back to any
+    user's copy."""
+    if agent_id is None or not file_id:
+        return None
+    file_id = str(file_id).replace("_", "-")
+    base = _AGENT_BASE_DIR / str(agent_id)
+    if not base.exists():
+        return None
+    for user_dir in base.iterdir():
+        if not user_dir.is_dir():
+            continue
+        for path in user_dir.iterdir():
+            if path.is_file() and path.name.startswith(f"{file_id}_"):
+                return path
+    return None
+
+
 def list_agent_files(agent_id, user_id) -> List[Dict]:
     """List durable files for an (agent_id, user_id)."""
     out: List[Dict] = []
