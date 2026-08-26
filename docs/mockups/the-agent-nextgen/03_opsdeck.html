@@ -1,0 +1,1349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Agent · Ops Deck concept</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════════
+   #03 OPS DECK — financial-terminal surface for The Agent
+   near-black · phosphor green · amber alerts · everything monospace
+   motion identity: near-zero. state snaps. only the cursor blinks.
+   ═══════════════════════════════════════════════════════════════════ */
+:root{
+  --bg:#070907;
+  --bg-bar:#090c09;
+  --bg-raise:#0a0e0b;
+  --bg-hover:#0d1510;
+  --bg-sel:#0e2015;
+  --grn:#33ff99;
+  --grn-soft:#5cffaf;
+  --ink:#b7d9c4;
+  --ink-dim:#5e8a73;
+  --ink-mute:#3d5c4b;
+  --rule:#1e4034;
+  --rule-soft:#132a1f;
+  --amb:#ffb454;
+  --amb-dim:#8a6a38;
+  --amb-bg:#1a1309;
+  --red:#ff6459;
+  --red-dim:#5c2622;
+  --mono:"Cascadia Mono","Cascadia Code",Consolas,"SF Mono",Menlo,"DejaVu Sans Mono",monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--mono);
+  font-size:12.5px;
+  line-height:1.45;
+  overflow:hidden;
+  font-variant-ligatures:none;
+}
+::selection{background:var(--grn);color:#04140c}
+a{color:var(--ink-dim);text-decoration:none}
+a:hover{color:var(--grn)}
+button{font-family:inherit}
+input,textarea{font-family:inherit;caret-color:var(--grn)}
+:focus-visible{outline:1px solid var(--grn);outline-offset:1px}
+
+/* scrollbars — thin phosphor */
+*::-webkit-scrollbar{width:8px;height:8px}
+*::-webkit-scrollbar-track{background:transparent}
+*::-webkit-scrollbar-thumb{background:var(--rule);border:2px solid var(--bg);border-radius:4px}
+*::-webkit-scrollbar-thumb:hover{background:#2e5a46}
+
+/* ── CRT overlay: static scanlines + guarded drifting sheen ─────── */
+.crt{position:fixed;inset:0;pointer-events:none;z-index:90}
+.crt::before{
+  content:"";position:absolute;inset:0;
+  background:
+    radial-gradient(ellipse 120% 90% at 50% -30%,rgba(51,255,153,.045),transparent 55%),
+    repeating-linear-gradient(0deg,transparent 0 2px,rgba(0,0,0,.14) 2px 3px);
+}
+.crt::after{
+  content:"";position:absolute;left:0;right:0;top:-25%;height:22vh;
+  background:linear-gradient(180deg,transparent,rgba(51,255,153,.03),transparent);
+  animation:sheen 14s linear infinite;
+}
+@keyframes sheen{from{transform:translateY(0)}to{transform:translateY(680%)}}
+
+/* the only sanctioned motion: the block cursor */
+.blink{animation:blink 1.06s steps(1) infinite;color:var(--grn)}
+@keyframes blink{50%{opacity:0}}
+
+@media (prefers-reduced-motion: reduce){
+  .crt::after{animation:none;opacity:0}
+  .blink{animation:none}
+}
+
+/* ── shared atoms ───────────────────────────────────────────────── */
+.lbl{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-mute)}
+.key{
+  display:inline-block;min-width:14px;text-align:center;
+  border:1px solid var(--rule);border-radius:2px;background:#0b120d;
+  padding:0 3px;font-size:9.5px;line-height:15px;color:var(--ink-dim);
+  vertical-align:1px;
+}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.glow{text-shadow:0 0 9px rgba(51,255,153,.38)}
+.up{color:var(--amb)}
+.dn{color:var(--grn)}
+.btn{
+  background:none;border:1px solid var(--rule);color:var(--ink);
+  padding:4px 11px;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+  cursor:pointer;border-radius:2px;white-space:nowrap;
+}
+.btn:hover{border-color:var(--grn);color:var(--grn);background:var(--bg-hover)}
+.btn.primary{background:var(--grn);border-color:var(--grn);color:#04140c;font-weight:600}
+.btn.primary:hover{background:var(--grn-soft)}
+.btn.warn{border-color:var(--amb-dim);color:var(--amb)}
+.btn.warn:hover{border-color:var(--amb);background:var(--amb-bg);color:var(--amb)}
+.btn.danger{border-color:var(--red-dim);color:var(--red)}
+.btn.danger:hover{border-color:var(--red);background:#170b0a;color:var(--red)}
+.btn.acked{border-color:var(--grn);color:var(--grn);background:var(--bg-sel)}
+.chip{
+  display:inline-block;border:1px solid var(--rule);border-radius:2px;
+  padding:0 6px;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;
+  line-height:16px;color:var(--ink-dim);
+}
+.chip.on{border-color:var(--grn);color:var(--grn)}
+.chip.amber{border-color:var(--amb-dim);color:var(--amb);background:var(--amb-bg)}
+.chip.solid{background:var(--grn);border-color:var(--grn);color:#04140c;font-weight:600}
+
+/* ── frame ──────────────────────────────────────────────────────── */
+.app{height:100%;display:flex;flex-direction:column}
+
+/* command bar */
+.cmdbar{
+  height:40px;flex:0 0 40px;display:flex;align-items:center;gap:16px;
+  background:var(--bg-bar);border-bottom:1px solid var(--rule);
+  padding:0 14px;z-index:10;
+}
+.wordmark{
+  font-size:12px;letter-spacing:.14em;color:var(--grn);white-space:nowrap;
+  text-shadow:0 0 9px rgba(51,255,153,.35);
+}
+.wordmark i{font-style:normal;color:var(--ink-mute)}
+.cmd{
+  flex:1;max-width:560px;display:flex;align-items:center;gap:8px;
+  border:1px solid var(--rule);border-radius:2px;background:var(--bg);
+  padding:3px 8px;margin:0 auto;
+}
+.cmd:focus-within{border-color:var(--grn)}
+.cmd-glyph{color:var(--grn);font-weight:600}
+.cmd input{
+  flex:1;background:none;border:none;outline:none;color:var(--ink);
+  font-size:11.5px;letter-spacing:.02em;
+}
+.cmd input::placeholder{color:var(--ink-mute)}
+.cmdbar-right{display:flex;align-items:center;gap:14px;white-space:nowrap}
+.live-dot{color:var(--grn);font-size:10px;letter-spacing:.14em}
+.live-dot b{font-weight:400;color:var(--ink-dim)}
+.who{font-size:10.5px;letter-spacing:.14em;color:var(--ink)}
+.who i{font-style:normal;color:var(--ink-mute)}
+
+/* middle */
+.mid{flex:1;display:flex;min-height:0}
+
+/* nav rail */
+.rail{
+  flex:0 0 212px;border-right:1px solid var(--rule);background:var(--bg-bar);
+  display:flex;flex-direction:column;padding:14px 0 10px;overflow-y:auto;
+}
+.rail-lbl{padding:0 14px 6px}
+.navitem{
+  display:flex;align-items:center;gap:9px;width:100%;
+  background:none;border:none;border-left:2px solid transparent;
+  color:var(--ink-dim);cursor:pointer;text-align:left;
+  padding:6px 12px;font-size:11.5px;letter-spacing:.08em;
+}
+.navitem:hover{color:var(--ink);background:var(--bg-hover)}
+.navitem.active{
+  color:var(--grn);background:var(--bg-sel);border-left-color:var(--grn);
+  text-shadow:0 0 8px rgba(51,255,153,.3);
+}
+.navitem.active .key{border-color:var(--grn);color:var(--grn)}
+.navmeta{margin-left:auto;font-size:10px;color:var(--ink-mute)}
+.navmeta.count{
+  min-width:16px;text-align:center;border:1px solid var(--rule);
+  border-radius:2px;line-height:15px;padding:0 4px;
+}
+.navmeta.count.amber{border-color:var(--amb-dim);color:var(--amb);background:var(--amb-bg)}
+.rail-div{border-top:1px solid var(--rule-soft);margin:12px 14px 10px}
+.rail .platform{padding:0 14px}
+.platform a{
+  display:block;font-size:10.5px;line-height:1.9;letter-spacing:.06em;
+  color:var(--ink-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.platform a:hover{color:var(--grn)}
+.platform a i{font-style:normal;color:#2b4437;margin-right:4px}
+.rail-foot{margin-top:auto;padding:12px 14px 2px;font-size:9.5px;color:#2b4437;letter-spacing:.14em}
+
+/* stage + panels */
+.stage{flex:1;min-width:0;position:relative;background:var(--bg)}
+.panel{display:none;position:absolute;inset:0;flex-direction:column;min-height:0}
+.panel.active{display:flex}
+.phead{
+  flex:0 0 36px;display:flex;align-items:center;gap:14px;
+  border-bottom:1px solid var(--rule);padding:0 18px;background:var(--bg-raise);
+}
+.phead h2{
+  font-size:11px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--ink);white-space:nowrap;
+}
+.phead h2 i{font-style:normal;color:var(--grn);margin-right:6px}
+.phead .meta{font-size:10px;color:var(--ink-mute);letter-spacing:.1em;white-space:nowrap}
+.phead .spacer{flex:1}
+.hintrow{display:flex;gap:10px;align-items:center;font-size:10px;color:var(--ink-mute);letter-spacing:.06em;white-space:nowrap}
+
+/* ════════ 1 · ASSISTANT ════════ */
+.log{flex:1;overflow-y:auto;padding:16px 22px 10px;min-height:0}
+.motd{
+  border:1px solid var(--rule-soft);border-left:2px solid var(--rule);
+  background:var(--bg-raise);padding:10px 14px;margin-bottom:16px;color:var(--ink-dim);
+}
+.motd .hello{color:var(--ink);font-weight:600}
+.motd .hello b{color:var(--grn);font-weight:600}
+.starter{
+  display:inline-block;border:1px solid var(--rule);border-radius:2px;
+  background:none;color:var(--ink-dim);cursor:pointer;
+  font-size:11px;padding:2px 9px;margin:6px 6px 0 0;
+}
+.starter:hover{border-color:var(--grn);color:var(--grn)}
+.line{display:flex;gap:10px;margin:3px 0}
+.ts{flex:0 0 38px;color:#2b4437;font-size:10px;padding-top:2px;text-align:right}
+.pglyph{flex:0 0 52px;font-weight:600;white-space:nowrap}
+.pglyph.you{color:var(--ink)}
+.pglyph.agent{color:var(--grn)}
+.ltext{flex:1;min-width:0;color:var(--ink)}
+.line.you .ltext{color:#d7efe1}
+.toolrow{
+  display:flex;align-items:baseline;gap:8px;
+  margin:2px 0 2px 100px;font-size:11px;color:var(--ink-dim);
+}
+.toolrow .tglyph{color:var(--ink-mute)}
+.toolrow .tname{color:var(--ink)}
+.toolrow .targs{color:var(--ink-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:420px}
+.toolrow .leader{flex:1;border-bottom:1px dotted var(--rule);min-width:24px;transform:translateY(-3px)}
+.toolrow .tstat{color:var(--grn);letter-spacing:.08em}
+.toolrow .tstat.run{color:var(--amb)}
+.toolrow .tdur{color:var(--ink-mute)}
+.chat-table{border-collapse:collapse;margin:8px 0 6px;font-size:11.5px;max-width:560px;width:100%}
+.chat-table th{
+  font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-mute);
+  font-weight:400;text-align:left;padding:3px 10px;border-bottom:1px solid var(--rule);
+}
+.chat-table td{padding:3px 10px;border-bottom:1px solid var(--rule-soft);white-space:nowrap}
+.chat-table th.num,.chat-table td.num{text-align:right}
+.chat-table tr:hover td{background:var(--bg-hover)}
+.hl{color:var(--grn);font-weight:600}
+.hl-amb{color:var(--amb)}
+.composer{
+  flex:0 0 auto;display:flex;align-items:center;gap:10px;
+  border-top:1px solid var(--rule);background:var(--bg-raise);padding:10px 18px;
+}
+.composer .prompt{color:var(--grn);font-weight:600}
+.composer textarea{
+  flex:1;resize:none;background:var(--bg);border:1px solid var(--rule);border-radius:2px;
+  color:var(--ink);font-size:12px;padding:7px 10px;height:34px;line-height:18px;
+}
+.composer textarea:focus{outline:none;border-color:var(--grn)}
+.composer textarea::placeholder{color:var(--ink-mute)}
+
+/* ════════ 2 · MY WORK ════════ */
+.split{flex:1;display:flex;min-height:0}
+.queue{flex:0 0 44%;min-width:380px;border-right:1px solid var(--rule);display:flex;flex-direction:column;min-height:0}
+.filters{display:flex;gap:6px;padding:10px 14px;border-bottom:1px solid var(--rule-soft);flex-wrap:wrap}
+.fchip{
+  background:none;border:1px solid var(--rule);border-radius:2px;cursor:pointer;
+  color:var(--ink-dim);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+  padding:2px 8px;
+}
+.fchip b{font-weight:400;color:var(--ink-mute);margin-left:4px}
+.fchip:hover{color:var(--ink);border-color:var(--ink-dim)}
+.fchip.active{border-color:var(--grn);color:var(--grn)}
+.fchip.active b{color:var(--grn)}
+.qlist{flex:1;overflow-y:auto;min-height:0}
+.qitem{
+  display:block;width:100%;text-align:left;background:none;border:none;cursor:pointer;
+  border-bottom:1px solid var(--rule-soft);border-left:2px solid transparent;
+  padding:9px 14px 8px;color:var(--ink);
+}
+.qitem:hover{background:var(--bg-hover)}
+.qitem.sel{background:var(--bg-sel);border-left-color:var(--grn)}
+.qtitle{font-size:12px;line-height:1.4;display:block}
+.qmeta{display:flex;align-items:center;gap:8px;margin-top:4px;font-size:10px;color:var(--ink-mute);letter-spacing:.04em}
+.qmeta .qtime{margin-left:auto}
+.vtag{
+  display:inline-block;font-size:9px;letter-spacing:.14em;text-transform:uppercase;
+  border:1px solid var(--rule);border-radius:2px;padding:0 5px;line-height:15px;
+  color:var(--ink-dim);margin-right:8px;vertical-align:1px;
+}
+.vtag.appr{border-color:var(--amb-dim);color:var(--amb);background:var(--amb-bg)}
+.vtag.mail{border-color:var(--grn);color:var(--grn)}
+.vtag.qstn{border-color:#3a6a53;color:#8fd0af}
+.vtag.fyi{color:var(--ink-mute)}
+.detail{flex:1;overflow-y:auto;min-height:0;padding:16px 20px}
+.dpane{display:none}
+.dpane.active{display:block}
+.kv{display:flex;gap:12px;font-size:11.5px;padding:3px 0;border-bottom:1px solid var(--rule-soft)}
+.kv .k{flex:0 0 72px;color:var(--ink-mute);font-size:10px;letter-spacing:.14em;text-transform:uppercase;padding-top:2px}
+.kv .v{color:var(--ink)}
+.kv .v b{color:var(--grn);font-weight:600}
+.draftbox{
+  width:100%;background:var(--bg-raise);border:1px solid var(--rule);border-radius:2px;
+  color:#d7efe1;font-size:12px;line-height:1.6;padding:10px 12px;resize:vertical;
+  min-height:110px;margin:10px 0 8px;
+}
+.draftbox:focus{outline:none;border-color:var(--grn)}
+.mini-input{
+  width:100%;background:var(--bg);border:1px solid var(--rule);border-radius:2px;
+  color:var(--ink);font-size:11.5px;padding:6px 10px;
+}
+.mini-input:focus{outline:none;border-color:var(--grn)}
+.mini-input::placeholder{color:var(--ink-mute)}
+.actionrow{display:flex;align-items:center;gap:10px;margin:12px 0 4px;flex-wrap:wrap}
+.safenote{font-size:10px;color:var(--ink-mute);letter-spacing:.08em}
+.safenote i{font-style:normal;color:var(--grn)}
+.thread{border-top:1px solid var(--rule);margin-top:16px;padding-top:10px}
+.thread .line{margin:4px 0}
+.thread .pglyph{flex-basis:52px}
+.dry-out{
+  border:1px solid var(--amb-dim);border-left:2px solid var(--amb);background:var(--amb-bg);
+  padding:8px 12px;font-size:11px;color:var(--ink);margin:10px 0;
+}
+.dry-out .lbl{color:var(--amb-dim)}
+.opt-btns{display:flex;gap:8px;margin:10px 0}
+
+/* ════════ 3 · VIEWS ════════ */
+.vsplit{flex:1;display:flex;min-height:0}
+.vlist{flex:0 0 248px;border-right:1px solid var(--rule);overflow-y:auto}
+.vitem{
+  display:block;width:100%;text-align:left;background:none;border:none;cursor:pointer;
+  border-bottom:1px solid var(--rule-soft);border-left:2px solid transparent;
+  padding:10px 14px;color:var(--ink);
+}
+.vitem:hover{background:var(--bg-hover)}
+.vitem.sel{background:var(--bg-sel);border-left-color:var(--grn)}
+.vitem .vname{font-size:11.5px;letter-spacing:.04em;display:block;color:var(--ink)}
+.vitem.sel .vname{color:var(--grn)}
+.vitem .vmeta{font-size:10px;color:var(--ink-mute);margin-top:3px;display:block}
+.board{flex:1;overflow-y:auto;min-height:0;padding:16px 20px}
+.bhead{display:flex;align-items:baseline;gap:14px;margin-bottom:14px;flex-wrap:wrap}
+.bhead h3{font-size:14px;font-weight:600;letter-spacing:.06em;color:var(--ink)}
+.bhead .meta{font-size:10px;color:var(--ink-mute);letter-spacing:.1em}
+.bhead .spacer{flex:1}
+.tilegrid{display:grid;grid-template-columns:repeat(12,1fr);gap:10px}
+.tile{
+  border:1px solid var(--rule);border-radius:2px;background:var(--bg-raise);
+  padding:10px 12px;min-width:0;
+}
+.tile:hover{border-color:#2e5a46}
+.tile .tlbl{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-mute);display:flex;justify-content:space-between;gap:8px}
+.tile .tlbl i{font-style:normal;color:#2b4437}
+.t-stat{grid-column:span 4;display:flex;flex-direction:column;justify-content:center}
+.t-stat .big{font-size:30px;font-weight:600;color:var(--grn);margin:10px 0 4px;letter-spacing:.02em;text-shadow:0 0 12px rgba(51,255,153,.35)}
+.t-stat .sub{font-size:10px;color:var(--ink-mute);letter-spacing:.06em}
+.t-bar{grid-column:span 8}
+.barrow{display:grid;grid-template-columns:150px 1fr 66px;gap:10px;align-items:baseline;margin-top:7px;font-size:11px}
+.barrow .bn{color:var(--ink-dim);letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:uppercase;font-size:10px}
+.barrow .bar{white-space:nowrap;overflow:hidden;letter-spacing:-.5px}
+.barrow .bar .f{color:var(--grn)}
+.barrow .bar .r{color:var(--rule)}
+.barrow .bv{text-align:right;color:var(--ink);font-variant-numeric:tabular-nums}
+.t-line{grid-column:span 5}
+.t-line svg{width:100%;height:auto;display:block;margin-top:8px}
+.t-table{grid-column:span 7}
+.ttable{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px;font-variant-numeric:tabular-nums}
+.ttable th{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-mute);font-weight:400;text-align:left;padding:3px 8px;border-bottom:1px solid var(--rule)}
+.ttable td{padding:3px 8px;border-bottom:1px solid var(--rule-soft);white-space:nowrap}
+.ttable th.num,.ttable td.num{text-align:right}
+.ttable tr:hover td{background:var(--bg-hover)}
+.age-warn{color:var(--amb)}
+.workdot{color:var(--amb);margin-right:4px}
+.tfoot{font-size:9.5px;color:var(--ink-mute);margin-top:6px;letter-spacing:.06em}
+.t-ticker{grid-column:span 12;display:flex;align-items:center;gap:14px;padding:7px 12px}
+.t-ticker .tlbl{flex:0 0 auto}
+.tickline{flex:1;white-space:nowrap;overflow:hidden;font-size:11px;color:var(--ink-dim)}
+.tickline b{color:var(--ink);font-weight:400}
+.tickline .sep{color:#2b4437;margin:0 10px}
+.ph-tile{grid-column:span 4;min-height:92px;display:flex;flex-direction:column}
+.ph-tile .phv{margin-top:auto;font-size:16px;color:var(--ink-dim)}
+.boardnote{font-size:10px;color:var(--ink-mute);letter-spacing:.08em;margin-top:14px}
+
+/* ════════ 4 · PLAYBOOKS ════════ */
+.pbwrap{flex:1;overflow-y:auto;min-height:0;padding:14px 20px}
+.pbbar{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.pbbar .search{
+  margin-left:auto;display:flex;align-items:center;gap:6px;
+  border:1px solid var(--rule);border-radius:2px;background:var(--bg-raise);padding:2px 8px;
+}
+.pbbar .search input{background:none;border:none;outline:none;color:var(--ink);font-size:11px;width:170px}
+.pbbar .search input::placeholder{color:var(--ink-mute)}
+.pbbar .search i{font-style:normal;color:var(--ink-mute);font-size:10px}
+.pblinks{font-size:10px;letter-spacing:.08em;white-space:nowrap}
+.pblinks a{margin-left:12px;color:var(--ink-dim);text-transform:uppercase}
+.pblinks a:hover{color:var(--grn)}
+.pbtable{width:100%;border-collapse:collapse;font-size:11.5px}
+.pbtable th{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-mute);font-weight:400;text-align:left;padding:5px 10px;border-bottom:1px solid var(--rule)}
+.pbtable td{padding:6px 10px;border-bottom:1px solid var(--rule-soft);white-space:nowrap}
+.pbtable tr.pbrow{cursor:default}
+.pbtable tr.pbrow:hover td{background:var(--bg-hover)}
+.pbtable .pbname{color:var(--ink)}
+.pbtable .pbid{color:var(--ink-mute);font-size:10.5px}
+.typechip{font-size:9px;letter-spacing:.14em;text-transform:uppercase;border:1px solid var(--rule);border-radius:2px;padding:0 5px;line-height:15px;color:var(--ink-dim);display:inline-block}
+.typechip.wf{border-color:#3a6a53;color:#8fd0af}
+.typechip.cf{border-color:var(--rule);color:var(--ink-dim)}
+.typechip.au{border-color:var(--grn);color:var(--grn)}
+.pinned{color:var(--amb);font-size:10px;letter-spacing:.08em}
+.okrun{color:var(--grn);font-size:10.5px}
+
+/* ════════ 5 · EMAIL ════════ */
+.emwrap{flex:1;overflow-y:auto;min-height:0;padding:16px 20px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:1080px}
+.card{border:1px solid var(--rule);border-radius:2px;background:var(--bg-raise);padding:14px 16px}
+.card h4{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-dim);font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:10px}
+.addr-row{display:flex;align-items:center;gap:0;margin-bottom:10px}
+.addr-row input{
+  background:var(--bg);border:1px solid var(--rule);border-right:none;border-radius:2px 0 0 2px;
+  color:var(--grn);font-size:12px;padding:6px 10px;width:150px;
+}
+.addr-row input:focus{outline:none;border-color:var(--grn)}
+.addr-suffix{
+  border:1px solid var(--rule);border-radius:0 2px 2px 0;background:var(--bg-hover);
+  color:var(--ink-dim);font-size:12px;padding:6px 10px;
+}
+.subcopy{font-size:10.5px;color:var(--ink-mute);line-height:1.6;margin:10px 0 12px}
+.togrow{display:flex;align-items:center;gap:10px;padding:5px 0;font-size:11px}
+.togrow .tnote{color:var(--ink-mute);font-size:10px;margin-left:2px}
+.toggle{
+  display:inline-flex;align-items:center;background:none;border:none;cursor:pointer;
+  color:var(--ink-dim);gap:8px;padding:0;font-size:11px;letter-spacing:.08em;
+}
+.toggle .track{
+  display:inline-block;width:30px;border:1px solid var(--rule);border-radius:2px;
+  background:var(--bg);padding:1px;line-height:10px;text-align:left;
+}
+.toggle .knob{display:inline-block;width:12px;height:10px;background:var(--ink-mute)}
+.toggle.on{color:var(--grn)}
+.toggle.on .track{border-color:var(--grn);text-align:right}
+.toggle.on .knob{background:var(--grn)}
+.toggle .state{min-width:26px;text-transform:uppercase;font-size:10px;letter-spacing:.14em}
+.cooldown{display:flex;align-items:center;gap:8px;margin:10px 0 8px;font-size:11px}
+.cooldown input{
+  width:52px;background:var(--bg);border:1px solid var(--rule);border-radius:2px;
+  color:var(--ink);font-size:11.5px;padding:4px 8px;text-align:right;
+}
+.cooldown input:focus{outline:none;border-color:var(--grn)}
+.standing{
+  width:100%;background:var(--bg);border:1px solid var(--rule);border-radius:2px;
+  color:var(--ink);font-size:11px;line-height:1.6;padding:8px 10px;resize:vertical;min-height:64px;
+}
+.standing:focus{outline:none;border-color:var(--grn)}
+.standing::placeholder{color:var(--ink-mute)}
+.activity{margin-top:16px;max-width:1080px}
+.acttable{width:100%;border-collapse:collapse;font-size:11.5px;font-variant-numeric:tabular-nums}
+.acttable th{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-mute);font-weight:400;text-align:left;padding:5px 10px;border-bottom:1px solid var(--rule)}
+.acttable td{padding:5px 10px;border-bottom:1px solid var(--rule-soft);white-space:nowrap}
+.acttable tr:hover td{background:var(--bg-hover)}
+.acttable .from{color:var(--ink)}
+.acttable .re{color:var(--ink-dim)}
+.evt{font-size:9px;letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--rule);border-radius:2px;padding:0 5px;line-height:15px;display:inline-block}
+.evt.drafted{border-color:var(--amb-dim);color:var(--amb);background:var(--amb-bg)}
+.evt.processed{border-color:var(--rule);color:var(--ink-dim)}
+
+/* ════════ 6 · SKILLS ════════ */
+.sksplit{flex:1;display:flex;min-height:0}
+.sklist{flex:0 0 300px;border-right:1px solid var(--rule);overflow-y:auto}
+.skitem{
+  display:block;width:100%;text-align:left;background:none;border:none;cursor:pointer;
+  border-bottom:1px solid var(--rule-soft);border-left:2px solid transparent;
+  padding:10px 14px;color:var(--ink);
+}
+.skitem:hover{background:var(--bg-hover)}
+.skitem.sel{background:var(--bg-sel);border-left-color:var(--grn)}
+.skitem .skname{font-size:11.5px;display:flex;align-items:center;gap:8px;color:var(--ink)}
+.skitem.sel .skname{color:var(--grn)}
+.skitem .sksize{margin-left:auto;color:var(--ink-mute);font-size:10px}
+.skdetail{flex:1;overflow-y:auto;min-height:0;padding:18px 22px}
+.skpane{display:none;max-width:640px}
+.skpane.active{display:block}
+.skpane h3{font-size:14px;font-weight:600;letter-spacing:.04em;color:var(--ink);display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.skmeta{font-size:10px;color:var(--ink-mute);letter-spacing:.1em;margin-bottom:14px}
+.skbody{
+  border:1px solid var(--rule);border-left:2px solid var(--grn);border-radius:2px;
+  background:var(--bg-raise);padding:12px 14px;font-size:11.5px;line-height:1.7;
+  color:#c9e6d5;white-space:pre-wrap;margin-bottom:16px;
+}
+.scope{font-size:9px;letter-spacing:.14em;text-transform:uppercase;border:1px solid var(--rule);border-radius:2px;padding:0 6px;line-height:16px;color:var(--ink-dim);display:inline-block}
+.scope.user{border-color:var(--grn);color:var(--grn)}
+.scope.tenant{border-color:var(--amb-dim);color:var(--amb)}
+
+/* status line */
+.statusline{
+  flex:0 0 30px;display:flex;align-items:center;gap:0;
+  background:var(--bg-bar);border-top:1px solid var(--rule);
+  padding:0 12px;font-size:10px;letter-spacing:.08em;color:var(--ink-dim);
+  white-space:nowrap;z-index:10;
+}
+.statusline .seg{padding:0 10px;border-right:1px solid var(--rule-soft)}
+.statusline .seg:first-child{padding-left:0}
+.statusline .seg b{font-weight:400;color:var(--ink)}
+.statusline .seg .g{color:var(--grn)}
+.statusline .mantra{flex:1;text-align:center;color:var(--ink-mute);overflow:hidden;text-overflow:ellipsis;padding:0 12px}
+.statusline .mantra i{font-style:normal;color:#2b4437;margin:0 8px}
+.statusline .clock{padding:0 12px;border-left:1px solid var(--rule-soft);color:var(--ink)}
+.badge{
+  margin-left:8px;border:1px solid var(--rule);border-radius:2px;padding:1px 8px;
+  font-size:9.5px;letter-spacing:.14em;color:var(--ink-dim);text-transform:uppercase;
+}
+.badge:hover{border-color:var(--grn);color:var(--grn);background:var(--bg-sel)}
+@media (max-width:1160px){.statusline .mantra i:last-child,.statusline .mantra .m2{display:none}}
+@media (max-width:1000px){.statusline .mantra{visibility:hidden}}
+</style>
+</head>
+<body>
+<div class="crt" aria-hidden="true"></div>
+<div class="app">
+
+  <!-- ══ command bar ══ -->
+  <header class="cmdbar">
+    <a class="wordmark" href="#" aria-label="AI Hub — The Agent">▚▚ AIHUB<i>//</i>THE_AGENT</a>
+    <div class="cmd">
+      <span class="cmd-glyph" aria-hidden="true">/</span>
+      <input id="cmdInput" type="text" spellcheck="false" autocomplete="off"
+             placeholder="command — assistant · work · views · playbooks · email · skills"
+             aria-label="Command palette">
+      <span class="key" aria-hidden="true">/</span>
+    </div>
+    <div class="cmdbar-right">
+      <span class="live-dot">● LIVE <b>· ERPDB · AIRDB2 · MAIL</b></span>
+      <span class="who">JAMES <i>· ADMIN</i></span>
+    </div>
+  </header>
+
+  <div class="mid">
+
+    <!-- ══ nav rail ══ -->
+    <nav class="rail" aria-label="Sections">
+      <div class="lbl rail-lbl">Sections</div>
+      <button class="navitem active" data-sec="assistant" aria-current="page">
+        <span class="key">1</span> ASSISTANT <span class="navmeta" style="color:var(--grn)">●</span>
+      </button>
+      <button class="navitem" data-sec="work">
+        <span class="key">2</span> MY WORK <span class="navmeta count amber">4</span>
+      </button>
+      <button class="navitem" data-sec="views">
+        <span class="key">3</span> VIEWS <span class="navmeta count">3</span>
+      </button>
+      <button class="navitem" data-sec="playbooks">
+        <span class="key">4</span> PLAYBOOKS <span class="navmeta count">6</span>
+      </button>
+      <button class="navitem" data-sec="email">
+        <span class="key">5</span> EMAIL <span class="navmeta">@</span>
+      </button>
+      <button class="navitem" data-sec="skills">
+        <span class="key">6</span> SKILLS <span class="navmeta count">3</span>
+      </button>
+
+      <div class="rail-div" role="separator"></div>
+      <div class="lbl rail-lbl">Platform</div>
+      <div class="platform">
+        <a href="#"><i>├</i> DATA EXPLORER ↗</a>
+        <a href="#"><i>├</i> WORKFLOW DESIGNER ↗</a>
+        <a href="#"><i>├</i> MISSION CONTROL ↗</a>
+        <a href="#"><i>├</i> COMMAND CENTER ↗</a>
+        <a href="#"><i>├</i> DOCUMENTS ↗</a>
+        <a href="#"><i>└</i> CLASSIC APP ↗</a>
+      </div>
+      <div class="rail-foot">OPS DECK · TTY-03</div>
+    </nav>
+
+    <!-- ══ stage ══ -->
+    <main class="stage">
+
+      <!-- ════════ 1 · ASSISTANT ════════ -->
+      <section class="panel active" id="sec-assistant" aria-label="Assistant">
+        <div class="phead">
+          <h2><i>▸</i>Assistant — session log</h2>
+          <span class="meta">SES 8F2C · OPENED 09:31 UTC</span>
+          <span class="spacer"></span>
+          <div class="hintrow"><span class="key">/</span> command <span class="key">⏎</span> send</div>
+        </div>
+
+        <div class="log" id="chatLog">
+          <div class="motd">
+            <div class="hello">agent&gt; Hi <b>James</b> — what do you need?</div>
+            <div>Explore your data, build automations through conversation, and keep humans in the loop with My Work.</div>
+            <div>
+              <button class="starter" data-fill="What data connections do we have?">› What data connections do we have?</button>
+              <button class="starter" data-fill="Build me an automation that checks ERPDB daily">› Build me an automation that checks ERPDB daily</button>
+              <button class="starter" data-fill="What's waiting in My Work?">› What's waiting in My Work?</button>
+            </div>
+          </div>
+
+          <div class="line you">
+            <span class="ts">09:31</span><span class="pglyph you">you&gt;</span>
+            <span class="ltext">Which vendors drove August invoice spend, and are any invoices stuck?</span>
+          </div>
+
+          <div class="toolrow">
+            <span class="tglyph">⚙</span><span class="tname">list_connections</span>
+            <span class="targs">{}</span>
+            <span class="leader"></span><span class="tstat">OK</span><span class="tdur">0.4s</span>
+          </div>
+          <div class="toolrow">
+            <span class="tglyph">⚙</span><span class="tname">query_database</span>
+            <span class="targs">{"connection":"ERPDB","sql":"SELECT vendor, SUM(total)…"}</span>
+            <span class="leader"></span><span class="tstat">OK</span><span class="tdur">1.8s</span>
+          </div>
+
+          <div class="line agent">
+            <span class="ts">09:31</span><span class="pglyph agent">agent&gt;</span>
+            <span class="ltext">
+              August invoice spend is <span class="hl glow">$482,910</span> across 41 vendors. The top five drive 68% of it:
+              <table class="chat-table">
+                <thead><tr><th>Vendor</th><th class="num">Invoices</th><th class="num">August total</th><th class="num">vs July</th></tr></thead>
+                <tbody>
+                  <tr><td>Meridian Supply Co</td><td class="num">14</td><td class="num">$128,400</td><td class="num up">+22%</td></tr>
+                  <tr><td>Northgate Logistics</td><td class="num">9</td><td class="num">$96,150</td><td class="num up">+4%</td></tr>
+                  <tr><td>Corvid Materials</td><td class="num">11</td><td class="num">$64,020</td><td class="num dn">−8%</td></tr>
+                  <tr><td>Atlas Packaging</td><td class="num">7</td><td class="num">$41,310</td><td class="num up">+13%</td></tr>
+                  <tr><td>Helix Industrial</td><td class="num">5</td><td class="num">$38,900</td><td class="num up">+2%</td></tr>
+                </tbody>
+              </table>
+              Two Meridian invoices (<span class="hl-amb">INV-20841</span>, <span class="hl-amb">INV-20857</span>) are pending approval past 14 days — <span class="hl-amb">$61,200</span> combined. Want me to raise them in My Work?
+            </span>
+          </div>
+
+          <div class="line you">
+            <span class="ts">09:33</span><span class="pglyph you">you&gt;</span>
+            <span class="ltext">Yes — raise them and save this as a view.</span>
+          </div>
+
+          <div class="toolrow">
+            <span class="tglyph">⚙</span><span class="tname">create_work_item</span>
+            <span class="targs">{"type":"approval","count":2}</span>
+            <span class="leader"></span><span class="tstat">OK</span><span class="tdur">0.6s</span>
+          </div>
+          <div class="toolrow">
+            <span class="tglyph">⚙</span><span class="tname">save_view</span>
+            <span class="targs">{"name":"Vendor Spend — August"}</span>
+            <span class="leader"></span><span class="tstat">OK</span><span class="tdur">0.9s</span>
+          </div>
+
+          <div class="line agent">
+            <span class="ts">09:33</span><span class="pglyph agent">agent&gt;</span>
+            <span class="ltext">Done. Two approval items are in <span class="hl">My Work</span>, and I saved <span class="hl">Vendor Spend — August</span> as a view with 4 tiles — it refreshes with zero AI.<span class="blink">█</span></span>
+          </div>
+        </div>
+
+        <div class="composer">
+          <span class="prompt" aria-hidden="true">you&gt;</span>
+          <textarea id="composerInput" rows="1" spellcheck="false"
+                    placeholder="type a message — [⏎] send · [/] command" aria-label="Message the agent"></textarea>
+          <button class="btn primary" id="sendBtn">Send ⏎</button>
+          <button class="btn" id="newBtn"><span style="letter-spacing:0">[N]</span> New</button>
+          <button class="btn" id="histBtn"><span style="letter-spacing:0">[H]</span> History</button>
+        </div>
+      </section>
+
+      <!-- ════════ 2 · MY WORK ════════ -->
+      <section class="panel" id="sec-work" aria-label="My Work">
+        <div class="phead">
+          <h2><i>▸</i>My Work — human queue</h2>
+          <span class="meta">4 OPEN · 1 NEEDS APPROVAL</span>
+          <span class="spacer"></span>
+          <div class="hintrow">
+            <span><span class="key">A</span> approve</span>
+            <span><span class="key">D</span> deny</span>
+            <span><span class="key">↑↓</span> select</span>
+          </div>
+        </div>
+        <div class="split">
+          <div class="queue">
+            <div class="filters" role="tablist" aria-label="Filter queue">
+              <button class="fchip active" data-f="all">All<b>4</b></button>
+              <button class="fchip" data-f="appr">Approval<b>1</b></button>
+              <button class="fchip" data-f="mail">Email / Edit<b>1</b></button>
+              <button class="fchip" data-f="qstn">Question<b>1</b></button>
+              <button class="fchip" data-f="fyi">FYI<b>1</b></button>
+            </div>
+            <div class="qlist">
+              <button class="qitem" data-item="1" data-type="appr">
+                <span class="qtitle"><span class="vtag appr">Approval</span>Approve payment run — 2 overdue Meridian invoices ($61,200)</span>
+                <span class="qmeta">⚙ automation · invoice-chaser <span class="chip amber">dry-run</span><span class="qtime">09:14</span></span>
+              </button>
+              <button class="qitem sel" data-item="2" data-type="mail">
+                <span class="qtitle"><span class="vtag mail">Email / Edit</span>Re: Q3 renewal pricing — reply to Dana Whitfield</span>
+                <span class="qmeta">✉ email · inbound reply<span class="qtime">08:47</span></span>
+              </button>
+              <button class="qitem" data-item="3" data-type="qstn">
+                <span class="qtitle"><span class="vtag qstn">Question</span>Which fiscal calendar should the vendor report use — 4-4-5 or calendar month?</span>
+                <span class="qmeta">◈ agent · shared, unclaimed<span class="qtime">—</span></span>
+              </button>
+              <button class="qitem" data-item="4" data-type="fyi">
+                <span class="qtitle"><span class="vtag fyi">FYI</span>Nightly ERPDB health check completed — 0 anomalies, 312k rows scanned</span>
+                <span class="qmeta">⚙ automation · erpdb-daily-health<span class="qtime">06:00</span></span>
+              </button>
+            </div>
+          </div>
+
+          <div class="detail">
+            <!-- item 1 · approval -->
+            <div class="dpane" data-detail="1">
+              <div class="lbl">Payment run — dry-run complete · no money moved</div>
+              <div class="dry-out">
+                <div class="lbl" style="margin-bottom:6px">Dry-run output · invoice-chaser v7 · 09:14</div>
+                <div>WOULD PAY&nbsp;&nbsp;INV-20841 · Meridian Supply Co · $38,700 · 21d overdue</div>
+                <div>WOULD PAY&nbsp;&nbsp;INV-20857 · Meridian Supply Co · $22,500 · 17d overdue</div>
+                <div style="border-top:1px solid var(--amb-dim);margin-top:6px;padding-top:5px">TOTAL&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$61,200 · 2 invoices · account OPS-MAIN</div>
+              </div>
+              <div class="actionrow">
+                <button class="btn primary btn-approve" data-ack="✓ PROMOTED — RUN QUEUED"><span style="letter-spacing:0">[A]</span> Approve run</button>
+                <button class="btn warn btn-deny" data-ack="✗ DENIED — RETURNED"><span style="letter-spacing:0">[D]</span> Deny</button>
+                <span class="safenote"><i>▸</i> nothing pays without you</span>
+              </div>
+              <div class="thread">
+                <div class="lbl" style="margin-bottom:6px">Thread with the agent</div>
+                <input class="mini-input" type="text" placeholder="Ask the agent about this item…" aria-label="Ask the agent">
+              </div>
+            </div>
+
+            <!-- item 2 · email draft (selected) -->
+            <div class="dpane active" data-detail="2">
+              <div class="lbl">Draft — body is editable · what you approve is what sends</div>
+              <div style="margin-top:10px">
+                <div class="kv"><span class="k">To</span><span class="v">dana@meridiansupply.com</span></div>
+                <div class="kv"><span class="k">From</span><span class="v"><b>james-agent</b>@mail.aihub.dev</span></div>
+                <div class="kv"><span class="k">Subject</span><span class="v">Re: Q3 renewal pricing</span></div>
+              </div>
+              <textarea class="draftbox" spellcheck="false" aria-label="Editable draft body">Hi Dana — thanks for sending the Q3 renewal outline. We'd like to hold at current pricing while we finish our August vendor-spend review, which still shows two invoices (INV-20841, INV-20857) pending on our side. I'll confirm final numbers as soon as those clear — appreciate your patience.</textarea>
+              <input class="mini-input" type="text" placeholder="Add a comment for the audit trail (optional)…" aria-label="Audit comment">
+              <div class="actionrow">
+                <button class="btn primary btn-approve" data-ack="✓ QUEUED — SENDS AS-EDITED"><span style="letter-spacing:0">[A]</span> Approve &amp; send</button>
+                <button class="btn warn btn-deny" data-ack="✗ DENIED — DRAFT HELD"><span style="letter-spacing:0">[D]</span> Deny</button>
+                <span class="safenote"><i>▸</i> nothing sends without you</span>
+              </div>
+              <div class="thread">
+                <div class="lbl" style="margin-bottom:6px">Thread with the agent</div>
+                <div class="line you">
+                  <span class="pglyph you" style="flex-basis:52px">you&gt;</span>
+                  <span class="ltext">Is Dana on the approved vendor contact list?</span>
+                </div>
+                <div class="line agent">
+                  <span class="pglyph agent" style="flex-basis:52px">agent&gt;</span>
+                  <span class="ltext">Yes — primary commercial contact for Meridian Supply Co since March.</span>
+                </div>
+                <input class="mini-input" style="margin-top:8px" type="text" placeholder="Ask the agent about this item…" aria-label="Ask the agent">
+              </div>
+            </div>
+
+            <!-- item 3 · question -->
+            <div class="dpane" data-detail="3">
+              <div class="lbl">Question from the agent · shared — first answer resolves it for everyone</div>
+              <p style="margin:12px 0 4px;font-size:12.5px;color:#d7efe1">
+                Which fiscal calendar should the vendor report use — <span class="hl">4-4-5</span> or <span class="hl">calendar month</span>?
+              </p>
+              <p style="font-size:10.5px;color:var(--ink-mute);margin-bottom:8px">Raised while assembling the monthly vendor report. Blocking one step; everything else continues.</p>
+              <div class="opt-btns">
+                <button class="btn btn-approve" data-ack="✓ ANSWERED — 4-4-5"><span style="letter-spacing:0">[1]</span> 4-4-5</button>
+                <button class="btn btn-approve" data-ack="✓ ANSWERED — CAL MONTH"><span style="letter-spacing:0">[2]</span> Calendar month</button>
+                <button class="btn warn" data-ack="✓ CLAIMED BY JAMES">Claim only</button>
+              </div>
+              <div class="thread">
+                <div class="lbl" style="margin-bottom:6px">Thread with the agent</div>
+                <input class="mini-input" type="text" placeholder="Ask the agent about this item…" aria-label="Ask the agent">
+              </div>
+            </div>
+
+            <!-- item 4 · FYI -->
+            <div class="dpane" data-detail="4">
+              <div class="lbl">FYI · no action required</div>
+              <div class="motd" style="margin-top:12px">
+                <div>06:00 UTC · erpdb-daily-health v12 · scheduled run</div>
+                <div><span class="hl">312k</span> rows scanned · <span class="hl">0</span> anomalies · runtime 84s</div>
+                <div style="color:var(--ink-mute)">next run 08-10 06:00 UTC · history in Mission Control ↗</div>
+              </div>
+              <div class="actionrow">
+                <button class="btn btn-approve" data-ack="✓ ACKNOWLEDGED">Acknowledge</button>
+                <span class="safenote"><i>▸</i> auto-clears in 7 days</span>
+              </div>
+              <div class="thread">
+                <div class="lbl" style="margin-bottom:6px">Thread with the agent</div>
+                <input class="mini-input" type="text" placeholder="Ask the agent about this item…" aria-label="Ask the agent">
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ════════ 3 · VIEWS ════════ -->
+      <section class="panel" id="sec-views" aria-label="Views">
+        <div class="phead">
+          <h2><i>▸</i>Views — deterministic boards</h2>
+          <span class="meta">REFRESH RUNS SAVED QUERIES · ZERO AI</span>
+          <span class="spacer"></span>
+          <div class="hintrow"><span class="key">↻</span> refresh <span class="key">E</span> edit with AI</div>
+        </div>
+        <div class="vsplit">
+          <div class="vlist">
+            <button class="vitem sel" data-view="vendor">
+              <span class="vname">VENDOR SPEND — AUGUST</span>
+              <span class="vmeta">user · 4 tiles · v3</span>
+            </button>
+            <button class="vitem" data-view="ops">
+              <span class="vname">OPS PULSE</span>
+              <span class="vmeta">group · 6 tiles · v11 · ⚙ automation tiles</span>
+            </button>
+            <button class="vitem" data-view="wh">
+              <span class="vname">WAREHOUSE THROUGHPUT</span>
+              <span class="vmeta">tenant · 5 tiles · v2</span>
+            </button>
+          </div>
+
+          <div class="board">
+            <!-- vendor spend board -->
+            <div class="vboard" data-board="vendor">
+              <div class="bhead">
+                <h3>VENDOR SPEND — AUGUST</h3>
+                <span class="meta">user · v3 · refreshed 16:42</span>
+                <span class="spacer"></span>
+                <button class="btn">Arrange</button>
+                <button class="btn">Rename</button>
+                <button class="btn">✎ Edit with AI</button>
+                <button class="btn" id="refreshBtn" data-ack="↻ REFRESHED 16:42">↻ Refresh</button>
+              </div>
+              <div class="tilegrid">
+                <div class="tile t-stat">
+                  <div class="tlbl">August invoice total <i>stat</i></div>
+                  <div class="big">$482,910</div>
+                  <div class="sub">SUM(total) · as of 16:42</div>
+                </div>
+                <div class="tile t-bar">
+                  <div class="tlbl">Spend by vendor (top 5) <i>bar</i></div>
+                  <div class="barrow"><span class="bn">Meridian Supply Co</span><span class="bar"><span class="f">████████████████████</span></span><span class="bv">128,400</span></div>
+                  <div class="barrow"><span class="bn">Northgate Logistics</span><span class="bar"><span class="f">██████████████▉</span><span class="r">░░░░░</span></span><span class="bv">96,150</span></div>
+                  <div class="barrow"><span class="bn">Corvid Materials</span><span class="bar"><span class="f">█████████▉</span><span class="r">░░░░░░░░░░</span></span><span class="bv">64,020</span></div>
+                  <div class="barrow"><span class="bn">Atlas Packaging</span><span class="bar"><span class="f">██████▍</span><span class="r">░░░░░░░░░░░░░</span></span><span class="bv">41,310</span></div>
+                  <div class="barrow"><span class="bn">Helix Industrial</span><span class="bar"><span class="f">██████▏</span><span class="r">░░░░░░░░░░░░░</span></span><span class="bv">38,900</span></div>
+                </div>
+                <div class="tile t-line">
+                  <div class="tlbl">Daily invoice volume <i>line</i></div>
+                  <svg viewBox="0 0 280 92" role="img" aria-label="Daily invoice volume, gently rising over 14 days">
+                    <line x1="6" y1="22" x2="274" y2="22" stroke="#132a1f" stroke-width="1"/>
+                    <line x1="6" y1="42" x2="274" y2="42" stroke="#132a1f" stroke-width="1"/>
+                    <line x1="6" y1="62" x2="274" y2="62" stroke="#132a1f" stroke-width="1"/>
+                    <line x1="6" y1="78" x2="274" y2="78" stroke="#1e4034" stroke-width="1"/>
+                    <path d="M6,74.6 26.6,67.7 47.2,71.1 67.8,64.2 88.5,57.4 109.1,60.8 129.7,53.9 150.3,47 170.9,50.5 191.5,43.6 212.2,33.3 232.8,36.7 253.4,29.8 274,22.9 L274,78 6,78 Z"
+                          fill="rgba(51,255,153,0.07)" stroke="none"/>
+                    <polyline points="6,74.6 26.6,67.7 47.2,71.1 67.8,64.2 88.5,57.4 109.1,60.8 129.7,53.9 150.3,47 170.9,50.5 191.5,43.6 212.2,33.3 232.8,36.7 253.4,29.8 274,22.9"
+                          fill="none" stroke="#33ff99" stroke-width="1.6"/>
+                    <rect x="271" y="19.9" width="6" height="6" fill="#33ff99"/>
+                    <text x="6" y="90" font-size="7.5" fill="#3d5c4b" font-family="Consolas,monospace" letter-spacing="1">AUG 01</text>
+                    <text x="274" y="90" font-size="7.5" fill="#3d5c4b" font-family="Consolas,monospace" letter-spacing="1" text-anchor="end">AUG 14</text>
+                    <text x="274" y="18" font-size="8" fill="#5e8a73" font-family="Consolas,monospace" text-anchor="end">24/day ▲</text>
+                  </svg>
+                </div>
+                <div class="tile t-table">
+                  <div class="tlbl">Open invoices &gt; 14 days <i>table</i></div>
+                  <table class="ttable">
+                    <thead><tr><th>Invoice</th><th>Vendor</th><th class="num">Amount</th><th class="num">Age</th></tr></thead>
+                    <tbody>
+                      <tr><td><span class="workdot">●</span>INV-20841</td><td>Meridian Supply Co</td><td class="num">$38,700</td><td class="num age-warn">21d</td></tr>
+                      <tr><td><span class="workdot">●</span>INV-20857</td><td>Meridian Supply Co</td><td class="num">$22,500</td><td class="num age-warn">17d</td></tr>
+                      <tr><td>INV-20872</td><td>Corvid Materials</td><td class="num">$9,340</td><td class="num">16d</td></tr>
+                      <tr><td>INV-20881</td><td>Atlas Packaging</td><td class="num">$7,120</td><td class="num">15d</td></tr>
+                      <tr><td>INV-20889</td><td>Northgate Logistics</td><td class="num">$5,480</td><td class="num">15d</td></tr>
+                      <tr><td>INV-20896</td><td>Helix Industrial</td><td class="num">$4,210</td><td class="num">14d</td></tr>
+                    </tbody>
+                  </table>
+                  <div class="tfoot"><span class="workdot">●</span>= raised in My Work</div>
+                </div>
+                <div class="tile t-ticker">
+                  <div class="tlbl">Latest invoices</div>
+                  <div class="tickline" id="ticker" aria-live="off"></div>
+                </div>
+              </div>
+              <div class="boardnote">▸ tiles re-run their saved queries on refresh — deterministic, auditable, zero AI in the loop</div>
+            </div>
+
+            <!-- ops pulse board -->
+            <div class="vboard" data-board="ops" style="display:none">
+              <div class="bhead">
+                <h3>OPS PULSE</h3>
+                <span class="meta">group · v11 · refreshed 16:40 · ⚙ automation tiles</span>
+                <span class="spacer"></span>
+                <button class="btn">Arrange</button>
+                <button class="btn">Rename</button>
+                <button class="btn">✎ Edit with AI</button>
+                <button class="btn" data-ack="↻ REFRESHED">↻ Refresh</button>
+              </div>
+              <div class="tilegrid">
+                <div class="tile ph-tile"><div class="tlbl">Automations run (24h) <i>stat</i></div><div class="phv">37 <span style="font-size:10px;color:var(--ink-mute)">runs · 36 ✓</span></div></div>
+                <div class="tile ph-tile"><div class="tlbl">Approvals waiting <i>⚙ stat</i></div><div class="phv" style="color:var(--amb)">1 <span style="font-size:10px;color:var(--ink-mute)">oldest 21d</span></div></div>
+                <div class="tile ph-tile"><div class="tlbl">Queue depth <i>stat</i></div><div class="phv">4 <span style="font-size:10px;color:var(--ink-mute)">items in My Work</span></div></div>
+                <div class="tile ph-tile"><div class="tlbl">Email inbound (7d) <i>stat</i></div><div class="phv">12 <span style="font-size:10px;color:var(--ink-mute)">3 drafted replies</span></div></div>
+                <div class="tile ph-tile"><div class="tlbl">Failures (7d) <i>⚙ stat</i></div><div class="phv">0 <span style="font-size:10px;color:var(--ink-mute)">clean week</span></div></div>
+                <div class="tile ph-tile"><div class="tlbl">Job latency p95 <i>stat</i></div><div class="phv">2.4s <span style="font-size:10px;color:var(--ink-mute)">▼ vs 3.1s</span></div></div>
+              </div>
+              <div class="boardnote">▸ group scope — shared with ops · ⚙ tiles are fed by automations</div>
+            </div>
+
+            <!-- warehouse board -->
+            <div class="vboard" data-board="wh" style="display:none">
+              <div class="bhead">
+                <h3>WAREHOUSE THROUGHPUT</h3>
+                <span class="meta">tenant · v2 · refreshed 15:00</span>
+                <span class="spacer"></span>
+                <button class="btn">Arrange</button>
+                <button class="btn">Rename</button>
+                <button class="btn">✎ Edit with AI</button>
+                <button class="btn" data-ack="↻ REFRESHED">↻ Refresh</button>
+              </div>
+              <div class="tilegrid">
+                <div class="tile ph-tile"><div class="tlbl">Units shipped (wk) <i>stat</i></div><div class="phv">48,210</div></div>
+                <div class="tile ph-tile"><div class="tlbl">Pick rate <i>stat</i></div><div class="phv">142/hr</div></div>
+                <div class="tile ph-tile"><div class="tlbl">Dock-to-stock <i>stat</i></div><div class="phv">3.8h</div></div>
+                <div class="tile ph-tile"><div class="tlbl">Backorders <i>stat</i></div><div class="phv" style="color:var(--amb)">62</div></div>
+                <div class="tile ph-tile"><div class="tlbl">Daily throughput <i>line</i></div><div class="phv" style="color:var(--ink-mute);font-size:12px">▁▂▂▃▄▃▅▅▆▆▇█ trend</div></div>
+              </div>
+              <div class="boardnote">▸ tenant scope — visible to everyone in this tenant</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ════════ 4 · PLAYBOOKS ════════ -->
+      <section class="panel" id="sec-playbooks" aria-label="Playbooks">
+        <div class="phead">
+          <h2><i>▸</i>Playbooks — repeatable procedure</h2>
+          <span class="meta">DRAFT → DRY-RUN → PROMOTE → SCHEDULE</span>
+          <span class="spacer"></span>
+          <div class="pblinks">
+            <a href="#">Open Workflow Designer ↗</a>
+            <a href="#">Open Mission Control ↗</a>
+          </div>
+        </div>
+        <div class="pbwrap">
+          <div class="pbbar">
+            <button class="fchip active" data-pf="all">All<b>6</b></button>
+            <button class="fchip" data-pf="wf">Workflows<b>2</b></button>
+            <button class="fchip" data-pf="cf">Code Flows<b>1</b></button>
+            <button class="fchip" data-pf="au">Automations<b>3</b></button>
+            <div class="search">
+              <i>⌕</i>
+              <input id="pbSearch" type="text" placeholder="filter by name…" spellcheck="false" aria-label="Filter playbooks">
+            </div>
+          </div>
+          <table class="pbtable">
+            <thead><tr><th>Type</th><th>Name</th><th>Id / Ver</th><th>Status</th></tr></thead>
+            <tbody id="pbBody">
+              <tr class="pbrow" data-t="wf"><td><span class="typechip wf">Workflow</span></td><td class="pbname">Invoice Intake — OCR + 3-way match</td><td class="pbid">id 1218</td><td class="pbid">last run 08-08 · ✓</td></tr>
+              <tr class="pbrow" data-t="wf"><td><span class="typechip wf">Workflow</span></td><td class="pbname">Vendor Onboarding Checks</td><td class="pbid">id 1327</td><td class="pbid">idle</td></tr>
+              <tr class="pbrow" data-t="cf"><td><span class="typechip cf">Code Flow</span></td><td class="pbname">Monthly Close Journal Prep</td><td class="pbid">id 214</td><td class="pbid">next run 08-31</td></tr>
+              <tr class="pbrow" data-t="au"><td><span class="typechip au">Automation</span></td><td class="pbname">invoice-chaser</td><td class="pbid">v7 · <span class="pinned">PINNED v6</span></td><td class="pbid">raised 2 approvals · 09:14</td></tr>
+              <tr class="pbrow" data-t="au"><td><span class="typechip au">Automation</span></td><td class="pbname">dayforce-doc-upload</td><td class="pbid">v3</td><td class="pbid">idle</td></tr>
+              <tr class="pbrow" data-t="au"><td><span class="typechip au">Automation</span></td><td class="pbname">erpdb-daily-health</td><td class="pbid">v12</td><td class="okrun">06:00 · ✓ 0 anomalies</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ════════ 5 · EMAIL ════════ -->
+      <section class="panel" id="sec-email" aria-label="Email">
+        <div class="phead">
+          <h2><i>▸</i>Email — the agent's address</h2>
+          <span class="meta">HEADLESS SESSIONS · RESULTS LAND IN MY WORK</span>
+          <span class="spacer"></span>
+          <div class="hintrow"><span class="chip on">ACTIVE</span></div>
+        </div>
+        <div class="emwrap">
+          <div class="cards">
+            <div class="card">
+              <h4>Your address <span class="chip on">ACTIVE</span></h4>
+              <div class="addr-row">
+                <input type="text" value="james-agent" spellcheck="false" aria-label="Address prefix">
+                <span class="addr-suffix">@mail.aihub.dev</span>
+              </div>
+              <div class="subcopy">Mail sent to this address runs a headless agent session as you and lands its result in My Work.</div>
+              <div class="togrow">
+                <button class="toggle on" data-toggle><span class="track"><span class="knob"></span></span><span class="state">ON</span> Inbound enabled</button>
+              </div>
+              <div class="actionrow" style="margin-top:14px">
+                <button class="btn" data-ack="✓ SAVED">Save</button>
+              </div>
+            </div>
+            <div class="card">
+              <h4>Sending &amp; behavior</h4>
+              <div class="togrow">
+                <button class="toggle on" data-toggle><span class="track"><span class="knob"></span></span><span class="state">ON</span> Outbound enabled</button>
+              </div>
+              <div class="togrow">
+                <button class="toggle" data-toggle><span class="track"><span class="knob"></span></span><span class="state">OFF</span> Auto-send replies</button>
+                <span class="tnote">— every reply waits for your approval in My Work</span>
+              </div>
+              <div class="togrow">
+                <button class="toggle" data-toggle><span class="track"><span class="knob"></span></span><span class="state">OFF</span> Notify on inbound</button>
+              </div>
+              <div class="cooldown">
+                <span class="lbl" style="font-size:10px">Cooldown</span>
+                <input type="text" value="30" aria-label="Cooldown minutes"> <span style="color:var(--ink-mute)">min between replies to the same sender</span>
+              </div>
+              <textarea class="standing" spellcheck="false" aria-label="Standing instructions"
+                placeholder="Standing instructions — e.g. Always cc procurement on vendor pricing threads; never commit to dates without checking My Work."></textarea>
+              <div class="actionrow" style="margin-top:10px">
+                <button class="btn" data-ack="✓ SAVED">Save</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="activity">
+            <div class="lbl" style="margin-bottom:8px">Recent inbound activity</div>
+            <table class="acttable">
+              <thead><tr><th>TS</th><th>Event</th><th>From</th><th>Re</th></tr></thead>
+              <tbody>
+                <tr><td>08-09 08:47</td><td><span class="evt drafted">reply_drafted</span></td><td class="from">dana@meridiansupply.com</td><td class="re">Re: Q3 renewal pricing</td></tr>
+                <tr><td>08-08 16:02</td><td><span class="evt processed">processed</span></td><td class="from">alerts@dayforce.com</td><td class="re">Document batch ready</td></tr>
+                <tr><td>08-08 09:15</td><td><span class="evt processed">processed</span></td><td class="from">noreply@erpdb</td><td class="re">Weekly digest</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ════════ 6 · SKILLS ════════ -->
+      <section class="panel" id="sec-skills" aria-label="Skills">
+        <div class="phead">
+          <h2><i>▸</i>Skills — procedural memory</h2>
+          <span class="meta">LOADED WHEN RELEVANT · SCOPED USER / TENANT / PRODUCT</span>
+          <span class="spacer"></span>
+          <div class="hintrow"><span class="key">↑↓</span> select</div>
+        </div>
+        <div class="sksplit">
+          <div class="sklist">
+            <button class="skitem" data-skill="recipes">
+              <span class="skname">erpdb-reconciliation-recipes <span class="scope">product</span><span class="sksize">4.2 KB</span></span>
+            </button>
+            <button class="skitem" data-skill="naming">
+              <span class="skname">vendor-naming-conventions <span class="scope tenant">tenant</span><span class="sksize">1.1 KB</span></span>
+            </button>
+            <button class="skitem sel" data-skill="format">
+              <span class="skname">james-report-format <span class="scope user">user</span><span class="sksize">0.8 KB</span></span>
+            </button>
+          </div>
+          <div class="skdetail">
+            <div class="skpane" data-skpane="recipes">
+              <h3>erpdb-reconciliation-recipes <span class="scope">product</span></h3>
+              <div class="skmeta">4.2 KB · ships with the product · read-only</div>
+              <div class="skbody">Reconciling ERPDB: match invoices to POs on vendor_id + po_number, then to payments on invoice_id. Three-way mismatches route to My Work as Approval items. Never mark reconciled when the payment row is missing — flag it instead.</div>
+              <div class="actionrow"><span class="safenote"><i>▸</i> product-scope skills cannot be deleted</span></div>
+            </div>
+            <div class="skpane" data-skpane="naming">
+              <h3>vendor-naming-conventions <span class="scope tenant">tenant</span></h3>
+              <div class="skmeta">1.1 KB · tenant scope · editable by admins</div>
+              <div class="skbody">Canonical vendor names: "Meridian Supply Co" (never Meridian or MSC), "Northgate Logistics" (never NG Logistics). Match case-insensitively on import; always render the canonical form in reports and views.</div>
+              <div class="actionrow">
+                <button class="btn danger" data-confirm>Delete skill</button>
+              </div>
+            </div>
+            <div class="skpane active" data-skpane="format">
+              <h3>james-report-format <span class="scope user">user</span></h3>
+              <div class="skmeta">0.8 KB · user scope · learned 07-14 from feedback</div>
+              <div class="skbody">Reports for James: lead with the number, then the table. Currency to the dollar, no cents. Always note the as-of time. Use vendor short-names after first mention, and flag anything pending approval past 14 days.</div>
+              <div class="actionrow">
+                <button class="btn danger" data-confirm>Delete skill</button>
+                <span class="safenote"><i>▸</i> deleting forgets the procedure, not your data</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ══ status line · the signature ══ -->
+  <footer class="statusline">
+    <span class="seg">SES <b>8F2C</b> <span class="g">·LIVE</span></span>
+    <span class="seg">BRAIN <b>claude-fable-5</b></span>
+    <span class="seg">LAT <b id="lat">412</b>ms</span>
+    <span class="seg">TOOLS <b class="g">4/4 OK</b></span>
+    <span class="mantra">draft → dry-run → promote → schedule<i>│</i><span class="m2">humans stay in the loop · My Work</span></span>
+    <span class="clock">UTC <b id="clock">--:--:--</b></span>
+    <a class="badge" href="./index.html">#03 · Ops Deck</a>
+  </footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ── section switching ─────────────────────────────────────────── */
+  var SECTIONS = ["assistant","work","views","playbooks","email","skills"];
+  var navItems = document.querySelectorAll(".navitem");
+  function switchSection(name){
+    if (SECTIONS.indexOf(name) < 0) return;
+    document.querySelectorAll(".panel").forEach(function(p){
+      p.classList.toggle("active", p.id === "sec-" + name);
+    });
+    navItems.forEach(function(n){
+      var on = n.getAttribute("data-sec") === name;
+      n.classList.toggle("active", on);
+      if (on) n.setAttribute("aria-current","page"); else n.removeAttribute("aria-current");
+    });
+  }
+  navItems.forEach(function(n){
+    n.addEventListener("click", function(){ switchSection(n.getAttribute("data-sec")); });
+  });
+
+  /* ── command palette ───────────────────────────────────────────── */
+  var cmdInput = document.getElementById("cmdInput");
+  var ALIASES = {
+    "assistant":"assistant","chat":"assistant","a":"assistant",
+    "work":"work","my work":"work","mywork":"work","queue":"work","w":"work",
+    "views":"views","view":"views","v":"views",
+    "playbooks":"playbooks","playbook":"playbooks","p":"playbooks",
+    "email":"email","mail":"email","e":"email",
+    "skills":"skills","skill":"skills","s":"skills"
+  };
+  cmdInput.addEventListener("keydown", function(e){
+    if (e.key === "Enter"){
+      var q = cmdInput.value.trim().toLowerCase().replace(/^\//,"");
+      if (ALIASES[q]){ switchSection(ALIASES[q]); cmdInput.value = ""; cmdInput.blur(); }
+      else {
+        var old = cmdInput.value;
+        cmdInput.value = "? unknown — try: work · views · email";
+        setTimeout(function(){ if (cmdInput.value.indexOf("?") === 0) cmdInput.value = ""; }, 1200);
+      }
+    }
+    if (e.key === "Escape"){ cmdInput.value = ""; cmdInput.blur(); }
+  });
+
+  /* ── global keys: 1-6 sections · / command · a/d in My Work ────── */
+  function inTyping(el){
+    return el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+  }
+  document.addEventListener("keydown", function(e){
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (inTyping(e.target)){
+      if (e.key === "Escape") e.target.blur();
+      return;
+    }
+    if (e.key === "/"){ e.preventDefault(); cmdInput.focus(); return; }
+    var idx = "123456".indexOf(e.key);
+    if (idx >= 0){ switchSection(SECTIONS[idx]); return; }
+    var work = document.getElementById("sec-work");
+    if (work.classList.contains("active")){
+      var pane = work.querySelector(".dpane.active");
+      if (!pane) return;
+      if (e.key === "a" || e.key === "A"){ var b = pane.querySelector(".btn-approve"); if (b) ack(b); }
+      if (e.key === "d" || e.key === "D"){ var d = pane.querySelector(".btn-deny"); if (d) ack(d); }
+    }
+  });
+
+  /* ── ack flash: tiny, non-destructive, snaps back ──────────────── */
+  function ack(btn){
+    if (btn.dataset.acking) return;
+    btn.dataset.acking = "1";
+    var orig = btn.innerHTML;
+    btn.innerHTML = btn.getAttribute("data-ack") || "✓ ACK";
+    btn.classList.add("acked");
+    setTimeout(function(){
+      btn.innerHTML = orig;
+      btn.classList.remove("acked");
+      delete btn.dataset.acking;
+    }, 1500);
+  }
+  document.querySelectorAll("[data-ack]").forEach(function(btn){
+    btn.addEventListener("click", function(){ ack(btn); });
+  });
+
+  /* ── danger buttons: confirm prompt, then stand down ───────────── */
+  document.querySelectorAll("[data-confirm]").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      if (btn.dataset.acking) return;
+      btn.dataset.acking = "1";
+      var orig = btn.innerHTML;
+      btn.innerHTML = "CONFIRM? [Y/N] — demo, standing down";
+      setTimeout(function(){ btn.innerHTML = orig; delete btn.dataset.acking; }, 1800);
+    });
+  });
+
+  /* ── assistant: starters + composer echo ───────────────────────── */
+  var composer = document.getElementById("composerInput");
+  var log = document.getElementById("chatLog");
+  document.querySelectorAll(".starter").forEach(function(s){
+    s.addEventListener("click", function(){
+      composer.value = s.getAttribute("data-fill");
+      composer.focus();
+    });
+  });
+  function nowHM(){
+    var d = new Date();
+    return String(d.getUTCHours()).padStart(2,"0") + ":" + String(d.getUTCMinutes()).padStart(2,"0");
+  }
+  function esc(t){
+    var div = document.createElement("div");
+    div.textContent = t;
+    return div.innerHTML;
+  }
+  function appendLine(kind, html){
+    var el = document.createElement("div");
+    el.className = "line " + kind;
+    el.innerHTML = '<span class="ts">' + nowHM() + '</span><span class="pglyph ' + kind + '">' + kind + '&gt;</span><span class="ltext">' + html + '</span>';
+    log.appendChild(el);
+    log.scrollTop = log.scrollHeight;
+    return el;
+  }
+  function sendMessage(){
+    var t = composer.value.trim();
+    if (!t) return;
+    composer.value = "";
+    // retire the previous blinking cursor — only one cursor lives at a time
+    log.querySelectorAll(".blink").forEach(function(b){ b.remove(); });
+    appendLine("you", esc(t));
+    var delay = reduced ? 0 : 480;
+    setTimeout(function(){
+      appendLine("agent", 'ack — static demo session; wire me to a live brain and I take it from here.<span class="blink">█</span>');
+    }, delay);
+  }
+  document.getElementById("sendBtn").addEventListener("click", sendMessage);
+  composer.addEventListener("keydown", function(e){
+    if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); sendMessage(); }
+  });
+  document.getElementById("newBtn").addEventListener("click", function(){ ackFlashText(this, "NEW SES — DEMO"); });
+  document.getElementById("histBtn").addEventListener("click", function(){ ackFlashText(this, "3 SESSIONS TODAY"); });
+  function ackFlashText(btn, text){
+    if (btn.dataset.acking) return;
+    btn.dataset.acking = "1";
+    var orig = btn.innerHTML;
+    btn.innerHTML = text;
+    setTimeout(function(){ btn.innerHTML = orig; delete btn.dataset.acking; }, 1300);
+  }
+
+  /* ── my work: selection + filters ──────────────────────────────── */
+  var qitems = document.querySelectorAll(".qitem");
+  qitems.forEach(function(q){
+    q.addEventListener("click", function(){
+      qitems.forEach(function(x){ x.classList.remove("sel"); });
+      q.classList.add("sel");
+      var id = q.getAttribute("data-item");
+      document.querySelectorAll(".dpane").forEach(function(p){
+        p.classList.toggle("active", p.getAttribute("data-detail") === id);
+      });
+    });
+  });
+  document.querySelectorAll(".fchip[data-f]").forEach(function(c){
+    c.addEventListener("click", function(){
+      document.querySelectorAll(".fchip[data-f]").forEach(function(x){ x.classList.remove("active"); });
+      c.classList.add("active");
+      var f = c.getAttribute("data-f");
+      qitems.forEach(function(q){
+        q.style.display = (f === "all" || q.getAttribute("data-type") === f) ? "" : "none";
+      });
+    });
+  });
+
+  /* ── views: board switching + snap ticker ──────────────────────── */
+  document.querySelectorAll(".vitem").forEach(function(v){
+    v.addEventListener("click", function(){
+      document.querySelectorAll(".vitem").forEach(function(x){ x.classList.remove("sel"); });
+      v.classList.add("sel");
+      var id = v.getAttribute("data-view");
+      document.querySelectorAll(".vboard").forEach(function(b){
+        b.style.display = (b.getAttribute("data-board") === id) ? "" : "none";
+      });
+    });
+  });
+  var TICK = [
+    "INV-20903 · Helix Industrial · <b>$2,140</b> · 16:44",
+    "INV-20902 · Atlas Packaging · <b>$6,900</b> · 16:39",
+    "INV-20901 · Meridian Supply Co · <b>$12,480</b> · 16:31",
+    "INV-20899 · Corvid Materials · <b>$3,320</b> · 16:12",
+    "INV-20897 · Northgate Logistics · <b>$8,050</b> · 15:58"
+  ];
+  var ticker = document.getElementById("ticker");
+  var tickIdx = 0;
+  function renderTicker(){
+    var parts = [];
+    for (var i = 0; i < 3; i++) parts.push(TICK[(tickIdx + i) % TICK.length]);
+    ticker.innerHTML = parts.join('<span class="sep">▪</span>');
+  }
+  renderTicker();
+  if (!reduced){
+    setInterval(function(){ tickIdx = (tickIdx + 1) % TICK.length; renderTicker(); }, 3600);
+  }
+
+  /* ── playbooks: type chips + search ────────────────────────────── */
+  var pbRows = document.querySelectorAll(".pbrow");
+  var pbFilter = "all", pbQuery = "";
+  function applyPb(){
+    pbRows.forEach(function(r){
+      var okT = (pbFilter === "all" || r.getAttribute("data-t") === pbFilter);
+      var okQ = !pbQuery || r.querySelector(".pbname").textContent.toLowerCase().indexOf(pbQuery) >= 0;
+      r.style.display = (okT && okQ) ? "" : "none";
+    });
+  }
+  document.querySelectorAll(".fchip[data-pf]").forEach(function(c){
+    c.addEventListener("click", function(){
+      document.querySelectorAll(".fchip[data-pf]").forEach(function(x){ x.classList.remove("active"); });
+      c.classList.add("active");
+      pbFilter = c.getAttribute("data-pf");
+      applyPb();
+    });
+  });
+  document.getElementById("pbSearch").addEventListener("input", function(e){
+    pbQuery = e.target.value.trim().toLowerCase();
+    applyPb();
+  });
+
+  /* ── email: toggles snap ───────────────────────────────────────── */
+  document.querySelectorAll("[data-toggle]").forEach(function(t){
+    t.addEventListener("click", function(){
+      t.classList.toggle("on");
+      t.querySelector(".state").textContent = t.classList.contains("on") ? "ON" : "OFF";
+    });
+  });
+
+  /* ── skills: selection ─────────────────────────────────────────── */
+  document.querySelectorAll(".skitem").forEach(function(s){
+    s.addEventListener("click", function(){
+      document.querySelectorAll(".skitem").forEach(function(x){ x.classList.remove("sel"); });
+      s.classList.add("sel");
+      var id = s.getAttribute("data-skill");
+      document.querySelectorAll(".skpane").forEach(function(p){
+        p.classList.toggle("active", p.getAttribute("data-skpane") === id);
+      });
+    });
+  });
+
+  /* ── status line: UTC clock + latency snaps ────────────────────── */
+  var clockEl = document.getElementById("clock");
+  function tickClock(){
+    var d = new Date();
+    clockEl.textContent =
+      String(d.getUTCHours()).padStart(2,"0") + ":" +
+      String(d.getUTCMinutes()).padStart(2,"0") + ":" +
+      String(d.getUTCSeconds()).padStart(2,"0");
+  }
+  tickClock();
+  setInterval(tickClock, 1000);
+  var latEl = document.getElementById("lat");
+  if (!reduced){
+    setInterval(function(){
+      latEl.textContent = String(360 + Math.floor(Math.random() * 140));
+    }, 5000);
+  }
+
+  /* decorative links stay put */
+  document.querySelectorAll('a[href="#"]').forEach(function(a){
+    a.addEventListener("click", function(e){ e.preventDefault(); });
+  });
+})();
+</script>
+</body>
+</html>

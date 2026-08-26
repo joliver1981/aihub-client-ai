@@ -1,0 +1,1591 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Agent · Ledger concept</title>
+<style>
+/* ============================================================
+   #02 LEDGER — editorial print / broadsheet finance
+   paper · ink · oxblood · hairline rules · oldstyle figures
+   ============================================================ */
+:root{
+  --paper:#F7F3EA;
+  --paper-2:#F1EBDD;   /* selected / pressed paper */
+  --paper-3:#FBF8F1;   /* raised tile paper */
+  --ink:#1A1814;
+  --ink-2:#4A443A;     /* secondary text */
+  --ink-3:#84796A;     /* agate gray */
+  --rule:#D9D2C4;
+  --rule-dark:#C4BBA8;
+  --ox:#7A2E2B;        /* oxblood — accents, stamps */
+  --pen:#A83028;       /* editor's red pen */
+  --ox-wash:rgba(122,46,43,.07);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+  --display:Georgia,"Iowan Old Style","Palatino Linotype","Times New Roman",serif;
+  --mono:"Cascadia Mono",Consolas,"Courier New",ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scrollbar-gutter:stable}
+body{
+  min-height:100vh;
+  color:var(--ink);
+  font:15px/1.6 var(--serif);
+  overflow-x:hidden;
+  background:
+    radial-gradient(1400px 700px at 18% -8%, rgba(255,255,255,.55), transparent 62%),
+    radial-gradient(1100px 900px at 108% 32%, rgba(214,200,168,.22), transparent 60%),
+    repeating-linear-gradient(0deg,  rgba(26,24,20,.013) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, rgba(26,24,20,.010) 0 1px, transparent 1px 4px),
+    var(--paper);
+}
+body::after{ /* faint press vignette */
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:5;
+  background:radial-gradient(140% 120% at 50% 40%, transparent 62%, rgba(26,24,20,.05) 100%);
+}
+::selection{background:rgba(122,46,43,.18)}
+a{color:var(--ox);text-decoration:none}
+a:hover{text-decoration:underline;text-underline-offset:3px}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible{
+  outline:2px solid var(--pen);outline-offset:2px}
+input,textarea{
+  font:inherit;color:var(--ink);background:rgba(255,255,255,.45);
+  border:1px solid var(--rule);padding:8px 11px;width:100%}
+input:focus,textarea:focus{border-color:var(--ink-3);outline:none;background:rgba(255,255,255,.7)}
+::placeholder{color:var(--ink-3);font-style:italic;opacity:1}
+textarea{resize:vertical}
+
+/* ---------- typographic utilities ---------- */
+.sc{ /* tracked small caps */
+  font-family:var(--display);text-transform:uppercase;
+  letter-spacing:.17em;font-size:10.5px;font-weight:700}
+.agate{font-size:11px;color:var(--ink-3);letter-spacing:.015em}
+.mono{font-family:var(--mono);font-size:11.5px}
+.fig{font-variant-numeric:oldstyle-nums}
+.dinkus{ text-align:center;color:var(--ink-3);font-size:14px;letter-spacing:.9em;
+  padding:18px 0 14px;text-indent:.9em}
+
+/* ============================================================
+   MASTHEAD
+   ============================================================ */
+.sheet{max-width:1280px;margin:0 auto;padding:0 40px}
+.masthead{padding-top:18px}
+.ears{
+  display:flex;justify-content:space-between;align-items:baseline;
+  border-bottom:1px solid var(--rule);padding:0 2px 7px;gap:16px}
+.ears .agate b{color:var(--ink-2);font-weight:700}
+.ears .mid{text-align:center}
+.nameplate{text-align:center;padding:20px 0 14px}
+.nameplate h1{
+  font-family:var(--display);font-weight:700;font-size:52px;line-height:1.02;
+  letter-spacing:.005em;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+.nameplate h1 .amp{color:var(--ox)}
+.nameplate .tag{
+  margin-top:8px;display:flex;align-items:center;justify-content:center;gap:14px;
+  color:var(--ink-3)}
+.nameplate .tag::before,.nameplate .tag::after{
+  content:"";height:1px;width:72px;background:var(--rule-dark)}
+.nameplate .tag .sc{font-weight:400;letter-spacing:.32em;font-size:10px;color:var(--ink-2)}
+
+/* ---------- section rail (sticky nav) ---------- */
+.railwrap{
+  position:sticky;top:0;z-index:40;background:var(--paper);
+  box-shadow:0 8px 14px -12px rgba(26,24,20,.28)}
+.rail{
+  max-width:1280px;margin:0 auto;padding:0 40px;position:relative;
+  display:flex;align-items:stretch;justify-content:center;
+  border-top:2px solid var(--ink);border-bottom:1px solid var(--ink)}
+.rail::after{ /* oxford rule: thick over thin */
+  content:"";position:absolute;left:40px;right:40px;bottom:-4px;height:1px;
+  background:var(--ink);opacity:.9}
+.navlink{
+  display:flex;align-items:baseline;gap:8px;padding:11px 19px 12px;position:relative;
+  color:var(--ink-2);white-space:nowrap}
+.navlink .rn{
+  font-family:var(--display);font-size:10px;color:var(--ink-3);
+  letter-spacing:.08em;font-variant-numeric:oldstyle-nums}
+.navlink .lbl{
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.16em;
+  font-size:11px;font-weight:700}
+.navlink sup{
+  font-family:var(--display);font-size:9px;color:var(--paper);background:var(--ox);
+  border-radius:50%;width:14px;height:14px;display:inline-grid;place-items:center;
+  transform:translateY(-4px)}
+.navlink:hover{color:var(--ink)}
+.navlink:hover::before{content:"";position:absolute;left:16px;right:16px;bottom:6px;
+  height:1px;background:var(--rule-dark)}
+.navlink[aria-current="true"]{color:var(--ox)}
+.navlink[aria-current="true"] .rn{color:var(--ox)}
+.navlink[aria-current="true"]::before{
+  content:"";position:absolute;left:16px;right:16px;bottom:6px;height:2px;background:var(--ox)}
+.platform{position:absolute;right:40px;top:0;bottom:0;display:flex;align-items:center}
+.platform>button{
+  display:flex;align-items:center;gap:7px;color:var(--ink-3);padding:6px 2px}
+.platform>button .lbl{
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.16em;
+  font-size:10px;font-weight:700}
+.platform>button:hover{color:var(--ink)}
+.platform>button .caret{font-size:8px;transform:translateY(-1px)}
+.platform-menu{
+  display:none;position:absolute;right:0;top:calc(100% + 6px);min-width:212px;
+  background:var(--paper-3);border:1px solid var(--ink);padding:12px 0 8px;
+  box-shadow:0 14px 30px -12px rgba(26,24,20,.4), 0 0 0 4px var(--paper), 0 0 0 5px var(--rule)}
+.platform.open .platform-menu{display:block}
+.platform-menu .head{
+  padding:0 16px 8px;margin-bottom:6px;border-bottom:1px solid var(--rule);
+  color:var(--ink-3);font-weight:400;letter-spacing:.24em;font-size:9.5px}
+.platform-menu a{
+  display:flex;justify-content:space-between;align-items:baseline;gap:18px;
+  padding:6px 16px;color:var(--ink-2);font-size:13px}
+.platform-menu a:hover{background:var(--ox-wash);color:var(--ink);text-decoration:none}
+.platform-menu a .go{color:var(--ink-3);font-size:11px}
+
+/* ============================================================
+   SECTIONS — common chrome
+   ============================================================ */
+main{padding:30px 0 0}
+.section{display:none}
+.section.active{display:block}
+.sechead{margin-bottom:26px}
+.kicker{color:var(--ox);font-weight:700;letter-spacing:.26em;font-size:10px;
+  text-transform:uppercase;font-family:var(--display)}
+.headline{position:relative;display:inline-block;margin-top:8px;padding-right:6px}
+.headline h2{
+  font-family:var(--display);font-weight:700;font-size:34px;line-height:1.04;
+  letter-spacing:-.005em}
+.pen{position:absolute;left:-5px;bottom:-11px;width:calc(100% + 14px);height:14px;
+  overflow:visible;pointer-events:none}
+.pen path{fill:none;stroke:var(--pen);stroke-linecap:round;
+  stroke-dasharray:1;stroke-dashoffset:0}
+.pen .p1{stroke-width:2.6}
+.pen .p2{stroke-width:1.3;opacity:.4}
+.section.active .pen .p1{animation:penstroke .62s .22s cubic-bezier(.55,.06,.28,.99) both}
+.section.active .pen .p2{animation:penstroke .55s .34s cubic-bezier(.55,.06,.28,.99) both}
+@keyframes penstroke{from{stroke-dashoffset:1}}
+.dekline{
+  display:flex;justify-content:space-between;align-items:baseline;gap:18px;
+  margin-top:20px;padding-top:9px;border-top:1px solid var(--rule)}
+.dek{font-style:italic;color:var(--ink-2);font-size:13.5px}
+.folio{white-space:nowrap}
+
+/* content settles like set type */
+.settle{animation:none}
+.section.active .settle{animation:settle .5s cubic-bezier(.19,.7,.3,1) both;
+  animation-delay:var(--d,0s)}
+@keyframes settle{from{opacity:0;transform:translateY(9px)}}
+
+/* rules & cards */
+.card{border:1px solid var(--rule);background:var(--paper-3);position:relative}
+.card::before{content:"";position:absolute;left:-1px;right:-1px;top:-1px;height:0;
+  border-top:3px double var(--ink)}
+.card-pad{padding:18px 20px 20px}
+.card-head{
+  display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+  padding:13px 20px 10px;border-bottom:1px solid var(--rule)}
+.card-head .sc{color:var(--ink)}
+
+/* stamp-styled action buttons */
+.stampbtn{
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.19em;
+  font-size:10.5px;font-weight:700;color:var(--ox);
+  border:2px solid var(--ox);border-radius:5px;padding:10px 17px 9px;
+  box-shadow:inset 0 0 0 1px var(--paper-3), inset 0 0 0 2px rgba(122,46,43,.55);
+  transform:rotate(-1.2deg);background:transparent;transition:background .12s,transform .12s}
+.stampbtn:hover{background:var(--ox-wash)}
+.stampbtn:active{transform:rotate(-1.2deg) scale(.95)}
+.stampbtn.quiet{color:var(--ink-2);border-color:var(--ink-2);
+  box-shadow:inset 0 0 0 1px var(--paper-3), inset 0 0 0 2px rgba(74,68,58,.5);
+  transform:rotate(1deg)}
+.stampbtn.quiet:hover{background:rgba(26,24,20,.05)}
+.stampbtn.quiet:active{transform:rotate(1deg) scale(.95)}
+/* solid ink buttons (press) */
+.inkbtn{
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.19em;
+  font-size:10.5px;font-weight:700;background:var(--ink);color:var(--paper);
+  padding:10px 19px;transition:background .12s}
+.inkbtn:hover{background:#332E26}
+.inkbtn:active{transform:translateY(1px)}
+/* small-caps text buttons */
+.txtbtn{
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.17em;
+  font-size:10px;font-weight:700;color:var(--ink-2);padding:4px 2px;
+  border-bottom:1px solid transparent}
+.txtbtn:hover{color:var(--ox);border-bottom-color:var(--ox)}
+.acked{color:var(--ox) !important}
+
+/* inked stamp mark (applied on approve/deny) */
+.stampmark{
+  position:absolute;top:42%;left:50%;z-index:3;pointer-events:none;
+  transform:translate(-50%,-50%) rotate(-7deg);
+  font-family:var(--display);font-weight:700;font-size:27px;letter-spacing:.3em;
+  text-transform:uppercase;text-indent:.3em;white-space:nowrap;
+  color:var(--ox);border:3px solid var(--ox);border-radius:7px;padding:9px 20px 7px;
+  mix-blend-mode:multiply;opacity:0}
+.stampmark::before{content:"";position:absolute;inset:3px;border:1px solid var(--ox);
+  border-radius:4px;opacity:.6}
+.stampmark.show{opacity:.88;animation:stampin .38s cubic-bezier(.16,.9,.28,1.35) both}
+.stampmark.denied{color:var(--ink-2);border-color:var(--ink-2)}
+.stampmark.denied::before{border-color:var(--ink-2)}
+@keyframes stampin{
+  from{opacity:0;transform:translate(-50%,-50%) rotate(-7deg) scale(1.9)}
+  62%{opacity:.95;transform:translate(-50%,-50%) rotate(-7deg) scale(.93)}
+}
+
+/* filter chips — newspaper index tabs */
+.chips{display:flex;flex-wrap:wrap;gap:2px 20px;align-items:baseline}
+.chip{
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.15em;
+  font-size:10px;font-weight:700;color:var(--ink-3);padding:5px 1px;position:relative}
+.chip .n{color:var(--ink-2);font-size:10.5px;font-variant-numeric:oldstyle-nums;
+  margin-left:5px;letter-spacing:0}
+.chip:hover{color:var(--ink)}
+.chip.on{color:var(--ox)}
+.chip.on::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--ox)}
+
+/* broadsheet tables */
+table.ledger{width:100%;border-collapse:collapse}
+.ledger caption{text-align:left;padding-bottom:7px}
+.ledger th{
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.14em;
+  font-size:9.5px;font-weight:700;color:var(--ink-2);text-align:left;
+  padding:0 10px 6px 0;border-bottom:3px double var(--ink)}
+.ledger th.num{text-align:right;padding-right:0;padding-left:10px}
+.ledger td{
+  font-size:13.5px;padding:6px 10px 6px 0;border-bottom:1px solid var(--rule);
+  vertical-align:baseline}
+.ledger td.num{
+  text-align:right;padding-right:0;padding-left:10px;
+  font-variant-numeric:oldstyle-nums tabular-nums;white-space:nowrap}
+.ledger tr:last-child td{border-bottom:none}
+.ledger .down{color:var(--ox)}
+.ledger .inv{font-family:var(--mono);font-size:11px;letter-spacing:.02em}
+
+/* tiny state chips */
+.state{
+  display:inline-block;font-family:var(--display);text-transform:uppercase;
+  letter-spacing:.14em;font-size:8.5px;font-weight:700;color:var(--ox);
+  border:1px solid var(--ox);border-radius:3px;padding:2px 6px 1px;
+  transform:translateY(-1px)}
+.state.ink{color:var(--ink-2);border-color:var(--ink-3)}
+
+/* print toggles */
+.toggle{
+  width:36px;height:19px;flex:none;border:1px solid var(--ink);border-radius:10px;
+  position:relative;background:transparent;transition:background .15s;cursor:pointer}
+.toggle::after{
+  content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;
+  background:var(--ink);transition:left .16s ease}
+.toggle.on{background:var(--ink)}
+.toggle.on::after{left:19px;background:var(--paper)}
+
+/* ============================================================
+   I. ASSISTANT — Correspondence
+   ============================================================ */
+.assist-grid{display:grid;grid-template-columns:minmax(0,1fr) 296px;gap:36px;align-items:start}
+.corr-col{border-top:3px double var(--ink)}
+.correspondence{
+  height:clamp(390px, calc(100vh - 480px), 700px);
+  overflow-y:auto;padding:4px 22px 10px 2px;scrollbar-width:thin;
+  scrollbar-color:var(--rule-dark) transparent}
+.hello{padding:26px 8px 4px;text-align:center}
+.hello h3{font-family:var(--display);font-size:23px;font-weight:700;font-style:italic}
+.hello p{color:var(--ink-2);font-size:13px;font-style:italic;max-width:52ch;margin:7px auto 0}
+.openers{margin:18px auto 4px;max-width:430px;border:1px solid var(--rule);
+  background:var(--paper-3);padding:12px 18px 14px;text-align:left}
+.openers .head{color:var(--ink-3);letter-spacing:.24em;font-weight:400;font-size:9px;
+  text-align:center;padding-bottom:8px;border-bottom:1px solid var(--rule);margin-bottom:4px}
+.opener{display:block;width:100%;text-align:left;padding:7px 0 6px;font-size:13px;
+  border-bottom:1px dotted var(--rule-dark);color:var(--ink-2);font-style:italic}
+.opener:last-child{border-bottom:none}
+.opener .no{font-style:normal;font-family:var(--display);font-size:10px;color:var(--ox);
+  margin-right:9px;font-variant-numeric:oldstyle-nums}
+.opener:hover{color:var(--ox)}
+
+.entry{padding:15px 0 6px;margin-top:8px;border-top:1px solid var(--rule)}
+.entry:first-of-type{border-top:none}
+.byline{display:flex;align-items:baseline;gap:10px;margin-bottom:8px}
+.byline .who{
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.22em;
+  font-size:10.5px;font-weight:700}
+.entry.you .byline .who{color:var(--ink-2)}
+.entry.agent .byline .who{color:var(--ox)}
+.byline .fnref{color:var(--pen);font-size:9.5px;font-family:var(--display);
+  transform:translateY(-3px);letter-spacing:.06em}
+.byline .when{margin-left:auto;color:var(--ink-3);font-size:10.5px;
+  font-variant-numeric:oldstyle-nums}
+.entry p{font-size:14.5px;line-height:1.62;max-width:66ch}
+.entry.you p{font-style:italic;color:var(--ink-2)}
+.entry p+p{margin-top:9px}
+.entry .ledger{max-width:560px;margin:13px 0 4px}
+/* tool footnotes */
+.footnotes{margin-top:13px;max-width:480px;border-top:1px solid var(--rule);padding-top:7px}
+.fn{display:flex;align-items:baseline;gap:9px;padding:2.5px 0}
+.fn sup{color:var(--pen);font-family:var(--display);font-size:9.5px;flex:none;width:9px}
+.fn code{
+  font-family:var(--mono);font-size:10.5px;color:var(--ink-2);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.fn .ok{flex:none;font-family:var(--display);font-size:8px;font-weight:700;
+  letter-spacing:.14em;color:var(--ox);border:1px solid var(--ox);border-radius:3px;
+  padding:1px 5px 0;text-transform:uppercase}
+.fn .dur{flex:none;color:var(--ink-3);font-size:10px;font-variant-numeric:oldstyle-nums;
+  margin-left:auto}
+/* streaming caret — signature motion */
+.caret{
+  display:inline-block;width:7px;height:14px;background:var(--ink);
+  transform:translateY(2px);margin-left:4px;
+  animation:caretblink 1.05s steps(1) infinite}
+@keyframes caretblink{50%{opacity:0}}
+
+/* writing desk (input row) */
+.desk{border-top:3px double var(--ink);padding:14px 0 0;margin-top:2px}
+.desk-row{display:flex;gap:14px;align-items:stretch}
+.desk textarea{
+  flex:1;min-height:58px;background:rgba(255,255,255,.5);font-size:14px;
+  font-style:normal;line-height:1.5}
+.desk-side{display:flex;flex-direction:column;justify-content:space-between;
+  align-items:stretch;gap:8px}
+.desk-side .inkbtn{padding:12px 26px}
+.desk-mini{display:flex;gap:14px;justify-content:center}
+.desk-note{margin-top:9px;display:flex;justify-content:space-between;gap:14px}
+
+/* assistant right rail */
+.notices{border-top:3px double var(--ink);padding-top:2px}
+.notices .box{border-bottom:1px solid var(--rule);padding:14px 2px 16px}
+.notices .box:last-child{border-bottom:none}
+.notices .head{color:var(--ink);letter-spacing:.22em;font-size:9.5px;margin-bottom:10px}
+.quote-row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+  padding:4px 0;border-bottom:1px dotted var(--rule-dark);font-size:12.5px}
+.quote-row:last-child{border-bottom:none}
+.quote-row .v{font-variant-numeric:oldstyle-nums tabular-nums;font-weight:700;white-space:nowrap}
+.quote-row .v.ox{color:var(--ox)}
+.notices .footline{font-size:11px;color:var(--ink-3);font-style:italic;line-height:1.55}
+
+/* ============================================================
+   II. MY WORK — The Docket
+   ============================================================ */
+.docket-grid{display:grid;grid-template-columns:388px minmax(0,1fr);gap:34px;align-items:start}
+.docket-col{border-top:3px double var(--ink);padding-top:12px}
+.docket-col .chips{padding:2px 2px 12px;border-bottom:1px solid var(--rule)}
+.docket-item{
+  display:block;width:100%;text-align:left;padding:13px 12px 12px 14px;
+  border-bottom:1px solid var(--rule);position:relative;transition:background .12s}
+.docket-item:hover{background:rgba(26,24,20,.035)}
+.docket-item.sel{background:var(--paper-2)}
+.docket-item.sel::before{content:"";position:absolute;left:0;top:0;bottom:-1px;width:3px;
+  background:var(--ox)}
+.docket-item .verb{
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.16em;
+  font-size:9px;font-weight:700;color:var(--ox)}
+.docket-item .verb.g{color:var(--ink-3)}
+.docket-item .dtitle{display:block;font-size:13.5px;line-height:1.45;margin:4px 0 5px;
+  color:var(--ink)}
+.docket-item .dmeta{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+.docket-item .dmeta .mono{font-size:10px;color:var(--ink-2)}
+.dpane{min-height:420px}
+.detail{display:none}
+.detail.on{display:block}
+.detail .card-pad{padding:20px 26px 24px}
+.d-kicker{display:flex;justify-content:space-between;align-items:baseline;gap:14px}
+.d-title{font-family:var(--display);font-size:21px;font-weight:700;line-height:1.2;
+  margin:7px 0 2px;max-width:34em}
+.d-note{font-style:italic;color:var(--ink-2);font-size:12.5px;margin-top:3px}
+.addr{margin:16px 0 12px;border-top:1px solid var(--rule)}
+.addr .arow{display:grid;grid-template-columns:74px 1fr;gap:14px;align-items:baseline;
+  padding:6px 2px;border-bottom:1px solid var(--rule)}
+.addr .arow .k{font-family:var(--display);text-transform:uppercase;letter-spacing:.18em;
+  font-size:9px;font-weight:700;color:var(--ink-3)}
+.addr .arow .v{font-family:var(--mono);font-size:11.5px;color:var(--ink)}
+.draft-wrap{position:relative}
+.draft-wrap textarea{
+  min-height:132px;font-family:var(--serif);font-size:14px;line-height:1.65;
+  background:rgba(255,255,255,.55);padding:14px 16px}
+.commentrow{margin-top:11px}
+.actionrow{display:flex;align-items:center;gap:16px;margin-top:17px;flex-wrap:wrap}
+.actionrow .hint{font-style:italic;color:var(--ink-3);font-size:11.5px;margin-left:auto}
+.thread{margin-top:24px;border-top:1px solid var(--rule);padding-top:12px}
+.thread .head{letter-spacing:.2em;font-size:9.5px;color:var(--ink-2)}
+.thread .entry{border-top:none;padding:10px 0 2px;margin-top:2px}
+.thread .entry p{font-size:13px}
+.thread-ask{display:flex;gap:10px;margin-top:12px}
+.thread-ask input{font-size:13px}
+.choicerow{display:flex;gap:12px;margin:14px 0 4px;flex-wrap:wrap}
+.choice{
+  font-family:var(--display);font-size:12px;font-weight:700;letter-spacing:.06em;
+  border:1px solid var(--ink-2);padding:9px 16px;border-radius:3px;color:var(--ink-2)}
+.choice:hover{border-color:var(--ink);color:var(--ink)}
+.choice.picked{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.fyi-figure{display:flex;gap:26px;margin:16px 0 4px}
+.fyi-figure .cell{border-left:2px solid var(--rule-dark);padding-left:14px}
+.fyi-figure .n{font-family:var(--display);font-size:25px;font-weight:700;
+  font-variant-numeric:oldstyle-nums}
+
+/* ============================================================
+   III. VIEWS — Standing Figures
+   ============================================================ */
+.views-grid{display:grid;grid-template-columns:300px minmax(0,1fr);gap:34px;align-items:start}
+.views-col{border-top:3px double var(--ink);padding-top:4px}
+.view-item{display:block;width:100%;text-align:left;padding:13px 12px 12px 14px;
+  border-bottom:1px solid var(--rule);position:relative}
+.view-item:hover{background:rgba(26,24,20,.035)}
+.view-item.sel{background:var(--paper-2)}
+.view-item.sel::before{content:"";position:absolute;left:0;top:0;bottom:-1px;width:3px;
+  background:var(--ox)}
+.view-item .vname{font-family:var(--display);font-weight:700;font-size:14.5px}
+.view-item .vmeta{margin-top:3px;display:flex;gap:9px;flex-wrap:wrap;align-items:baseline}
+.board-head{display:flex;align-items:baseline;gap:18px;flex-wrap:wrap;
+  border-bottom:1px solid var(--rule);padding-bottom:11px;margin-bottom:20px}
+.board-head h3{font-family:var(--display);font-size:22px;font-weight:700}
+.board-tools{margin-left:auto;display:flex;gap:18px;align-items:baseline}
+.tiles{display:grid;grid-template-columns:repeat(12,1fr);gap:20px}
+.tile{grid-column:span 6;border:1px solid var(--rule);background:var(--paper-3);
+  padding:14px 18px 16px;position:relative}
+.tile::before{content:"";position:absolute;left:-1px;right:-1px;top:-1px;
+  border-top:3px double var(--ink)}
+.tile-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+  padding-bottom:9px;margin-bottom:11px;border-bottom:1px solid var(--rule)}
+.tile-head .sc{font-size:9.5px;letter-spacing:.18em}
+.tile.t-stat{grid-column:span 4}
+.tile.t-bar{grid-column:span 8}
+.tile.t-line{grid-column:span 5}
+.tile.t-table{grid-column:span 7}
+.tile.t-ticker{grid-column:span 12;padding:10px 0 9px}
+.statnum{font-family:var(--display);font-size:46px;font-weight:700;line-height:1.05;
+  font-variant-numeric:oldstyle-nums;letter-spacing:-.01em;margin-top:14px}
+.statsub{margin-top:10px}
+.statdelta{margin-top:16px;font-size:12px;color:var(--ink-2);font-style:italic}
+/* bar rows */
+.barrow{display:grid;grid-template-columns:138px 1fr 74px;gap:12px;align-items:center;
+  padding:6.5px 0;border-bottom:1px dotted var(--rule-dark)}
+.barrow:last-child{border-bottom:none}
+.barrow .bl{font-size:12px;color:var(--ink-2);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.barrow .bv{text-align:right;font-size:12.5px;font-weight:700;
+  font-variant-numeric:oldstyle-nums tabular-nums;white-space:nowrap}
+.bar{display:block;height:9px;background:var(--ink);transform-origin:left center}
+.tile-head + .barrow .bar{background:var(--ox)}
+.section.active .bar{animation:barset .7s cubic-bezier(.2,.75,.25,1) both;
+  animation-delay:calc(.15s + var(--i,0)*.06s)}
+@keyframes barset{from{transform:scaleX(0)}}
+/* line chart */
+.linechart{width:100%;height:auto;display:block;margin-top:6px}
+.linechart .grid{stroke:var(--rule);stroke-width:1}
+.linechart .series{stroke:var(--ink);stroke-width:1.8;fill:none;stroke-linejoin:round;
+  stroke-linecap:round}
+.linechart .fill{fill:rgba(26,24,20,.055);stroke:none}
+.linechart .dot{fill:var(--ox)}
+.linechart text{font-family:var(--serif);font-size:9px;fill:var(--ink-3)}
+.axisnote{display:flex;justify-content:space-between;margin-top:2px}
+/* ticker */
+.ticker-label{position:absolute;left:0;top:-1px;bottom:-1px;z-index:2;display:flex;
+  align-items:center;background:var(--ink);color:var(--paper);padding:0 16px}
+.ticker-label .sc{letter-spacing:.2em;font-size:9px}
+.ticker-strip{overflow:hidden;margin-left:132px}
+.ticker-run{display:inline-flex;white-space:nowrap;
+  animation:tick 38s linear infinite}
+.tick-item{display:inline-flex;align-items:baseline;gap:9px;padding:2px 0;margin-right:44px;
+  font-size:12px}
+.tick-item .inv{font-family:var(--mono);font-size:10.5px;color:var(--ink-2)}
+.tick-item .amt{font-weight:700;font-variant-numeric:oldstyle-nums}
+.tick-item .age{color:var(--ox);font-size:11px}
+.tick-item::after{content:"◆";color:var(--rule-dark);font-size:8px;margin-left:44px;
+  transform:translateY(-2px)}
+@keyframes tick{to{transform:translateX(-50%)}}
+.tile .ledger td{font-size:12.5px;padding-top:5px;padding-bottom:5px}
+.tile .ledger .fnmark{color:var(--pen);font-size:9px;font-family:var(--display)}
+.tablefoot{margin-top:9px;font-size:10.5px;color:var(--ink-3);font-style:italic}
+.tablefoot sup{color:var(--pen);font-style:normal}
+
+/* ============================================================
+   IV. PLAYBOOKS — The Register
+   ============================================================ */
+.register{max-width:900px}
+.reg-tools{display:flex;align-items:baseline;gap:26px;flex-wrap:wrap;
+  border-top:3px double var(--ink);padding:13px 2px 12px;border-bottom:1px solid var(--rule)}
+.reg-tools .chips{flex:1}
+.reg-search{width:220px}
+.reg-search input{font-size:12.5px;padding:6px 10px;font-style:italic}
+.reg-links{display:flex;gap:22px;padding:11px 2px;border-bottom:1px solid var(--rule)}
+.reg-links a{font-family:var(--display);text-transform:uppercase;letter-spacing:.15em;
+  font-size:9.5px;font-weight:700;color:var(--ink-2)}
+.reg-links a:hover{color:var(--ox);text-decoration:none}
+.pb-item{display:grid;grid-template-columns:108px minmax(0,1fr) auto;gap:18px;
+  align-items:baseline;padding:13px 6px 12px 2px;border-bottom:1px solid var(--rule);
+  cursor:default}
+.pb-item:hover{background:rgba(26,24,20,.03)}
+.pb-item .ptype{font-family:var(--display);text-transform:uppercase;letter-spacing:.13em;
+  font-size:8.5px;font-weight:700;color:var(--ink-3);border:1px solid var(--rule-dark);
+  border-radius:3px;padding:2.5px 7px 1.5px;justify-self:start;white-space:nowrap}
+.pb-item.is-auto .ptype{color:var(--ox);border-color:var(--ox)}
+.pb-item .pname{font-family:var(--display);font-weight:700;font-size:15px}
+.pb-item .pname .mono{font-weight:400;font-size:13px}
+.pb-item .pmeta{white-space:nowrap}
+.pb-item .pmeta .pin{color:var(--ox);font-style:italic}
+
+/* ============================================================
+   V. EMAIL — The Post
+   ============================================================ */
+.post-grid{display:grid;grid-template-columns:1fr 1fr;gap:26px;max-width:1020px}
+.post-full{max-width:1020px;margin-top:26px}
+.addr-field{display:flex;align-items:stretch;margin-top:12px}
+.addr-field input{flex:0 0 150px;font-family:var(--mono);font-size:12px;
+  border-right:none;text-align:right;font-style:normal}
+.addr-field .suffix{display:flex;align-items:center;padding:0 12px;
+  border:1px solid var(--rule);background:var(--paper-2);font-family:var(--mono);
+  font-size:12px;color:var(--ink-2)}
+.field-row{display:flex;align-items:center;gap:12px;margin-top:13px}
+.subcopy{font-style:italic;color:var(--ink-2);font-size:12.5px;line-height:1.6;
+  margin-top:14px;border-top:1px dotted var(--rule-dark);padding-top:11px}
+.trow{display:flex;align-items:flex-start;gap:14px;padding:11px 0;
+  border-bottom:1px dotted var(--rule-dark)}
+.trow:last-of-type{border-bottom:none}
+.trow .tl{flex:1}
+.trow .tl b{font-family:var(--display);font-size:12.5px;font-weight:700;display:block}
+.trow .tl .agate{display:block;margin-top:2px;font-style:italic}
+.cooldown{display:flex;align-items:baseline;gap:10px;padding:12px 0 4px;
+  border-top:1px solid var(--rule);margin-top:6px}
+.cooldown input{width:64px;text-align:right;font-variant-numeric:oldstyle-nums}
+.standing{margin-top:12px}
+.standing textarea{min-height:64px;font-size:12.5px}
+.mailrow{display:grid;grid-template-columns:118px 118px minmax(0,1fr);gap:16px;
+  align-items:baseline;padding:9px 2px;border-bottom:1px solid var(--rule);font-size:12.5px}
+.mailrow:last-child{border-bottom:none}
+.mailrow .when{font-variant-numeric:oldstyle-nums tabular-nums;color:var(--ink-2);
+  white-space:nowrap;font-size:12px}
+.mailrow .addr-sub .mono{color:var(--ink-2)}
+.mailrow .addr-sub em{color:var(--ink);font-style:italic}
+
+/* ============================================================
+   VI. SKILLS — House Style
+   ============================================================ */
+.skills-grid{display:grid;grid-template-columns:320px minmax(0,1fr);gap:34px;
+  align-items:start;max-width:1020px}
+.skills-col{border-top:3px double var(--ink);padding-top:4px}
+.skill-item{display:block;width:100%;text-align:left;padding:12px 12px 11px 14px;
+  border-bottom:1px solid var(--rule);position:relative}
+.skill-item:hover{background:rgba(26,24,20,.035)}
+.skill-item.sel{background:var(--paper-2)}
+.skill-item.sel::before{content:"";position:absolute;left:0;top:0;bottom:-1px;width:3px;
+  background:var(--ox)}
+.skill-item .sname{font-family:var(--mono);font-size:12.5px;font-weight:700;color:var(--ink)}
+.skill-item .smeta{margin-top:3px}
+.skillbody{
+  font-family:var(--mono);font-size:12px;line-height:1.75;color:var(--ink-2);
+  background:rgba(255,255,255,.5);border:1px solid var(--rule);padding:16px 18px;
+  margin-top:14px;white-space:pre-wrap}
+.skill-note{font-style:italic;color:var(--ink-3);font-size:11.5px;margin-top:10px;
+  min-height:17px}
+.dangerbtn{
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.18em;
+  font-size:10px;font-weight:700;color:var(--pen);border:1px solid var(--pen);
+  border-radius:3px;padding:8px 14px 7px;margin-top:16px}
+.dangerbtn:hover{background:rgba(168,48,40,.07)}
+.dangerbtn:active{transform:scale(.96)}
+
+/* ============================================================
+   FOOTER / COLOPHON
+   ============================================================ */
+footer{margin-top:56px;padding:0 0 30px}
+.foot-rule{border-top:1px solid var(--ink);border-bottom:2px solid var(--ink);
+  height:5px;margin-bottom:14px}
+.foot-cols{display:flex;justify-content:space-between;align-items:center;gap:20px}
+.foot-cols .mantra{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);
+  letter-spacing:.02em}
+.foot-cols .mid{text-align:center;color:var(--ink-3)}
+.foot-cols .mid .fleuron{font-size:15px;color:var(--ox);display:block;margin-bottom:3px}
+
+/* corner badge */
+.colophon{
+  position:fixed;right:18px;bottom:18px;z-index:60;
+  background:var(--paper-3);border:1px solid var(--ink);padding:7px 13px 6px;
+  font-family:var(--display);font-size:10px;font-weight:700;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--ink-2);
+  box-shadow:0 0 0 3px var(--paper), 0 0 0 4px var(--rule), 0 10px 22px -10px rgba(26,24,20,.4)}
+.colophon:hover{color:var(--ox);text-decoration:none;border-color:var(--ox)}
+.colophon .fl{color:var(--ox);margin-right:7px;letter-spacing:0}
+
+/* ============================================================
+   MOTION SAFETY
+   ============================================================ */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none !important;transition:none !important}
+  .caret{opacity:.85}
+}
+@media (max-width:1080px){
+  .assist-grid,.docket-grid,.views-grid,.skills-grid{grid-template-columns:1fr}
+  .post-grid{grid-template-columns:1fr}
+  .notices{display:none}
+}
+</style>
+</head>
+<body>
+
+<!-- ================= MASTHEAD ================= -->
+<header class="masthead sheet">
+  <div class="ears">
+    <div class="agate fig">Saturday, 9 August 2026</div>
+    <div class="agate mid fig">Vol. II — № 47 · <span class="mono" style="font-size:10px">brain: claude-fable-5</span></div>
+    <div class="agate">Signed in: <b>James</b> — Admin</div>
+  </div>
+  <div class="nameplate">
+    <h1>The <span class="amp">A</span>gent</h1>
+    <div class="tag"><span class="sc">AI Hub · Next-Generation Agent Surface</span></div>
+  </div>
+</header>
+
+<div class="railwrap">
+  <nav class="rail" aria-label="Sections">
+    <button class="navlink" data-target="assistant" aria-current="true" aria-label="Assistant">
+      <span class="rn">I.</span><span class="lbl">Assistant</span></button>
+    <button class="navlink" data-target="mywork" aria-label="My Work, 4 items">
+      <span class="rn">II.</span><span class="lbl">My Work</span><sup>4</sup></button>
+    <button class="navlink" data-target="views" aria-label="Views">
+      <span class="rn">III.</span><span class="lbl">Views</span></button>
+    <button class="navlink" data-target="playbooks" aria-label="Playbooks">
+      <span class="rn">IV.</span><span class="lbl">Playbooks</span></button>
+    <button class="navlink" data-target="email" aria-label="Email">
+      <span class="rn">V.</span><span class="lbl">Email</span></button>
+    <button class="navlink" data-target="skills" aria-label="Skills">
+      <span class="rn">VI.</span><span class="lbl">Skills</span></button>
+    <div class="platform" id="platform">
+      <button aria-haspopup="true" aria-expanded="false" id="platformBtn">
+        <span class="lbl">Platform</span><span class="caret">▼</span></button>
+      <div class="platform-menu">
+        <div class="head sc">Platform Desks</div>
+        <a href="#" class="dead">Data Explorer <span class="go">↗</span></a>
+        <a href="#" class="dead">Workflow Designer <span class="go">↗</span></a>
+        <a href="#" class="dead">Mission Control <span class="go">↗</span></a>
+        <a href="#" class="dead">Command Center <span class="go">↗</span></a>
+        <a href="#" class="dead">Documents <span class="go">↗</span></a>
+        <a href="#" class="dead">Classic app <span class="go">↗</span></a>
+      </div>
+    </div>
+  </nav>
+</div>
+
+<main class="sheet">
+
+<!-- ============================================================
+     I. ASSISTANT
+     ============================================================ -->
+<section class="section active" id="assistant" aria-label="Assistant">
+  <header class="sechead settle">
+    <div class="kicker">Section I · Assistant</div>
+    <div class="headline">
+      <h2>Correspondence</h2>
+      <svg class="pen" viewBox="0 0 300 14" preserveAspectRatio="none" aria-hidden="true">
+        <path class="p1" d="M3 9 C 45 3.5, 96 12.5, 148 8 C 198 4, 246 11.5, 297 6.5" pathLength="1"/>
+        <path class="p2" d="M6 12 C 60 8.5, 120 13.5, 180 10.5 C 230 8.5, 268 12, 294 10" pathLength="1"/>
+      </svg>
+    </div>
+    <div class="dekline">
+      <div class="dek">Printed exchanges between James and the house agent.</div>
+      <div class="agate folio fig">Page A1 · 9 August 2026</div>
+    </div>
+  </header>
+
+  <div class="assist-grid">
+    <div class="corr-col settle" style="--d:.07s">
+      <div class="correspondence" id="correspondence">
+
+        <!-- empty-state hello (scrolled away above the exchange) -->
+        <div class="hello">
+          <h3>Hi James — what do you need?</h3>
+          <p>Explore your data, build automations through conversation, and keep humans in the loop with My Work.</p>
+          <div class="openers">
+            <div class="head sc">Openers</div>
+            <button class="opener" data-fill="What data connections do we have?">
+              <span class="no">№ 1</span>What data connections do we have?</button>
+            <button class="opener" data-fill="Build me an automation that checks ERPDB daily">
+              <span class="no">№ 2</span>Build me an automation that checks ERPDB daily</button>
+            <button class="opener" data-fill="What's waiting in My Work?">
+              <span class="no">№ 3</span>What&rsquo;s waiting in My Work?</button>
+          </div>
+        </div>
+
+        <div class="dinkus" aria-hidden="true">❦</div>
+
+        <article class="entry you">
+          <div class="byline"><span class="who">You</span><span class="when fig">16:38</span></div>
+          <p>&ldquo;Which vendors drove August invoice spend, and are any invoices stuck?&rdquo;</p>
+        </article>
+
+        <article class="entry agent">
+          <div class="byline">
+            <span class="who">The Agent</span><span class="fnref">1, 2</span>
+            <span class="when fig">16:39</span>
+          </div>
+          <p>August invoice spend is <b>$482,910</b> across 41 vendors. The top five drive 68% of it:</p>
+          <table class="ledger fig">
+            <thead><tr>
+              <th>Vendor</th><th class="num">Invoices</th>
+              <th class="num">August total</th><th class="num">vs July</th>
+            </tr></thead>
+            <tbody>
+              <tr><td>Meridian Supply Co</td><td class="num">14</td><td class="num"><b>$128,400</b></td><td class="num">+22%</td></tr>
+              <tr><td>Northgate Logistics</td><td class="num">9</td><td class="num">$96,150</td><td class="num">+4%</td></tr>
+              <tr><td>Corvid Materials</td><td class="num">11</td><td class="num">$64,020</td><td class="num down">−8%</td></tr>
+              <tr><td>Atlas Packaging</td><td class="num">7</td><td class="num">$41,310</td><td class="num">+13%</td></tr>
+              <tr><td>Helix Industrial</td><td class="num">5</td><td class="num">$38,900</td><td class="num">+2%</td></tr>
+            </tbody>
+          </table>
+          <p>Two Meridian invoices (<b class="inv">INV-20841</b>, <b class="inv">INV-20857</b>) are
+             pending approval past 14 days — <b>$61,200</b> combined. Want me to raise them in
+             <b>My Work</b>?</p>
+          <div class="footnotes">
+            <div class="fn"><sup>1</sup><code>list_connections {}</code>
+              <span class="ok">ok</span><span class="dur fig">0.4s</span></div>
+            <div class="fn"><sup>2</sup><code>query_database {"connection":"ERPDB","sql":"SELECT vendor, SUM(total)…"}</code>
+              <span class="ok">ok</span><span class="dur fig">1.8s</span></div>
+          </div>
+        </article>
+
+        <article class="entry you">
+          <div class="byline"><span class="who">You</span><span class="when fig">16:41</span></div>
+          <p>&ldquo;Yes — raise them and save this as a view.&rdquo;</p>
+        </article>
+
+        <article class="entry agent">
+          <div class="byline">
+            <span class="who">The Agent</span><span class="fnref">3, 4</span>
+            <span class="when fig">16:42</span>
+          </div>
+          <p>Done. Two approval items are in <b>My Work</b>, and I saved
+             <b>Vendor Spend — August</b> as a view with 4 tiles — it refreshes with
+             zero AI.<span class="caret" aria-hidden="true"></span></p>
+          <div class="footnotes">
+            <div class="fn"><sup>3</sup><code>create_work_item</code>
+              <span class="ok">ok</span><span class="dur fig">0.6s</span></div>
+            <div class="fn"><sup>4</sup><code>save_view {"name":"Vendor Spend — August"}</code>
+              <span class="ok">ok</span><span class="dur fig">0.9s</span></div>
+          </div>
+        </article>
+
+      </div><!-- /correspondence -->
+
+      <div class="desk">
+        <div class="desk-row">
+          <textarea id="deskInput" aria-label="Message to the agent"
+            placeholder="Dictate a message — the press stands ready…"></textarea>
+          <div class="desk-side">
+            <button class="inkbtn" data-ack="Set in type ✓">Send</button>
+            <div class="desk-mini">
+              <button class="txtbtn" data-ack="Fresh sheet ✓">New</button>
+              <button class="txtbtn" data-ack="Archive ✓">History</button>
+            </div>
+          </div>
+        </div>
+        <div class="desk-note">
+          <span class="agate" style="font-style:italic">The press is idle — last impression 16:42.</span>
+          <span class="agate mono" style="font-size:10px">brain: claude-fable-5</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- right rail — agate notices -->
+    <aside class="notices settle" style="--d:.14s" aria-label="Notices">
+      <div class="box">
+        <div class="head sc">The Day&rsquo;s Figures</div>
+        <div class="quote-row fig"><span>August invoice spend</span><span class="v">$482,910</span></div>
+        <div class="quote-row fig"><span>Vendors billed</span><span class="v">41</span></div>
+        <div class="quote-row fig"><span>Top five share</span><span class="v">68%</span></div>
+        <div class="quote-row fig"><span>Invoices past 14 days</span><span class="v ox">2 · $61,200</span></div>
+      </div>
+      <div class="box">
+        <div class="head sc">Raised to the Docket</div>
+        <div class="quote-row"><span class="mono" style="font-size:10.5px">INV-20841 · Meridian</span><span class="v fig">$38,700</span></div>
+        <div class="quote-row"><span class="mono" style="font-size:10.5px">INV-20857 · Meridian</span><span class="v fig">$22,500</span></div>
+        <p class="footline" style="margin-top:9px">Two approval items await your stamp in My&nbsp;Work.</p>
+      </div>
+      <div class="box">
+        <div class="head sc">Standing Views</div>
+        <div class="quote-row"><span>Vendor Spend — August</span><span class="v fig">4 tiles</span></div>
+        <p class="footline" style="margin-top:9px">Deterministic — refreshes with zero AI.</p>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<!-- ============================================================
+     II. MY WORK — THE DOCKET
+     ============================================================ -->
+<section class="section" id="mywork" aria-label="My Work">
+  <header class="sechead settle">
+    <div class="kicker">Section II · My Work</div>
+    <div class="headline">
+      <h2>The Docket</h2>
+      <svg class="pen" viewBox="0 0 300 14" preserveAspectRatio="none" aria-hidden="true">
+        <path class="p1" d="M3 9 C 45 3.5, 96 12.5, 148 8 C 198 4, 246 11.5, 297 6.5" pathLength="1"/>
+        <path class="p2" d="M6 12 C 60 8.5, 120 13.5, 180 10.5 C 230 8.5, 268 12, 294 10" pathLength="1"/>
+      </svg>
+    </div>
+    <div class="dekline">
+      <div class="dek">Approvals, edits, questions &amp; notices — nothing moves without you.</div>
+      <div class="agate folio fig">Page B1 · 9 August 2026</div>
+    </div>
+  </header>
+
+  <div class="docket-grid">
+    <!-- queue -->
+    <div class="docket-col settle" style="--d:.07s">
+      <div class="chips" id="docketChips">
+        <button class="chip on" data-filter="all">All<span class="n">4</span></button>
+        <button class="chip" data-filter="approval">Approval<span class="n">1</span></button>
+        <button class="chip" data-filter="email">Email / Edit<span class="n">1</span></button>
+        <button class="chip" data-filter="question">Question<span class="n">1</span></button>
+        <button class="chip" data-filter="fyi">FYI<span class="n">1</span></button>
+      </div>
+      <div id="docketList">
+        <button class="docket-item" data-type="approval" data-detail="d1">
+          <span class="verb">Approval</span>
+          <span class="dtitle">Approve payment run — 2 overdue Meridian invoices ($61,200)</span>
+          <span class="dmeta"><span class="agate">from automation</span>
+            <span class="mono">invoice-chaser</span>
+            <span class="agate fig">09:14</span><span class="state">dry-run</span></span>
+        </button>
+        <button class="docket-item sel" data-type="email" data-detail="d2">
+          <span class="verb">Email / Edit</span>
+          <span class="dtitle">Re: Q3 renewal pricing — reply to Dana Whitfield</span>
+          <span class="dmeta"><span class="agate">from email</span>
+            <span class="agate fig">08:47</span></span>
+        </button>
+        <button class="docket-item" data-type="question" data-detail="d3">
+          <span class="verb g">Question</span>
+          <span class="dtitle">Which fiscal calendar should the vendor report use — 4-4-5 or calendar month?</span>
+          <span class="dmeta"><span class="agate">from agent</span>
+            <span class="state ink">shared, unclaimed</span></span>
+        </button>
+        <button class="docket-item" data-type="fyi" data-detail="d4">
+          <span class="verb g">FYI</span>
+          <span class="dtitle">Nightly ERPDB health check completed — 0 anomalies, 312k rows scanned</span>
+          <span class="dmeta"><span class="agate">from automation</span>
+            <span class="mono">erpdb-daily-health</span>
+            <span class="agate fig">06:00</span></span>
+        </button>
+      </div>
+    </div>
+
+    <!-- detail pane -->
+    <div class="dpane settle" style="--d:.14s">
+
+      <!-- d1 · approval -->
+      <div class="detail card" id="d1">
+        <div class="card-pad">
+          <div class="d-kicker">
+            <span class="sc" style="color:var(--ox)">Docket № 1 · Approval</span>
+            <span class="state">dry-run</span>
+          </div>
+          <h3 class="d-title">Approve payment run — 2 overdue Meridian invoices ($61,200)</h3>
+          <p class="d-note">Proposed by automation <span class="mono">invoice-chaser</span> at 09:14.
+             The run was simulated — approving promotes it to a live execution.</p>
+          <div class="draft-wrap" style="margin-top:16px">
+            <table class="ledger fig">
+              <thead><tr><th>Invoice</th><th>Vendor</th><th class="num">Amount</th><th class="num">Age</th></tr></thead>
+              <tbody>
+                <tr><td class="inv">INV-20841</td><td>Meridian Supply Co</td><td class="num">$38,700</td><td class="num">21 d</td></tr>
+                <tr><td class="inv">INV-20857</td><td>Meridian Supply Co</td><td class="num">$22,500</td><td class="num">17 d</td></tr>
+                <tr><td></td><td><i>Payment run total</i></td><td class="num"><b>$61,200</b></td><td class="num"></td></tr>
+              </tbody>
+            </table>
+            <div class="stampmark" id="mark-d1" aria-live="polite"></div>
+          </div>
+          <div class="actionrow">
+            <button class="stampbtn" data-stamp="Approved" data-zone="mark-d1">Approve</button>
+            <button class="stampbtn quiet" data-stamp="Denied" data-zone="mark-d1" data-kind="deny">Deny</button>
+            <span class="hint">Humans stay in the loop — nothing pays out without you.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- d2 · email/edit (default) -->
+      <div class="detail card on" id="d2">
+        <div class="card-pad">
+          <div class="d-kicker">
+            <span class="sc" style="color:var(--ox)">Docket № 2 · Email / Edit</span>
+            <span class="agate fig">from email · 08:47</span>
+          </div>
+          <h3 class="d-title">Re: Q3 renewal pricing — reply to Dana Whitfield</h3>
+          <p class="d-note">Draft — body is editable; what you approve is what sends.</p>
+          <div class="addr">
+            <div class="arow"><span class="k">To</span><span class="v">dana@meridiansupply.com</span></div>
+            <div class="arow"><span class="k">From</span><span class="v">james-agent@mail.aihub.dev</span></div>
+            <div class="arow"><span class="k">Subject</span><span class="v">Re: Q3 renewal pricing</span></div>
+          </div>
+          <div class="draft-wrap">
+            <textarea aria-label="Editable draft body">Dana — thank you for sending over the Q3 renewal terms. We would like to hold at current pricing while we complete our August vendor-spend review; two of our invoices with Meridian (INV-20841 and INV-20857) are still pending on our side, and I want those settled first. I will come back to you with a firm answer this week. — James</textarea>
+            <div class="stampmark" id="mark-d2" aria-live="polite"></div>
+          </div>
+          <div class="commentrow">
+            <input type="text" aria-label="Optional comment"
+              placeholder="Add a note for the record (optional)…">
+          </div>
+          <div class="actionrow">
+            <button class="stampbtn" data-stamp="Approved" data-zone="mark-d2">Approve &amp; send</button>
+            <button class="stampbtn quiet" data-stamp="Denied" data-zone="mark-d2" data-kind="deny">Deny</button>
+            <span class="hint">Nothing sends without you.</span>
+          </div>
+
+          <div class="thread">
+            <div class="head sc">Thread with the agent</div>
+            <article class="entry you">
+              <div class="byline"><span class="who">You</span></div>
+              <p>&ldquo;Is Dana on the approved vendor contact list?&rdquo;</p>
+            </article>
+            <article class="entry agent">
+              <div class="byline"><span class="who">The Agent</span></div>
+              <p>Yes — primary commercial contact for Meridian Supply Co since March.</p>
+            </article>
+            <div class="thread-ask">
+              <input type="text" aria-label="Ask the agent about this item"
+                placeholder="Ask the agent about this item…">
+              <button class="inkbtn" data-ack="Asked ✓" style="padding:8px 16px">Ask</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- d3 · question -->
+      <div class="detail card" id="d3">
+        <div class="card-pad">
+          <div class="d-kicker">
+            <span class="sc" style="color:var(--ox)">Docket № 3 · Question</span>
+            <span class="state ink">shared, unclaimed</span>
+          </div>
+          <h3 class="d-title">Which fiscal calendar should the vendor report use — 4-4-5 or calendar month?</h3>
+          <p class="d-note">Asked by the agent while assembling the vendor report.
+             Shared question — the first answer claims it.</p>
+          <div class="choicerow">
+            <button class="choice" data-choice>4-4-5 fiscal</button>
+            <button class="choice" data-choice>Calendar month</button>
+          </div>
+          <div class="thread-ask" style="margin-top:14px">
+            <input type="text" aria-label="Answer with context"
+              placeholder="Or answer in your own words…">
+            <button class="inkbtn" data-ack="Answered ✓" style="padding:8px 16px">Answer</button>
+          </div>
+          <div class="actionrow">
+            <span class="hint">Your answer is remembered — the agent won&rsquo;t ask twice.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- d4 · fyi -->
+      <div class="detail card" id="d4">
+        <div class="card-pad">
+          <div class="d-kicker">
+            <span class="sc" style="color:var(--ox)">Docket № 4 · FYI</span>
+            <span class="agate fig">06:00</span>
+          </div>
+          <h3 class="d-title">Nightly ERPDB health check completed — 0 anomalies, 312k rows scanned</h3>
+          <p class="d-note">Filed by automation <span class="mono">erpdb-daily-health</span>.
+             For the record — no action required.</p>
+          <div class="fyi-figure fig">
+            <div class="cell"><div class="n">0</div><div class="agate sc" style="font-weight:400;letter-spacing:.14em">anomalies</div></div>
+            <div class="cell"><div class="n">312k</div><div class="agate sc" style="font-weight:400;letter-spacing:.14em">rows scanned</div></div>
+            <div class="cell"><div class="n">06:00</div><div class="agate sc" style="font-weight:400;letter-spacing:.14em">completed</div></div>
+          </div>
+          <div class="actionrow">
+            <button class="stampbtn quiet" data-ack="Noted ✓">Acknowledge</button>
+            <span class="hint">Read &amp; filed — it leaves the docket.</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     III. VIEWS — STANDING FIGURES
+     ============================================================ -->
+<section class="section" id="views" aria-label="Views">
+  <header class="sechead settle">
+    <div class="kicker">Section III · Views</div>
+    <div class="headline">
+      <h2>Standing Figures</h2>
+      <svg class="pen" viewBox="0 0 300 14" preserveAspectRatio="none" aria-hidden="true">
+        <path class="p1" d="M3 9 C 45 3.5, 96 12.5, 148 8 C 198 4, 246 11.5, 297 6.5" pathLength="1"/>
+        <path class="p2" d="M6 12 C 60 8.5, 120 13.5, 180 10.5 C 230 8.5, 268 12, 294 10" pathLength="1"/>
+      </svg>
+    </div>
+    <div class="dekline">
+      <div class="dek">Deterministic dashboards, kept in standing type — refreshed with zero AI.</div>
+      <div class="agate folio fig">Page C1 · 9 August 2026</div>
+    </div>
+  </header>
+
+  <div class="views-grid">
+    <div class="views-col settle" style="--d:.07s">
+      <button class="view-item sel">
+        <span class="vname">Vendor Spend — August</span>
+        <span class="vmeta"><span class="agate">user scope</span>
+          <span class="agate fig">4 tiles</span><span class="agate fig">v3</span></span>
+      </button>
+      <button class="view-item">
+        <span class="vname">Ops Pulse</span>
+        <span class="vmeta"><span class="agate">group scope</span>
+          <span class="agate fig">6 tiles</span><span class="agate fig">v11</span>
+          <span class="state" style="font-size:8px">automation tiles</span></span>
+      </button>
+      <button class="view-item">
+        <span class="vname">Warehouse Throughput</span>
+        <span class="vmeta"><span class="agate">tenant scope</span>
+          <span class="agate fig">5 tiles</span><span class="agate fig">v2</span></span>
+      </button>
+    </div>
+
+    <div class="settle" style="--d:.14s">
+      <div class="board-head">
+        <h3>Vendor Spend — August</h3>
+        <span class="agate fig">user · v3 · refreshed 16:42</span>
+        <div class="board-tools">
+          <button class="txtbtn" data-ack="Arranged ✓">Arrange</button>
+          <button class="txtbtn" data-ack="Renamed ✓">Rename</button>
+          <button class="txtbtn" data-ack="Drafting… ✓">✎ Edit with AI</button>
+          <button class="txtbtn" id="refreshBtn"><span id="refreshGlyph" style="display:inline-block">↻</span> Refresh</button>
+        </div>
+      </div>
+
+      <div class="tiles">
+        <!-- stat -->
+        <div class="tile t-stat">
+          <div class="tile-head"><span class="sc">August invoice total</span></div>
+          <div class="statnum fig">$482,910</div>
+          <div class="statsub agate mono" style="font-size:10px">SUM(total) · as of 16:42</div>
+          <div class="statdelta fig">41 vendors billed — the top five carry 68&nbsp;%.</div>
+        </div>
+
+        <!-- bar -->
+        <div class="tile t-bar">
+          <div class="tile-head"><span class="sc">Spend by vendor — top 5</span>
+            <span class="agate fig">August, $</span></div>
+          <div class="barrow"><span class="bl">Meridian Supply Co</span>
+            <span><span class="bar" style="width:100%;--i:0"></span></span>
+            <span class="bv fig">$128,400</span></div>
+          <div class="barrow"><span class="bl">Northgate Logistics</span>
+            <span><span class="bar" style="width:74.9%;--i:1"></span></span>
+            <span class="bv fig">$96,150</span></div>
+          <div class="barrow"><span class="bl">Corvid Materials</span>
+            <span><span class="bar" style="width:49.9%;--i:2"></span></span>
+            <span class="bv fig">$64,020</span></div>
+          <div class="barrow"><span class="bl">Atlas Packaging</span>
+            <span><span class="bar" style="width:32.2%;--i:3"></span></span>
+            <span class="bv fig">$41,310</span></div>
+          <div class="barrow"><span class="bl">Helix Industrial</span>
+            <span><span class="bar" style="width:30.3%;--i:4"></span></span>
+            <span class="bv fig">$38,900</span></div>
+        </div>
+
+        <!-- line -->
+        <div class="tile t-line">
+          <div class="tile-head"><span class="sc">Daily invoice volume</span>
+            <span class="agate fig">last 14 days</span></div>
+          <svg class="linechart" viewBox="0 0 340 112" role="img"
+               aria-label="Daily invoice volume, gently rising over fourteen days">
+            <line class="grid" x1="8" y1="20" x2="332" y2="20"/>
+            <line class="grid" x1="8" y1="45" x2="332" y2="45"/>
+            <line class="grid" x1="8" y1="70" x2="332" y2="70"/>
+            <line class="grid" x1="8" y1="95" x2="332" y2="95"/>
+            <path class="fill" d="M10,95 34,86.7 58,86.7 82,78.3 106,70 130,78.3 154,61.7 178,53.3 202,61.7 226,45 250,36.7 274,45 298,28.3 322,20 L322,95 L10,95 Z"/>
+            <polyline class="series" points="10,95 34,86.7 58,86.7 82,78.3 106,70 130,78.3 154,61.7 178,53.3 202,61.7 226,45 250,36.7 274,45 298,28.3 322,20"/>
+            <circle class="dot" cx="322" cy="20" r="3.4"/>
+            <text x="330" y="12" text-anchor="end">15</text>
+          </svg>
+          <div class="axisnote agate fig"><span>27 Jul</span><span>9 Aug</span></div>
+        </div>
+
+        <!-- table -->
+        <div class="tile t-table">
+          <div class="tile-head"><span class="sc">Open invoices &gt; 14 days</span>
+            <span class="agate fig">6 open</span></div>
+          <table class="ledger fig">
+            <thead><tr><th>Invoice</th><th>Vendor</th><th class="num">Amount</th><th class="num">Age</th></tr></thead>
+            <tbody>
+              <tr><td class="inv">INV-20841<span class="fnmark">&thinsp;†</span></td><td>Meridian</td><td class="num">$38,700</td><td class="num">21 d</td></tr>
+              <tr><td class="inv">INV-20857<span class="fnmark">&thinsp;†</span></td><td>Meridian</td><td class="num">$22,500</td><td class="num">17 d</td></tr>
+              <tr><td class="inv">INV-20872</td><td>Corvid</td><td class="num">$9,340</td><td class="num">16 d</td></tr>
+              <tr><td class="inv">INV-20881</td><td>Atlas</td><td class="num">$7,120</td><td class="num">15 d</td></tr>
+              <tr><td class="inv">INV-20889</td><td>Northgate</td><td class="num">$5,480</td><td class="num">15 d</td></tr>
+              <tr><td class="inv">INV-20896</td><td>Helix</td><td class="num">$4,210</td><td class="num">14 d</td></tr>
+            </tbody>
+          </table>
+          <div class="tablefoot"><sup>†</sup>&nbsp;raised to the Docket — awaiting your stamp in My&nbsp;Work.</div>
+        </div>
+
+        <!-- ticker -->
+        <div class="tile t-ticker">
+          <div class="ticker-label"><span class="sc">Latest invoices</span></div>
+          <div class="ticker-strip">
+            <div class="ticker-run">
+              <span class="tick-item"><span class="inv">INV-20841</span> Meridian Supply Co <span class="amt fig">$38,700</span> <span class="age fig">21 d</span></span>
+              <span class="tick-item"><span class="inv">INV-20857</span> Meridian Supply Co <span class="amt fig">$22,500</span> <span class="age fig">17 d</span></span>
+              <span class="tick-item"><span class="inv">INV-20872</span> Corvid Materials <span class="amt fig">$9,340</span> <span class="age fig">16 d</span></span>
+              <span class="tick-item"><span class="inv">INV-20881</span> Atlas Packaging <span class="amt fig">$7,120</span> <span class="age fig">15 d</span></span>
+              <span class="tick-item"><span class="inv">INV-20889</span> Northgate Logistics <span class="amt fig">$5,480</span> <span class="age fig">15 d</span></span>
+              <span class="tick-item"><span class="inv">INV-20896</span> Helix Industrial <span class="amt fig">$4,210</span> <span class="age fig">14 d</span></span>
+              <span class="tick-item" aria-hidden="true"><span class="inv">INV-20841</span> Meridian Supply Co <span class="amt fig">$38,700</span> <span class="age fig">21 d</span></span>
+              <span class="tick-item" aria-hidden="true"><span class="inv">INV-20857</span> Meridian Supply Co <span class="amt fig">$22,500</span> <span class="age fig">17 d</span></span>
+              <span class="tick-item" aria-hidden="true"><span class="inv">INV-20872</span> Corvid Materials <span class="amt fig">$9,340</span> <span class="age fig">16 d</span></span>
+              <span class="tick-item" aria-hidden="true"><span class="inv">INV-20881</span> Atlas Packaging <span class="amt fig">$7,120</span> <span class="age fig">15 d</span></span>
+              <span class="tick-item" aria-hidden="true"><span class="inv">INV-20889</span> Northgate Logistics <span class="amt fig">$5,480</span> <span class="age fig">15 d</span></span>
+              <span class="tick-item" aria-hidden="true"><span class="inv">INV-20896</span> Helix Industrial <span class="amt fig">$4,210</span> <span class="age fig">14 d</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     IV. PLAYBOOKS — THE REGISTER
+     ============================================================ -->
+<section class="section" id="playbooks" aria-label="Playbooks">
+  <header class="sechead settle">
+    <div class="kicker">Section IV · Playbooks</div>
+    <div class="headline">
+      <h2>The Register</h2>
+      <svg class="pen" viewBox="0 0 300 14" preserveAspectRatio="none" aria-hidden="true">
+        <path class="p1" d="M3 9 C 45 3.5, 96 12.5, 148 8 C 198 4, 246 11.5, 297 6.5" pathLength="1"/>
+        <path class="p2" d="M6 12 C 60 8.5, 120 13.5, 180 10.5 C 230 8.5, 268 12, 294 10" pathLength="1"/>
+      </svg>
+    </div>
+    <div class="dekline">
+      <div class="dek">Workflows, code flows &amp; automations on file.</div>
+      <div class="agate folio fig">Page D1 · 9 August 2026</div>
+    </div>
+  </header>
+
+  <div class="register settle" style="--d:.07s">
+    <div class="reg-tools">
+      <div class="chips" id="pbChips">
+        <button class="chip on" data-pbfilter="all">All<span class="n">6</span></button>
+        <button class="chip" data-pbfilter="workflow">Workflows<span class="n">2</span></button>
+        <button class="chip" data-pbfilter="codeflow">Code Flows<span class="n">1</span></button>
+        <button class="chip" data-pbfilter="automation">Automations<span class="n">3</span></button>
+      </div>
+      <div class="reg-search">
+        <input type="text" id="pbSearch" aria-label="Search the register"
+          placeholder="Search the register…">
+      </div>
+    </div>
+    <div class="reg-links">
+      <a class="dead" href="#">Open Workflow Designer ↗</a>
+      <a class="dead" href="#">Open Mission Control ↗</a>
+    </div>
+    <div id="pbList">
+      <div class="pb-item" data-pbtype="workflow">
+        <span class="ptype">Workflow</span>
+        <span class="pname">Invoice Intake — OCR + 3-way match</span>
+        <span class="pmeta agate fig">id 1218</span>
+      </div>
+      <div class="pb-item" data-pbtype="workflow">
+        <span class="ptype">Workflow</span>
+        <span class="pname">Vendor Onboarding Checks</span>
+        <span class="pmeta agate fig">id 1327</span>
+      </div>
+      <div class="pb-item" data-pbtype="codeflow">
+        <span class="ptype">Code Flow</span>
+        <span class="pname">Monthly Close Journal Prep</span>
+        <span class="pmeta agate fig">id 214</span>
+      </div>
+      <div class="pb-item is-auto" data-pbtype="automation">
+        <span class="ptype">Automation</span>
+        <span class="pname"><span class="mono">invoice-chaser</span></span>
+        <span class="pmeta agate fig">v7 · <span class="pin">pinned v6</span></span>
+      </div>
+      <div class="pb-item is-auto" data-pbtype="automation">
+        <span class="ptype">Automation</span>
+        <span class="pname"><span class="mono">dayforce-doc-upload</span></span>
+        <span class="pmeta agate fig">v3</span>
+      </div>
+      <div class="pb-item is-auto" data-pbtype="automation">
+        <span class="ptype">Automation</span>
+        <span class="pname"><span class="mono">erpdb-daily-health</span></span>
+        <span class="pmeta agate fig">v12</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     V. EMAIL — THE POST
+     ============================================================ -->
+<section class="section" id="email" aria-label="Email">
+  <header class="sechead settle">
+    <div class="kicker">Section V · Email</div>
+    <div class="headline">
+      <h2>The Post</h2>
+      <svg class="pen" viewBox="0 0 300 14" preserveAspectRatio="none" aria-hidden="true">
+        <path class="p1" d="M3 9 C 45 3.5, 96 12.5, 148 8 C 198 4, 246 11.5, 297 6.5" pathLength="1"/>
+        <path class="p2" d="M6 12 C 60 8.5, 120 13.5, 180 10.5 C 230 8.5, 268 12, 294 10" pathLength="1"/>
+      </svg>
+    </div>
+    <div class="dekline">
+      <div class="dek">The agent&rsquo;s personal address — mail in, briefings out.</div>
+      <div class="agate folio fig">Page E1 · 9 August 2026</div>
+    </div>
+  </header>
+
+  <div class="post-grid">
+    <!-- address card -->
+    <div class="card settle" style="--d:.07s">
+      <div class="card-head">
+        <span class="sc">Your address</span>
+        <span class="state">Active</span>
+      </div>
+      <div class="card-pad">
+        <div class="addr-field">
+          <input type="text" value="james-agent" aria-label="Address prefix">
+          <span class="suffix">@mail.aihub.dev</span>
+        </div>
+        <div class="field-row" style="justify-content:space-between;margin-top:17px">
+          <div class="field-row" style="margin-top:0">
+            <button class="toggle on" role="switch" aria-checked="true"
+              aria-label="Inbound enabled"></button>
+            <span style="font-size:13px">Inbound enabled</span>
+          </div>
+          <button class="inkbtn" data-ack="Saved ✓" style="padding:8px 18px">Save</button>
+        </div>
+        <p class="subcopy">Mail sent to this address runs a headless agent session as you
+           and lands its result in My&nbsp;Work.</p>
+      </div>
+    </div>
+
+    <!-- behavior card -->
+    <div class="card settle" style="--d:.12s">
+      <div class="card-head"><span class="sc">Sending &amp; behavior</span></div>
+      <div class="card-pad" style="padding-top:8px">
+        <div class="trow">
+          <button class="toggle on" role="switch" aria-checked="true"
+            aria-label="Outbound enabled"></button>
+          <div class="tl"><b>Outbound enabled</b></div>
+        </div>
+        <div class="trow">
+          <button class="toggle" role="switch" aria-checked="false"
+            aria-label="Auto-send replies"></button>
+          <div class="tl"><b>Auto-send replies</b>
+            <span class="agate">every reply waits for your approval in My Work</span></div>
+        </div>
+        <div class="trow">
+          <button class="toggle" role="switch" aria-checked="false"
+            aria-label="Notify on inbound"></button>
+          <div class="tl"><b>Notify on inbound</b></div>
+        </div>
+        <div class="cooldown">
+          <span class="sc" style="font-size:9px;letter-spacing:.16em;color:var(--ink-2)">Cooldown</span>
+          <input type="text" value="30" aria-label="Cooldown minutes" class="fig">
+          <span class="agate">minutes between replies to a thread</span>
+        </div>
+        <div class="standing">
+          <textarea aria-label="Standing instructions"
+            placeholder="Standing instructions — e.g. &ldquo;Never quote pricing; route vendor disputes to me.&rdquo;"></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- inbound activity -->
+  <div class="card post-full settle" style="--d:.17s">
+    <div class="card-head">
+      <span class="sc">Recent inbound activity</span>
+      <span class="agate fig">3 entries</span>
+    </div>
+    <div class="card-pad" style="padding-top:6px">
+      <div class="mailrow">
+        <span class="when fig">08-09 08:47</span>
+        <span><span class="state">reply_drafted</span></span>
+        <span class="addr-sub"><span class="mono">dana@meridiansupply.com</span>
+          — <em>Re: Q3 renewal pricing</em></span>
+      </div>
+      <div class="mailrow">
+        <span class="when fig">08-08 16:02</span>
+        <span><span class="state ink">processed</span></span>
+        <span class="addr-sub"><span class="mono">alerts@dayforce.com</span>
+          — <em>Document batch ready</em></span>
+      </div>
+      <div class="mailrow">
+        <span class="when fig">08-08 09:15</span>
+        <span><span class="state ink">processed</span></span>
+        <span class="addr-sub"><span class="mono">noreply@erpdb</span>
+          — <em>Weekly digest</em></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     VI. SKILLS — HOUSE STYLE
+     ============================================================ -->
+<section class="section" id="skills" aria-label="Skills">
+  <header class="sechead settle">
+    <div class="kicker">Section VI · Skills</div>
+    <div class="headline">
+      <h2>House Style</h2>
+      <svg class="pen" viewBox="0 0 300 14" preserveAspectRatio="none" aria-hidden="true">
+        <path class="p1" d="M3 9 C 45 3.5, 96 12.5, 148 8 C 198 4, 246 11.5, 297 6.5" pathLength="1"/>
+        <path class="p2" d="M6 12 C 60 8.5, 120 13.5, 180 10.5 C 230 8.5, 268 12, 294 10" pathLength="1"/>
+      </svg>
+    </div>
+    <div class="dekline">
+      <div class="dek">Procedural memory — the standing rules the agent works to.</div>
+      <div class="agate folio fig">Page F1 · 9 August 2026</div>
+    </div>
+  </header>
+
+  <div class="skills-grid">
+    <div class="skills-col settle" style="--d:.07s" id="skillList">
+      <button class="skill-item" data-skill="s1">
+        <span class="sname">erpdb-reconciliation-recipes</span>
+        <span class="smeta agate fig">product scope · 4.2 KB</span>
+      </button>
+      <button class="skill-item" data-skill="s2">
+        <span class="sname">vendor-naming-conventions</span>
+        <span class="smeta agate fig">tenant scope · 1.1 KB</span>
+      </button>
+      <button class="skill-item sel" data-skill="s3">
+        <span class="sname">james-report-format</span>
+        <span class="smeta agate fig">user scope · 0.8 KB</span>
+      </button>
+    </div>
+
+    <div class="settle" style="--d:.14s">
+      <div class="detail card on" id="s3-card">
+        <div class="card-pad">
+          <div class="d-kicker">
+            <span class="sc" style="color:var(--ox)" id="skScope">Procedural memory · user scope</span>
+            <span class="agate fig" id="skSize">0.8 KB</span>
+          </div>
+          <h3 class="d-title mono" id="skTitle" style="font-size:17px">james-report-format</h3>
+          <div class="skillbody" id="skBody">Reports for James: lead with the number, then the table. Currency to the dollar, no cents. Always note the as-of time…</div>
+          <div class="skill-note" id="skNote"></div>
+          <button class="dangerbtn" id="skDelete">Delete skill</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ================= COLOPHON ================= -->
+<footer class="sheet">
+  <div class="foot-rule"></div>
+  <div class="foot-cols">
+    <span class="mantra">draft → dry-run → promote → schedule</span>
+    <span class="mid agate">
+      <span class="fleuron" aria-hidden="true">❦</span>
+      The Agent · a publication of AI Hub · brain: claude-fable-5
+    </span>
+    <span class="mantra">humans stay in the loop · My Work</span>
+  </div>
+</footer>
+
+<a class="colophon" href="./index.html"><span class="fl" aria-hidden="true">❧</span>#02 · Ledger</a>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---------- dead links never navigate ---------- */
+  document.querySelectorAll("a.dead").forEach(function(a){
+    a.addEventListener("click", function(e){ e.preventDefault(); });
+  });
+
+  /* ---------- section navigation ---------- */
+  var navlinks = document.querySelectorAll(".navlink");
+  var sections = document.querySelectorAll(".section");
+  navlinks.forEach(function(btn){
+    btn.addEventListener("click", function(){
+      navlinks.forEach(function(b){ b.removeAttribute("aria-current"); });
+      btn.setAttribute("aria-current","true");
+      sections.forEach(function(s){
+        s.classList.toggle("active", s.id === btn.dataset.target);
+      });
+      window.scrollTo({top:0, behavior:"auto"});
+    });
+  });
+
+  /* ---------- platform dropdown ---------- */
+  var platform = document.getElementById("platform");
+  var platformBtn = document.getElementById("platformBtn");
+  platformBtn.addEventListener("click", function(e){
+    e.stopPropagation();
+    var open = platform.classList.toggle("open");
+    platformBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+  document.addEventListener("click", function(e){
+    if(!platform.contains(e.target)){
+      platform.classList.remove("open");
+      platformBtn.setAttribute("aria-expanded","false");
+    }
+  });
+
+  /* ---------- correspondence: hello scrolled away ---------- */
+  var corr = document.getElementById("correspondence");
+  if(corr){ corr.scrollTop = corr.scrollHeight; }
+
+  /* ---------- openers fill the desk ---------- */
+  var desk = document.getElementById("deskInput");
+  document.querySelectorAll(".opener").forEach(function(o){
+    o.addEventListener("click", function(){
+      if(desk){ desk.value = o.dataset.fill; desk.focus(); }
+    });
+  });
+
+  /* ---------- generic acknowledgment buttons ---------- */
+  document.querySelectorAll("[data-ack]").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      if(btn.dataset.busy){ return; }
+      btn.dataset.busy = "1";
+      var orig = btn.innerHTML;
+      btn.innerHTML = btn.dataset.ack;
+      btn.classList.add("acked");
+      setTimeout(function(){
+        btn.innerHTML = orig;
+        btn.classList.remove("acked");
+        delete btn.dataset.busy;
+      }, 1400);
+    });
+  });
+
+  /* ---------- rubber stamps (approve / deny) ---------- */
+  document.querySelectorAll("[data-stamp]").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var zone = document.getElementById(btn.dataset.zone);
+      if(!zone){ return; }
+      zone.classList.remove("show","denied");
+      void zone.offsetWidth; /* restart the press */
+      zone.textContent = btn.dataset.stamp;
+      if(btn.dataset.kind === "deny"){ zone.classList.add("denied"); }
+      zone.classList.add("show");
+    });
+  });
+
+  /* ---------- docket: filters + selection ---------- */
+  var docketChips = document.querySelectorAll("#docketChips .chip");
+  var docketItems = document.querySelectorAll("#docketList .docket-item");
+  docketChips.forEach(function(chip){
+    chip.addEventListener("click", function(){
+      docketChips.forEach(function(c){ c.classList.remove("on"); });
+      chip.classList.add("on");
+      var f = chip.dataset.filter;
+      docketItems.forEach(function(it){
+        it.style.display = (f === "all" || it.dataset.type === f) ? "" : "none";
+      });
+    });
+  });
+  var details = document.querySelectorAll(".dpane .detail");
+  docketItems.forEach(function(it){
+    it.addEventListener("click", function(){
+      docketItems.forEach(function(x){ x.classList.remove("sel"); });
+      it.classList.add("sel");
+      details.forEach(function(d){
+        d.classList.toggle("on", d.id === it.dataset.detail);
+      });
+    });
+  });
+
+  /* ---------- question choices ---------- */
+  var choices = document.querySelectorAll("[data-choice]");
+  choices.forEach(function(ch){
+    ch.addEventListener("click", function(){
+      choices.forEach(function(c){ c.classList.remove("picked"); });
+      ch.classList.add("picked");
+    });
+  });
+
+  /* ---------- views: list selection (visual only) ---------- */
+  var viewItems = document.querySelectorAll(".view-item");
+  viewItems.forEach(function(v){
+    v.addEventListener("click", function(){
+      viewItems.forEach(function(x){ x.classList.remove("sel"); });
+      v.classList.add("sel");
+    });
+  });
+
+  /* ---------- refresh spin ---------- */
+  var refreshBtn = document.getElementById("refreshBtn");
+  var refreshGlyph = document.getElementById("refreshGlyph");
+  if(refreshBtn && refreshGlyph){
+    refreshBtn.addEventListener("click", function(){
+      refreshGlyph.style.transition = "transform .55s cubic-bezier(.3,.6,.3,1)";
+      refreshGlyph.style.transform = "rotate(360deg)";
+      setTimeout(function(){
+        refreshGlyph.style.transition = "none";
+        refreshGlyph.style.transform = "none";
+      }, 600);
+    });
+  }
+
+  /* ---------- register: chips + search ---------- */
+  var pbChips = document.querySelectorAll("#pbChips .chip");
+  var pbItems = document.querySelectorAll("#pbList .pb-item");
+  var pbSearch = document.getElementById("pbSearch");
+  var pbFilter = "all";
+  function applyRegister(){
+    var q = (pbSearch.value || "").toLowerCase();
+    pbItems.forEach(function(it){
+      var typeOk = (pbFilter === "all" || it.dataset.pbtype === pbFilter);
+      var textOk = !q || it.textContent.toLowerCase().indexOf(q) !== -1;
+      it.style.display = (typeOk && textOk) ? "" : "none";
+    });
+  }
+  pbChips.forEach(function(chip){
+    chip.addEventListener("click", function(){
+      pbChips.forEach(function(c){ c.classList.remove("on"); });
+      chip.classList.add("on");
+      pbFilter = chip.dataset.pbfilter;
+      applyRegister();
+    });
+  });
+  if(pbSearch){ pbSearch.addEventListener("input", applyRegister); }
+
+  /* ---------- email toggles ---------- */
+  document.querySelectorAll(".toggle").forEach(function(t){
+    t.addEventListener("click", function(){
+      var on = t.classList.toggle("on");
+      t.setAttribute("aria-checked", on ? "true" : "false");
+    });
+  });
+
+  /* ---------- skills: selection + delete ack ---------- */
+  var skillData = {
+    s1:{ title:"erpdb-reconciliation-recipes", scope:"Procedural memory · product scope",
+         size:"4.2 KB",
+         body:"Three-way match: purchase order → goods receipt → invoice. Tie GL 2100 to the AP sub-ledger before close. When totals disagree, trust the sub-ledger — and say so in the report." },
+    s2:{ title:"vendor-naming-conventions", scope:"Procedural memory · tenant scope",
+         size:"1.1 KB",
+         body:"Vendors are recorded under their registered legal name — “Meridian Supply Co”, never “Meridian”. No abbreviations; no punctuation beyond the ampersand." },
+    s3:{ title:"james-report-format", scope:"Procedural memory · user scope",
+         size:"0.8 KB",
+         body:"Reports for James: lead with the number, then the table. Currency to the dollar, no cents. Always note the as-of time…" }
+  };
+  var skillItems = document.querySelectorAll(".skill-item");
+  skillItems.forEach(function(s){
+    s.addEventListener("click", function(){
+      skillItems.forEach(function(x){ x.classList.remove("sel"); });
+      s.classList.add("sel");
+      var d = skillData[s.dataset.skill];
+      if(!d){ return; }
+      document.getElementById("skTitle").textContent = d.title;
+      document.getElementById("skScope").textContent = d.scope;
+      document.getElementById("skSize").textContent = d.size;
+      document.getElementById("skBody").textContent = d.body;
+      document.getElementById("skNote").textContent = "";
+    });
+  });
+  var skDelete = document.getElementById("skDelete");
+  var skNoteTimer = null;
+  if(skDelete){
+    skDelete.addEventListener("click", function(){
+      var note = document.getElementById("skNote");
+      note.textContent = "Marked for deletion — nothing is struck from the record in this edition.";
+      if(skNoteTimer){ clearTimeout(skNoteTimer); }
+      skNoteTimer = setTimeout(function(){ note.textContent = ""; }, 2600);
+    });
+  }
+})();
+</script>
+</body>
+</html>

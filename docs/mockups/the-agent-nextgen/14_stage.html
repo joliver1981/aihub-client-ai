@@ -1,0 +1,1379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Agent · Stage concept</title>
+<style>
+/* ============================================================
+   #14 · STAGE — spotlight staging: light follows selection.
+   One region is lit at full contrast; everything else steps
+   down one full level. 150ms contrast shifts, never movement.
+   ============================================================ */
+
+/* ---------- tokens: LIGHT (default) ---------- */
+:root{
+  color-scheme:light;
+  --ground:#F7F7F5;
+  --pane-lit:#FFFFFF;
+  --pane-dim:#FBFBF9;
+  --ink-1:#1B1C1F;
+  --ink-2:#63656B;
+  --ink-3:#A3A5AA;
+  --line-1:rgba(23,24,28,.14);
+  --line-2:rgba(23,24,28,.07);
+  --accent:#3B82F6;
+  --accent-text:#2563EB;
+  --danger:#B4423A;
+  --lift:0 1px 2px rgba(20,21,26,.05),0 16px 40px -20px rgba(20,21,26,.20);
+  --halo:none;
+  --thumb-x:0px;
+  --sun-ink:#1B1C1F;
+  --moon-ink:#A3A5AA;
+}
+/* ---------- tokens: DARK via system preference ---------- */
+@media (prefers-color-scheme: dark){
+  :root{
+    color-scheme:dark;
+    --ground:#0F1012;
+    --pane-lit:#161719;
+    --pane-dim:#121316;
+    --ink-1:#EAEBED;
+    --ink-2:#A4A7AE;
+    --ink-3:#63666D;
+    --line-1:rgba(255,255,255,.13);
+    --line-2:rgba(255,255,255,.06);
+    --accent:#3B82F6;
+    --accent-text:#85AEF9;
+    --danger:#E0756C;
+    --lift:0 0 0 1px rgba(255,255,255,.03),0 18px 48px -26px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.06);
+    --halo:radial-gradient(120% 85% at 50% -10%,rgba(255,255,255,.05),rgba(255,255,255,0) 55%);
+    --thumb-x:26px;
+    --sun-ink:#63666D;
+    --moon-ink:#EAEBED;
+  }
+}
+/* ---------- explicit toggle overrides (beat the media query both ways) ---------- */
+:root[data-theme="light"]{
+  color-scheme:light;
+  --ground:#F7F7F5;
+  --pane-lit:#FFFFFF;
+  --pane-dim:#FBFBF9;
+  --ink-1:#1B1C1F;
+  --ink-2:#63656B;
+  --ink-3:#A3A5AA;
+  --line-1:rgba(23,24,28,.14);
+  --line-2:rgba(23,24,28,.07);
+  --accent:#3B82F6;
+  --accent-text:#2563EB;
+  --danger:#B4423A;
+  --lift:0 1px 2px rgba(20,21,26,.05),0 16px 40px -20px rgba(20,21,26,.20);
+  --halo:none;
+  --thumb-x:0px;
+  --sun-ink:#1B1C1F;
+  --moon-ink:#A3A5AA;
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --ground:#0F1012;
+  --pane-lit:#161719;
+  --pane-dim:#121316;
+  --ink-1:#EAEBED;
+  --ink-2:#A4A7AE;
+  --ink-3:#63666D;
+  --line-1:rgba(255,255,255,.13);
+  --line-2:rgba(255,255,255,.06);
+  --accent:#3B82F6;
+  --accent-text:#85AEF9;
+  --danger:#E0756C;
+  --lift:0 0 0 1px rgba(255,255,255,.03),0 18px 48px -26px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.06);
+  --halo:radial-gradient(120% 85% at 50% -10%,rgba(255,255,255,.05),rgba(255,255,255,0) 55%);
+  --thumb-x:26px;
+  --sun-ink:#63666D;
+  --moon-ink:#EAEBED;
+}
+
+/* ---------- reset & base ---------- */
+*,*::before,*::after{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:var(--ground);color:var(--ink-1);
+  font:13.5px/1.55 "Segoe UI","Segoe UI Variable Text",system-ui,-apple-system,sans-serif;
+  -webkit-font-smoothing:antialiased;overflow-x:hidden;
+  transition:background-color .15s ease,color .15s ease;
+}
+button{font:inherit;color:inherit;background:none;border:none;padding:0;cursor:pointer;text-align:left}
+a{color:inherit;text-decoration:none}
+input,textarea,select{font:inherit;color:var(--s-ink,var(--ink-1))}
+:focus{outline:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.mono{font-family:"Cascadia Mono",Consolas,"SF Mono",monospace}
+.num{font-variant-numeric:tabular-nums}
+
+/* ---------- app frame ---------- */
+.app{display:grid;grid-template-columns:236px minmax(0,1fr);height:100vh}
+.main{display:flex;flex-direction:column;min-width:0;height:100vh}
+.sections{flex:1;overflow-y:auto;overflow-x:hidden}
+.section{display:none;padding:26px 32px 26px}
+.section.active{display:block}
+.wrap{max-width:1160px;margin:0 auto}
+
+/* ============================================================
+   STAGING — the concept engine.
+   .stage carries local contrast vars; .lit steps them all up.
+   ============================================================ */
+.stage{
+  --s-pane:var(--pane-dim);
+  --s-ink:var(--ink-2);
+  --s-ink2:var(--ink-3);
+  --s-ink3:var(--ink-3);
+  --s-line:var(--line-2);
+  --s-accent:color-mix(in srgb,var(--accent) 45%,var(--pane-dim));
+  --s-accent-text:var(--ink-3);
+  position:relative;
+}
+.stage.lit{
+  --s-pane:var(--pane-lit);
+  --s-ink:var(--ink-1);
+  --s-ink2:var(--ink-2);
+  --s-ink3:var(--ink-3);
+  --s-line:var(--line-1);
+  --s-accent:var(--accent);
+  --s-accent-text:var(--accent-text);
+}
+.pane{
+  background:var(--s-pane);
+  border:1px solid var(--s-line);
+  border-radius:12px;
+}
+.stage.lit .pane-self,
+.pane.stage.lit{box-shadow:var(--lift)}
+.stage.lit::before{ /* the luminance lift — barely-there spotlight from above */
+  content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:var(--halo);
+}
+/* quick contrast shifts, never movement */
+.stage,.stage :where(div,p,span,td,th,h1,h2,h3,button,code,a,li,small,label,svg,rect,circle,polyline,polygon,line,path,input,textarea){
+  transition:color .15s ease,background-color .15s ease,border-color .15s ease,box-shadow .15s ease,opacity .15s ease;
+}
+
+/* ---------- type scale: 20 / 15 / 13.5 / 12 + micro 10.5 ---------- */
+.h-display{font-size:20px;font-weight:650;letter-spacing:-.01em;color:var(--s-ink)}
+.h-title{font-size:15px;font-weight:600;color:var(--s-ink)}
+.micro{font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--s-ink3)}
+.meta{font-size:12px;color:var(--s-ink3)}
+.body2{font-size:12.5px;color:var(--s-ink2)}
+
+/* ============================================================
+   RAIL — recedes by default; brightens under the pointer.
+   ============================================================ */
+.rail{
+  --s-ink:var(--ink-2);--s-ink2:var(--ink-3);--s-line:var(--line-2);
+  display:flex;flex-direction:column;gap:4px;padding:18px 14px 16px;
+  border-right:1px solid var(--line-2);
+  transition:border-color .15s ease;
+}
+.rail:hover,.rail:focus-within{--s-ink:var(--ink-1);--s-ink2:var(--ink-2);--s-line:var(--line-1)}
+.rail *{transition:color .15s ease,background-color .15s ease,border-color .15s ease}
+.brand{display:flex;align-items:center;gap:9px;padding:4px 10px 16px}
+.brand svg{color:var(--s-ink)}
+.brand .bn{font-size:14.5px;font-weight:650;letter-spacing:-.01em;color:var(--s-ink)}
+.nav-btn{
+  display:flex;align-items:center;gap:10px;width:100%;
+  padding:8px 10px;border-radius:8px;border:1px solid transparent;
+  font-size:13px;font-weight:500;color:var(--s-ink2);
+}
+.nav-btn svg{flex:none;color:var(--s-ink2)}
+.nav-btn:hover{color:var(--s-ink);background:color-mix(in srgb,var(--ink-1) 4%,transparent)}
+.nav-btn:hover svg{color:var(--s-ink)}
+.nav-btn.active{ /* the light stays where you are */
+  background:var(--pane-lit);border-color:var(--line-2);
+  color:var(--ink-1);font-weight:600;
+  box-shadow:0 1px 2px rgba(0,0,0,.04);
+}
+.nav-btn.active svg{color:var(--ink-1)}
+.nbadge{
+  margin-left:auto;background:var(--accent);color:#fff;
+  font-size:10.5px;font-weight:650;line-height:1;padding:3px 7px;border-radius:999px;
+  font-variant-numeric:tabular-nums;
+}
+.rail-sep{height:1px;background:var(--line-2);margin:14px 10px}
+.rail .micro{padding:0 10px 6px;color:var(--s-ink2)}
+.plink{
+  display:flex;align-items:center;gap:7px;padding:5px 10px;border-radius:6px;
+  font-size:12px;color:var(--s-ink2);
+}
+.plink:hover{color:var(--s-ink)}
+.plink svg{opacity:.7}
+.rail-foot{margin-top:auto;padding:10px 10px 0;display:flex;flex-direction:column;gap:8px}
+.brainchip{
+  font-family:"Cascadia Mono",Consolas,monospace;font-size:10.5px;color:var(--s-ink2);
+  border:1px solid var(--s-line);border-radius:6px;padding:4px 8px;width:max-content;
+}
+.rail-user{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--s-ink2)}
+.rail-user .av{
+  width:24px;height:24px;border-radius:50%;flex:none;
+  background:color-mix(in srgb,var(--accent) 14%,var(--pane-lit));
+  color:var(--accent-text);font-size:11px;font-weight:650;
+  display:flex;align-items:center;justify-content:center;
+}
+
+/* ============================================================
+   TOPBAR
+   ============================================================ */
+.topbar{
+  height:58px;flex:none;display:flex;align-items:center;justify-content:space-between;
+  padding:0 32px;border-bottom:1px solid var(--line-2);
+}
+.tb-left{display:flex;align-items:baseline;gap:10px}
+.tb-left .sect{font-size:15px;font-weight:650;letter-spacing:-.01em;color:var(--ink-1)}
+.tb-left .crumb{font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+.tb-right{display:flex;align-items:center;gap:14px}
+/* theme toggle — the house lights */
+.theme{
+  position:relative;width:54px;height:28px;border-radius:999px;flex:none;
+  border:1px solid var(--line-1);background:var(--pane-dim);cursor:pointer;
+  transition:background-color .15s ease,border-color .15s ease;
+}
+.theme .ticon{position:absolute;top:6.5px;width:14px;height:14px;z-index:2}
+.theme .sun{left:7px;color:var(--sun-ink)}
+.theme .moon{right:7px;color:var(--moon-ink)}
+.theme .thumb{
+  position:absolute;top:2.5px;left:2.5px;width:21px;height:21px;border-radius:50%;
+  background:var(--pane-lit);box-shadow:0 1px 3px rgba(0,0,0,.22),0 0 0 1px var(--line-2);
+  transform:translateX(var(--thumb-x));transition:transform .18s ease,background-color .15s ease;
+}
+.tb-user{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--ink-2)}
+.tb-user .av{
+  width:28px;height:28px;border-radius:50%;
+  background:color-mix(in srgb,var(--accent) 13%,var(--pane-lit));
+  color:var(--accent-text);font-size:12px;font-weight:650;
+  display:flex;align-items:center;justify-content:center;
+}
+
+/* ============================================================
+   SHARED COMPONENTS
+   ============================================================ */
+.btn{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:12.5px;font-weight:600;line-height:1;
+  padding:9px 14px;border-radius:8px;border:1px solid transparent;cursor:pointer;
+}
+.btn-primary{background:var(--s-accent);color:#fff}
+.btn-primary:hover{background:color-mix(in srgb,var(--s-accent) 86%,#000)}
+.btn-sec{border-color:var(--s-line);color:var(--s-ink)}
+.btn-sec:hover{background:color-mix(in srgb,var(--ink-1) 4%,transparent)}
+.btn-ghost{color:var(--s-ink2);padding:9px 10px}
+.btn-ghost:hover{color:var(--s-ink);background:color-mix(in srgb,var(--ink-1) 4%,transparent)}
+.btn-danger{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 35%,transparent)}
+.btn-danger:hover{background:color-mix(in srgb,var(--danger) 7%,transparent)}
+.btn.acked{background:color-mix(in srgb,var(--s-accent) 13%,transparent);color:var(--s-accent-text);border-color:transparent}
+.btn.flash{box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 25%,transparent)}
+
+.chip{
+  display:inline-flex;align-items:center;gap:5px;
+  font-size:12px;font-weight:500;padding:5px 11px;border-radius:999px;
+  border:1px solid transparent;color:var(--s-ink2);
+}
+.chip span{color:var(--s-ink3);font-variant-numeric:tabular-nums}
+.chip:hover{color:var(--s-ink)}
+.chip.active{
+  background:color-mix(in srgb,var(--ink-1) 7%,transparent);
+  color:var(--s-ink);border-color:var(--s-line);font-weight:600;
+}
+.chip.active span{color:var(--s-ink2)}
+
+/* verb tags — subtle, distinct treatments */
+.tag{
+  display:inline-flex;align-items:center;gap:5px;flex:none;
+  font-size:10.5px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;
+  line-height:1;padding:4px 8px;border-radius:5px;
+}
+.tag i{width:5px;height:5px;border-radius:50%;background:currentColor;flex:none}
+.tag-approval{background:color-mix(in srgb,var(--s-accent) 13%,transparent);color:var(--s-accent-text)}
+.tag-email{border:1px solid var(--s-line);color:var(--s-ink2)}
+.tag-question{background:color-mix(in srgb,var(--ink-1) 7%,transparent);color:var(--s-ink2)}
+.tag-fyi{color:var(--s-ink3)}
+.tag-fyi i{background:transparent;border:1px solid currentColor}
+.pill{
+  display:inline-flex;font-family:"Cascadia Mono",Consolas,monospace;font-size:10.5px;line-height:1;
+  border:1px solid var(--s-line);border-radius:4px;padding:3px 6px;color:var(--s-ink2);
+}
+.scope{
+  display:inline-flex;font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  line-height:1;padding:4px 8px;border-radius:5px;
+  background:color-mix(in srgb,var(--ink-1) 6%,transparent);color:var(--s-ink2);
+}
+
+.field,textarea.field{
+  width:100%;background:transparent;border:1px solid var(--s-line);border-radius:8px;
+  padding:9px 12px;color:var(--s-ink);font-size:13px;line-height:1.6;resize:vertical;
+}
+.field::placeholder{color:var(--s-ink3)}
+.field:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 15%,transparent)}
+
+/* toggles */
+.switch{
+  position:relative;width:34px;height:20px;border-radius:999px;flex:none;cursor:pointer;
+  background:color-mix(in srgb,var(--ink-1) 14%,transparent);
+}
+.switch[aria-checked="true"]{background:var(--s-accent)}
+.switch .knob{
+  position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
+  background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);
+  transition:transform .15s ease;
+}
+.switch[aria-checked="true"] .knob{transform:translateX(14px)}
+
+/* data table (chat answer) */
+.mtable{border-collapse:collapse;width:100%;margin:12px 0 4px}
+.mtable th{
+  font-size:10.5px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--s-ink3);text-align:left;padding:0 10px 7px;border-bottom:1px solid var(--s-line);
+}
+.mtable td{
+  padding:7.5px 10px;border-bottom:1px solid color-mix(in srgb,var(--s-line) 55%,transparent);
+  font-size:13px;color:var(--s-ink);font-variant-numeric:tabular-nums;
+}
+.mtable tr:last-child td{border-bottom:none}
+.mtable th.r,.mtable td.r{text-align:right}
+.mtable td .dn,.mtable td .up{font-size:10px;color:var(--s-ink3);margin-right:2px}
+
+/* ============================================================
+   ASSISTANT
+   ============================================================ */
+.assist-col{max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.thread{padding:10px 30px 26px;cursor:default}
+.msg{padding:18px 0 4px}
+.msg .who{
+  display:flex;align-items:center;gap:7px;
+  font-size:10.5px;font-weight:650;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--s-ink3);margin-bottom:7px;
+}
+.msg .who .spot{display:none;width:6px;height:6px;border-radius:50%;background:var(--s-accent)}
+.msg .mtext{font-size:13.5px;color:var(--s-ink2);max-width:66ch}
+.msg .mtext p{margin:0 0 10px}
+.msg .mtext p:last-child{margin-bottom:0}
+.msg .mtext strong{font-weight:650;color:inherit}
+.msg.you .mtext{color:var(--s-ink);font-weight:500}
+/* the newest agent turn is the on-stage line */
+.msg.now .mtext{color:var(--s-ink)}
+.msg.now .who{color:var(--s-ink2)}
+.msg.now .who .spot{display:inline-block}
+.tools{display:flex;flex-wrap:wrap;gap:8px;padding:12px 0 2px}
+.tool{
+  display:inline-flex;align-items:center;gap:8px;
+  border:1px solid var(--s-line);border-radius:7px;padding:6px 10px;
+  font-family:"Cascadia Mono",Consolas,monospace;font-size:11px;color:var(--s-ink2);
+}
+.tool .ok{
+  width:12px;height:12px;flex:none;color:var(--s-ink3);
+}
+.tool code{color:var(--s-ink)}
+.tool .tmeta{color:var(--s-ink3)}
+.composer{padding:16px 18px 14px;position:sticky;bottom:14px}
+.presence{display:flex;align-items:center;gap:8px;padding:0 2px 10px;font-size:11px;color:var(--s-ink3)}
+.pdot{width:7px;height:7px;border-radius:50%;background:var(--s-accent);animation:breathe 3s ease-in-out infinite}
+@keyframes breathe{0%,100%{opacity:.35}50%{opacity:1}}
+.composer textarea{
+  width:100%;min-height:46px;max-height:160px;border:none;background:transparent;resize:none;
+  font-size:13.5px;line-height:1.55;color:var(--s-ink);padding:2px;
+}
+.composer textarea::placeholder{color:var(--s-ink3)}
+.composer textarea:focus{box-shadow:none;border:none}
+.crow{display:flex;align-items:center;gap:6px;padding-top:10px;border-top:1px solid var(--s-line)}
+.crow .grow{flex:1}
+
+/* ============================================================
+   MY WORK
+   ============================================================ */
+.work-grid{display:grid;grid-template-columns:minmax(340px,396px) minmax(0,1fr);gap:16px;align-items:start}
+.queue{padding:18px 14px 12px;cursor:default}
+.queue-head{display:flex;align-items:baseline;justify-content:space-between;padding:0 8px 12px}
+.chips{display:flex;flex-wrap:wrap;gap:2px;padding:0 4px 10px}
+.qitem{
+  display:flex;flex-direction:column;gap:7px;width:100%;
+  padding:13px 14px;border-radius:9px;border:1px solid transparent;margin-bottom:2px;
+}
+.qitem:hover{background:color-mix(in srgb,var(--ink-1) 4%,transparent)}
+.qitem .qrow1{display:flex;align-items:center;gap:8px}
+.qitem .qtitle{font-size:13.5px;font-weight:600;color:var(--s-ink);line-height:1.4}
+.qitem .qmeta{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--s-ink3)}
+.qitem.sel{
+  background:var(--pane-lit);border-color:var(--s-line);
+  box-shadow:0 1px 2px rgba(0,0,0,.04);
+}
+.qitem.sel .qtitle{color:var(--ink-1)}
+.detail{padding:26px 30px 24px;min-height:520px}
+.witem{display:none}
+.witem.active{display:block}
+.d-head{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.d-title{font-size:16.5px;font-weight:650;letter-spacing:-.01em;color:var(--s-ink);margin:6px 0 2px}
+.d-label{font-size:12px;color:var(--s-ink3);margin-bottom:16px}
+.kv{display:grid;grid-template-columns:88px 1fr;gap:7px 12px;padding:14px 0;border-top:1px solid var(--s-line);border-bottom:1px solid var(--s-line);margin-bottom:14px}
+.kv .k{font-size:10.5px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--s-ink3);padding-top:2px}
+.kv .v{font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;color:var(--s-ink)}
+.draft{min-height:118px;margin-bottom:10px}
+.actions{display:flex;align-items:center;gap:10px;margin-top:14px}
+.actions .hint{margin-left:auto;font-size:11.5px;color:var(--s-ink3)}
+.thread-mini{margin-top:24px;padding-top:16px;border-top:1px solid var(--s-line)}
+.tm-msg{display:flex;gap:10px;padding:7px 0;font-size:12.5px}
+.tm-msg .tw{flex:none;width:74px;font-size:10.5px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--s-ink3);padding-top:2px}
+.tm-msg .tt{color:var(--s-ink2)}
+.opt{
+  display:block;width:100%;padding:12px 14px;margin-bottom:8px;
+  border:1px solid var(--s-line);border-radius:9px;font-size:13px;color:var(--s-ink2);
+}
+.opt .on{font-weight:600;color:var(--s-ink)}
+.opt:hover{background:color-mix(in srgb,var(--ink-1) 3%,transparent)}
+.opt.sel{border-color:var(--s-accent);box-shadow:0 0 0 1px var(--s-accent)}
+.itable{width:100%;border-collapse:collapse;margin:4px 0 14px}
+.itable td{padding:8px 10px;border-bottom:1px solid color-mix(in srgb,var(--s-line) 55%,transparent);font-size:12.5px;color:var(--s-ink);font-variant-numeric:tabular-nums}
+.itable td.r{text-align:right}
+.itable tr.tot td{border-bottom:none;font-weight:650;border-top:1px solid var(--s-line)}
+
+/* ============================================================
+   VIEWS
+   ============================================================ */
+.views-grid{display:grid;grid-template-columns:264px minmax(0,1fr);gap:16px;align-items:start}
+.vlist{padding:18px 12px 12px;cursor:default}
+.vlist .micro{padding:0 10px 10px}
+.vitem{display:block;width:100%;padding:12px 12px;border-radius:9px;border:1px solid transparent;margin-bottom:2px}
+.vitem:hover{background:color-mix(in srgb,var(--ink-1) 4%,transparent)}
+.vitem .vname{font-size:13.5px;font-weight:600;color:var(--s-ink)}
+.vitem .vmeta{font-size:11.5px;color:var(--s-ink3);margin-top:3px}
+.vitem.sel{background:var(--pane-lit);border-color:var(--s-line);box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.vitem.sel .vname{color:var(--ink-1)}
+.board{padding:22px 26px 24px;min-height:520px}
+.board-head{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+.board-head .bmeta{font-size:12px;color:var(--s-ink3);font-variant-numeric:tabular-nums}
+.board-head .bbtns{margin-left:auto;display:flex;gap:2px}
+.boardset{display:none}
+.boardset.active{display:block}
+.tiles{display:grid;grid-template-columns:repeat(12,1fr);gap:12px}
+.tile{
+  position:relative;border:1px solid var(--s-line);border-radius:10px;padding:14px 16px 15px;
+  display:flex;flex-direction:column;gap:10px;min-width:0;
+}
+.tile .thead{display:flex;align-items:center;gap:8px}
+.tile .thead .micro{letter-spacing:.08em}
+.tile .tsub{font-size:11px;color:var(--s-ink3)}
+.stat-n{font-size:27px;font-weight:650;letter-spacing:-.015em;color:var(--s-ink);font-variant-numeric:tabular-nums;line-height:1.1}
+.sp4{grid-column:span 4}.sp5{grid-column:span 5}.sp6{grid-column:span 6}.sp7{grid-column:span 7}.sp8{grid-column:span 8}.sp12{grid-column:span 12}
+.brow{display:grid;grid-template-columns:118px 1fr 64px;gap:10px;align-items:center;font-size:11.5px;color:var(--s-ink2)}
+.brow .bv{text-align:right;font-variant-numeric:tabular-nums;color:var(--s-ink2)}
+.btrack{height:7px;border-radius:4px;background:color-mix(in srgb,var(--ink-1) 7%,transparent);overflow:hidden}
+.bfill{height:100%;border-radius:4px;background:var(--s-accent)}
+.spark{width:100%;height:auto;display:block;color:var(--s-ink2)}
+.spark .acc{color:var(--s-accent)}
+.trow{display:grid;grid-template-columns:86px 1fr auto auto;gap:10px;align-items:center;padding:6.5px 0;border-bottom:1px solid color-mix(in srgb,var(--s-line) 55%,transparent);font-size:12px}
+.trow:last-child{border-bottom:none}
+.trow .ti{font-family:"Cascadia Mono",Consolas,monospace;font-size:11px;color:var(--s-ink)}
+.trow .tv{color:var(--s-ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trow .ta{font-variant-numeric:tabular-nums;color:var(--s-ink);text-align:right}
+.ticker{
+  overflow:hidden;white-space:nowrap;font-family:"Cascadia Mono",Consolas,monospace;
+  font-size:11px;color:var(--s-ink2);padding:2px 0;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);
+  mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);
+}
+.ticker b{font-weight:600;color:var(--s-ink)}
+
+/* ============================================================
+   PLAYBOOKS
+   ============================================================ */
+.pb-col{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.pbbar{padding:14px 18px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.pbbar .search{flex:1;min-width:180px;max-width:280px}
+.pbbar .search .field{padding:7px 12px;font-size:12.5px}
+.pbbar .plinks{margin-left:auto;display:flex;gap:16px;font-size:12px}
+.alink{color:var(--s-accent-text);font-weight:600}
+.alink:hover{text-decoration:underline}
+.pblist{padding:10px 12px}
+.pb{display:flex;align-items:center;gap:12px;padding:14px 14px;border-radius:9px}
+.pb:hover{background:color-mix(in srgb,var(--ink-1) 4%,transparent)}
+.pb+.pb{border-top:1px solid color-mix(in srgb,var(--s-line) 55%,transparent)}
+.pb .pname{font-size:13.5px;font-weight:600;color:var(--s-ink)}
+.pb .pmeta{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:11.5px;color:var(--s-ink3);font-variant-numeric:tabular-nums}
+.pb .chev{color:var(--s-ink3)}
+.ttag{
+  display:inline-flex;flex:none;font-size:10.5px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;
+  line-height:1;padding:4px 8px;border-radius:5px;
+}
+.ttag-wf{border:1px solid var(--s-line);color:var(--s-ink2)}
+.ttag-cf{font-family:"Cascadia Mono",Consolas,monospace;letter-spacing:0;text-transform:none;background:color-mix(in srgb,var(--ink-1) 7%,transparent);color:var(--s-ink2)}
+.ttag-auto{background:color-mix(in srgb,var(--s-accent) 12%,transparent);color:var(--s-accent-text)}
+
+/* ============================================================
+   EMAIL
+   ============================================================ */
+.email-grid{max-width:1040px;margin:0 auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}
+.ecard{padding:22px 24px 20px}
+.ecard-head{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.chip-live{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:10.5px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;
+  padding:4px 9px;border-radius:999px;
+  background:color-mix(in srgb,var(--s-accent) 12%,transparent);color:var(--s-accent-text);
+}
+.chip-live i{width:6px;height:6px;border-radius:50%;background:currentColor}
+.addr-row{display:flex;align-items:center;gap:0;margin:14px 0 4px}
+.addr-row .field{max-width:150px;border-radius:8px 0 0 8px;font-family:"Cascadia Mono",Consolas,monospace;font-size:12.5px}
+.addr-suffix{
+  font-family:"Cascadia Mono",Consolas,monospace;font-size:12.5px;color:var(--s-ink2);
+  border:1px solid var(--s-line);border-left:none;border-radius:0 8px 8px 0;padding:9px 12px;
+  background:color-mix(in srgb,var(--ink-1) 4%,transparent);
+}
+.erow{display:flex;align-items:center;gap:14px;padding:13px 0;border-bottom:1px solid color-mix(in srgb,var(--s-line) 60%,transparent)}
+.erow:last-of-type{border-bottom:none}
+.erow .etxt{flex:1;min-width:0}
+.erow .elabel{font-size:13px;font-weight:600;color:var(--s-ink)}
+.erow .enote{font-size:11.5px;color:var(--s-ink3);margin-top:2px}
+.cool{display:flex;align-items:center;gap:10px}
+.cool .field{width:72px;text-align:right;font-variant-numeric:tabular-nums}
+.act-row{display:grid;grid-template-columns:96px auto 1fr;gap:12px;align-items:center;padding:10px 4px;border-bottom:1px solid color-mix(in srgb,var(--s-line) 55%,transparent);font-size:12.5px}
+.act-row:last-child{border-bottom:none}
+.act-row .at{font-family:"Cascadia Mono",Consolas,monospace;font-size:11px;color:var(--s-ink3)}
+.act-row .atxt{color:var(--s-ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.act-row .atxt b{font-weight:600;color:var(--s-ink)}
+
+/* ============================================================
+   SKILLS
+   ============================================================ */
+.skills-grid{max-width:1040px;margin:0 auto;display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px;align-items:start}
+.slist{padding:18px 12px 12px}
+.slist .micro{padding:0 10px 10px}
+.sitem{display:block;width:100%;padding:12px;border-radius:9px;border:1px solid transparent;margin-bottom:2px}
+.sitem:hover{background:color-mix(in srgb,var(--ink-1) 4%,transparent)}
+.sitem .sname{font-family:"Cascadia Mono",Consolas,monospace;font-size:12.5px;font-weight:600;color:var(--s-ink)}
+.sitem .smeta{font-size:11.5px;color:var(--s-ink3);margin-top:4px}
+.sitem.sel{background:var(--pane-lit);border-color:var(--s-line);box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.sdetailpane{padding:24px 28px 22px;min-height:380px}
+.sdetail{display:none}
+.sdetail.active{display:block}
+.sd-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.sd-title{font-family:"Cascadia Mono",Consolas,monospace;font-size:16px;font-weight:650;color:var(--s-ink)}
+.sd-body{
+  margin:18px 0;border:1px solid var(--s-line);border-radius:9px;padding:16px 18px;
+  font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;line-height:1.8;color:var(--s-ink2);
+  white-space:pre-wrap;
+}
+.sd-foot{display:flex;align-items:center}
+.sd-foot .hint{margin-left:auto;font-size:11.5px;color:var(--s-ink3)}
+
+/* ============================================================
+   FOOTER + BADGE
+   ============================================================ */
+.mantra{
+  flex:none;height:42px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 150px 0 32px;border-top:1px solid var(--line-2);
+  font-family:"Cascadia Mono",Consolas,monospace;font-size:10.5px;color:var(--ink-3);
+}
+.badge{
+  position:fixed;right:16px;bottom:9px;z-index:60;
+  font-family:"Cascadia Mono",Consolas,monospace;font-size:10.5px;color:var(--ink-2);
+  background:var(--pane-lit);border:1px solid var(--line-1);border-radius:999px;
+  padding:5px 11px;box-shadow:0 1px 3px rgba(0,0,0,.07);
+  transition:color .15s ease,box-shadow .15s ease;
+}
+.badge:hover{color:var(--ink-1);box-shadow:var(--lift)}
+
+/* ---------- reduced motion ---------- */
+@media (prefers-reduced-motion: reduce){
+  *{animation:none !important}
+  .theme .thumb,.switch .knob{transition:none !important}
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ==================== RAIL ==================== -->
+  <aside class="rail" aria-label="Primary navigation">
+    <div class="brand">
+      <svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="8" cy="8" r="3" fill="currentColor"/>
+        <circle cx="8" cy="8" r="6.4" stroke="currentColor" stroke-width="1.1" opacity=".3" fill="none"/>
+      </svg>
+      <span class="bn">The Agent</span>
+    </div>
+
+    <button class="nav-btn active" data-sec="assistant" data-label="Assistant" aria-current="page">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true">
+        <path d="M13.5 7.7c0 2.3-2.1 4.2-4.7 4.2-.8 0-1.6-.2-2.2-.5L3.5 12.6l.9-2.4C3.6 9.5 3.1 8.6 3.1 7.7c0-2.3 2.1-4.2 4.7-4.2s4.7 1.9 4.7 4.2Z"/>
+      </svg>
+      Assistant
+    </button>
+    <button class="nav-btn" data-sec="work" data-label="My Work">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3.7 3.5h8.6l1.2 5.5v2.5a1.5 1.5 0 0 1-1.5 1.5H4a1.5 1.5 0 0 1-1.5-1.5V9l1.2-5.5Z"/>
+        <path d="M2.5 9h3.1l.9 1.6h3l.9-1.6h3.1"/>
+      </svg>
+      My Work
+      <span class="nbadge">4</span>
+    </button>
+    <button class="nav-btn" data-sec="views" data-label="Views">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+        <rect x="2.5" y="2.5" width="4.6" height="4.6" rx="1.1"/><rect x="8.9" y="2.5" width="4.6" height="4.6" rx="1.1"/>
+        <rect x="2.5" y="8.9" width="4.6" height="4.6" rx="1.1"/><rect x="8.9" y="8.9" width="4.6" height="4.6" rx="1.1"/>
+      </svg>
+      Views
+    </button>
+    <button class="nav-btn" data-sec="playbooks" data-label="Playbooks">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+        <circle cx="4" cy="4" r="1.7"/><circle cx="12" cy="8" r="1.7"/><circle cx="4" cy="12" r="1.7"/>
+        <path d="M5.7 4H8a2 2 0 0 1 2 2v.4M5.7 12H8a2 2 0 0 0 2-2v-.4"/>
+      </svg>
+      Playbooks
+    </button>
+    <button class="nav-btn" data-sec="email" data-label="Email">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true">
+        <rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="m2.7 4.6 5.3 3.9 5.3-3.9"/>
+      </svg>
+      Email
+    </button>
+    <button class="nav-btn" data-sec="skills" data-label="Skills">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true">
+        <path d="m8 2.4 6 3-6 3-6-3 6-3Z"/><path d="m3.2 8.6 4.8 2.4 4.8-2.4"/><path d="m3.2 11.2 4.8 2.4 4.8-2.4"/>
+      </svg>
+      Skills
+    </button>
+
+    <div class="rail-sep" role="presentation"></div>
+    <div class="micro">Platform</div>
+    <a class="plink" href="#">Data Explorer <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 8 8 2M4 2h4v4"/></svg></a>
+    <a class="plink" href="#">Workflow Designer <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 8 8 2M4 2h4v4"/></svg></a>
+    <a class="plink" href="#">Mission Control <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 8 8 2M4 2h4v4"/></svg></a>
+    <a class="plink" href="#">Command Center <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 8 8 2M4 2h4v4"/></svg></a>
+    <a class="plink" href="#">Documents <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 8 8 2M4 2h4v4"/></svg></a>
+    <a class="plink" href="#">Classic app <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 8 8 2M4 2h4v4"/></svg></a>
+
+    <div class="rail-foot">
+      <span class="brainchip">brain: claude-fable-5</span>
+      <div class="rail-user"><span class="av">J</span> James · admin</div>
+    </div>
+  </aside>
+
+  <!-- ==================== MAIN ==================== -->
+  <div class="main">
+    <header class="topbar">
+      <div class="tb-left">
+        <span class="crumb">The Agent</span>
+        <span class="sect" id="sectionTitle">Assistant</span>
+      </div>
+      <div class="tb-right">
+        <button class="theme" id="themeToggle" title="House lights" aria-label="Toggle light and dark theme">
+          <svg class="ticon sun" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true">
+            <circle cx="8" cy="8" r="3"/>
+            <path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M12.6 3.4l-1.1 1.1M4.5 11.5l-1.1 1.1"/>
+          </svg>
+          <svg class="ticon moon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true">
+            <path d="M13.2 9.6A5.4 5.4 0 1 1 6.4 2.8a4.3 4.3 0 0 0 6.8 6.8Z"/>
+          </svg>
+          <span class="thumb"></span>
+        </button>
+        <div class="tb-user"><span>James</span><span class="av">J</span></div>
+      </div>
+    </header>
+
+    <main class="sections">
+
+      <!-- ==================== 1 · ASSISTANT ==================== -->
+      <section id="sec-assistant" class="section active" data-stagegroup>
+        <div class="assist-col">
+
+          <div id="st-thread" class="stage lit pane thread" tabindex="-1">
+
+            <div class="msg you">
+              <div class="who">You</div>
+              <div class="mtext">Which vendors drove August invoice spend, and are any invoices stuck?</div>
+            </div>
+
+            <div class="tools" aria-label="Tool activity">
+              <span class="tool">
+                <svg class="ok" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m2.5 6.4 2.4 2.4 4.6-5.4"/></svg>
+                <code>list_connections {}</code><span class="tmeta">ok · 0.4s</span>
+              </span>
+              <span class="tool">
+                <svg class="ok" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m2.5 6.4 2.4 2.4 4.6-5.4"/></svg>
+                <code>query_database {"connection":"ERPDB","sql":"SELECT vendor, SUM(total)…"}</code><span class="tmeta">ok · 1.8s</span>
+              </span>
+            </div>
+
+            <div class="msg agent">
+              <div class="who"><span class="spot"></span>The Agent</div>
+              <div class="mtext">
+                <p>August invoice spend is <strong>$482,910</strong> across 41 vendors. The top five drive 68% of it:</p>
+                <table class="mtable">
+                  <thead><tr><th>Vendor</th><th class="r">Invoices</th><th class="r">August total</th><th class="r">vs July</th></tr></thead>
+                  <tbody>
+                    <tr><td>Meridian Supply Co</td><td class="r">14</td><td class="r">$128,400</td><td class="r"><span class="up">▲</span>+22%</td></tr>
+                    <tr><td>Northgate Logistics</td><td class="r">9</td><td class="r">$96,150</td><td class="r"><span class="up">▲</span>+4%</td></tr>
+                    <tr><td>Corvid Materials</td><td class="r">11</td><td class="r">$64,020</td><td class="r"><span class="dn">▾</span>−8%</td></tr>
+                    <tr><td>Atlas Packaging</td><td class="r">7</td><td class="r">$41,310</td><td class="r"><span class="up">▲</span>+13%</td></tr>
+                    <tr><td>Helix Industrial</td><td class="r">5</td><td class="r">$38,900</td><td class="r"><span class="up">▲</span>+2%</td></tr>
+                  </tbody>
+                </table>
+                <p>Two Meridian invoices (<strong>INV-20841</strong>, <strong>INV-20857</strong>) are pending approval past 14 days — $61,200 combined. Want me to raise them in My Work?</p>
+              </div>
+            </div>
+
+            <div class="msg you">
+              <div class="who">You</div>
+              <div class="mtext">Yes — raise them and save this as a view.</div>
+            </div>
+
+            <div class="tools" aria-label="Tool activity">
+              <span class="tool">
+                <svg class="ok" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m2.5 6.4 2.4 2.4 4.6-5.4"/></svg>
+                <code>create_work_item</code><span class="tmeta">ok · 0.6s</span>
+              </span>
+              <span class="tool">
+                <svg class="ok" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m2.5 6.4 2.4 2.4 4.6-5.4"/></svg>
+                <code>save_view {"name":"Vendor Spend — August"}</code><span class="tmeta">ok · 0.9s</span>
+              </span>
+            </div>
+
+            <div class="msg agent now">
+              <div class="who"><span class="spot"></span>The Agent</div>
+              <div class="mtext">
+                <p>Done. Two approval items are in <strong>My Work</strong>, and I saved <strong>Vendor Spend — August</strong> as a view with 4 tiles — it refreshes with zero AI.</p>
+              </div>
+            </div>
+
+          </div>
+
+          <div id="st-composer" class="stage pane composer">
+            <div class="presence"><span class="pdot"></span> standing by · brain: claude-fable-5</div>
+            <textarea rows="2" placeholder="Message The Agent — explore data, build automations, keep humans in the loop…" aria-label="Message The Agent"></textarea>
+            <div class="crow">
+              <button class="btn btn-ghost">+ New</button>
+              <button class="btn btn-ghost" aria-label="Conversation history">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="5.6"/><path d="M8 4.8V8l2.2 1.6"/></svg>
+                History
+              </button>
+              <span class="grow"></span>
+              <button class="btn btn-primary" id="sendBtn">Send
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1.8 6h8M6.4 2.6 9.8 6l-3.4 3.4"/></svg>
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ==================== 2 · MY WORK ==================== -->
+      <section id="sec-work" class="section" data-stagegroup>
+        <div class="wrap work-grid">
+
+          <div id="st-queue" class="stage pane queue">
+            <div class="queue-head">
+              <span class="h-title" style="color:var(--s-ink)">Queue</span>
+              <span class="meta">4 waiting on you</span>
+            </div>
+            <div class="chips" id="wq-chips">
+              <button class="chip active" data-f="all">All <span>4</span></button>
+              <button class="chip" data-f="approval">Approval <span>1</span></button>
+              <button class="chip" data-f="email">Email / Edit <span>1</span></button>
+              <button class="chip" data-f="question">Question <span>1</span></button>
+              <button class="chip" data-f="fyi">FYI <span>1</span></button>
+            </div>
+
+            <button class="qitem" data-item="1" data-type="approval">
+              <span class="qrow1"><span class="tag tag-approval"><i></i>Approval</span><span class="pill">dry-run</span></span>
+              <span class="qtitle">Approve payment run — 2 overdue Meridian invoices ($61,200)</span>
+              <span class="qmeta">from automation invoice-chaser · 09:14</span>
+            </button>
+            <button class="qitem sel" data-item="2" data-type="email">
+              <span class="qrow1"><span class="tag tag-email"><i></i>Email / Edit</span></span>
+              <span class="qtitle">Re: Q3 renewal pricing — reply to Dana Whitfield</span>
+              <span class="qmeta">from email · 08:47</span>
+            </button>
+            <button class="qitem" data-item="3" data-type="question">
+              <span class="qrow1"><span class="tag tag-question"><i></i>Question</span><span class="pill">shared · unclaimed</span></span>
+              <span class="qtitle">Which fiscal calendar should the vendor report use — 4-4-5 or calendar month?</span>
+              <span class="qmeta">from agent</span>
+            </button>
+            <button class="qitem" data-item="4" data-type="fyi">
+              <span class="qrow1"><span class="tag tag-fyi"><i></i>FYI</span></span>
+              <span class="qtitle">Nightly ERPDB health check completed — 0 anomalies, 312k rows scanned</span>
+              <span class="qmeta">from automation erpdb-daily-health · 06:00</span>
+            </button>
+          </div>
+
+          <div id="st-detail" class="stage lit pane detail">
+
+            <!-- item 1 · approval -->
+            <div class="witem" id="wd-1">
+              <div class="d-head"><span class="tag tag-approval"><i></i>Approval</span><span class="pill">dry-run</span></div>
+              <div class="d-title">Approve payment run — 2 overdue Meridian invoices</div>
+              <div class="d-label">Dry-run preview — nothing pays until you approve.</div>
+              <table class="itable">
+                <tr><td class="mono">INV-20841</td><td>Meridian Supply Co</td><td class="r">$38,700</td><td class="r meta">21 days</td></tr>
+                <tr><td class="mono">INV-20857</td><td>Meridian Supply Co</td><td class="r">$22,500</td><td class="r meta">17 days</td></tr>
+                <tr class="tot"><td></td><td>Payment run total</td><td class="r">$61,200</td><td></td></tr>
+              </table>
+              <div class="meta">Raised by automation <span class="mono">invoice-chaser</span> · v7 (pinned v6) · 09:14</div>
+              <input class="field" style="margin-top:14px" placeholder="Add a comment (optional)…">
+              <div class="actions">
+                <button class="btn btn-primary" data-ack="✓ Approved">Approve payment run</button>
+                <button class="btn btn-sec" data-ack="Denied — kept in queue">Deny</button>
+                <span class="hint">Nothing executes without you</span>
+              </div>
+            </div>
+
+            <!-- item 2 · email edit (default) -->
+            <div class="witem active" id="wd-2">
+              <div class="d-head"><span class="tag tag-email"><i></i>Email / Edit</span></div>
+              <div class="d-title">Re: Q3 renewal pricing — reply to Dana Whitfield</div>
+              <div class="d-label">Draft — body is editable; what you approve is what sends.</div>
+              <div class="kv">
+                <span class="k">To</span><span class="v">dana@meridiansupply.com</span>
+                <span class="k">From</span><span class="v">james-agent@mail.aihub.dev</span>
+                <span class="k">Subject</span><span class="v">Re: Q3 renewal pricing</span>
+              </div>
+              <textarea class="field draft" aria-label="Editable draft body">Hi Dana — thanks for sending the Q3 renewal proposal. We'd like to hold at current pricing while we complete our vendor-spend review this month; I'll come back to you with a firm answer shortly. Separately, two of your invoices (INV-20841, INV-20857) are pending on our side past 14 days — we're expediting approval now.</textarea>
+              <input class="field" placeholder="Add a comment (optional)…">
+              <div class="actions">
+                <button class="btn btn-primary" data-ack="✓ Approved — sending">Approve &amp; send</button>
+                <button class="btn btn-sec" data-ack="Denied — kept in queue">Deny</button>
+                <span class="hint">Nothing sends without you</span>
+              </div>
+              <div class="thread-mini">
+                <div class="micro" style="margin-bottom:8px">Thread with the agent</div>
+                <div class="tm-msg"><span class="tw">You</span><span class="tt">Is Dana on the approved vendor contact list?</span></div>
+                <div class="tm-msg"><span class="tw">The Agent</span><span class="tt">Yes — primary commercial contact for Meridian Supply Co since March.</span></div>
+                <input class="field" style="margin-top:10px" placeholder="Ask the agent about this item…">
+              </div>
+            </div>
+
+            <!-- item 3 · question -->
+            <div class="witem" id="wd-3">
+              <div class="d-head"><span class="tag tag-question"><i></i>Question</span><span class="pill">shared · unclaimed</span></div>
+              <div class="d-title">Which fiscal calendar should the vendor report use?</div>
+              <div class="d-label">Asked by the agent while building the vendor report. First answer resolves it for everyone.</div>
+              <button class="opt sel"><span class="on">4-4-5 fiscal calendar</span> — matches ERPDB GL periods</button>
+              <button class="opt"><span class="on">Calendar month</span> — matches the invoice ledger</button>
+              <input class="field" style="margin:8px 0 0" placeholder="Add context for the agent (optional)…">
+              <div class="actions">
+                <button class="btn btn-primary" data-ack="✓ Answered">Answer</button>
+                <span class="hint">Your answer becomes procedural memory in Skills</span>
+              </div>
+            </div>
+
+            <!-- item 4 · fyi -->
+            <div class="witem" id="wd-4">
+              <div class="d-head"><span class="tag tag-fyi"><i></i>FYI</span></div>
+              <div class="d-title">Nightly ERPDB health check completed</div>
+              <div class="d-label">Completed 06:00 · 0 anomalies · 312k rows scanned across 14 tables.</div>
+              <div class="body2" style="max-width:56ch">Row counts, null rates, and referential checks all within expected bands. Next run tonight at 06:00. Full log available in Mission Control.</div>
+              <div class="meta" style="margin-top:12px">from automation <span class="mono">erpdb-daily-health</span> · v12</div>
+              <div class="actions">
+                <button class="btn btn-sec" data-ack="✓ Acknowledged">Acknowledge</button>
+                <span class="hint">FYI only — no action required</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 3 · VIEWS ==================== -->
+      <section id="sec-views" class="section" data-stagegroup>
+        <div class="wrap views-grid">
+
+          <div id="st-viewlist" class="stage pane vlist">
+            <div class="micro">Views</div>
+            <button class="vitem sel" data-view="vendor" data-title="Vendor Spend — August" data-meta="user · v3 · refreshed 16:42">
+              <span class="vname">Vendor Spend — August</span>
+              <span class="vmeta">user · 4 tiles · v3</span>
+            </button>
+            <button class="vitem" data-view="ops" data-title="Ops Pulse" data-meta="group · v11 · refreshed 16:40">
+              <span class="vname">Ops Pulse</span>
+              <span class="vmeta">group · 6 tiles · v11 · automation tiles</span>
+            </button>
+            <button class="vitem" data-view="wh" data-title="Warehouse Throughput" data-meta="tenant · v2 · refreshed 15:55">
+              <span class="vname">Warehouse Throughput</span>
+              <span class="vmeta">tenant · 5 tiles · v2</span>
+            </button>
+          </div>
+
+          <div id="st-board" class="stage lit pane board">
+            <div class="board-head">
+              <span class="h-display" id="vb-title">Vendor Spend — August</span>
+              <span class="bmeta" id="vb-meta">user · v3 · refreshed 16:42</span>
+              <span class="bbtns">
+                <button class="btn btn-ghost">Arrange</button>
+                <button class="btn btn-ghost">Rename</button>
+                <button class="btn btn-ghost">✎ Edit with AI</button>
+                <button class="btn btn-ghost" data-ack="✓ Refreshed">↻ Refresh</button>
+              </span>
+            </div>
+
+            <!-- Vendor Spend — August -->
+            <div class="boardset active" id="board-vendor">
+              <div class="tiles">
+                <div class="tile sp4">
+                  <div class="thead"><span class="micro">August invoice total</span></div>
+                  <div class="stat-n">$482,910</div>
+                  <div class="tsub mono">SUM(total) · as of 16:42</div>
+                </div>
+                <div class="tile sp4">
+                  <div class="thead"><span class="micro">Spend by vendor (top 5)</span></div>
+                  <div style="display:flex;flex-direction:column;gap:8px">
+                    <div class="brow"><span>Meridian Supply</span><span class="btrack"><span class="bfill" style="width:100%"></span></span><span class="bv">$128.4k</span></div>
+                    <div class="brow"><span>Northgate Log.</span><span class="btrack"><span class="bfill" style="width:75%"></span></span><span class="bv">$96.2k</span></div>
+                    <div class="brow"><span>Corvid Materials</span><span class="btrack"><span class="bfill" style="width:50%"></span></span><span class="bv">$64.0k</span></div>
+                    <div class="brow"><span>Atlas Packaging</span><span class="btrack"><span class="bfill" style="width:32%"></span></span><span class="bv">$41.3k</span></div>
+                    <div class="brow"><span>Helix Industrial</span><span class="btrack"><span class="bfill" style="width:30%"></span></span><span class="bv">$38.9k</span></div>
+                  </div>
+                </div>
+                <div class="tile sp4">
+                  <div class="thead"><span class="micro">Daily invoice volume</span></div>
+                  <svg class="spark" viewBox="0 0 300 84" aria-hidden="true">
+                    <line x1="4" y1="79" x2="296" y2="79" stroke="currentColor" stroke-width="1" opacity=".22"/>
+                    <polygon fill="currentColor" opacity=".07" points="8,66 29.9,64 51.8,65 73.7,62 95.5,60 117.4,61 139.3,57 161.2,55 183.1,56 205,52 226.8,50 248.7,51 270.6,46 292.5,42 292.5,79 8,79"/>
+                    <polyline fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" points="8,66 29.9,64 51.8,65 73.7,62 95.5,60 117.4,61 139.3,57 161.2,55 183.1,56 205,52 226.8,50 248.7,51 270.6,46 292.5,42"/>
+                    <circle class="acc" cx="292.5" cy="42" r="3.2" fill="var(--s-accent)"/>
+                  </svg>
+                  <div class="tsub">last 14 days · gently rising</div>
+                </div>
+                <div class="tile sp7">
+                  <div class="thead"><span class="micro">Open invoices &gt; 14 days</span><span class="tsub" style="margin-left:auto">6 rows</span></div>
+                  <div>
+                    <div class="trow"><span class="ti">INV-20841</span><span class="tv">Meridian Supply Co</span><span class="ta">$38,700</span><span class="pill">21d</span></div>
+                    <div class="trow"><span class="ti">INV-20857</span><span class="tv">Meridian Supply Co</span><span class="ta">$22,500</span><span class="pill">17d</span></div>
+                    <div class="trow"><span class="ti">INV-20872</span><span class="tv">Corvid Materials</span><span class="ta">$9,340</span><span class="pill">16d</span></div>
+                    <div class="trow"><span class="ti">INV-20881</span><span class="tv">Atlas Packaging</span><span class="ta">$7,120</span><span class="pill">15d</span></div>
+                    <div class="trow"><span class="ti">INV-20889</span><span class="tv">Northgate Logistics</span><span class="ta">$5,480</span><span class="pill">15d</span></div>
+                    <div class="trow"><span class="ti">INV-20896</span><span class="tv">Helix Industrial</span><span class="ta">$4,210</span><span class="pill">14d</span></div>
+                  </div>
+                </div>
+                <div class="tile sp5">
+                  <div class="thead"><span class="micro">Latest invoices</span></div>
+                  <div class="ticker">INV-20901 · <b>Meridian Supply Co</b> · $12,400&nbsp;&nbsp;·&nbsp;&nbsp;INV-20899 · <b>Atlas Packaging</b> · $3,180&nbsp;&nbsp;·&nbsp;&nbsp;INV-20897 · <b>Northgate Logistics</b> · $8,240&nbsp;&nbsp;·&nbsp;&nbsp;INV-20896 · <b>Helix Industrial</b> · $4,210</div>
+                  <div class="tsub">deterministic feed · zero AI on refresh</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Ops Pulse -->
+            <div class="boardset" id="board-ops">
+              <div class="tiles">
+                <div class="tile sp4">
+                  <div class="thead"><span class="micro">Open work items</span></div>
+                  <div class="stat-n">4</div>
+                  <div class="tsub">1 approval waiting on you</div>
+                </div>
+                <div class="tile sp4">
+                  <div class="thead"><span class="micro">invoice-chaser</span><span class="ttag ttag-auto" style="margin-left:auto">automation</span></div>
+                  <div class="stat-n">ok</div>
+                  <div class="tsub">last run 09:14 · v7 (pinned v6)</div>
+                </div>
+                <div class="tile sp4">
+                  <div class="thead"><span class="micro">erpdb-daily-health</span><span class="ttag ttag-auto" style="margin-left:auto">automation</span></div>
+                  <div class="stat-n">0 anomalies</div>
+                  <div class="tsub">06:00 · 312k rows scanned</div>
+                </div>
+                <div class="tile sp4">
+                  <div class="thead"><span class="micro">Emails awaiting approval</span></div>
+                  <div class="stat-n">1</div>
+                  <div class="tsub">auto-send is off</div>
+                </div>
+                <div class="tile sp4">
+                  <div class="thead"><span class="micro">Tool calls / hour</span></div>
+                  <svg class="spark" viewBox="0 0 300 84" aria-hidden="true">
+                    <line x1="4" y1="79" x2="296" y2="79" stroke="currentColor" stroke-width="1" opacity=".22"/>
+                    <polyline fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" points="8,58 29.9,52 51.8,56 73.7,48 95.5,50 117.4,44 139.3,47 161.2,40 183.1,43 205,38 226.8,41 248.7,35 270.6,38 292.5,32"/>
+                    <circle cx="292.5" cy="32" r="3.2" fill="var(--s-accent)"/>
+                  </svg>
+                  <div class="tsub">trailing 14h</div>
+                </div>
+                <div class="tile sp4">
+                  <div class="thead"><span class="micro">Connections healthy</span></div>
+                  <div class="stat-n">9 / 9</div>
+                  <div class="tsub">checked 16:40</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Warehouse Throughput -->
+            <div class="boardset" id="board-wh">
+              <div class="tiles">
+                <div class="tile sp4">
+                  <div class="thead"><span class="micro">Units picked today</span></div>
+                  <div class="stat-n">18,240</div>
+                  <div class="tsub">as of 16:30</div>
+                </div>
+                <div class="tile sp4">
+                  <div class="thead"><span class="micro">Dock-to-stock</span></div>
+                  <div class="stat-n">3.2h</div>
+                  <div class="tsub">target 4.0h</div>
+                </div>
+                <div class="tile sp4">
+                  <div class="thead"><span class="micro">Backlog</span></div>
+                  <div class="stat-n">412</div>
+                  <div class="tsub">−9% vs yesterday</div>
+                </div>
+                <div class="tile sp6">
+                  <div class="thead"><span class="micro">Throughput by site</span></div>
+                  <div style="display:flex;flex-direction:column;gap:8px">
+                    <div class="brow"><span>Newark</span><span class="btrack"><span class="bfill" style="width:100%"></span></span><span class="bv">7,900</span></div>
+                    <div class="brow"><span>Columbus</span><span class="btrack"><span class="bfill" style="width:77%"></span></span><span class="bv">6,100</span></div>
+                    <div class="brow"><span>Reno</span><span class="btrack"><span class="bfill" style="width:54%"></span></span><span class="bv">4,240</span></div>
+                  </div>
+                </div>
+                <div class="tile sp6">
+                  <div class="thead"><span class="micro">Orders shipped (14d)</span></div>
+                  <svg class="spark" viewBox="0 0 300 84" aria-hidden="true">
+                    <line x1="4" y1="79" x2="296" y2="79" stroke="currentColor" stroke-width="1" opacity=".22"/>
+                    <polyline fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" points="8,64 29.9,62 51.8,63 73.7,59 95.5,60 117.4,56 139.3,57 161.2,52 183.1,54 205,48 226.8,50 248.7,45 270.6,46 292.5,40"/>
+                    <circle cx="292.5" cy="40" r="3.2" fill="var(--s-accent)"/>
+                  </svg>
+                  <div class="tsub">steady climb since 07-28</div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 4 · PLAYBOOKS ==================== -->
+      <section id="sec-playbooks" class="section" data-stagegroup>
+        <div class="pb-col">
+
+          <div id="st-pbbar" class="stage pane pbbar">
+            <span class="chips" id="pb-chips" style="padding:0">
+              <button class="chip active" data-type="all">All <span>6</span></button>
+              <button class="chip" data-type="workflow">Workflows <span>2</span></button>
+              <button class="chip" data-type="code">Code Flows <span>1</span></button>
+              <button class="chip" data-type="automation">Automations <span>3</span></button>
+            </span>
+            <span class="search"><input class="field" id="pb-search" placeholder="Search playbooks…" aria-label="Search playbooks"></span>
+            <span class="plinks">
+              <a class="alink" href="#">Open Workflow Designer ↗</a>
+              <a class="alink" href="#">Open Mission Control ↗</a>
+            </span>
+          </div>
+
+          <div id="st-pblist" class="stage lit pane pblist">
+            <div class="pb" data-type="workflow">
+              <span class="ttag ttag-wf">Workflow</span>
+              <span class="pname">Invoice Intake — OCR + 3-way match</span>
+              <span class="pmeta"><span class="mono">id 1218</span><span class="chev">›</span></span>
+            </div>
+            <div class="pb" data-type="workflow">
+              <span class="ttag ttag-wf">Workflow</span>
+              <span class="pname">Vendor Onboarding Checks</span>
+              <span class="pmeta"><span class="mono">id 1327</span><span class="chev">›</span></span>
+            </div>
+            <div class="pb" data-type="code">
+              <span class="ttag ttag-cf">code flow</span>
+              <span class="pname">Monthly Close Journal Prep</span>
+              <span class="pmeta"><span class="mono">id 214</span><span class="chev">›</span></span>
+            </div>
+            <div class="pb" data-type="automation">
+              <span class="ttag ttag-auto">Automation</span>
+              <span class="pname">invoice-chaser</span>
+              <span class="pmeta"><span>v7 · pinned v6</span><span class="chev">›</span></span>
+            </div>
+            <div class="pb" data-type="automation">
+              <span class="ttag ttag-auto">Automation</span>
+              <span class="pname">dayforce-doc-upload</span>
+              <span class="pmeta"><span>v3</span><span class="chev">›</span></span>
+            </div>
+            <div class="pb" data-type="automation">
+              <span class="ttag ttag-auto">Automation</span>
+              <span class="pname">erpdb-daily-health</span>
+              <span class="pmeta"><span>v12</span><span class="chev">›</span></span>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ==================== 5 · EMAIL ==================== -->
+      <section id="sec-email" class="section" data-stagegroup>
+        <div class="email-grid">
+
+          <div id="st-addr" class="stage lit pane ecard">
+            <div class="ecard-head">
+              <span class="h-title" style="color:var(--s-ink)">Your address</span>
+              <span class="chip-live"><i></i>Active</span>
+            </div>
+            <div class="addr-row">
+              <input class="field" value="james-agent" aria-label="Address prefix">
+              <span class="addr-suffix">@mail.aihub.dev</span>
+            </div>
+            <div class="body2" style="margin:10px 0 4px">Mail sent to this address runs a headless agent session as you and lands its result in My Work.</div>
+            <div class="erow">
+              <span class="etxt"><span class="elabel">Inbound enabled</span></span>
+              <button class="switch" role="switch" aria-checked="true" aria-label="Inbound enabled"><span class="knob"></span></button>
+            </div>
+            <div class="actions" style="margin-top:6px">
+              <button class="btn btn-sec" data-ack="✓ Saved">Save</button>
+            </div>
+          </div>
+
+          <div id="st-behavior" class="stage pane ecard">
+            <div class="ecard-head"><span class="h-title" style="color:var(--s-ink)">Sending &amp; behavior</span></div>
+            <div class="erow">
+              <span class="etxt"><span class="elabel">Outbound enabled</span></span>
+              <button class="switch" role="switch" aria-checked="true" aria-label="Outbound enabled"><span class="knob"></span></button>
+            </div>
+            <div class="erow">
+              <span class="etxt"><span class="elabel">Auto-send replies</span><span class="enote">every reply waits for your approval in My Work</span></span>
+              <button class="switch" role="switch" aria-checked="false" aria-label="Auto-send replies"><span class="knob"></span></button>
+            </div>
+            <div class="erow">
+              <span class="etxt"><span class="elabel">Notify on inbound</span></span>
+              <button class="switch" role="switch" aria-checked="false" aria-label="Notify on inbound"><span class="knob"></span></button>
+            </div>
+            <div class="erow cool">
+              <span class="etxt"><span class="elabel">Cooldown</span><span class="enote">minimum minutes between agent replies to one sender</span></span>
+              <input class="field" value="30" aria-label="Cooldown minutes"><span class="meta">min</span>
+            </div>
+            <textarea class="field" style="margin-top:14px;min-height:74px" placeholder="Standing instructions — e.g. 'Treat vendor pricing emails as drafts for my review; summarize newsletters weekly.'"></textarea>
+          </div>
+
+          <div id="st-activity" class="stage pane ecard" style="grid-column:1/-1">
+            <div class="ecard-head"><span class="h-title" style="color:var(--s-ink)">Recent inbound activity</span></div>
+            <div class="act-row">
+              <span class="at">08-09 08:47</span><span class="pill">reply_drafted</span>
+              <span class="atxt"><b>dana@meridiansupply.com</b> — Re: Q3 renewal pricing</span>
+            </div>
+            <div class="act-row">
+              <span class="at">08-08 16:02</span><span class="pill">processed</span>
+              <span class="atxt"><b>alerts@dayforce.com</b> — Document batch ready</span>
+            </div>
+            <div class="act-row">
+              <span class="at">08-08 09:15</span><span class="pill">processed</span>
+              <span class="atxt"><b>noreply@erpdb</b> — Weekly digest</span>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ==================== 6 · SKILLS ==================== -->
+      <section id="sec-skills" class="section" data-stagegroup>
+        <div class="skills-grid">
+
+          <div id="st-skilllist" class="stage pane slist">
+            <div class="micro">Procedural memory</div>
+            <button class="sitem" data-skill="1">
+              <span class="sname">erpdb-reconciliation-recipes</span>
+              <span class="smeta">product · 4.2 KB</span>
+            </button>
+            <button class="sitem" data-skill="2">
+              <span class="sname">vendor-naming-conventions</span>
+              <span class="smeta">tenant · 1.1 KB</span>
+            </button>
+            <button class="sitem sel" data-skill="3">
+              <span class="sname">james-report-format</span>
+              <span class="smeta">user · 0.8 KB</span>
+            </button>
+          </div>
+
+          <div id="st-skilldetail" class="stage lit pane sdetailpane">
+
+            <div class="sdetail" id="sd-1">
+              <div class="sd-head"><span class="sd-title">erpdb-reconciliation-recipes</span><span class="scope">product</span><span class="meta">4.2 KB</span></div>
+              <div class="sd-body">Match invoices to POs on vendor + amount within ±2%. Flag anything pending approval past 14 days. Recipes are read-only against ERPDB — every write path goes through My Work.</div>
+              <div class="sd-foot">
+                <button class="btn btn-danger" data-ack="Demo — nothing deleted">Delete skill</button>
+                <span class="hint">Learned skills survive restarts</span>
+              </div>
+            </div>
+
+            <div class="sdetail" id="sd-2">
+              <div class="sd-head"><span class="sd-title">vendor-naming-conventions</span><span class="scope">tenant</span><span class="meta">1.1 KB</span></div>
+              <div class="sd-body">Canonical names: "Meridian Supply Co" (never Meridian Supplies), "Northgate Logistics", "Corvid Materials". Match case-insensitively on ingest; always report the canonical form.</div>
+              <div class="sd-foot">
+                <button class="btn btn-danger" data-ack="Demo — nothing deleted">Delete skill</button>
+                <span class="hint">Shared across the tenant</span>
+              </div>
+            </div>
+
+            <div class="sdetail active" id="sd-3">
+              <div class="sd-head"><span class="sd-title">james-report-format</span><span class="scope">user</span><span class="meta">0.8 KB</span></div>
+              <div class="sd-body">Reports for James: lead with the number, then the table. Currency to the dollar, no cents. Always note the as-of time. Prefer month-over-month deltas beside absolutes. If a figure is estimated, say so inline.</div>
+              <div class="sd-foot">
+                <button class="btn btn-danger" data-ack="Demo — nothing deleted">Delete skill</button>
+                <span class="hint">Applied to every report the agent writes for you</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <footer class="mantra">
+      <span>draft → dry-run → promote → schedule</span>
+      <span>humans stay in the loop · My Work</span>
+    </footer>
+  </div>
+</div>
+
+<a class="badge" href="./index.html">#14 · Stage</a>
+
+<script>
+(function(){
+  "use strict";
+  var $  = function(s,c){ return (c||document).querySelector(s); };
+  var $$ = function(s,c){ return Array.prototype.slice.call((c||document).querySelectorAll(s)); };
+
+  /* ---------- theme: house lights ---------- */
+  var root = document.documentElement;
+  var mq = window.matchMedia("(prefers-color-scheme: dark)");
+  function effectiveTheme(){
+    return root.getAttribute("data-theme") || (mq.matches ? "dark" : "light");
+  }
+  $("#themeToggle").addEventListener("click", function(){
+    root.setAttribute("data-theme", effectiveTheme() === "dark" ? "light" : "dark");
+  });
+
+  /* ---------- section switching ---------- */
+  var sectionTitle = $("#sectionTitle");
+  $$(".nav-btn").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      $$(".nav-btn").forEach(function(b){
+        b.classList.toggle("active", b === btn);
+        if(b === btn){ b.setAttribute("aria-current","page"); } else { b.removeAttribute("aria-current"); }
+      });
+      $$(".section").forEach(function(s){
+        s.classList.toggle("active", s.id === "sec-" + btn.getAttribute("data-sec"));
+      });
+      sectionTitle.textContent = btn.getAttribute("data-label");
+    });
+  });
+
+  /* ---------- staging: light follows selection ---------- */
+  function light(stage){
+    if(!stage) return;
+    var group = stage.closest("[data-stagegroup]");
+    if(!group) return;
+    $$(".stage", group).forEach(function(s){ s.classList.toggle("lit", s === stage); });
+  }
+  $$("[data-stagegroup]").forEach(function(group){
+    function handler(e){
+      var s = e.target.closest ? e.target.closest(".stage") : null;
+      if(s && group.contains(s)) light(s);
+    }
+    group.addEventListener("pointerdown", handler);
+    group.addEventListener("focusin", handler);
+  });
+
+  /* ---------- My Work: select item -> detail lights up ---------- */
+  var detailStage = $("#st-detail");
+  $$("#st-queue .qitem").forEach(function(row){
+    row.addEventListener("click", function(){
+      $$("#st-queue .qitem").forEach(function(r){ r.classList.toggle("sel", r === row); });
+      var id = "wd-" + row.getAttribute("data-item");
+      $$("#st-detail .witem").forEach(function(d){ d.classList.toggle("active", d.id === id); });
+      light(detailStage);
+    });
+  });
+
+  /* My Work filter chips */
+  $$("#wq-chips .chip").forEach(function(chip){
+    chip.addEventListener("click", function(){
+      $$("#wq-chips .chip").forEach(function(c){ c.classList.toggle("active", c === chip); });
+      var f = chip.getAttribute("data-f");
+      $$("#st-queue .qitem").forEach(function(r){
+        r.style.display = (f === "all" || r.getAttribute("data-type") === f) ? "" : "none";
+      });
+    });
+  });
+
+  /* Question options */
+  $$("#wd-3 .opt").forEach(function(opt){
+    opt.addEventListener("click", function(){
+      $$("#wd-3 .opt").forEach(function(o){ o.classList.toggle("sel", o === opt); });
+    });
+  });
+
+  /* ---------- Views: select view -> board lights up ---------- */
+  var boardStage = $("#st-board");
+  var vbTitle = $("#vb-title"), vbMeta = $("#vb-meta");
+  $$("#st-viewlist .vitem").forEach(function(row){
+    row.addEventListener("click", function(){
+      $$("#st-viewlist .vitem").forEach(function(r){ r.classList.toggle("sel", r === row); });
+      var id = "board-" + row.getAttribute("data-view");
+      $$("#st-board .boardset").forEach(function(b){ b.classList.toggle("active", b.id === id); });
+      vbTitle.textContent = row.getAttribute("data-title");
+      vbMeta.textContent  = row.getAttribute("data-meta");
+      light(boardStage);
+    });
+  });
+
+  /* ---------- Skills: select skill -> detail lights up ---------- */
+  var skillStage = $("#st-skilldetail");
+  $$("#st-skilllist .sitem").forEach(function(row){
+    row.addEventListener("click", function(){
+      $$("#st-skilllist .sitem").forEach(function(r){ r.classList.toggle("sel", r === row); });
+      var id = "sd-" + row.getAttribute("data-skill");
+      $$("#st-skilldetail .sdetail").forEach(function(d){ d.classList.toggle("active", d.id === id); });
+      light(skillStage);
+    });
+  });
+
+  /* ---------- Playbooks: chips + search filter ---------- */
+  function filterPB(){
+    var active = $("#pb-chips .chip.active");
+    var t = active ? active.getAttribute("data-type") : "all";
+    var q = $("#pb-search").value.trim().toLowerCase();
+    $$("#st-pblist .pb").forEach(function(row){
+      var okT = (t === "all" || row.getAttribute("data-type") === t);
+      var okQ = (!q || row.textContent.toLowerCase().indexOf(q) !== -1);
+      row.style.display = (okT && okQ) ? "" : "none";
+    });
+  }
+  $$("#pb-chips .chip").forEach(function(chip){
+    chip.addEventListener("click", function(){
+      $$("#pb-chips .chip").forEach(function(c){ c.classList.toggle("active", c === chip); });
+      filterPB();
+    });
+  });
+  $("#pb-search").addEventListener("input", filterPB);
+
+  /* ---------- switches (visual only) ---------- */
+  $$(".switch").forEach(function(sw){
+    sw.addEventListener("click", function(){
+      sw.setAttribute("aria-checked", sw.getAttribute("aria-checked") === "true" ? "false" : "true");
+    });
+  });
+
+  /* ---------- non-destructive acks ---------- */
+  $$("[data-ack]").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      if(btn.getAttribute("data-busy")) return;
+      btn.setAttribute("data-busy","1");
+      var original = btn.textContent;
+      btn.textContent = btn.getAttribute("data-ack");
+      btn.classList.add("acked");
+      window.setTimeout(function(){
+        btn.textContent = original;
+        btn.classList.remove("acked");
+        btn.removeAttribute("data-busy");
+      }, 1600);
+    });
+  });
+
+  /* send: soft ring flash, nothing sends */
+  var sendBtn = $("#sendBtn");
+  sendBtn.addEventListener("click", function(){
+    sendBtn.classList.add("flash");
+    window.setTimeout(function(){ sendBtn.classList.remove("flash"); }, 420);
+  });
+
+  /* decorative links stay put */
+  $$('a[href="#"]').forEach(function(a){
+    a.addEventListener("click", function(e){ e.preventDefault(); });
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Agent · Tempo concept</title>
+<style>
+/* ============ Tempo — attention-first ============ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --bg:#FAFBFC;
+  --surface:#FFFFFF;
+  --surface-2:#F3F5F8;
+  --surface-3:#EDF0F4;
+  --border:#E5E9EF;
+  --border-strong:#D3DAE3;
+  --text:#182230;
+  --text-2:#51606F;
+  --text-3:#8B95A3;
+  --accent:#0284C7;
+  --accent-ink:#026AA2;
+  --accent-btn:#0270A8;
+  --accent-btn-hov:#02618F;
+  --accent-soft:rgba(2,132,199,.09);
+  --accent-rail:#0284C7;
+  --amber:#B45309;
+  --amber-soft:rgba(180,83,9,.09);
+  --ok:#2E7D51;
+  --neg:#A8554E;
+  --danger:#B3423F;
+  --danger-soft:rgba(179,66,63,.08);
+  --tag-approval-ink:#026AA2;   --tag-approval-bg:rgba(2,132,199,.10);
+  --tag-email-ink:#5B54A0;      --tag-email-bg:rgba(101,93,171,.11);
+  --tag-question-ink:#0E6E67;   --tag-question-bg:rgba(15,118,110,.10);
+  --tag-fyi-ink:#65707E;        --tag-fyi-bg:rgba(101,112,126,.10);
+  --shadow-1:0 1px 2px rgba(16,24,40,.05);
+  --shadow-2:0 1px 2px rgba(16,24,40,.05),0 4px 12px rgba(16,24,40,.06);
+  --edge:none;
+  --font:"Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+  --mono:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
+  --r-card:8px;
+  --r-ctl:6px;
+  --fs-0:12.5px;
+  --fs-1:13.5px;
+  --fs-2:16px;
+  --fs-3:24px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0E1116;
+    --surface:#151A21;
+    --surface-2:#1A2029;
+    --surface-3:#1F2732;
+    --border:#232B36;
+    --border-strong:#313B49;
+    --text:#E7ECF2;
+    --text-2:#A3ADBB;
+    --text-3:#69737F;
+    --accent:#3FA9E0;
+    --accent-ink:#5BB8EA;
+    --accent-btn:#0284C7;
+    --accent-btn-hov:#1191D2;
+    --accent-soft:rgba(63,169,224,.12);
+    --accent-rail:#3FA9E0;
+    --amber:#E5A044;
+    --amber-soft:rgba(229,160,68,.12);
+    --ok:#63B98A;
+    --neg:#D08880;
+    --danger:#D07E7A;
+    --danger-soft:rgba(208,126,122,.10);
+    --tag-approval-ink:#5BB8EA;  --tag-approval-bg:rgba(63,169,224,.13);
+    --tag-email-ink:#A79ED8;     --tag-email-bg:rgba(151,142,207,.14);
+    --tag-question-ink:#57B3AC;  --tag-question-bg:rgba(45,159,151,.13);
+    --tag-fyi-ink:#8892A0;       --tag-fyi-bg:rgba(136,146,160,.12);
+    --shadow-1:none;
+    --shadow-2:0 8px 20px rgba(0,0,0,.28);
+    --edge:inset 0 1px 0 rgba(255,255,255,.035);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0E1116;
+  --surface:#151A21;
+  --surface-2:#1A2029;
+  --surface-3:#1F2732;
+  --border:#232B36;
+  --border-strong:#313B49;
+  --text:#E7ECF2;
+  --text-2:#A3ADBB;
+  --text-3:#69737F;
+  --accent:#3FA9E0;
+  --accent-ink:#5BB8EA;
+  --accent-btn:#0284C7;
+  --accent-btn-hov:#1191D2;
+  --accent-soft:rgba(63,169,224,.12);
+  --accent-rail:#3FA9E0;
+  --amber:#E5A044;
+  --amber-soft:rgba(229,160,68,.12);
+  --ok:#63B98A;
+  --neg:#D08880;
+  --danger:#D07E7A;
+  --danger-soft:rgba(208,126,122,.10);
+  --tag-approval-ink:#5BB8EA;  --tag-approval-bg:rgba(63,169,224,.13);
+  --tag-email-ink:#A79ED8;     --tag-email-bg:rgba(151,142,207,.14);
+  --tag-question-ink:#57B3AC;  --tag-question-bg:rgba(45,159,151,.13);
+  --tag-fyi-ink:#8892A0;       --tag-fyi-bg:rgba(136,146,160,.12);
+  --shadow-1:none;
+  --shadow-2:0 8px 20px rgba(0,0,0,.28);
+  --edge:inset 0 1px 0 rgba(255,255,255,.035);
+}
+:root[data-theme="light"]{
+  --bg:#FAFBFC; --surface:#FFFFFF; --surface-2:#F3F5F8; --surface-3:#EDF0F4;
+  --border:#E5E9EF; --border-strong:#D3DAE3;
+  --text:#182230; --text-2:#51606F; --text-3:#8B95A3;
+  --accent:#0284C7; --accent-ink:#026AA2; --accent-btn:#0270A8; --accent-btn-hov:#02618F;
+  --accent-soft:rgba(2,132,199,.09); --accent-rail:#0284C7;
+  --amber:#B45309; --amber-soft:rgba(180,83,9,.09);
+  --ok:#2E7D51; --neg:#A8554E; --danger:#B3423F; --danger-soft:rgba(179,66,63,.08);
+  --tag-approval-ink:#026AA2; --tag-approval-bg:rgba(2,132,199,.10);
+  --tag-email-ink:#5B54A0; --tag-email-bg:rgba(101,93,171,.11);
+  --tag-question-ink:#0E6E67; --tag-question-bg:rgba(15,118,110,.10);
+  --tag-fyi-ink:#65707E; --tag-fyi-bg:rgba(101,112,126,.10);
+  --shadow-1:0 1px 2px rgba(16,24,40,.05);
+  --shadow-2:0 1px 2px rgba(16,24,40,.05),0 4px 12px rgba(16,24,40,.06);
+  --edge:none;
+}
+
+html,body{height:100%}
+body{
+  font-family:var(--font);
+  font-size:var(--fs-1);
+  line-height:1.5;
+  color:var(--text);
+  background:var(--bg);
+  display:flex;
+  overflow:hidden;
+}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input,textarea,select{font:inherit;color:var(--text)}
+a{color:var(--accent-ink);text-decoration:none}
+a:hover{text-decoration:underline}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.num{font-variant-numeric:tabular-nums}
+.micro{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3)}
+.mono{font-family:var(--mono)}
+
+/* ---------- Sidebar ---------- */
+.side{
+  width:228px;flex:0 0 228px;height:100vh;
+  background:var(--surface);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;padding:18px 14px 14px;
+}
+.brand{display:flex;align-items:center;gap:10px;padding:2px 8px 16px}
+.brand-mark{width:26px;height:26px;border-radius:7px;background:var(--accent-btn);
+  display:flex;align-items:center;justify-content:center;flex:0 0 26px}
+.brand-mark svg{display:block}
+.brand-name{font-size:15px;font-weight:650;letter-spacing:-.01em}
+.brand-sub{font-size:11px;color:var(--text-3);margin-top:1px}
+.nav{display:flex;flex-direction:column;gap:2px;margin-top:4px}
+.nav-btn{
+  display:flex;align-items:center;gap:10px;width:100%;
+  padding:8px 10px;border-radius:var(--r-ctl);
+  color:var(--text-2);font-weight:500;text-align:left;
+  transition:background .15s ease,color .15s ease;
+}
+.nav-btn svg{flex:0 0 16px;opacity:.75}
+.nav-btn:hover{background:var(--surface-2);color:var(--text)}
+.nav-btn.active{background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
+.nav-btn.active svg{opacity:1}
+.nav-badge{
+  margin-left:auto;min-width:20px;height:18px;padding:0 6px;border-radius:999px;
+  background:var(--amber-soft);color:var(--amber);
+  font-size:11.5px;font-weight:700;display:flex;align-items:center;justify-content:center;
+  font-variant-numeric:tabular-nums;
+}
+.side-sep{height:1px;background:var(--border);margin:14px 8px}
+.plat-head{
+  display:flex;align-items:center;gap:6px;width:calc(100% - 0px);
+  padding:5px 10px;border-radius:var(--r-ctl);color:var(--text-3);
+  font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+}
+.plat-head:hover{color:var(--text-2);background:var(--surface-2)}
+.plat-head .chev{transition:transform .15s ease;display:inline-flex}
+.plat-open .plat-head .chev{transform:rotate(90deg)}
+.plat-list{display:none;flex-direction:column;gap:1px;padding:2px 0 0}
+.plat-open .plat-list{display:flex}
+.plat-link{display:block;padding:5px 10px 5px 32px;border-radius:var(--r-ctl);
+  color:var(--text-3);font-size:12.5px}
+.plat-link:hover{color:var(--text-2);background:var(--surface-2);text-decoration:none}
+.side-foot{margin-top:auto;padding:10px 8px 0;border-top:1px solid var(--border)}
+.side-foot .mono{font-size:11px;color:var(--text-3)}
+.mantra{font-size:11px;color:var(--text-3);line-height:1.7;margin-top:6px}
+.mantra b{color:var(--text-2);font-weight:600}
+
+/* ---------- Main column ---------- */
+.main{flex:1;height:100vh;display:flex;flex-direction:column;min-width:0}
+.topbar{
+  height:54px;flex:0 0 54px;display:flex;align-items:center;gap:14px;
+  padding:0 22px;background:var(--surface);border-bottom:1px solid var(--border);
+}
+.topbar h1{font-size:var(--fs-2);font-weight:650;letter-spacing:-.01em}
+.top-right{margin-left:auto;display:flex;align-items:center;gap:12px}
+.user-chip{display:flex;align-items:center;gap:8px;color:var(--text-2);font-size:var(--fs-0)}
+.avatar{width:26px;height:26px;border-radius:50%;background:var(--surface-3);
+  border:1px solid var(--border-strong);color:var(--text-2);
+  display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:650}
+
+/* Theme toggle — segmented pill */
+.theme-toggle{
+  display:flex;align-items:center;background:var(--surface-2);
+  border:1px solid var(--border);border-radius:999px;padding:2px;gap:2px;
+}
+.theme-toggle button{
+  width:28px;height:24px;border-radius:999px;display:flex;align-items:center;justify-content:center;
+  color:var(--text-3);transition:background .15s ease,color .15s ease,box-shadow .15s ease;
+}
+.theme-toggle button.on{background:var(--surface);color:var(--text);box-shadow:var(--shadow-1);
+  border:1px solid var(--border-strong)}
+.theme-toggle button:hover{color:var(--text)}
+
+/* ---------- Needs-you strip ---------- */
+.strip{
+  flex:0 0 auto;display:flex;align-items:center;gap:12px;
+  padding:9px 22px;background:var(--surface);border-bottom:1px solid var(--border);
+  box-shadow:var(--edge);
+}
+.strip-label{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--amber);display:flex;align-items:center;gap:7px}
+.strip-dot{width:6px;height:6px;border-radius:50%;background:var(--amber)}
+.strip-chips{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.strip-chip{
+  display:flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;
+  border:1px solid var(--border);background:var(--surface);
+  font-size:var(--fs-0);color:var(--text-2);font-weight:500;
+  transition:border-color .15s ease,background .15s ease,transform .15s ease;
+}
+.strip-chip b{color:var(--amber);font-weight:700;font-variant-numeric:tabular-nums}
+.strip-chip:hover{border-color:var(--border-strong);background:var(--surface-2);transform:translateY(-1px)}
+.strip-sep{color:var(--text-3);font-size:11px}
+.strip-open{margin-left:auto;font-size:var(--fs-0);color:var(--text-3);display:flex;align-items:center;gap:4px}
+.strip-open:hover{color:var(--accent-ink);text-decoration:none}
+.strip.clear .strip-label{color:var(--text-3)}
+.strip.clear .strip-dot{background:var(--text-3);opacity:.5}
+.strip-clear-msg{font-size:var(--fs-0);color:var(--text-3)}
+
+/* ---------- Section container ---------- */
+.stage{flex:1;overflow-y:auto;min-height:0}
+.section{display:none;padding:20px 22px 40px;max-width:1240px;margin:0 auto}
+.section.active{display:block;animation:secIn .18s ease}
+@keyframes secIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);
+  box-shadow:var(--shadow-1),var(--edge)}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border-radius:var(--r-ctl);
+  font-weight:600;font-size:var(--fs-1);border:1px solid transparent;
+  transition:background .15s ease,border-color .15s ease,color .15s ease}
+.btn-primary{background:var(--accent-btn);color:#fff}
+.btn-primary:hover{background:var(--accent-btn-hov)}
+.btn-ghost{border-color:var(--border-strong);color:var(--text-2);background:var(--surface)}
+.btn-ghost:hover{background:var(--surface-2);color:var(--text)}
+.btn-danger{border-color:transparent;color:var(--danger);background:var(--danger-soft)}
+.btn-danger:hover{border-color:var(--danger)}
+.btn-quiet{color:var(--text-3);padding:6px 10px;border-radius:var(--r-ctl)}
+.btn-quiet:hover{background:var(--surface-2);color:var(--text-2)}
+.btn.done{background:var(--surface-2);color:var(--ok);border-color:var(--border)}
+
+/* ---------- Assistant ---------- */
+.chat-wrap{max-width:840px;margin:0 auto;display:flex;flex-direction:column;min-height:calc(100vh - 220px)}
+.chat-scroll{flex:1;display:flex;flex-direction:column;gap:18px;padding-bottom:22px}
+.msg{display:flex;gap:12px;max-width:100%}
+.msg .who{flex:0 0 28px;width:28px;height:28px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:650;margin-top:2px}
+.msg.you .who{background:var(--surface-3);border:1px solid var(--border-strong);color:var(--text-2)}
+.msg.agent .who{background:var(--accent-soft);color:var(--accent-ink);position:relative}
+.msg-body{min-width:0;flex:1}
+.msg-meta{font-size:11px;color:var(--text-3);margin-bottom:4px;display:flex;gap:8px;align-items:baseline}
+.msg-meta .name{font-weight:600;color:var(--text-2);font-size:12px}
+.msg.you .bubble{
+  display:inline-block;background:var(--surface-2);border:1px solid var(--border);
+  border-radius:10px;padding:9px 14px;color:var(--text);
+}
+.msg.agent .bubble{color:var(--text)}
+.chat-scroll .msg.dim .bubble,.chat-scroll .msg.dim .msg-meta{opacity:.72}
+.msg.newest .bubble{
+  background:var(--surface);border:1px solid var(--border-strong);
+  border-radius:10px;padding:14px 16px;box-shadow:var(--shadow-2),var(--edge);
+}
+.msg.newest .bubble{border-left:2px solid var(--accent-rail)}
+
+/* agent presence pulse */
+.presence{position:absolute;right:-2px;bottom:-2px;width:9px;height:9px;border-radius:50%;
+  background:var(--accent);border:2px solid var(--surface)}
+.pulse .presence{animation:pulse 2.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.35);opacity:.55}}
+
+/* tool chips */
+.tools{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.tool-chip{
+  display:inline-flex;align-items:center;gap:8px;padding:4px 10px;border-radius:999px;
+  background:var(--surface-2);border:1px solid var(--border);
+  font-family:var(--mono);font-size:11.5px;color:var(--text-2);
+}
+.tool-chip .fn{color:var(--text);font-weight:600}
+.tool-chip .args{color:var(--text-3);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tool-ok{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:0 0 6px}
+.tool-t{color:var(--text-3);font-variant-numeric:tabular-nums}
+
+/* chat table */
+.chat-table{border-collapse:collapse;width:100%;margin:12px 0 4px;font-size:var(--fs-0)}
+.chat-table th{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--text-3);text-align:left;padding:6px 12px 6px 0;border-bottom:1px solid var(--border-strong)}
+.chat-table td{padding:7px 12px 7px 0;border-bottom:1px solid var(--border);color:var(--text)}
+.chat-table th.r,.chat-table td.r{text-align:right;padding-right:0}
+.chat-table td.r{font-variant-numeric:tabular-nums}
+.chat-table tr:last-child td{border-bottom:none}
+.delta-up{color:var(--ok);font-variant-numeric:tabular-nums}
+.delta-dn{color:var(--neg);font-variant-numeric:tabular-nums}
+.chat-hl{font-weight:650}
+.chat-note{margin-top:10px;color:var(--text)}
+.chat-para + .chat-para{margin-top:10px}
+
+.stream-caret{display:inline-block;width:2px;height:1em;background:var(--accent);
+  vertical-align:text-bottom;margin-left:2px;animation:caret 1.1s steps(1) infinite}
+@keyframes caret{50%{opacity:0}}
+
+/* starter row (kept subtle beneath composer) */
+.starters{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.starter{padding:5px 12px;border-radius:999px;border:1px solid var(--border);
+  color:var(--text-3);font-size:var(--fs-0);transition:all .15s ease}
+.starter:hover{color:var(--accent-ink);border-color:var(--accent);background:var(--accent-soft)}
+
+/* composer */
+.composer{position:sticky;bottom:0;background:var(--bg);padding:10px 0 18px}
+.composer-box{
+  background:var(--surface);border:1px solid var(--border-strong);border-radius:12px;
+  box-shadow:var(--shadow-2),var(--edge);padding:10px 12px 8px;
+  transition:border-color .15s ease;
+}
+.composer-box:focus-within{border-color:var(--accent)}
+.composer textarea{
+  width:100%;border:none;background:transparent;resize:none;outline:none;
+  font-size:14px;line-height:1.5;min-height:44px;color:var(--text)
+}
+.composer textarea::placeholder{color:var(--text-3)}
+.composer-row{display:flex;align-items:center;gap:8px;margin-top:4px}
+.ready{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--text-3)}
+.ready-dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.pulse .ready-dot{animation:pulse 2.6s ease-in-out infinite}
+.composer-row .spacer{flex:1}
+.icon-btn{width:30px;height:30px;border-radius:var(--r-ctl);display:flex;align-items:center;
+  justify-content:center;color:var(--text-3);transition:all .15s ease}
+.icon-btn:hover{background:var(--surface-2);color:var(--text-2)}
+.send-btn{width:34px;height:30px;border-radius:var(--r-ctl);background:var(--accent-btn);
+  color:#fff;display:flex;align-items:center;justify-content:center;transition:background .15s ease}
+.send-btn:hover{background:var(--accent-btn-hov)}
+
+/* ---------- My Work ---------- */
+.work-grid{display:grid;grid-template-columns:400px 1fr;gap:16px;align-items:start}
+.filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.filter-chip{padding:4px 11px;border-radius:999px;border:1px solid var(--border);
+  font-size:var(--fs-0);color:var(--text-2);transition:all .15s ease;background:var(--surface)}
+.filter-chip:hover{border-color:var(--border-strong)}
+.filter-chip.on{background:var(--accent-soft);border-color:transparent;color:var(--accent-ink);font-weight:600}
+.filter-chip b{font-weight:700;font-variant-numeric:tabular-nums;color:var(--amber)}
+.filter-chip .n-quiet{font-weight:600;color:var(--text-3)}
+
+.queue{display:flex;flex-direction:column;gap:8px}
+.q-item{
+  position:relative;display:flex;gap:12px;align-items:flex-start;width:100%;text-align:left;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);
+  padding:12px 14px;transition:border-color .15s ease,box-shadow .15s ease;
+  box-shadow:var(--shadow-1),var(--edge);
+}
+.q-item:hover{border-color:var(--border-strong)}
+.q-item.sel{border-color:var(--border-strong);box-shadow:var(--shadow-2),var(--edge)}
+.q-item.sel::before{content:"";position:absolute;left:-1px;top:10px;bottom:10px;width:2px;
+  border-radius:2px;background:var(--accent-rail)}
+.q-main{flex:1;min-width:0}
+.q-title{font-weight:600;line-height:1.4;color:var(--text)}
+.q-item.info .q-title{font-weight:500;color:var(--text-2)}
+.q-src{font-size:11.5px;color:var(--text-3);margin-top:4px}
+.q-src .mono{font-size:11px}
+.q-age{flex:0 0 auto;text-align:right;padding-top:1px}
+.q-age .val{font-size:17px;font-weight:650;letter-spacing:-.01em;color:var(--text);
+  font-variant-numeric:tabular-nums;line-height:1.15}
+.q-age .lbl{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3)}
+.q-item.info .q-age .val{font-size:13px;font-weight:500;color:var(--text-3)}
+.q-item.done-item{opacity:.55}
+.q-item.done-item .q-title{text-decoration:line-through;text-decoration-thickness:1px;text-decoration-color:var(--text-3)}
+
+.vtag{display:inline-flex;align-items:center;padding:2px 8px;border-radius:5px;
+  font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;line-height:1.6}
+.vtag.approval{background:var(--tag-approval-bg);color:var(--tag-approval-ink)}
+.vtag.email{background:var(--tag-email-bg);color:var(--tag-email-ink)}
+.vtag.question{background:var(--tag-question-bg);color:var(--tag-question-ink)}
+.vtag.fyi{background:var(--tag-fyi-bg);color:var(--tag-fyi-ink)}
+.q-head-row{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.q-flag{font-size:10.5px;color:var(--text-3);letter-spacing:.04em}
+
+/* detail pane */
+.detail{padding:18px 20px 20px}
+.detail-kicker{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.detail h2{font-size:var(--fs-2);font-weight:650;letter-spacing:-.01em;line-height:1.35}
+.d-label{font-size:var(--fs-0);color:var(--text-2);background:var(--surface-2);
+  border:1px solid var(--border);border-radius:var(--r-ctl);padding:7px 12px;margin:12px 0}
+.mail-rows{display:flex;flex-direction:column;border:1px solid var(--border);
+  border-radius:var(--r-ctl);overflow:hidden;margin-bottom:12px}
+.mail-row{display:flex;gap:12px;padding:7px 12px;border-bottom:1px solid var(--border);
+  font-size:var(--fs-0);background:var(--surface)}
+.mail-row:last-child{border-bottom:none}
+.mail-row .k{flex:0 0 64px;color:var(--text-3);font-size:11px;font-weight:600;
+  letter-spacing:.07em;text-transform:uppercase;padding-top:1px}
+.mail-row .v{color:var(--text);font-variant-numeric:tabular-nums}
+.d-body{width:100%;border:1px solid var(--border-strong);border-radius:var(--r-ctl);
+  background:var(--surface);padding:12px 14px;font-size:var(--fs-1);line-height:1.6;
+  min-height:132px;resize:vertical;transition:border-color .15s ease}
+.d-body:focus{outline:none;border-color:var(--accent)}
+.d-comment{width:100%;border:1px solid var(--border);border-radius:var(--r-ctl);
+  background:var(--surface);padding:9px 12px;font-size:var(--fs-0);margin-top:10px}
+.d-comment:focus{outline:none;border-color:var(--accent)}
+.d-actions{display:flex;align-items:center;gap:10px;margin-top:14px}
+.d-hint{font-size:11.5px;color:var(--text-3);margin-left:2px}
+.d-thread{margin-top:22px;border-top:1px solid var(--border);padding-top:14px}
+.d-thread h3{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--text-3);margin-bottom:10px}
+.t-line{display:flex;gap:10px;margin-bottom:9px;font-size:var(--fs-0)}
+.t-line .t-who{flex:0 0 70px;color:var(--text-3);font-weight:600;font-size:11.5px;padding-top:1px}
+.t-line .t-msg{color:var(--text-2)}
+.t-ask{display:flex;gap:8px;margin-top:10px}
+.t-ask input{flex:1;border:1px solid var(--border);border-radius:var(--r-ctl);
+  background:var(--surface);padding:8px 12px;font-size:var(--fs-0)}
+.t-ask input:focus{outline:none;border-color:var(--accent)}
+
+.inv-lines{border:1px solid var(--border);border-radius:var(--r-ctl);overflow:hidden;margin:12px 0}
+.inv-line{display:flex;align-items:center;gap:12px;padding:9px 12px;
+  border-bottom:1px solid var(--border);font-size:var(--fs-0);background:var(--surface)}
+.inv-line:last-child{border-bottom:none}
+.inv-line .inv-id{font-family:var(--mono);font-size:12px;color:var(--text)}
+.inv-line .inv-v{color:var(--text-3)}
+.inv-line .inv-amt{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--text)}
+.inv-age-big{font-size:15px;font-weight:650;color:var(--text);font-variant-numeric:tabular-nums;
+  flex:0 0 40px;text-align:right}
+.opt-row{display:flex;gap:8px;margin:12px 0}
+.opt-btn{flex:1;padding:10px 12px;border:1px solid var(--border-strong);border-radius:var(--r-ctl);
+  background:var(--surface);font-weight:600;color:var(--text-2);transition:all .15s ease;text-align:center}
+.opt-btn:hover{border-color:var(--accent);color:var(--accent-ink);background:var(--accent-soft)}
+.opt-btn.picked{border-color:var(--accent);color:var(--accent-ink);background:var(--accent-soft)}
+
+/* ---------- Views ---------- */
+.views-grid{display:grid;grid-template-columns:280px 1fr;gap:16px;align-items:start}
+.view-list{display:flex;flex-direction:column;gap:8px}
+.view-item{position:relative;width:100%;text-align:left;background:var(--surface);
+  border:1px solid var(--border);border-radius:var(--r-card);padding:12px 14px;
+  transition:border-color .15s ease,box-shadow .15s ease;box-shadow:var(--shadow-1),var(--edge)}
+.view-item:hover{border-color:var(--border-strong)}
+.view-item.sel{border-color:var(--border-strong);box-shadow:var(--shadow-2),var(--edge)}
+.view-item.sel::before{content:"";position:absolute;left:-1px;top:10px;bottom:10px;width:2px;
+  border-radius:2px;background:var(--accent-rail)}
+.view-item .vi-name{font-weight:600;color:var(--text)}
+.view-item .vi-meta{font-size:11.5px;color:var(--text-3);margin-top:4px}
+.scope-tag{display:inline-block;padding:1px 7px;border-radius:5px;background:var(--surface-2);
+  border:1px solid var(--border);font-size:10.5px;font-weight:600;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--text-3);margin-right:6px}
+.view-board-head{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.view-board-head h2{font-size:var(--fs-2);font-weight:650;letter-spacing:-.01em}
+.vb-meta{font-size:var(--fs-0);color:var(--text-3);font-variant-numeric:tabular-nums}
+.vb-actions{margin-left:auto;display:flex;gap:6px}
+.tiles{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+.tile{padding:14px 16px}
+.tile-head{display:flex;align-items:baseline;gap:8px;margin-bottom:8px}
+.tile-title{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-3)}
+.tile.stat{grid-column:span 2}
+.tile.bar{grid-column:span 4}
+.tile.line{grid-column:span 2}
+.tile.table{grid-column:span 4}
+.stat-big{font-size:var(--fs-3);font-weight:650;letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;color:var(--text);line-height:1.2}
+.stat-sub{font-size:11.5px;color:var(--text-3);margin-top:4px;font-variant-numeric:tabular-nums}
+.hbar-row{display:grid;grid-template-columns:132px 1fr 72px;gap:10px;align-items:center;margin:7px 0}
+.hbar-name{font-size:var(--fs-0);color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hbar-track{height:8px;border-radius:4px;background:var(--surface-2);overflow:hidden}
+.hbar-fill{height:100%;border-radius:4px;background:var(--accent);opacity:.85}
+.hbar-val{font-size:var(--fs-0);color:var(--text-2);text-align:right;font-variant-numeric:tabular-nums}
+.line-svg{width:100%;height:96px;display:block}
+.line-svg .grid-l{stroke:var(--border);stroke-width:1}
+.line-svg .plot{stroke:var(--accent);stroke-width:1.8;fill:none}
+.line-svg .fillA{fill:var(--accent-soft)}
+.line-svg .pt{fill:var(--accent)}
+.tile-table{width:100%;border-collapse:collapse;font-size:var(--fs-0)}
+.tile-table th{font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--text-3);text-align:left;padding:4px 10px 6px 0;border-bottom:1px solid var(--border-strong)}
+.tile-table td{padding:6px 10px 6px 0;border-bottom:1px solid var(--border);color:var(--text-2)}
+.tile-table tr:last-child td{border-bottom:none}
+.tile-table td.mono{font-size:11.5px;color:var(--text)}
+.tile-table th.r,.tile-table td.r{text-align:right;padding-right:0}
+.tile-table td.r{font-variant-numeric:tabular-nums}
+.age-strong{font-size:14px;font-weight:650;color:var(--text);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.tile-flag{margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-size:11px;
+  color:var(--text-2);border:1px solid var(--border);border-radius:999px;padding:2px 9px;
+  transition:all .15s ease}
+.tile-flag b{color:var(--amber);font-weight:700;font-variant-numeric:tabular-nums}
+.tile-flag:hover{border-color:var(--border-strong);background:var(--surface-2)}
+.ghost-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.ghost-tile{padding:14px 16px;min-height:96px}
+.ghost-spark{width:100%;height:34px;display:block;margin-top:10px}
+.ghost-spark polyline{stroke:var(--border-strong);stroke-width:1.6;fill:none}
+
+/* ---------- Playbooks ---------- */
+.pb-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.pb-search{flex:0 1 260px;border:1px solid var(--border);border-radius:var(--r-ctl);
+  background:var(--surface);padding:7px 12px;font-size:var(--fs-0)}
+.pb-search:focus{outline:none;border-color:var(--accent)}
+.pb-links{margin-left:auto;display:flex;gap:14px;font-size:var(--fs-0)}
+.pb-list{display:flex;flex-direction:column;gap:8px;max-width:840px}
+.pb-item{display:flex;align-items:center;gap:12px;padding:13px 16px}
+.pb-item .pb-name{font-weight:600;color:var(--text)}
+.pb-item .pb-meta{font-size:11.5px;color:var(--text-3);margin-top:3px}
+.pb-item:hover{border-color:var(--border-strong)}
+.type-tag{flex:0 0 auto;display:inline-flex;padding:2px 8px;border-radius:5px;font-size:10.5px;
+  font-weight:700;letter-spacing:.07em;text-transform:uppercase}
+.type-tag.wf{background:var(--tag-approval-bg);color:var(--tag-approval-ink)}
+.type-tag.cf{background:var(--tag-email-bg);color:var(--tag-email-ink)}
+.type-tag.auto{background:var(--tag-question-bg);color:var(--tag-question-ink)}
+.pb-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.pb-flag{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text-2);
+  border:1px solid var(--border);border-radius:999px;padding:2px 9px;transition:all .15s ease}
+.pb-flag b{color:var(--amber);font-weight:700;font-variant-numeric:tabular-nums}
+.pb-flag:hover{border-color:var(--border-strong);background:var(--surface-2)}
+.pb-ver{font-size:11.5px;color:var(--text-3);font-variant-numeric:tabular-nums}
+
+/* ---------- Email ---------- */
+.email-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:980px}
+.email-card{padding:18px 20px}
+.email-card h3{font-size:var(--fs-1);font-weight:650;margin-bottom:4px}
+.email-card .sub{font-size:var(--fs-0);color:var(--text-3);line-height:1.55;margin-bottom:14px}
+.addr-row{display:flex;align-items:center;gap:0;margin-bottom:12px}
+.addr-prefix{border:1px solid var(--border-strong);border-right:none;
+  border-radius:var(--r-ctl) 0 0 var(--r-ctl);padding:7px 12px;font-family:var(--mono);
+  font-size:12.5px;background:var(--surface);width:130px}
+.addr-prefix:focus{outline:none;border-color:var(--accent)}
+.addr-suffix{border:1px solid var(--border);border-radius:0 var(--r-ctl) var(--r-ctl) 0;
+  padding:7px 12px;font-family:var(--mono);font-size:12.5px;background:var(--surface-2);color:var(--text-3)}
+.state-chip{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:999px;
+  background:var(--tag-question-bg);color:var(--tag-question-ink);
+  font-size:10.5px;font-weight:700;letter-spacing:.08em}
+.state-chip::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.tog-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)}
+.tog-row:last-of-type{border-bottom:none}
+.tog-lab{font-size:var(--fs-0);color:var(--text)}
+.tog-note{font-size:11.5px;color:var(--text-3)}
+.toggle{margin-left:auto;flex:0 0 34px;width:34px;height:19px;border-radius:999px;
+  background:var(--surface-3);border:1px solid var(--border-strong);position:relative;
+  transition:background .15s ease}
+.toggle::after{content:"";position:absolute;top:1.5px;left:2px;width:13px;height:13px;border-radius:50%;
+  background:var(--surface);border:1px solid var(--border-strong);transition:transform .15s ease}
+.toggle.on{background:var(--accent-btn);border-color:var(--accent-btn)}
+.toggle.on::after{transform:translateX(14px);border-color:transparent}
+.cool-row{display:flex;align-items:center;gap:10px;margin-top:12px}
+.cool-row input{width:64px;border:1px solid var(--border);border-radius:var(--r-ctl);
+  padding:6px 10px;font-size:var(--fs-0);background:var(--surface);font-variant-numeric:tabular-nums}
+.stand-ta{width:100%;border:1px solid var(--border);border-radius:var(--r-ctl);background:var(--surface);
+  padding:9px 12px;font-size:var(--fs-0);min-height:64px;resize:vertical;margin-top:12px}
+.stand-ta:focus,.cool-row input:focus{outline:none;border-color:var(--accent)}
+.activity{max-width:980px;margin-top:16px;padding:16px 20px}
+.act-row{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);
+  font-size:var(--fs-0)}
+.act-row:last-child{border-bottom:none}
+.act-ts{flex:0 0 96px;color:var(--text-3);font-variant-numeric:tabular-nums;font-size:11.5px}
+.act-kind{flex:0 0 100px}
+.act-kind span{padding:2px 8px;border-radius:5px;font-size:10.5px;font-weight:700;
+  letter-spacing:.06em;text-transform:uppercase}
+.act-kind .drafted{background:var(--amber-soft);color:var(--amber)}
+.act-kind .processed{background:var(--tag-fyi-bg);color:var(--tag-fyi-ink)}
+.act-who{color:var(--text-2)}
+.act-sub{color:var(--text-3)}
+
+/* ---------- Skills ---------- */
+.skills-grid{display:grid;grid-template-columns:300px 1fr;gap:16px;max-width:980px;align-items:start}
+.skill-item{position:relative;width:100%;text-align:left;background:var(--surface);
+  border:1px solid var(--border);border-radius:var(--r-card);padding:12px 14px;
+  transition:border-color .15s ease;box-shadow:var(--shadow-1),var(--edge)}
+.skill-item:hover{border-color:var(--border-strong)}
+.skill-item.sel{border-color:var(--border-strong);box-shadow:var(--shadow-2),var(--edge)}
+.skill-item.sel::before{content:"";position:absolute;left:-1px;top:10px;bottom:10px;width:2px;
+  border-radius:2px;background:var(--accent-rail)}
+.skill-name{font-family:var(--mono);font-size:12.5px;color:var(--text);font-weight:600}
+.skill-meta{font-size:11.5px;color:var(--text-3);margin-top:4px}
+.skill-detail{padding:18px 20px}
+.skill-detail h2{font-family:var(--mono);font-size:15px;font-weight:650;margin-bottom:6px}
+.skill-body{font-family:var(--mono);font-size:12.5px;line-height:1.7;color:var(--text-2);
+  background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-ctl);
+  padding:14px 16px;margin:14px 0;white-space:pre-wrap}
+
+/* ---------- corner badge / misc ---------- */
+.corner-badge{position:fixed;right:14px;bottom:12px;z-index:60;
+  background:var(--surface);border:1px solid var(--border);border-radius:999px;
+  padding:4px 12px;font-size:11.5px;color:var(--text-3);box-shadow:var(--shadow-1),var(--edge);
+  transition:all .15s ease}
+.corner-badge:hover{color:var(--accent-ink);border-color:var(--border-strong);text-decoration:none}
+.corner-badge b{color:var(--text-2);font-weight:650}
+.sec-note{font-size:11.5px;color:var(--text-3);margin:14px 0 0}
+.h-row{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+
+@media (max-width:1100px){
+  .tiles{grid-template-columns:repeat(2,1fr)}
+  .tile.stat,.tile.bar,.tile.line,.tile.table{grid-column:span 2}
+  .work-grid{grid-template-columns:1fr}
+  .email-grid{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body class="pulse">
+
+<!-- ============ Sidebar ============ -->
+<aside class="side">
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path d="M2 11 L7 2 L12 11" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="7" cy="8.2" r="1.3" fill="#fff"/>
+      </svg>
+    </div>
+    <div>
+      <div class="brand-name">The Agent</div>
+      <div class="brand-sub">AI Hub · Tempo</div>
+    </div>
+  </div>
+
+  <nav class="nav" aria-label="Sections">
+    <button class="nav-btn active" data-nav="assistant">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg>
+      Assistant
+    </button>
+    <button class="nav-btn" data-nav="work">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 5.5h11v7h-11z"/><path d="M5.5 5.5v-2h5v2"/></svg>
+      My Work
+      <span class="nav-badge num" id="workBadge">4</span>
+    </button>
+    <button class="nav-btn" data-nav="views">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="2.5" width="4.6" height="4.6" rx="1"/><rect x="8.9" y="2.5" width="4.6" height="4.6" rx="1"/><rect x="2.5" y="8.9" width="4.6" height="4.6" rx="1"/><rect x="8.9" y="8.9" width="4.6" height="4.6" rx="1"/></svg>
+      Views
+    </button>
+    <button class="nav-btn" data-nav="playbooks">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2.5h8.5a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H3z"/><path d="M3 2.5v11"/><path d="M5.5 5.5h4.5M5.5 8h4.5"/></svg>
+      Playbooks
+    </button>
+    <button class="nav-btn" data-nav="email">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3.5" width="12" height="9" rx="1"/><path d="m2.5 4.5 5.5 4 5.5-4"/></svg>
+      Email
+    </button>
+    <button class="nav-btn" data-nav="skills">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v3M8 11v3M2 8h3M11 8h3"/><circle cx="8" cy="8" r="2.2"/></svg>
+      Skills
+    </button>
+  </nav>
+
+  <div class="side-sep" role="presentation"></div>
+
+  <div id="platGroup">
+    <button class="plat-head" id="platToggle" aria-expanded="false">
+      <span class="chev"><svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m3 1.5 3 3-3 3"/></svg></span>
+      Platform
+    </button>
+    <div class="plat-list">
+      <a class="plat-link" href="#">Data Explorer</a>
+      <a class="plat-link" href="#">Workflow Designer</a>
+      <a class="plat-link" href="#">Mission Control</a>
+      <a class="plat-link" href="#">Command Center</a>
+      <a class="plat-link" href="#">Documents</a>
+      <a class="plat-link" href="#">Classic app</a>
+    </div>
+  </div>
+
+  <div class="side-foot">
+    <div class="mono">brain: claude-fable-5</div>
+    <div class="mantra">draft → dry-run → promote → schedule<br>humans stay in the loop · <b>My Work</b></div>
+  </div>
+</aside>
+
+<!-- ============ Main ============ -->
+<div class="main">
+  <header class="topbar">
+    <h1 id="sectionTitle">Assistant</h1>
+    <div class="top-right">
+      <div class="theme-toggle" role="group" aria-label="Theme">
+        <button id="thLight" aria-label="Light theme" title="Light">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M12.6 3.4l-1.1 1.1M4.5 11.5l-1.1 1.1"/></svg>
+        </button>
+        <button id="thDark" aria-label="Dark theme" title="Dark">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 9.5A5.7 5.7 0 0 1 6.5 2.5a5.7 5.7 0 1 0 7 7Z"/></svg>
+        </button>
+      </div>
+      <div class="user-chip"><span>James · admin</span><span class="avatar">J</span></div>
+    </div>
+  </header>
+
+  <!-- Needs-you strip — pinned on every section -->
+  <div class="strip" id="strip">
+    <span class="strip-label" id="stripLabel"><span class="strip-dot"></span>Needs you</span>
+    <span class="strip-chips" id="stripChips">
+      <button class="strip-chip" data-jump="w1"><b id="cApprovals">2</b> approvals</button>
+      <span class="strip-sep">·</span>
+      <button class="strip-chip" data-jump="w3"><b id="cQuestion">1</b> question</button>
+      <span class="strip-sep">·</span>
+      <button class="strip-chip" data-jump="w2"><b id="cDraft">1</b> draft reply</button>
+    </span>
+    <span class="strip-clear-msg" id="stripClear" hidden>You're clear — nothing needs you.</span>
+    <button class="strip-open" data-jump="">Open My Work
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6h7M6.5 3l3 3-3 3"/></svg>
+    </button>
+  </div>
+
+  <div class="stage">
+
+  <!-- ============ 1 · Assistant ============ -->
+  <section class="section active" id="sec-assistant">
+    <div class="chat-wrap">
+      <div class="chat-scroll">
+
+        <div class="msg you dim">
+          <div class="who">J</div>
+          <div class="msg-body">
+            <div class="msg-meta"><span class="name">You</span><span>16:31</span></div>
+            <div class="bubble">Which vendors drove August invoice spend, and are any invoices stuck?</div>
+          </div>
+        </div>
+
+        <div class="msg agent dim">
+          <div class="who">A</div>
+          <div class="msg-body">
+            <div class="msg-meta"><span class="name">The Agent</span><span>16:31</span></div>
+            <div class="tools">
+              <span class="tool-chip"><span class="tool-ok" aria-hidden="true"></span><span class="fn">list_connections</span><span class="args">{}</span><span class="tool-t">0.4s</span></span>
+              <span class="tool-chip"><span class="tool-ok" aria-hidden="true"></span><span class="fn">query_database</span><span class="args">{"connection":"ERPDB","sql":"SELECT vendor, SUM(total)…"}</span><span class="tool-t">1.8s</span></span>
+            </div>
+            <div class="bubble">
+              <div class="chat-para">August invoice spend is <span class="chat-hl">$482,910</span> across 41 vendors. The top five drive 68% of it:</div>
+              <table class="chat-table">
+                <thead><tr><th>Vendor</th><th class="r">Invoices</th><th class="r">August total</th><th class="r">vs July</th></tr></thead>
+                <tbody>
+                  <tr><td>Meridian Supply Co</td><td class="r">14</td><td class="r">$128,400</td><td class="r"><span class="delta-up">+22%</span></td></tr>
+                  <tr><td>Northgate Logistics</td><td class="r">9</td><td class="r">$96,150</td><td class="r"><span class="delta-up">+4%</span></td></tr>
+                  <tr><td>Corvid Materials</td><td class="r">11</td><td class="r">$64,020</td><td class="r"><span class="delta-dn">−8%</span></td></tr>
+                  <tr><td>Atlas Packaging</td><td class="r">7</td><td class="r">$41,310</td><td class="r"><span class="delta-up">+13%</span></td></tr>
+                  <tr><td>Helix Industrial</td><td class="r">5</td><td class="r">$38,900</td><td class="r"><span class="delta-up">+2%</span></td></tr>
+                </tbody>
+              </table>
+              <div class="chat-note">Two Meridian invoices (<span class="chat-hl">INV-20841</span>, <span class="chat-hl">INV-20857</span>) are pending approval past 14 days — $61,200 combined. Want me to raise them in My Work?</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="msg you dim">
+          <div class="who">J</div>
+          <div class="msg-body">
+            <div class="msg-meta"><span class="name">You</span><span>16:33</span></div>
+            <div class="bubble">Yes — raise them and save this as a view.</div>
+          </div>
+        </div>
+
+        <div class="msg agent newest">
+          <div class="who">A<span class="presence" aria-hidden="true"></span></div>
+          <div class="msg-body">
+            <div class="msg-meta"><span class="name">The Agent</span><span>16:33</span></div>
+            <div class="tools">
+              <span class="tool-chip"><span class="tool-ok" aria-hidden="true"></span><span class="fn">create_work_item</span><span class="tool-t">0.6s</span></span>
+              <span class="tool-chip"><span class="tool-ok" aria-hidden="true"></span><span class="fn">save_view</span><span class="args">{"name":"Vendor Spend — August"}</span><span class="tool-t">0.9s</span></span>
+            </div>
+            <div class="bubble">
+              Done. Two approval items are in <a href="#" class="chat-hl" data-jump="w1" style="color:var(--accent-ink)">My Work</a>, and I saved <span class="chat-hl">Vendor Spend — August</span> as a view with 4 tiles — it refreshes with zero AI.<span class="stream-caret" aria-hidden="true"></span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="composer">
+        <div class="composer-box">
+          <textarea rows="2" placeholder="Message The Agent… (Enter to send)" aria-label="Message The Agent"></textarea>
+          <div class="composer-row">
+            <span class="ready"><span class="ready-dot" aria-hidden="true"></span>The Agent · ready</span>
+            <span class="spacer"></span>
+            <button class="icon-btn" title="New conversation" aria-label="New conversation">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M7 2.5v9M2.5 7h9"/></svg>
+            </button>
+            <button class="icon-btn" title="History" aria-label="History">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="5"/><path d="M7 4.2V7l2 1.4"/></svg>
+            </button>
+            <button class="send-btn" title="Send" aria-label="Send">
+              <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7h9M7.5 3.5 11 7l-3.5 3.5"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="starters">
+          <button class="starter">What data connections do we have?</button>
+          <button class="starter">Build me an automation that checks ERPDB daily</button>
+          <button class="starter">What's waiting in My Work?</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 2 · My Work ============ -->
+  <section class="section" id="sec-work">
+    <div class="filters" role="group" aria-label="Filter queue">
+      <button class="filter-chip on" data-filter="all">All <b>4</b></button>
+      <button class="filter-chip" data-filter="approval">Approval <b>1</b></button>
+      <button class="filter-chip" data-filter="email">Email / Edit <b>1</b></button>
+      <button class="filter-chip" data-filter="question">Question <b>1</b></button>
+      <button class="filter-chip" data-filter="fyi">FYI <span class="n-quiet">1</span></button>
+      <span style="margin-left:auto" class="micro num">sorted by waiting longest</span>
+    </div>
+
+    <div class="work-grid">
+      <div class="queue" id="queue">
+
+        <button class="q-item" data-item="w1" data-type="approval">
+          <div class="q-main">
+            <div class="q-head-row"><span class="vtag approval">Approval</span><span class="q-flag">dry-run</span></div>
+            <div class="q-title">Approve payment run — 2 overdue Meridian invoices ($61,200)</div>
+            <div class="q-src">from automation <span class="mono">invoice-chaser</span> · 09:14</div>
+          </div>
+          <div class="q-age"><div class="val num">21d</div><div class="lbl">oldest inv.</div></div>
+        </button>
+
+        <button class="q-item" data-item="w3" data-type="question">
+          <div class="q-main">
+            <div class="q-head-row"><span class="vtag question">Question</span><span class="q-flag">shared · unclaimed</span></div>
+            <div class="q-title">Which fiscal calendar should the vendor report use — 4-4-5 or calendar month?</div>
+            <div class="q-src">from agent</div>
+          </div>
+          <div class="q-age"><div class="val num">26h</div><div class="lbl">waiting</div></div>
+        </button>
+
+        <button class="q-item sel" data-item="w2" data-type="email">
+          <div class="q-main">
+            <div class="q-head-row"><span class="vtag email">Email / Edit</span></div>
+            <div class="q-title">Re: Q3 renewal pricing — reply to Dana Whitfield</div>
+            <div class="q-src">from email · 08:47</div>
+          </div>
+          <div class="q-age"><div class="val num">8h</div><div class="lbl">waiting</div></div>
+        </button>
+
+        <button class="q-item info" data-item="w4" data-type="fyi">
+          <div class="q-main">
+            <div class="q-head-row"><span class="vtag fyi">FYI</span></div>
+            <div class="q-title">Nightly ERPDB health check completed — 0 anomalies, 312k rows scanned</div>
+            <div class="q-src">from automation <span class="mono">erpdb-daily-health</span> · 06:00</div>
+          </div>
+          <div class="q-age"><div class="val num">11h</div><div class="lbl">&nbsp;</div></div>
+        </button>
+
+      </div>
+
+      <div>
+        <!-- Detail: w2 email (default) -->
+        <div class="card detail" id="det-w2">
+          <div class="detail-kicker"><span class="vtag email">Email / Edit</span><span class="micro num">waiting 8h</span></div>
+          <h2>Re: Q3 renewal pricing — reply to Dana Whitfield</h2>
+          <div class="d-label">Draft — body is editable; what you approve is what sends</div>
+          <div class="mail-rows">
+            <div class="mail-row"><span class="k">To</span><span class="v">dana@meridiansupply.com</span></div>
+            <div class="mail-row"><span class="k">From</span><span class="v">james-agent@mail.aihub.dev</span></div>
+            <div class="mail-row"><span class="k">Subject</span><span class="v">Re: Q3 renewal pricing</span></div>
+          </div>
+          <textarea class="d-body" aria-label="Editable draft body">Hi Dana,
+
+Thanks for sending the Q3 renewal proposal. We'd like to hold at current pricing while we complete our vendor-spend review this month — August volume moved and we want the numbers settled first. Separately, two of your invoices (INV-20841, INV-20857) are still in our approval queue; we're clearing those now and will confirm the renewal right after.
+
+Best,
+James</textarea>
+          <input class="d-comment" placeholder="Add a comment for the audit trail (optional)…" aria-label="Optional comment">
+          <div class="d-actions">
+            <button class="btn btn-primary" id="approveSend">Approve &amp; send</button>
+            <button class="btn btn-ghost" id="denySend">Deny</button>
+            <span class="d-hint">Nothing sends without you</span>
+          </div>
+          <div class="d-thread">
+            <h3>Thread with the agent</h3>
+            <div class="t-line"><span class="t-who">You</span><span class="t-msg">Is Dana on the approved vendor contact list?</span></div>
+            <div class="t-line"><span class="t-who">The Agent</span><span class="t-msg">Yes — primary commercial contact for Meridian Supply Co since March.</span></div>
+            <div class="t-ask">
+              <input placeholder="Ask the agent about this item…" aria-label="Ask the agent about this item">
+              <button class="btn btn-ghost">Ask</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Detail: w1 approval -->
+        <div class="card detail" id="det-w1" hidden>
+          <div class="detail-kicker"><span class="vtag approval">Approval</span><span class="q-flag">dry-run</span><span class="micro num">oldest invoice 21d</span></div>
+          <h2>Approve payment run — 2 overdue Meridian invoices ($61,200)</h2>
+          <div class="d-label">Raised by <span class="mono">invoice-chaser</span> at 09:14 · dry-run verified — no payment moves until you approve</div>
+          <div class="inv-lines">
+            <div class="inv-line"><span class="inv-id">INV-20841</span><span class="inv-v">Meridian Supply Co</span><span class="inv-amt num">$38,700</span><span class="inv-age-big num">21d</span></div>
+            <div class="inv-line"><span class="inv-id">INV-20857</span><span class="inv-v">Meridian Supply Co</span><span class="inv-amt num">$22,500</span><span class="inv-age-big num">17d</span></div>
+          </div>
+          <input class="d-comment" placeholder="Add a comment for the audit trail (optional)…" aria-label="Optional comment">
+          <div class="d-actions">
+            <button class="btn btn-primary" id="approveRun">Approve payment run</button>
+            <button class="btn btn-ghost">Deny</button>
+            <span class="d-hint">Nothing pays without you</span>
+          </div>
+        </div>
+
+        <!-- Detail: w3 question -->
+        <div class="card detail" id="det-w3" hidden>
+          <div class="detail-kicker"><span class="vtag question">Question</span><span class="q-flag">shared · unclaimed</span><span class="micro num">waiting 26h</span></div>
+          <h2>Which fiscal calendar should the vendor report use — 4-4-5 or calendar month?</h2>
+          <div class="d-label">The agent paused the vendor report build until someone answers. First answer unblocks it.</div>
+          <div class="opt-row">
+            <button class="opt-btn" data-pick>4-4-5 fiscal</button>
+            <button class="opt-btn" data-pick>Calendar month</button>
+          </div>
+          <input class="d-comment" placeholder="Or type a different answer…" aria-label="Different answer">
+          <div class="d-actions">
+            <button class="btn btn-primary" id="answerQ">Send answer</button>
+            <span class="d-hint">Unblocks the build for everyone</span>
+          </div>
+        </div>
+
+        <!-- Detail: w4 fyi -->
+        <div class="card detail" id="det-w4" hidden>
+          <div class="detail-kicker"><span class="vtag fyi">FYI</span><span class="micro num">06:00</span></div>
+          <h2>Nightly ERPDB health check completed</h2>
+          <div class="d-label">0 anomalies · 312k rows scanned · from automation <span class="mono">erpdb-daily-health</span> (v12)</div>
+          <p style="color:var(--text-2);margin:6px 0 0">Nothing to do here — informational only. It clears itself in 7 days.</p>
+          <div class="d-actions">
+            <button class="btn btn-ghost" id="ackFyi">Acknowledge</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 3 · Views ============ -->
+  <section class="section" id="sec-views">
+    <div class="views-grid">
+      <div class="view-list" id="viewList">
+        <button class="view-item sel" data-view="v1">
+          <div class="vi-name">Vendor Spend — August</div>
+          <div class="vi-meta num"><span class="scope-tag">user</span>4 tiles · v3</div>
+        </button>
+        <button class="view-item" data-view="v2">
+          <div class="vi-name">Ops Pulse</div>
+          <div class="vi-meta num"><span class="scope-tag">group</span>6 tiles · v11 · automation tiles</div>
+        </button>
+        <button class="view-item" data-view="v3">
+          <div class="vi-name">Warehouse Throughput</div>
+          <div class="vi-meta num"><span class="scope-tag">tenant</span>5 tiles · v2</div>
+        </button>
+        <p class="sec-note">Views are deterministic — they refresh with zero AI.</p>
+      </div>
+
+      <div>
+        <div class="view-board-head">
+          <h2 id="vbTitle">Vendor Spend — August</h2>
+          <span class="vb-meta num" id="vbMeta">user · v3 · refreshed 16:42</span>
+          <div class="vb-actions">
+            <button class="btn btn-quiet">Arrange</button>
+            <button class="btn btn-quiet">Rename</button>
+            <button class="btn btn-quiet">✎ Edit with AI</button>
+            <button class="btn btn-quiet">↻ Refresh</button>
+          </div>
+        </div>
+
+        <!-- Board v1 -->
+        <div id="board-v1">
+          <div class="tiles">
+            <div class="card tile stat">
+              <div class="tile-head"><span class="tile-title">August invoice total</span></div>
+              <div class="stat-big num">$482,910</div>
+              <div class="stat-sub">SUM(total) · as of 16:42</div>
+            </div>
+
+            <div class="card tile bar">
+              <div class="tile-head"><span class="tile-title">Spend by vendor (top 5)</span></div>
+              <div class="hbar-row"><span class="hbar-name">Meridian Supply Co</span><span class="hbar-track"><span class="hbar-fill" style="width:100%"></span></span><span class="hbar-val num">$128,400</span></div>
+              <div class="hbar-row"><span class="hbar-name">Northgate Logistics</span><span class="hbar-track"><span class="hbar-fill" style="width:75%"></span></span><span class="hbar-val num">$96,150</span></div>
+              <div class="hbar-row"><span class="hbar-name">Corvid Materials</span><span class="hbar-track"><span class="hbar-fill" style="width:50%"></span></span><span class="hbar-val num">$64,020</span></div>
+              <div class="hbar-row"><span class="hbar-name">Atlas Packaging</span><span class="hbar-track"><span class="hbar-fill" style="width:32%"></span></span><span class="hbar-val num">$41,310</span></div>
+              <div class="hbar-row"><span class="hbar-name">Helix Industrial</span><span class="hbar-track"><span class="hbar-fill" style="width:30%"></span></span><span class="hbar-val num">$38,900</span></div>
+            </div>
+
+            <div class="card tile line">
+              <div class="tile-head"><span class="tile-title">Daily invoice volume</span></div>
+              <svg class="line-svg" viewBox="0 0 320 96" preserveAspectRatio="none" role="img" aria-label="Daily invoice volume, gently rising over 14 days">
+                <line class="grid-l" x1="0" y1="24" x2="320" y2="24"/>
+                <line class="grid-l" x1="0" y1="48" x2="320" y2="48"/>
+                <line class="grid-l" x1="0" y1="72" x2="320" y2="72"/>
+                <polygon class="fillA" points="8,78 31,74 55,76 78,70 102,71 125,65 148,66 172,60 195,57 218,58 242,52 265,49 289,50 312,42 312,96 8,96"/>
+                <polyline class="plot" points="8,78 31,74 55,76 78,70 102,71 125,65 148,66 172,60 195,57 218,58 242,52 265,49 289,50 312,42"/>
+                <circle class="pt" cx="312" cy="42" r="2.6"/>
+              </svg>
+            </div>
+
+            <div class="card tile table">
+              <div class="tile-head">
+                <span class="tile-title">Open invoices &gt; 14 days</span>
+                <button class="tile-flag" data-jump="w1"><b>2</b> awaiting approval →</button>
+              </div>
+              <table class="tile-table">
+                <thead><tr><th>Invoice</th><th>Vendor</th><th class="r">Amount</th><th class="r">Age</th></tr></thead>
+                <tbody>
+                  <tr><td class="mono">INV-20841</td><td>Meridian</td><td class="r">$38,700</td><td class="r"><span class="age-strong">21d</span></td></tr>
+                  <tr><td class="mono">INV-20857</td><td>Meridian</td><td class="r">$22,500</td><td class="r"><span class="age-strong">17d</span></td></tr>
+                  <tr><td class="mono">INV-20872</td><td>Corvid</td><td class="r">$9,340</td><td class="r"><span class="age-strong">16d</span></td></tr>
+                  <tr><td class="mono">INV-20881</td><td>Atlas</td><td class="r">$7,120</td><td class="r"><span class="age-strong">15d</span></td></tr>
+                  <tr><td class="mono">INV-20889</td><td>Northgate</td><td class="r">$5,480</td><td class="r"><span class="age-strong">15d</span></td></tr>
+                  <tr><td class="mono">INV-20896</td><td>Helix</td><td class="r">$4,210</td><td class="r"><span class="age-strong">14d</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Boards v2/v3 are quiet ghost boards, filled by JS -->
+        <div id="board-v2" class="ghost-tiles" hidden></div>
+        <div id="board-v3" class="ghost-tiles" hidden></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 4 · Playbooks ============ -->
+  <section class="section" id="sec-playbooks">
+    <div class="pb-toolbar">
+      <div class="filters" style="margin:0" role="group" aria-label="Filter playbooks">
+        <button class="filter-chip on" data-pbf="all">All <span class="n-quiet">6</span></button>
+        <button class="filter-chip" data-pbf="wf">Workflows <span class="n-quiet">2</span></button>
+        <button class="filter-chip" data-pbf="cf">Code Flows <span class="n-quiet">1</span></button>
+        <button class="filter-chip" data-pbf="auto">Automations <span class="n-quiet">3</span></button>
+      </div>
+      <input class="pb-search" id="pbSearch" placeholder="Search playbooks…" aria-label="Search playbooks">
+      <div class="pb-links">
+        <a href="#">Open Workflow Designer ↗</a>
+        <a href="#">Open Mission Control ↗</a>
+      </div>
+    </div>
+
+    <div class="pb-list" id="pbList">
+      <div class="card pb-item" data-pbt="auto" data-name="invoice-chaser">
+        <span class="type-tag auto">Automation</span>
+        <div><div class="pb-name mono" style="font-size:13px">invoice-chaser</div>
+          <div class="pb-meta num">v7 · pinned v6</div></div>
+        <div class="pb-right"><button class="pb-flag" data-jump="w1"><b>1</b> waiting on you →</button></div>
+      </div>
+      <div class="card pb-item" data-pbt="wf" data-name="Invoice Intake — OCR + 3-way match">
+        <span class="type-tag wf">Workflow</span>
+        <div><div class="pb-name">Invoice Intake — OCR + 3-way match</div>
+          <div class="pb-meta num">id 1218</div></div>
+        <div class="pb-right"><span class="pb-ver">&nbsp;</span></div>
+      </div>
+      <div class="card pb-item" data-pbt="wf" data-name="Vendor Onboarding Checks">
+        <span class="type-tag wf">Workflow</span>
+        <div><div class="pb-name">Vendor Onboarding Checks</div>
+          <div class="pb-meta num">id 1327</div></div>
+        <div class="pb-right"><span class="pb-ver">&nbsp;</span></div>
+      </div>
+      <div class="card pb-item" data-pbt="cf" data-name="Monthly Close Journal Prep">
+        <span class="type-tag cf">Code Flow</span>
+        <div><div class="pb-name">Monthly Close Journal Prep</div>
+          <div class="pb-meta num">id 214</div></div>
+        <div class="pb-right"><span class="pb-ver">&nbsp;</span></div>
+      </div>
+      <div class="card pb-item" data-pbt="auto" data-name="dayforce-doc-upload">
+        <span class="type-tag auto">Automation</span>
+        <div><div class="pb-name mono" style="font-size:13px">dayforce-doc-upload</div>
+          <div class="pb-meta num">v3</div></div>
+        <div class="pb-right"><span class="pb-ver">&nbsp;</span></div>
+      </div>
+      <div class="card pb-item" data-pbt="auto" data-name="erpdb-daily-health">
+        <span class="type-tag auto">Automation</span>
+        <div><div class="pb-name mono" style="font-size:13px">erpdb-daily-health</div>
+          <div class="pb-meta num">v12</div></div>
+        <div class="pb-right"><span class="pb-ver">&nbsp;</span></div>
+      </div>
+    </div>
+    <p class="sec-note">Items waiting on you always sort to the top.</p>
+  </section>
+
+  <!-- ============ 5 · Email ============ -->
+  <section class="section" id="sec-email">
+    <div class="email-grid">
+      <div class="card email-card">
+        <div class="h-row" style="margin-bottom:4px"><h3>Your address</h3><span class="state-chip">Active</span></div>
+        <p class="sub">Mail sent to this address runs a headless agent session as you and lands its result in My Work.</p>
+        <div class="addr-row">
+          <input class="addr-prefix" value="james-agent" aria-label="Address prefix">
+          <span class="addr-suffix">@mail.aihub.dev</span>
+        </div>
+        <div class="tog-row">
+          <div><div class="tog-lab">Inbound enabled</div></div>
+          <button class="toggle on" role="switch" aria-checked="true" aria-label="Inbound enabled"></button>
+        </div>
+        <div class="d-actions" style="margin-top:12px">
+          <button class="btn btn-ghost" id="saveAddr">Save</button>
+        </div>
+      </div>
+
+      <div class="card email-card">
+        <h3 style="margin-bottom:12px">Sending &amp; behavior</h3>
+        <div class="tog-row">
+          <div><div class="tog-lab">Outbound enabled</div></div>
+          <button class="toggle on" role="switch" aria-checked="true" aria-label="Outbound enabled"></button>
+        </div>
+        <div class="tog-row">
+          <div><div class="tog-lab">Auto-send replies</div>
+            <div class="tog-note">every reply waits for your approval in My Work</div></div>
+          <button class="toggle" role="switch" aria-checked="false" aria-label="Auto-send replies"></button>
+        </div>
+        <div class="tog-row">
+          <div><div class="tog-lab">Notify on inbound</div></div>
+          <button class="toggle" role="switch" aria-checked="false" aria-label="Notify on inbound"></button>
+        </div>
+        <div class="cool-row">
+          <span class="tog-lab">Cooldown</span>
+          <input value="10" class="num" aria-label="Cooldown minutes">
+          <span class="tog-note">minutes between agent replies to one sender</span>
+        </div>
+        <textarea class="stand-ta" placeholder="Standing instructions — e.g. “Always cc procurement on vendor threads; never discuss pricing without my approval.”" aria-label="Standing instructions"></textarea>
+      </div>
+    </div>
+
+    <div class="card activity">
+      <div class="h-row" style="margin-bottom:6px"><span class="micro">Recent inbound activity</span></div>
+      <div class="act-row">
+        <span class="act-ts num">08-09 08:47</span>
+        <span class="act-kind"><span class="drafted">reply_drafted</span></span>
+        <span class="act-who">dana@meridiansupply.com</span>
+        <span class="act-sub">— Re: Q3 renewal pricing</span>
+        <button class="pb-flag" style="margin-left:auto" data-jump="w2"><b>1</b> draft waiting →</button>
+      </div>
+      <div class="act-row">
+        <span class="act-ts num">08-08 16:02</span>
+        <span class="act-kind"><span class="processed">processed</span></span>
+        <span class="act-who">alerts@dayforce.com</span>
+        <span class="act-sub">— Document batch ready</span>
+      </div>
+      <div class="act-row">
+        <span class="act-ts num">08-08 09:15</span>
+        <span class="act-kind"><span class="processed">processed</span></span>
+        <span class="act-who">noreply@erpdb</span>
+        <span class="act-sub">— Weekly digest</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 6 · Skills ============ -->
+  <section class="section" id="sec-skills">
+    <div class="skills-grid">
+      <div class="view-list">
+        <button class="skill-item" data-skill="s1">
+          <div class="skill-name">erpdb-reconciliation-recipes</div>
+          <div class="skill-meta num"><span class="scope-tag">product</span>4.2 KB</div>
+        </button>
+        <button class="skill-item" data-skill="s2">
+          <div class="skill-name">vendor-naming-conventions</div>
+          <div class="skill-meta num"><span class="scope-tag">tenant</span>1.1 KB</div>
+        </button>
+        <button class="skill-item sel" data-skill="s3">
+          <div class="skill-name">james-report-format</div>
+          <div class="skill-meta num"><span class="scope-tag">user</span>0.8 KB</div>
+        </button>
+        <p class="sec-note">Skills are procedural memory — the agent reads them before it acts.</p>
+      </div>
+
+      <div>
+        <div class="card skill-detail" id="skd-s3">
+          <div class="h-row" style="margin-bottom:2px"><h2>james-report-format</h2><span class="scope-tag">user</span><span class="micro num">0.8 KB</span></div>
+          <div class="skill-body">Reports for James: lead with the number, then the table.
+Currency to the dollar, no cents. Always note the as-of time.
+Deltas as signed percentages against the prior period.
+If anything is stuck &gt; 14 days, say so before the summary.</div>
+          <div class="d-actions">
+            <button class="btn btn-danger">Delete skill</button>
+            <span class="d-hint">Removing a skill changes how the agent behaves for you</span>
+          </div>
+        </div>
+        <div class="card skill-detail" id="skd-s1" hidden>
+          <div class="h-row" style="margin-bottom:2px"><h2>erpdb-reconciliation-recipes</h2><span class="scope-tag">product</span><span class="micro num">4.2 KB</span></div>
+          <div class="skill-body">Recipes for reconciling ERPDB invoice, PO, and payment tables.
+Match order: invoice_no → po_ref → vendor+amount+date window.
+Escalate unmatched rows &gt; $5,000 to My Work as a Question…</div>
+          <div class="d-actions">
+            <button class="btn btn-danger">Delete skill</button>
+            <span class="d-hint">Product-scope skills apply to every tenant</span>
+          </div>
+        </div>
+        <div class="card skill-detail" id="skd-s2" hidden>
+          <div class="h-row" style="margin-bottom:2px"><h2>vendor-naming-conventions</h2><span class="scope-tag">tenant</span><span class="micro num">1.1 KB</span></div>
+          <div class="skill-body">Canonical vendor names: strip Inc/LLC/Co suffixes for display.
+"Meridian Supply Co" is the canonical form for meridian-supply,
+MERIDIAN SUPPLY, and Meridian Supply Company…</div>
+          <div class="d-actions">
+            <button class="btn btn-danger">Delete skill</button>
+            <span class="d-hint">Tenant-scope: applies to everyone in this tenant</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  </div><!-- /stage -->
+</div><!-- /main -->
+
+<a class="corner-badge" href="./index.html"><b>#16</b> · Tempo</a>
+
+<script>
+(function(){
+  "use strict";
+  var $=function(s,c){return (c||document).querySelector(s)};
+  var $$=function(s,c){return Array.prototype.slice.call((c||document).querySelectorAll(s))};
+
+  /* ---------- theme ---------- */
+  var root=document.documentElement;
+  function effTheme(){
+    if(root.getAttribute("data-theme")) return root.getAttribute("data-theme");
+    return (window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light";
+  }
+  function paintTheme(){
+    var t=effTheme();
+    $("#thLight").classList.toggle("on",t==="light");
+    $("#thDark").classList.toggle("on",t==="dark");
+  }
+  $("#thLight").addEventListener("click",function(){root.setAttribute("data-theme","light");paintTheme();});
+  $("#thDark").addEventListener("click",function(){root.setAttribute("data-theme","dark");paintTheme();});
+  if(window.matchMedia){
+    try{window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change",paintTheme);}catch(e){}
+  }
+  paintTheme();
+
+  /* ---------- navigation ---------- */
+  var titles={assistant:"Assistant",work:"My Work",views:"Views",playbooks:"Playbooks",email:"Email",skills:"Skills"};
+  function goSection(name){
+    $$(".nav-btn").forEach(function(b){b.classList.toggle("active",b.getAttribute("data-nav")===name)});
+    $$(".section").forEach(function(s){s.classList.toggle("active",s.id==="sec-"+name)});
+    $("#sectionTitle").textContent=titles[name]||name;
+    $(".stage").scrollTop=0;
+  }
+  $$(".nav-btn").forEach(function(b){
+    b.addEventListener("click",function(){goSection(b.getAttribute("data-nav"))});
+  });
+
+  /* ---------- needs-you state + strip ---------- */
+  var need={approvals:2,question:1,draft:1};
+  function renderStrip(){
+    var total=need.approvals+need.question+need.draft;
+    var strip=$("#strip");
+    $("#cApprovals").textContent=need.approvals;
+    $("#cQuestion").textContent=need.question;
+    $("#cDraft").textContent=need.draft;
+    // hide zeroed chips (and their separators)
+    var chips=$$("#stripChips .strip-chip");
+    var seps=$$("#stripChips .strip-sep");
+    var vis=[];
+    chips[0].style.display=need.approvals?"":"none";
+    chips[1].style.display=need.question?"":"none";
+    chips[2].style.display=need.draft?"":"none";
+    chips.forEach(function(c){if(c.style.display!=="none")vis.push(c)});
+    seps.forEach(function(s,i){
+      var left=chips[i],right=chips[i+1];
+      s.style.display=(left&&right&&left.style.display!=="none"&&right.style.display!=="none")?"":"none";
+    });
+    strip.classList.toggle("clear",total===0);
+    $("#stripChips").hidden=(total===0);
+    $("#stripClear").hidden=(total!==0);
+    $("#stripLabel").innerHTML=total===0
+      ? '<span class="strip-dot"></span>You’re clear'
+      : '<span class="strip-dot"></span>Needs you';
+  }
+  var badgeCount=4;
+  function decBadge(){
+    badgeCount=Math.max(0,badgeCount-1);
+    var b=$("#workBadge");
+    b.textContent=badgeCount;
+    if(badgeCount===0)b.style.display="none";
+  }
+
+  /* ---------- jumps into My Work ---------- */
+  $$("[data-jump]").forEach(function(el){
+    el.addEventListener("click",function(ev){
+      ev.preventDefault();
+      goSection("work");
+      var id=el.getAttribute("data-jump");
+      if(id)selectWork(id);
+    });
+  });
+
+  /* ---------- My Work queue ---------- */
+  function selectWork(id){
+    $$("#queue .q-item").forEach(function(q){q.classList.toggle("sel",q.getAttribute("data-item")===id)});
+    ["w1","w2","w3","w4"].forEach(function(w){
+      var d=$("#det-"+w); if(d)d.hidden=(w!==id);
+    });
+  }
+  $$("#queue .q-item").forEach(function(q){
+    q.addEventListener("click",function(){selectWork(q.getAttribute("data-item"))});
+  });
+
+  $$(".filters [data-filter]").forEach(function(chip){
+    chip.addEventListener("click",function(){
+      $$(".filters [data-filter]").forEach(function(c){c.classList.toggle("on",c===chip)});
+      var f=chip.getAttribute("data-filter");
+      $$("#queue .q-item").forEach(function(q){
+        q.style.display=(f==="all"||q.getAttribute("data-type")===f)?"":"none";
+      });
+    });
+  });
+
+  function completeItem(wid,btn,doneText,after){
+    if(btn.classList.contains("done"))return;
+    btn.classList.remove("btn-primary");btn.classList.add("done");
+    btn.textContent=doneText;btn.disabled=true;
+    var q=$('#queue .q-item[data-item="'+wid+'"]');
+    if(q)q.classList.add("done-item");
+    decBadge();
+    if(after)after();
+    renderStrip();
+  }
+  $("#approveSend").addEventListener("click",function(){
+    completeItem("w2",this,"Approved — sending ✓",function(){need.draft=0});
+  });
+  $("#denySend").addEventListener("click",function(){
+    var b=this,old=b.textContent;
+    b.textContent="Denied — kept as draft";
+    setTimeout(function(){b.textContent=old},1800);
+  });
+  $("#approveRun").addEventListener("click",function(){
+    completeItem("w1",this,"Payment run approved ✓",function(){need.approvals=0});
+  });
+  $$("#det-w3 .opt-btn").forEach(function(o){
+    o.addEventListener("click",function(){
+      $$("#det-w3 .opt-btn").forEach(function(x){x.classList.toggle("picked",x===o)});
+    });
+  });
+  $("#answerQ").addEventListener("click",function(){
+    completeItem("w3",this,"Answer sent ✓",function(){need.question=0});
+  });
+  $("#ackFyi").addEventListener("click",function(){
+    var b=this;
+    if(b.disabled)return;
+    b.textContent="Acknowledged ✓";b.disabled=true;b.classList.add("done");
+    var q=$('#queue .q-item[data-item="w4"]');if(q)q.classList.add("done-item");
+    decBadge();
+  });
+
+  /* ---------- Views ---------- */
+  var viewMeta={
+    v1:{t:"Vendor Spend — August",m:"user · v3 · refreshed 16:42"},
+    v2:{t:"Ops Pulse",m:"group · v11 · refreshed 16:40"},
+    v3:{t:"Warehouse Throughput",m:"tenant · v2 · refreshed 16:38"}
+  };
+  var ghosts={
+    v2:["Runs today","Failures (7d)","Approvals pending","Queue depth","invoice-chaser health","Job latency p95"],
+    v3:["Units picked","Dock-to-stock hrs","Open transfers","Putaway backlog","Carrier on-time"]
+  };
+  function spark(i){
+    var pts=[],x,y;
+    for(var k=0;k<9;k++){
+      x=4+k*17;
+      y=26-((k*7+i*11)%13)-(k*1.2);
+      pts.push(x+","+Math.max(4,y).toFixed(1));
+    }
+    return '<svg class="ghost-spark" viewBox="0 0 144 34" preserveAspectRatio="none" aria-hidden="true"><polyline points="'+pts.join(" ")+'"/></svg>';
+  }
+  Object.keys(ghosts).forEach(function(v){
+    var host=$("#board-"+v),html="";
+    ghosts[v].forEach(function(name,i){
+      html+='<div class="card ghost-tile"><div class="tile-title">'+name+'</div>'+spark(i)+'</div>';
+    });
+    host.innerHTML=html;
+  });
+  $$("#viewList .view-item").forEach(function(vi){
+    vi.addEventListener("click",function(){
+      var v=vi.getAttribute("data-view");
+      $$("#viewList .view-item").forEach(function(x){x.classList.toggle("sel",x===vi)});
+      ["v1","v2","v3"].forEach(function(k){$("#board-"+k).hidden=(k!==v)});
+      $("#vbTitle").textContent=viewMeta[v].t;
+      $("#vbMeta").textContent=viewMeta[v].m;
+    });
+  });
+
+  /* ---------- Playbooks ---------- */
+  function pbApply(){
+    var f=($(".pb-toolbar .filter-chip.on")||{}).getAttribute?$(".pb-toolbar .filter-chip.on").getAttribute("data-pbf"):"all";
+    var q=($("#pbSearch").value||"").toLowerCase();
+    $$("#pbList .pb-item").forEach(function(it){
+      var okT=(f==="all"||it.getAttribute("data-pbt")===f);
+      var okQ=!q||it.getAttribute("data-name").toLowerCase().indexOf(q)>-1;
+      it.style.display=(okT&&okQ)?"":"none";
+    });
+  }
+  $$(".pb-toolbar [data-pbf]").forEach(function(chip){
+    chip.addEventListener("click",function(){
+      $$(".pb-toolbar [data-pbf]").forEach(function(c){c.classList.toggle("on",c===chip)});
+      pbApply();
+    });
+  });
+  $("#pbSearch").addEventListener("input",pbApply);
+
+  /* ---------- Email ---------- */
+  $$(".toggle").forEach(function(t){
+    t.addEventListener("click",function(){
+      var on=!t.classList.contains("on");
+      t.classList.toggle("on",on);
+      t.setAttribute("aria-checked",on?"true":"false");
+    });
+  });
+  $("#saveAddr").addEventListener("click",function(){
+    var b=this,old=b.textContent;
+    b.textContent="Saved ✓";
+    setTimeout(function(){b.textContent=old},1600);
+  });
+
+  /* ---------- Skills ---------- */
+  $$(".skill-item").forEach(function(si){
+    si.addEventListener("click",function(){
+      var s=si.getAttribute("data-skill");
+      $$(".skill-item").forEach(function(x){x.classList.toggle("sel",x===si)});
+      ["s1","s2","s3"].forEach(function(k){$("#skd-"+k).hidden=(k!==s)});
+    });
+  });
+
+  /* ---------- Platform collapse ---------- */
+  $("#platToggle").addEventListener("click",function(){
+    var g=$("#platGroup"),open=g.classList.toggle("plat-open");
+    this.setAttribute("aria-expanded",open?"true":"false");
+  });
+
+  /* ---------- Starters ---------- */
+  $$(".starter").forEach(function(st){
+    st.addEventListener("click",function(){
+      var ta=$(".composer textarea");
+      ta.value=st.textContent;ta.focus();
+    });
+  });
+
+  renderStrip();
+})();
+</script>
+</body>
+</html>

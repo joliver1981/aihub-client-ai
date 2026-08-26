@@ -1,0 +1,1354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Agent · Ember concept</title>
+<style>
+/* ============================================================
+   #12 EMBER — ambient calm computing, OLED night
+   True black. Chrome nearly invisible. The agent is a warm
+   ember orb; its glow is the status system. Everything
+   dissolves in 250ms; nothing slides.
+   ============================================================ */
+:root{
+  --bg:#000000;
+  --ink:#ECE7E1;
+  --ink-hi:#FFF8EF;
+  --dim:#8A8A8A;
+  --faint:#57534E;
+  --ghost:#3D3935;
+  --hair:#141414;
+  --s1:#070707;
+  --s2:#0A0A0A;
+  --s3:#0E0C0A;
+  --ember:#D97A32;
+  --ember-hi:#F0A868;
+  --ember-deep:#7A2E1D;
+  --ember-04:rgba(217,122,50,.04);
+  --ember-08:rgba(217,122,50,.08);
+  --ember-15:rgba(217,122,50,.15);
+  --ember-30:rgba(217,122,50,.30);
+  --mono:"Cascadia Mono",Consolas,"Courier New",monospace;
+  --serif:Georgia,"Times New Roman",serif;
+  --sans:"Segoe UI","Segoe UI Variable Text",-apple-system,"Helvetica Neue",Arial,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--sans);
+  font-size:14px;
+  line-height:1.6;
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{background:rgba(217,122,50,.28);color:var(--ink-hi)}
+*{scrollbar-width:thin;scrollbar-color:#1A1815 transparent}
+*::-webkit-scrollbar{width:10px;height:10px}
+*::-webkit-scrollbar-track{background:transparent}
+*::-webkit-scrollbar-thumb{background:#161412;border-radius:5px;border:3px solid #000}
+a{color:var(--dim);text-decoration:none;transition:color .25s ease}
+a:hover{color:var(--ink)}
+button{font-family:inherit;cursor:pointer;background:none;border:none;color:inherit}
+code{font-family:var(--mono)}
+:focus-visible{outline:1px solid rgba(217,122,50,.55);outline-offset:2px;border-radius:6px}
+
+/* ---------- the ember orb ---------- */
+.orb{
+  position:relative;width:38px;height:38px;border-radius:50%;flex:none;
+  background:
+    radial-gradient(circle at 34% 28%, #FBC58C 0%, #F0A868 14%, #D97A32 38%, #A8481F 66%, #7A2E1D 84%, #3E170D 100%);
+  box-shadow:inset -4px -6px 12px rgba(0,0,0,.55), inset 2px 3px 6px rgba(255,214,170,.25);
+}
+.orb::after{
+  content:"";position:absolute;inset:-14px;border-radius:50%;z-index:-1;
+  background:radial-gradient(circle, rgba(228,132,58,.5) 0%, rgba(217,122,50,.16) 45%, transparent 72%);
+  filter:blur(5px);
+  opacity:.28;transform:scale(.96);
+}
+.orb.needs-you::after{animation:orbGlow 4s ease-in-out infinite}
+.orb.thinking::after{animation:orbGlow 1.3s ease-in-out infinite}
+@keyframes orbGlow{
+  0%,100%{opacity:.28;transform:scale(.96)}
+  50%{opacity:.92;transform:scale(1.16)}
+}
+.orb-mini{width:20px;height:20px}
+.orb-mini::after{inset:-9px}
+.orb-mini.breathe::after{animation:orbGlow 6s ease-in-out infinite}
+.orb-mini.thinking::after{animation:orbGlow 1.3s ease-in-out infinite}
+.orb-dot{
+  display:inline-block;width:7px;height:7px;border-radius:50%;flex:none;
+  background:radial-gradient(circle at 35% 30%, #F0A868, #D97A32 55%, #7A2E1D);
+  box-shadow:0 0 8px rgba(217,122,50,.5);
+}
+
+/* ---------- rail ---------- */
+.rail{
+  position:fixed;left:0;top:0;bottom:0;width:64px;z-index:60;
+  display:flex;flex-direction:column;align-items:center;
+  padding:16px 0 14px;gap:4px;background:var(--bg);
+}
+.rail-orb-wrap{position:relative;margin-bottom:22px}
+.rail-orb-btn{display:block;border-radius:50%;padding:0}
+.rail-spacer{flex:1}
+.rail-btn{
+  position:relative;width:44px;height:44px;border-radius:12px;flex:none;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--ghost);transition:color .25s ease, background .25s ease;
+}
+.rail-btn svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.rail-btn:hover{color:var(--dim)}
+.rail-btn.active{
+  color:var(--ink);
+  background:radial-gradient(circle at 50% 50%, rgba(217,122,50,.13), transparent 72%);
+}
+.rail-label{
+  position:absolute;left:56px;top:50%;transform:translateY(-50%);
+  white-space:nowrap;font-size:11.5px;letter-spacing:.04em;color:var(--ink);
+  background:#0C0A08;padding:6px 12px;border-radius:8px;pointer-events:none;
+  box-shadow:0 0 40px rgba(217,122,50,.07), 0 8px 24px rgba(0,0,0,.9);
+  opacity:0;transition:opacity .25s ease;z-index:70;
+}
+.rail-label b{font-weight:400;color:var(--ember-hi)}
+.rail-btn:hover .rail-label,.rail-btn:focus-visible .rail-label,
+.rail-orb-btn:hover .rail-label,.rail-orb-btn:focus-visible .rail-label{opacity:1}
+.rail-badge{
+  position:absolute;top:5px;right:4px;min-width:14px;height:14px;border-radius:7px;
+  background:radial-gradient(circle at 35% 30%, #F0A868, #D97A32 60%, #A8481F);
+  color:#140A04;font-size:9px;font-weight:700;line-height:14px;text-align:center;
+  box-shadow:0 0 10px rgba(217,122,50,.55);
+  font-family:var(--mono);
+}
+/* platform flyout */
+.plat{position:relative}
+.plat-fly{
+  position:absolute;left:56px;bottom:-6px;width:196px;
+  background:#0C0A08;border-radius:14px;padding:12px 8px 8px;
+  box-shadow:0 0 60px rgba(217,122,50,.06), 0 18px 50px rgba(0,0,0,.9);
+  opacity:0;pointer-events:none;transition:opacity .25s ease;z-index:70;
+}
+.plat:hover .plat-fly,.plat:focus-within .plat-fly{opacity:1;pointer-events:auto}
+.plat-fly h5{
+  font-size:9.5px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--faint);padding:2px 12px 8px;
+}
+.plat-fly a{
+  display:flex;justify-content:space-between;align-items:center;
+  font-size:12.5px;color:var(--dim);padding:7px 12px;border-radius:8px;
+  transition:color .25s ease, background .25s ease;
+}
+.plat-fly a:hover{color:var(--ink);background:var(--ember-04)}
+.plat-fly a span{color:var(--ghost);font-size:11px}
+.rail-user{
+  width:30px;height:30px;border-radius:50%;flex:none;position:relative;
+  background:#121008;color:var(--dim);font-size:11.5px;font-weight:600;
+  display:flex;align-items:center;justify-content:center;margin-top:10px;
+  box-shadow:inset 0 0 0 1px #1C1915;
+}
+
+/* ---------- global chrome ---------- */
+.meta-top{
+  position:fixed;top:14px;right:20px;z-index:55;pointer-events:none;
+  font-family:var(--mono);font-size:10.5px;color:#4A4640;letter-spacing:.03em;
+}
+.meta-top b{font-weight:400;color:#6A6058}
+.mantra{
+  position:fixed;bottom:13px;left:64px;right:0;z-index:5;pointer-events:none;
+  text-align:center;font-family:var(--mono);font-size:10px;color:#38342F;letter-spacing:.05em;
+}
+.mantra i{font-style:normal;color:#262320;padding:0 10px}
+.badge{
+  position:fixed;right:18px;bottom:14px;z-index:65;
+  font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:#5C5751;
+  background:rgba(9,8,7,.9);padding:6px 11px;border-radius:999px;
+  box-shadow:inset 0 0 0 1px #16130F;
+  transition:color .25s ease, box-shadow .25s ease;
+}
+.badge:hover{color:var(--ember-hi);box-shadow:inset 0 0 0 1px rgba(217,122,50,.35), 0 0 24px rgba(217,122,50,.12)}
+
+/* ---------- stage & panels (dissolve, never slide) ---------- */
+.stage{position:fixed;left:64px;top:0;right:0;bottom:0}
+.panel{
+  position:absolute;inset:0;overflow-y:auto;
+  opacity:0;visibility:hidden;
+  transition:opacity .25s ease, visibility 0s linear .25s;
+  display:flex;flex-direction:column;
+}
+.panel.active{opacity:1;visibility:visible;transition:opacity .25s ease}
+.wrap{width:min(1180px, calc(100% - 96px));margin:0 auto;padding:52px 0 130px;flex:none}
+.sec-head{margin-bottom:30px}
+.sec-head h1{font-family:var(--serif);font-weight:400;font-size:27px;letter-spacing:.005em;color:var(--ink)}
+.sec-head .sub{font-size:12.5px;color:var(--faint);margin-top:5px;letter-spacing:.02em}
+
+/* surfaces: no borders — black gaps + faint elevation glow */
+.card{
+  background:radial-gradient(120% 80% at 50% 0%, rgba(217,122,50,.045), transparent 58%), var(--s2);
+  border-radius:18px;padding:24px 26px;
+  box-shadow:0 0 70px rgba(217,122,50,.028);
+}
+.tile{
+  background:radial-gradient(130% 90% at 50% 0%, rgba(217,122,50,.05), transparent 55%), var(--s2);
+  border-radius:16px;padding:20px 22px;
+  box-shadow:0 0 60px rgba(217,122,50,.03);
+  min-width:0;
+}
+.tile h4,.card h4{
+  font-size:10px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--faint);margin-bottom:14px;display:flex;align-items:center;gap:8px;
+}
+
+/* ---------- shared small bits ---------- */
+.minitag{
+  font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ember-hi);background:var(--ember-08);border-radius:4px;padding:2px 6px;vertical-align:1px;
+}
+.minitag.cool{color:#7C766E;background:#100E0C}
+.chipline{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.fchip{
+  font-size:12px;color:var(--faint);padding:6px 13px;border-radius:999px;
+  background:transparent;transition:color .25s ease, background .25s ease, box-shadow .25s ease;
+  letter-spacing:.02em;
+}
+.fchip em{font-style:normal;font-family:var(--mono);font-size:10.5px;color:#45413C;margin-left:5px}
+.fchip:hover{color:var(--dim)}
+.fchip.active{color:var(--ink);background:var(--s3);box-shadow:0 0 24px rgba(217,122,50,.05)}
+.fchip.active em{color:var(--ember)}
+.btn{
+  font-size:12.5px;letter-spacing:.03em;border-radius:10px;padding:9px 16px;
+  color:var(--dim);box-shadow:inset 0 0 0 1px #191612;
+  transition:color .25s ease, box-shadow .25s ease, background .25s ease, opacity .25s ease;
+  background:transparent;
+}
+.btn:hover{color:var(--ink);box-shadow:inset 0 0 0 1px #262119}
+.btn-ember{
+  background:linear-gradient(160deg, #E8934C, #C25F26 78%);
+  color:#140A04;font-weight:600;box-shadow:0 0 0 1px rgba(0,0,0,0), 0 0 26px rgba(217,122,50,.16);
+}
+.btn-ember:hover{color:#000;box-shadow:0 0 34px rgba(217,122,50,.32);filter:brightness(1.07)}
+.btn-danger{color:#B85C43;box-shadow:inset 0 0 0 1px #241310}
+.btn-danger:hover{color:#E08363;background:rgba(122,46,29,.14);box-shadow:inset 0 0 0 1px #35180F}
+.btn.acked,.btn-ember.acked{filter:none;background:var(--ember-08);color:var(--ember-hi);box-shadow:inset 0 0 0 1px rgba(217,122,50,.25)}
+.hint{font-size:11px;color:var(--faint);letter-spacing:.03em}
+input[type=text],input[type=number],textarea{
+  font-family:inherit;font-size:13.5px;color:var(--ink);
+  background:var(--s1);border:none;border-radius:10px;padding:11px 14px;
+  transition:box-shadow .25s ease, background .25s ease;width:100%;
+}
+input:focus,textarea:focus{outline:none;box-shadow:0 0 0 1px rgba(217,122,50,.3), 0 0 30px rgba(217,122,50,.07);background:#0C0A08}
+textarea{resize:vertical;line-height:1.65}
+::placeholder{color:#45413C}
+
+/* toggles */
+.tgl{
+  width:32px;height:18px;border-radius:9px;background:#161310;flex:none;position:relative;
+  transition:background .25s ease;box-shadow:inset 0 0 0 1px #1D1A15;
+}
+.tgl::after{
+  content:"";position:absolute;top:3px;left:3px;width:12px;height:12px;border-radius:50%;
+  background:#57534E;transition:left .25s ease, background .25s ease, box-shadow .25s ease;
+}
+.tgl.on{background:linear-gradient(160deg,#C46228,#8A3A1E);box-shadow:none}
+.tgl.on::after{left:17px;background:#FFEDD9;box-shadow:0 0 10px rgba(240,168,104,.6)}
+
+/* ============================================================
+   1) ASSISTANT
+   ============================================================ */
+#panel-assistant{overflow:hidden}
+.chat-scroll{flex:1;overflow-y:auto;scroll-behavior:auto}
+.chat-col{width:min(720px, calc(100% - 80px));margin:0 auto;padding:64px 0 24px}
+.hello{padding:8px 0 46px;text-align:center}
+.hello h2{font-family:var(--serif);font-weight:400;font-size:30px;color:var(--ink);letter-spacing:.004em}
+.hello p{font-size:13px;color:var(--faint);margin:10px auto 26px;max-width:460px;line-height:1.7}
+.starters{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+.starter{
+  font-size:12.5px;color:#6E6861;background:var(--s1);border-radius:999px;padding:8px 16px;
+  transition:color .25s ease, background .25s ease, box-shadow .25s ease;letter-spacing:.015em;
+}
+.starter:hover{color:var(--ink);background:var(--s3);box-shadow:0 0 28px rgba(217,122,50,.07)}
+.session-mark{
+  text-align:center;font-family:var(--mono);font-size:9.5px;letter-spacing:.22em;
+  text-transform:uppercase;color:#2E2B27;padding:8px 0 44px;
+}
+.msg{margin-bottom:38px}
+.who{
+  font-size:10px;font-weight:600;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--faint);margin-bottom:9px;display:flex;align-items:center;gap:8px;
+}
+.msg.you{margin-left:22%}
+.msg.you .who{justify-content:flex-end;color:#4C4843}
+.msg.you p{color:#C9C2B8;text-align:right;font-size:15px;line-height:1.65}
+.msg.agent .who .orb-dot{margin-right:1px}
+.msg.agent p{color:var(--ink);font-size:15px;line-height:1.75;max-width:640px}
+.msg.agent p + p{margin-top:14px}
+.msg.agent strong{color:var(--ink-hi);font-weight:600}
+.msg.agent .inv{font-family:var(--mono);font-size:.88em;color:var(--ember-hi)}
+.toolrow{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:38px}
+.tchip{
+  display:inline-flex;align-items:center;gap:9px;
+  font-family:var(--mono);font-size:11px;color:#575249;
+  background:var(--s1);border-radius:999px;padding:6px 14px 6px 11px;
+  transition:color .25s ease, background .25s ease, box-shadow .25s ease;
+  max-width:100%;
+}
+.tchip .cdot{width:5px;height:5px;border-radius:50%;background:var(--ember);opacity:.45;flex:none;transition:opacity .25s ease, box-shadow .25s ease}
+.tchip code{color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tchip .cmeta{color:#3B3833;flex:none;transition:color .25s ease}
+.tchip:hover{color:var(--ink);background:var(--s3);box-shadow:0 0 26px rgba(217,122,50,.08)}
+.tchip:hover .cdot{opacity:1;box-shadow:0 0 8px rgba(217,122,50,.7)}
+.tchip:hover .cmeta{color:var(--dim)}
+.mini-table{border-collapse:collapse;width:100%;margin:18px 0 4px;font-size:13px}
+.mini-table th{
+  font-size:9.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);
+  text-align:left;padding:0 14px 9px 0;border-bottom:1px solid var(--hair);
+}
+.mini-table th.num,.mini-table td.num{text-align:right;font-variant-numeric:tabular-nums}
+.mini-table td{padding:9px 14px 9px 0;border-bottom:1px solid #0E0D0B;color:#C9C2B8}
+.mini-table tr:last-child td{border-bottom:none}
+.mini-table td:first-child{color:var(--ink)}
+.mini-table .up{color:var(--ember-hi)}
+.mini-table .dn{color:#5C5751}
+/* input dock */
+.dock-zone{flex:none;padding:10px 0 40px;background:linear-gradient(180deg, transparent, #000 40%)}
+.dock{
+  width:min(720px, calc(100% - 80px));margin:0 auto;
+  background:radial-gradient(120% 100% at 50% 0%, rgba(217,122,50,.055), transparent 60%), var(--s2);
+  border-radius:18px;padding:14px 14px 14px 18px;
+  box-shadow:0 0 80px rgba(217,122,50,.05);
+  display:flex;align-items:center;gap:14px;
+}
+.dock textarea{
+  flex:1;background:transparent;border:none;padding:6px 0;box-shadow:none;
+  font-size:14.5px;min-height:24px;max-height:120px;resize:none;color:var(--ink);
+}
+.dock textarea:focus{box-shadow:none;background:transparent}
+.dock-actions{display:flex;align-items:center;gap:8px;flex:none}
+.icon-btn{
+  width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+  color:var(--ghost);transition:color .25s ease, background .25s ease;
+}
+.icon-btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.icon-btn:hover{color:var(--dim);background:var(--s3)}
+.dock .btn-ember{padding:9px 20px;border-radius:11px}
+.think-status{
+  text-align:center;font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--ember);opacity:0;transition:opacity .25s ease;padding-top:12px;height:28px;
+}
+.think-status.on{opacity:.8}
+
+/* ============================================================
+   2) MY WORK
+   ============================================================ */
+.work-grid{display:grid;grid-template-columns:370px 1fr;gap:26px;align-items:start}
+.wq{display:flex;flex-direction:column;gap:8px;margin-top:18px}
+.wi{
+  border-radius:14px;padding:15px 18px;cursor:pointer;background:transparent;
+  transition:background .25s ease, box-shadow .25s ease;
+}
+.wi:hover{background:var(--s1)}
+.wi.sel{background:var(--s3);box-shadow:0 0 46px rgba(217,122,50,.06)}
+.wi-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px}
+.vtag{font-size:9.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:#6E6861;display:inline-flex;align-items:center;gap:6px}
+.vtag-approval{color:var(--ember-hi)}
+.vtag-approval::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--ember);box-shadow:0 0 7px rgba(217,122,50,.8)}
+.wi-time{font-family:var(--mono);font-size:10px;color:#3D3935}
+.wi-title{font-size:13.5px;color:var(--ink);line-height:1.5;letter-spacing:.005em}
+.wi-meta{font-size:11px;color:var(--faint);margin-top:5px}
+.wi-meta code{font-size:10.5px;color:#7C766E}
+/* SIGNATURE — approval row breathes ember, 4s */
+.wi-pulse{animation:wiPulse 4s ease-in-out infinite}
+@keyframes wiPulse{
+  0%,100%{background:rgba(217,122,50,.035);box-shadow:inset 2px 0 0 rgba(217,122,50,.22)}
+  50%{background:rgba(217,122,50,.11);box-shadow:inset 2px 0 0 rgba(217,122,50,.75), 0 0 44px rgba(217,122,50,.10)}
+}
+.wi-pulse.sel{animation:none;background:var(--s3);box-shadow:inset 2px 0 0 rgba(217,122,50,.6), 0 0 46px rgba(217,122,50,.08)}
+.wdetail{min-width:0}
+.wd{display:none}
+.wd.active{display:block}
+.wd-head{margin-bottom:20px}
+.wd-head .vtag{margin-bottom:10px}
+.wd-head h2{font-family:var(--serif);font-weight:400;font-size:21px;color:var(--ink);line-height:1.4}
+.wd-src{font-size:11.5px;color:var(--faint);margin-top:7px}
+.wd-note{
+  display:inline-flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.04em;
+  color:var(--ember-hi);background:var(--ember-04);border-radius:8px;padding:6px 12px;margin-bottom:18px;
+}
+.mailrow{display:grid;grid-template-columns:74px 1fr;gap:6px 14px;font-size:12.5px;margin-bottom:16px}
+.mailrow dt{color:#45413C;font-size:9.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;padding-top:3px}
+.mailrow dd{color:var(--ink);font-family:var(--mono);font-size:12px}
+.wd .card{margin-bottom:14px}
+.wd-actions{display:flex;align-items:center;gap:12px;margin-top:18px}
+.wd-actions .hint{margin-left:auto}
+.thread{margin-top:34px}
+.thread h4{font-size:10px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:16px}
+.texch{margin-bottom:16px}
+.texch .who{margin-bottom:4px}
+.texch p{font-size:13.5px;color:#C9C2B8;max-width:560px}
+.tinput{display:flex;gap:10px;margin-top:18px}
+.tinput input{flex:1}
+.paylines{display:flex;flex-direction:column}
+.payline{
+  display:grid;grid-template-columns:110px 1fr 100px 90px;gap:14px;align-items:baseline;
+  padding:11px 2px;border-bottom:1px solid #0E0D0B;font-size:13px;
+}
+.payline:last-of-type{border-bottom:none}
+.payline .inv{font-family:var(--mono);font-size:12px;color:var(--ember-hi)}
+.payline .amt{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink)}
+.payline .age{text-align:right;font-family:var(--mono);font-size:11px;color:var(--dim)}
+.paytotal{display:flex;justify-content:space-between;padding-top:14px;font-size:13.5px;color:var(--ink-hi)}
+.paytotal b{font-weight:600}
+.qopts{display:flex;gap:12px;margin:20px 0 8px}
+
+/* ============================================================
+   3) VIEWS
+   ============================================================ */
+.views-grid{display:grid;grid-template-columns:280px 1fr;gap:26px;align-items:start}
+.vlist{display:flex;flex-direction:column;gap:6px;margin-top:18px}
+.vitem{border-radius:13px;padding:14px 17px;cursor:pointer;transition:background .25s ease, box-shadow .25s ease;text-align:left;width:100%}
+.vitem:hover{background:var(--s1)}
+.vitem.sel{background:var(--s3);box-shadow:inset 2px 0 0 rgba(217,122,50,.5), 0 0 40px rgba(217,122,50,.05)}
+.vitem .vn{font-size:13.5px;color:var(--ink);letter-spacing:.005em}
+.vitem .vm{font-size:10.5px;font-family:var(--mono);color:#4A4640;margin-top:4px}
+.vitem .vm b{font-weight:400;color:#6E6861}
+.vboard-head{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+.vboard-head h2{font-family:var(--serif);font-weight:400;font-size:22px;color:var(--ink)}
+.vboard-head .vmeta{font-family:var(--mono);font-size:10.5px;color:#4A4640;letter-spacing:.03em}
+.vboard-head .spacer{flex:1}
+.vboard-head .btn{padding:7px 13px;font-size:11.5px}
+.board{display:none;grid-template-columns:repeat(12,1fr);gap:14px;transition:opacity .25s ease}
+.board.active{display:grid}
+.board.refreshing{opacity:.2}
+.sp4{grid-column:span 4}.sp5{grid-column:span 5}.sp6{grid-column:span 6}
+.sp7{grid-column:span 7}.sp8{grid-column:span 8}.sp12{grid-column:span 12}
+.stat-big{font-size:42px;font-weight:200;letter-spacing:-.01em;color:var(--ink-hi);line-height:1.1;font-variant-numeric:tabular-nums}
+.stat-mid{font-size:30px;font-weight:200;color:var(--ink-hi);line-height:1.15;font-variant-numeric:tabular-nums}
+.stat-sub{font-family:var(--mono);font-size:10px;color:#45413C;margin-top:10px;letter-spacing:.03em}
+.hbar{display:grid;grid-template-columns:150px 1fr 76px;gap:12px;align-items:center;margin-bottom:12px}
+.hbar:last-child{margin-bottom:0}
+.hbar .hl{font-size:12px;color:#A29B92;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hbar .track{height:6px;border-radius:3px;background:#0F0D0B;overflow:hidden}
+.hbar .track i{
+  display:block;height:100%;border-radius:3px;
+  background:linear-gradient(90deg, #7A2E1D, #C05F28 55%, #E8934C);
+  box-shadow:0 0 12px rgba(217,122,50,.35);
+}
+.hbar .hv{font-family:var(--mono);font-size:11px;color:var(--dim);text-align:right;font-variant-numeric:tabular-nums}
+.spark{width:100%;height:auto;display:block}
+.vtable{width:100%;border-collapse:collapse;font-size:12.5px}
+.vtable td{padding:8px 10px 8px 0;border-bottom:1px solid #0E0D0B;color:#C9C2B8;white-space:nowrap}
+.vtable tr:last-child td{border-bottom:none}
+.vtable .inv{font-family:var(--mono);font-size:11.5px;color:#A29B92}
+.vtable .num{text-align:right;font-variant-numeric:tabular-nums}
+.vtable .age{font-family:var(--mono);font-size:11px;color:var(--dim);text-align:right}
+.vtable .hot{color:var(--ember-hi)}
+.ticker{position:relative;height:20px;overflow:hidden}
+.tick-line{
+  position:absolute;inset:0;font-family:var(--mono);font-size:11.5px;color:#7C766E;
+  opacity:0;animation:tickFade 16s linear infinite;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.tick-line b{font-weight:400;color:var(--ember-hi)}
+.tick-line:nth-child(2){animation-delay:4s}
+.tick-line:nth-child(3){animation-delay:8s}
+.tick-line:nth-child(4){animation-delay:12s}
+@keyframes tickFade{
+  0%{opacity:0}3%{opacity:1}22%{opacity:1}26%{opacity:0}100%{opacity:0}
+}
+.autochip{font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ember);background:var(--ember-08);border-radius:4px;padding:1px 6px;margin-left:auto}
+
+/* ============================================================
+   4) PLAYBOOKS
+   ============================================================ */
+.pb-tools{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:22px}
+.pb-tools .chipline{flex:1}
+.pb-search{max-width:240px}
+.pb-search input{padding:9px 14px;font-size:12.5px;border-radius:999px}
+.pb-links{display:flex;gap:18px;font-size:11.5px;white-space:nowrap}
+.pb-links a span{color:var(--ghost)}
+.pb-list{display:flex;flex-direction:column;gap:8px}
+.pb-row{
+  display:grid;grid-template-columns:1fr auto auto;gap:20px;align-items:center;
+  background:var(--s1);border-radius:14px;padding:17px 22px;
+  transition:background .25s ease, box-shadow .25s ease;cursor:pointer;
+}
+.pb-row:hover{background:var(--s3);box-shadow:0 0 40px rgba(217,122,50,.05)}
+.pb-name{font-size:14px;color:var(--ink);display:flex;align-items:center;gap:12px;min-width:0}
+.pb-name span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pb-type{font-size:9.5px;font-weight:600;letter-spacing:.15em;text-transform:uppercase;color:#6E6861}
+.pb-type.auto{color:var(--ember-hi)}
+.pb-meta{font-family:var(--mono);font-size:11px;color:#45413C;text-align:right;white-space:nowrap}
+.pb-meta b{font-weight:400;color:var(--ember)}
+.pb-open{font-size:11px;color:var(--ghost);opacity:0;transition:opacity .25s ease;white-space:nowrap}
+.pb-row:hover .pb-open{opacity:1;color:var(--dim)}
+
+/* ============================================================
+   5) EMAIL
+   ============================================================ */
+.mail-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.addr-line{display:flex;align-items:center;gap:2px;margin-bottom:8px}
+.addr-line input{max-width:170px;font-family:var(--mono);font-size:13px;background:var(--s1)}
+.addr-suffix{font-family:var(--mono);font-size:13px;color:var(--faint)}
+.state-chip{
+  display:inline-flex;align-items:center;gap:7px;margin-left:auto;
+  font-size:9.5px;font-weight:600;letter-spacing:.18em;color:var(--ember-hi);
+}
+.subcopy{font-size:12px;color:var(--faint);line-height:1.7;margin:14px 0 18px;max-width:420px}
+.tglrow{display:flex;align-items:center;gap:12px;padding:10px 0}
+.tglrow .tlabel{font-size:13px;color:var(--ink)}
+.tglrow .tnote{font-size:11px;color:var(--faint);margin-left:2px}
+.tglrow + .tglrow{border-top:1px solid #0C0B0A}
+.cooldown{display:flex;align-items:center;gap:12px;padding:12px 0 4px}
+.cooldown input{max-width:70px;font-family:var(--mono);text-align:center}
+.cooldown label{font-size:12.5px;color:var(--dim)}
+.standing{margin-top:14px}
+.act-row{
+  display:grid;grid-template-columns:110px 110px 1fr;gap:18px;align-items:baseline;
+  padding:13px 2px;border-bottom:1px solid #0C0B0A;font-size:12.5px;
+}
+.act-row:last-child{border-bottom:none}
+.act-when{font-family:var(--mono);font-size:11px;color:#45413C}
+.act-evt{font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:#6E6861}
+.act-evt.hot{color:var(--ember-hi)}
+.act-who{color:#C9C2B8}
+.act-who b{font-weight:400;color:var(--ink)}
+.act-who span{color:var(--faint)}
+
+/* ============================================================
+   6) SKILLS
+   ============================================================ */
+.skills-grid{display:grid;grid-template-columns:300px 1fr;gap:26px;align-items:start}
+.sklist{display:flex;flex-direction:column;gap:6px;margin-top:18px}
+.skitem{border-radius:13px;padding:14px 17px;cursor:pointer;transition:background .25s ease, box-shadow .25s ease;text-align:left;width:100%}
+.skitem:hover{background:var(--s1)}
+.skitem.sel{background:var(--s3);box-shadow:inset 2px 0 0 rgba(217,122,50,.5), 0 0 40px rgba(217,122,50,.05)}
+.skitem .sn{font-family:var(--mono);font-size:12.5px;color:var(--ink)}
+.skitem .sm{font-size:10.5px;font-family:var(--mono);color:#4A4640;margin-top:4px}
+.skd{display:none}
+.skd.active{display:block}
+.skd-head{display:flex;align-items:baseline;gap:14px;margin-bottom:18px}
+.skd-head h2{font-family:var(--mono);font-weight:400;font-size:18px;color:var(--ink)}
+.skbody{
+  font-family:var(--mono);font-size:12.5px;line-height:1.9;color:#B5AEA4;
+  background:var(--s1);border-radius:14px;padding:22px 24px;
+  white-space:pre-wrap;
+}
+.skd-foot{display:flex;align-items:center;margin-top:18px}
+.skd-foot .hint{margin-right:auto}
+
+/* ============================================================
+   Reduced motion — everything settles; approval row keeps a
+   static warm tint; orb holds a medium glow.
+   ============================================================ */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none !important;transition:none !important}
+  .orb::after,.orb-mini::after{opacity:.55 !important;transform:scale(1) !important}
+  .wi-pulse{background:rgba(217,122,50,.08) !important;box-shadow:inset 2px 0 0 rgba(217,122,50,.55) !important}
+  .tick-line{display:none}
+  .tick-line:first-child{display:block;opacity:1}
+}
+@media (max-width:1360px){
+  .work-grid{grid-template-columns:330px 1fr}
+  .hbar{grid-template-columns:120px 1fr 72px}
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ RAIL ═══════════════ -->
+<nav class="rail" aria-label="Primary">
+  <div class="rail-orb-wrap">
+    <button class="rail-orb-btn" id="railOrbBtn" aria-label="The Agent — 4 items need you. Open My Work.">
+      <span class="orb needs-you" id="railOrb"></span>
+      <span class="rail-label">The Agent · <b>4 items need you</b></span>
+    </button>
+  </div>
+
+  <button class="rail-btn active" data-nav="assistant" aria-current="page" aria-label="Assistant">
+    <svg viewBox="0 0 24 24"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.6 0-3-.4-4.3-1.1L3 20l1.1-5.2A8.5 8.5 0 1 1 21 11.5z"/></svg>
+    <span class="rail-label">Assistant</span>
+  </button>
+  <button class="rail-btn" data-nav="work" aria-label="My Work, 4 items">
+    <svg viewBox="0 0 24 24"><path d="M4.5 5h15l2 8.5V19h-19v-5.5z"/><path d="M2.5 13.5h5l1.8 2.8h5.4l1.8-2.8h5"/></svg>
+    <span class="rail-badge">4</span>
+    <span class="rail-label">My Work · <b>4</b></span>
+  </button>
+  <button class="rail-btn" data-nav="views" aria-label="Views">
+    <svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/></svg>
+    <span class="rail-label">Views</span>
+  </button>
+  <button class="rail-btn" data-nav="playbooks" aria-label="Playbooks">
+    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/><path d="M10.5 6.8h4.7a2 2 0 0 1 2 2v4.7"/></svg>
+    <span class="rail-label">Playbooks</span>
+  </button>
+  <button class="rail-btn" data-nav="email" aria-label="Email">
+    <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 7.5 12 13l8.5-5.5"/></svg>
+    <span class="rail-label">Email</span>
+  </button>
+  <button class="rail-btn" data-nav="skills" aria-label="Skills">
+    <svg viewBox="0 0 24 24"><path d="M6.5 3.5h11V20.5l-5.5-3.6-5.5 3.6z"/></svg>
+    <span class="rail-label">Skills</span>
+  </button>
+
+  <div class="rail-spacer"></div>
+
+  <div class="rail-btn plat" tabindex="0" role="button" aria-label="Platform links">
+    <svg viewBox="0 0 24 24"><circle cx="5.5" cy="5.5" r="1"/><circle cx="12" cy="5.5" r="1"/><circle cx="18.5" cy="5.5" r="1"/><circle cx="5.5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="18.5" cy="12" r="1"/><circle cx="5.5" cy="18.5" r="1"/><circle cx="12" cy="18.5" r="1"/><circle cx="18.5" cy="18.5" r="1"/></svg>
+    <div class="plat-fly">
+      <h5>Platform</h5>
+      <a href="#" data-decor>Data Explorer <span>↗</span></a>
+      <a href="#" data-decor>Workflow Designer <span>↗</span></a>
+      <a href="#" data-decor>Mission Control <span>↗</span></a>
+      <a href="#" data-decor>Command Center <span>↗</span></a>
+      <a href="#" data-decor>Documents <span>↗</span></a>
+      <a href="#" data-decor>Classic app <span>↗</span></a>
+    </div>
+  </div>
+  <div class="rail-user" tabindex="0">J
+    <span class="rail-label">James · admin</span>
+  </div>
+</nav>
+
+<div class="meta-top">James · admin&nbsp;&nbsp;·&nbsp;&nbsp;<b>brain: claude-fable-5</b></div>
+
+<main class="stage">
+
+<!-- ═══════════════ 1) ASSISTANT ═══════════════ -->
+<section class="panel active" id="panel-assistant" aria-label="Assistant">
+  <div class="chat-scroll" id="chatlog">
+    <div class="chat-col">
+
+      <div class="hello">
+        <h2>Hi James — what do you need?</h2>
+        <p>Explore your data, build automations through conversation, and keep humans in the loop with My Work.</p>
+        <div class="starters">
+          <button class="starter" data-fill="What data connections do we have?">What data connections do we have?</button>
+          <button class="starter" data-fill="Build me an automation that checks ERPDB daily">Build me an automation that checks ERPDB daily</button>
+          <button class="starter" data-fill="What's waiting in My Work?">What's waiting in My Work?</button>
+        </div>
+      </div>
+
+      <div class="session-mark">· · ·</div>
+
+      <div class="msg you">
+        <div class="who">You · 16:38</div>
+        <p>Which vendors drove August invoice spend, and are any invoices stuck?</p>
+      </div>
+
+      <div class="toolrow" aria-label="Tool activity">
+        <span class="tchip"><span class="cdot"></span><code>list_connections {}</code><span class="cmeta">ok · 0.4s</span></span>
+        <span class="tchip"><span class="cdot"></span><code>query_database {"connection":"ERPDB","sql":"SELECT vendor, SUM(total)…"}</code><span class="cmeta">ok · 1.8s</span></span>
+      </div>
+
+      <div class="msg agent">
+        <div class="who"><span class="orb-dot"></span>The Agent · 16:38</div>
+        <p>August invoice spend is <strong>$482,910</strong> across 41 vendors. The top five drive 68% of it:</p>
+        <table class="mini-table">
+          <thead><tr><th>Vendor</th><th class="num">Invoices</th><th class="num">August total</th><th class="num">vs July</th></tr></thead>
+          <tbody>
+            <tr><td>Meridian Supply Co</td><td class="num">14</td><td class="num">$128,400</td><td class="num up">+22%</td></tr>
+            <tr><td>Northgate Logistics</td><td class="num">9</td><td class="num">$96,150</td><td class="num">+4%</td></tr>
+            <tr><td>Corvid Materials</td><td class="num">11</td><td class="num">$64,020</td><td class="num dn">−8%</td></tr>
+            <tr><td>Atlas Packaging</td><td class="num">7</td><td class="num">$41,310</td><td class="num up">+13%</td></tr>
+            <tr><td>Helix Industrial</td><td class="num">5</td><td class="num">$38,900</td><td class="num">+2%</td></tr>
+          </tbody>
+        </table>
+        <p>Two Meridian invoices (<strong class="inv">INV-20841</strong>, <strong class="inv">INV-20857</strong>) are pending approval past 14 days — $61,200 combined. Want me to raise them in My Work?</p>
+      </div>
+
+      <div class="msg you">
+        <div class="who">You · 16:41</div>
+        <p>Yes — raise them and save this as a view.</p>
+      </div>
+
+      <div class="toolrow" aria-label="Tool activity">
+        <span class="tchip"><span class="cdot"></span><code>create_work_item</code><span class="cmeta">ok · 0.6s</span></span>
+        <span class="tchip"><span class="cdot"></span><code>save_view {"name":"Vendor Spend — August"}</code><span class="cmeta">ok · 0.9s</span></span>
+      </div>
+
+      <div class="msg agent">
+        <div class="who"><span class="orb-dot"></span>The Agent · 16:42</div>
+        <p>Done. Two approval items are in <strong>My Work</strong>, and I saved <strong>Vendor Spend — August</strong> as a view with 4 tiles — it refreshes with zero AI.</p>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="dock-zone">
+    <div class="dock">
+      <span class="orb orb-mini breathe" id="dockOrb" title="The Agent — quiet"></span>
+      <textarea id="chatInput" rows="1" placeholder="Ask anything…" aria-label="Message The Agent"></textarea>
+      <div class="dock-actions">
+        <button class="icon-btn" title="History" aria-label="History">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
+        </button>
+        <button class="btn" id="newChatBtn">New</button>
+        <button class="btn btn-ember" id="sendBtn">Send</button>
+      </div>
+    </div>
+    <div class="think-status" id="thinkStatus">thinking</div>
+  </div>
+</section>
+
+<!-- ═══════════════ 2) MY WORK ═══════════════ -->
+<section class="panel" id="panel-work" aria-label="My Work">
+  <div class="wrap">
+    <div class="sec-head">
+      <h1>My Work</h1>
+      <div class="sub">humans stay in the loop — nothing moves without you</div>
+    </div>
+
+    <div class="work-grid">
+      <div>
+        <div class="chipline" role="tablist" aria-label="Filter work items">
+          <button class="fchip active" data-f="all">All<em>4</em></button>
+          <button class="fchip" data-f="approval">Approval<em>1</em></button>
+          <button class="fchip" data-f="email">Email / Edit<em>1</em></button>
+          <button class="fchip" data-f="question">Question<em>1</em></button>
+          <button class="fchip" data-f="fyi">FYI<em>1</em></button>
+        </div>
+
+        <div class="wq">
+          <div class="wi wi-pulse" data-item="1" data-type="approval" role="button" tabindex="0">
+            <div class="wi-top"><span class="vtag vtag-approval">Approval</span><span class="wi-time">09:14</span></div>
+            <div class="wi-title">Approve payment run — 2 overdue Meridian invoices ($61,200)</div>
+            <div class="wi-meta">from automation <code>invoice-chaser</code> &nbsp;<span class="minitag">dry-run</span></div>
+          </div>
+          <div class="wi sel" data-item="2" data-type="email" role="button" tabindex="0">
+            <div class="wi-top"><span class="vtag">Email / Edit</span><span class="wi-time">08:47</span></div>
+            <div class="wi-title">Re: Q3 renewal pricing — reply to Dana Whitfield</div>
+            <div class="wi-meta">from email</div>
+          </div>
+          <div class="wi" data-item="3" data-type="question" role="button" tabindex="0">
+            <div class="wi-top"><span class="vtag">Question</span><span class="wi-time"></span></div>
+            <div class="wi-title">Which fiscal calendar should the vendor report use — 4-4-5 or calendar month?</div>
+            <div class="wi-meta">from agent · shared, unclaimed</div>
+          </div>
+          <div class="wi" data-item="4" data-type="fyi" role="button" tabindex="0">
+            <div class="wi-top"><span class="vtag">FYI</span><span class="wi-time">06:00</span></div>
+            <div class="wi-title">Nightly ERPDB health check completed — 0 anomalies, 312k rows scanned</div>
+            <div class="wi-meta">from automation <code>erpdb-daily-health</code></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="wdetail">
+
+        <!-- item 1 · approval -->
+        <div class="wd" id="wd-1">
+          <div class="wd-head">
+            <span class="vtag vtag-approval">Approval · dry-run</span>
+            <h2>Approve payment run — 2 overdue Meridian invoices</h2>
+            <div class="wd-src">raised by automation <code>invoice-chaser</code> v7 · 09:14 · approving promotes this run to live</div>
+          </div>
+          <div class="card">
+            <h4>Payment run contents</h4>
+            <div class="paylines">
+              <div class="payline"><span class="inv">INV-20841</span><span>Meridian Supply Co</span><span class="amt">$38,700</span><span class="age">21 days</span></div>
+              <div class="payline"><span class="inv">INV-20857</span><span>Meridian Supply Co</span><span class="amt">$22,500</span><span class="age">17 days</span></div>
+            </div>
+            <div class="paytotal"><span>Total</span><b>$61,200</b></div>
+          </div>
+          <div class="wd-actions">
+            <button class="btn btn-ember" data-ack="Approved · promoting">Approve payment run</button>
+            <button class="btn" data-ack="Held">Deny</button>
+            <span class="hint">Nothing moves without you</span>
+          </div>
+        </div>
+
+        <!-- item 2 · email (default) -->
+        <div class="wd active" id="wd-2">
+          <div class="wd-head">
+            <span class="vtag">Email / Edit</span>
+            <h2>Re: Q3 renewal pricing — reply to Dana Whitfield</h2>
+            <div class="wd-src">from email · 08:47</div>
+          </div>
+
+          <div class="wd-note"><span class="orb-dot"></span>Draft — body is editable; what you approve is what sends</div>
+
+          <div class="card">
+            <dl class="mailrow">
+              <dt>To</dt><dd>dana@meridiansupply.com</dd>
+              <dt>From</dt><dd>james-agent@mail.aihub.dev</dd>
+              <dt>Subject</dt><dd>Re: Q3 renewal pricing</dd>
+            </dl>
+            <textarea rows="6" aria-label="Editable draft body">Hi Dana,
+
+Thanks for sending over the Q3 renewal proposal. We'd like to hold at current pricing while we complete our August vendor-spend review — that review also flagged two invoices on our side (INV-20841, INV-20857) still pending approval, and I want those cleared before we commit. I'll come back to you with a decision by Friday.
+
+Best,
+James</textarea>
+          </div>
+
+          <input type="text" placeholder="Add a comment for the audit trail (optional)" aria-label="Comment">
+
+          <div class="wd-actions">
+            <button class="btn btn-ember" data-ack="Approved · sending">Approve &amp; send</button>
+            <button class="btn" data-ack="Held">Deny</button>
+            <span class="hint">Nothing sends without you</span>
+          </div>
+
+          <div class="thread">
+            <h4>Thread with the agent</h4>
+            <div class="texch">
+              <div class="who">You</div>
+              <p>Is Dana on the approved vendor contact list?</p>
+            </div>
+            <div class="texch">
+              <div class="who"><span class="orb-dot"></span>The Agent</div>
+              <p>Yes — primary commercial contact for Meridian Supply Co since March.</p>
+            </div>
+            <div class="tinput">
+              <input type="text" placeholder="Ask the agent about this item…" aria-label="Ask the agent about this item">
+              <button class="btn">Ask</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- item 3 · question -->
+        <div class="wd" id="wd-3">
+          <div class="wd-head">
+            <span class="vtag">Question</span>
+            <h2>Which fiscal calendar should the vendor report use — 4-4-5 or calendar month?</h2>
+            <div class="wd-src">from agent · shared with your group · unclaimed — the first answer resolves it for everyone</div>
+          </div>
+          <div class="card">
+            <h4>The agent asks</h4>
+            <p style="font-size:13.5px;color:#C9C2B8;max-width:560px;line-height:1.7">The monthly vendor report can roll up on either calendar. Finance uses 4-4-5 for close; the ERPDB views are calendar-month. Pick one and I'll keep it as a skill.</p>
+            <div class="qopts">
+              <button class="btn" data-ack="Answered · 4-4-5">Use 4-4-5</button>
+              <button class="btn" data-ack="Answered · calendar month">Use calendar month</button>
+            </div>
+          </div>
+          <input type="text" placeholder="Or answer in your own words…" aria-label="Answer">
+        </div>
+
+        <!-- item 4 · fyi -->
+        <div class="wd" id="wd-4">
+          <div class="wd-head">
+            <span class="vtag">FYI</span>
+            <h2>Nightly ERPDB health check completed</h2>
+            <div class="wd-src">from automation <code>erpdb-daily-health</code> v12 · 06:00</div>
+          </div>
+          <div class="card">
+            <h4>Summary</h4>
+            <div class="paylines">
+              <div class="payline"><span class="inv">rows</span><span>scanned across 14 tables</span><span class="amt">312,000</span><span class="age">06:00</span></div>
+              <div class="payline"><span class="inv">anomalies</span><span>none detected</span><span class="amt">0</span><span class="age">—</span></div>
+              <div class="payline"><span class="inv">drift</span><span>schema unchanged</span><span class="amt">0</span><span class="age">—</span></div>
+            </div>
+          </div>
+          <div class="wd-actions">
+            <button class="btn" data-ack="Read">Mark read</button>
+            <span class="hint">next run 08-10 · 06:00</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ 3) VIEWS ═══════════════ -->
+<section class="panel" id="panel-views" aria-label="Views">
+  <div class="wrap">
+    <div class="sec-head">
+      <h1>Views</h1>
+      <div class="sub">deterministic dashboards — they refresh with zero AI</div>
+    </div>
+
+    <div class="views-grid">
+      <div class="vlist">
+        <button class="vitem sel" data-board="board-vendor" data-name="Vendor Spend — August" data-meta="user · v3 · refreshed 16:42">
+          <div class="vn">Vendor Spend — August</div>
+          <div class="vm"><b>user</b> · 4 tiles · v3</div>
+        </button>
+        <button class="vitem" data-board="board-ops" data-name="Ops Pulse" data-meta="group · v11 · refreshed 16:38">
+          <div class="vn">Ops Pulse</div>
+          <div class="vm"><b>group</b> · 6 tiles · v11 · automation tiles</div>
+        </button>
+        <button class="vitem" data-board="board-wh" data-name="Warehouse Throughput" data-meta="tenant · v2 · refreshed 15:55">
+          <div class="vn">Warehouse Throughput</div>
+          <div class="vm"><b>tenant</b> · 5 tiles · v2</div>
+        </button>
+      </div>
+
+      <div>
+        <div class="vboard-head">
+          <h2 id="vbName">Vendor Spend — August</h2>
+          <span class="vmeta" id="vbMeta">user · v3 · refreshed 16:42</span>
+          <span class="spacer"></span>
+          <button class="btn">Arrange</button>
+          <button class="btn">Rename</button>
+          <button class="btn">✎ Edit with AI</button>
+          <button class="btn" id="vbRefresh">↻ Refresh</button>
+        </div>
+
+        <!-- Vendor Spend — August -->
+        <div class="board active" id="board-vendor">
+          <div class="tile sp4">
+            <h4>August invoice total</h4>
+            <div class="stat-big">$482,910</div>
+            <div class="stat-sub">SUM(total) · as of 16:42</div>
+          </div>
+          <div class="tile sp8">
+            <h4>Spend by vendor (top 5)</h4>
+            <div class="hbar"><span class="hl">Meridian Supply Co</span><span class="track"><i style="width:100%"></i></span><span class="hv">$128,400</span></div>
+            <div class="hbar"><span class="hl">Northgate Logistics</span><span class="track"><i style="width:74.9%"></i></span><span class="hv">$96,150</span></div>
+            <div class="hbar"><span class="hl">Corvid Materials</span><span class="track"><i style="width:49.9%"></i></span><span class="hv">$64,020</span></div>
+            <div class="hbar"><span class="hl">Atlas Packaging</span><span class="track"><i style="width:32.2%"></i></span><span class="hv">$41,310</span></div>
+            <div class="hbar"><span class="hl">Helix Industrial</span><span class="track"><i style="width:30.3%"></i></span><span class="hv">$38,900</span></div>
+          </div>
+          <div class="tile sp5">
+            <h4>Daily invoice volume</h4>
+            <svg class="spark" viewBox="0 0 300 96" preserveAspectRatio="none" role="img" aria-label="Daily invoice volume, gently rising">
+              <defs>
+                <linearGradient id="areaFade" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#D97A32" stop-opacity=".22"/>
+                  <stop offset="100%" stop-color="#D97A32" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <path d="M0,80 L23,74 L46,74 L69,62 L92,68 L115,56 L138,50 L161,56 L184,44 L207,38 L230,44 L253,32 L276,26 L300,14 L300,96 L0,96 Z" fill="url(#areaFade)"/>
+              <polyline points="0,80 23,74 46,74 69,62 92,68 115,56 138,50 161,56 184,44 207,38 230,44 253,32 276,26 300,14"
+                fill="none" stroke="#D97A32" stroke-width="1.8" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>
+              <circle cx="300" cy="14" r="3" fill="#F0A868"/>
+              <circle cx="300" cy="14" r="7" fill="#D97A32" opacity=".22"/>
+            </svg>
+            <div class="stat-sub">14 days · COUNT(*) per day</div>
+          </div>
+          <div class="tile sp7">
+            <h4>Open invoices &gt; 14 days</h4>
+            <table class="vtable">
+              <tr><td class="inv">INV-20841</td><td>Meridian Supply Co</td><td class="num">$38,700</td><td class="age hot">21d</td></tr>
+              <tr><td class="inv">INV-20857</td><td>Meridian Supply Co</td><td class="num">$22,500</td><td class="age hot">17d</td></tr>
+              <tr><td class="inv">INV-20872</td><td>Corvid Materials</td><td class="num">$9,340</td><td class="age">16d</td></tr>
+              <tr><td class="inv">INV-20881</td><td>Atlas Packaging</td><td class="num">$7,120</td><td class="age">15d</td></tr>
+              <tr><td class="inv">INV-20889</td><td>Northgate Logistics</td><td class="num">$5,480</td><td class="age">15d</td></tr>
+              <tr><td class="inv">INV-20896</td><td>Helix Industrial</td><td class="num">$4,210</td><td class="age">14d</td></tr>
+            </table>
+          </div>
+          <div class="tile sp12" style="padding:16px 22px">
+            <h4 style="margin-bottom:10px">Latest invoices</h4>
+            <div class="ticker" aria-label="Latest invoices ticker">
+              <div class="tick-line"><b>INV-20903</b> · Meridian Supply Co · $12,480 · received just now</div>
+              <div class="tick-line"><b>INV-20902</b> · Atlas Packaging · $3,150 · received 12m ago</div>
+              <div class="tick-line"><b>INV-20901</b> · Helix Industrial · $8,940 · received 41m ago</div>
+              <div class="tick-line"><b>INV-20900</b> · Northgate Logistics · $5,220 · received 1h ago</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Ops Pulse -->
+        <div class="board" id="board-ops">
+          <div class="tile sp4"><h4>Automation runs (24h)<span class="autochip">auto</span></h4><div class="stat-mid">87</div><div class="stat-sub">3 automations · as of 16:38</div></div>
+          <div class="tile sp4"><h4>Failures (24h)<span class="autochip">auto</span></h4><div class="stat-mid">1</div><div class="stat-sub">invoice-chaser v7 · 11:02</div></div>
+          <div class="tile sp4"><h4>Open work items</h4><div class="stat-mid">4</div><div class="stat-sub">1 approval · as of 16:38</div></div>
+          <div class="tile sp4"><h4>Emails processed (7d)</h4><div class="stat-mid">12</div><div class="stat-sub">james-agent@mail.aihub.dev</div></div>
+          <div class="tile sp4">
+            <h4>Run latency p50</h4>
+            <svg class="spark" viewBox="0 0 300 64" preserveAspectRatio="none" role="img" aria-label="Run latency, steady">
+              <polyline points="0,34 30,30 60,36 90,28 120,32 150,26 180,30 210,24 240,28 270,22 300,26" fill="none" stroke="#D97A32" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+            </svg>
+            <div class="stat-sub">3.2s · as of 16:38</div>
+          </div>
+          <div class="tile sp4"><h4>Schedules armed</h4><div class="stat-mid">5</div><div class="stat-sub">next: erpdb-daily-health · 06:00</div></div>
+        </div>
+
+        <!-- Warehouse Throughput -->
+        <div class="board" id="board-wh">
+          <div class="tile sp4"><h4>Units shipped (7d)</h4><div class="stat-mid">48,210</div><div class="stat-sub">as of 15:55</div></div>
+          <div class="tile sp4"><h4>Dock-to-stock (median)</h4><div class="stat-mid">3.1h</div><div class="stat-sub">target &lt; 4h</div></div>
+          <div class="tile sp4"><h4>Backorders</h4><div class="stat-mid">17</div><div class="stat-sub">−4 vs last week</div></div>
+          <div class="tile sp8">
+            <h4>Daily throughput</h4>
+            <svg class="spark" viewBox="0 0 300 80" preserveAspectRatio="none" role="img" aria-label="Daily throughput">
+              <polyline points="0,52 43,44 86,48 129,38 172,42 215,30 258,34 300,24" fill="none" stroke="#D97A32" stroke-width="1.8" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+            </svg>
+            <div class="stat-sub">units per day · 7d</div>
+          </div>
+          <div class="tile sp4">
+            <h4>Top lanes</h4>
+            <table class="vtable">
+              <tr><td class="inv">DC-01</td><td>Store 114</td><td class="num">6,210</td></tr>
+              <tr><td class="inv">DC-01</td><td>Store 87</td><td class="num">5,940</td></tr>
+              <tr><td class="inv">DC-02</td><td>Store 12</td><td class="num">4,480</td></tr>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ 4) PLAYBOOKS ═══════════════ -->
+<section class="panel" id="panel-playbooks" aria-label="Playbooks">
+  <div class="wrap">
+    <div class="sec-head">
+      <h1>Playbooks</h1>
+      <div class="sub">workflows · code flows · automations — draft → dry-run → promote → schedule</div>
+    </div>
+
+    <div class="pb-tools">
+      <div class="chipline">
+        <button class="fchip active" data-pf="all">All<em>6</em></button>
+        <button class="fchip" data-pf="workflow">Workflows<em>2</em></button>
+        <button class="fchip" data-pf="codeflow">Code Flows<em>1</em></button>
+        <button class="fchip" data-pf="automation">Automations<em>3</em></button>
+      </div>
+      <div class="pb-search"><input type="text" id="pbSearch" placeholder="Search playbooks…" aria-label="Search playbooks"></div>
+      <div class="pb-links">
+        <a href="#" data-decor>Open Workflow Designer <span>↗</span></a>
+        <a href="#" data-decor>Open Mission Control <span>↗</span></a>
+      </div>
+    </div>
+
+    <div class="pb-list">
+      <div class="pb-row" data-type="workflow" data-name="invoice intake — ocr + 3-way match">
+        <div class="pb-name"><span>Invoice Intake — OCR + 3-way match</span></div>
+        <span class="pb-type">workflow</span>
+        <span class="pb-meta">id 1218 <span class="pb-open">· Open ↗</span></span>
+      </div>
+      <div class="pb-row" data-type="workflow" data-name="vendor onboarding checks">
+        <div class="pb-name"><span>Vendor Onboarding Checks</span></div>
+        <span class="pb-type">workflow</span>
+        <span class="pb-meta">id 1327 <span class="pb-open">· Open ↗</span></span>
+      </div>
+      <div class="pb-row" data-type="codeflow" data-name="monthly close journal prep">
+        <div class="pb-name"><span>Monthly Close Journal Prep</span></div>
+        <span class="pb-type">code flow</span>
+        <span class="pb-meta">id 214 <span class="pb-open">· Open ↗</span></span>
+      </div>
+      <div class="pb-row" data-type="automation" data-name="invoice-chaser">
+        <div class="pb-name"><span>invoice-chaser</span></div>
+        <span class="pb-type auto">automation</span>
+        <span class="pb-meta">v7 · <b>pinned v6</b> <span class="pb-open">· Open ↗</span></span>
+      </div>
+      <div class="pb-row" data-type="automation" data-name="dayforce-doc-upload">
+        <div class="pb-name"><span>dayforce-doc-upload</span></div>
+        <span class="pb-type auto">automation</span>
+        <span class="pb-meta">v3 <span class="pb-open">· Open ↗</span></span>
+      </div>
+      <div class="pb-row" data-type="automation" data-name="erpdb-daily-health">
+        <div class="pb-name"><span>erpdb-daily-health</span></div>
+        <span class="pb-type auto">automation</span>
+        <span class="pb-meta">v12 <span class="pb-open">· Open ↗</span></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ 5) EMAIL ═══════════════ -->
+<section class="panel" id="panel-email" aria-label="Email">
+  <div class="wrap">
+    <div class="sec-head">
+      <h1>Email</h1>
+      <div class="sub">the agent's personal address</div>
+    </div>
+
+    <div class="mail-grid">
+      <div class="card">
+        <h4>Your address <span class="state-chip"><span class="orb-dot"></span>Active</span></h4>
+        <div class="addr-line">
+          <input type="text" value="james-agent" aria-label="Address prefix">
+          <span class="addr-suffix">@mail.aihub.dev</span>
+        </div>
+        <p class="subcopy">Mail sent to this address runs a headless agent session as you and lands its result in My Work.</p>
+        <div class="tglrow">
+          <span class="tgl on" role="switch" aria-checked="true" tabindex="0" aria-label="Inbound enabled"></span>
+          <span class="tlabel">Inbound enabled</span>
+        </div>
+        <div class="wd-actions" style="margin-top:14px">
+          <button class="btn btn-ember" data-ack="Saved">Save</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h4>Sending &amp; behavior</h4>
+        <div class="tglrow">
+          <span class="tgl on" role="switch" aria-checked="true" tabindex="0" aria-label="Outbound enabled"></span>
+          <span class="tlabel">Outbound enabled</span>
+        </div>
+        <div class="tglrow">
+          <span class="tgl" role="switch" aria-checked="false" tabindex="0" aria-label="Auto-send replies"></span>
+          <span class="tlabel">Auto-send replies</span>
+          <span class="tnote">— every reply waits for your approval in My Work</span>
+        </div>
+        <div class="tglrow">
+          <span class="tgl" role="switch" aria-checked="false" tabindex="0" aria-label="Notify on inbound"></span>
+          <span class="tlabel">Notify on inbound</span>
+        </div>
+        <div class="cooldown">
+          <input type="number" value="30" aria-label="Cooldown minutes">
+          <label>cooldown minutes between replies to the same sender</label>
+        </div>
+        <div class="standing">
+          <textarea rows="3" placeholder="Standing instructions — e.g. “Never auto-reply on pricing threads; cc me on anything from Meridian; keep replies under five sentences.”" aria-label="Standing instructions"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h4>Recent inbound activity</h4>
+      <div class="act-row">
+        <span class="act-when">08-09 08:47</span>
+        <span class="act-evt hot">reply_drafted</span>
+        <span class="act-who"><b>dana@meridiansupply.com</b> <span>— Re: Q3 renewal pricing</span></span>
+      </div>
+      <div class="act-row">
+        <span class="act-when">08-08 16:02</span>
+        <span class="act-evt">processed</span>
+        <span class="act-who"><b>alerts@dayforce.com</b> <span>— Document batch ready</span></span>
+      </div>
+      <div class="act-row">
+        <span class="act-when">08-08 09:15</span>
+        <span class="act-evt">processed</span>
+        <span class="act-who"><b>noreply@erpdb</b> <span>— Weekly digest</span></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ 6) SKILLS ═══════════════ -->
+<section class="panel" id="panel-skills" aria-label="Skills">
+  <div class="wrap">
+    <div class="sec-head">
+      <h1>Skills</h1>
+      <div class="sub">procedural memory — the agent keeps what it learns</div>
+    </div>
+
+    <div class="skills-grid">
+      <div class="sklist">
+        <button class="skitem" data-skill="skd-1">
+          <div class="sn">erpdb-reconciliation-recipes</div>
+          <div class="sm">product · 4.2 KB</div>
+        </button>
+        <button class="skitem" data-skill="skd-2">
+          <div class="sn">vendor-naming-conventions</div>
+          <div class="sm">tenant · 1.1 KB</div>
+        </button>
+        <button class="skitem sel" data-skill="skd-3">
+          <div class="sn">james-report-format</div>
+          <div class="sm">user · 0.8 KB</div>
+        </button>
+      </div>
+
+      <div>
+        <div class="skd" id="skd-1">
+          <div class="skd-head"><h2>erpdb-reconciliation-recipes</h2><span class="minitag cool">product</span><span class="hint">4.2 KB</span></div>
+          <div class="skbody">Three-way match: PO → receipt → invoice. Tolerances: qty ±2%,
+price ±$5 or 1%, whichever is greater. Unmatched receipts older
+than 14 days escalate to My Work as an Approval. Always join on
+vendor_id, never on vendor name.</div>
+          <div class="skd-foot">
+            <span class="hint">shipped with the product · read-only</span>
+          </div>
+        </div>
+
+        <div class="skd" id="skd-2">
+          <div class="skd-head"><h2>vendor-naming-conventions</h2><span class="minitag cool">tenant</span><span class="hint">1.1 KB</span></div>
+          <div class="skbody">Canonical vendor names drop Inc / LLC / Co suffixes except where
+ambiguous. "Meridian Supply Co" stays as-is (two Meridians exist).
+New vendors get slug-cased ids: meridian-supply-co. Never merge
+records without an Approval item.</div>
+          <div class="skd-foot">
+            <span class="hint">learned 06-14 · shared with tenant</span>
+            <button class="btn btn-danger" data-ack="Deleted">Delete skill</button>
+          </div>
+        </div>
+
+        <div class="skd active" id="skd-3">
+          <div class="skd-head"><h2>james-report-format</h2><span class="minitag">user</span><span class="hint">0.8 KB</span></div>
+          <div class="skbody">Reports for James: lead with the number, then the table.
+Currency to the dollar, no cents. Always note the as-of time
+and which connection the numbers came from. Month-over-month
+deltas beside any total; flag anything moving more than ±15%.
+Prefer five rows over fifty — link the rest.</div>
+          <div class="skd-foot">
+            <span class="hint">learned 07-02 · applies only to you</span>
+            <button class="btn btn-danger" data-ack="Deleted">Delete skill</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<div class="mantra">draft → dry-run → promote → schedule<i>·</i>humans stay in the loop · My Work</div>
+<a class="badge" href="./index.html">#12 · Ember</a>
+
+<script>
+(function(){
+'use strict';
+var $ = function(s){return document.querySelector(s)};
+var $$ = function(s){return Array.prototype.slice.call(document.querySelectorAll(s))};
+
+/* ---------- section navigation (dissolve) ---------- */
+function show(name){
+  $$('.panel').forEach(function(p){p.classList.toggle('active', p.id==='panel-'+name)});
+  $$('.rail-btn[data-nav]').forEach(function(b){
+    var on = b.getAttribute('data-nav')===name;
+    b.classList.toggle('active', on);
+    if(on){b.setAttribute('aria-current','page')}else{b.removeAttribute('aria-current')}
+  });
+  if(name==='assistant'){scrollChat()}
+}
+$$('.rail-btn[data-nav]').forEach(function(b){
+  b.addEventListener('click', function(){show(b.getAttribute('data-nav'))});
+});
+var orbBtn = $('#railOrbBtn');
+if(orbBtn){orbBtn.addEventListener('click', function(){show('work')})}
+
+/* ---------- chat ---------- */
+function scrollChat(){
+  var log = $('#chatlog');
+  if(log){requestAnimationFrame(function(){log.scrollTop = log.scrollHeight})}
+}
+scrollChat();
+
+var thinkT = null;
+function think(){
+  var railOrb = $('#railOrb'), dockOrb = $('#dockOrb'), st = $('#thinkStatus');
+  if(railOrb){railOrb.classList.add('thinking')}
+  if(dockOrb){dockOrb.classList.add('thinking')}
+  if(st){st.classList.add('on')}
+  clearTimeout(thinkT);
+  thinkT = setTimeout(function(){
+    if(railOrb){railOrb.classList.remove('thinking')}
+    if(dockOrb){dockOrb.classList.remove('thinking')}
+    if(st){st.classList.remove('on')}
+  }, 2600);
+}
+var sendBtn = $('#sendBtn');
+if(sendBtn){sendBtn.addEventListener('click', think)}
+var chatInput = $('#chatInput');
+if(chatInput){
+  chatInput.addEventListener('keydown', function(e){
+    if(e.key==='Enter' && !e.shiftKey){e.preventDefault(); think()}
+  });
+}
+$$('.starter').forEach(function(s){
+  s.addEventListener('click', function(){
+    if(chatInput){chatInput.value = s.getAttribute('data-fill'); chatInput.focus()}
+  });
+});
+
+/* ---------- generic acknowledgments (non-destructive) ---------- */
+$$('[data-ack]').forEach(function(b){
+  b.addEventListener('click', function(){
+    if(b.getAttribute('data-orig')){return}
+    b.setAttribute('data-orig', b.textContent);
+    b.textContent = b.getAttribute('data-ack');
+    b.classList.add('acked');
+    setTimeout(function(){
+      b.textContent = b.getAttribute('data-orig');
+      b.removeAttribute('data-orig');
+      b.classList.remove('acked');
+    }, 2000);
+  });
+});
+
+/* ---------- my work: select + filter ---------- */
+$$('.wi').forEach(function(item){
+  item.addEventListener('click', function(){
+    $$('.wi').forEach(function(i){i.classList.remove('sel')});
+    item.classList.add('sel');
+    var n = item.getAttribute('data-item');
+    $$('.wd').forEach(function(d){d.classList.toggle('active', d.id==='wd-'+n)});
+  });
+});
+$$('.fchip[data-f]').forEach(function(c){
+  c.addEventListener('click', function(){
+    $$('.fchip[data-f]').forEach(function(x){x.classList.remove('active')});
+    c.classList.add('active');
+    var f = c.getAttribute('data-f');
+    $$('.wi').forEach(function(i){
+      i.style.display = (f==='all' || i.getAttribute('data-type')===f) ? '' : 'none';
+    });
+  });
+});
+
+/* ---------- views: select + refresh ---------- */
+$$('.vitem').forEach(function(v){
+  v.addEventListener('click', function(){
+    $$('.vitem').forEach(function(x){x.classList.remove('sel')});
+    v.classList.add('sel');
+    var name = $('#vbName'), meta = $('#vbMeta');
+    if(name){name.textContent = v.getAttribute('data-name')}
+    if(meta){meta.textContent = v.getAttribute('data-meta')}
+    var b = v.getAttribute('data-board');
+    $$('.board').forEach(function(x){x.classList.toggle('active', x.id===b)});
+  });
+});
+var vbRefresh = $('#vbRefresh');
+if(vbRefresh){
+  vbRefresh.addEventListener('click', function(){
+    var b = $('.board.active'), meta = $('#vbMeta');
+    if(b){
+      b.classList.add('refreshing');
+      setTimeout(function(){b.classList.remove('refreshing')}, 320);
+    }
+    if(meta){meta.textContent = meta.textContent.replace(/refreshed .*/,'refreshed just now')}
+  });
+}
+
+/* ---------- playbooks: filter + search ---------- */
+var pbFilter = 'all';
+function applyPb(){
+  var q = ($('#pbSearch') ? $('#pbSearch').value : '').trim().toLowerCase();
+  $$('.pb-row').forEach(function(r){
+    var okT = pbFilter==='all' || r.getAttribute('data-type')===pbFilter;
+    var okQ = !q || r.getAttribute('data-name').indexOf(q) !== -1;
+    r.style.display = (okT && okQ) ? '' : 'none';
+  });
+}
+$$('.fchip[data-pf]').forEach(function(c){
+  c.addEventListener('click', function(){
+    $$('.fchip[data-pf]').forEach(function(x){x.classList.remove('active')});
+    c.classList.add('active');
+    pbFilter = c.getAttribute('data-pf');
+    applyPb();
+  });
+});
+var pbSearch = $('#pbSearch');
+if(pbSearch){pbSearch.addEventListener('input', applyPb)}
+
+/* ---------- skills ---------- */
+$$('.skitem').forEach(function(s){
+  s.addEventListener('click', function(){
+    $$('.skitem').forEach(function(x){x.classList.remove('sel')});
+    s.classList.add('sel');
+    var d = s.getAttribute('data-skill');
+    $$('.skd').forEach(function(x){x.classList.toggle('active', x.id===d)});
+  });
+});
+
+/* ---------- toggles ---------- */
+$$('.tgl').forEach(function(t){
+  t.addEventListener('click', function(){
+    t.classList.toggle('on');
+    t.setAttribute('aria-checked', t.classList.contains('on') ? 'true' : 'false');
+  });
+});
+
+/* ---------- decorative links ---------- */
+$$('a[data-decor]').forEach(function(a){
+  a.addEventListener('click', function(e){e.preventDefault()});
+});
+
+/* ---------- keyboard for role=button divs ---------- */
+$$('[role="button"][tabindex]').forEach(function(el){
+  el.addEventListener('keydown', function(e){
+    if(e.key==='Enter' || e.key===' '){e.preventDefault(); el.click()}
+  });
+});
+$$('.tgl[role="switch"]').forEach(function(el){
+  el.addEventListener('keydown', function(e){
+    if(e.key==='Enter' || e.key===' '){e.preventDefault(); el.click()}
+  });
+});
+})();
+</script>
+</body>
+</html>

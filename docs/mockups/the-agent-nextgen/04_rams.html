@@ -1,0 +1,1191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>The Agent · Rams concept</title>
+<style>
+  :root{
+    --ground:#E8E6E1;
+    --panel:#F4F3F0;
+    --panel-down:#EFEDE9;
+    --well:#FBFAF8;
+    --ink:#26241F;
+    --ink2:#6E6A61;
+    --ink3:#969187;
+    --line:#D5D2CB;
+    --line-strong:#C4C0B7;
+    --orange:#E8501A;
+    --orange-down:#D8470F;
+    --green:#6B7F5E;
+    --danger:#8C3B2E;
+    --r:6px;
+    --sans:"Helvetica Neue","Segoe UI",Helvetica,Arial,sans-serif;
+    --mono:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
+    --t:.12s ease-out;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--ground);color:var(--ink);
+    font:14px/1.5 var(--sans);
+    font-variant-numeric:tabular-nums lining-nums;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  ::selection{background:rgba(232,80,26,.16)}
+  button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+  a{color:inherit}
+  :focus{outline:none}
+  :focus-visible{outline:1px solid var(--orange);outline-offset:2px;border-radius:2px}
+  code{font-family:var(--mono)}
+
+  /* ============ shell ============ */
+  .app{display:grid;grid-template-columns:224px minmax(0,1fr);min-height:100vh}
+  .stage{padding:40px 48px 72px;min-width:0}
+  .stage-in{max-width:1200px}
+
+  /* ============ rail ============ */
+  .rail{
+    position:sticky;top:0;height:100vh;overflow-y:auto;
+    display:flex;flex-direction:column;
+    padding:28px 16px 20px;
+    border-right:1px solid var(--line);
+  }
+  .mark{padding:0 10px;margin-bottom:28px}
+  .mark .m1{font-size:15px;font-weight:500;letter-spacing:-.01em}
+  .mark .m2{font:10px/1 var(--mono);letter-spacing:.1em;color:var(--ink3);margin-top:5px}
+
+  .fkeys{display:flex;flex-direction:column;gap:8px}
+  .fkey{
+    display:flex;align-items:center;gap:10px;
+    height:44px;padding:0 12px;text-align:left;
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+    transition:background var(--t),border-color var(--t),box-shadow var(--t);
+  }
+  .fkey:hover{background:var(--well);border-color:var(--line-strong)}
+  .fkey:active{box-shadow:inset 0 1px 2px rgba(38,36,31,.2)}
+  .fkey.active{
+    background:var(--panel-down);
+    box-shadow:inset 0 1px 2px rgba(38,36,31,.14);
+  }
+  .fnum{font:10px/1 var(--mono);color:var(--ink3);width:16px;flex:none}
+  .flabel{flex:1;font-size:13px;font-weight:500;letter-spacing:.01em;min-width:0}
+  .fcount{font:11px/1 var(--mono);color:var(--ink2);border:1px solid var(--line);border-radius:var(--r);padding:3px 6px;background:var(--well)}
+  .fled{width:6px;height:6px;border-radius:50%;border:1px solid var(--line-strong);flex:none;transition:background var(--t),border-color var(--t)}
+  .fkey.active .fled{background:var(--orange);border-color:var(--orange)}
+
+  .pgroup{margin-top:32px}
+  .pg-h{font:10px/1 var(--mono);letter-spacing:.12em;color:var(--ink3);padding:0 10px;margin-bottom:8px}
+  .plat a{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:5px 10px;font-size:12px;color:var(--ink2);text-decoration:none;border-radius:4px;
+    transition:background var(--t),color var(--t);
+  }
+  .plat a:hover{background:var(--panel);color:var(--ink)}
+  .plat a span{font-size:10px;color:var(--ink3)}
+
+  .railfoot{margin-top:auto;padding:16px 10px 0;border-top:1px solid var(--line)}
+  .rf-user{font-size:12px;font-weight:500}
+  .rf-brain{font:10px/1 var(--mono);color:var(--ink3);margin-top:4px}
+  .rf-keys{font:9px/1 var(--mono);color:var(--ink3);margin-top:14px;letter-spacing:.06em}
+  .rf-mantra{font:9.5px/1.9 var(--mono);color:var(--ink3);margin-top:12px;letter-spacing:.02em}
+
+  /* ============ screens ============ */
+  .screen{display:none}
+  .screen.active{display:block;animation:appear .12s ease-out}
+  @keyframes appear{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  .shead{display:flex;align-items:baseline;gap:12px;padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:24px}
+  .idx{font:11px/1 var(--mono);color:var(--ink3)}
+  .shead h1{font-size:19px;font-weight:500;letter-spacing:-.01em}
+  .hmeta{margin-left:auto;font:11px/1 var(--mono);color:var(--ink3)}
+
+  /* ============ primitives ============ */
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
+
+  .btn{
+    display:inline-flex;align-items:center;gap:7px;
+    height:32px;padding:0 14px;
+    font-size:13px;font-weight:500;letter-spacing:.01em;
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+    transition:background var(--t),border-color var(--t),box-shadow var(--t),transform var(--t),color var(--t);
+    white-space:nowrap;
+  }
+  .btn:hover{background:var(--well);border-color:var(--line-strong)}
+  .btn:active{box-shadow:inset 0 1px 2px rgba(38,36,31,.22);transform:translateY(1px)}
+  .btn svg{flex:none}
+  .btn.primary{background:var(--orange);border-color:var(--orange);color:#FFF7F3}
+  .btn.primary:hover{background:var(--orange-down);border-color:var(--orange-down)}
+  .btn.small{height:26px;padding:0 10px;font-size:12px}
+  .btn.danger{color:var(--danger);border-color:#CDB4AC}
+  .btn.danger:hover{background:#F6EEEB;border-color:var(--danger)}
+  .btn.acked{color:var(--green);border-color:var(--green);background:var(--panel)}
+  .btn.primary.acked{background:var(--green);border-color:var(--green);color:#F3F5F1}
+
+  .chip{
+    display:inline-flex;align-items:center;gap:7px;
+    height:28px;padding:0 12px;font-size:12px;font-weight:500;
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+    transition:background var(--t),border-color var(--t),box-shadow var(--t);
+  }
+  .chip .n{font:10.5px/1 var(--mono);color:var(--ink3)}
+  .chip:hover{background:var(--well);border-color:var(--line-strong)}
+  .chip.active{background:var(--panel-down);box-shadow:inset 0 1px 2px rgba(38,36,31,.14)}
+  .chip.active::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--orange);flex:none}
+
+  .verb{
+    display:inline-block;
+    font:10px/1 var(--mono);letter-spacing:.06em;color:var(--ink2);
+    border:1px solid var(--line-strong);border-radius:4px;
+    padding:3px 6px;white-space:nowrap;
+  }
+  .led{width:7px;height:7px;border-radius:50%;border:1px solid var(--line-strong);flex:none;display:inline-block}
+  .led.ok{background:var(--green);border-color:var(--green)}
+
+  .field{
+    width:100%;font:13px/1.5 var(--sans);color:var(--ink);
+    background:var(--well);border:1px solid var(--line);border-radius:var(--r);
+    padding:8px 10px;transition:border-color var(--t);
+  }
+  .field:focus{border-color:var(--orange);outline:none}
+  ::placeholder{color:var(--ink3)}
+  textarea.field{resize:vertical;line-height:1.6}
+
+  .sub-h{font:10px/1 var(--mono);letter-spacing:.12em;color:var(--ink3);margin-bottom:12px}
+
+  /* ============ 01 assistant ============ */
+  .chat{display:flex;flex-direction:column;height:calc(100vh - 228px);min-height:480px;max-width:920px;overflow:hidden}
+  .thread{flex:1;overflow-y:auto;padding:28px 32px 20px}
+  .thread::-webkit-scrollbar{width:8px}
+  .thread::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+  .thread::-webkit-scrollbar-track{background:transparent}
+  .thread-in{max-width:760px}
+
+  .msg{display:grid;grid-template-columns:64px minmax(0,1fr);gap:16px;padding:18px 0;border-top:1px solid var(--line)}
+  .msg:first-child{border-top:0;padding-top:0}
+  .who{font:10px/2.1 var(--mono);letter-spacing:.1em;color:var(--ink3)}
+  .msg.agent .who{color:var(--ink)}
+  .msg.agent .who::before{content:"";display:inline-block;width:6px;height:6px;background:var(--orange);border-radius:1px;margin-right:7px;vertical-align:1px}
+  .mbody{font-size:13.5px;line-height:1.65;min-width:0}
+  .mbody p+p{margin-top:10px}
+  .mbody strong{font-weight:600}
+  .in{font:12px var(--mono)}
+
+  .toollog{border:1px solid var(--line);border-radius:var(--r);background:var(--panel-down);overflow:hidden}
+  .toolrow{display:flex;align-items:center;gap:10px;padding:8px 12px;border-top:1px solid var(--line)}
+  .toolrow:first-child{border-top:0}
+  .toolrow code{flex:1;font-size:11.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .tstat{font:10.5px/1 var(--mono);color:var(--ink2)}
+  .tdur{font:10.5px/1 var(--mono);color:var(--ink3);min-width:36px;text-align:right}
+
+  .ctable{width:100%;border:1px solid var(--line);border-radius:var(--r);border-collapse:separate;border-spacing:0;overflow:hidden;margin:12px 0;background:var(--panel)}
+  .ctable th{
+    font:10px/1 var(--mono);letter-spacing:.08em;color:var(--ink3);text-align:left;
+    padding:9px 12px;background:var(--panel-down);border-bottom:1px solid var(--line);font-weight:400;
+  }
+  .ctable td{padding:9px 12px;border-bottom:1px solid var(--line);font-size:13px}
+  .ctable tr:last-child td{border-bottom:0}
+  .ctable th.num,.ctable td.num{text-align:right}
+  .ctable td.num{font:12px var(--mono)}
+
+  .composer{display:flex;gap:12px;align-items:stretch;padding:16px 24px;border-top:1px solid var(--line);background:var(--panel)}
+  .meter{
+    width:88px;flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+    background:var(--well);border:1px solid var(--line);border-radius:var(--r);padding:8px 8px 6px;
+  }
+  .meter svg{display:block}
+  .varc{fill:none;stroke:var(--line-strong);stroke-width:1}
+  .vtick{stroke:var(--line-strong);stroke-width:1}
+  .vneedle{stroke:var(--ink);stroke-width:1.2}
+  .vdot{fill:var(--orange)}
+  .vpivot{transform-box:view-box;transform-origin:32px 34px;animation:vsweep 2.6s cubic-bezier(.45,.05,.55,.95) infinite alternate}
+  @keyframes vsweep{from{transform:rotate(-40deg)}to{transform:rotate(40deg)}}
+  .meter.thinking .vpivot{animation-duration:.7s}
+  .mlabel{font:9px/1 var(--mono);letter-spacing:.14em;color:var(--ink3);transition:color var(--t)}
+  .meter.thinking .mlabel{color:var(--orange)}
+  .compose{flex:1;resize:none;height:56px;font:13.5px/1.5 var(--sans);color:var(--ink);
+    background:var(--well);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;transition:border-color var(--t)}
+  .compose:focus{border-color:var(--orange)}
+  .send{height:56px;padding:0 20px}
+  .cstack{display:flex;flex-direction:column;gap:4px;justify-content:space-between}
+  .cstack .btn{height:26px;justify-content:center}
+
+  .hello{padding:72px 32px;max-width:560px}
+  .hello h2{font-size:23px;font-weight:500;letter-spacing:-.01em}
+  .hello p{margin-top:10px;font-size:13.5px;color:var(--ink2);line-height:1.6}
+  .starters{display:flex;flex-direction:column;gap:8px;margin-top:32px;max-width:400px}
+  .starter{
+    display:flex;align-items:center;gap:10px;text-align:left;
+    padding:11px 14px;font-size:13px;
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+    transition:background var(--t),border-color var(--t),box-shadow var(--t);
+  }
+  .starter::before{content:"→";font:11px var(--mono);color:var(--ink3)}
+  .starter:hover{background:var(--well);border-color:var(--line-strong)}
+  .starter:active{box-shadow:inset 0 1px 2px rgba(38,36,31,.2)}
+
+  /* ============ 02 my work ============ */
+  .work-grid{display:grid;grid-template-columns:400px minmax(0,1fr);gap:24px;align-items:start}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+  .queue{overflow:hidden}
+  .qitem{
+    display:block;width:100%;text-align:left;
+    padding:14px 16px 14px 14px;
+    border-top:1px solid var(--line);border-left:2px solid transparent;
+    transition:background var(--t),border-color var(--t);
+  }
+  .qitem:first-child{border-top:0}
+  .qitem:hover{background:var(--well)}
+  .qitem.selected{background:var(--well);border-left-color:var(--orange)}
+  .qtop{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+  .qtime{margin-left:auto;font:10.5px/1 var(--mono);color:var(--ink3)}
+  .qtitle{display:block;font-size:13px;font-weight:500;line-height:1.45}
+  .qmeta{display:flex;align-items:center;gap:6px;margin-top:5px;font:10.5px/1.4 var(--mono);color:var(--ink3)}
+
+  .detail{padding:24px}
+  .dtop{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .dtitle{font-size:15px;font-weight:600;line-height:1.4}
+  .dmeta{font:10.5px/1 var(--mono);color:var(--ink3);margin-top:6px}
+  .note{
+    display:flex;align-items:center;gap:8px;
+    border:1px solid var(--line);background:var(--panel-down);border-radius:var(--r);
+    padding:8px 12px;font-size:12px;color:var(--ink2);margin:18px 0 16px;
+  }
+  .spec{margin:0 0 16px;border-top:1px solid var(--line)}
+  .srow{display:grid;grid-template-columns:80px minmax(0,1fr);gap:16px;padding:9px 0;border-bottom:1px solid var(--line);align-items:baseline}
+  .srow .k{font:10px/1.6 var(--mono);letter-spacing:.1em;color:var(--ink3)}
+  .srow .v{font:12.5px var(--mono);color:var(--ink);overflow-wrap:anywhere}
+  .actions{display:flex;align-items:center;gap:8px;margin-top:16px}
+  .hint{margin-left:auto;display:flex;align-items:center;gap:7px;font:10.5px/1 var(--mono);color:var(--ink2)}
+  .dthread{margin-top:28px;border-top:1px solid var(--line);padding-top:18px}
+  .dthread .msg{grid-template-columns:56px minmax(0,1fr);padding:10px 0;border-top:0}
+  .dthread .mbody{font-size:13px}
+  .askrow{display:flex;gap:8px;margin-top:10px}
+  .ditem[hidden]{display:none}
+  .stat-inline{display:flex;align-items:center;gap:8px;font:12px var(--mono);color:var(--ink2);margin:14px 0}
+
+  /* ============ 03 views ============ */
+  .views-grid{display:grid;grid-template-columns:288px minmax(0,1fr);gap:24px;align-items:start}
+  .vlist{overflow:hidden}
+  .vitem{
+    display:block;width:100%;text-align:left;padding:14px 16px 14px 14px;
+    border-top:1px solid var(--line);border-left:2px solid transparent;
+    transition:background var(--t),border-color var(--t);
+  }
+  .vitem:first-child{border-top:0}
+  .vitem:hover{background:var(--well)}
+  .vitem.selected{background:var(--well);border-left-color:var(--orange)}
+  .vname{display:block;font-size:13px;font-weight:500}
+  .vsub{display:block;font:10.5px/1.5 var(--mono);color:var(--ink3);margin-top:5px}
+
+  .vhead{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:16px}
+  .vhead h2{font-size:17px;font-weight:500;letter-spacing:-.01em}
+  .vmeta{font:11px/1 var(--mono);color:var(--ink3);margin-top:7px}
+  .vbtns{display:flex;gap:8px;flex-wrap:wrap}
+
+  .board{display:grid;grid-template-columns:repeat(12,1fr);gap:16px}
+  .tile{grid-column:span 4;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px;min-width:0}
+  .tile.full{grid-column:span 12}
+  .tile-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:14px}
+  .tile-t{font-size:12px;font-weight:500;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .tile-s{font:9.5px/1 var(--mono);color:var(--ink3);white-space:nowrap;flex:none}
+
+  .statwrap{display:flex;flex-direction:column;align-items:center;padding:4px 0 2px}
+  .dial{display:block}
+  .darc{fill:none;stroke:var(--line-strong);stroke-width:1}
+  .dtick{stroke:var(--line-strong);stroke-width:1}
+  .dtick.major{stroke:var(--ink2)}
+  .dneedle{stroke:var(--orange);stroke-width:2;stroke-linecap:round}
+  .dhub{fill:var(--ink)}
+  .dlab{font:8.5px var(--mono);fill:var(--ink3)}
+  .bignum{font-size:25px;font-weight:600;letter-spacing:-.01em;margin-top:10px}
+  .bigsub{font:10px/1 var(--mono);color:var(--ink3);margin-top:7px}
+
+  .brow{padding:7px 0 9px}
+  .btop{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:5px}
+  .bname{font-size:11px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .bval{font:11px/1 var(--mono);color:var(--ink);flex:none}
+  .btrack{display:block;height:8px;background:#E9E6E0;border-radius:2px;overflow:hidden}
+  .bbar{display:block;height:100%;background:#3A362F;border-radius:2px}
+
+  .linewrap svg{display:block;width:100%;height:auto}
+  .lgrid{stroke:var(--line);stroke-width:1}
+  .lpath{fill:none;stroke:var(--ink);stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round}
+  .lpt{fill:var(--ink)}
+  .lpt.now{fill:var(--orange)}
+  .llab{font:9px var(--mono);fill:var(--ink2)}
+
+  .vtable{width:100%;border-collapse:collapse}
+  .vtable th{font:10px/1 var(--mono);letter-spacing:.08em;color:var(--ink3);text-align:left;font-weight:400;padding:8px 12px;border-bottom:1px solid var(--line)}
+  .vtable td{padding:9px 12px;border-bottom:1px solid var(--line);font-size:13px}
+  .vtable tr:last-child td{border-bottom:0}
+  .vtable th.num,.vtable td.num{text-align:right}
+  .vtable td.num{font:12px var(--mono)}
+  .vtable td.inv{font:12px var(--mono)}
+  .flag{font:9.5px/1 var(--mono);color:var(--ink2);border:1px solid var(--line-strong);border-radius:4px;padding:2px 6px;white-space:nowrap}
+
+  .ticker{grid-column:span 12;display:flex;align-items:stretch;height:48px;padding:0;overflow:hidden;background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
+  .ticklabel{flex:none;display:flex;align-items:center;padding:0 16px;font:10px/1 var(--mono);letter-spacing:.12em;color:var(--ink3);background:var(--panel-down);border-right:1px solid var(--line)}
+  .tickwin{flex:1;display:flex;align-items:center;overflow:hidden;
+    -webkit-mask-image:linear-gradient(90deg,transparent,#000 32px,#000 calc(100% - 32px),transparent);
+    mask-image:linear-gradient(90deg,transparent,#000 32px,#000 calc(100% - 32px),transparent)}
+  .tickband{display:flex;width:max-content;animation:tick 48s linear infinite}
+  @keyframes tick{to{transform:translateX(-50%)}}
+  .tg{display:flex;gap:56px;padding:0 28px;font:11px/1 var(--mono);color:var(--ink2);white-space:nowrap}
+  .tg b{color:var(--ink);font-weight:500}
+
+  /* ============ 04 playbooks ============ */
+  .ptools{display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+  .psearch{width:240px}
+  .pout{margin-left:auto;display:flex;gap:16px}
+  .pout a{font-size:12px;color:var(--ink2);text-decoration:none;transition:color var(--t)}
+  .pout a:hover{color:var(--ink)}
+  .pout a span{font-size:10px;color:var(--ink3)}
+  .plist{overflow:hidden}
+  .prow{display:flex;align-items:center;gap:12px;padding:15px 16px;border-top:1px solid var(--line);transition:background var(--t)}
+  .prow:first-child{border-top:0}
+  .prow:hover{background:var(--well)}
+  .pname{flex:1;font-size:13px;font-weight:500;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pmeta{font:11px/1 var(--mono);color:var(--ink3);white-space:nowrap}
+
+  /* ============ 05 email ============ */
+  .mailgrid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px;align-items:start}
+  .card{padding:24px}
+  .card h3{font-size:13px;font-weight:500;letter-spacing:.01em}
+  .card .csub{font-size:12px;color:var(--ink2);line-height:1.6;margin-top:6px}
+  .addr{display:flex;align-items:center;margin:18px 0 4px}
+  .addr .field{width:150px;border-radius:var(--r) 0 0 var(--r);font-family:var(--mono);font-size:12.5px}
+  .addr .suffix{font:12.5px var(--mono);color:var(--ink2);background:var(--panel-down);border:1px solid var(--line);border-left:0;border-radius:0 var(--r) var(--r) 0;padding:8px 10px}
+  .state{font:10px/1 var(--mono);letter-spacing:.1em;color:var(--green);border:1px solid var(--green);border-radius:4px;padding:4px 8px;margin-left:12px}
+  .trow{display:flex;align-items:center;gap:10px;padding:13px 0;border-top:1px solid var(--line)}
+  .trow:first-of-type{border-top:0}
+  .tlabel{flex:1;font-size:13px;font-weight:500;min-width:0}
+  .tsub{display:block;font-size:11.5px;font-weight:400;color:var(--ink3);margin-top:3px;line-height:1.5}
+  .toggle{
+    flex:none;width:64px;height:24px;position:relative;
+    background:var(--panel-down);border:1px solid var(--line-strong);border-radius:var(--r);
+    transition:background var(--t);
+  }
+  .toggle .knob{
+    position:absolute;top:2px;left:2px;width:26px;height:18px;
+    background:var(--well);border:1px solid var(--line-strong);border-radius:4px;
+    background-image:repeating-linear-gradient(90deg,transparent 0 4px,rgba(38,36,31,.22) 4px 5px,transparent 5px 9px);
+    background-size:15px 10px;background-position:center;background-repeat:no-repeat;
+    transition:left var(--t);
+  }
+  .trow.on .toggle .knob{left:34px}
+  .trow .led{margin-right:2px}
+  .trow.on .led{background:var(--green);border-color:var(--green)}
+  .numfield{width:72px;text-align:right;font-family:var(--mono);font-size:12.5px}
+  .frow{display:flex;align-items:center;gap:10px;padding:13px 0;border-top:1px solid var(--line)}
+  .cardfoot{display:flex;justify-content:flex-end;margin-top:16px}
+  .arow{display:grid;grid-template-columns:96px 108px minmax(0,1fr);gap:14px;align-items:center;padding:11px 0;border-top:1px solid var(--line)}
+  .arow:first-of-type{border-top:0}
+  .atime{font:11px/1 var(--mono);color:var(--ink3)}
+  .amain{font-size:12.5px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .amain .af{font-family:var(--mono);font-size:11.5px}
+  .amain .as{color:var(--ink2)}
+
+  /* ============ 06 skills ============ */
+  .skgrid{display:grid;grid-template-columns:368px minmax(0,1fr);gap:24px;align-items:start}
+  .sklist{overflow:hidden}
+  .skitem{
+    display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+    padding:14px 16px 14px 14px;border-top:1px solid var(--line);border-left:2px solid transparent;
+    transition:background var(--t),border-color var(--t);
+  }
+  .skitem:first-child{border-top:0}
+  .skitem:hover{background:var(--well)}
+  .skitem.selected{background:var(--well);border-left-color:var(--orange)}
+  .skname{flex:1;font:12.5px var(--mono);font-weight:500;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sksize{font:10.5px/1 var(--mono);color:var(--ink3)}
+  .skdetail{padding:24px}
+  .skd-top{display:flex;align-items:center;gap:10px}
+  .skd-top h2{font:500 15px var(--mono);letter-spacing:-.01em}
+  .skbody{
+    font:12.5px/1.75 var(--mono);color:var(--ink);
+    background:var(--well);border:1px solid var(--line);border-radius:var(--r);
+    padding:18px 20px;margin:18px 0;
+  }
+  .skfoot{display:flex;align-items:center;gap:12px;border-top:1px solid var(--line);padding-top:16px}
+  .skfoot .fnote{font:10.5px/1.5 var(--mono);color:var(--ink3)}
+
+  /* ============ corner badge ============ */
+  .corner{
+    position:fixed;right:16px;bottom:16px;z-index:60;
+    font:11px/1 var(--mono);letter-spacing:.04em;color:var(--ink2);
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+    padding:7px 10px;text-decoration:none;
+    transition:color var(--t),border-color var(--t),background var(--t);
+  }
+  .corner:hover{color:var(--ink);border-color:var(--line-strong);background:var(--well)}
+
+  @media (max-width:1120px){
+    .work-grid,.views-grid,.skgrid{grid-template-columns:1fr}
+    .mailgrid{grid-template-columns:1fr}
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *,*::before,*::after{animation:none !important;transition:none !important}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ======================= rail ======================= -->
+  <nav class="rail" aria-label="sections">
+    <div class="mark">
+      <div class="m1">the agent</div>
+      <div class="m2">ai hub · agent surface</div>
+    </div>
+
+    <div class="fkeys">
+      <button class="fkey active" data-screen="assistant" aria-pressed="true">
+        <span class="fnum">f1</span><span class="flabel">assistant</span><span class="fled"></span>
+      </button>
+      <button class="fkey" data-screen="mywork" aria-pressed="false">
+        <span class="fnum">f2</span><span class="flabel">my work</span><span class="fcount">4</span><span class="fled"></span>
+      </button>
+      <button class="fkey" data-screen="views" aria-pressed="false">
+        <span class="fnum">f3</span><span class="flabel">views</span><span class="fled"></span>
+      </button>
+      <button class="fkey" data-screen="playbooks" aria-pressed="false">
+        <span class="fnum">f4</span><span class="flabel">playbooks</span><span class="fled"></span>
+      </button>
+      <button class="fkey" data-screen="email" aria-pressed="false">
+        <span class="fnum">f5</span><span class="flabel">email</span><span class="fled"></span>
+      </button>
+      <button class="fkey" data-screen="skills" aria-pressed="false">
+        <span class="fnum">f6</span><span class="flabel">skills</span><span class="fled"></span>
+      </button>
+    </div>
+
+    <div class="pgroup">
+      <div class="pg-h">platform</div>
+      <div class="plat">
+        <a href="#">data explorer <span>↗</span></a>
+        <a href="#">workflow designer <span>↗</span></a>
+        <a href="#">mission control <span>↗</span></a>
+        <a href="#">command center <span>↗</span></a>
+        <a href="#">documents <span>↗</span></a>
+        <a href="#">classic app <span>↗</span></a>
+      </div>
+    </div>
+
+    <div class="railfoot">
+      <div class="rf-user">james · admin</div>
+      <div class="rf-brain">brain: claude-fable-5</div>
+      <div class="rf-keys">keys 1–6 · sections</div>
+      <div class="rf-mantra">
+        draft → dry-run → promote → schedule<br>
+        humans stay in the loop · my work
+      </div>
+    </div>
+  </nav>
+
+  <!-- ======================= stage ======================= -->
+  <main class="stage">
+    <div class="stage-in">
+
+    <!-- ============ 01 · assistant ============ -->
+    <section id="screen-assistant" class="screen active">
+      <header class="shead">
+        <span class="idx">01</span><h1>assistant</h1>
+        <span class="hmeta">brain: claude-fable-5</span>
+      </header>
+
+      <div class="chat panel">
+        <div class="thread" id="thread">
+
+          <div class="thread-in" id="conv">
+            <div class="msg you">
+              <div class="who">you</div>
+              <div class="mbody"><p>Which vendors drove August invoice spend, and are any invoices stuck?</p></div>
+            </div>
+
+            <div class="msg tools">
+              <div class="who">tools</div>
+              <div class="mbody">
+                <div class="toollog">
+                  <div class="toolrow"><span class="led ok"></span><code>list_connections {}</code><span class="tstat">ok</span><span class="tdur">0.4s</span></div>
+                  <div class="toolrow"><span class="led ok"></span><code>query_database {"connection":"ERPDB","sql":"SELECT vendor, SUM(total)…"}</code><span class="tstat">ok</span><span class="tdur">1.8s</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="msg agent">
+              <div class="who">agent</div>
+              <div class="mbody">
+                <p>August invoice spend is <strong>$482,910</strong> across 41 vendors. The top five drive 68% of it:</p>
+                <table class="ctable">
+                  <thead>
+                    <tr><th>vendor</th><th class="num">invoices</th><th class="num">august total</th><th class="num">vs july</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>Meridian Supply Co</td><td class="num">14</td><td class="num">$128,400</td><td class="num">+22%</td></tr>
+                    <tr><td>Northgate Logistics</td><td class="num">9</td><td class="num">$96,150</td><td class="num">+4%</td></tr>
+                    <tr><td>Corvid Materials</td><td class="num">11</td><td class="num">$64,020</td><td class="num">−8%</td></tr>
+                    <tr><td>Atlas Packaging</td><td class="num">7</td><td class="num">$41,310</td><td class="num">+13%</td></tr>
+                    <tr><td>Helix Industrial</td><td class="num">5</td><td class="num">$38,900</td><td class="num">+2%</td></tr>
+                  </tbody>
+                </table>
+                <p>Two Meridian invoices (<strong class="in">INV-20841</strong>, <strong class="in">INV-20857</strong>) are pending approval past 14 days — $61,200 combined. Want me to raise them in My Work?</p>
+              </div>
+            </div>
+
+            <div class="msg you">
+              <div class="who">you</div>
+              <div class="mbody"><p>Yes — raise them and save this as a view.</p></div>
+            </div>
+
+            <div class="msg tools">
+              <div class="who">tools</div>
+              <div class="mbody">
+                <div class="toollog">
+                  <div class="toolrow"><span class="led ok"></span><code>create_work_item</code><span class="tstat">ok</span><span class="tdur">0.6s</span></div>
+                  <div class="toolrow"><span class="led ok"></span><code>save_view {"name":"Vendor Spend — August"}</code><span class="tstat">ok</span><span class="tdur">0.9s</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="msg agent">
+              <div class="who">agent</div>
+              <div class="mbody">
+                <p>Done. Two approval items are in <strong>My Work</strong>, and I saved <strong>Vendor Spend — August</strong> as a view with 4 tiles — it refreshes with zero AI.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="hello" id="hello" hidden>
+            <h2>Hi James — what do you need?</h2>
+            <p>Explore your data, build automations through conversation, and keep humans in the loop with My Work.</p>
+            <div class="starters">
+              <button class="starter">What data connections do we have?</button>
+              <button class="starter">Build me an automation that checks ERPDB daily</button>
+              <button class="starter">What's waiting in My Work?</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="composer">
+          <div class="meter" id="meter" aria-hidden="true">
+            <svg viewBox="0 0 64 30" width="64" height="30">
+              <path class="varc" d="M 13.6 18.6 A 24 24 0 0 1 50.4 18.6"/>
+              <g class="vticks">
+                <line class="vtick" x1="32" y1="10" x2="32" y2="14" transform="rotate(-50 32 34)"/>
+                <line class="vtick" x1="32" y1="10" x2="32" y2="14" transform="rotate(-25 32 34)"/>
+                <line class="vtick" x1="32" y1="10" x2="32" y2="14"/>
+                <line class="vtick" x1="32" y1="10" x2="32" y2="14" transform="rotate(25 32 34)"/>
+                <line class="vtick" x1="32" y1="10" x2="32" y2="14" transform="rotate(50 32 34)"/>
+              </g>
+              <g class="vpivot">
+                <line class="vneedle" x1="32" y1="34" x2="32" y2="15"/>
+                <circle class="vdot" cx="32" cy="16" r="2.4"/>
+              </g>
+            </svg>
+            <span class="mlabel" id="mlabel">listening</span>
+          </div>
+          <textarea class="compose" id="compose" rows="2" placeholder="message the agent…" aria-label="message the agent"></textarea>
+          <button class="btn primary send" id="btn-send">send</button>
+          <div class="cstack">
+            <button class="btn small" id="btn-new">new</button>
+            <button class="btn small" id="btn-history">history</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 02 · my work ============ -->
+    <section id="screen-mywork" class="screen">
+      <header class="shead">
+        <span class="idx">02</span><h1>my work</h1>
+        <span class="hmeta">4 open · nothing acts without you</span>
+      </header>
+
+      <div class="chips" role="group" aria-label="filter my work">
+        <button class="chip active" data-filter="all">all <span class="n">4</span></button>
+        <button class="chip" data-filter="approval">approval <span class="n">1</span></button>
+        <button class="chip" data-filter="email">email / edit <span class="n">1</span></button>
+        <button class="chip" data-filter="question">question <span class="n">1</span></button>
+        <button class="chip" data-filter="fyi">fyi <span class="n">1</span></button>
+      </div>
+
+      <div class="work-grid">
+        <div class="queue panel">
+          <button class="qitem" data-item="1" data-type="approval">
+            <span class="qtop"><span class="verb">approval</span><span class="verb">dry-run</span><span class="qtime">09:14</span></span>
+            <span class="qtitle">Approve payment run — 2 overdue Meridian invoices ($61,200)</span>
+            <span class="qmeta">from automation invoice-chaser</span>
+          </button>
+          <button class="qitem selected" data-item="2" data-type="email">
+            <span class="qtop"><span class="verb">email / edit</span><span class="qtime">08:47</span></span>
+            <span class="qtitle">Re: Q3 renewal pricing — reply to Dana Whitfield</span>
+            <span class="qmeta">from email</span>
+          </button>
+          <button class="qitem" data-item="3" data-type="question">
+            <span class="qtop"><span class="verb">question</span><span class="verb">shared · unclaimed</span></span>
+            <span class="qtitle">Which fiscal calendar should the vendor report use — 4-4-5 or calendar month?</span>
+            <span class="qmeta">from agent</span>
+          </button>
+          <button class="qitem" data-item="4" data-type="fyi">
+            <span class="qtop"><span class="verb">fyi</span><span class="qtime">06:00</span></span>
+            <span class="qtitle">Nightly ERPDB health check completed — 0 anomalies, 312k rows scanned</span>
+            <span class="qmeta"><span class="led ok"></span> from automation erpdb-daily-health</span>
+          </button>
+        </div>
+
+        <div class="detail panel">
+
+          <div class="ditem" data-item="1" hidden>
+            <div class="dtop"><span class="verb">approval</span><span class="verb">dry-run</span></div>
+            <div class="dtitle">Approve payment run — 2 overdue Meridian invoices ($61,200)</div>
+            <div class="dmeta">from automation invoice-chaser · 09:14</div>
+            <div class="note">dry-run — the run was simulated end to end; approving promotes it</div>
+            <div class="spec">
+              <div class="srow"><span class="k">invoice</span><span class="v">INV-20841 · Meridian Supply Co · $38,700 · 21 days overdue</span></div>
+              <div class="srow"><span class="k">invoice</span><span class="v">INV-20857 · Meridian Supply Co · $22,500 · 17 days overdue</span></div>
+              <div class="srow"><span class="k">total</span><span class="v">$61,200</span></div>
+            </div>
+            <div class="actions">
+              <button class="btn primary" data-ack="approved ✓">approve</button>
+              <button class="btn" data-ack="denied">deny</button>
+              <span class="hint"><span class="led ok"></span> nothing pays without you</span>
+            </div>
+          </div>
+
+          <div class="ditem" data-item="2">
+            <div class="dtop"><span class="verb">email / edit</span></div>
+            <div class="dtitle">Re: Q3 renewal pricing — reply to Dana Whitfield</div>
+            <div class="dmeta">from email · 08:47</div>
+            <div class="note">draft — body is editable; what you approve is what sends</div>
+            <div class="spec">
+              <div class="srow"><span class="k">to</span><span class="v">dana@meridiansupply.com</span></div>
+              <div class="srow"><span class="k">from</span><span class="v">james-agent@mail.aihub.dev</span></div>
+              <div class="srow"><span class="k">subject</span><span class="v">Re: Q3 renewal pricing</span></div>
+            </div>
+            <textarea class="field" rows="5" aria-label="draft body">Hi Dana — thank you for sending over the Q3 renewal proposal. We'd like to hold at current pricing while we complete our August vendor-spend review, which also flagged two invoices on our side (INV-20841 and INV-20857) still pending approval. Once those clear, I'll come back with a firm answer this week.</textarea>
+            <div style="margin-top:12px">
+              <input class="field" placeholder="add a comment (optional)" aria-label="comment">
+            </div>
+            <div class="actions">
+              <button class="btn primary" data-ack="approved — sending ✓">approve &amp; send</button>
+              <button class="btn" data-ack="denied">deny</button>
+              <span class="hint"><span class="led ok"></span> nothing sends without you</span>
+            </div>
+            <div class="dthread">
+              <div class="sub-h">thread with the agent</div>
+              <div class="msg you">
+                <div class="who">you</div>
+                <div class="mbody">Is Dana on the approved vendor contact list?</div>
+              </div>
+              <div class="msg agent">
+                <div class="who">agent</div>
+                <div class="mbody">Yes — primary commercial contact for Meridian Supply Co since March.</div>
+              </div>
+              <div class="askrow">
+                <input class="field" placeholder="ask the agent about this item…" aria-label="ask the agent about this item">
+                <button class="btn" data-ack="asked ✓">ask</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="ditem" data-item="3" hidden>
+            <div class="dtop"><span class="verb">question</span><span class="verb">shared · unclaimed</span></div>
+            <div class="dtitle">Which fiscal calendar should the vendor report use — 4-4-5 or calendar month?</div>
+            <div class="dmeta">from agent · blocks the monthly vendor report</div>
+            <div class="note">shared — anyone in your group can claim and answer this</div>
+            <div style="margin-top:16px">
+              <input class="field" placeholder="type an answer for the agent…" aria-label="answer">
+            </div>
+            <div class="actions">
+              <button class="btn primary" data-ack="answered ✓">answer</button>
+              <button class="btn" data-ack="claimed ✓">claim</button>
+            </div>
+          </div>
+
+          <div class="ditem" data-item="4" hidden>
+            <div class="dtop"><span class="verb">fyi</span></div>
+            <div class="dtitle">Nightly ERPDB health check completed — 0 anomalies, 312k rows scanned</div>
+            <div class="dmeta">from automation erpdb-daily-health · 06:00</div>
+            <div class="stat-inline"><span class="led ok"></span> 0 anomalies · 312,000 rows scanned · all checks green</div>
+            <div class="actions">
+              <button class="btn" data-ack="acknowledged ✓">acknowledge</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 03 · views ============ -->
+    <section id="screen-views" class="screen">
+      <header class="shead">
+        <span class="idx">03</span><h1>views</h1>
+        <span class="hmeta">3 views · deterministic · zero ai on refresh</span>
+      </header>
+
+      <div class="views-grid">
+        <div class="vlist panel">
+          <button class="vitem selected">
+            <span class="vname">Vendor Spend — August</span>
+            <span class="vsub">user · 4 tiles · v3</span>
+          </button>
+          <button class="vitem">
+            <span class="vname">Ops Pulse</span>
+            <span class="vsub">group · 6 tiles · v11 · automation tiles</span>
+          </button>
+          <button class="vitem">
+            <span class="vname">Warehouse Throughput</span>
+            <span class="vsub">tenant · 5 tiles · v2</span>
+          </button>
+        </div>
+
+        <div>
+          <div class="vhead">
+            <div>
+              <h2>Vendor Spend — August</h2>
+              <div class="vmeta">user · v3 · refreshed 16:42</div>
+            </div>
+            <div class="vbtns">
+              <button class="btn small">arrange</button>
+              <button class="btn small">rename</button>
+              <button class="btn small">
+                <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 1.5l2 2L4 10l-2.5.5L2 8z"/></svg>
+                edit with ai
+              </button>
+              <button class="btn small" data-ack="refreshed 16:42 ✓">
+                <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 6a4.5 4.5 0 1 1-1.3-3.2M10.5 1v2.5H8"/></svg>
+                refresh
+              </button>
+            </div>
+          </div>
+
+          <div class="board">
+
+            <div class="tile">
+              <div class="tile-h"><span class="tile-t">august invoice total</span><span class="tile-s">stat</span></div>
+              <div class="statwrap">
+                <svg class="dial" viewBox="0 0 160 120" width="152" height="114">
+                  <path class="darc" d="M 31.5 108 A 56 56 0 1 1 128.5 108"/>
+                  <g>
+                    <line class="dtick major" x1="80" y1="24" x2="80" y2="32" transform="rotate(-120 80 80)"/>
+                    <line class="dtick" x1="80" y1="26" x2="80" y2="32" transform="rotate(-90 80 80)"/>
+                    <line class="dtick major" x1="80" y1="24" x2="80" y2="32" transform="rotate(-60 80 80)"/>
+                    <line class="dtick" x1="80" y1="26" x2="80" y2="32" transform="rotate(-30 80 80)"/>
+                    <line class="dtick major" x1="80" y1="24" x2="80" y2="32"/>
+                    <line class="dtick" x1="80" y1="26" x2="80" y2="32" transform="rotate(30 80 80)"/>
+                    <line class="dtick major" x1="80" y1="24" x2="80" y2="32" transform="rotate(60 80 80)"/>
+                    <line class="dtick" x1="80" y1="26" x2="80" y2="32" transform="rotate(90 80 80)"/>
+                    <line class="dtick major" x1="80" y1="24" x2="80" y2="32" transform="rotate(120 80 80)"/>
+                  </g>
+                  <line class="dneedle" x1="80" y1="80" x2="80" y2="31" transform="rotate(73.2 80 80)"/>
+                  <circle class="dhub" cx="80" cy="80" r="4"/>
+                  <text class="dlab" x="24" y="116" text-anchor="middle">0</text>
+                  <text class="dlab" x="136" y="116" text-anchor="middle">600k</text>
+                </svg>
+                <div class="bignum">$482,910</div>
+                <div class="bigsub">SUM(total) · as of 16:42</div>
+              </div>
+            </div>
+
+            <div class="tile">
+              <div class="tile-h"><span class="tile-t">spend by vendor (top 5)</span><span class="tile-s">bar</span></div>
+              <div class="brow"><div class="btop"><span class="bname">Meridian Supply Co</span><span class="bval">$128,400</span></div><span class="btrack"><span class="bbar" style="width:100%"></span></span></div>
+              <div class="brow"><div class="btop"><span class="bname">Northgate Logistics</span><span class="bval">$96,150</span></div><span class="btrack"><span class="bbar" style="width:74.9%"></span></span></div>
+              <div class="brow"><div class="btop"><span class="bname">Corvid Materials</span><span class="bval">$64,020</span></div><span class="btrack"><span class="bbar" style="width:49.9%"></span></span></div>
+              <div class="brow"><div class="btop"><span class="bname">Atlas Packaging</span><span class="bval">$41,310</span></div><span class="btrack"><span class="bbar" style="width:32.2%"></span></span></div>
+              <div class="brow"><div class="btop"><span class="bname">Helix Industrial</span><span class="bval">$38,900</span></div><span class="btrack"><span class="bbar" style="width:30.3%"></span></span></div>
+            </div>
+
+            <div class="tile">
+              <div class="tile-h"><span class="tile-t">daily invoice volume</span><span class="tile-s">line · 14 days</span></div>
+              <div class="linewrap">
+                <svg viewBox="0 0 320 126" width="320" height="126">
+                  <line class="lgrid" x1="6" y1="30" x2="314" y2="30"/>
+                  <line class="lgrid" x1="6" y1="60" x2="314" y2="60"/>
+                  <line class="lgrid" x1="6" y1="90" x2="314" y2="90"/>
+                  <line class="lgrid" x1="6" y1="115" x2="314" y2="115"/>
+                  <polyline class="lpath" points="10,70.4 33,63.8 56,66 79,57.2 102,59.4 125,52.8 148,48.4 171,50.6 194,44 217,39.6 240,41.8 263,35.2 286,30.8 309,26.4"/>
+                  <circle class="lpt" cx="10" cy="70.4" r="1.8"/>
+                  <circle class="lpt" cx="79" cy="57.2" r="1.8"/>
+                  <circle class="lpt" cx="148" cy="48.4" r="1.8"/>
+                  <circle class="lpt" cx="217" cy="39.6" r="1.8"/>
+                  <circle class="lpt" cx="286" cy="30.8" r="1.8"/>
+                  <circle class="lpt now" cx="309" cy="26.4" r="2.6"/>
+                  <text class="llab" x="309" y="16" text-anchor="middle">38</text>
+                  <text class="llab" x="10" y="124" text-anchor="start">jul 26</text>
+                  <text class="llab" x="309" y="124" text-anchor="end">aug 08</text>
+                </svg>
+              </div>
+            </div>
+
+            <div class="tile full">
+              <div class="tile-h"><span class="tile-t">open invoices &gt; 14 days</span><span class="tile-s">table · 6 rows</span></div>
+              <table class="vtable">
+                <thead>
+                  <tr><th>invoice</th><th>vendor</th><th class="num">amount</th><th class="num">age</th><th></th></tr>
+                </thead>
+                <tbody>
+                  <tr><td class="inv">INV-20841</td><td>Meridian Supply Co</td><td class="num">$38,700</td><td class="num">21d</td><td class="num"><span class="flag">→ my work</span></td></tr>
+                  <tr><td class="inv">INV-20857</td><td>Meridian Supply Co</td><td class="num">$22,500</td><td class="num">17d</td><td class="num"><span class="flag">→ my work</span></td></tr>
+                  <tr><td class="inv">INV-20872</td><td>Corvid Materials</td><td class="num">$9,340</td><td class="num">16d</td><td></td></tr>
+                  <tr><td class="inv">INV-20881</td><td>Atlas Packaging</td><td class="num">$7,120</td><td class="num">15d</td><td></td></tr>
+                  <tr><td class="inv">INV-20889</td><td>Northgate Logistics</td><td class="num">$5,480</td><td class="num">15d</td><td></td></tr>
+                  <tr><td class="inv">INV-20896</td><td>Helix Industrial</td><td class="num">$4,210</td><td class="num">14d</td><td></td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="ticker">
+              <div class="ticklabel">latest invoices</div>
+              <div class="tickwin">
+                <div class="tickband">
+                  <div class="tg">
+                    <span><b>INV-20896</b> · Helix Industrial · $4,210</span>
+                    <span><b>INV-20889</b> · Northgate Logistics · $5,480</span>
+                    <span><b>INV-20881</b> · Atlas Packaging · $7,120</span>
+                    <span><b>INV-20872</b> · Corvid Materials · $9,340</span>
+                    <span><b>INV-20857</b> · Meridian Supply Co · $22,500</span>
+                    <span><b>INV-20841</b> · Meridian Supply Co · $38,700</span>
+                  </div>
+                  <div class="tg" aria-hidden="true">
+                    <span><b>INV-20896</b> · Helix Industrial · $4,210</span>
+                    <span><b>INV-20889</b> · Northgate Logistics · $5,480</span>
+                    <span><b>INV-20881</b> · Atlas Packaging · $7,120</span>
+                    <span><b>INV-20872</b> · Corvid Materials · $9,340</span>
+                    <span><b>INV-20857</b> · Meridian Supply Co · $22,500</span>
+                    <span><b>INV-20841</b> · Meridian Supply Co · $38,700</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 04 · playbooks ============ -->
+    <section id="screen-playbooks" class="screen">
+      <header class="shead">
+        <span class="idx">04</span><h1>playbooks</h1>
+        <span class="hmeta">workflows · code flows · automations</span>
+      </header>
+
+      <div class="ptools">
+        <button class="chip active" data-filter="all">all <span class="n">6</span></button>
+        <button class="chip" data-filter="workflow">workflows <span class="n">2</span></button>
+        <button class="chip" data-filter="codeflow">code flows <span class="n">1</span></button>
+        <button class="chip" data-filter="automation">automations <span class="n">3</span></button>
+        <input class="field psearch" id="psearch" placeholder="search playbooks…" aria-label="search playbooks">
+        <div class="pout">
+          <a href="#">open workflow designer <span>↗</span></a>
+          <a href="#">open mission control <span>↗</span></a>
+        </div>
+      </div>
+
+      <div class="plist panel">
+        <div class="prow" data-ptype="workflow">
+          <span class="verb">workflow</span>
+          <span class="pname">Invoice Intake — OCR + 3-way match</span>
+          <span class="pmeta">id 1218</span>
+        </div>
+        <div class="prow" data-ptype="workflow">
+          <span class="verb">workflow</span>
+          <span class="pname">Vendor Onboarding Checks</span>
+          <span class="pmeta">id 1327</span>
+        </div>
+        <div class="prow" data-ptype="codeflow">
+          <span class="verb">code flow</span>
+          <span class="pname">Monthly Close Journal Prep</span>
+          <span class="pmeta">id 214</span>
+        </div>
+        <div class="prow" data-ptype="automation">
+          <span class="led ok"></span>
+          <span class="verb">automation</span>
+          <span class="pname">invoice-chaser</span>
+          <span class="pmeta">v7 · pinned v6</span>
+        </div>
+        <div class="prow" data-ptype="automation">
+          <span class="led ok"></span>
+          <span class="verb">automation</span>
+          <span class="pname">dayforce-doc-upload</span>
+          <span class="pmeta">v3</span>
+        </div>
+        <div class="prow" data-ptype="automation">
+          <span class="led ok"></span>
+          <span class="verb">automation</span>
+          <span class="pname">erpdb-daily-health</span>
+          <span class="pmeta">v12</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 05 · email ============ -->
+    <section id="screen-email" class="screen">
+      <header class="shead">
+        <span class="idx">05</span><h1>email</h1>
+        <span class="hmeta">james-agent@mail.aihub.dev</span>
+      </header>
+
+      <div class="mailgrid">
+        <div class="card panel">
+          <h3>your address</h3>
+          <div class="addr">
+            <input class="field" value="james-agent" aria-label="address prefix">
+            <span class="suffix">@mail.aihub.dev</span>
+            <span class="state">active</span>
+          </div>
+          <p class="csub">Mail sent to this address runs a headless agent session as you and lands its result in My Work.</p>
+          <div class="trow on" style="margin-top:14px">
+            <span class="led"></span>
+            <span class="tlabel">inbound enabled</span>
+            <button class="toggle" role="switch" aria-checked="true" aria-label="inbound enabled"><span class="knob"></span></button>
+          </div>
+          <div class="cardfoot">
+            <button class="btn" data-ack="saved ✓">save</button>
+          </div>
+        </div>
+
+        <div class="card panel">
+          <h3>sending &amp; behavior</h3>
+          <div class="trow on" style="margin-top:14px">
+            <span class="led"></span>
+            <span class="tlabel">outbound enabled</span>
+            <button class="toggle" role="switch" aria-checked="true" aria-label="outbound enabled"><span class="knob"></span></button>
+          </div>
+          <div class="trow">
+            <span class="led"></span>
+            <span class="tlabel">auto-send replies
+              <span class="tsub">every reply waits for your approval in My Work</span>
+            </span>
+            <button class="toggle" role="switch" aria-checked="false" aria-label="auto-send replies"><span class="knob"></span></button>
+          </div>
+          <div class="trow">
+            <span class="led"></span>
+            <span class="tlabel">notify on inbound</span>
+            <button class="toggle" role="switch" aria-checked="false" aria-label="notify on inbound"><span class="knob"></span></button>
+          </div>
+          <div class="frow">
+            <span class="tlabel">cooldown minutes
+              <span class="tsub">minimum gap between agent replies on one thread</span>
+            </span>
+            <input class="field numfield" value="15" aria-label="cooldown minutes">
+          </div>
+          <div class="frow" style="display:block">
+            <span class="tlabel" style="display:block;margin-bottom:8px">standing instructions</span>
+            <textarea class="field" rows="3" placeholder="e.g. keep replies under five sentences · never commit to pricing without an approval in my work · cc procurement on vendor threads" aria-label="standing instructions"></textarea>
+          </div>
+          <div class="cardfoot">
+            <button class="btn" data-ack="saved ✓">save</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card panel">
+        <h3>recent inbound activity</h3>
+        <div style="margin-top:14px">
+          <div class="arow">
+            <span class="atime">08-09 08:47</span>
+            <span><span class="verb">reply_drafted</span></span>
+            <span class="amain"><span class="af">dana@meridiansupply.com</span> <span class="as">— Re: Q3 renewal pricing</span></span>
+          </div>
+          <div class="arow">
+            <span class="atime">08-08 16:02</span>
+            <span><span class="verb">processed</span></span>
+            <span class="amain"><span class="af">alerts@dayforce.com</span> <span class="as">— Document batch ready</span></span>
+          </div>
+          <div class="arow">
+            <span class="atime">08-08 09:15</span>
+            <span><span class="verb">processed</span></span>
+            <span class="amain"><span class="af">noreply@erpdb</span> <span class="as">— Weekly digest</span></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 06 · skills ============ -->
+    <section id="screen-skills" class="screen">
+      <header class="shead">
+        <span class="idx">06</span><h1>skills</h1>
+        <span class="hmeta">procedural memory · 6.1 kb</span>
+      </header>
+
+      <div class="skgrid">
+        <div class="sklist panel">
+          <button class="skitem">
+            <span class="skname">erpdb-reconciliation-recipes</span>
+            <span class="verb">product</span>
+            <span class="sksize">4.2 kb</span>
+          </button>
+          <button class="skitem">
+            <span class="skname">vendor-naming-conventions</span>
+            <span class="verb">tenant</span>
+            <span class="sksize">1.1 kb</span>
+          </button>
+          <button class="skitem selected">
+            <span class="skname">james-report-format</span>
+            <span class="verb">user</span>
+            <span class="sksize">0.8 kb</span>
+          </button>
+        </div>
+
+        <div class="skdetail panel">
+          <div class="skd-top">
+            <h2>james-report-format</h2>
+            <span class="verb">user</span>
+            <span class="sksize">0.8 kb</span>
+          </div>
+          <div class="skbody">Reports for James: lead with the number, then the table. Currency to the dollar, no cents. Always note the as-of time…</div>
+          <div class="skfoot">
+            <button class="btn danger">delete skill</button>
+            <span class="fnote">removes this skill from the agent's procedural memory</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    </div>
+  </main>
+</div>
+
+<a class="corner" href="./index.html" title="open the concept gallery">#04 · rams</a>
+
+<script>
+(function(){
+  "use strict";
+  var $  = function(s,c){ return (c||document).querySelector(s); };
+  var $$ = function(s,c){ return Array.prototype.slice.call((c||document).querySelectorAll(s)); };
+
+  /* ---- section navigation ---- */
+  var order = ["assistant","mywork","views","playbooks","email","skills"];
+  var keys = $$(".fkey");
+  function go(id){
+    keys.forEach(function(k){
+      var on = k.getAttribute("data-screen") === id;
+      k.classList.toggle("active", on);
+      k.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    $$(".screen").forEach(function(s){
+      s.classList.toggle("active", s.id === "screen-" + id);
+    });
+  }
+  keys.forEach(function(k){
+    k.addEventListener("click", function(){ go(k.getAttribute("data-screen")); });
+  });
+  document.addEventListener("keydown", function(e){
+    if (e.key >= "1" && e.key <= "6" &&
+        !/INPUT|TEXTAREA|SELECT/.test(e.target.tagName) &&
+        !e.metaKey && !e.ctrlKey && !e.altKey){
+      go(order[Number(e.key) - 1]);
+    }
+  });
+
+  /* ---- assistant: conversation / empty state ---- */
+  var conv = $("#conv"), hello = $("#hello"), thread = $("#thread");
+  var btnNew = $("#btn-new"), btnHist = $("#btn-history");
+  if (btnNew) btnNew.addEventListener("click", function(){
+    conv.hidden = true; hello.hidden = false; thread.scrollTop = 0;
+  });
+  if (btnHist) btnHist.addEventListener("click", function(){
+    hello.hidden = true; conv.hidden = false; thread.scrollTop = thread.scrollHeight;
+  });
+  $$(".starter").forEach(function(b){
+    b.addEventListener("click", function(){
+      var t = $("#compose");
+      t.value = b.textContent.trim();
+      t.focus();
+    });
+  });
+
+  /* ---- assistant: send → thinking sweep ---- */
+  var meter = $("#meter"), mlabel = $("#mlabel"), thinkTimer = null;
+  var btnSend = $("#btn-send");
+  if (btnSend) btnSend.addEventListener("click", function(){
+    var t = $("#compose");
+    t.value = "";
+    meter.classList.add("thinking");
+    mlabel.textContent = "thinking";
+    mlabel.style.color = "var(--orange)";
+    clearTimeout(thinkTimer);
+    thinkTimer = setTimeout(function(){
+      meter.classList.remove("thinking");
+      mlabel.textContent = "listening";
+      mlabel.style.color = "";
+    }, 2400);
+  });
+
+  /* ---- my work: queue selection ---- */
+  $$(".qitem").forEach(function(q){
+    q.addEventListener("click", function(){
+      $$(".qitem").forEach(function(x){ x.classList.toggle("selected", x === q); });
+      var id = q.getAttribute("data-item");
+      $$(".ditem").forEach(function(d){ d.hidden = d.getAttribute("data-item") !== id; });
+    });
+  });
+
+  /* ---- my work: filters ---- */
+  $$("#screen-mywork .chip").forEach(function(c){
+    c.addEventListener("click", function(){
+      $$("#screen-mywork .chip").forEach(function(x){ x.classList.toggle("active", x === c); });
+      var f = c.getAttribute("data-filter");
+      $$(".qitem").forEach(function(q){
+        q.style.display = (f === "all" || q.getAttribute("data-type") === f) ? "" : "none";
+      });
+    });
+  });
+
+  /* ---- playbooks: filters + search ---- */
+  function pfilter(){
+    var active = $("#screen-playbooks .chip.active");
+    var f = active ? active.getAttribute("data-filter") : "all";
+    var s = ($("#psearch").value || "").trim().toLowerCase();
+    $$(".prow").forEach(function(r){
+      var okf = (f === "all" || r.getAttribute("data-ptype") === f);
+      var oks = (!s || r.textContent.toLowerCase().indexOf(s) !== -1);
+      r.style.display = (okf && oks) ? "" : "none";
+    });
+  }
+  $$("#screen-playbooks .chip").forEach(function(c){
+    c.addEventListener("click", function(){
+      $$("#screen-playbooks .chip").forEach(function(x){ x.classList.toggle("active", x === c); });
+      pfilter();
+    });
+  });
+  var psearch = $("#psearch");
+  if (psearch) psearch.addEventListener("input", pfilter);
+
+  /* ---- toggles (braun sliders) ---- */
+  $$(".toggle").forEach(function(t){
+    t.addEventListener("click", function(){
+      var row = t.closest(".trow");
+      row.classList.toggle("on");
+      t.setAttribute("aria-checked", row.classList.contains("on") ? "true" : "false");
+    });
+  });
+
+  /* ---- acknowledgment buttons (non-destructive) ---- */
+  $$("[data-ack]").forEach(function(b){
+    b.addEventListener("click", function(){
+      if (b.getAttribute("data-busy")) return;
+      b.setAttribute("data-busy","1");
+      var orig = b.innerHTML;
+      b.innerHTML = b.getAttribute("data-ack");
+      b.classList.add("acked");
+      setTimeout(function(){
+        b.innerHTML = orig;
+        b.classList.remove("acked");
+        b.removeAttribute("data-busy");
+      }, 1400);
+    });
+  });
+
+  /* ---- start scrolled to the latest exchange ---- */
+  thread.scrollTop = thread.scrollHeight;
+})();
+</script>
+</body>
+</html>

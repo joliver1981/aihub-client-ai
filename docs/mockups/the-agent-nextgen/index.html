@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Agent — Next-Gen UI Concepts</title>
+<style>
+  :root{
+    --bg:#F6F6F4; --card:#FFFFFF; --line:#E3E2DE; --text:#1B1C1F;
+    --text2:#5D626C; --text3:#9CA1AA; --accent:#2563EB;
+    --sans:"Segoe UI Variable Text","Segoe UI",-apple-system,system-ui,sans-serif;
+    --mono:"Cascadia Mono",Consolas,ui-monospace,monospace;
+    color-scheme:light;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#0C0D10;--card:#13151A;--line:#22252D;--text:#EDEFF3;
+          --text2:#9BA1AC;--text3:#5D636E;--accent:#7DD3FC;color-scheme:dark}
+  }
+  :root[data-theme="light"]{--bg:#F6F6F4;--card:#FFFFFF;--line:#E3E2DE;--text:#1B1C1F;
+          --text2:#5D626C;--text3:#9CA1AA;--accent:#2563EB;color-scheme:light}
+  :root[data-theme="dark"]{--bg:#0C0D10;--card:#13151A;--line:#22252D;--text:#EDEFF3;
+          --text2:#9BA1AC;--text3:#5D636E;--accent:#7DD3FC;color-scheme:dark}
+  *{box-sizing:border-box;margin:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);
+       font-size:15px;line-height:1.55;padding:48px 32px 80px}
+  .wrap{max-width:1180px;margin:0 auto}
+  header{margin-bottom:8px;position:relative}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.18em;
+           text-transform:uppercase;color:var(--text3);margin-bottom:10px}
+  h1{font-size:34px;font-weight:700;letter-spacing:-.02em;margin-bottom:10px}
+  .sub{color:var(--text2);max-width:76ch}
+  .sub b{color:var(--text)}
+  .note{margin-top:14px;font-size:12.5px;color:var(--text3);font-family:var(--mono)}
+  #theme{position:absolute;top:0;right:0;border:1px solid var(--line);
+         background:var(--card);color:var(--text2);border-radius:999px;
+         padding:6px 14px;font:inherit;font-size:12.5px;cursor:pointer}
+  #theme:hover{color:var(--text);border-color:var(--text3)}
+  h2{font-size:15px;font-weight:650;letter-spacing:.02em;margin:42px 0 4px;
+     display:flex;align-items:baseline;gap:12px}
+  h2 .tag2{font-family:var(--mono);font-size:10.5px;color:var(--text3);
+           letter-spacing:.12em;text-transform:uppercase;font-weight:400}
+  .roundsub{color:var(--text2);font-size:13px;max-width:76ch}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));
+        gap:18px;margin-top:20px}
+  a.card{display:flex;flex-direction:column;gap:10px;background:var(--card);
+         border:1px solid var(--line);border-radius:16px;padding:20px 22px 18px;
+         text-decoration:none;color:inherit;min-height:170px;
+         transition:transform .16s ease,border-color .16s ease}
+  a.card:hover{transform:translateY(-3px);border-color:var(--accent)}
+  @media (prefers-reduced-motion:reduce){a.card{transition:none}a.card:hover{transform:none}}
+  .num{font-family:var(--mono);font-size:11px;color:var(--text3);letter-spacing:.1em}
+  .name{font-size:19px;font-weight:680;letter-spacing:-.01em}
+  .pitch{color:var(--text2);font-size:13.5px;flex:1}
+  .swatches{display:flex;gap:6px;margin-top:2px}
+  .sw{width:22px;height:10px;border-radius:3px;border:1px solid rgba(127,127,127,.25)}
+  footer{margin-top:46px;color:var(--text3);font-size:12px;font-family:var(--mono)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="eyebrow">AI Hub · The Agent · design exploration · updated 2026-08-10</div>
+  <h1>Next-gen looks for The Agent</h1>
+  <p class="sub">Same app, many visual worlds. Every concept keeps the current flow —
+    <b>Assistant · My Work · Views · Playbooks · Email · Skills</b> — and renders the
+    exact same demo data, so you're comparing pure look &amp; feel. Each mockup is a
+    single self-contained HTML file with working section navigation: open one and
+    click around.</p>
+  <div class="note">mockups only — nothing here touches the platform · use each mockup's corner badge to come back</div>
+  <button id="theme">◐ theme</button>
+</header>
+
+<h2>Round 2 — subtle · clean · dual-theme <span class="tag2">#13–#22 · every concept ships light + dark with a live toggle</span></h2>
+<p class="roundsub">Built from your feedback: restrained palettes, both themes designed
+  first-class, and each concept organized around a <b>focus mechanism</b> — a distinct
+  answer to "how does the eye instantly know what matters?"</p>
+<div class="grid">
+  <a class="card" href="13_halo.html">
+    <span class="num">#13 · ONE SATURATED ELEMENT</span>
+    <span class="name">Halo</span>
+    <span class="pitch">Bento's hue-per-section idea, whispered — neutral chrome with 5%
+      section tints, and the only saturated thing on screen is the action you should take.</span>
+    <span class="swatches"><span class="sw" style="background:#FAFAF8"></span><span class="sw" style="background:#101114"></span><span class="sw" style="background:#6366F1"></span><span class="sw" style="background:#D97706"></span></span>
+  </a>
+  <a class="card" href="14_stage.html">
+    <span class="num">#14 · CONTRAST STAGING</span>
+    <span class="name">Stage</span>
+    <span class="pitch">Light follows selection — the active region runs at full contrast
+      while everything else steps back a level, like stage lighting.</span>
+    <span class="swatches"><span class="sw" style="background:#F7F7F5"></span><span class="sw" style="background:#0F1012"></span><span class="sw" style="background:#3B82F6"></span><span class="sw" style="background:#9CA3AF"></span></span>
+  </a>
+  <a class="card" href="15_graphite.html">
+    <span class="num">#15 · COLOR = OBLIGATION</span>
+    <span class="name">Graphite</span>
+    <span class="pitch">A masterfully tuned grayscale interface where copper appears only
+      where your action is required — zero false alarms, zero decoration.</span>
+    <span class="swatches"><span class="sw" style="background:#F5F5F4"></span><span class="sw" style="background:#121212"></span><span class="sw" style="background:#C2410C"></span><span class="sw" style="background:#78716C"></span></span>
+  </a>
+  <a class="card" href="16_tempo.html">
+    <span class="num">#16 · ATTENTION-FIRST</span>
+    <span class="name">Tempo</span>
+    <span class="pitch">Every screen leads with a slim, pre-triaged "Needs you" strip —
+      you never scan for what's pending, the UI already ranked it.</span>
+    <span class="swatches"><span class="sw" style="background:#FAFBFC"></span><span class="sw" style="background:#0E1116"></span><span class="sw" style="background:#0284C7"></span><span class="sw" style="background:#B45309"></span></span>
+  </a>
+  <a class="card" href="17_vellum.html">
+    <span class="num">#17 · EDITORIAL HIERARCHY</span>
+    <span class="name">Vellum</span>
+    <span class="pitch">Quiet-luxury print craft — warm neutrals in both themes, serif
+      display for what matters, one copper call-to-action per screen.</span>
+    <span class="swatches"><span class="sw" style="background:#FBF9F4"></span><span class="sw" style="background:#16140F"></span><span class="sw" style="background:#A96A3B"></span><span class="sw" style="background:#E2DCD0"></span></span>
+  </a>
+  <a class="card" href="18_lens.html">
+    <span class="num">#18 · SHARPNESS = FOCUS</span>
+    <span class="name">Lens</span>
+    <span class="pitch">Depth of field — the thing that matters is perfectly crisp while
+      the rest sits a breath back, pulling focus as you move.</span>
+    <span class="swatches"><span class="sw" style="background:#F6F7F7"></span><span class="sw" style="background:#101314"></span><span class="sw" style="background:#0F766E"></span><span class="sw" style="background:#2DD4BF"></span></span>
+  </a>
+  <a class="card" href="19_tide.html">
+    <span class="num">#19 · AMBIENT TEMPERATURE</span>
+    <span class="name">Tide</span>
+    <span class="pitch">A neutral room whose edges warm with the agent's state — cool when
+      idle, amber while working, copper when something waits on you.</span>
+    <span class="swatches"><span class="sw" style="background:#F6F7F9"></span><span class="sw" style="background:#0F1216"></span><span class="sw" style="background:#60A5FA"></span><span class="sw" style="background:#C2410C"></span></span>
+  </a>
+  <a class="card" href="20_meridian.html">
+    <span class="num">#20 · CENTER = FOCUS</span>
+    <span class="name">Meridian</span>
+    <span class="pitch">Geometry does the work — the active thing always lives in a
+      centered column with luxurious margins; everything else is periphery.</span>
+    <span class="swatches"><span class="sw" style="background:#FAFAF9"></span><span class="sw" style="background:#111113"></span><span class="sw" style="background:#4F46E5"></span><span class="sw" style="background:#A1A1AA"></span></span>
+  </a>
+  <a class="card" href="21_terrace.html">
+    <span class="num">#21 · ELEVATION STEPS</span>
+    <span class="name">Terrace</span>
+    <span class="pitch">Exactly three surface levels, rigorously enforced — the one thing
+      needing you physically sits on the top terrace in both themes.</span>
+    <span class="swatches"><span class="sw" style="background:#EFEFED"></span><span class="sw" style="background:#0D0E10"></span><span class="sw" style="background:#FFFFFF"></span><span class="sw" style="background:#4F46E5"></span></span>
+  </a>
+  <a class="card" href="22_prism.html">
+    <span class="num">#22 · FOLLOW THE THREAD</span>
+    <span class="name">Prism</span>
+    <span class="pitch">The quietest possible shell plus one continuous gradient thread
+      running from where you are to what to do next — the room's only color.</span>
+    <span class="swatches"><span class="sw" style="background:#FBFBFA"></span><span class="sw" style="background:#0C0D0F"></span><span class="sw" style="background:#6366F1"></span><span class="sw" style="background:#14B8A6"></span></span>
+  </a>
+</div>
+
+<h2>Round 1 — twelve visual worlds <span class="tag2">#01–#12 · single-theme statement pieces</span></h2>
+<p class="roundsub">The first exploration: maximum spread across dark/light, dense/sparse,
+  serious/expressive. Kept here for reference and for stealing details from.</p>
+<div class="grid">
+  <a class="card" href="01_aurora.html">
+    <span class="num">#01 · DARK / LUXURY</span>
+    <span class="name">Aurora</span>
+    <span class="pitch">Deep-space glassmorphism — frosted panels floating over a slowly
+      drifting aurora; the agent's presence breathes as a halo of light around the input.</span>
+    <span class="swatches"><span class="sw" style="background:#05070F"></span><span class="sw" style="background:#2DD4BF"></span><span class="sw" style="background:#8B5CF6"></span><span class="sw" style="background:#7DD3FC"></span></span>
+  </a>
+  <a class="card" href="02_ledger.html">
+    <span class="num">#02 · LIGHT / EDITORIAL</span>
+    <span class="name">Ledger</span>
+    <span class="pitch">A broadsheet financial paper — warm stock, serif headlines, hairline
+      rules; chat as printed correspondence and approvals as inked stamps.</span>
+    <span class="swatches"><span class="sw" style="background:#F7F3EA"></span><span class="sw" style="background:#1A1814"></span><span class="sw" style="background:#7A2E2B"></span><span class="sw" style="background:#D9D2C4"></span></span>
+  </a>
+  <a class="card" href="03_opsdeck.html">
+    <span class="num">#03 · DARK / DENSE</span>
+    <span class="name">Ops Deck</span>
+    <span class="pitch">A modern financial terminal — all-mono phosphor green on black,
+      keyboard hints everywhere, a live status line, and a chat that reads like a session log.</span>
+    <span class="swatches"><span class="sw" style="background:#070907"></span><span class="sw" style="background:#33FF99"></span><span class="sw" style="background:#FFB454"></span><span class="sw" style="background:#1E4034"></span></span>
+  </a>
+  <a class="card" href="04_rams.html">
+    <span class="num">#04 · LIGHT / INSTRUMENT</span>
+    <span class="name">Rams</span>
+    <span class="pitch">"Less, but better" — a Braun instrument panel in warm gray with one
+      signal-orange accent, physical toggles, and a dial gauge for the headline stat.</span>
+    <span class="swatches"><span class="sw" style="background:#E8E6E1"></span><span class="sw" style="background:#26241F"></span><span class="sw" style="background:#E8501A"></span><span class="sw" style="background:#6B7F5E"></span></span>
+  </a>
+  <a class="card" href="05_hud.html">
+    <span class="num">#05 · DARK / SCI-FI</span>
+    <span class="name">Vector HUD</span>
+    <span class="pitch">A cockpit hologram — cyan linework, clipped corners and corner
+      brackets, telemetry-style tool readouts, and a reticle that locks onto your selection.</span>
+    <span class="swatches"><span class="sw" style="background:#030B12"></span><span class="sw" style="background:#35E0FF"></span><span class="sw" style="background:#9BE8FF"></span><span class="sw" style="background:#0E2233"></span></span>
+  </a>
+  <a class="card" href="06_terra.html">
+    <span class="num">#06 · DARK / ORGANIC</span>
+    <span class="name">Terra</span>
+    <span class="pitch">Technology that feels grown — moss and clay tones, blob-radius
+      panels, and a breathing gradient orb as the agent's living presence.</span>
+    <span class="swatches"><span class="sw" style="background:#141813"></span><span class="sw" style="background:#223020"></span><span class="sw" style="background:#A8C09A"></span><span class="sw" style="background:#C98A5E"></span></span>
+  </a>
+  <a class="card" href="07_concrete.html">
+    <span class="num">#07 · LIGHT / BRUTALIST</span>
+    <span class="name">Concrete</span>
+    <span class="pitch">Unapologetic brutalism — black 2px borders, zero radius, massive
+      type, one acid-chartreuse highlight, and a mantra marquee along the floor.</span>
+    <span class="swatches"><span class="sw" style="background:#FFFFFF"></span><span class="sw" style="background:#000000"></span><span class="sw" style="background:#C8FF00"></span><span class="sw" style="background:#E8E8E8"></span></span>
+  </a>
+  <a class="card" href="08_sumi.html">
+    <span class="num">#08 · LIGHT / ZEN</span>
+    <span class="name">Sumi</span>
+    <span class="pitch">Ink on washi — radical whitespace, vertical scroll-label nav, a
+      vermilion seal for the one action that matters, and an ensō that draws itself while
+      the agent thinks.</span>
+    <span class="swatches"><span class="sw" style="background:#FAF7F0"></span><span class="sw" style="background:#17151A"></span><span class="sw" style="background:#D93A2B"></span><span class="sw" style="background:#C9C4BA"></span></span>
+  </a>
+  <a class="card" href="09_blueprint.html">
+    <span class="num">#09 · BLUE / DRAFTING</span>
+    <span class="name">Blueprint</span>
+    <span class="pitch">A cyanotype drafting sheet — pure white linework on blueprint blue,
+      callout tabs and leader lines, an APPROVED stamp, and a real title block at the foot.</span>
+    <span class="swatches"><span class="sw" style="background:#0E2A47"></span><span class="sw" style="background:#E6EEF5"></span><span class="sw" style="background:#F2D24B"></span><span class="sw" style="background:#173C63"></span></span>
+  </a>
+  <a class="card" href="10_signal.html">
+    <span class="num">#10 · DARK / TYPOGRAPHIC</span>
+    <span class="name">Signal</span>
+    <span class="pitch">Swiss modernism with no boxes at all — structure from type, rules
+      and a strict grid, giant numerals, and exactly one red element per screen.</span>
+    <span class="swatches"><span class="sw" style="background:#101013"></span><span class="sw" style="background:#F4F4F2"></span><span class="sw" style="background:#FF3B30"></span><span class="sw" style="background:#6E6E73"></span></span>
+  </a>
+  <a class="card" href="11_bento.html">
+    <span class="num">#11 · LIGHT / PLAYFUL</span>
+    <span class="name">Bento</span>
+    <span class="pitch">A bento-grid OS — every section owns a hue, cards feel like trays
+      with springy press states, and the whole chrome re-tints as you move around.</span>
+    <span class="swatches"><span class="sw" style="background:#F4F4F0"></span><span class="sw" style="background:#5B5BD6"></span><span class="sw" style="background:#12A594"></span><span class="sw" style="background:#E5A50A"></span></span>
+  </a>
+  <a class="card" href="12_ember.html">
+    <span class="num">#12 · DARK / AMBIENT</span>
+    <span class="name">Ember</span>
+    <span class="pitch">Calm computing on OLED black — the agent is a softly glowing ember
+      orb whose light is the status system; approvals smolder until you decide.</span>
+    <span class="swatches"><span class="sw" style="background:#000000"></span><span class="sw" style="background:#D97A32"></span><span class="sw" style="background:#7A2E1D"></span><span class="sw" style="background:#141414"></span></span>
+  </a>
+</div>
+
+<footer>docs/mockups/the-agent-nextgen · look-and-feel exploration only — identical IA + demo data across all concepts · briefs: DESIGN_BRIEF.md + ROUND2_ADDENDUM.md</footer>
+</div>
+<script>
+  const root = document.documentElement;
+  document.getElementById("theme").onclick = () => {
+    const dark = root.dataset.theme
+      ? root.dataset.theme === "dark"
+      : matchMedia("(prefers-color-scheme: dark)").matches;
+    root.dataset.theme = dark ? "light" : "dark";
+  };
+</script>
+</body>
+</html>

@@ -1,0 +1,1250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Agent · Lens concept</title>
+<style>
+/* ================= Lens — depth of field: sharpness is focus ================= */
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  /* light (default) */
+  --bg:#F6F7F7; --surface:#FFFFFF; --surface2:#F1F3F3; --ink:#1B2124; --ink2:#5A6468;
+  --ink3:#98A1A4; --line:#E3E7E7; --line2:#ECEFEF;
+  --accent:#0F766E; --accent-ink:#FFFFFF; --accent-hi:#0C5F59;
+  --tint:rgba(15,118,110,.07); --ring:rgba(15,118,110,.32);
+  --danger:#B04A42; --danger-tint:rgba(176,74,66,.08);
+  --sh1:0 1px 2px rgba(18,24,26,.05);
+  --sh2:0 1px 2px rgba(18,24,26,.05),0 10px 28px rgba(18,24,26,.08);
+  --edge:inset 0 0 0 0 transparent;
+  --tag-approval:#0F766E; --tag-email:#527AA8; --tag-question:#A8783C; --tag-fyi:#879093;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#101314; --surface:#181C1D; --surface2:#1F2425; --ink:#E9EDED; --ink2:#A2ACAE;
+    --ink3:#6E797B; --line:#272D2F; --line2:#212729;
+    --accent:#2DD4BF; --accent-ink:#07231F; --accent-hi:#5CE0CE;
+    --tint:rgba(45,212,191,.09); --ring:rgba(45,212,191,.36);
+    --danger:#E0736B; --danger-tint:rgba(224,115,107,.10);
+    --sh1:0 1px 2px rgba(0,0,0,.35);
+    --sh2:0 1px 2px rgba(0,0,0,.4),0 14px 34px rgba(0,0,0,.45);
+    --edge:inset 0 1px 0 rgba(255,255,255,.045);
+    --tag-approval:#2DD4BF; --tag-email:#82ABDC; --tag-question:#D3A15E; --tag-fyi:#8E999B;
+  }
+}
+:root[data-theme="light"]{
+  --bg:#F6F7F7; --surface:#FFFFFF; --surface2:#F1F3F3; --ink:#1B2124; --ink2:#5A6468;
+  --ink3:#98A1A4; --line:#E3E7E7; --line2:#ECEFEF;
+  --accent:#0F766E; --accent-ink:#FFFFFF; --accent-hi:#0C5F59;
+  --tint:rgba(15,118,110,.07); --ring:rgba(15,118,110,.32);
+  --danger:#B04A42; --danger-tint:rgba(176,74,66,.08);
+  --sh1:0 1px 2px rgba(18,24,26,.05);
+  --sh2:0 1px 2px rgba(18,24,26,.05),0 10px 28px rgba(18,24,26,.08);
+  --edge:inset 0 0 0 0 transparent;
+  --tag-approval:#0F766E; --tag-email:#527AA8; --tag-question:#A8783C; --tag-fyi:#879093;
+}
+:root[data-theme="dark"]{
+  --bg:#101314; --surface:#181C1D; --surface2:#1F2425; --ink:#E9EDED; --ink2:#A2ACAE;
+  --ink3:#6E797B; --line:#272D2F; --line2:#212729;
+  --accent:#2DD4BF; --accent-ink:#07231F; --accent-hi:#5CE0CE;
+  --tint:rgba(45,212,191,.09); --ring:rgba(45,212,191,.36);
+  --danger:#E0736B; --danger-tint:rgba(224,115,107,.10);
+  --sh1:0 1px 2px rgba(0,0,0,.35);
+  --sh2:0 1px 2px rgba(0,0,0,.4),0 14px 34px rgba(0,0,0,.45);
+  --edge:inset 0 1px 0 rgba(255,255,255,.045);
+  --tag-approval:#2DD4BF; --tag-email:#82ABDC; --tag-question:#D3A15E; --tag-fyi:#8E999B;
+}
+html,body{height:100%}
+body{
+  font:14px/1.55 "Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+  background:var(--bg); color:var(--ink);
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  transition:background-color .18s ease,color .18s ease;
+}
+::selection{background:var(--ring);color:var(--ink)}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+a{color:inherit;text-decoration:none}
+.mono{font-family:"Cascadia Mono",Consolas,"Courier New",monospace}
+.num{font-variant-numeric:tabular-nums}
+.micro{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:600;color:var(--ink3)}
+*:focus-visible{outline:2px solid var(--ring);outline-offset:2px;border-radius:6px}
+
+/* ---- depth of field ---- */
+.dof{
+  opacity:.78; filter:saturate(.82);
+  transition:opacity .18s ease,filter .18s ease,border-color .18s ease,
+             box-shadow .18s ease,background-color .18s ease,color .18s ease;
+}
+.dof:hover{opacity:.94;filter:saturate(.96)}
+.dof.is-focus,.dof:focus-within{opacity:1;filter:none}
+/* focus peaking — the thin teal tick that marks the sharp plane */
+.peak{position:relative}
+.peak::before{
+  content:""; position:absolute; left:0; top:14px; bottom:14px; width:2px;
+  border-radius:2px; background:var(--accent); opacity:0;
+  transition:opacity .18s ease;
+}
+.peak.is-focus::before{opacity:1}
+
+/* ---- app shell ---- */
+.app{display:flex;height:100vh;min-width:1180px;overflow:hidden}
+.side{
+  width:230px;flex:none;display:flex;flex-direction:column;
+  padding:18px 12px 14px;border-right:1px solid var(--line);
+}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 10px 2px}
+.brand .iris{flex:none}
+.brand h1{font-size:15px;font-weight:650;letter-spacing:-.01em}
+.brand .sub{font-size:10.5px;color:var(--ink3)}
+.nav{display:flex;flex-direction:column;gap:2px;margin-top:22px}
+.nav button{
+  display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+  padding:7px 10px 7px 14px;border-radius:8px;font-size:13.5px;color:var(--ink2);
+}
+.nav button svg{flex:none;opacity:.85}
+.nav button .grow{flex:1}
+.nav button:hover{background:var(--surface);color:var(--ink)}
+.nav button.is-active{
+  background:var(--surface);color:var(--ink);font-weight:600;
+  box-shadow:var(--edge),var(--sh1);
+}
+.nav button.peak::before{top:8px;bottom:8px;left:4px}
+.count{
+  font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:999px;
+  background:var(--tint);color:var(--accent);font-variant-numeric:tabular-nums;
+}
+.platform{margin-top:auto;padding:0 4px}
+.platform summary{
+  list-style:none;cursor:pointer;padding:6px;border-radius:6px;
+  display:flex;align-items:center;gap:6px;
+}
+.platform summary::-webkit-details-marker{display:none}
+.platform summary .chev{transition:transform .18s ease;color:var(--ink3)}
+.platform[open] summary .chev{transform:rotate(90deg)}
+.platform a{
+  display:block;padding:4px 8px;font-size:12px;color:var(--ink3);border-radius:6px;
+}
+.platform a:hover{color:var(--ink2);background:var(--surface)}
+.platform a .out{opacity:.6;font-size:10px}
+.who{
+  margin-top:10px;padding:10px 8px 4px;border-top:1px solid var(--line2);
+  display:flex;align-items:center;gap:10px;
+}
+.who .av{
+  width:28px;height:28px;border-radius:50%;flex:none;
+  background:var(--tint);color:var(--accent);font-weight:700;font-size:12.5px;
+  display:flex;align-items:center;justify-content:center;
+}
+.who .nm{font-size:12.5px;font-weight:600;line-height:1.25}
+.who .rl{font-size:10.5px;color:var(--ink3)}
+.who .brain{margin-left:auto;font-size:9.5px;color:var(--ink3);text-align:right;line-height:1.3}
+
+/* ---- topbar ---- */
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.topbar{
+  height:54px;flex:none;display:flex;align-items:center;gap:14px;
+  padding:0 26px;border-bottom:1px solid var(--line);
+}
+.crumb{font-size:13px;color:var(--ink3)}
+.crumb b{color:var(--ink);font-weight:600}
+.topbar .spacer{flex:1}
+.statuschip{
+  display:inline-flex;align-items:center;gap:7px;font-size:11.5px;color:var(--ink3);
+}
+.statuschip .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.lens-toggle{
+  width:34px;height:34px;border-radius:50%;flex:none;position:relative;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink2);
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:var(--edge),var(--sh1);
+  transition:border-color .18s ease,color .18s ease,transform .18s ease;
+}
+.lens-toggle:hover{border-color:var(--ink3);color:var(--ink);transform:rotate(15deg)}
+.lens-toggle::after{
+  content:"";position:absolute;inset:3px;border-radius:50%;
+  border:1px solid var(--line2);pointer-events:none;
+}
+.lens-toggle .moon{display:none}
+@media (prefers-color-scheme:dark){
+  .lens-toggle .sun{display:none}
+  .lens-toggle .moon{display:block}
+}
+:root[data-theme="light"] .lens-toggle .sun{display:block}
+:root[data-theme="light"] .lens-toggle .moon{display:none}
+:root[data-theme="dark"] .lens-toggle .sun{display:none}
+:root[data-theme="dark"] .lens-toggle .moon{display:block}
+
+/* ---- panels ---- */
+.content{flex:1;min-height:0;position:relative}
+.panel{display:none;height:100%;overflow-y:auto;padding:26px 32px 20px}
+.panel.is-active{display:block}
+#panel-assistant{padding:0}
+#panel-assistant.is-active{display:flex;flex-direction:column}
+.panel-inner{max-width:1120px;margin:0 auto}
+.pagehead{display:flex;align-items:baseline;gap:12px;margin-bottom:18px}
+.pagehead h2{font-size:16px;font-weight:650;letter-spacing:-.01em}
+.pagehead .meta{font-size:12px;color:var(--ink3)}
+.pagehead .actions{margin-left:auto;display:flex;gap:8px}
+
+/* ---- cards / buttons ---- */
+.card{
+  background:var(--surface);border:1px solid var(--line);border-radius:10px;
+  box-shadow:var(--edge),var(--sh1);
+}
+.btn{
+  display:inline-flex;align-items:center;gap:7px;padding:6px 13px;border-radius:8px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink2);
+  font-size:12.5px;font-weight:600;
+  transition:border-color .18s ease,color .18s ease,background-color .18s ease;
+}
+.btn:hover{border-color:var(--ink3);color:var(--ink)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn-primary:hover{background:var(--accent-hi);border-color:var(--accent-hi);color:var(--accent-ink)}
+.btn-danger{border-color:transparent;color:var(--danger)}
+.btn-danger:hover{background:var(--danger-tint);border-color:transparent;color:var(--danger)}
+.btn.done{background:var(--tint);border-color:transparent;color:var(--accent)}
+
+/* ---- chat ---- */
+.chat-scroll{flex:1;min-height:0;overflow-y:auto;padding:28px 32px 10px}
+.chat{max-width:780px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+.turn-you{align-self:flex-end;max-width:70%}
+.turn-you .who-label{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+  font-weight:600;color:var(--ink3);text-align:right;margin:0 4px 4px 0}
+.turn-you .bubble{
+  background:var(--surface2);border:1px solid var(--line2);border-radius:12px 12px 4px 12px;
+  padding:10px 14px;font-size:13.5px;color:var(--ink);
+}
+.turn-agent{align-self:stretch}
+.turn-agent .plane{
+  background:var(--surface);border:1px solid var(--line);border-radius:12px;
+  padding:16px 20px 15px 22px;box-shadow:var(--edge),var(--sh1);
+}
+.turn-agent.is-focus .plane{border-color:var(--line);box-shadow:var(--edge),var(--sh2)}
+.agent-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.agent-head .nm{font-size:11px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:var(--ink2)}
+.agent-head .t{font-size:10.5px;color:var(--ink3);margin-left:auto;font-variant-numeric:tabular-nums}
+.turn-agent p{font-size:13.5px;color:var(--ink);margin:0 0 10px}
+.turn-agent p:last-child{margin-bottom:0}
+.tools{display:flex;flex-wrap:wrap;gap:8px}
+.tool-chip{
+  display:inline-flex;align-items:center;gap:8px;
+  font-family:"Cascadia Mono",Consolas,monospace;font-size:11px;
+  padding:5px 11px;border:1px solid var(--line);border-radius:7px;
+  background:var(--surface2);color:var(--ink2);font-variant-numeric:tabular-nums;
+}
+.tool-chip .fn{color:var(--ink)}
+.tool-chip .arg{color:var(--ink3);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tool-chip .st{display:inline-flex;align-items:center;gap:4px;color:var(--accent);font-weight:600}
+.tool-chip .st .tick{width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.data-table{border-collapse:collapse;width:100%;margin:12px 0;font-size:12.5px}
+.data-table th{
+  text-align:left;font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--ink3);font-weight:600;padding:0 12px 7px 0;border-bottom:1px solid var(--line);
+}
+.data-table td{
+  padding:7px 12px 7px 0;border-bottom:1px solid var(--line2);
+  color:var(--ink);font-variant-numeric:tabular-nums;
+}
+.data-table tr:last-child td{border-bottom:0}
+.data-table th.r,.data-table td.r{text-align:right;padding-right:0}
+.data-table .up{color:var(--ink2)}
+.data-table .down{color:var(--ink3)}
+.inline-strong{font-weight:650}
+.inv-ref{font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;background:var(--surface2);
+  border-radius:5px;padding:1px 5px;border:1px solid var(--line2)}
+
+/* ---- composer ---- */
+.composer-wrap{flex:none;padding:8px 32px 12px;background:var(--bg)}
+.composer{
+  max-width:780px;margin:0 auto;background:var(--surface);
+  border:1px solid var(--line);border-radius:12px;box-shadow:var(--edge),var(--sh2);
+  padding:10px 12px 9px;transition:border-color .18s ease,box-shadow .18s ease;
+}
+.composer:focus-within{border-color:var(--ring)}
+.composer textarea{
+  width:100%;border:0;background:transparent;color:var(--ink);resize:none;
+  font:13.5px/1.5 "Segoe UI",system-ui,sans-serif;outline:none;min-height:40px;
+}
+.composer textarea::placeholder{color:var(--ink3)}
+.composer-row{display:flex;align-items:center;gap:8px;margin-top:6px}
+.presence{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--ink3)}
+.iris{width:16px;height:16px;position:relative;flex:none}
+.iris .ring{position:absolute;inset:0;border-radius:50%;border:1.5px solid var(--accent);opacity:.55}
+.iris .pupil{position:absolute;inset:5px;border-radius:50%;background:var(--accent)}
+.presence .pupil{animation:breathe 2.6s ease-in-out infinite}
+.presence .ring{animation:breathe-ring 2.6s ease-in-out infinite}
+@keyframes breathe{0%,100%{transform:scale(.72);opacity:.75}50%{transform:scale(1);opacity:1}}
+@keyframes breathe-ring{0%,100%{opacity:.35}50%{opacity:.65}}
+.iconbtn{
+  width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+  color:var(--ink3);border:1px solid transparent;
+  transition:color .18s ease,border-color .18s ease,background-color .18s ease;
+}
+.iconbtn:hover{color:var(--ink);border-color:var(--line);background:var(--surface2)}
+.send{
+  width:32px;height:32px;border-radius:9px;background:var(--accent);color:var(--accent-ink);
+  display:flex;align-items:center;justify-content:center;
+  transition:background-color .18s ease;
+}
+.send:hover{background:var(--accent-hi)}
+.footnote{max-width:780px;margin:6px auto 0;display:flex;justify-content:space-between;
+  font-size:10.5px;color:var(--ink3)}
+.footnote .mono{font-size:10px}
+
+/* ---- My Work ---- */
+.work-grid{display:grid;grid-template-columns:400px 1fr;gap:22px;align-items:start}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.chip{
+  font-size:11.5px;font-weight:600;color:var(--ink2);padding:4px 11px;border-radius:999px;
+  border:1px solid var(--line);background:var(--surface);
+  transition:color .18s ease,border-color .18s ease,background-color .18s ease;
+}
+.chip:hover{color:var(--ink);border-color:var(--ink3)}
+.chip.is-on{background:var(--tint);border-color:transparent;color:var(--accent)}
+.chip .n{opacity:.75;font-variant-numeric:tabular-nums;margin-left:3px}
+.queue{display:flex;flex-direction:column;gap:10px}
+.work-card{
+  text-align:left;width:100%;background:var(--surface);border:1px solid var(--line);
+  border-radius:10px;padding:13px 16px 12px 18px;box-shadow:var(--edge),var(--sh1);
+}
+.work-card.is-focus{box-shadow:var(--edge),var(--sh2)}
+.work-card .row1{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.verb{display:inline-flex;align-items:center;gap:6px;font-size:10px;letter-spacing:.08em;
+  text-transform:uppercase;font-weight:700;color:var(--ink2)}
+.verb .vdot{width:6px;height:6px;border-radius:50%}
+.verb.approval .vdot{background:var(--tag-approval)}
+.verb.email .vdot{background:var(--tag-email)}
+.verb.question .vdot{background:var(--tag-question)}
+.verb.fyi .vdot{background:var(--tag-fyi)}
+.work-card .when{margin-left:auto;font-size:10.5px;color:var(--ink3);font-variant-numeric:tabular-nums}
+.work-card .ttl{font-size:13px;font-weight:600;color:var(--ink);line-height:1.4}
+.work-card .src{font-size:11px;color:var(--ink3);margin-top:4px}
+.work-card .src .mono{font-size:10.5px}
+.pill{font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;
+  padding:1px 7px;border-radius:999px;background:var(--surface2);border:1px solid var(--line2);
+  color:var(--ink3)}
+.pill.dry{color:var(--accent);background:var(--tint);border-color:transparent}
+
+/* detail pane */
+.detail{padding:20px 24px 22px}
+.detail-head{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.detail-head h3{font-size:15px;font-weight:650;letter-spacing:-.01em}
+.detail-sub{font-size:11.5px;color:var(--ink3);margin-bottom:16px}
+.kv{display:grid;grid-template-columns:74px 1fr;gap:6px 14px;margin-bottom:14px}
+.kv dt{font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;
+  color:var(--ink3);padding-top:2px}
+.kv dd{font-size:12.5px;color:var(--ink)}
+.kv dd .mono{font-size:12px}
+.draft{
+  width:100%;min-height:132px;resize:vertical;border:1px solid var(--line);border-radius:9px;
+  background:var(--surface);color:var(--ink);padding:12px 14px;
+  font:13px/1.6 "Segoe UI",system-ui,sans-serif;outline:none;
+  transition:border-color .18s ease;
+}
+.draft:focus{border-color:var(--ring)}
+.comment{
+  width:100%;border:1px solid var(--line2);border-radius:8px;background:var(--surface2);
+  color:var(--ink);padding:8px 12px;font:12.5px/1.5 "Segoe UI",system-ui,sans-serif;
+  outline:none;margin-top:10px;transition:border-color .18s ease;
+}
+.comment:focus{border-color:var(--ring)}
+.decide{display:flex;align-items:center;gap:10px;margin-top:14px}
+.decide .hint{font-size:11px;color:var(--ink3);margin-left:auto}
+.thread{margin-top:22px;border-top:1px solid var(--line2);padding-top:14px}
+.thread .micro{display:block;margin-bottom:10px}
+.thread-ex{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+.thread-ex .q,.thread-ex .a{font-size:12.5px;padding:8px 12px;border-radius:9px;max-width:88%}
+.thread-ex .q{align-self:flex-end;background:var(--surface2);border:1px solid var(--line2)}
+.thread-ex .a{align-self:flex-start;background:var(--surface);border:1px solid var(--line)}
+.thread-ex .lbl{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;
+  color:var(--ink3);display:block;margin-bottom:2px}
+.ask{display:flex;gap:8px}
+.ask input{
+  flex:1;border:1px solid var(--line);border-radius:8px;background:var(--surface);
+  color:var(--ink);padding:7px 12px;font:12.5px "Segoe UI",system-ui,sans-serif;outline:none;
+  transition:border-color .18s ease;
+}
+.ask input:focus{border-color:var(--ring)}
+.ask input::placeholder{color:var(--ink3)}
+
+/* ---- Views ---- */
+.views-grid{display:grid;grid-template-columns:280px 1fr;gap:22px;align-items:start}
+.view-item{
+  text-align:left;width:100%;background:var(--surface);border:1px solid var(--line);
+  border-radius:10px;padding:12px 16px 11px 18px;box-shadow:var(--edge),var(--sh1);
+  margin-bottom:10px;
+}
+.view-item .nm{font-size:13px;font-weight:600}
+.view-item .meta{font-size:11px;color:var(--ink3);margin-top:3px;font-variant-numeric:tabular-nums}
+.view-item .scope{font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;
+  padding:1px 7px;border-radius:999px;background:var(--surface2);border:1px solid var(--line2);
+  color:var(--ink3);margin-left:6px}
+.board-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.board-head h3{font-size:15px;font-weight:650;letter-spacing:-.01em}
+.board-head .meta{font-size:11.5px;color:var(--ink3);font-variant-numeric:tabular-nums}
+.board-head .actions{margin-left:auto;display:flex;gap:6px}
+.tiles{display:grid;grid-template-columns:repeat(12,1fr);gap:14px}
+.tile{
+  background:var(--surface);border:1px solid var(--line);border-radius:10px;
+  padding:14px 18px 14px 20px;box-shadow:var(--edge),var(--sh1);min-width:0;
+}
+.tile.is-focus{box-shadow:var(--edge),var(--sh2)}
+.tile .tt{font-size:11px;letter-spacing:.04em;font-weight:600;color:var(--ink2);margin-bottom:8px}
+.tile .tsub{font-size:10px;color:var(--ink3);font-family:"Cascadia Mono",Consolas,monospace}
+.t-stat{grid-column:span 4}
+.t-bar{grid-column:span 8}
+.t-line{grid-column:span 5}
+.t-table{grid-column:span 7}
+.t-ticker{grid-column:span 12}
+.statval{font-size:30px;font-weight:650;letter-spacing:-.02em;font-variant-numeric:tabular-nums;
+  color:var(--ink);line-height:1.15;margin-bottom:6px}
+.chart{width:100%;height:auto;display:block}
+.chart .axis{stroke:var(--line);stroke-width:1}
+.chart .lbl{fill:var(--ink3);font:10.5px "Segoe UI",system-ui,sans-serif}
+.chart .val{fill:var(--ink2);font:10.5px "Cascadia Mono",Consolas,monospace}
+.chart .bar{fill:var(--accent)}
+.chart .bar.soft{opacity:.38}
+.chart .spark{stroke:var(--accent);stroke-width:1.6;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.chart .area{fill:var(--accent);opacity:.07}
+.chart .pt{fill:var(--accent)}
+.chart .grid{stroke:var(--line2);stroke-width:1}
+.mini-table{border-collapse:collapse;width:100%;font-size:12px}
+.mini-table th{text-align:left;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--ink3);font-weight:600;padding:0 10px 6px 0;border-bottom:1px solid var(--line)}
+.mini-table td{padding:5.5px 10px 5.5px 0;border-bottom:1px solid var(--line2);
+  font-variant-numeric:tabular-nums;color:var(--ink)}
+.mini-table tr:last-child td{border-bottom:0}
+.mini-table .r{text-align:right;padding-right:0}
+.mini-table .aging{color:var(--ink3)}
+.mini-table tr.hot td{color:var(--ink);font-weight:600}
+.ticker{display:flex;align-items:center;gap:18px;overflow:hidden;white-space:nowrap}
+.ticker .item{font-size:11.5px;color:var(--ink2);font-variant-numeric:tabular-nums}
+.ticker .item .mono{font-size:11px;color:var(--ink)}
+.ticker .sep{color:var(--ink3);opacity:.5}
+.ghost-note{font-size:11.5px;color:var(--ink3);margin:6px 0 14px}
+.tile.ghost{border-style:dashed;box-shadow:none}
+.tile.ghost .ph{height:34px;border-radius:6px;background:var(--surface2);margin-top:4px}
+
+/* ---- Playbooks ---- */
+.pb-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.pb-toolbar .search{
+  flex:none;width:230px;border:1px solid var(--line);border-radius:8px;background:var(--surface);
+  color:var(--ink);padding:6px 12px;font:12.5px "Segoe UI",system-ui,sans-serif;outline:none;
+  transition:border-color .18s ease;
+}
+.pb-toolbar .search:focus{border-color:var(--ring)}
+.pb-toolbar .search::placeholder{color:var(--ink3)}
+.pb-toolbar .links{margin-left:auto;display:flex;gap:14px;font-size:12px;color:var(--ink3)}
+.pb-toolbar .links a:hover{color:var(--accent)}
+.pb-list{display:flex;flex-direction:column;gap:8px}
+.pb-row{
+  display:flex;align-items:center;gap:14px;background:var(--surface);
+  border:1px solid var(--line);border-radius:10px;padding:12px 18px 12px 20px;
+  box-shadow:var(--edge),var(--sh1);
+}
+.pb-row .nm{font-size:13px;font-weight:600}
+.pb-row .kind{font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;font-weight:700;
+  padding:2px 8px;border-radius:999px;background:var(--surface2);border:1px solid var(--line2);
+  color:var(--ink2)}
+.pb-row .kind.auto{color:var(--accent);background:var(--tint);border-color:transparent}
+.pb-row .meta{margin-left:auto;font-size:11px;color:var(--ink3);font-variant-numeric:tabular-nums}
+.pb-row .meta .mono{font-size:10.5px}
+
+/* ---- Email ---- */
+.email-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px}
+.ecard{padding:18px 22px 20px}
+.ecard h3{font-size:13px;font-weight:650;margin-bottom:12px}
+.addr-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.addr-row .prefix{
+  border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);
+  padding:6px 12px;font:12.5px "Cascadia Mono",Consolas,monospace;width:150px;outline:none;
+  transition:border-color .18s ease;
+}
+.addr-row .prefix:focus{border-color:var(--ring)}
+.addr-row .suffix{font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;color:var(--ink2)}
+.state{font-size:9.5px;letter-spacing:.08em;font-weight:700;padding:2px 8px;border-radius:999px;
+  background:var(--tint);color:var(--accent)}
+.ecard .sub{font-size:11.5px;color:var(--ink3);line-height:1.5;margin-top:10px}
+.setting{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--line2)}
+.setting:last-of-type{border-bottom:0}
+.setting .lab{font-size:12.5px;color:var(--ink)}
+.setting .note{font-size:10.5px;color:var(--ink3)}
+.setting .ctl{margin-left:auto}
+.switch{
+  width:34px;height:20px;border-radius:999px;background:var(--line);position:relative;flex:none;
+  transition:background-color .18s ease;
+}
+.switch::after{
+  content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
+  background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.25);
+  transition:left .18s ease;
+}
+.switch.on{background:var(--accent)}
+.switch.on::after{left:16px}
+.numfield{width:64px;border:1px solid var(--line);border-radius:7px;background:var(--surface);
+  color:var(--ink);padding:4px 9px;font:12px "Segoe UI",system-ui,sans-serif;outline:none;
+  font-variant-numeric:tabular-nums;transition:border-color .18s ease}
+.numfield:focus{border-color:var(--ring)}
+.standing{
+  width:100%;min-height:64px;resize:vertical;border:1px solid var(--line);border-radius:8px;
+  background:var(--surface);color:var(--ink);padding:9px 12px;margin-top:8px;
+  font:12px/1.5 "Segoe UI",system-ui,sans-serif;outline:none;transition:border-color .18s ease;
+}
+.standing:focus{border-color:var(--ring)}
+.standing::placeholder{color:var(--ink3)}
+.activity{padding:16px 22px 8px}
+.activity h3{font-size:13px;font-weight:650;margin-bottom:8px}
+.act-row{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--line2);
+  font-size:12px;color:var(--ink2)}
+.act-row:last-child{border-bottom:0}
+.act-row .t{font-variant-numeric:tabular-nums;color:var(--ink3);font-size:11px;width:96px;flex:none}
+.act-row .what{font-family:"Cascadia Mono",Consolas,monospace;font-size:10.5px;
+  padding:2px 8px;border-radius:999px;background:var(--surface2);border:1px solid var(--line2);
+  color:var(--ink2);flex:none}
+.act-row .what.drafted{color:var(--accent);background:var(--tint);border-color:transparent}
+
+/* ---- Skills ---- */
+.skills-grid{display:grid;grid-template-columns:300px 1fr;gap:22px;align-items:start}
+.skill-item{
+  text-align:left;width:100%;background:var(--surface);border:1px solid var(--line);
+  border-radius:10px;padding:12px 16px 11px 18px;box-shadow:var(--edge),var(--sh1);
+  margin-bottom:10px;display:flex;align-items:center;gap:10px;
+}
+.skill-item .nm{font-size:12.5px;font-weight:600;font-family:"Cascadia Mono",Consolas,monospace}
+.skill-item .meta{margin-left:auto;font-size:10.5px;color:var(--ink3);font-variant-numeric:tabular-nums}
+.skill-detail{padding:20px 24px 22px}
+.skill-detail h3{font-size:14px;font-weight:650;font-family:"Cascadia Mono",Consolas,monospace}
+.skill-detail .meta{font-size:11px;color:var(--ink3);margin:4px 0 14px}
+.skill-body{
+  background:var(--surface2);border:1px solid var(--line2);border-radius:9px;
+  padding:14px 16px;font:12px/1.7 "Cascadia Mono",Consolas,monospace;color:var(--ink2);
+  white-space:pre-wrap;
+}
+.skill-foot{display:flex;margin-top:16px}
+.skill-foot .btn-danger{margin-left:auto}
+
+/* ---- footer + badge ---- */
+.foot{
+  flex:none;display:flex;align-items:center;justify-content:space-between;
+  padding:9px 26px;border-top:1px solid var(--line);
+  font-size:10.5px;color:var(--ink3);
+}
+.foot .mono{font-size:10px}
+.badge{
+  position:fixed;right:16px;bottom:14px;z-index:50;
+  font-family:"Cascadia Mono",Consolas,monospace;font-size:10.5px;
+  padding:5px 11px;border-radius:999px;background:var(--surface);
+  border:1px solid var(--line);color:var(--ink3);box-shadow:var(--edge),var(--sh1);
+}
+.badge:hover{color:var(--accent);border-color:var(--ring)}
+.badge b{color:var(--ink2);font-weight:600}
+.badge:hover b{color:var(--accent)}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{transition:none!important;animation:none!important}
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============ sidebar ============ -->
+  <aside class="side">
+    <div class="brand">
+      <span class="iris" aria-hidden="true" style="width:22px;height:22px">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+          <circle cx="11" cy="11" r="9.25" stroke="var(--accent)" stroke-width="1.5"/>
+          <circle cx="11" cy="11" r="4" fill="var(--accent)"/>
+        </svg>
+      </span>
+      <div>
+        <h1>The Agent</h1>
+        <div class="sub">AI Hub · next-gen surface</div>
+      </div>
+    </div>
+
+    <nav class="nav" aria-label="Sections">
+      <button class="dof peak is-focus is-active" data-panel="assistant" aria-current="page">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M2 3.5h12v8H6.5L3 14.5v-3H2z"/></svg>
+        <span class="grow">Assistant</span>
+      </button>
+      <button class="dof peak" data-panel="work">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M2.5 9.5 4 4h8l1.5 5.5V13h-11z"/><path d="M2.5 9.5H6a2 2 0 0 0 4 0h3.5"/></svg>
+        <span class="grow">My Work</span>
+        <span class="count num">4</span>
+      </button>
+      <button class="dof peak" data-panel="views">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2" width="5" height="7" rx="1"/><rect x="9" y="2" width="5" height="4" rx="1"/><rect x="9" y="8" width="5" height="6" rx="1"/><rect x="2" y="11" width="5" height="3" rx="1"/></svg>
+        <span class="grow">Views</span>
+      </button>
+      <button class="dof peak" data-panel="playbooks">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><circle cx="4" cy="4" r="2"/><circle cx="12" cy="8" r="2"/><circle cx="4" cy="12" r="2"/><path d="M6 4h3a2 2 0 0 1 2 2v0M6 12h3a2 2 0 0 0 2-2v0"/></svg>
+        <span class="grow">Playbooks</span>
+      </button>
+      <button class="dof peak" data-panel="email">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="m2.5 4.5 5.5 4.5 5.5-4.5"/></svg>
+        <span class="grow">Email</span>
+      </button>
+      <button class="dof peak" data-panel="skills">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M4 2h8v12l-4-2.5L4 14z"/></svg>
+        <span class="grow">Skills</span>
+      </button>
+    </nav>
+
+    <details class="platform dof">
+      <summary>
+        <svg class="chev" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m3.5 2 3 3-3 3"/></svg>
+        <span class="micro">Platform</span>
+      </summary>
+      <a href="#">Data Explorer <span class="out">↗</span></a>
+      <a href="#">Workflow Designer <span class="out">↗</span></a>
+      <a href="#">Mission Control <span class="out">↗</span></a>
+      <a href="#">Command Center <span class="out">↗</span></a>
+      <a href="#">Documents <span class="out">↗</span></a>
+      <a href="#">Classic app <span class="out">↗</span></a>
+    </details>
+
+    <div class="who">
+      <span class="av">J</span>
+      <div>
+        <div class="nm">James</div>
+        <div class="rl">admin</div>
+      </div>
+      <div class="brain mono">brain:<br>claude-fable-5</div>
+    </div>
+  </aside>
+
+  <!-- ============ main ============ -->
+  <div class="main">
+    <header class="topbar">
+      <span class="crumb">The Agent&ensp;/&ensp;<b id="crumbHere">Assistant</b></span>
+      <span class="spacer"></span>
+      <span class="statuschip dof"><span class="dot"></span>connected · ERPDB · 2 more</span>
+      <button class="lens-toggle" id="themeToggle" aria-label="Toggle light / dark theme" title="Toggle light / dark theme">
+        <svg class="sun" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="3.2"/><path d="M8 1.2v1.6M8 13.2v1.6M1.2 8h1.6M13.2 8h1.6M3.2 3.2l1.1 1.1M11.7 11.7l1.1 1.1M12.8 3.2l-1.1 1.1M4.3 11.7l-1.1 1.1"/></svg>
+        <svg class="moon" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M13.5 9.8A5.8 5.8 0 0 1 6.2 2.5a5.8 5.8 0 1 0 7.3 7.3z"/></svg>
+      </button>
+    </header>
+
+    <div class="content">
+      <!-- ============ 1 · Assistant ============ -->
+      <section class="panel is-active" id="panel-assistant" aria-label="Assistant">
+        <div class="chat-scroll">
+          <div class="chat">
+
+            <div class="turn-you dof">
+              <div class="who-label">You · 16:38</div>
+              <div class="bubble">Which vendors drove August invoice spend, and are any invoices stuck?</div>
+            </div>
+
+            <div class="tools dof" aria-label="Tool activity">
+              <span class="tool-chip"><span class="fn">list_connections</span><span class="arg">{}</span><span class="st"><span class="tick"></span>ok</span><span class="num">0.4s</span></span>
+              <span class="tool-chip"><span class="fn">query_database</span><span class="arg">{"connection":"ERPDB","sql":"SELECT vendor, SUM(total)…"}</span><span class="st"><span class="tick"></span>ok</span><span class="num">1.8s</span></span>
+            </div>
+
+            <div class="turn-agent peak dof">
+              <div class="plane">
+                <div class="agent-head">
+                  <span class="nm">The Agent</span>
+                  <span class="t num">16:39</span>
+                </div>
+                <p>August invoice spend is <span class="inline-strong num">$482,910</span> across 41 vendors. The top five drive 68% of it:</p>
+                <table class="data-table num">
+                  <thead><tr><th>Vendor</th><th class="r">Invoices</th><th class="r">August total</th><th class="r">vs July</th></tr></thead>
+                  <tbody>
+                    <tr><td>Meridian Supply Co</td><td class="r">14</td><td class="r">$128,400</td><td class="r up">+22%</td></tr>
+                    <tr><td>Northgate Logistics</td><td class="r">9</td><td class="r">$96,150</td><td class="r up">+4%</td></tr>
+                    <tr><td>Corvid Materials</td><td class="r">11</td><td class="r">$64,020</td><td class="r down">−8%</td></tr>
+                    <tr><td>Atlas Packaging</td><td class="r">7</td><td class="r">$41,310</td><td class="r up">+13%</td></tr>
+                    <tr><td>Helix Industrial</td><td class="r">5</td><td class="r">$38,900</td><td class="r up">+2%</td></tr>
+                  </tbody>
+                </table>
+                <p>Two Meridian invoices (<span class="inv-ref">INV-20841</span>, <span class="inv-ref">INV-20857</span>) are pending approval past 14 days — <span class="inline-strong num">$61,200</span> combined. Want me to raise them in My Work?</p>
+              </div>
+            </div>
+
+            <div class="turn-you dof">
+              <div class="who-label">You · 16:41</div>
+              <div class="bubble">Yes — raise them and save this as a view.</div>
+            </div>
+
+            <div class="tools dof" aria-label="Tool activity">
+              <span class="tool-chip"><span class="fn">create_work_item</span><span class="st"><span class="tick"></span>ok</span><span class="num">0.6s</span></span>
+              <span class="tool-chip"><span class="fn">save_view</span><span class="arg">{"name":"Vendor Spend — August"}</span><span class="st"><span class="tick"></span>ok</span><span class="num">0.9s</span></span>
+            </div>
+
+            <div class="turn-agent peak is-focus" id="newestTurn">
+              <div class="plane">
+                <div class="agent-head">
+                  <span class="nm">The Agent</span>
+                  <span class="t num">16:42</span>
+                </div>
+                <p>Done. Two approval items are in <span class="inline-strong">My Work</span>, and I saved <span class="inline-strong">Vendor Spend — August</span> as a view with 4 tiles — it refreshes with zero AI.</p>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <div class="composer-wrap">
+          <div class="composer">
+            <textarea rows="2" placeholder="Message The Agent — explore data, build automations, keep humans in the loop…" aria-label="Message The Agent"></textarea>
+            <div class="composer-row">
+              <span class="presence" title="The Agent is present">
+                <span class="iris" aria-hidden="true"><span class="ring"></span><span class="pupil"></span></span>
+                focused · ready
+              </span>
+              <span class="spacer" style="flex:1"></span>
+              <button class="iconbtn" title="New conversation" aria-label="New conversation">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M7 2.5v9M2.5 7h9"/></svg>
+              </button>
+              <button class="iconbtn" title="History" aria-label="Conversation history">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="7" cy="7" r="5.2"/><path d="M7 4.2V7l2 1.4"/></svg>
+              </button>
+              <button class="send" id="sendBtn" title="Send" aria-label="Send">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 11.5v-9M3.5 6 7 2.5 10.5 6"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="footnote">
+            <span class="mono">draft → dry-run → promote → schedule</span>
+            <span>humans stay in the loop · My Work</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 2 · My Work ============ -->
+      <section class="panel" id="panel-work" aria-label="My Work">
+        <div class="panel-inner">
+          <div class="pagehead">
+            <h2>My Work</h2>
+            <span class="meta">what needs a human — nothing here acts without you</span>
+          </div>
+          <div class="chips" role="group" aria-label="Filter work items">
+            <button class="chip is-on" data-filter="all">All <span class="n">4</span></button>
+            <button class="chip" data-filter="approval">Approval <span class="n">1</span></button>
+            <button class="chip" data-filter="email">Email / Edit <span class="n">1</span></button>
+            <button class="chip" data-filter="question">Question <span class="n">1</span></button>
+            <button class="chip" data-filter="fyi">FYI <span class="n">1</span></button>
+          </div>
+
+          <div class="work-grid">
+            <div class="queue" id="workQueue">
+              <button class="work-card dof peak" data-detail="d1" data-kind="approval">
+                <div class="row1"><span class="verb approval"><span class="vdot"></span>Approval</span><span class="pill dry">dry-run</span><span class="when num">09:14</span></div>
+                <div class="ttl">Approve payment run — 2 overdue Meridian invoices ($61,200)</div>
+                <div class="src">from automation <span class="mono">invoice-chaser</span></div>
+              </button>
+              <button class="work-card dof peak is-focus" data-detail="d2" data-kind="email">
+                <div class="row1"><span class="verb email"><span class="vdot"></span>Email / Edit</span><span class="when num">08:47</span></div>
+                <div class="ttl">Re: Q3 renewal pricing — reply to Dana Whitfield</div>
+                <div class="src">from email</div>
+              </button>
+              <button class="work-card dof peak" data-detail="d3" data-kind="question">
+                <div class="row1"><span class="verb question"><span class="vdot"></span>Question</span><span class="pill">shared · unclaimed</span></div>
+                <div class="ttl">Which fiscal calendar should the vendor report use — 4-4-5 or calendar month?</div>
+                <div class="src">from agent</div>
+              </button>
+              <button class="work-card dof peak" data-detail="d4" data-kind="fyi">
+                <div class="row1"><span class="verb fyi"><span class="vdot"></span>FYI</span><span class="when num">06:00</span></div>
+                <div class="ttl">Nightly ERPDB health check completed — 0 anomalies, 312k rows scanned</div>
+                <div class="src">from automation <span class="mono">erpdb-daily-health</span></div>
+              </button>
+            </div>
+
+            <div>
+              <!-- d1 · approval detail -->
+              <div class="card detail" id="d1" hidden>
+                <div class="detail-head"><h3>Approve payment run</h3><span class="pill dry">dry-run</span></div>
+                <div class="detail-sub">Dry-run complete — no payments move until you approve.</div>
+                <dl class="kv">
+                  <dt>Run</dt><dd>2 overdue Meridian invoices · <b class="num">$61,200</b> combined</dd>
+                  <dt>Items</dt><dd class="num"><span class="inv-ref">INV-20841</span> $38,700 · 21 days &ensp;·&ensp; <span class="inv-ref">INV-20857</span> $22,500 · 17 days</dd>
+                  <dt>Source</dt><dd>automation <span class="mono">invoice-chaser</span> · raised 09:14</dd>
+                </dl>
+                <input class="comment" placeholder="Add a comment (optional)…" aria-label="Comment">
+                <div class="decide">
+                  <button class="btn btn-primary ack" data-ack="✓ Approved — payment run queued">Approve payment run</button>
+                  <button class="btn ack" data-ack="Denied — automation notified">Deny</button>
+                  <span class="hint">Nothing pays without you</span>
+                </div>
+              </div>
+
+              <!-- d2 · email detail (selected) -->
+              <div class="card detail" id="d2">
+                <div class="detail-head"><h3>Re: Q3 renewal pricing</h3></div>
+                <div class="detail-sub">Draft — body is editable; what you approve is what sends.</div>
+                <dl class="kv">
+                  <dt>To</dt><dd><span class="mono">dana@meridiansupply.com</span></dd>
+                  <dt>From</dt><dd><span class="mono">james-agent@mail.aihub.dev</span></dd>
+                  <dt>Subject</dt><dd>Re: Q3 renewal pricing</dd>
+                </dl>
+                <textarea class="draft" aria-label="Email draft body">Hi Dana — thanks for sending the Q3 renewal terms. We would like to hold at current pricing while we finish our August vendor-spend review, which also flags two invoices on our side (INV-20841, INV-20857) still pending approval. Could we reconnect early next week once both are cleared?
+
+Best,
+James</textarea>
+                <input class="comment" placeholder="Add a comment (optional)…" aria-label="Comment">
+                <div class="decide">
+                  <button class="btn btn-primary ack" data-ack="✓ Approved — sending as edited">Approve &amp; send</button>
+                  <button class="btn ack" data-ack="Denied — draft archived">Deny</button>
+                  <span class="hint">Nothing sends without you</span>
+                </div>
+                <div class="thread">
+                  <span class="micro">Thread with the agent</span>
+                  <div class="thread-ex">
+                    <div class="q"><span class="lbl">You</span>Is Dana on the approved vendor contact list?</div>
+                    <div class="a"><span class="lbl">The Agent</span>Yes — primary commercial contact for Meridian Supply Co since March.</div>
+                  </div>
+                  <div class="ask">
+                    <input placeholder="Ask the agent about this item…" aria-label="Ask the agent about this item">
+                    <button class="btn">Ask</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- d3 · question detail -->
+              <div class="card detail" id="d3" hidden>
+                <div class="detail-head"><h3>Fiscal calendar for the vendor report</h3><span class="pill">shared · unclaimed</span></div>
+                <div class="detail-sub">The agent is blocked on a judgment call — first answer unblocks the report.</div>
+                <p style="font-size:13px;margin-bottom:14px">Which fiscal calendar should the vendor report use — <b>4-4-5</b> or <b>calendar month</b>?</p>
+                <div class="decide" style="margin-top:0">
+                  <button class="btn ack" data-ack="✓ Answered — 4-4-5">Use 4-4-5</button>
+                  <button class="btn ack" data-ack="✓ Answered — calendar month">Use calendar month</button>
+                </div>
+                <div class="ask" style="margin-top:12px">
+                  <input placeholder="Or answer in your own words…" aria-label="Answer in your own words">
+                  <button class="btn">Answer</button>
+                </div>
+              </div>
+
+              <!-- d4 · FYI detail -->
+              <div class="card detail" id="d4" hidden>
+                <div class="detail-head"><h3>Nightly ERPDB health check</h3></div>
+                <div class="detail-sub">Completed 06:00 · automation <span class="mono">erpdb-daily-health</span> · no action needed.</div>
+                <dl class="kv">
+                  <dt>Result</dt><dd><b>0 anomalies</b> · 312k rows scanned</dd>
+                  <dt>Window</dt><dd class="num">05:31 – 06:00 · 29 min</dd>
+                </dl>
+                <div class="decide">
+                  <button class="btn ack" data-ack="✓ Acknowledged">Acknowledge</button>
+                  <span class="hint">FYIs clear themselves in 7 days</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 3 · Views ============ -->
+      <section class="panel" id="panel-views" aria-label="Views">
+        <div class="panel-inner">
+          <div class="pagehead">
+            <h2>Views</h2>
+            <span class="meta">deterministic dashboards — they refresh with zero AI</span>
+          </div>
+          <div class="views-grid">
+            <div id="viewList">
+              <button class="view-item dof peak is-focus" data-board="board1">
+                <div class="nm">Vendor Spend — August<span class="scope">user</span></div>
+                <div class="meta">4 tiles · v3</div>
+              </button>
+              <button class="view-item dof peak" data-board="board2">
+                <div class="nm">Ops Pulse<span class="scope">group</span></div>
+                <div class="meta">6 tiles · v11 · has automation tiles</div>
+              </button>
+              <button class="view-item dof peak" data-board="board3">
+                <div class="nm">Warehouse Throughput<span class="scope">tenant</span></div>
+                <div class="meta">5 tiles · v2</div>
+              </button>
+            </div>
+
+            <div>
+              <!-- board 1 · Vendor Spend — August -->
+              <div id="board1">
+                <div class="board-head">
+                  <h3>Vendor Spend — August</h3>
+                  <span class="meta">user · v3 · refreshed 16:42</span>
+                  <div class="actions">
+                    <button class="btn">Arrange</button>
+                    <button class="btn">Rename</button>
+                    <button class="btn">✎ Edit with AI</button>
+                    <button class="btn ack" data-ack="↻ Refreshed 16:42">↻ Refresh</button>
+                  </div>
+                </div>
+                <div class="tiles">
+                  <div class="tile dof t-stat is-focus">
+                    <div class="tt">August invoice total</div>
+                    <div class="statval">$482,910</div>
+                    <div class="tsub">SUM(total) · as of 16:42</div>
+                  </div>
+                  <div class="tile dof t-bar">
+                    <div class="tt">Spend by vendor (top 5)</div>
+                    <svg class="chart" viewBox="0 0 520 150" role="img" aria-label="Bar chart of spend by vendor">
+                      <text class="lbl" x="0" y="20">Meridian</text><rect class="bar" x="86" y="8" width="330" height="16" rx="3"/><text class="val" x="424" y="20">$128,400</text>
+                      <text class="lbl" x="0" y="50">Northgate</text><rect class="bar soft" x="86" y="38" width="247" height="16" rx="3"/><text class="val" x="341" y="50">$96,150</text>
+                      <text class="lbl" x="0" y="80">Corvid</text><rect class="bar soft" x="86" y="68" width="165" height="16" rx="3"/><text class="val" x="259" y="80">$64,020</text>
+                      <text class="lbl" x="0" y="110">Atlas</text><rect class="bar soft" x="86" y="98" width="106" height="16" rx="3"/><text class="val" x="200" y="110">$41,310</text>
+                      <text class="lbl" x="0" y="140">Helix</text><rect class="bar soft" x="86" y="128" width="100" height="16" rx="3"/><text class="val" x="194" y="140">$38,900</text>
+                    </svg>
+                  </div>
+                  <div class="tile dof t-line">
+                    <div class="tt">Daily invoice volume</div>
+                    <svg class="chart" viewBox="0 0 520 130" role="img" aria-label="Line chart of daily invoice volume">
+                      <line class="grid" x1="0" y1="30" x2="520" y2="30"/>
+                      <line class="grid" x1="0" y1="60" x2="520" y2="60"/>
+                      <line class="grid" x1="0" y1="90" x2="520" y2="90"/>
+                      <line class="axis" x1="0" y1="120" x2="520" y2="120"/>
+                      <path class="area" d="M10 104 48 101 86 103 124 97 162 95 200 97 238 91 276 89 314 91 352 85 390 82 428 84 466 77 504 72 L504 120 10 120 Z"/>
+                      <polyline class="spark" points="10,104 48,101 86,103 124,97 162,95 200,97 238,91 276,89 314,91 352,85 390,82 428,84 466,77 504,72"/>
+                      <circle class="pt" cx="466" cy="77" r="2" opacity=".4"/>
+                      <circle class="pt" cx="504" cy="72" r="3.2"/>
+                    </svg>
+                  </div>
+                  <div class="tile dof t-table">
+                    <div class="tt">Open invoices &gt; 14 days</div>
+                    <table class="mini-table num">
+                      <thead><tr><th>Invoice</th><th>Vendor</th><th class="r">Amount</th><th class="r">Age</th></tr></thead>
+                      <tbody>
+                        <tr class="hot"><td class="mono">INV-20841</td><td>Meridian</td><td class="r">$38,700</td><td class="r aging">21d</td></tr>
+                        <tr class="hot"><td class="mono">INV-20857</td><td>Meridian</td><td class="r">$22,500</td><td class="r aging">17d</td></tr>
+                        <tr><td class="mono">INV-20872</td><td>Corvid</td><td class="r">$9,340</td><td class="r aging">16d</td></tr>
+                        <tr><td class="mono">INV-20881</td><td>Atlas</td><td class="r">$7,120</td><td class="r aging">15d</td></tr>
+                        <tr><td class="mono">INV-20889</td><td>Northgate</td><td class="r">$5,480</td><td class="r aging">15d</td></tr>
+                        <tr><td class="mono">INV-20896</td><td>Helix</td><td class="r">$4,210</td><td class="r aging">14d</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="tile dof t-ticker">
+                    <div class="ticker">
+                      <span class="micro" style="flex:none">Latest invoices</span>
+                      <span class="item"><span class="mono">INV-20903</span> · Meridian · $4,180 · 16:31</span><span class="sep">/</span>
+                      <span class="item"><span class="mono">INV-20902</span> · Atlas · $2,940 · 16:12</span><span class="sep">/</span>
+                      <span class="item"><span class="mono">INV-20901</span> · Helix · $7,650 · 15:58</span><span class="sep">/</span>
+                      <span class="item"><span class="mono">INV-20900</span> · Northgate · $1,220 · 15:41</span><span class="sep">/</span>
+                      <span class="item"><span class="mono">INV-20899</span> · Corvid · $3,375 · 15:22</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- board 2 · Ops Pulse (receded preview) -->
+              <div id="board2" hidden>
+                <div class="board-head">
+                  <h3>Ops Pulse</h3>
+                  <span class="meta">group · v11 · refreshed 16:40</span>
+                  <div class="actions"><button class="btn">Arrange</button><button class="btn">Rename</button><button class="btn">✎ Edit with AI</button><button class="btn ack" data-ack="↻ Refreshed">↻ Refresh</button></div>
+                </div>
+                <div class="ghost-note">Preview — open tiles pull focus when this view loads. Includes 2 automation tiles.</div>
+                <div class="tiles">
+                  <div class="tile ghost dof" style="grid-column:span 4"><div class="tt">Automation runs (24h)</div><div class="ph"></div></div>
+                  <div class="tile ghost dof" style="grid-column:span 4"><div class="tt">Failures</div><div class="ph"></div></div>
+                  <div class="tile ghost dof" style="grid-column:span 4"><div class="tt">Queue depth</div><div class="ph"></div></div>
+                  <div class="tile ghost dof" style="grid-column:span 4"><div class="tt">Email approvals waiting</div><div class="ph"></div></div>
+                  <div class="tile ghost dof" style="grid-column:span 4"><div class="tt">ERPDB health</div><div class="ph"></div></div>
+                  <div class="tile ghost dof" style="grid-column:span 4"><div class="tt">Throughput</div><div class="ph"></div></div>
+                </div>
+              </div>
+
+              <!-- board 3 · Warehouse Throughput (receded preview) -->
+              <div id="board3" hidden>
+                <div class="board-head">
+                  <h3>Warehouse Throughput</h3>
+                  <span class="meta">tenant · v2 · refreshed 16:35</span>
+                  <div class="actions"><button class="btn">Arrange</button><button class="btn">Rename</button><button class="btn">✎ Edit with AI</button><button class="btn ack" data-ack="↻ Refreshed">↻ Refresh</button></div>
+                </div>
+                <div class="ghost-note">Preview — open tiles pull focus when this view loads.</div>
+                <div class="tiles">
+                  <div class="tile ghost dof" style="grid-column:span 4"><div class="tt">Pick rate</div><div class="ph"></div></div>
+                  <div class="tile ghost dof" style="grid-column:span 4"><div class="tt">Dock-to-stock time</div><div class="ph"></div></div>
+                  <div class="tile ghost dof" style="grid-column:span 4"><div class="tt">Open transfer orders</div><div class="ph"></div></div>
+                  <div class="tile ghost dof" style="grid-column:span 6"><div class="tt">Daily units shipped</div><div class="ph"></div></div>
+                  <div class="tile ghost dof" style="grid-column:span 6"><div class="tt">Exceptions</div><div class="ph"></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 4 · Playbooks ============ -->
+      <section class="panel" id="panel-playbooks" aria-label="Playbooks">
+        <div class="panel-inner">
+          <div class="pagehead">
+            <h2>Playbooks</h2>
+            <span class="meta">workflows · code flows · automations</span>
+          </div>
+          <div class="pb-toolbar">
+            <div class="chips" style="margin:0" role="group" aria-label="Filter playbooks">
+              <button class="chip is-on" data-pb="all">All <span class="n">6</span></button>
+              <button class="chip" data-pb="workflow">Workflows <span class="n">2</span></button>
+              <button class="chip" data-pb="codeflow">Code Flows <span class="n">1</span></button>
+              <button class="chip" data-pb="automation">Automations <span class="n">3</span></button>
+            </div>
+            <input class="search" type="text" placeholder="Search playbooks…" aria-label="Search playbooks">
+            <div class="links dof">
+              <a href="#">Open Workflow Designer ↗</a>
+              <a href="#">Open Mission Control ↗</a>
+            </div>
+          </div>
+          <div class="pb-list" id="pbList">
+            <div class="pb-row dof peak" data-kind="workflow" tabindex="0">
+              <span class="kind">Workflow</span>
+              <span class="nm">Invoice Intake — OCR + 3-way match</span>
+              <span class="meta"><span class="mono">id 1218</span></span>
+            </div>
+            <div class="pb-row dof peak" data-kind="workflow" tabindex="0">
+              <span class="kind">Workflow</span>
+              <span class="nm">Vendor Onboarding Checks</span>
+              <span class="meta"><span class="mono">id 1327</span></span>
+            </div>
+            <div class="pb-row dof peak" data-kind="codeflow" tabindex="0">
+              <span class="kind">Code Flow</span>
+              <span class="nm">Monthly Close Journal Prep</span>
+              <span class="meta"><span class="mono">id 214</span></span>
+            </div>
+            <div class="pb-row dof peak" data-kind="automation" tabindex="0">
+              <span class="kind auto">Automation</span>
+              <span class="nm mono">invoice-chaser</span>
+              <span class="meta">v7 · pinned v6</span>
+            </div>
+            <div class="pb-row dof peak" data-kind="automation" tabindex="0">
+              <span class="kind auto">Automation</span>
+              <span class="nm mono">dayforce-doc-upload</span>
+              <span class="meta">v3</span>
+            </div>
+            <div class="pb-row dof peak" data-kind="automation" tabindex="0">
+              <span class="kind auto">Automation</span>
+              <span class="nm mono">erpdb-daily-health</span>
+              <span class="meta">v12</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 5 · Email ============ -->
+      <section class="panel" id="panel-email" aria-label="Email">
+        <div class="panel-inner">
+          <div class="pagehead">
+            <h2>Email</h2>
+            <span class="meta">the agent's personal address</span>
+          </div>
+          <div class="email-grid">
+            <div class="card ecard dof is-focus peak">
+              <h3>Your address</h3>
+              <div class="addr-row">
+                <input class="prefix" value="james-agent" aria-label="Address prefix">
+                <span class="suffix">@mail.aihub.dev</span>
+                <span class="state">ACTIVE</span>
+              </div>
+              <div class="setting">
+                <span class="lab">Inbound enabled</span>
+                <button class="ctl switch on" role="switch" aria-checked="true" aria-label="Inbound enabled"></button>
+              </div>
+              <div class="decide" style="margin-top:12px">
+                <button class="btn btn-primary ack" data-ack="✓ Saved">Save</button>
+              </div>
+              <p class="sub">Mail sent to this address runs a headless agent session as you and lands its result in My Work.</p>
+            </div>
+            <div class="card ecard dof">
+              <h3>Sending &amp; behavior</h3>
+              <div class="setting">
+                <div><div class="lab">Outbound enabled</div></div>
+                <button class="ctl switch on" role="switch" aria-checked="true" aria-label="Outbound enabled"></button>
+              </div>
+              <div class="setting">
+                <div><div class="lab">Auto-send replies</div><div class="note">every reply waits for your approval in My Work</div></div>
+                <button class="ctl switch" role="switch" aria-checked="false" aria-label="Auto-send replies"></button>
+              </div>
+              <div class="setting">
+                <div><div class="lab">Notify on inbound</div></div>
+                <button class="ctl switch" role="switch" aria-checked="false" aria-label="Notify on inbound"></button>
+              </div>
+              <div class="setting" style="border-bottom:0">
+                <div class="lab">Cooldown minutes</div>
+                <input class="ctl numfield num" value="10" aria-label="Cooldown minutes">
+              </div>
+              <textarea class="standing" placeholder="Standing instructions — e.g. treat invoices from approved vendors as routine; anything about pricing waits for me…" aria-label="Standing instructions"></textarea>
+            </div>
+          </div>
+          <div class="card activity dof">
+            <h3>Recent inbound activity</h3>
+            <div class="act-row"><span class="t">08-09 08:47</span><span class="what drafted">reply_drafted</span><span><span class="mono">dana@meridiansupply.com</span> — Re: Q3 renewal pricing</span></div>
+            <div class="act-row"><span class="t">08-08 16:02</span><span class="what">processed</span><span><span class="mono">alerts@dayforce.com</span> — Document batch ready</span></div>
+            <div class="act-row"><span class="t">08-08 09:15</span><span class="what">processed</span><span><span class="mono">noreply@erpdb</span> — Weekly digest</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 6 · Skills ============ -->
+      <section class="panel" id="panel-skills" aria-label="Skills">
+        <div class="panel-inner">
+          <div class="pagehead">
+            <h2>Skills</h2>
+            <span class="meta">procedural memory — how the agent does things for you</span>
+          </div>
+          <div class="skills-grid">
+            <div id="skillList">
+              <button class="skill-item dof peak" data-skill="s1">
+                <span class="nm">erpdb-reconciliation-recipes</span>
+                <span class="meta">product · 4.2 KB</span>
+              </button>
+              <button class="skill-item dof peak" data-skill="s2">
+                <span class="nm">vendor-naming-conventions</span>
+                <span class="meta">tenant · 1.1 KB</span>
+              </button>
+              <button class="skill-item dof peak is-focus" data-skill="s3">
+                <span class="nm">james-report-format</span>
+                <span class="meta">user · 0.8 KB</span>
+              </button>
+            </div>
+            <div>
+              <div class="card skill-detail" id="s1" hidden>
+                <h3>erpdb-reconciliation-recipes</h3>
+                <div class="meta">product scope · 4.2 KB · read-only at your tier</div>
+                <div class="skill-body">Reconciliation recipes for ERPDB: match invoices to POs by
+vendor + amount + date window (±3 days). Escalate three-way
+mismatches over $5,000. Prefer GL account 2100 for accruals…</div>
+                <div class="skill-foot"><button class="btn btn-danger" disabled style="opacity:.45;cursor:default">Delete skill</button></div>
+              </div>
+              <div class="card skill-detail" id="s2" hidden>
+                <h3>vendor-naming-conventions</h3>
+                <div class="meta">tenant scope · 1.1 KB</div>
+                <div class="skill-body">Canonical vendor names: strip Inc/LLC/Co suffixes for display,
+keep legal name in exports. "Meridian Supply Co" is the display
+form. Never abbreviate to initials…</div>
+                <div class="skill-foot"><button class="btn btn-danger ack" data-ack="Marked for deletion">Delete skill</button></div>
+              </div>
+              <div class="card skill-detail" id="s3">
+                <h3>james-report-format</h3>
+                <div class="meta">user scope · 0.8 KB · learned from 6 sessions</div>
+                <div class="skill-body">Reports for James: lead with the number, then the table.
+Currency to the dollar, no cents. Always note the as-of time.
+Deltas as signed percentages. Flag anything stuck &gt; 14 days…</div>
+                <div class="skill-foot"><button class="btn btn-danger ack" data-ack="Marked for deletion">Delete skill</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <footer class="foot">
+      <span class="mono">draft → dry-run → promote → schedule</span>
+      <span>humans stay in the loop · <b style="color:var(--ink2)">My Work</b></span>
+    </footer>
+  </div>
+</div>
+
+<a class="badge dof" href="./index.html"><b>#18</b> · Lens</a>
+
+<script>
+(function () {
+  "use strict";
+  var doc = document, root = doc.documentElement;
+
+  function all(sel, ctx) { return Array.prototype.slice.call((ctx || doc).querySelectorAll(sel)); }
+
+  /* ---- theme toggle: explicit data-theme beats the media default both ways ---- */
+  var toggle = doc.getElementById("themeToggle");
+  function effectiveTheme() {
+    var forced = root.getAttribute("data-theme");
+    if (forced) return forced;
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  toggle.addEventListener("click", function () {
+    var next = effectiveTheme() === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    toggle.setAttribute("aria-pressed", next === "dark" ? "true" : "false");
+  });
+
+  /* ---- section nav ---- */
+  var crumb = doc.getElementById("crumbHere");
+  var names = { assistant: "Assistant", work: "My Work", views: "Views",
+                playbooks: "Playbooks", email: "Email", skills: "Skills" };
+  all(".nav button").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var key = btn.getAttribute("data-panel");
+      all(".nav button").forEach(function (b) {
+        var on = b === btn;
+        b.classList.toggle("is-active", on);
+        b.classList.toggle("is-focus", on);
+        if (on) { b.setAttribute("aria-current", "page"); } else { b.removeAttribute("aria-current"); }
+      });
+      all(".panel").forEach(function (p) {
+        p.classList.toggle("is-active", p.id === "panel-" + key);
+      });
+      crumb.textContent = names[key] || key;
+    });
+  });
+
+  /* ---- generic focus-pull list: one sharp plane at a time ---- */
+  function focusList(itemSel, attr, paneSel) {
+    all(itemSel).forEach(function (item) {
+      item.addEventListener("click", function () {
+        all(itemSel).forEach(function (i) { i.classList.toggle("is-focus", i === item); });
+        var target = item.getAttribute(attr);
+        if (!target) return;
+        all(paneSel).forEach(function (pane) { pane.hidden = pane.id !== target; });
+      });
+    });
+  }
+  focusList(".work-card", "data-detail", ".detail");
+  focusList(".view-item", "data-board", "#board1, #board2, #board3");
+  focusList(".skill-item", "data-skill", ".skill-detail");
+
+  /* ---- My Work filter chips ---- */
+  all(".chips [data-filter]").forEach(function (chip) {
+    chip.addEventListener("click", function () {
+      all(".chips [data-filter]").forEach(function (c) { c.classList.toggle("is-on", c === chip); });
+      var kind = chip.getAttribute("data-filter");
+      all("#workQueue .work-card").forEach(function (card) {
+        card.style.display = (kind === "all" || card.getAttribute("data-kind") === kind) ? "" : "none";
+      });
+    });
+  });
+
+  /* ---- Playbooks filter + search ---- */
+  var pbSearch = doc.querySelector(".pb-toolbar .search");
+  function pbApply() {
+    var onChip = doc.querySelector(".chips [data-pb].is-on");
+    var kind = onChip ? onChip.getAttribute("data-pb") : "all";
+    var q = (pbSearch.value || "").toLowerCase();
+    all("#pbList .pb-row").forEach(function (row) {
+      var okKind = kind === "all" || row.getAttribute("data-kind") === kind;
+      var okText = !q || row.textContent.toLowerCase().indexOf(q) !== -1;
+      row.style.display = (okKind && okText) ? "" : "none";
+    });
+  }
+  all(".chips [data-pb]").forEach(function (chip) {
+    chip.addEventListener("click", function () {
+      all(".chips [data-pb]").forEach(function (c) { c.classList.toggle("is-on", c === chip); });
+      pbApply();
+    });
+  });
+  pbSearch.addEventListener("input", pbApply);
+
+  /* ---- acknowledgment buttons: brief non-destructive state change ---- */
+  all(".ack").forEach(function (btn) {
+    var original = btn.textContent;
+    btn.addEventListener("click", function () {
+      if (btn.classList.contains("done")) return;
+      btn.classList.add("done");
+      btn.textContent = btn.getAttribute("data-ack") || original;
+      window.setTimeout(function () {
+        btn.classList.remove("done");
+        btn.textContent = original;
+      }, 1800);
+    });
+  });
+
+  /* ---- email switches ---- */
+  all(".switch").forEach(function (sw) {
+    sw.addEventListener("click", function () {
+      var on = sw.classList.toggle("on");
+      sw.setAttribute("aria-checked", on ? "true" : "false");
+    });
+  });
+}());
+</script>
+</body>
+</html>

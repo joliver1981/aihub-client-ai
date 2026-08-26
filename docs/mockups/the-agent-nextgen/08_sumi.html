@@ -1,0 +1,1450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Agent · Sumi concept</title>
+<style>
+/* ————————————————————————————————————————————————
+   #08 SUMI — zen ink minimalism
+   washi #FAF7F0 · sumi ink #17151A · vermilion #D93A2B
+   ———————————————————————————————————————————————— */
+:root{
+  --paper:#FAF7F0;
+  --paper-raised:#FFFDF7;
+  --ink:#17151A;
+  --ink-70:rgba(23,21,26,.70);
+  --ink-45:rgba(23,21,26,.45);
+  --vermilion:#D93A2B;
+  --vermilion-deep:#C22F21;
+  --hair:#C9C4BA;
+  --hair-40:rgba(201,196,186,.44);
+  --hair-70:rgba(201,196,186,.72);
+  --warm:#7A736A;
+  --warm-lt:#A39B8F;
+  --sans:"Segoe UI","Helvetica Neue","SF Pro Text",Arial,sans-serif;
+  --serif:Georgia,"Times New Roman",serif;
+  --mono:"Cascadia Mono",Consolas,"SF Mono","Courier New",monospace;
+  --col:880px;
+  --rail:88px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:auto}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font:300 15px/1.7 var(--sans);
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+  overflow-x:hidden;
+  min-height:100vh;
+}
+::selection{background:rgba(217,58,43,.15)}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--hair-70);border:3px solid var(--paper);border-radius:6px}
+::-webkit-scrollbar-track{background:transparent}
+a{color:inherit}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+strong{font-weight:600}
+:focus-visible{outline:1px solid var(--vermilion);outline-offset:4px;border-radius:1px}
+
+/* ————— understated text buttons: red underline on hover ————— */
+.tbtn{
+  color:var(--ink-70);
+  letter-spacing:.02em;
+  padding:2px 0;
+  text-decoration:none;
+}
+.tbtn:hover{
+  color:var(--ink);
+  text-decoration:underline;
+  text-decoration-color:var(--vermilion);
+  text-decoration-thickness:1.5px;
+  text-underline-offset:6px;
+}
+
+/* ————————————————— left rail — hanging scroll ————————————————— */
+.rail{
+  position:fixed;inset:0 auto 0 0;width:var(--rail);
+  display:flex;flex-direction:column;align-items:center;
+  padding:30px 0 22px;
+  border-right:1px solid var(--hair-40);
+  background:var(--paper);
+  z-index:20;
+}
+.rail .enso-wrap{width:44px;height:44px;flex:none;margin-bottom:52px}
+.nav{list-style:none;display:flex;flex-direction:column;align-items:center;gap:32px}
+.nav-item{
+  writing-mode:vertical-rl;
+  font:400 11px/1 var(--mono);
+  letter-spacing:.34em;
+  text-transform:lowercase;
+  color:var(--ink);
+  opacity:.42;
+  display:flex;align-items:center;
+  transition:opacity .18s ease;
+  padding:2px 6px;
+}
+.nav-item:hover{opacity:.85}
+.nav-item.active{opacity:1}
+.nav-item::before{
+  content:"";width:5px;height:5px;border-radius:1px;
+  background:transparent;margin-bottom:12px;flex:none;
+}
+.nav-item.active::before{background:var(--vermilion)}
+.nav-item .count{
+  writing-mode:horizontal-tb;
+  margin-top:12px;
+  width:15px;height:15px;border-radius:2px;
+  background:var(--vermilion);color:var(--paper);
+  font:600 9px/15px var(--mono);letter-spacing:0;
+  text-align:center;display:block;
+}
+.rail-spacer{flex:1}
+.platform-toggle{
+  writing-mode:vertical-rl;
+  font:400 9.5px/1 var(--mono);
+  letter-spacing:.34em;text-transform:lowercase;
+  color:var(--warm-lt);padding:4px 6px;
+  transition:color .18s ease;
+}
+.platform-toggle:hover{color:var(--ink)}
+.platform-pop{
+  position:fixed;left:calc(var(--rail) + 14px);bottom:26px;
+  background:var(--paper-raised);
+  border:1px solid var(--hair-70);
+  padding:18px 26px 16px;
+  min-width:190px;
+  box-shadow:0 8px 30px rgba(23,21,26,.06);
+  z-index:30;
+}
+.platform-pop[hidden]{display:none}
+.platform-pop .pop-label{
+  font:400 9px/1 var(--mono);letter-spacing:.3em;text-transform:uppercase;
+  color:var(--warm-lt);display:block;margin-bottom:12px;
+}
+.platform-pop a{
+  display:block;font:300 13px/2.2 var(--sans);color:var(--ink-70);
+  text-decoration:none;
+}
+.platform-pop a:hover{
+  color:var(--ink);text-decoration:underline;
+  text-decoration-color:var(--vermilion);text-underline-offset:5px;
+  text-decoration-thickness:1.5px;
+}
+
+/* ————————————————— ensō — the agent presence ————————————————— */
+.enso{width:100%;height:100%;display:block}
+.enso circle{
+  fill:none;stroke:var(--ink);stroke-linecap:round;
+  transform-origin:50% 50%;
+}
+.enso .e-main{stroke-width:7;stroke-dasharray:88 100;stroke-dashoffset:0;transform:rotate(115deg);opacity:.26}
+.enso .e-ghost{stroke-width:2.4;stroke-dasharray:82 100;stroke-dashoffset:0;transform:rotate(123deg);opacity:.09}
+body.thinking .enso .e-main{animation:enso-draw 2.7s cubic-bezier(.45,.05,.35,.95) infinite}
+body.thinking .enso .e-ghost{animation:enso-draw 2.7s cubic-bezier(.45,.05,.35,.95) .14s infinite}
+@keyframes enso-draw{
+  0%{stroke-dashoffset:88;opacity:0}
+  9%{opacity:.82}
+  56%{stroke-dashoffset:0;opacity:.82}
+  76%{stroke-dashoffset:0;opacity:.82}
+  100%{stroke-dashoffset:0;opacity:.10}
+}
+.enso-static .e-main{opacity:.14}
+.enso-static .e-ghost{opacity:.05}
+
+/* ————————————————— main column ————————————————— */
+main{margin-left:var(--rail)}
+.page{max-width:var(--col);margin:0 auto;padding:44px 48px 72px}
+.masthead{
+  display:flex;justify-content:space-between;align-items:baseline;
+  padding-bottom:14px;gap:16px;flex-wrap:wrap;
+}
+.wordmark{
+  font:300 11px/1 var(--sans);letter-spacing:.46em;text-transform:uppercase;
+  color:var(--ink-70);
+}
+.who{font:400 10.5px/1 var(--mono);letter-spacing:.06em;color:var(--warm)}
+.who .brain{color:var(--warm-lt)}
+
+/* panels fade up 200ms with a slight vertical settle */
+.panel{display:none}
+.panel.active{display:block;animation:settle .2s ease-out both}
+@keyframes settle{
+  from{opacity:0;transform:translateY(7px)}
+  to{opacity:1;transform:translateY(0)}
+}
+
+.panel-head{margin-top:72px}
+.panel-head h1{
+  font:300 30px/1.2 var(--sans);letter-spacing:.015em;color:var(--ink);
+}
+.panel-head .sub{
+  display:flex;justify-content:space-between;align-items:baseline;
+  margin-top:14px;padding-bottom:18px;border-bottom:1px solid var(--hair-70);
+}
+.panel-head .sub .meta{font:400 11px/1 var(--mono);letter-spacing:.05em;color:var(--warm)}
+.kicker{
+  font:400 10px/1 var(--mono);letter-spacing:.32em;text-transform:lowercase;
+  color:var(--warm-lt);
+}
+
+/* ————————————————— 1 · assistant ————————————————— */
+#panel-assistant .kicker{display:block;margin-top:64px}
+.session-start{margin-top:46px}
+.hello{
+  font:italic 400 25px/1.5 var(--serif);
+  color:var(--ink);
+}
+.hello-sub{
+  margin-top:14px;max-width:520px;
+  font:300 14.5px/1.75 var(--sans);color:var(--warm);
+}
+.starters{margin-top:26px;display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+.starter{
+  font:300 14px/2 var(--sans);color:var(--ink-70);
+  display:flex;align-items:center;gap:14px;
+  padding:1px 0;
+}
+.starter::before{content:"";width:18px;height:1px;background:var(--hair);flex:none}
+.starter:hover{
+  color:var(--ink);
+  text-decoration:underline;text-decoration-color:var(--vermilion);
+  text-underline-offset:6px;text-decoration-thickness:1.5px;
+}
+
+/* the thread — no bubbles, alternating indents, thin ink rules */
+.thread{margin-top:54px}
+.msg{padding:34px 0;border-top:1px solid var(--hair-40);position:relative}
+.msg:first-child{border-top:1px solid var(--hair-70)}
+.msg .who-label{
+  display:block;
+  font:400 9.5px/1 var(--mono);letter-spacing:.3em;text-transform:uppercase;
+  color:var(--warm-lt);margin-bottom:14px;
+}
+.msg.you{max-width:600px}
+.msg.you p{font:300 16.5px/1.75 var(--sans);color:var(--ink)}
+.msg.agent{margin-left:96px}
+.msg.agent .seal{position:absolute;left:-40px;top:36px;width:19px;height:19px}
+.voice p{
+  font:italic 400 16.5px/1.85 var(--serif);
+  color:rgba(23,21,26,.94);
+  max-width:640px;
+}
+.voice p + p{margin-top:16px}
+
+/* tool activity — a quiet ledger under a hairline of ink */
+.tools{
+  margin:2px 0 22px;
+  padding:10px 0 10px 18px;
+  border-left:1px solid var(--hair-70);
+  display:flex;flex-direction:column;gap:9px;
+}
+.tool{
+  display:flex;align-items:baseline;gap:12px;
+  font:400 11.5px/1.5 var(--mono);color:var(--warm);
+  letter-spacing:.02em;
+}
+.tool .tdot{
+  width:4px;height:4px;border-radius:50%;
+  background:var(--ink);opacity:.55;flex:none;align-self:center;
+}
+.tool{min-width:0}
+.tool code{font:inherit;color:var(--ink-70);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:430px;flex:0 1 auto}
+.tool .tmeta{color:var(--warm-lt);flex:none}
+
+/* chat table — hairlines only */
+.inktable{border-collapse:collapse;margin:22px 0;width:100%;max-width:620px}
+.inktable th{
+  font:400 9.5px/1 var(--mono);letter-spacing:.22em;text-transform:uppercase;
+  color:var(--warm-lt);text-align:left;padding:0 14px 10px 0;
+  border-bottom:1px solid var(--ink);font-weight:400;
+}
+.inktable td{
+  font:300 14px/1.5 var(--sans);color:var(--ink);
+  padding:10px 14px 10px 0;border-bottom:1px solid var(--hair-40);
+  font-variant-numeric:tabular-nums;
+}
+.inktable th.num,.inktable td.num{text-align:right;padding-right:0}
+.inktable td.dim{color:var(--warm)}
+.inktable tr:last-child td{border-bottom:1px solid var(--hair-70)}
+
+/* composer */
+.composer{margin-top:56px;border-top:1px solid var(--ink);padding-top:6px}
+.thinkline{
+  display:flex;align-items:center;gap:12px;
+  padding:14px 0 2px;min-height:36px;
+}
+.thinkline[hidden]{display:none}
+.thinkline .mini-enso{width:16px;height:16px;flex:none}
+.thinkline em{font:italic 400 13.5px/1 var(--serif);color:var(--warm)}
+.composer-row{display:flex;gap:34px;align-items:flex-end;padding:16px 0 4px}
+.composer textarea{
+  flex:1;background:transparent;border:none;resize:none;
+  font:300 16px/1.65 var(--sans);color:var(--ink);
+  min-height:58px;outline:none;
+}
+.composer textarea::placeholder{color:var(--warm-lt);font-style:italic;font-family:var(--serif)}
+.composer-actions{display:flex;flex-direction:column;align-items:flex-end;gap:12px;padding-bottom:4px}
+.send-btn{font:400 15px/1 var(--sans);letter-spacing:.06em;color:var(--ink)}
+.send-btn:hover{
+  text-decoration:underline;text-decoration-color:var(--vermilion);
+  text-underline-offset:7px;text-decoration-thickness:1.5px;
+}
+.minor-actions{display:flex;gap:10px;align-items:baseline;font:400 11px/1 var(--mono);color:var(--warm-lt)}
+.minor-actions .tbtn{font:400 11px/1 var(--mono);letter-spacing:.08em;color:var(--warm)}
+
+/* ————————————————— 2 · my work ————————————————— */
+.filter-row{display:flex;gap:26px;align-items:baseline;margin-top:34px;flex-wrap:wrap}
+.chip{
+  font:400 11.5px/1 var(--mono);letter-spacing:.06em;color:var(--warm);
+  padding:4px 0;display:inline-flex;align-items:center;gap:8px;
+}
+.chip::before{content:"";width:5px;height:5px;border-radius:1px;background:transparent;flex:none}
+.chip:hover{color:var(--ink)}
+.chip.active{color:var(--ink)}
+.chip.active::before{background:var(--vermilion)}
+.chip .n{color:var(--warm-lt)}
+
+.work-split{display:grid;grid-template-columns:300px 1fr;gap:44px;margin-top:34px}
+.queue{border-right:1px solid var(--hair-40);padding-right:34px}
+.q-item{
+  display:block;width:100%;text-align:left;
+  padding:20px 0 18px;border-top:1px solid var(--hair-40);
+  opacity:.58;transition:opacity .18s ease;position:relative;
+}
+.q-item:first-child{border-top:1px solid var(--hair-70)}
+.q-item:hover{opacity:.88}
+.q-item.selected{opacity:1}
+.q-item .q-type{
+  font:400 9px/1 var(--mono);letter-spacing:.28em;text-transform:uppercase;
+  color:var(--warm);display:flex;align-items:center;gap:9px;margin-bottom:10px;
+}
+.q-item .q-type::before{content:"";width:5px;height:5px;border-radius:1px;background:transparent;flex:none}
+.q-item.selected .q-type::before{background:var(--vermilion)}
+.q-item .q-title{font:350 13.5px/1.55 var(--sans);color:var(--ink);display:block}
+.q-item .q-meta{font:400 10px/1.6 var(--mono);color:var(--warm-lt);display:block;margin-top:8px;letter-spacing:.03em}
+.q-item .q-meta .tag{
+  border:1px solid var(--hair);border-radius:2px;padding:1px 5px;margin-left:4px;
+}
+.q-item[hidden]{display:none}
+
+.detail{min-width:0}
+.d-pane{display:none}
+.d-pane.active{display:block;animation:settle .2s ease-out both}
+.d-label{
+  font:italic 400 13.5px/1.6 var(--serif);color:var(--warm);
+  padding-bottom:16px;border-bottom:1px solid var(--hair-40);margin-bottom:4px;
+}
+.mail-row{
+  display:grid;grid-template-columns:76px 1fr;gap:18px;align-items:baseline;
+  padding:11px 0;border-bottom:1px solid var(--hair-40);
+}
+.mail-row .k{font:400 9.5px/1 var(--mono);letter-spacing:.26em;text-transform:uppercase;color:var(--warm-lt)}
+.mail-row .v{font:400 13px/1.5 var(--mono);color:var(--ink);letter-spacing:.01em;overflow-wrap:anywhere}
+.draft-body{
+  width:100%;background:transparent;border:none;resize:vertical;
+  font:300 15px/1.8 var(--sans);color:var(--ink);
+  min-height:150px;outline:none;padding:20px 0 8px;
+  border-bottom:1px solid var(--hair-40);
+}
+.comment-box{
+  width:100%;background:transparent;border:none;border-bottom:1px solid var(--hair-40);
+  font:300 13px/1.6 var(--sans);color:var(--ink);outline:none;
+  padding:14px 0 10px;margin-top:6px;
+}
+.comment-box::placeholder,.draft-body::placeholder{color:var(--warm-lt)}
+.decide-row{display:flex;align-items:center;gap:32px;margin-top:32px}
+
+/* the hanko — square red seal, primary approve */
+.hanko{
+  width:94px;height:94px;flex:none;
+  background:var(--vermilion);color:var(--paper);
+  border-radius:6px;position:relative;
+  font:300 13.5px/1.4 var(--sans);letter-spacing:.05em;
+  transition:background .15s ease,transform .12s ease;
+}
+.hanko::after{
+  content:"";position:absolute;inset:5px;
+  border:1px solid rgba(250,247,240,.42);border-radius:3px;
+  pointer-events:none;
+}
+.hanko:hover{background:var(--vermilion-deep)}
+.hanko:active{transform:scale(.96)}
+.hanko span{position:relative;z-index:1;transition:opacity .15s ease}
+.hanko.stamped span{opacity:0}
+.hanko.stamped::before{
+  content:"✓";position:absolute;inset:0;display:grid;place-items:center;
+  font:300 34px/1 var(--sans);color:var(--paper);z-index:2;
+}
+.deny-btn{font:300 14px/1 var(--sans);color:var(--warm)}
+.deny-btn:hover{
+  color:var(--ink);text-decoration:underline;
+  text-decoration-color:var(--vermilion);text-underline-offset:6px;
+  text-decoration-thickness:1.5px;
+}
+.decide-hint{font:italic 400 12.5px/1.5 var(--serif);color:var(--warm-lt)}
+
+.mini-thread{margin-top:52px}
+.mini-thread .mt-label{
+  font:400 9.5px/1 var(--mono);letter-spacing:.28em;text-transform:uppercase;
+  color:var(--warm-lt);padding-bottom:14px;border-bottom:1px solid var(--hair-70);
+  display:block;
+}
+.mini-msg{padding:18px 0;border-bottom:1px solid var(--hair-40);position:relative}
+.mini-msg .who-label{
+  display:block;font:400 8.5px/1 var(--mono);letter-spacing:.28em;text-transform:uppercase;
+  color:var(--warm-lt);margin-bottom:8px;
+}
+.mini-msg.you p{font:300 13.5px/1.65 var(--sans);color:var(--ink);max-width:460px}
+.mini-msg.agent{padding-left:44px}
+.mini-msg.agent .seal{position:absolute;left:12px;top:20px;width:15px;height:15px}
+.mini-msg.agent p{font:italic 400 13.5px/1.7 var(--serif);color:rgba(23,21,26,.92);max-width:480px}
+.mini-input{
+  width:100%;background:transparent;border:none;border-bottom:1px solid var(--hair-40);
+  font:300 13px/1.6 var(--sans);color:var(--ink);outline:none;
+  padding:16px 0 10px;
+}
+.mini-input::placeholder{color:var(--warm-lt);font-style:italic;font-family:var(--serif)}
+
+.fyi-body,.appr-body{margin-top:26px}
+.appr-lines{margin:20px 0 6px;max-width:460px}
+.appr-line{
+  display:flex;justify-content:space-between;gap:20px;
+  padding:11px 0;border-bottom:1px solid var(--hair-40);
+  font:300 13.5px/1.5 var(--sans);
+}
+.appr-line .mono{font:400 12px/1.5 var(--mono);color:var(--warm)}
+.appr-line .amt{font-variant-numeric:tabular-nums}
+.appr-total{
+  display:flex;justify-content:space-between;gap:20px;padding:12px 0;
+  font:400 14px/1.5 var(--sans);max-width:460px;
+  border-bottom:1px solid var(--hair-70);
+}
+
+/* ————————————————— 3 · views ————————————————— */
+.views-split{display:grid;grid-template-columns:224px 1fr;gap:44px;margin-top:34px}
+.views-list{border-right:1px solid var(--hair-40);padding-right:34px}
+.v-item{
+  display:block;width:100%;text-align:left;
+  padding:18px 0 16px;border-top:1px solid var(--hair-40);
+  opacity:.58;transition:opacity .18s ease;
+}
+.v-item:first-child{border-top:1px solid var(--hair-70)}
+.v-item:hover{opacity:.88}
+.v-item.selected{opacity:1}
+.v-item .v-name{
+  font:350 14px/1.5 var(--sans);color:var(--ink);
+  display:flex;align-items:center;gap:9px;
+}
+.v-item .v-name::before{content:"";width:5px;height:5px;border-radius:1px;background:transparent;flex:none}
+.v-item.selected .v-name::before{background:var(--vermilion)}
+.v-item .v-meta{font:400 10px/1.7 var(--mono);color:var(--warm-lt);display:block;margin-top:6px;letter-spacing:.03em;padding-left:14px}
+
+.board{min-width:0}
+.board-head{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:12px}
+.board-head h2{font:300 21px/1.3 var(--sans);letter-spacing:.01em}
+.board-head .b-meta{font:400 10.5px/1 var(--mono);color:var(--warm);letter-spacing:.05em;display:block;margin-top:8px}
+.board-actions{display:flex;gap:22px;align-items:baseline}
+.board-actions .tbtn{font:300 12.5px/1 var(--sans)}
+.refresh-glyph{display:inline-block}
+.refresh-glyph.spin{animation:spin .7s ease}
+@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+
+.tile-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:30px}
+.tile{
+  background:var(--paper-raised);
+  border:1px solid var(--hair-40);
+  padding:22px 24px 20px;min-width:0;
+}
+.tile.wide{grid-column:1 / -1}
+.tile .t-label{
+  font:400 9px/1 var(--mono);letter-spacing:.26em;text-transform:uppercase;
+  color:var(--warm-lt);display:block;margin-bottom:16px;
+}
+.stat-num{
+  font:200 42px/1.1 var(--sans);letter-spacing:.005em;color:var(--ink);
+  font-variant-numeric:tabular-nums;font-weight:200;
+}
+.stat-sub{font:400 10.5px/1 var(--mono);color:var(--warm-lt);display:block;margin-top:12px;letter-spacing:.04em}
+
+.bar-row{display:grid;grid-template-columns:118px 1fr 64px;gap:12px;align-items:center;padding:7px 0}
+.bar-row .b-name{font:300 12px/1.3 var(--sans);color:var(--ink-70);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar-row .b-track{height:6px;position:relative}
+.bar-row .b-bar{position:absolute;inset:0 auto 0 0;border-radius:3px;background:var(--ink);opacity:.82}
+.bar-row .b-val{font:400 10.5px/1 var(--mono);color:var(--warm);text-align:right;font-variant-numeric:tabular-nums}
+
+.line-chart{width:100%;height:auto;display:block;margin-top:4px}
+
+.tile table{border-collapse:collapse;width:100%}
+.tile th{
+  font:400 8.5px/1 var(--mono);letter-spacing:.22em;text-transform:uppercase;
+  color:var(--warm-lt);text-align:left;font-weight:400;
+  padding:0 10px 9px 0;border-bottom:1px solid var(--ink);
+}
+.tile td{
+  font:300 12.5px/1.4 var(--sans);color:var(--ink);
+  padding:8px 10px 8px 0;border-bottom:1px solid var(--hair-40);
+  font-variant-numeric:tabular-nums;
+}
+.tile th.num,.tile td.num{text-align:right;padding-right:0}
+.tile td.dim{color:var(--warm)}
+.tile tr:last-child td{border-bottom:none}
+
+.ticker{overflow:hidden;position:relative;padding:14px 0 12px}
+.ticker-track{display:flex;width:max-content;animation:tick 38s linear infinite}
+@keyframes tick{to{transform:translateX(-50%)}}
+.tick-item{font:400 11px/1 var(--mono);color:var(--warm);letter-spacing:.05em;white-space:nowrap;margin-right:56px}
+.tick-item b{color:var(--ink);font-weight:400}
+
+.board-rest[hidden]{display:none}
+.rest-note{font:italic 400 13.5px/1.7 var(--serif);color:var(--warm);margin-top:26px}
+.rest-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:24px}
+.rest-tile{
+  border:1px solid var(--hair-40);height:132px;
+  display:grid;place-items:center;background:transparent;
+}
+.rest-tile .enso{width:30px;height:30px}
+
+/* ————————————————— 4 · playbooks ————————————————— */
+.pb-toolbar{display:flex;justify-content:space-between;align-items:baseline;gap:24px;margin-top:34px;flex-wrap:wrap}
+.pb-search{
+  background:transparent;border:none;border-bottom:1px solid var(--hair-70);
+  font:300 13px/1.6 var(--sans);color:var(--ink);outline:none;
+  padding:6px 0;width:230px;
+}
+.pb-search::placeholder{color:var(--warm-lt);font-style:italic;font-family:var(--serif)}
+.pb-links{display:flex;gap:24px}
+.pb-links .tbtn{font:300 12.5px/1.6 var(--sans)}
+.pb-list{margin-top:26px}
+.pb-row{
+  display:grid;grid-template-columns:1fr 110px 150px;gap:20px;align-items:baseline;
+  padding:19px 2px;border-top:1px solid var(--hair-40);
+  transition:background .15s ease;
+}
+.pb-row:first-child{border-top:1px solid var(--hair-70)}
+.pb-row:last-child{border-bottom:1px solid var(--hair-40)}
+.pb-row:hover{background:rgba(23,21,26,.025)}
+.pb-row[hidden]{display:none}
+.pb-name{font:350 14.5px/1.5 var(--sans);color:var(--ink)}
+.pb-type{font:400 10px/1.6 var(--mono);letter-spacing:.2em;text-transform:lowercase;color:var(--warm)}
+.pb-meta{font:400 10.5px/1.6 var(--mono);color:var(--warm-lt);text-align:right;letter-spacing:.03em}
+
+/* ————————————————— 5 · email ————————————————— */
+.card{
+  background:var(--paper-raised);border:1px solid var(--hair-40);
+  padding:30px 34px 28px;margin-top:30px;
+}
+.card .c-label{
+  font:400 9px/1 var(--mono);letter-spacing:.28em;text-transform:uppercase;
+  color:var(--warm-lt);display:block;margin-bottom:20px;
+}
+.addr-row{display:flex;align-items:baseline;gap:2px;flex-wrap:wrap}
+.addr-prefix{
+  background:transparent;border:none;border-bottom:1px solid var(--hair-70);
+  font:400 17px/1.4 var(--mono);color:var(--ink);outline:none;
+  width:150px;padding:2px 0;letter-spacing:.01em;
+}
+.addr-suffix{font:400 17px/1.4 var(--mono);color:var(--warm)}
+.state-chip{
+  font:600 8.5px/1 var(--mono);letter-spacing:.24em;
+  color:var(--vermilion);border:1px solid var(--vermilion);
+  border-radius:2px;padding:4px 7px 3px;margin-left:18px;vertical-align:3px;
+}
+.addr-actions{display:flex;align-items:center;gap:30px;margin-top:24px}
+.email-subcopy{font:italic 400 13px/1.75 var(--serif);color:var(--warm);margin-top:22px;max-width:520px}
+
+.toggle-row{display:flex;align-items:center;gap:16px;padding:13px 0;border-top:1px solid var(--hair-40)}
+.toggle-row:first-of-type{border-top:none}
+.toggle{
+  width:37px;height:20px;flex:none;
+  border:1px solid var(--hair);border-radius:10px;position:relative;
+  transition:border-color .18s ease;
+}
+.toggle::after{
+  content:"";position:absolute;top:3px;left:3px;width:12px;height:12px;border-radius:50%;
+  background:var(--hair);transition:left .18s ease,background .18s ease;
+}
+.toggle[aria-pressed="true"]{border-color:var(--ink)}
+.toggle[aria-pressed="true"]::after{left:20px;background:var(--ink)}
+.toggle-row .t-name{font:300 14px/1.5 var(--sans);color:var(--ink)}
+.toggle-row .t-note{font:italic 400 12px/1.5 var(--serif);color:var(--warm-lt)}
+.field-row{display:flex;align-items:baseline;gap:16px;padding:16px 0 4px;border-top:1px solid var(--hair-40);margin-top:4px}
+.field-row .t-name{font:300 14px/1.5 var(--sans)}
+.num-input{
+  background:transparent;border:none;border-bottom:1px solid var(--hair-70);
+  font:400 13px/1.5 var(--mono);color:var(--ink);outline:none;
+  width:52px;text-align:center;padding:2px 0;
+}
+.standing{
+  width:100%;background:transparent;border:none;border-bottom:1px solid var(--hair-40);
+  font:300 13.5px/1.75 var(--sans);color:var(--ink);outline:none;resize:vertical;
+  min-height:74px;padding:14px 0 10px;margin-top:10px;
+}
+.standing::placeholder{color:var(--warm-lt);font-style:italic;font-family:var(--serif)}
+.activity{margin-top:44px}
+.activity .a-label{
+  font:400 9.5px/1 var(--mono);letter-spacing:.28em;text-transform:uppercase;
+  color:var(--warm-lt);display:block;padding-bottom:14px;border-bottom:1px solid var(--hair-70);
+}
+.a-row{
+  display:grid;grid-template-columns:104px 110px 1fr;gap:18px;align-items:baseline;
+  padding:14px 2px;border-bottom:1px solid var(--hair-40);
+  font:400 11.5px/1.6 var(--mono);letter-spacing:.02em;
+}
+.a-row .a-when{color:var(--warm-lt)}
+.a-row .a-verb{color:var(--ink-70)}
+.a-row .a-what{color:var(--warm)}
+.a-row .a-what b{color:var(--ink);font-weight:400}
+
+/* ————————————————— 6 · skills ————————————————— */
+.skills-split{display:grid;grid-template-columns:264px 1fr;gap:44px;margin-top:34px}
+.skills-list{border-right:1px solid var(--hair-40);padding-right:34px}
+.s-item{
+  display:block;width:100%;text-align:left;
+  padding:18px 0 16px;border-top:1px solid var(--hair-40);
+  opacity:.58;transition:opacity .18s ease;
+}
+.s-item:first-child{border-top:1px solid var(--hair-70)}
+.s-item:hover{opacity:.88}
+.s-item.selected{opacity:1}
+.s-item .s-name{
+  font:400 13px/1.5 var(--mono);color:var(--ink);letter-spacing:.01em;
+  display:flex;align-items:center;gap:9px;
+}
+.s-item .s-name::before{content:"";width:5px;height:5px;border-radius:1px;background:transparent;flex:none}
+.s-item.selected .s-name::before{background:var(--vermilion)}
+.s-item .s-meta{font:400 10px/1.7 var(--mono);color:var(--warm-lt);display:block;margin-top:6px;padding-left:14px;letter-spacing:.05em}
+.skill-detail h2{font:400 19px/1.4 var(--mono);letter-spacing:.01em}
+.skill-detail .sd-meta{font:400 10.5px/1 var(--mono);color:var(--warm);letter-spacing:.08em;display:block;margin-top:10px}
+.skill-body{
+  font:400 12.5px/2 var(--mono);color:var(--ink-70);
+  white-space:pre-wrap;
+  border-top:1px solid var(--hair-70);border-bottom:1px solid var(--hair-40);
+  padding:26px 0;margin-top:26px;letter-spacing:.01em;
+}
+.skill-foot{margin-top:26px;display:flex;justify-content:flex-end}
+.danger-btn{font:300 13px/1 var(--sans);color:var(--vermilion);letter-spacing:.02em}
+.danger-btn:hover{
+  text-decoration:underline;text-decoration-color:var(--vermilion);
+  text-underline-offset:6px;text-decoration-thickness:1.5px;
+}
+.danger-btn.nudge{animation:nudge .5s ease}
+@keyframes nudge{0%{opacity:1}40%{opacity:.35}100%{opacity:1}}
+
+/* ————————————————— footer mantra ————————————————— */
+.mantra{
+  margin-top:110px;padding-top:20px;border-top:1px solid var(--hair-40);
+  display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;
+  font:400 10px/1.8 var(--mono);letter-spacing:.18em;color:var(--warm-lt);
+}
+
+/* ————————————————— corner badge ————————————————— */
+.badge{
+  position:fixed;right:22px;bottom:18px;z-index:40;
+  display:flex;align-items:center;gap:9px;
+  font:400 10px/1 var(--mono);letter-spacing:.14em;color:var(--warm);
+  text-decoration:none;padding:6px 2px;
+}
+.badge::before{content:"";width:9px;height:9px;border-radius:2px;background:var(--vermilion)}
+.badge:hover{
+  color:var(--ink);text-decoration:underline;
+  text-decoration-color:var(--vermilion);text-underline-offset:5px;
+  text-decoration-thickness:1.5px;
+}
+
+/* ————————————————— reduced motion: near-total stillness ————————————————— */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none !important;transition:none !important}
+  .ticker-track{animation:none !important}
+  body.thinking .enso .e-main{opacity:.26}
+  body.thinking .enso .e-ghost{opacity:.09}
+}
+
+@media (max-width:1100px){
+  .work-split,.views-split,.skills-split{grid-template-columns:1fr;gap:36px}
+  .queue,.views-list,.skills-list{border-right:none;padding-right:0}
+  .msg.agent{margin-left:44px}
+  .msg.agent .seal{left:-32px}
+  .tile-grid,.rest-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body class="thinking">
+
+<!-- ————— seal glyph template (inlined per use) ————— -->
+
+<nav class="rail" aria-label="Primary">
+  <div class="enso-wrap" title="The Agent">
+    <svg class="enso" viewBox="0 0 100 100" aria-hidden="true">
+      <circle class="e-main" cx="50" cy="50" r="38" pathLength="100"/>
+      <circle class="e-ghost" cx="50" cy="50" r="36.4" pathLength="100"/>
+    </svg>
+  </div>
+  <ul class="nav">
+    <li><button class="nav-item active" data-panel="assistant">assistant</button></li>
+    <li><button class="nav-item" data-panel="work">my work<span class="count">4</span></button></li>
+    <li><button class="nav-item" data-panel="views">views</button></li>
+    <li><button class="nav-item" data-panel="playbooks">playbooks</button></li>
+    <li><button class="nav-item" data-panel="email">email</button></li>
+    <li><button class="nav-item" data-panel="skills">skills</button></li>
+  </ul>
+  <div class="rail-spacer"></div>
+  <button class="platform-toggle" id="platformBtn" aria-expanded="false">platform</button>
+</nav>
+
+<div class="platform-pop" id="platformPop" hidden>
+  <span class="pop-label">Platform</span>
+  <a href="#">Data Explorer</a>
+  <a href="#">Workflow Designer</a>
+  <a href="#">Mission Control</a>
+  <a href="#">Command Center</a>
+  <a href="#">Documents</a>
+  <a href="#">Classic app</a>
+</div>
+
+<main>
+<div class="page">
+
+  <header class="masthead">
+    <span class="wordmark">The Agent</span>
+    <span class="who">James · admin · <span class="brain">brain: claude-fable-5</span></span>
+  </header>
+
+  <!-- ————————————————— 1 · ASSISTANT ————————————————— -->
+  <section class="panel active" id="panel-assistant">
+    <span class="kicker">assistant · session 08-09</span>
+
+    <div class="session-start">
+      <p class="hello">Hi James — what do you need?</p>
+      <p class="hello-sub">Explore your data, build automations through conversation, and keep humans in the loop with My&nbsp;Work.</p>
+      <div class="starters">
+        <button class="starter" data-fill="What data connections do we have?">What data connections do we have?</button>
+        <button class="starter" data-fill="Build me an automation that checks ERPDB daily">Build me an automation that checks ERPDB daily</button>
+        <button class="starter" data-fill="What's waiting in My Work?">What&rsquo;s waiting in My Work?</button>
+      </div>
+    </div>
+
+    <div class="thread">
+
+      <article class="msg you">
+        <span class="who-label">You</span>
+        <p>Which vendors drove August invoice spend, and are any invoices stuck?</p>
+      </article>
+
+      <article class="msg agent">
+        <svg class="seal" viewBox="0 0 20 20" aria-hidden="true"><rect x="0.5" y="0.5" width="19" height="19" rx="3" fill="#D93A2B"/><path d="M5.5 5.5h9M5.5 9.5h5.5M10 9.5v5M5.5 14.5h9" stroke="#FAF7F0" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg>
+        <span class="who-label">The Agent</span>
+        <div class="tools">
+          <div class="tool"><span class="tdot"></span><code>list_connections {}</code><span class="tmeta">ok · 0.4s</span></div>
+          <div class="tool"><span class="tdot"></span><code>query_database {"connection":"ERPDB","sql":"SELECT vendor, SUM(total)…"}</code><span class="tmeta">ok · 1.8s</span></div>
+        </div>
+        <div class="voice">
+          <p>August invoice spend is <strong>$482,910</strong> across 41 vendors. The top five drive 68% of it:</p>
+        </div>
+        <table class="inktable">
+          <thead>
+            <tr><th>Vendor</th><th class="num">Invoices</th><th class="num">August total</th><th class="num">vs July</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Meridian Supply Co</td><td class="num">14</td><td class="num">$128,400</td><td class="num">+22%</td></tr>
+            <tr><td>Northgate Logistics</td><td class="num">9</td><td class="num">$96,150</td><td class="num">+4%</td></tr>
+            <tr><td>Corvid Materials</td><td class="num">11</td><td class="num">$64,020</td><td class="num dim">−8%</td></tr>
+            <tr><td>Atlas Packaging</td><td class="num">7</td><td class="num">$41,310</td><td class="num">+13%</td></tr>
+            <tr><td>Helix Industrial</td><td class="num">5</td><td class="num">$38,900</td><td class="num">+2%</td></tr>
+          </tbody>
+        </table>
+        <div class="voice">
+          <p>Two Meridian invoices (<strong>INV-20841</strong>, <strong>INV-20857</strong>) are pending approval past 14 days — $61,200 combined. Want me to raise them in My Work?</p>
+        </div>
+      </article>
+
+      <article class="msg you">
+        <span class="who-label">You</span>
+        <p>Yes — raise them and save this as a view.</p>
+      </article>
+
+      <article class="msg agent">
+        <svg class="seal" viewBox="0 0 20 20" aria-hidden="true"><rect x="0.5" y="0.5" width="19" height="19" rx="3" fill="#D93A2B"/><path d="M5.5 5.5h9M5.5 9.5h5.5M10 9.5v5M5.5 14.5h9" stroke="#FAF7F0" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg>
+        <span class="who-label">The Agent</span>
+        <div class="tools">
+          <div class="tool"><span class="tdot"></span><code>create_work_item</code><span class="tmeta">ok · 0.6s</span></div>
+          <div class="tool"><span class="tdot"></span><code>save_view {"name":"Vendor Spend — August"}</code><span class="tmeta">ok · 0.9s</span></div>
+        </div>
+        <div class="voice">
+          <p>Done. Two approval items are in <strong>My Work</strong>, and I saved <strong>Vendor Spend — August</strong> as a view with 4 tiles — it refreshes with zero AI.</p>
+        </div>
+      </article>
+
+    </div>
+
+    <div class="composer">
+      <div class="thinkline" id="thinkline" hidden>
+        <svg class="enso mini-enso" viewBox="0 0 100 100" aria-hidden="true">
+          <circle class="e-main" cx="50" cy="50" r="38" pathLength="100"/>
+        </svg>
+        <em>the agent is thinking…</em>
+      </div>
+      <div class="composer-row">
+        <textarea id="composerInput" rows="2" placeholder="Write to the agent…" aria-label="Message the agent"></textarea>
+        <div class="composer-actions">
+          <button class="send-btn" id="sendBtn">Send</button>
+          <div class="minor-actions">
+            <button class="tbtn" id="newBtn">＋ New</button>
+            <span>·</span>
+            <button class="tbtn">History</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ————————————————— 2 · MY WORK ————————————————— -->
+  <section class="panel" id="panel-work">
+    <div class="panel-head">
+      <h1>My Work</h1>
+      <div class="sub">
+        <span class="meta">4 open · nothing sends without you</span>
+        <span class="meta">queue · 08-09</span>
+      </div>
+    </div>
+
+    <div class="filter-row" id="workFilters">
+      <button class="chip active" data-filter="all">All <span class="n">4</span></button>
+      <button class="chip" data-filter="approval">Approval <span class="n">1</span></button>
+      <button class="chip" data-filter="email">Email / Edit <span class="n">1</span></button>
+      <button class="chip" data-filter="question">Question <span class="n">1</span></button>
+      <button class="chip" data-filter="fyi">FYI <span class="n">1</span></button>
+    </div>
+
+    <div class="work-split">
+      <div class="queue" id="workQueue">
+        <button class="q-item" data-type="approval" data-detail="d-approval">
+          <span class="q-type">Approval</span>
+          <span class="q-title">Approve payment run — 2 overdue Meridian invoices ($61,200)</span>
+          <span class="q-meta">from automation invoice-chaser · 09:14 <span class="tag">dry-run</span></span>
+        </button>
+        <button class="q-item selected" data-type="email" data-detail="d-email">
+          <span class="q-type">Email / Edit</span>
+          <span class="q-title">Re: Q3 renewal pricing — reply to Dana Whitfield</span>
+          <span class="q-meta">from email · 08:47</span>
+        </button>
+        <button class="q-item" data-type="question" data-detail="d-question">
+          <span class="q-type">Question</span>
+          <span class="q-title">Which fiscal calendar should the vendor report use — 4-4-5 or calendar month?</span>
+          <span class="q-meta">from agent · shared, unclaimed</span>
+        </button>
+        <button class="q-item" data-type="fyi" data-detail="d-fyi">
+          <span class="q-type">FYI</span>
+          <span class="q-title">Nightly ERPDB health check completed — 0 anomalies, 312k rows scanned</span>
+          <span class="q-meta">from automation erpdb-daily-health · 06:00</span>
+        </button>
+      </div>
+
+      <div class="detail">
+
+        <!-- item 1 · approval -->
+        <div class="d-pane" id="d-approval">
+          <p class="d-label">Dry-run complete — approving promotes the payment run.</p>
+          <div class="appr-body">
+            <div class="appr-lines">
+              <div class="appr-line"><span class="mono">INV-20841 · Meridian Supply Co</span><span class="amt">$38,700 · 21d</span></div>
+              <div class="appr-line"><span class="mono">INV-20857 · Meridian Supply Co</span><span class="amt">$22,500 · 17d</span></div>
+            </div>
+            <div class="appr-total"><span>Payment run total</span><span class="amt">$61,200</span></div>
+            <div class="decide-row">
+              <button class="hanko stamp-btn"><span>Approve</span></button>
+              <button class="deny-btn">Deny</button>
+              <span class="decide-hint">Nothing pays without you.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- item 2 · email / edit (selected) -->
+        <div class="d-pane active" id="d-email">
+          <p class="d-label">Draft — body is editable; what you approve is what sends.</p>
+          <div class="mail-row"><span class="k">To</span><span class="v">dana@meridiansupply.com</span></div>
+          <div class="mail-row"><span class="k">From</span><span class="v">james-agent@mail.aihub.dev</span></div>
+          <div class="mail-row"><span class="k">Subject</span><span class="v">Re: Q3 renewal pricing</span></div>
+          <textarea class="draft-body" aria-label="Editable draft body">Hi Dana — thank you for sending over the Q3 renewal proposal. We'd like to hold at current pricing while we complete our August vendor-spend review, which also flagged two invoices on our side (INV-20841 and INV-20857) still pending approval. I'll come back with a firm answer once both are cleared — likely within the week.</textarea>
+          <input class="comment-box" type="text" placeholder="Add a comment for the audit trail (optional)" aria-label="Comment">
+          <div class="decide-row">
+            <button class="hanko stamp-btn"><span>Approve<br>&amp;&nbsp;send</span></button>
+            <button class="deny-btn">Deny</button>
+            <span class="decide-hint">Nothing sends without you.</span>
+          </div>
+
+          <div class="mini-thread">
+            <span class="mt-label">Thread with the agent</span>
+            <div class="mini-msg you">
+              <span class="who-label">You</span>
+              <p>Is Dana on the approved vendor contact list?</p>
+            </div>
+            <div class="mini-msg agent">
+              <svg class="seal" viewBox="0 0 20 20" aria-hidden="true"><rect x="0.5" y="0.5" width="19" height="19" rx="3" fill="#D93A2B"/><path d="M5.5 5.5h9M5.5 9.5h5.5M10 9.5v5M5.5 14.5h9" stroke="#FAF7F0" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg>
+              <span class="who-label">The Agent</span>
+              <p>Yes — primary commercial contact for Meridian Supply Co since March.</p>
+            </div>
+            <input class="mini-input" type="text" placeholder="Ask the agent about this item…" aria-label="Ask the agent about this item">
+          </div>
+        </div>
+
+        <!-- item 3 · question -->
+        <div class="d-pane" id="d-question">
+          <p class="d-label">The agent is asking — shared with your group, unclaimed.</p>
+          <div class="mini-thread" style="margin-top:26px">
+            <div class="mini-msg agent" style="border-top:1px solid var(--hair-70)">
+              <svg class="seal" viewBox="0 0 20 20" aria-hidden="true"><rect x="0.5" y="0.5" width="19" height="19" rx="3" fill="#D93A2B"/><path d="M5.5 5.5h9M5.5 9.5h5.5M10 9.5v5M5.5 14.5h9" stroke="#FAF7F0" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg>
+              <span class="who-label">The Agent</span>
+              <p>Which fiscal calendar should the vendor report use — 4-4-5 or calendar month?</p>
+            </div>
+            <input class="mini-input" type="text" placeholder="Answer the agent…" aria-label="Answer the agent">
+            <div class="decide-row" style="margin-top:24px">
+              <button class="tbtn ack-btn" data-ack="Sent to agent ✓">Answer</button>
+              <button class="tbtn ack-btn" data-ack="Claimed ✓">Claim</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- item 4 · fyi -->
+        <div class="d-pane" id="d-fyi">
+          <p class="d-label">For your information — no action required.</p>
+          <div class="fyi-body">
+            <div class="appr-lines">
+              <div class="appr-line"><span class="mono">anomalies</span><span class="amt">0</span></div>
+              <div class="appr-line"><span class="mono">rows scanned</span><span class="amt">312,000</span></div>
+              <div class="appr-line"><span class="mono">source</span><span class="amt">erpdb-daily-health · v12</span></div>
+            </div>
+            <div class="decide-row">
+              <button class="tbtn ack-btn" data-ack="Cleared ✓">Acknowledge</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ————————————————— 3 · VIEWS ————————————————— -->
+  <section class="panel" id="panel-views">
+    <div class="panel-head">
+      <h1>Views</h1>
+      <div class="sub">
+        <span class="meta">deterministic dashboards · zero AI at refresh</span>
+        <span class="meta">3 views</span>
+      </div>
+    </div>
+
+    <div class="views-split">
+      <div class="views-list" id="viewsList">
+        <button class="v-item selected" data-view="vendor" data-name="Vendor Spend — August" data-meta="user · v3 · refreshed 16:42" data-tiles="4">
+          <span class="v-name">Vendor Spend — August</span>
+          <span class="v-meta">user · 4 tiles · v3</span>
+        </button>
+        <button class="v-item" data-view="ops" data-name="Ops Pulse" data-meta="group · v11 · refreshed —" data-tiles="6">
+          <span class="v-name">Ops Pulse</span>
+          <span class="v-meta">group · 6 tiles · v11 · automation tiles</span>
+        </button>
+        <button class="v-item" data-view="warehouse" data-name="Warehouse Throughput" data-meta="tenant · v2 · refreshed —" data-tiles="5">
+          <span class="v-name">Warehouse Throughput</span>
+          <span class="v-meta">tenant · 5 tiles · v2</span>
+        </button>
+      </div>
+
+      <div class="board">
+        <div class="board-head">
+          <div>
+            <h2 id="boardTitle">Vendor Spend — August</h2>
+            <span class="b-meta" id="boardMeta">user · v3 · refreshed 16:42</span>
+          </div>
+          <div class="board-actions">
+            <button class="tbtn">Arrange</button>
+            <button class="tbtn">Rename</button>
+            <button class="tbtn">✎ Edit with AI</button>
+            <button class="tbtn" id="refreshBtn"><span class="refresh-glyph" id="refreshGlyph">↻</span> Refresh</button>
+          </div>
+        </div>
+
+        <div class="tile-grid" id="boardReal">
+          <div class="tile">
+            <span class="t-label">August invoice total</span>
+            <span class="stat-num">$482,910</span>
+            <span class="stat-sub">SUM(total) · as of 16:42</span>
+          </div>
+
+          <div class="tile">
+            <span class="t-label">Spend by vendor · top 5</span>
+            <div class="bar-row"><span class="b-name">Meridian Supply Co</span><span class="b-track"><span class="b-bar" style="width:100%"></span></span><span class="b-val">128,400</span></div>
+            <div class="bar-row"><span class="b-name">Northgate Logistics</span><span class="b-track"><span class="b-bar" style="width:75%"></span></span><span class="b-val">96,150</span></div>
+            <div class="bar-row"><span class="b-name">Corvid Materials</span><span class="b-track"><span class="b-bar" style="width:50%"></span></span><span class="b-val">64,020</span></div>
+            <div class="bar-row"><span class="b-name">Atlas Packaging</span><span class="b-track"><span class="b-bar" style="width:32%"></span></span><span class="b-val">41,310</span></div>
+            <div class="bar-row"><span class="b-name">Helix Industrial</span><span class="b-track"><span class="b-bar" style="width:30%"></span></span><span class="b-val">38,900</span></div>
+          </div>
+
+          <div class="tile wide">
+            <span class="t-label">Daily invoice volume</span>
+            <svg class="line-chart" viewBox="0 0 560 148" preserveAspectRatio="none" aria-hidden="true">
+              <line x1="8" y1="140" x2="552" y2="140" stroke="#C9C4BA" stroke-width="1" opacity="0.5"/>
+              <polyline fill="none" stroke="#17151A" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.82"
+                points="8,78 50,69 92,74 134,59 175,64 217,54 259,50 301,54 343,45 385,35 427,40 468,30 510,26 552,21"/>
+              <circle cx="552" cy="21" r="2.8" fill="#17151A" opacity="0.85"/>
+            </svg>
+          </div>
+
+          <div class="tile wide">
+            <span class="t-label">Open invoices &gt; 14 days</span>
+            <table>
+              <thead><tr><th>Invoice</th><th>Vendor</th><th class="num">Amount</th><th class="num">Age</th></tr></thead>
+              <tbody>
+                <tr><td>INV-20841</td><td>Meridian Supply Co</td><td class="num">$38,700</td><td class="num dim">21d</td></tr>
+                <tr><td>INV-20857</td><td>Meridian Supply Co</td><td class="num">$22,500</td><td class="num dim">17d</td></tr>
+                <tr><td>INV-20872</td><td>Corvid Materials</td><td class="num">$9,340</td><td class="num dim">16d</td></tr>
+                <tr><td>INV-20881</td><td>Atlas Packaging</td><td class="num">$7,120</td><td class="num dim">15d</td></tr>
+                <tr><td>INV-20889</td><td>Northgate Logistics</td><td class="num">$5,480</td><td class="num dim">15d</td></tr>
+                <tr><td>INV-20896</td><td>Helix Industrial</td><td class="num">$4,210</td><td class="num dim">14d</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="tile wide">
+            <span class="t-label">Latest invoices</span>
+            <div class="ticker">
+              <div class="ticker-track">
+                <span class="tick-item"><b>INV-20896</b> · Helix Industrial · $4,210</span>
+                <span class="tick-item"><b>INV-20889</b> · Northgate Logistics · $5,480</span>
+                <span class="tick-item"><b>INV-20881</b> · Atlas Packaging · $7,120</span>
+                <span class="tick-item"><b>INV-20872</b> · Corvid Materials · $9,340</span>
+                <span class="tick-item"><b>INV-20857</b> · Meridian Supply Co · $22,500</span>
+                <span class="tick-item"><b>INV-20841</b> · Meridian Supply Co · $38,700</span>
+                <span class="tick-item"><b>INV-20896</b> · Helix Industrial · $4,210</span>
+                <span class="tick-item"><b>INV-20889</b> · Northgate Logistics · $5,480</span>
+                <span class="tick-item"><b>INV-20881</b> · Atlas Packaging · $7,120</span>
+                <span class="tick-item"><b>INV-20872</b> · Corvid Materials · $9,340</span>
+                <span class="tick-item"><b>INV-20857</b> · Meridian Supply Co · $22,500</span>
+                <span class="tick-item"><b>INV-20841</b> · Meridian Supply Co · $38,700</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="board-rest" id="boardRest" hidden>
+          <p class="rest-note">This view rests until opened — it refreshes deterministically, with zero AI.</p>
+          <div class="rest-grid" id="restGrid"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ————————————————— 4 · PLAYBOOKS ————————————————— -->
+  <section class="panel" id="panel-playbooks">
+    <div class="panel-head">
+      <h1>Playbooks</h1>
+      <div class="sub">
+        <span class="meta">workflows · code flows · automations</span>
+        <span class="meta">draft → dry-run → promote → schedule</span>
+      </div>
+    </div>
+
+    <div class="filter-row" id="pbFilters">
+      <button class="chip active" data-filter="all">All <span class="n">6</span></button>
+      <button class="chip" data-filter="workflow">Workflows <span class="n">2</span></button>
+      <button class="chip" data-filter="codeflow">Code Flows <span class="n">1</span></button>
+      <button class="chip" data-filter="automation">Automations <span class="n">3</span></button>
+    </div>
+
+    <div class="pb-toolbar">
+      <input class="pb-search" id="pbSearch" type="text" placeholder="Search playbooks…" aria-label="Search playbooks">
+      <div class="pb-links">
+        <a class="tbtn" href="#">Open Workflow Designer ↗</a>
+        <a class="tbtn" href="#">Open Mission Control ↗</a>
+      </div>
+    </div>
+
+    <div class="pb-list" id="pbList">
+      <div class="pb-row" data-type="workflow">
+        <span class="pb-name">Invoice Intake — OCR + 3-way match</span>
+        <span class="pb-type">workflow</span>
+        <span class="pb-meta">id 1218</span>
+      </div>
+      <div class="pb-row" data-type="workflow">
+        <span class="pb-name">Vendor Onboarding Checks</span>
+        <span class="pb-type">workflow</span>
+        <span class="pb-meta">id 1327</span>
+      </div>
+      <div class="pb-row" data-type="codeflow">
+        <span class="pb-name">Monthly Close Journal Prep</span>
+        <span class="pb-type">code flow</span>
+        <span class="pb-meta">id 214</span>
+      </div>
+      <div class="pb-row" data-type="automation">
+        <span class="pb-name">invoice-chaser</span>
+        <span class="pb-type">automation</span>
+        <span class="pb-meta">v7 · pinned v6</span>
+      </div>
+      <div class="pb-row" data-type="automation">
+        <span class="pb-name">dayforce-doc-upload</span>
+        <span class="pb-type">automation</span>
+        <span class="pb-meta">v3</span>
+      </div>
+      <div class="pb-row" data-type="automation">
+        <span class="pb-name">erpdb-daily-health</span>
+        <span class="pb-type">automation</span>
+        <span class="pb-meta">v12</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ————————————————— 5 · EMAIL ————————————————— -->
+  <section class="panel" id="panel-email">
+    <div class="panel-head">
+      <h1>Email</h1>
+      <div class="sub">
+        <span class="meta">the agent&rsquo;s personal address</span>
+        <span class="meta">inbound → headless session → My Work</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="c-label">Your address</span>
+      <div class="addr-row">
+        <input class="addr-prefix" type="text" value="james-agent" aria-label="Address prefix">
+        <span class="addr-suffix">@mail.aihub.dev</span>
+        <span class="state-chip">Active</span>
+      </div>
+      <div class="addr-actions">
+        <div style="display:flex;align-items:center;gap:14px">
+          <button class="toggle" aria-pressed="true" aria-label="Inbound enabled"></button>
+          <span class="t-name" style="font:300 14px/1.5 var(--sans)">Inbound enabled</span>
+        </div>
+        <button class="tbtn save-btn" data-ack="Saved ✓">Save</button>
+      </div>
+      <p class="email-subcopy">Mail sent to this address runs a headless agent session as you and lands its result in My&nbsp;Work.</p>
+    </div>
+
+    <div class="card">
+      <span class="c-label">Sending &amp; behavior</span>
+      <div class="toggle-row">
+        <button class="toggle" aria-pressed="true" aria-label="Outbound enabled"></button>
+        <span class="t-name">Outbound enabled</span>
+      </div>
+      <div class="toggle-row">
+        <button class="toggle" aria-pressed="false" aria-label="Auto-send replies"></button>
+        <span class="t-name">Auto-send replies</span>
+        <span class="t-note">— every reply waits for your approval in My Work</span>
+      </div>
+      <div class="toggle-row">
+        <button class="toggle" aria-pressed="false" aria-label="Notify on inbound"></button>
+        <span class="t-name">Notify on inbound</span>
+      </div>
+      <div class="field-row">
+        <span class="t-name">Cooldown</span>
+        <input class="num-input" type="text" value="30" aria-label="Cooldown minutes">
+        <span class="t-note" style="font:italic 400 12px/1.5 var(--serif);color:var(--warm-lt)">minutes between replies to the same sender</span>
+      </div>
+      <textarea class="standing" placeholder="Standing instructions… e.g. Always cc me on vendor threads; never discuss pricing without approval." aria-label="Standing instructions"></textarea>
+    </div>
+
+    <div class="activity">
+      <span class="a-label">Recent inbound activity</span>
+      <div class="a-row"><span class="a-when">08-09 08:47</span><span class="a-verb">reply_drafted</span><span class="a-what"><b>dana@meridiansupply.com</b> — Re: Q3 renewal pricing</span></div>
+      <div class="a-row"><span class="a-when">08-08 16:02</span><span class="a-verb">processed</span><span class="a-what"><b>alerts@dayforce.com</b> — Document batch ready</span></div>
+      <div class="a-row"><span class="a-when">08-08 09:15</span><span class="a-verb">processed</span><span class="a-what"><b>noreply@erpdb</b> — Weekly digest</span></div>
+    </div>
+  </section>
+
+  <!-- ————————————————— 6 · SKILLS ————————————————— -->
+  <section class="panel" id="panel-skills">
+    <div class="panel-head">
+      <h1>Skills</h1>
+      <div class="sub">
+        <span class="meta">procedural memory · the agent reads these before it acts</span>
+        <span class="meta">3 skills</span>
+      </div>
+    </div>
+
+    <div class="skills-split">
+      <div class="skills-list" id="skillsList">
+        <button class="s-item" data-skill="recon">
+          <span class="s-name">erpdb-reconciliation-recipes</span>
+          <span class="s-meta">product · 4.2 KB</span>
+        </button>
+        <button class="s-item" data-skill="naming">
+          <span class="s-name">vendor-naming-conventions</span>
+          <span class="s-meta">tenant · 1.1 KB</span>
+        </button>
+        <button class="s-item selected" data-skill="format">
+          <span class="s-name">james-report-format</span>
+          <span class="s-meta">user · 0.8 KB</span>
+        </button>
+      </div>
+
+      <div class="skill-detail">
+        <h2 id="skillTitle">james-report-format</h2>
+        <span class="sd-meta" id="skillMeta">user scope · 0.8 KB</span>
+        <div class="skill-body" id="skillBody">Reports for James: lead with the number, then the table. Currency to the dollar, no cents. Always note the as-of time…</div>
+        <div class="skill-foot">
+          <button class="danger-btn" id="deleteSkill">Delete skill</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="mantra">
+    <span>draft → dry-run → promote → schedule</span>
+    <span>humans stay in the loop · My Work</span>
+  </footer>
+
+</div>
+</main>
+
+<a class="badge" href="./index.html">#08 · Sumi</a>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ————— section navigation ————— */
+  var navItems = document.querySelectorAll(".nav-item");
+  var panels = document.querySelectorAll(".panel");
+  navItems.forEach(function(btn){
+    btn.addEventListener("click", function(){
+      navItems.forEach(function(b){ b.classList.remove("active"); });
+      btn.classList.add("active");
+      panels.forEach(function(p){ p.classList.remove("active"); });
+      var target = document.getElementById("panel-" + btn.dataset.panel);
+      if (target) target.classList.add("active");
+      window.scrollTo(0, 0);
+    });
+  });
+
+  /* ————— platform popover ————— */
+  var platformBtn = document.getElementById("platformBtn");
+  var platformPop = document.getElementById("platformPop");
+  if (platformBtn && platformPop){
+    platformBtn.addEventListener("click", function(e){
+      e.stopPropagation();
+      var open = !platformPop.hidden;
+      platformPop.hidden = open;
+      platformBtn.setAttribute("aria-expanded", String(!open));
+    });
+    document.addEventListener("click", function(e){
+      if (!platformPop.hidden && !platformPop.contains(e.target)){
+        platformPop.hidden = true;
+        platformBtn.setAttribute("aria-expanded", "false");
+      }
+    });
+    platformPop.querySelectorAll("a").forEach(function(a){
+      a.addEventListener("click", function(e){ e.preventDefault(); });
+    });
+  }
+
+  /* ————— ensō thinking presence ————— */
+  var thinkTimer = null;
+  var thinkline = document.getElementById("thinkline");
+  function think(ms){
+    document.body.classList.add("thinking");
+    if (thinkline) thinkline.hidden = false;
+    if (thinkTimer) clearTimeout(thinkTimer);
+    thinkTimer = setTimeout(function(){
+      document.body.classList.remove("thinking");
+      if (thinkline) thinkline.hidden = true;
+    }, ms);
+  }
+  think(4400); /* the last answer just landed — the brush settles */
+
+  /* ————— composer ————— */
+  var composerInput = document.getElementById("composerInput");
+  var sendBtn = document.getElementById("sendBtn");
+  if (sendBtn){
+    sendBtn.addEventListener("click", function(){ think(3200); });
+  }
+  var newBtn = document.getElementById("newBtn");
+  if (newBtn && composerInput){
+    newBtn.addEventListener("click", function(){
+      composerInput.value = "";
+      composerInput.focus();
+    });
+  }
+  document.querySelectorAll(".starter").forEach(function(s){
+    s.addEventListener("click", function(){
+      if (composerInput){
+        composerInput.value = s.dataset.fill || s.textContent;
+        composerInput.focus();
+      }
+    });
+  });
+
+  /* ————— my work: filters + queue selection ————— */
+  var workChips = document.querySelectorAll("#workFilters .chip");
+  var qItems = document.querySelectorAll("#workQueue .q-item");
+  workChips.forEach(function(chip){
+    chip.addEventListener("click", function(){
+      workChips.forEach(function(c){ c.classList.remove("active"); });
+      chip.classList.add("active");
+      var f = chip.dataset.filter;
+      qItems.forEach(function(q){
+        q.hidden = (f !== "all" && q.dataset.type !== f);
+      });
+    });
+  });
+  var dPanes = document.querySelectorAll(".d-pane");
+  qItems.forEach(function(q){
+    q.addEventListener("click", function(){
+      qItems.forEach(function(x){ x.classList.remove("selected"); });
+      q.classList.add("selected");
+      dPanes.forEach(function(p){ p.classList.remove("active"); });
+      var pane = document.getElementById(q.dataset.detail);
+      if (pane) pane.classList.add("active");
+    });
+  });
+
+  /* ————— hanko stamp acknowledgment ————— */
+  document.querySelectorAll(".stamp-btn").forEach(function(h){
+    h.addEventListener("click", function(){
+      if (h.classList.contains("stamped")) return;
+      h.classList.add("stamped");
+      setTimeout(function(){ h.classList.remove("stamped"); }, 1700);
+    });
+  });
+
+  /* ————— text acknowledgment buttons ————— */
+  document.querySelectorAll(".ack-btn, .save-btn").forEach(function(b){
+    b.addEventListener("click", function(){
+      if (b.dataset.busy) return;
+      var original = b.textContent;
+      b.dataset.busy = "1";
+      b.textContent = b.dataset.ack || "Done ✓";
+      setTimeout(function(){
+        b.textContent = original;
+        delete b.dataset.busy;
+      }, 1500);
+    });
+  });
+
+  /* ————— views: selection + resting boards ————— */
+  var vItems = document.querySelectorAll("#viewsList .v-item");
+  var boardTitle = document.getElementById("boardTitle");
+  var boardMeta = document.getElementById("boardMeta");
+  var boardReal = document.getElementById("boardReal");
+  var boardRest = document.getElementById("boardRest");
+  var restGrid = document.getElementById("restGrid");
+  var ensoFrame = '<svg class="enso enso-static" viewBox="0 0 100 100" aria-hidden="true">' +
+    '<circle class="e-main" cx="50" cy="50" r="38" pathLength="100"></circle></svg>';
+  vItems.forEach(function(v){
+    v.addEventListener("click", function(){
+      vItems.forEach(function(x){ x.classList.remove("selected"); });
+      v.classList.add("selected");
+      if (boardTitle) boardTitle.textContent = v.dataset.name;
+      if (boardMeta) boardMeta.textContent = v.dataset.meta;
+      var isVendor = v.dataset.view === "vendor";
+      if (boardReal) boardReal.style.display = isVendor ? "" : "none";
+      if (boardRest){
+        boardRest.hidden = isVendor;
+        if (!isVendor && restGrid){
+          restGrid.innerHTML = "";
+          var n = parseInt(v.dataset.tiles, 10) || 4;
+          for (var i = 0; i < n; i++){
+            var f = document.createElement("div");
+            f.className = "rest-tile";
+            f.innerHTML = ensoFrame;
+            restGrid.appendChild(f);
+          }
+        }
+      }
+    });
+  });
+
+  /* ————— refresh acknowledgment ————— */
+  var refreshBtn = document.getElementById("refreshBtn");
+  var refreshGlyph = document.getElementById("refreshGlyph");
+  if (refreshBtn && refreshGlyph && boardMeta){
+    refreshBtn.addEventListener("click", function(){
+      refreshGlyph.classList.add("spin");
+      var prev = boardMeta.textContent;
+      boardMeta.textContent = prev.replace(/refreshed .*$/, "refreshed just now");
+      setTimeout(function(){ refreshGlyph.classList.remove("spin"); }, 750);
+      setTimeout(function(){ boardMeta.textContent = prev; }, 2400);
+    });
+  }
+
+  /* ————— playbooks: filter + search ————— */
+  var pbChips = document.querySelectorAll("#pbFilters .chip");
+  var pbRows = document.querySelectorAll("#pbList .pb-row");
+  var pbSearch = document.getElementById("pbSearch");
+  var pbFilter = "all";
+  function applyPb(){
+    var q = pbSearch ? pbSearch.value.trim().toLowerCase() : "";
+    pbRows.forEach(function(r){
+      var typeOk = (pbFilter === "all" || r.dataset.type === pbFilter);
+      var name = r.querySelector(".pb-name");
+      var textOk = !q || (name && name.textContent.toLowerCase().indexOf(q) !== -1);
+      r.hidden = !(typeOk && textOk);
+    });
+  }
+  pbChips.forEach(function(chip){
+    chip.addEventListener("click", function(){
+      pbChips.forEach(function(c){ c.classList.remove("active"); });
+      chip.classList.add("active");
+      pbFilter = chip.dataset.filter;
+      applyPb();
+    });
+  });
+  if (pbSearch) pbSearch.addEventListener("input", applyPb);
+  document.querySelectorAll(".pb-links a").forEach(function(a){
+    a.addEventListener("click", function(e){ e.preventDefault(); });
+  });
+
+  /* ————— email toggles ————— */
+  document.querySelectorAll(".toggle").forEach(function(t){
+    t.addEventListener("click", function(){
+      var on = t.getAttribute("aria-pressed") === "true";
+      t.setAttribute("aria-pressed", String(!on));
+    });
+  });
+
+  /* ————— skills: selection ————— */
+  var skills = {
+    recon: {
+      title: "erpdb-reconciliation-recipes",
+      meta: "product scope · 4.2 KB",
+      body: "Reconciling ERPDB: match invoice → PO on po_number first; fall back to vendor + amount within 1%. Flag anything unmatched after both passes — never auto-adjust GL lines…"
+    },
+    naming: {
+      title: "vendor-naming-conventions",
+      meta: "tenant scope · 1.1 KB",
+      body: "Canonical vendor names: “Meridian Supply Co”, “Northgate Logistics”, “Corvid Materials”. No abbreviations in reports; legal suffixes only on contracts…"
+    },
+    format: {
+      title: "james-report-format",
+      meta: "user scope · 0.8 KB",
+      body: "Reports for James: lead with the number, then the table. Currency to the dollar, no cents. Always note the as-of time…"
+    }
+  };
+  var sItems = document.querySelectorAll("#skillsList .s-item");
+  var skillTitle = document.getElementById("skillTitle");
+  var skillMeta = document.getElementById("skillMeta");
+  var skillBody = document.getElementById("skillBody");
+  sItems.forEach(function(s){
+    s.addEventListener("click", function(){
+      sItems.forEach(function(x){ x.classList.remove("selected"); });
+      s.classList.add("selected");
+      var d = skills[s.dataset.skill];
+      if (d && skillTitle && skillMeta && skillBody){
+        skillTitle.textContent = d.title;
+        skillMeta.textContent = d.meta;
+        skillBody.textContent = d.body;
+      }
+    });
+  });
+  var deleteSkill = document.getElementById("deleteSkill");
+  if (deleteSkill){
+    deleteSkill.addEventListener("click", function(){
+      deleteSkill.classList.remove("nudge");
+      void deleteSkill.offsetWidth;
+      deleteSkill.classList.add("nudge");
+    });
+  }
+})();
+</script>
+</body>
+</html>

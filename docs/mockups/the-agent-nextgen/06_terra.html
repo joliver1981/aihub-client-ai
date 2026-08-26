@@ -1,0 +1,1427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Agent · Terra concept</title>
+<style>
+/* ============================================================
+   TERRA — organic, biomorphic calm. Grown, not built.
+   loam #141813 · moss #223020 · sage #A8C09A · clay #C98A5E · cream #EFEAD8
+   ============================================================ */
+:root{
+  --loam:#141813;
+  --loam-2:#181d16;
+  --moss:#223020;
+  --moss-2:#2a3a27;
+  --moss-deep:#1a2119;
+  --sage:#A8C09A;
+  --sage-soft:rgba(168,192,154,.62);
+  --clay:#C98A5E;
+  --clay-soft:rgba(201,138,94,.55);
+  --cream:#EFEAD8;
+  --cream-dim:rgba(239,234,216,.60);
+  --cream-faint:rgba(239,234,216,.36);
+  --wheat:#D8C48F;
+  --line:rgba(168,192,154,.16);
+  --line-soft:rgba(168,192,154,.09);
+  --danger:#C4614F;
+  --r-blob:24px 48px 28px 56px;
+  --r-blob2:44px 22px 52px 26px;
+  --r-blob3:30px 52px 22px 46px;
+  --r-leaf:14px 3px 14px 3px;
+  --sans:"Segoe UI","Segoe UI Variable Text",Candara,Optima,Seravek,Verdana,sans-serif;
+  --serif:Georgia,"Times New Roman",serif;
+  --mono:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:var(--sans);
+  background:var(--loam);
+  color:var(--cream);
+  font-size:15px;
+  line-height:1.65;
+  display:grid;
+  grid-template-columns:268px minmax(0,1fr);
+  height:100vh;
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{background:rgba(201,138,94,.35);color:var(--cream)}
+:focus{outline:none}
+:focus-visible{outline:2px solid rgba(201,138,94,.75);outline-offset:2px;border-radius:14px}
+button{font-family:inherit;color:inherit;background:none;border:none;cursor:pointer;font-size:inherit}
+input,textarea{font-family:inherit;color:var(--cream);font-size:inherit}
+*{scrollbar-width:thin;scrollbar-color:rgba(168,192,154,.22) transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:rgba(168,192,154,.18);border-radius:8px;border:3px solid var(--loam)}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ---------- ambient soil washes ---------- */
+.soil{position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(58% 42% at 82% -8%, rgba(168,192,154,.075), transparent 70%),
+    radial-gradient(46% 38% at -6% 104%, rgba(201,138,94,.06), transparent 70%),
+    radial-gradient(70% 55% at 50% 118%, rgba(34,48,32,.85), transparent 72%);
+}
+.soil::before{content:"";position:absolute;top:-180px;right:-220px;width:640px;height:560px;
+  background:radial-gradient(closest-side, rgba(168,192,154,.05), transparent);
+  border-radius:44% 56% 62% 38% / 52% 44% 56% 48%;filter:blur(4px)}
+.soil::after{content:"";position:absolute;bottom:-260px;left:120px;width:720px;height:520px;
+  background:radial-gradient(closest-side, rgba(201,138,94,.045), transparent);
+  border-radius:58% 42% 40% 60% / 46% 58% 42% 54%}
+
+/* ============================================================
+   RAIL
+   ============================================================ */
+.rail{position:relative;z-index:2;display:flex;flex-direction:column;height:100vh;overflow-y:auto;overflow-x:hidden;
+  padding:26px 18px 20px;
+  background:linear-gradient(168deg, rgba(34,48,32,.55), rgba(24,29,22,.2) 46%, rgba(34,48,32,.35));
+  border-right:1px solid var(--line-soft)}
+.rail::after{content:"";position:absolute;top:8%;right:-1px;bottom:8%;width:1px;
+  background:linear-gradient(180deg, transparent, rgba(168,192,154,.22), transparent)}
+
+.brand{display:flex;align-items:center;gap:14px;padding:2px 8px 22px}
+.orb{position:relative;width:52px;height:52px;flex:none;border-radius:47% 53% 55% 45% / 52% 46% 54% 48%;
+  background:
+    radial-gradient(circle at 33% 28%, rgba(239,234,216,.85), rgba(168,192,154,.9) 26%, rgba(90,116,80,.95) 55%, rgba(34,48,32,1) 92%);
+  box-shadow:0 0 26px rgba(168,192,154,.28), 0 0 60px rgba(168,192,154,.10), inset 0 -6px 14px rgba(20,24,19,.55);
+  animation:breathe 5.2s ease-in-out infinite}
+.orb::after{content:"";position:absolute;inset:0;border-radius:inherit;
+  background:radial-gradient(circle at 68% 74%, rgba(201,138,94,.6), transparent 55%);
+  mix-blend-mode:screen;animation:emberdrift 7s ease-in-out infinite alternate}
+.orb::before{content:"";position:absolute;inset:-9px;border-radius:inherit;
+  border:1px solid rgba(168,192,154,.18);opacity:.7;animation:ring 5.2s ease-in-out infinite}
+.orb.thinking{animation:breathe 1.15s ease-in-out infinite;
+  box-shadow:0 0 34px rgba(201,138,94,.4), 0 0 80px rgba(201,138,94,.16), inset 0 -6px 14px rgba(20,24,19,.55)}
+.orb.thinking::after{animation:emberdrift 1.15s ease-in-out infinite alternate}
+@keyframes breathe{
+  0%,100%{transform:scale(1) rotate(0deg)}
+  50%{transform:scale(1.07) rotate(2deg)}
+}
+@keyframes ring{0%,100%{transform:scale(1);opacity:.55}50%{transform:scale(1.12);opacity:.15}}
+@keyframes emberdrift{from{opacity:.55;transform:rotate(0deg)}to{opacity:.9;transform:rotate(8deg)}}
+.brand-name{font-size:19px;font-weight:600;letter-spacing:.01em;line-height:1.2}
+.brand-sub{font-family:var(--mono);font-size:10.5px;color:var(--cream-faint);letter-spacing:.02em;margin-top:3px}
+
+.nav{display:flex;flex-direction:column;gap:5px;margin-top:4px}
+.nav-item{display:flex;align-items:center;gap:12px;padding:10.5px 14px;border-radius:18px 30px 16px 26px;
+  color:var(--cream-dim);font-size:14.5px;font-weight:500;text-align:left;position:relative;
+  transition:background .25s ease,color .25s ease,transform .25s ease}
+.nav-item svg{width:21px;height:21px;flex:none;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;opacity:.85}
+.nav-item:hover{background:rgba(168,192,154,.08);color:var(--cream);transform:translateX(2px)}
+.nav-item.active{background:linear-gradient(130deg, rgba(168,192,154,.16), rgba(168,192,154,.05) 60%, rgba(201,138,94,.08));
+  color:var(--cream);box-shadow:inset 0 1px 0 rgba(239,234,216,.06)}
+.nav-item.active::before{content:"";position:absolute;left:-3px;top:50%;width:7px;height:22px;transform:translateY(-50%);
+  background:linear-gradient(180deg,var(--sage),var(--clay));border-radius:40% 60% 60% 40% / 50% 50% 50% 50%;
+  box-shadow:0 0 10px rgba(168,192,154,.5)}
+.nav-count{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--loam);background:var(--clay);
+  padding:1px 9px;border-radius:10px 4px 10px 4px;box-shadow:0 2px 8px rgba(201,138,94,.35)}
+
+.platform{margin-top:26px;padding-top:18px;position:relative}
+.platform::before{content:"";position:absolute;top:0;left:14px;right:14px;height:1px;
+  background:linear-gradient(90deg,transparent,var(--line),transparent)}
+.platform-head{display:flex;align-items:center;gap:8px;width:100%;padding:4px 14px 8px;
+  font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--cream-faint)}
+.platform-head .chev{margin-left:auto;transition:transform .3s ease;font-size:10px}
+.platform.closed .chev{transform:rotate(-90deg)}
+.platform-links{display:flex;flex-direction:column;gap:1px;overflow:hidden;max-height:220px;transition:max-height .35s ease,opacity .3s ease;opacity:1}
+.platform.closed .platform-links{max-height:0;opacity:0}
+.plink{display:flex;align-items:center;gap:9px;padding:5.5px 16px;font-size:12.5px;color:var(--cream-faint);
+  text-decoration:none;border-radius:12px 20px 12px 20px;transition:color .2s,background .2s}
+.plink::before{content:"";width:5px;height:5px;border-radius:60% 40% 55% 45%;background:rgba(168,192,154,.4);flex:none}
+.plink:hover{color:var(--sage);background:rgba(168,192,154,.06)}
+
+.rail-foot{margin-top:auto;padding:20px 12px 4px}
+.rail-user{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.rail-avatar{width:32px;height:32px;flex:none;display:grid;place-items:center;font-size:13px;font-weight:600;color:var(--loam);
+  background:linear-gradient(135deg,var(--sage),#8aa87c);border-radius:46% 54% 52% 48% / 50% 46% 54% 50%}
+.rail-user b{font-size:13px;font-weight:600;display:block;line-height:1.3}
+.rail-user span{font-size:11px;color:var(--cream-faint)}
+.mantra{font-family:var(--serif);font-style:italic;font-size:11.5px;color:var(--cream-faint);line-height:1.7}
+.mantra + .mantra{margin-top:2px}
+
+/* ============================================================
+   MAIN / PANELS
+   ============================================================ */
+main{position:relative;z-index:1;height:100vh;overflow:hidden}
+.panel{position:absolute;inset:0;overflow-y:auto;display:none}
+.panel.active{display:block;animation:canopy .42s cubic-bezier(.22,.61,.36,1) both}
+.panel.active::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:
+    radial-gradient(34% 26% at 24% 12%, rgba(239,234,216,.07), transparent 70%),
+    radial-gradient(30% 24% at 74% 30%, rgba(168,192,154,.08), transparent 70%);
+  animation:dapple .8s ease-out forwards}
+@keyframes canopy{from{opacity:0;transform:translateY(12px) scale(.993);filter:saturate(.75) brightness(.85)}
+  to{opacity:1;transform:none;filter:none}}
+@keyframes dapple{from{opacity:1}to{opacity:0}}
+.panel--chat.active{display:flex;flex-direction:column;overflow:hidden}
+
+.wrap{max-width:1220px;margin:0 auto;padding:44px 48px 72px}
+.p-head{margin-bottom:30px}
+.p-head h2{font-size:29px;font-weight:600;letter-spacing:-.01em;line-height:1.25}
+.p-head .psub{font-family:var(--serif);font-style:italic;font-size:14.5px;color:var(--cream-dim);margin-top:5px}
+.squig{display:block;margin-top:9px;opacity:.8}
+
+/* ---------- shared organisms ---------- */
+.card{background:linear-gradient(148deg, rgba(42,58,39,.75), rgba(34,48,32,.55) 55%, rgba(42,58,39,.4));
+  border:1px solid var(--line);border-radius:var(--r-blob);
+  box-shadow:0 14px 40px rgba(10,13,9,.35), inset 0 1px 0 rgba(239,234,216,.05)}
+.pod{display:inline-flex;align-items:center;gap:7px;padding:5px 14px;border-radius:999px;
+  background:rgba(26,33,25,.85);border:1px solid var(--line);font-size:12.5px;color:var(--cream-dim);
+  transition:background .2s,border-color .2s,color .2s,transform .2s}
+.pod:hover{background:rgba(168,192,154,.1);color:var(--cream);transform:translateY(-1px)}
+.pod.sel{background:linear-gradient(120deg, rgba(168,192,154,.22), rgba(168,192,154,.1));border-color:rgba(168,192,154,.45);color:var(--cream)}
+.pod .n{font-weight:600;font-size:11px;color:var(--sage)}
+.pod.sel .n{color:var(--cream)}
+.verb{display:inline-flex;align-items:center;padding:2.5px 11px;font-size:10.5px;font-weight:600;letter-spacing:.09em;
+  text-transform:uppercase;border-radius:var(--r-leaf)}
+.verb-approval{background:rgba(201,138,94,.16);color:#DFA778;border:1px solid rgba(201,138,94,.4)}
+.verb-email{background:rgba(168,192,154,.14);color:var(--sage);border:1px solid rgba(168,192,154,.4)}
+.verb-question{background:rgba(216,196,143,.13);color:var(--wheat);border:1px solid rgba(216,196,143,.38)}
+.verb-fyi{background:rgba(158,170,152,.1);color:#9EAA98;border:1px solid rgba(158,170,152,.3)}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:9px 22px;border-radius:22px 10px 22px 12px;
+  font-size:13.5px;font-weight:600;border:1px solid var(--line);color:var(--cream-dim);
+  background:rgba(26,33,25,.7);transition:all .22s ease}
+.btn:hover{color:var(--cream);border-color:rgba(168,192,154,.4);transform:translateY(-1px);background:rgba(42,58,39,.8)}
+.btn-primary{background:linear-gradient(135deg,#D69A6C,var(--clay) 55%,#B0714A);color:#241811;border-color:transparent;
+  box-shadow:0 6px 20px rgba(201,138,94,.3), inset 0 1px 0 rgba(239,234,216,.35)}
+.btn-primary:hover{background:linear-gradient(135deg,#E2A778,#D0916422 55%,#B0714A);color:#241811;filter:brightness(1.06);box-shadow:0 8px 26px rgba(201,138,94,.4)}
+.btn-danger{color:#D98A79;border-color:rgba(196,97,79,.45)}
+.btn-danger:hover{background:rgba(196,97,79,.12);color:#E9A093;border-color:rgba(196,97,79,.7)}
+.btn.acked{background:rgba(168,192,154,.2);color:var(--sage);border-color:rgba(168,192,154,.5);transform:scale(.98)}
+.hint{font-family:var(--serif);font-style:italic;font-size:12px;color:var(--cream-faint)}
+.mono{font-family:var(--mono)}
+
+/* ============================================================
+   1) ASSISTANT
+   ============================================================ */
+.chat-top{flex:none;display:flex;align-items:center;gap:12px;padding:18px 40px 14px;
+  border-bottom:1px solid var(--line-soft)}
+.chat-top h2{font-size:16px;font-weight:600}
+.chat-top .session{font-family:var(--mono);font-size:11px;color:var(--cream-faint);margin-left:auto}
+.chat-scroll{flex:1;overflow-y:auto;padding:34px 40px 10px}
+.chat-inner{max-width:860px;margin:0 auto}
+
+.hello{text-align:center;padding:26px 0 40px;opacity:.85}
+.hello h1{font-size:30px;font-weight:600;letter-spacing:-.01em}
+.hello p{font-family:var(--serif);font-style:italic;font-size:15px;color:var(--cream-dim);margin:10px auto 22px;max-width:520px}
+.starters{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+.divider{display:flex;align-items:center;gap:14px;margin:8px 0 30px;color:var(--cream-faint);
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase}
+.divider::before,.divider::after{content:"";flex:1;height:1px;
+  background:linear-gradient(90deg,transparent,var(--line),transparent)}
+
+.msg{margin-bottom:26px;display:flex;flex-direction:column}
+.msg .who{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600;color:var(--cream-faint);
+  letter-spacing:.04em;margin-bottom:7px}
+.msg .who .adot{width:8px;height:8px;border-radius:55% 45% 50% 50%;flex:none;
+  background:radial-gradient(circle at 35% 30%, var(--sage), #587a4c 75%);box-shadow:0 0 8px rgba(168,192,154,.45)}
+.msg.you{align-items:flex-end}
+.msg.you .who{justify-content:flex-end}
+.msg.agent{align-items:flex-start}
+.stone{max-width:70%;padding:15px 21px;line-height:1.68;font-size:14.5px;
+  box-shadow:0 8px 26px rgba(10,13,9,.32), inset 0 1px 0 rgba(239,234,216,.06)}
+.msg.you .stone{background:linear-gradient(135deg, rgba(201,138,94,.25), rgba(201,138,94,.1) 60%, rgba(201,138,94,.16)), var(--moss);
+  border:1px solid rgba(201,138,94,.28);border-radius:32px 14px 30px 28px}
+.msg.agent .stone{background:linear-gradient(148deg, rgba(168,192,154,.13), rgba(34,48,32,.65) 55%, rgba(168,192,154,.06)), var(--moss-deep);
+  border:1px solid var(--line);border-radius:14px 34px 28px 30px;max-width:82%}
+.stone p + p{margin-top:12px}
+.stone strong{color:#F5EDD3;font-weight:650}
+.stone .num{color:#E8B98E;font-weight:650}
+
+.toolrun{display:flex;gap:12px;margin:2px 0 12px;padding-left:4px}
+.toolrun .vine{width:2px;flex:none;border-radius:2px;margin:4px 0;
+  background:linear-gradient(180deg, rgba(168,192,154,.45), rgba(201,138,94,.35))}
+.toolrun .pods{display:flex;flex-direction:column;gap:7px;align-items:flex-start}
+.toolrun .runlabel{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--cream-faint);margin-bottom:1px}
+.tpod{display:inline-flex;align-items:center;gap:9px;padding:6px 16px 6px 11px;max-width:100%;
+  background:linear-gradient(120deg, rgba(26,33,25,.95), rgba(34,48,32,.8));
+  border:1px solid var(--line);border-radius:4px 999px 999px 999px;
+  font-family:var(--mono);font-size:12px;box-shadow:0 4px 14px rgba(10,13,9,.3)}
+.tpod .seedleaf{width:11px;height:11px;flex:none;fill:rgba(168,192,154,.55)}
+.tpod .tname{color:var(--sage);font-weight:600}
+.tpod .targs{color:var(--cream-faint);max-width:330px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tpod .tstat{display:inline-flex;align-items:center;gap:5px;color:var(--sage);font-size:11px}
+.tpod .tstat::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--sage);box-shadow:0 0 7px rgba(168,192,154,.7)}
+.tpod .ttime{color:var(--cream-faint);font-size:11px}
+
+.ctable{width:100%;border-collapse:collapse;margin:14px 0 4px;font-size:13.5px}
+.ctable th{font-size:10.5px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--sage-soft);
+  text-align:left;padding:0 12px 8px 0}
+.ctable th.r,.ctable td.r{text-align:right;padding-right:0}
+.ctable td{padding:8px 12px 8px 0;border-top:1px dashed var(--line-soft)}
+.ctable td:first-child{font-weight:550}
+.up{color:#DFA778}.dn{color:var(--sage)}.flat{color:var(--cream-faint)}
+
+.typing{display:none;margin-bottom:26px}
+.typing.show{display:flex;flex-direction:column;align-items:flex-start}
+.typing .stone{display:inline-flex;gap:7px;align-items:center;padding:16px 22px}
+.typing .tdot{width:8px;height:8px;border-radius:55% 45% 50% 50%;background:var(--sage);opacity:.4;animation:tbob 1.2s ease-in-out infinite}
+.typing .tdot:nth-child(2){animation-delay:.18s;background:#BCA97E}
+.typing .tdot:nth-child(3){animation-delay:.36s;background:var(--clay)}
+@keyframes tbob{0%,100%{transform:translateY(0);opacity:.35}45%{transform:translateY(-5px);opacity:.95}}
+
+.composer-zone{flex:none;padding:10px 40px 22px;background:linear-gradient(180deg, transparent, rgba(20,24,19,.9) 40%)}
+.composer{max-width:860px;margin:0 auto;display:flex;align-items:flex-end;gap:12px;padding:13px 15px 13px 22px;
+  background:linear-gradient(148deg, rgba(42,58,39,.85), rgba(34,48,32,.7));
+  border:1px solid var(--line);border-radius:28px 44px 24px 40px;
+  box-shadow:0 16px 44px rgba(10,13,9,.45), inset 0 1px 0 rgba(239,234,216,.06);
+  transition:border-color .25s,box-shadow .25s}
+.composer:focus-within{border-color:rgba(168,192,154,.45);
+  box-shadow:0 16px 44px rgba(10,13,9,.45), 0 0 0 4px rgba(168,192,154,.08), inset 0 1px 0 rgba(239,234,216,.06)}
+.composer textarea{flex:1;background:transparent;border:none;resize:none;line-height:1.6;font-size:14.5px;
+  max-height:140px;padding:6px 0}
+.composer textarea::placeholder{color:var(--cream-faint);font-style:italic;font-family:var(--serif)}
+.comp-actions{display:flex;align-items:center;gap:8px;flex:none}
+.icon-btn{width:38px;height:38px;display:grid;place-items:center;border-radius:45% 55% 50% 50%;
+  color:var(--cream-dim);border:1px solid var(--line);background:rgba(26,33,25,.6);transition:all .2s}
+.icon-btn:hover{color:var(--cream);border-color:rgba(168,192,154,.4);transform:translateY(-1px)}
+.icon-btn svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.send-btn{width:46px;height:46px;display:grid;place-items:center;border-radius:52% 48% 45% 55%;
+  background:linear-gradient(135deg,#D69A6C,var(--clay) 60%,#AE6F48);color:#241811;
+  box-shadow:0 8px 22px rgba(201,138,94,.35), inset 0 1px 0 rgba(239,234,216,.4);transition:all .22s}
+.send-btn:hover{filter:brightness(1.08);transform:translateY(-2px) rotate(-3deg)}
+.send-btn svg{width:19px;height:19px;stroke:#241811;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.comp-foot{max-width:860px;margin:9px auto 0;display:flex;justify-content:center;gap:8px;
+  font-family:var(--mono);font-size:10.5px;color:var(--cream-faint)}
+
+/* ============================================================
+   2) MY WORK
+   ============================================================ */
+.work-filters{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:24px}
+.work-grid{display:grid;grid-template-columns:minmax(330px,5fr) 7fr;gap:26px;align-items:start}
+.queue{display:flex;flex-direction:column;gap:13px}
+.qitem{display:flex;flex-direction:column;gap:8px;text-align:left;padding:17px 20px;
+  background:linear-gradient(148deg, rgba(42,58,39,.6), rgba(34,48,32,.4));
+  border:1px solid var(--line-soft);cursor:pointer;position:relative;
+  transition:all .25s ease}
+.qitem:nth-child(odd){border-radius:26px 42px 22px 38px}
+.qitem:nth-child(even){border-radius:40px 24px 44px 20px}
+.qitem:hover{border-color:var(--line);transform:translateY(-2px);box-shadow:0 12px 30px rgba(10,13,9,.35)}
+.qitem.sel{border-color:rgba(201,138,94,.45);
+  background:linear-gradient(148deg, rgba(201,138,94,.12), rgba(34,48,32,.55) 60%);
+  box-shadow:0 12px 30px rgba(10,13,9,.4), inset 0 1px 0 rgba(239,234,216,.06)}
+.qitem.sel::before{content:"";position:absolute;left:-2px;top:26px;width:6px;height:30px;
+  background:linear-gradient(180deg,var(--clay),var(--sage));border-radius:40% 60% 60% 40%;
+  box-shadow:0 0 10px rgba(201,138,94,.5)}
+.qitem .qrow{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.qtitle{font-size:14px;font-weight:550;line-height:1.5}
+.qmeta{font-size:12px;color:var(--cream-faint);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.qmeta code{font-family:var(--mono);font-size:11.5px;color:var(--sage-soft)}
+.minipod{font-family:var(--mono);font-size:10px;padding:1.5px 9px;border-radius:999px;
+  border:1px dashed rgba(201,138,94,.45);color:#DFA778;letter-spacing:.05em}
+.minipod.g{border-color:rgba(168,192,154,.4);color:var(--sage)}
+
+.detail{display:none}
+.detail.show{display:block;animation:canopy .3s ease both}
+.detail-card{padding:28px 32px}
+.d-banner{display:flex;align-items:center;gap:10px;font-family:var(--serif);font-style:italic;font-size:13.5px;
+  color:#DBC9A6;background:rgba(216,196,143,.08);border:1px solid rgba(216,196,143,.22);
+  padding:10px 18px;border-radius:20px 8px 20px 8px;margin-bottom:22px}
+.d-banner .leaf{width:15px;height:15px;flex:none;fill:rgba(216,196,143,.6)}
+.d-rows{display:flex;flex-direction:column;gap:2px;margin-bottom:18px}
+.d-row{display:grid;grid-template-columns:82px 1fr;align-items:baseline;padding:7px 0;border-bottom:1px dashed var(--line-soft)}
+.d-row dt{font-size:10.5px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:var(--sage-soft)}
+.d-row dd{font-family:var(--mono);font-size:13px;color:var(--cream)}
+.d-body{width:100%;min-height:120px;padding:16px 20px;line-height:1.7;font-size:14px;resize:vertical;
+  background:rgba(20,24,19,.6);border:1px solid var(--line);border-radius:18px 30px 16px 28px;
+  transition:border-color .25s}
+.d-body:focus{border-color:rgba(168,192,154,.45)}
+.d-comment{width:100%;margin-top:12px;padding:10px 18px;font-size:13px;
+  background:rgba(20,24,19,.4);border:1px solid var(--line-soft);border-radius:999px}
+.d-comment::placeholder,.d-body::placeholder{color:var(--cream-faint);font-style:italic;font-family:var(--serif)}
+.d-actions{display:flex;align-items:center;gap:13px;margin-top:20px;flex-wrap:wrap}
+.d-actions .hint{margin-left:auto}
+.thread{margin-top:28px;padding-top:22px;border-top:1px solid var(--line-soft)}
+.thread h4{font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--sage-soft);margin-bottom:16px}
+.thread .msg{margin-bottom:16px}
+.thread .stone{font-size:13.5px;padding:11px 18px;max-width:85%}
+.thread-input{display:flex;gap:10px;margin-top:16px}
+.thread-input input{flex:1;padding:10px 20px;font-size:13px;background:rgba(20,24,19,.5);
+  border:1px solid var(--line);border-radius:999px;transition:border-color .25s}
+.thread-input input:focus{border-color:rgba(168,192,154,.45)}
+.thread-input input::placeholder{color:var(--cream-faint);font-style:italic;font-family:var(--serif)}
+.fyi-stats{display:flex;gap:14px;margin:6px 0 20px;flex-wrap:wrap}
+.fyi-stat{padding:14px 22px;background:rgba(20,24,19,.5);border:1px solid var(--line-soft);border-radius:22px 10px 22px 10px}
+.fyi-stat b{display:block;font-size:21px;font-weight:650;color:#F5EDD3}
+.fyi-stat span{font-size:11px;color:var(--cream-faint);letter-spacing:.05em}
+.q-options{display:flex;gap:11px;margin:16px 0 6px}
+.inv-list{display:flex;flex-direction:column;margin:8px 0 16px}
+.inv-row{display:grid;grid-template-columns:110px 1fr auto auto;gap:16px;align-items:baseline;
+  padding:9px 2px;border-bottom:1px dashed var(--line-soft);font-size:13.5px}
+.inv-row code{font-family:var(--mono);color:var(--sage)}
+.inv-row .amt{font-weight:600;text-align:right}
+.agechip{font-family:var(--mono);font-size:11px;padding:1px 9px;border-radius:999px;
+  background:rgba(201,138,94,.14);color:#DFA778;border:1px solid rgba(201,138,94,.35)}
+.agechip.ok{background:rgba(168,192,154,.1);color:var(--sage);border-color:rgba(168,192,154,.3)}
+
+/* ============================================================
+   3) VIEWS
+   ============================================================ */
+.views-grid{display:grid;grid-template-columns:296px minmax(0,1fr);gap:28px;align-items:start}
+.view-list{display:flex;flex-direction:column;gap:12px}
+.vitem{text-align:left;padding:17px 20px;border:1px solid var(--line-soft);cursor:pointer;
+  background:linear-gradient(148deg, rgba(42,58,39,.55), rgba(34,48,32,.35));transition:all .25s ease;position:relative}
+.vitem:nth-child(1){border-radius:26px 44px 22px 38px}
+.vitem:nth-child(2){border-radius:42px 22px 40px 26px}
+.vitem:nth-child(3){border-radius:24px 40px 28px 44px}
+.vitem:hover{border-color:var(--line);transform:translateY(-2px)}
+.vitem.sel{border-color:rgba(168,192,154,.5);
+  background:linear-gradient(148deg, rgba(168,192,154,.14), rgba(34,48,32,.55) 65%);
+  box-shadow:0 12px 30px rgba(10,13,9,.4)}
+.vname{display:block;font-size:14.5px;font-weight:600;line-height:1.4;margin-bottom:5px}
+.vmeta{font-size:11.5px;color:var(--cream-faint);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.view-head{display:flex;align-items:flex-end;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+.view-head h3{font-size:22px;font-weight:600;letter-spacing:-.01em}
+.view-headmeta{font-family:var(--mono);font-size:11.5px;color:var(--cream-faint);padding-bottom:4px}
+.view-actions{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.vbtn{padding:7px 16px;font-size:12.5px;font-weight:550;color:var(--cream-dim);
+  border:1px solid var(--line);border-radius:16px 8px 16px 8px;background:rgba(26,33,25,.6);transition:all .2s}
+.vbtn:hover{color:var(--cream);border-color:rgba(168,192,154,.45);transform:translateY(-1px)}
+.vbtn.pulse{background:rgba(168,192,154,.18);color:var(--sage);border-color:rgba(168,192,154,.5)}
+.vbtn .ref{display:inline-block;transition:transform .6s ease}
+.vbtn.spinning .ref{transform:rotate(360deg)}
+
+.board{display:none}
+.board.show{display:grid;grid-template-columns:2fr 3fr;gap:18px;
+  grid-template-areas:"stat bar" "line table" "tick tick";animation:canopy .35s ease both}
+.tile{padding:21px 24px;background:linear-gradient(155deg, rgba(42,58,39,.7), rgba(34,48,32,.5) 60%, rgba(42,58,39,.35));
+  border:1px solid var(--line);box-shadow:0 12px 34px rgba(10,13,9,.32), inset 0 1px 0 rgba(239,234,216,.05);
+  transition:transform .25s,box-shadow .25s;min-width:0}
+.tile:hover{transform:translateY(-2px);box-shadow:0 18px 44px rgba(10,13,9,.42), inset 0 1px 0 rgba(239,234,216,.05)}
+.tile:nth-child(1){border-radius:26px 46px 24px 40px}
+.tile:nth-child(2){border-radius:44px 24px 42px 26px}
+.tile:nth-child(3){border-radius:24px 42px 26px 46px}
+.tile:nth-child(4){border-radius:42px 26px 46px 22px}
+.tile:nth-child(5){border-radius:34px 20px 34px 20px}
+.tile-stat{grid-area:stat}.tile-bar{grid-area:bar}.tile-line{grid-area:line}.tile-table{grid-area:table}.tile-tick{grid-area:tick}
+.tile h5{font-size:11px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:var(--sage-soft);margin-bottom:4px}
+.tile .squig{margin:0 0 14px}
+.stat-big{font-size:41px;font-weight:650;letter-spacing:-.02em;color:#F5EDD3;line-height:1.1;margin:12px 0 8px}
+.stat-sub{font-family:var(--mono);font-size:11px;color:var(--cream-faint)}
+.stat-delta{display:inline-flex;margin-top:14px;padding:3px 13px;border-radius:999px;font-size:12px;
+  background:rgba(201,138,94,.13);color:#DFA778;border:1px solid rgba(201,138,94,.3)}
+
+.hbar{display:grid;grid-template-columns:74px 1fr 66px;align-items:center;gap:11px;margin-top:11px}
+.hbar .lbl{font-size:12px;color:var(--cream-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hbar .val{font-family:var(--mono);font-size:11.5px;color:var(--cream-dim);text-align:right}
+.hbar .track{height:15px;position:relative}
+.hbar .fill{position:absolute;inset:0 auto 0 0;background:linear-gradient(90deg, rgba(168,192,154,.75), rgba(168,192,154,.4));
+  box-shadow:inset 0 1px 0 rgba(239,234,216,.15)}
+.hbar:nth-child(odd) .fill{border-radius:8px 14px 12px 5px}
+.hbar:nth-child(even) .fill{border-radius:5px 12px 14px 8px}
+.hbar.clay .fill{background:linear-gradient(90deg, rgba(201,138,94,.85), rgba(201,138,94,.45))}
+
+.vtable{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+.vtable th{font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--sage-soft);
+  text-align:left;padding:0 10px 8px 0}
+.vtable th.r,.vtable td.r{text-align:right;padding-right:0}
+.vtable td{padding:7.5px 10px 7.5px 0;border-top:1px dashed var(--line-soft)}
+.vtable td code{font-family:var(--mono);font-size:12px;color:var(--sage)}
+.vtable td.amt{font-weight:600;text-align:right}
+
+.tick-strip{position:relative;overflow:hidden;margin-top:8px;padding:6px 0;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);
+  mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent)}
+.tick-track{display:flex;width:max-content;animation:drift 32s linear infinite}
+.tick-half{display:flex;flex:none}
+.tick-item{display:inline-flex;align-items:center;gap:9px;margin-right:48px;font-family:var(--mono);
+  font-size:12px;color:var(--cream-dim);white-space:nowrap}
+.tick-item code{color:var(--sage)}
+.tick-item .ta{color:#DFA778}
+.tick-item::before{content:"";width:6px;height:6px;border-radius:60% 40% 50% 50%;background:rgba(168,192,154,.5)}
+@keyframes drift{to{transform:translateX(-50%)}}
+
+.dormant-note{grid-column:1/-1;font-family:var(--serif);font-style:italic;font-size:13.5px;color:var(--cream-dim);
+  padding:4px 6px 10px}
+.board.dormant.show{grid-template-columns:repeat(3,1fr);grid-template-areas:none}
+.dormant-tile{min-height:132px;display:grid;place-items:center;border:1px dashed rgba(168,192,154,.22);
+  background:rgba(34,48,32,.28);color:rgba(168,192,154,.4)}
+.dormant-tile:nth-child(3n+2){border-radius:28px 48px 24px 42px}
+.dormant-tile:nth-child(3n){border-radius:46px 24px 44px 26px}
+.dormant-tile:nth-child(3n+1){border-radius:26px 44px 28px 48px}
+.dormant-tile svg{width:26px;height:26px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+
+/* ============================================================
+   4) PLAYBOOKS
+   ============================================================ */
+.pb-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:24px}
+.pb-search{flex:1;min-width:200px;max-width:340px;padding:9px 20px;font-size:13px;
+  background:rgba(26,33,25,.7);border:1px solid var(--line);border-radius:999px;transition:border-color .25s}
+.pb-search:focus{border-color:rgba(168,192,154,.45)}
+.pb-search::placeholder{color:var(--cream-faint);font-style:italic;font-family:var(--serif)}
+.pb-links{margin-left:auto;display:flex;gap:16px}
+.pb-links a{font-size:12.5px;color:var(--sage-soft);text-decoration:none;transition:color .2s}
+.pb-links a:hover{color:var(--sage)}
+.pb-list{display:flex;flex-direction:column;gap:12px;max-width:880px}
+.pb-item{display:flex;align-items:center;gap:16px;padding:17px 24px;
+  background:linear-gradient(148deg, rgba(42,58,39,.55), rgba(34,48,32,.35));
+  border:1px solid var(--line-soft);transition:all .25s ease}
+.pb-item:nth-child(odd){border-radius:24px 44px 20px 38px}
+.pb-item:nth-child(even){border-radius:40px 22px 44px 24px}
+.pb-item:hover{border-color:var(--line);transform:translateX(3px);box-shadow:0 10px 28px rgba(10,13,9,.3)}
+.pb-item.hidden{display:none}
+.pb-name{font-size:14.5px;font-weight:600}
+.pb-meta{font-family:var(--mono);font-size:11.5px;color:var(--cream-faint);margin-top:2px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.pb-open{margin-left:auto;flex:none}
+
+/* ============================================================
+   5) EMAIL
+   ============================================================ */
+.email-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-bottom:22px}
+.email-card{padding:26px 30px}
+.email-card h4{font-size:15px;font-weight:600;margin-bottom:4px}
+.email-card .esub{font-family:var(--serif);font-style:italic;font-size:12.5px;color:var(--cream-dim);margin-bottom:20px;line-height:1.6}
+.addr-row{display:flex;align-items:center;gap:0;margin-bottom:16px}
+.addr-prefix{width:150px;padding:9px 18px;font-family:var(--mono);font-size:13px;
+  background:rgba(20,24,19,.6);border:1px solid var(--line);border-radius:999px 0 0 999px;border-right:none;transition:border-color .25s}
+.addr-prefix:focus{border-color:rgba(168,192,154,.45)}
+.addr-suffix{padding:9px 18px 9px 12px;font-family:var(--mono);font-size:13px;color:var(--cream-faint);
+  background:rgba(26,33,25,.4);border:1px solid var(--line);border-left:none;border-radius:0 999px 999px 0}
+.state-chip{display:inline-flex;align-items:center;gap:7px;margin-left:14px;padding:4px 14px;border-radius:999px;
+  font-size:10.5px;font-weight:700;letter-spacing:.14em;color:var(--sage);
+  background:rgba(168,192,154,.12);border:1px solid rgba(168,192,154,.4)}
+.state-chip::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--sage);box-shadow:0 0 8px rgba(168,192,154,.8)}
+.setrow{display:flex;align-items:center;gap:16px;padding:12px 2px;border-bottom:1px dashed var(--line-soft)}
+.setrow:last-of-type{border-bottom:none}
+.setrow .stext b{display:block;font-size:13.5px;font-weight:600}
+.setrow .stext span{font-size:12px;color:var(--cream-faint);font-style:italic;font-family:var(--serif)}
+.switch{margin-left:auto;flex:none;width:46px;height:25px;border-radius:999px;position:relative;
+  background:rgba(20,24,19,.8);border:1px solid var(--line);transition:background .3s,border-color .3s;cursor:pointer}
+.switch::after{content:"";position:absolute;top:2.5px;left:3px;width:18px;height:18px;
+  border-radius:55% 45% 50% 50%;background:var(--cream-dim);transition:all .3s ease}
+.switch.on{background:linear-gradient(120deg, rgba(168,192,154,.5), rgba(168,192,154,.3));border-color:rgba(168,192,154,.5)}
+.switch.on::after{left:23px;background:var(--cream);box-shadow:0 0 10px rgba(168,192,154,.6)}
+.cool-row{display:flex;align-items:center;gap:12px;padding:14px 2px 4px}
+.cool-row label{font-size:13px;font-weight:600}
+.cool-input{width:74px;padding:7px 14px;text-align:center;font-family:var(--mono);font-size:13px;
+  background:rgba(20,24,19,.6);border:1px solid var(--line);border-radius:999px}
+.cool-input:focus{border-color:rgba(168,192,154,.45)}
+.cool-row span{font-size:12px;color:var(--cream-faint)}
+.standing{width:100%;min-height:84px;margin-top:14px;padding:13px 18px;font-size:13px;line-height:1.6;resize:vertical;
+  background:rgba(20,24,19,.5);border:1px solid var(--line);border-radius:18px 30px 16px 28px}
+.standing:focus{border-color:rgba(168,192,154,.45)}
+.standing::placeholder{color:var(--cream-faint);font-style:italic;font-family:var(--serif)}
+.activity-card{padding:24px 30px}
+.act-row{display:grid;grid-template-columns:118px 128px 1fr;gap:16px;align-items:baseline;
+  padding:11px 2px;border-bottom:1px dashed var(--line-soft);font-size:13px}
+.act-row:last-child{border-bottom:none}
+.act-row .when{font-family:var(--mono);font-size:12px;color:var(--cream-faint)}
+.act-event{font-family:var(--mono);font-size:11px;padding:2px 12px;border-radius:999px;justify-self:start;
+  background:rgba(168,192,154,.1);color:var(--sage);border:1px solid rgba(168,192,154,.3)}
+.act-event.drafted{background:rgba(201,138,94,.12);color:#DFA778;border-color:rgba(201,138,94,.35)}
+.act-row .who-line code{font-family:var(--mono);font-size:12.5px;color:var(--cream)}
+.act-row .who-line span{color:var(--cream-dim)}
+
+/* ============================================================
+   6) SKILLS
+   ============================================================ */
+.skills-grid{display:grid;grid-template-columns:320px minmax(0,1fr);gap:26px;align-items:start}
+.skill-list{display:flex;flex-direction:column;gap:12px}
+.sk-item{text-align:left;padding:16px 20px;border:1px solid var(--line-soft);cursor:pointer;
+  background:linear-gradient(148deg, rgba(42,58,39,.55), rgba(34,48,32,.35));transition:all .25s ease}
+.sk-item:nth-child(1){border-radius:24px 42px 22px 38px}
+.sk-item:nth-child(2){border-radius:40px 22px 42px 26px}
+.sk-item:nth-child(3){border-radius:24px 40px 26px 44px}
+.sk-item:hover{border-color:var(--line);transform:translateY(-2px)}
+.sk-item.sel{border-color:rgba(168,192,154,.5);
+  background:linear-gradient(148deg, rgba(168,192,154,.14), rgba(34,48,32,.55) 65%);
+  box-shadow:0 12px 30px rgba(10,13,9,.4)}
+.sk-name{display:block;font-family:var(--mono);font-size:13px;font-weight:600;margin-bottom:6px;color:var(--cream)}
+.sk-meta{display:flex;gap:8px;align-items:center;font-size:11px;color:var(--cream-faint)}
+.scope-tag{font-size:9.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;padding:1.5px 10px;border-radius:var(--r-leaf)}
+.scope-product{background:rgba(216,196,143,.12);color:var(--wheat);border:1px solid rgba(216,196,143,.35)}
+.scope-tenant{background:rgba(168,192,154,.12);color:var(--sage);border:1px solid rgba(168,192,154,.35)}
+.scope-user{background:rgba(201,138,94,.13);color:#DFA778;border:1px solid rgba(201,138,94,.35)}
+.sk-detail{display:none;padding:28px 32px}
+.sk-detail.show{display:block;animation:canopy .3s ease both}
+.sk-detail h3{font-family:var(--mono);font-size:17px;font-weight:600;margin-bottom:8px}
+.sk-detail .sk-head{display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap}
+.sk-size{font-family:var(--mono);font-size:11px;color:var(--cream-faint)}
+.sk-body{font-family:var(--mono);font-size:12.5px;line-height:1.85;color:rgba(239,234,216,.82);
+  background:rgba(20,24,19,.55);border:1px solid var(--line-soft);border-radius:16px 30px 14px 26px;
+  padding:20px 26px;white-space:pre-wrap;margin-bottom:24px}
+.sk-foot{display:flex;align-items:center;gap:14px}
+.sk-foot .hint{margin-left:auto}
+
+/* ---------- corner badge ---------- */
+.badge{position:fixed;right:20px;bottom:18px;z-index:50;text-decoration:none;
+  font-family:var(--mono);font-size:11px;letter-spacing:.05em;color:var(--cream-dim);
+  padding:7px 17px;border-radius:20px 10px 20px 10px;
+  background:rgba(26,33,25,.88);border:1px solid var(--line);backdrop-filter:blur(6px);
+  box-shadow:0 8px 24px rgba(10,13,9,.5);transition:all .25s}
+.badge:hover{color:var(--clay);border-color:rgba(201,138,94,.5);transform:translateY(-2px)}
+
+@media (max-width:1380px){
+  .work-grid{grid-template-columns:minmax(300px,4fr) 6fr}
+  .views-grid{grid-template-columns:260px minmax(0,1fr)}
+}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
+  .tick-track{animation:none}
+}
+</style>
+</head>
+<body>
+<div class="soil" aria-hidden="true"></div>
+
+<!-- ================= RAIL ================= -->
+<aside class="rail">
+  <div class="brand">
+    <div class="orb" id="orb" aria-hidden="true"></div>
+    <div>
+      <div class="brand-name">The Agent</div>
+      <div class="brand-sub">brain: claude-fable-5</div>
+    </div>
+  </div>
+
+  <nav class="nav" aria-label="Sections">
+    <button class="nav-item active" data-nav="assistant">
+      <svg viewBox="0 0 24 24"><path d="M4.5 11.2c0-3.9 3.4-6.4 7.6-6.4s7.4 2.6 7.4 6.4c0 3.9-3.3 6.3-7.5 6.3-.9 0-1.8-.1-2.6-.3-1 .9-2.3 1.6-3.9 1.9.6-1 .9-2 .9-3-1.2-1.1-1.9-2.9-1.9-4.9z"/></svg>
+      <span>Assistant</span>
+    </button>
+    <button class="nav-item" data-nav="mywork">
+      <svg viewBox="0 0 24 24"><path d="M4.6 12.4c0-4 3.2-6.6 7.4-6.6s7.4 2.6 7.4 6.6-3.2 6.6-7.4 6.6-7.4-2.6-7.4-6.6z"/><path d="M8.9 12.5l2.2 2.2 4.1-4.5"/></svg>
+      <span>My Work</span>
+      <em class="nav-count">4</em>
+    </button>
+    <button class="nav-item" data-nav="views">
+      <svg viewBox="0 0 24 24"><ellipse cx="8" cy="7.8" rx="3.5" ry="3"/><ellipse cx="16.5" cy="7.4" rx="3" ry="3.4"/><ellipse cx="7.7" cy="16.5" rx="3.1" ry="3.3"/><ellipse cx="16.3" cy="16.7" rx="3.4" ry="2.9"/></svg>
+      <span>Views</span>
+    </button>
+    <button class="nav-item" data-nav="playbooks">
+      <svg viewBox="0 0 24 24"><circle cx="6.2" cy="6" r="2.5"/><circle cx="18" cy="10.2" r="2.5"/><circle cx="8.8" cy="18" r="2.5"/><path d="M8.5 7c2.4.6 4.8 1.6 7 2.6M16.6 12.3c-2 1.7-4 3.3-5.9 4.6"/></svg>
+      <span>Playbooks</span>
+    </button>
+    <button class="nav-item" data-nav="email">
+      <svg viewBox="0 0 24 24"><path d="M4 9c0-1.7 1.3-2.8 3.1-2.8h9.8C18.7 6.2 20 7.3 20 9v6c0 1.7-1.3 2.8-3.1 2.8H7.1C5.3 17.8 4 16.7 4 15z"/><path d="M4.6 9.2 12 13.6l7.4-4.4"/></svg>
+      <span>Email</span>
+    </button>
+    <button class="nav-item" data-nav="skills">
+      <svg viewBox="0 0 24 24"><path d="M12 20.5v-7.4"/><path d="M12 13.1c.2-3.3 2.3-5.4 5.6-5.6-.2 3.3-2.3 5.4-5.6 5.6z"/><path d="M12 13.1c-.2-3.3-2.3-5.4-5.6-5.6.2 3.3 2.3 5.4 5.6 5.6z"/></svg>
+      <span>Skills</span>
+    </button>
+  </nav>
+
+  <div class="platform" id="platform">
+    <button class="platform-head" id="platformToggle" aria-expanded="true">
+      <span>Platform</span><span class="chev">▾</span>
+    </button>
+    <div class="platform-links">
+      <a class="plink" href="#">Data Explorer</a>
+      <a class="plink" href="#">Workflow Designer</a>
+      <a class="plink" href="#">Mission Control</a>
+      <a class="plink" href="#">Command Center</a>
+      <a class="plink" href="#">Documents</a>
+      <a class="plink" href="#">Classic app</a>
+    </div>
+  </div>
+
+  <div class="rail-foot">
+    <div class="rail-user">
+      <div class="rail-avatar">J</div>
+      <div><b>James</b><span>admin</span></div>
+    </div>
+    <p class="mantra">draft → dry-run → promote → schedule</p>
+    <p class="mantra">humans stay in the loop · My Work</p>
+  </div>
+</aside>
+
+<!-- ================= MAIN ================= -->
+<main>
+
+  <!-- ============ 1) ASSISTANT ============ -->
+  <section class="panel panel--chat active" data-panel="assistant" aria-label="Assistant">
+    <div class="chat-top">
+      <h2>Assistant</h2>
+      <span class="session">session · today 16:42</span>
+    </div>
+
+    <div class="chat-scroll" id="chatScroll">
+      <div class="chat-inner">
+
+        <div class="hello">
+          <h1>Hi James — what do you need?</h1>
+          <p>Explore your data, build automations through conversation, and keep humans in the loop with My Work.</p>
+          <div class="starters">
+            <button class="pod">What data connections do we have?</button>
+            <button class="pod">Build me an automation that checks ERPDB daily</button>
+            <button class="pod">What's waiting in My Work?</button>
+          </div>
+        </div>
+
+        <div class="divider">today · 16:38</div>
+
+        <div class="msg you">
+          <div class="who">You · 16:38</div>
+          <div class="stone">Which vendors drove August invoice spend, and are any invoices stuck?</div>
+        </div>
+
+        <div class="msg agent">
+          <div class="who"><span class="adot"></span>The Agent · 16:38</div>
+          <div class="toolrun">
+            <span class="vine"></span>
+            <div class="pods">
+              <span class="runlabel">ran tools</span>
+              <span class="tpod">
+                <svg class="seedleaf" viewBox="0 0 12 12"><path d="M6 10.6C3.1 9.7 1.7 7.3 2.2 4 5.5 3.2 8.4 4.5 9.6 7.5 8.7 9.4 7.6 10.3 6 10.6Z"/></svg>
+                <code class="tname">list_connections</code><code class="targs">{}</code>
+                <span class="tstat">ok</span><span class="ttime">0.4s</span>
+              </span>
+              <span class="tpod">
+                <svg class="seedleaf" viewBox="0 0 12 12"><path d="M6 10.6C3.1 9.7 1.7 7.3 2.2 4 5.5 3.2 8.4 4.5 9.6 7.5 8.7 9.4 7.6 10.3 6 10.6Z"/></svg>
+                <code class="tname">query_database</code><code class="targs">{"connection":"ERPDB","sql":"SELECT vendor, SUM(total)…"}</code>
+                <span class="tstat">ok</span><span class="ttime">1.8s</span>
+              </span>
+            </div>
+          </div>
+          <div class="stone">
+            <p>August invoice spend is <strong class="num">$482,910</strong> across 41 vendors. The top five drive <strong>68%</strong> of it:</p>
+            <table class="ctable">
+              <thead><tr><th>Vendor</th><th class="r">Invoices</th><th class="r">August total</th><th class="r">vs July</th></tr></thead>
+              <tbody>
+                <tr><td>Meridian Supply Co</td><td class="r">14</td><td class="r">$128,400</td><td class="r up">+22%</td></tr>
+                <tr><td>Northgate Logistics</td><td class="r">9</td><td class="r">$96,150</td><td class="r flat">+4%</td></tr>
+                <tr><td>Corvid Materials</td><td class="r">11</td><td class="r">$64,020</td><td class="r dn">−8%</td></tr>
+                <tr><td>Atlas Packaging</td><td class="r">7</td><td class="r">$41,310</td><td class="r up">+13%</td></tr>
+                <tr><td>Helix Industrial</td><td class="r">5</td><td class="r">$38,900</td><td class="r flat">+2%</td></tr>
+              </tbody>
+            </table>
+            <p>Two Meridian invoices (<strong>INV-20841</strong>, <strong>INV-20857</strong>) are pending approval past 14 days — <strong class="num">$61,200</strong> combined. Want me to raise them in My Work?</p>
+          </div>
+        </div>
+
+        <div class="msg you">
+          <div class="who">You · 16:41</div>
+          <div class="stone">Yes — raise them and save this as a view.</div>
+        </div>
+
+        <div class="msg agent">
+          <div class="who"><span class="adot"></span>The Agent · 16:42</div>
+          <div class="toolrun">
+            <span class="vine"></span>
+            <div class="pods">
+              <span class="runlabel">ran tools</span>
+              <span class="tpod">
+                <svg class="seedleaf" viewBox="0 0 12 12"><path d="M6 10.6C3.1 9.7 1.7 7.3 2.2 4 5.5 3.2 8.4 4.5 9.6 7.5 8.7 9.4 7.6 10.3 6 10.6Z"/></svg>
+                <code class="tname">create_work_item</code>
+                <span class="tstat">ok</span><span class="ttime">0.6s</span>
+              </span>
+              <span class="tpod">
+                <svg class="seedleaf" viewBox="0 0 12 12"><path d="M6 10.6C3.1 9.7 1.7 7.3 2.2 4 5.5 3.2 8.4 4.5 9.6 7.5 8.7 9.4 7.6 10.3 6 10.6Z"/></svg>
+                <code class="tname">save_view</code><code class="targs">{"name":"Vendor Spend — August"}</code>
+                <span class="tstat">ok</span><span class="ttime">0.9s</span>
+              </span>
+            </div>
+          </div>
+          <div class="stone">
+            <p>Done. Two approval items are in <strong>My Work</strong>, and I saved <strong>Vendor Spend — August</strong> as a view with 4 tiles — it refreshes with zero AI.</p>
+          </div>
+        </div>
+
+        <div class="typing" id="typing" aria-hidden="true">
+          <div class="who"><span class="adot"></span>The Agent</div>
+          <div class="stone"><span class="tdot"></span><span class="tdot"></span><span class="tdot"></span></div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="composer-zone">
+      <div class="composer">
+        <textarea id="composerInput" rows="1" placeholder="Ask, build, or tend to something…"></textarea>
+        <div class="comp-actions">
+          <button class="icon-btn" title="New conversation" aria-label="New conversation">
+            <svg viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></svg>
+          </button>
+          <button class="icon-btn" title="History" aria-label="Conversation history">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><path d="M12 8v4.4l3 1.8"/></svg>
+          </button>
+          <button class="send-btn" id="sendBtn" title="Send" aria-label="Send">
+            <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6.5 18.5 12 13 17.5"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="comp-foot"><span>tools run with your permissions · nothing sends without you</span></div>
+    </div>
+  </section>
+
+  <!-- ============ 2) MY WORK ============ -->
+  <section class="panel" data-panel="mywork" aria-label="My Work">
+    <div class="wrap">
+      <div class="p-head">
+        <h2>My Work</h2>
+        <p class="psub">What the agent won't do without you.</p>
+        <svg class="squig" width="56" height="7" viewBox="0 0 56 7" aria-hidden="true"><path d="M2 4.5C9 1.5 14 6 21 3.5S35 1 42 4.5 52 3 54 3.5" fill="none" stroke="#C98A5E" stroke-width="1.6" stroke-linecap="round" opacity=".7"/></svg>
+      </div>
+
+      <div class="work-filters">
+        <button class="pod sel" data-filter="all">All <span class="n">4</span></button>
+        <button class="pod" data-filter="approval">Approval <span class="n">1</span></button>
+        <button class="pod" data-filter="email">Email / Edit <span class="n">1</span></button>
+        <button class="pod" data-filter="question">Question <span class="n">1</span></button>
+        <button class="pod" data-filter="fyi">FYI <span class="n">1</span></button>
+      </div>
+
+      <div class="work-grid">
+        <div class="queue" id="queue">
+          <button class="qitem" data-item="1" data-verb="approval">
+            <span class="qrow"><span class="verb verb-approval">Approval</span><span class="minipod">dry-run</span></span>
+            <span class="qtitle">Approve payment run — 2 overdue Meridian invoices ($61,200)</span>
+            <span class="qmeta">from automation <code>invoice-chaser</code> · 09:14</span>
+          </button>
+          <button class="qitem sel" data-item="2" data-verb="email">
+            <span class="qrow"><span class="verb verb-email">Email / Edit</span></span>
+            <span class="qtitle">Re: Q3 renewal pricing — reply to Dana Whitfield</span>
+            <span class="qmeta">from email · 08:47</span>
+          </button>
+          <button class="qitem" data-item="3" data-verb="question">
+            <span class="qrow"><span class="verb verb-question">Question</span><span class="minipod g">shared · unclaimed</span></span>
+            <span class="qtitle">Which fiscal calendar should the vendor report use — 4-4-5 or calendar month?</span>
+            <span class="qmeta">from agent</span>
+          </button>
+          <button class="qitem" data-item="4" data-verb="fyi">
+            <span class="qrow"><span class="verb verb-fyi">FYI</span></span>
+            <span class="qtitle">Nightly ERPDB health check completed — 0 anomalies, 312k rows scanned</span>
+            <span class="qmeta">from automation <code>erpdb-daily-health</code> · 06:00</span>
+          </button>
+        </div>
+
+        <div>
+          <!-- detail 1: approval -->
+          <div class="detail card detail-card" id="detail-1">
+            <div class="d-banner">
+              <svg class="leaf" viewBox="0 0 12 12"><path d="M6 10.6C3.1 9.7 1.7 7.3 2.2 4 5.5 3.2 8.4 4.5 9.6 7.5 8.7 9.4 7.6 10.3 6 10.6Z"/></svg>
+              Dry-run complete — nothing has moved yet. Approving executes the payment run.
+            </div>
+            <h3 style="font-size:17px;font-weight:600;margin-bottom:6px">Payment run · 2 overdue Meridian invoices</h3>
+            <p style="font-size:13px;color:var(--cream-dim)">Raised by automation <code class="mono" style="color:var(--sage)">invoice-chaser</code> at 09:14 after the vendor-spend review.</p>
+            <div class="inv-list">
+              <div class="inv-row"><code>INV-20841</code><span>Meridian Supply Co</span><span class="amt">$38,700</span><span class="agechip">21d</span></div>
+              <div class="inv-row"><code>INV-20857</code><span>Meridian Supply Co</span><span class="amt">$22,500</span><span class="agechip">17d</span></div>
+              <div class="inv-row"><code></code><span style="font-weight:600">Total</span><span class="amt">$61,200</span><span></span></div>
+            </div>
+            <div class="d-actions">
+              <button class="btn btn-primary ackable" data-ack="Approved ✓ — executing">Approve payment run</button>
+              <button class="btn ackable" data-ack="Denied — returned to agent">Deny</button>
+              <span class="hint">Nothing sends without you</span>
+            </div>
+          </div>
+
+          <!-- detail 2: email (selected) -->
+          <div class="detail card detail-card show" id="detail-2">
+            <div class="d-banner">
+              <svg class="leaf" viewBox="0 0 12 12"><path d="M6 10.6C3.1 9.7 1.7 7.3 2.2 4 5.5 3.2 8.4 4.5 9.6 7.5 8.7 9.4 7.6 10.3 6 10.6Z"/></svg>
+              Draft — body is editable; what you approve is what sends
+            </div>
+            <dl class="d-rows">
+              <div class="d-row"><dt>To</dt><dd>dana@meridiansupply.com</dd></div>
+              <div class="d-row"><dt>From</dt><dd>james-agent@mail.aihub.dev</dd></div>
+              <div class="d-row"><dt>Subject</dt><dd>Re: Q3 renewal pricing</dd></div>
+            </dl>
+            <textarea class="d-body" aria-label="Email draft body">Hi Dana — thank you for the renewal outline. We'd like to hold at current pricing while we finish our August vendor-spend review; two invoices on our side (INV-20841, INV-20857) are still working through approval, and I want those resolved before we commit to new terms. I'll have a firm answer for you by Friday.</textarea>
+            <input class="d-comment" type="text" placeholder="Add a comment for the audit trail (optional)…" aria-label="Comment">
+            <div class="d-actions">
+              <button class="btn btn-primary ackable" data-ack="Approved ✓ — sending">Approve &amp; send</button>
+              <button class="btn ackable" data-ack="Denied — returned to agent">Deny</button>
+              <span class="hint">Nothing sends without you</span>
+            </div>
+            <div class="thread">
+              <h4>Thread with the agent</h4>
+              <div class="msg you">
+                <div class="who">You</div>
+                <div class="stone">Is Dana on the approved vendor contact list?</div>
+              </div>
+              <div class="msg agent">
+                <div class="who"><span class="adot"></span>The Agent</div>
+                <div class="stone">Yes — primary commercial contact for Meridian Supply Co since March.</div>
+              </div>
+              <div class="thread-input">
+                <input type="text" placeholder="Ask the agent about this item…" aria-label="Ask the agent about this item">
+                <button class="icon-btn" title="Send" aria-label="Send question">
+                  <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6.5 18.5 12 13 17.5"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- detail 3: question -->
+          <div class="detail card detail-card" id="detail-3">
+            <div class="d-banner">
+              <svg class="leaf" viewBox="0 0 12 12"><path d="M6 10.6C3.1 9.7 1.7 7.3 2.2 4 5.5 3.2 8.4 4.5 9.6 7.5 8.7 9.4 7.6 10.3 6 10.6Z"/></svg>
+              Shared with your group — unclaimed. The first answer resolves it for the agent.
+            </div>
+            <h3 style="font-size:17px;font-weight:600;line-height:1.5">Which fiscal calendar should the vendor report use — 4-4-5 or calendar month?</h3>
+            <div class="q-options">
+              <button class="pod qopt">4-4-5</button>
+              <button class="pod qopt">Calendar month</button>
+            </div>
+            <input class="d-comment" type="text" placeholder="Or explain in your own words…" aria-label="Answer in your own words">
+            <div class="d-actions">
+              <button class="btn btn-primary ackable" data-ack="Answered ✓ — agent resumed">Send answer</button>
+              <span class="hint">The agent is paused on this until someone answers</span>
+            </div>
+          </div>
+
+          <!-- detail 4: fyi -->
+          <div class="detail card detail-card" id="detail-4">
+            <div class="d-banner">
+              <svg class="leaf" viewBox="0 0 12 12"><path d="M6 10.6C3.1 9.7 1.7 7.3 2.2 4 5.5 3.2 8.4 4.5 9.6 7.5 8.7 9.4 7.6 10.3 6 10.6Z"/></svg>
+              For your awareness — no action required.
+            </div>
+            <h3 style="font-size:17px;font-weight:600;margin-bottom:8px">Nightly ERPDB health check completed</h3>
+            <div class="fyi-stats">
+              <div class="fyi-stat"><b>0</b><span>anomalies</span></div>
+              <div class="fyi-stat"><b>312k</b><span>rows scanned</span></div>
+              <div class="fyi-stat"><b>06:00</b><span>completed</span></div>
+            </div>
+            <p style="font-size:13px;color:var(--cream-dim)">From automation <code class="mono" style="color:var(--sage)">erpdb-daily-health</code> · runs nightly, deterministic, zero AI.</p>
+            <div class="d-actions">
+              <button class="btn ackable" data-ack="Marked as read ✓">Mark as read</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 3) VIEWS ============ -->
+  <section class="panel" data-panel="views" aria-label="Views">
+    <div class="wrap">
+      <div class="p-head">
+        <h2>Views</h2>
+        <p class="psub">Deterministic dashboards — they refresh with zero AI.</p>
+        <svg class="squig" width="56" height="7" viewBox="0 0 56 7" aria-hidden="true"><path d="M2 4.5C9 1.5 14 6 21 3.5S35 1 42 4.5 52 3 54 3.5" fill="none" stroke="#A8C09A" stroke-width="1.6" stroke-linecap="round" opacity=".7"/></svg>
+      </div>
+
+      <div class="views-grid">
+        <div class="view-list">
+          <button class="vitem sel" data-view="vendor" data-title="Vendor Spend — August" data-meta="user · v3 · refreshed 16:42">
+            <span class="vname">Vendor Spend — August</span>
+            <span class="vmeta">user scope · 4 tiles · v3</span>
+          </button>
+          <button class="vitem" data-view="ops" data-title="Ops Pulse" data-meta="group · v11 · dormant">
+            <span class="vname">Ops Pulse</span>
+            <span class="vmeta">group scope · 6 tiles · v11 <span class="minipod g">automation tiles</span></span>
+          </button>
+          <button class="vitem" data-view="warehouse" data-title="Warehouse Throughput" data-meta="tenant · v2 · dormant">
+            <span class="vname">Warehouse Throughput</span>
+            <span class="vmeta">tenant scope · 5 tiles · v2</span>
+          </button>
+        </div>
+
+        <div>
+          <div class="view-head">
+            <h3 id="viewTitle">Vendor Spend — August</h3>
+            <span class="view-headmeta" id="viewMeta">user · v3 · refreshed 16:42</span>
+            <div class="view-actions">
+              <button class="vbtn pulsable">Arrange</button>
+              <button class="vbtn pulsable">Rename</button>
+              <button class="vbtn pulsable">✎ Edit with AI</button>
+              <button class="vbtn" id="refreshBtn"><span class="ref">↻</span>&nbsp;Refresh</button>
+            </div>
+          </div>
+
+          <!-- Vendor Spend board -->
+          <div class="board show" id="board-vendor">
+            <div class="tile tile-stat">
+              <h5>August invoice total</h5>
+              <svg class="squig" width="44" height="6" viewBox="0 0 44 6" aria-hidden="true"><path d="M2 3.5C8 1 12 5 18 3S30 1.5 36 4 41 3 42 3.2" fill="none" stroke="#C98A5E" stroke-width="1.4" stroke-linecap="round" opacity=".6"/></svg>
+              <div class="stat-big">$482,910</div>
+              <div class="stat-sub">SUM(total) · as of 16:42</div>
+              <span class="stat-delta">41 vendors · top 5 = 68%</span>
+            </div>
+
+            <div class="tile tile-bar">
+              <h5>Spend by vendor (top 5)</h5>
+              <svg class="squig" width="44" height="6" viewBox="0 0 44 6" aria-hidden="true"><path d="M2 3.5C8 1 12 5 18 3S30 1.5 36 4 41 3 42 3.2" fill="none" stroke="#A8C09A" stroke-width="1.4" stroke-linecap="round" opacity=".6"/></svg>
+              <div class="hbar clay"><span class="lbl">Meridian</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="val">$128,400</span></div>
+              <div class="hbar"><span class="lbl">Northgate</span><span class="track"><span class="fill" style="width:75%"></span></span><span class="val">$96,150</span></div>
+              <div class="hbar"><span class="lbl">Corvid</span><span class="track"><span class="fill" style="width:50%"></span></span><span class="val">$64,020</span></div>
+              <div class="hbar"><span class="lbl">Atlas</span><span class="track"><span class="fill" style="width:32%"></span></span><span class="val">$41,310</span></div>
+              <div class="hbar"><span class="lbl">Helix</span><span class="track"><span class="fill" style="width:30%"></span></span><span class="val">$38,900</span></div>
+            </div>
+
+            <div class="tile tile-line">
+              <h5>Daily invoice volume</h5>
+              <svg class="squig" width="44" height="6" viewBox="0 0 44 6" aria-hidden="true"><path d="M2 3.5C8 1 12 5 18 3S30 1.5 36 4 41 3 42 3.2" fill="none" stroke="#A8C09A" stroke-width="1.4" stroke-linecap="round" opacity=".6"/></svg>
+              <svg viewBox="0 0 260 118" style="width:100%;height:auto;margin-top:8px" aria-label="Daily invoice volume, gently rising">
+                <defs>
+                  <linearGradient id="lg" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stop-color="#A8C09A" stop-opacity=".28"/>
+                    <stop offset="1" stop-color="#A8C09A" stop-opacity="0"/>
+                  </linearGradient>
+                </defs>
+                <path d="M8 97 26.8 94.5 45.6 95.5 64.4 89 83.2 90.5 102 83.5 120.8 85.5 139.6 77.5 158.4 79.5 177.2 71 196 73 214.8 63 233.6 58.5 252.4 51 L252.4 112 8 112 Z" fill="url(#lg)"/>
+                <path d="M8 97 26.8 94.5 45.6 95.5 64.4 89 83.2 90.5 102 83.5 120.8 85.5 139.6 77.5 158.4 79.5 177.2 71 196 73 214.8 63 233.6 58.5 252.4 51" fill="none" stroke="#C98A5E" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round" opacity=".3" transform="translate(1.6 2)"/>
+                <path d="M8 97 26.8 94.5 45.6 95.5 64.4 89 83.2 90.5 102 83.5 120.8 85.5 139.6 77.5 158.4 79.5 177.2 71 196 73 214.8 63 233.6 58.5 252.4 51" fill="none" stroke="#A8C09A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+                <g fill="#A8C09A">
+                  <circle cx="8" cy="97" r="2.2"/><circle cx="45.6" cy="95.5" r="2.2"/><circle cx="83.2" cy="90.5" r="2.2"/><circle cx="120.8" cy="85.5" r="2.2"/><circle cx="158.4" cy="79.5" r="2.2"/><circle cx="196" cy="73" r="2.2"/><circle cx="233.6" cy="58.5" r="2.2"/>
+                </g>
+                <circle cx="252.4" cy="51" r="3.4" fill="#C98A5E"/>
+              </svg>
+            </div>
+
+            <div class="tile tile-table">
+              <h5>Open invoices &gt; 14 days</h5>
+              <svg class="squig" width="44" height="6" viewBox="0 0 44 6" aria-hidden="true"><path d="M2 3.5C8 1 12 5 18 3S30 1.5 36 4 41 3 42 3.2" fill="none" stroke="#C98A5E" stroke-width="1.4" stroke-linecap="round" opacity=".6"/></svg>
+              <table class="vtable">
+                <thead><tr><th>Invoice</th><th>Vendor</th><th class="r">Amount</th><th class="r">Age</th></tr></thead>
+                <tbody>
+                  <tr><td><code>INV-20841</code></td><td>Meridian Supply Co</td><td class="amt">$38,700</td><td class="r"><span class="agechip">21d</span></td></tr>
+                  <tr><td><code>INV-20857</code></td><td>Meridian Supply Co</td><td class="amt">$22,500</td><td class="r"><span class="agechip">17d</span></td></tr>
+                  <tr><td><code>INV-20872</code></td><td>Corvid Materials</td><td class="amt">$9,340</td><td class="r"><span class="agechip ok">16d</span></td></tr>
+                  <tr><td><code>INV-20881</code></td><td>Atlas Packaging</td><td class="amt">$7,120</td><td class="r"><span class="agechip ok">15d</span></td></tr>
+                  <tr><td><code>INV-20889</code></td><td>Northgate Logistics</td><td class="amt">$5,480</td><td class="r"><span class="agechip ok">15d</span></td></tr>
+                  <tr><td><code>INV-20896</code></td><td>Helix Industrial</td><td class="amt">$4,210</td><td class="r"><span class="agechip ok">14d</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="tile tile-tick">
+              <h5>Latest invoices</h5>
+              <div class="tick-strip">
+                <div class="tick-track">
+                  <div class="tick-half">
+                    <span class="tick-item"><code>INV-20896</code><span>Helix Industrial</span><span class="ta">$4,210</span></span>
+                    <span class="tick-item"><code>INV-20889</code><span>Northgate Logistics</span><span class="ta">$5,480</span></span>
+                    <span class="tick-item"><code>INV-20881</code><span>Atlas Packaging</span><span class="ta">$7,120</span></span>
+                    <span class="tick-item"><code>INV-20872</code><span>Corvid Materials</span><span class="ta">$9,340</span></span>
+                    <span class="tick-item"><code>INV-20857</code><span>Meridian Supply Co</span><span class="ta">$22,500</span></span>
+                    <span class="tick-item"><code>INV-20841</code><span>Meridian Supply Co</span><span class="ta">$38,700</span></span>
+                  </div>
+                  <div class="tick-half" aria-hidden="true">
+                    <span class="tick-item"><code>INV-20896</code><span>Helix Industrial</span><span class="ta">$4,210</span></span>
+                    <span class="tick-item"><code>INV-20889</code><span>Northgate Logistics</span><span class="ta">$5,480</span></span>
+                    <span class="tick-item"><code>INV-20881</code><span>Atlas Packaging</span><span class="ta">$7,120</span></span>
+                    <span class="tick-item"><code>INV-20872</code><span>Corvid Materials</span><span class="ta">$9,340</span></span>
+                    <span class="tick-item"><code>INV-20857</code><span>Meridian Supply Co</span><span class="ta">$22,500</span></span>
+                    <span class="tick-item"><code>INV-20841</code><span>Meridian Supply Co</span><span class="ta">$38,700</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Ops Pulse (dormant) -->
+          <div class="board dormant" id="board-ops">
+            <p class="dormant-note">Dormant — 6 tiles wake when the view is opened. Deterministic refresh, zero AI.</p>
+            <div class="tile dormant-tile"><svg viewBox="0 0 24 24"><path d="M12 20.5v-7.4"/><path d="M12 13.1c.2-3.3 2.3-5.4 5.6-5.6-.2 3.3-2.3 5.4-5.6 5.6z"/><path d="M12 13.1c-.2-3.3-2.3-5.4-5.6-5.6.2 3.3 2.3 5.4 5.6 5.6z"/></svg></div>
+            <div class="tile dormant-tile"><svg viewBox="0 0 24 24"><path d="M12 20.5v-7.4"/><path d="M12 13.1c.2-3.3 2.3-5.4 5.6-5.6-.2 3.3-2.3 5.4-5.6 5.6z"/><path d="M12 13.1c-.2-3.3-2.3-5.4-5.6-5.6.2 3.3 2.3 5.4 5.6 5.6z"/></svg></div>
+            <div class="tile dormant-tile"><svg viewBox="0 0 24 24"><path d="M12 20.5v-7.4"/><path d="M12 13.1c.2-3.3 2.3-5.4 5.6-5.6-.2 3.3-2.3 5.4-5.6 5.6z"/><path d="M12 13.1c-.2-3.3-2.3-5.4-5.6-5.6.2 3.3 2.3 5.4 5.6 5.6z"/></svg></div>
+            <div class="tile dormant-tile"><svg viewBox="0 0 24 24"><path d="M12 20.5v-7.4"/><path d="M12 13.1c.2-3.3 2.3-5.4 5.6-5.6-.2 3.3-2.3 5.4-5.6 5.6z"/><path d="M12 13.1c-.2-3.3-2.3-5.4-5.6-5.6.2 3.3 2.3 5.4 5.6 5.6z"/></svg></div>
+            <div class="tile dormant-tile"><svg viewBox="0 0 24 24"><path d="M12 20.5v-7.4"/><path d="M12 13.1c.2-3.3 2.3-5.4 5.6-5.6-.2 3.3-2.3 5.4-5.6 5.6z"/><path d="M12 13.1c-.2-3.3-2.3-5.4-5.6-5.6.2 3.3 2.3 5.4 5.6 5.6z"/></svg></div>
+            <div class="tile dormant-tile"><svg viewBox="0 0 24 24"><path d="M12 20.5v-7.4"/><path d="M12 13.1c.2-3.3 2.3-5.4 5.6-5.6-.2 3.3-2.3 5.4-5.6 5.6z"/><path d="M12 13.1c-.2-3.3-2.3-5.4-5.6-5.6.2 3.3 2.3 5.4 5.6 5.6z"/></svg></div>
+          </div>
+
+          <!-- Warehouse Throughput (dormant) -->
+          <div class="board dormant" id="board-warehouse">
+            <p class="dormant-note">Dormant — 5 tiles wake when the view is opened. Deterministic refresh, zero AI.</p>
+            <div class="tile dormant-tile"><svg viewBox="0 0 24 24"><path d="M12 20.5v-7.4"/><path d="M12 13.1c.2-3.3 2.3-5.4 5.6-5.6-.2 3.3-2.3 5.4-5.6 5.6z"/><path d="M12 13.1c-.2-3.3-2.3-5.4-5.6-5.6.2 3.3 2.3 5.4 5.6 5.6z"/></svg></div>
+            <div class="tile dormant-tile"><svg viewBox="0 0 24 24"><path d="M12 20.5v-7.4"/><path d="M12 13.1c.2-3.3 2.3-5.4 5.6-5.6-.2 3.3-2.3 5.4-5.6 5.6z"/><path d="M12 13.1c-.2-3.3-2.3-5.4-5.6-5.6.2 3.3 2.3 5.4 5.6 5.6z"/></svg></div>
+            <div class="tile dormant-tile"><svg viewBox="0 0 24 24"><path d="M12 20.5v-7.4"/><path d="M12 13.1c.2-3.3 2.3-5.4 5.6-5.6-.2 3.3-2.3 5.4-5.6 5.6z"/><path d="M12 13.1c-.2-3.3-2.3-5.4-5.6-5.6.2 3.3 2.3 5.4 5.6 5.6z"/></svg></div>
+            <div class="tile dormant-tile"><svg viewBox="0 0 24 24"><path d="M12 20.5v-7.4"/><path d="M12 13.1c.2-3.3 2.3-5.4 5.6-5.6-.2 3.3-2.3 5.4-5.6 5.6z"/><path d="M12 13.1c-.2-3.3-2.3-5.4-5.6-5.6.2 3.3 2.3 5.4 5.6 5.6z"/></svg></div>
+            <div class="tile dormant-tile"><svg viewBox="0 0 24 24"><path d="M12 20.5v-7.4"/><path d="M12 13.1c.2-3.3 2.3-5.4 5.6-5.6-.2 3.3-2.3 5.4-5.6 5.6z"/><path d="M12 13.1c-.2-3.3-2.3-5.4-5.6-5.6.2 3.3 2.3 5.4 5.6 5.6z"/></svg></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 4) PLAYBOOKS ============ -->
+  <section class="panel" data-panel="playbooks" aria-label="Playbooks">
+    <div class="wrap">
+      <div class="p-head">
+        <h2>Playbooks</h2>
+        <p class="psub">Workflows, code flows, and automations — the agent's rehearsed moves.</p>
+        <svg class="squig" width="56" height="7" viewBox="0 0 56 7" aria-hidden="true"><path d="M2 4.5C9 1.5 14 6 21 3.5S35 1 42 4.5 52 3 54 3.5" fill="none" stroke="#D8C48F" stroke-width="1.6" stroke-linecap="round" opacity=".7"/></svg>
+      </div>
+
+      <div class="pb-toolbar">
+        <button class="pod sel" data-pbfilter="all">All <span class="n">6</span></button>
+        <button class="pod" data-pbfilter="workflow">Workflows <span class="n">2</span></button>
+        <button class="pod" data-pbfilter="codeflow">Code Flows <span class="n">1</span></button>
+        <button class="pod" data-pbfilter="automation">Automations <span class="n">3</span></button>
+        <input class="pb-search" id="pbSearch" type="text" placeholder="Search playbooks…" aria-label="Search playbooks">
+        <div class="pb-links">
+          <a href="#">Open Workflow Designer ↗</a>
+          <a href="#">Open Mission Control ↗</a>
+        </div>
+      </div>
+
+      <div class="pb-list" id="pbList">
+        <div class="pb-item" data-type="workflow">
+          <span class="verb verb-email">Workflow</span>
+          <div><div class="pb-name">Invoice Intake — OCR + 3-way match</div><div class="pb-meta">id 1218</div></div>
+          <button class="pb-open vbtn pulsable">Open ↗</button>
+        </div>
+        <div class="pb-item" data-type="workflow">
+          <span class="verb verb-email">Workflow</span>
+          <div><div class="pb-name">Vendor Onboarding Checks</div><div class="pb-meta">id 1327</div></div>
+          <button class="pb-open vbtn pulsable">Open ↗</button>
+        </div>
+        <div class="pb-item" data-type="codeflow">
+          <span class="verb verb-question">Code Flow</span>
+          <div><div class="pb-name">Monthly Close Journal Prep</div><div class="pb-meta">id 214</div></div>
+          <button class="pb-open vbtn pulsable">Open ↗</button>
+        </div>
+        <div class="pb-item" data-type="automation">
+          <span class="verb verb-approval">Automation</span>
+          <div><div class="pb-name">invoice-chaser</div><div class="pb-meta">v7 <span class="minipod">pinned v6</span></div></div>
+          <button class="pb-open vbtn pulsable">Open ↗</button>
+        </div>
+        <div class="pb-item" data-type="automation">
+          <span class="verb verb-approval">Automation</span>
+          <div><div class="pb-name">dayforce-doc-upload</div><div class="pb-meta">v3</div></div>
+          <button class="pb-open vbtn pulsable">Open ↗</button>
+        </div>
+        <div class="pb-item" data-type="automation">
+          <span class="verb verb-approval">Automation</span>
+          <div><div class="pb-name">erpdb-daily-health</div><div class="pb-meta">v12</div></div>
+          <button class="pb-open vbtn pulsable">Open ↗</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 5) EMAIL ============ -->
+  <section class="panel" data-panel="email" aria-label="Email">
+    <div class="wrap">
+      <div class="p-head">
+        <h2>Email</h2>
+        <p class="psub">The agent's personal address.</p>
+        <svg class="squig" width="56" height="7" viewBox="0 0 56 7" aria-hidden="true"><path d="M2 4.5C9 1.5 14 6 21 3.5S35 1 42 4.5 52 3 54 3.5" fill="none" stroke="#A8C09A" stroke-width="1.6" stroke-linecap="round" opacity=".7"/></svg>
+      </div>
+
+      <div class="email-grid">
+        <div class="card email-card">
+          <h4>Your address</h4>
+          <p class="esub">Mail sent to this address runs a headless agent session as you and lands its result in My Work.</p>
+          <div class="addr-row">
+            <input class="addr-prefix" type="text" value="james-agent" aria-label="Address prefix">
+            <span class="addr-suffix">@mail.aihub.dev</span>
+            <span class="state-chip">ACTIVE</span>
+          </div>
+          <div class="setrow">
+            <div class="stext"><b>Inbound enabled</b><span>the address accepts mail and starts sessions</span></div>
+            <button class="switch on" role="switch" aria-checked="true" aria-label="Inbound enabled"></button>
+          </div>
+          <div class="d-actions" style="margin-top:18px">
+            <button class="btn btn-primary ackable" data-ack="Saved ✓">Save</button>
+          </div>
+        </div>
+
+        <div class="card email-card">
+          <h4>Sending &amp; behavior</h4>
+          <p class="esub">How the agent handles what arrives, and what it may send back.</p>
+          <div class="setrow">
+            <div class="stext"><b>Outbound enabled</b><span>the agent may send mail from its address</span></div>
+            <button class="switch on" role="switch" aria-checked="true" aria-label="Outbound enabled"></button>
+          </div>
+          <div class="setrow">
+            <div class="stext"><b>Auto-send replies</b><span>every reply waits for your approval in My Work</span></div>
+            <button class="switch" role="switch" aria-checked="false" aria-label="Auto-send replies"></button>
+          </div>
+          <div class="setrow">
+            <div class="stext"><b>Notify on inbound</b><span>ping you when new mail starts a session</span></div>
+            <button class="switch" role="switch" aria-checked="false" aria-label="Notify on inbound"></button>
+          </div>
+          <div class="cool-row">
+            <label for="cooldown">Cooldown</label>
+            <input class="cool-input" id="cooldown" type="text" value="15" inputmode="numeric">
+            <span>minutes between replies on the same thread</span>
+          </div>
+          <textarea class="standing" aria-label="Standing instructions" placeholder="Standing instructions… e.g. Flag anything about pricing to me before replying. Never commit to dates without checking My Work."></textarea>
+        </div>
+      </div>
+
+      <div class="card activity-card">
+        <h4 style="font-size:15px;font-weight:600;margin-bottom:14px">Recent inbound activity</h4>
+        <div class="act-row">
+          <span class="when">08-09 08:47</span>
+          <span class="act-event drafted">reply_drafted</span>
+          <span class="who-line"><code>dana@meridiansupply.com</code> <span>— Re: Q3 renewal pricing</span></span>
+        </div>
+        <div class="act-row">
+          <span class="when">08-08 16:02</span>
+          <span class="act-event">processed</span>
+          <span class="who-line"><code>alerts@dayforce.com</code> <span>— Document batch ready</span></span>
+        </div>
+        <div class="act-row">
+          <span class="when">08-08 09:15</span>
+          <span class="act-event">processed</span>
+          <span class="who-line"><code>noreply@erpdb</code> <span>— Weekly digest</span></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 6) SKILLS ============ -->
+  <section class="panel" data-panel="skills" aria-label="Skills">
+    <div class="wrap">
+      <div class="p-head">
+        <h2>Skills</h2>
+        <p class="psub">Procedural memory — how James likes things done.</p>
+        <svg class="squig" width="56" height="7" viewBox="0 0 56 7" aria-hidden="true"><path d="M2 4.5C9 1.5 14 6 21 3.5S35 1 42 4.5 52 3 54 3.5" fill="none" stroke="#C98A5E" stroke-width="1.6" stroke-linecap="round" opacity=".7"/></svg>
+      </div>
+
+      <div class="skills-grid">
+        <div class="skill-list">
+          <button class="sk-item" data-skill="1">
+            <span class="sk-name">erpdb-reconciliation-recipes</span>
+            <span class="sk-meta"><span class="scope-tag scope-product">product</span> 4.2 KB</span>
+          </button>
+          <button class="sk-item" data-skill="2">
+            <span class="sk-name">vendor-naming-conventions</span>
+            <span class="sk-meta"><span class="scope-tag scope-tenant">tenant</span> 1.1 KB</span>
+          </button>
+          <button class="sk-item sel" data-skill="3">
+            <span class="sk-name">james-report-format</span>
+            <span class="sk-meta"><span class="scope-tag scope-user">user</span> 0.8 KB</span>
+          </button>
+        </div>
+
+        <div>
+          <div class="sk-detail card" id="skill-1">
+            <div class="sk-head"><h3>erpdb-reconciliation-recipes</h3><span class="scope-tag scope-product">product</span><span class="sk-size">4.2 KB</span></div>
+            <div class="sk-body">Three-way match: PO ↔ receipt ↔ invoice, joined on po_number.
+AP aging buckets: 0–14 · 15–30 · 31+ days.
+Always reconcile invoice totals against GL 2100 before reporting.
+Treat credit memos as negative invoices…</div>
+            <div class="sk-foot">
+              <button class="btn btn-danger ackable" data-ack="Kept — deletion needs confirmation">Delete skill</button>
+              <span class="hint">Product skills apply to every tenant</span>
+            </div>
+          </div>
+          <div class="sk-detail card" id="skill-2">
+            <div class="sk-head"><h3>vendor-naming-conventions</h3><span class="scope-tag scope-tenant">tenant</span><span class="sk-size">1.1 KB</span></div>
+            <div class="sk-body">Canonical vendor names: strip Inc./LLC, title case.
+"Meridian Supply Co" — never "MERIDIAN SUPPLY".
+New vendors get a slug: lowercase, hyphens, no punctuation…</div>
+            <div class="sk-foot">
+              <button class="btn btn-danger ackable" data-ack="Kept — deletion needs confirmation">Delete skill</button>
+              <span class="hint">Tenant skills apply to everyone in this tenant</span>
+            </div>
+          </div>
+          <div class="sk-detail card show" id="skill-3">
+            <div class="sk-head"><h3>james-report-format</h3><span class="scope-tag scope-user">user</span><span class="sk-size">0.8 KB</span></div>
+            <div class="sk-body">Reports for James: lead with the number, then the table. Currency to the dollar, no cents. Always note the as-of time…</div>
+            <div class="sk-foot">
+              <button class="btn btn-danger ackable" data-ack="Kept — deletion needs confirmation">Delete skill</button>
+              <span class="hint">User skills shape only your sessions</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<a class="badge" href="./index.html">#06 · Terra</a>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---------- section navigation (cross-fade like light through a canopy) ---------- */
+  var navItems = document.querySelectorAll(".nav-item");
+  var panels = document.querySelectorAll(".panel");
+  var chatScroll = document.getElementById("chatScroll");
+
+  function showSection(name){
+    navItems.forEach(function(b){ b.classList.toggle("active", b.dataset.nav === name); });
+    panels.forEach(function(p){ p.classList.toggle("active", p.dataset.panel === name); });
+    if(name === "assistant" && chatScroll){ chatScroll.scrollTop = chatScroll.scrollHeight; }
+  }
+  navItems.forEach(function(btn){
+    btn.addEventListener("click", function(){ showSection(btn.dataset.nav); });
+  });
+
+  /* hello scrolled away: open the chat at its latest message */
+  if(chatScroll){ chatScroll.scrollTop = chatScroll.scrollHeight; }
+
+  /* ---------- platform group collapse ---------- */
+  var platform = document.getElementById("platform");
+  var platformToggle = document.getElementById("platformToggle");
+  platformToggle.addEventListener("click", function(){
+    platform.classList.toggle("closed");
+    platformToggle.setAttribute("aria-expanded", String(!platform.classList.contains("closed")));
+  });
+
+  /* decorative platform links stay put */
+  document.querySelectorAll('.plink, .pb-links a').forEach(function(a){
+    a.addEventListener("click", function(e){ e.preventDefault(); });
+  });
+
+  /* ---------- the orb thinks when you send ---------- */
+  var orb = document.getElementById("orb");
+  var typing = document.getElementById("typing");
+  var sendBtn = document.getElementById("sendBtn");
+  var composerInput = document.getElementById("composerInput");
+  var thinking = false;
+
+  function think(){
+    if(thinking) return;
+    thinking = true;
+    orb.classList.add("thinking");
+    typing.classList.add("show");
+    if(chatScroll){ chatScroll.scrollTop = chatScroll.scrollHeight; }
+    window.setTimeout(function(){
+      orb.classList.remove("thinking");
+      typing.classList.remove("show");
+      thinking = false;
+    }, 2600);
+  }
+  sendBtn.addEventListener("click", think);
+  composerInput.addEventListener("keydown", function(e){
+    if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); think(); }
+  });
+
+  /* starter pods gently wake the orb too */
+  document.querySelectorAll(".starters .pod").forEach(function(p){
+    p.addEventListener("click", think);
+  });
+
+  /* ---------- generic acknowledgment (never destructive) ---------- */
+  document.querySelectorAll(".ackable").forEach(function(btn){
+    var original = btn.textContent;
+    btn.addEventListener("click", function(){
+      if(btn.classList.contains("acked")) return;
+      btn.classList.add("acked");
+      btn.textContent = btn.dataset.ack || "Done ✓";
+      window.setTimeout(function(){
+        btn.classList.remove("acked");
+        btn.textContent = original;
+      }, 1800);
+    });
+  });
+
+  /* gentle pulse for arrange/rename/open buttons */
+  document.querySelectorAll(".pulsable").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      btn.classList.add("pulse");
+      window.setTimeout(function(){ btn.classList.remove("pulse"); }, 500);
+    });
+  });
+
+  /* ---------- My Work: filters + queue selection ---------- */
+  var filterPods = document.querySelectorAll(".work-filters .pod");
+  var qitems = document.querySelectorAll(".qitem");
+  var details = document.querySelectorAll(".detail");
+
+  filterPods.forEach(function(pod){
+    pod.addEventListener("click", function(){
+      filterPods.forEach(function(p){ p.classList.remove("sel"); });
+      pod.classList.add("sel");
+      var f = pod.dataset.filter;
+      qitems.forEach(function(q){
+        q.style.display = (f === "all" || q.dataset.verb === f) ? "" : "none";
+      });
+    });
+  });
+
+  qitems.forEach(function(q){
+    q.addEventListener("click", function(){
+      qitems.forEach(function(x){ x.classList.remove("sel"); });
+      q.classList.add("sel");
+      details.forEach(function(d){ d.classList.remove("show"); });
+      var d = document.getElementById("detail-" + q.dataset.item);
+      if(d){ d.classList.add("show"); }
+    });
+  });
+
+  /* question options behave like radio pods */
+  var qopts = document.querySelectorAll(".qopt");
+  qopts.forEach(function(o){
+    o.addEventListener("click", function(){
+      qopts.forEach(function(x){ x.classList.remove("sel"); });
+      o.classList.add("sel");
+    });
+  });
+
+  /* ---------- Views: list selection + boards ---------- */
+  var vitems = document.querySelectorAll(".vitem");
+  var boards = document.querySelectorAll(".board");
+  var viewTitle = document.getElementById("viewTitle");
+  var viewMeta = document.getElementById("viewMeta");
+
+  vitems.forEach(function(v){
+    v.addEventListener("click", function(){
+      vitems.forEach(function(x){ x.classList.remove("sel"); });
+      v.classList.add("sel");
+      boards.forEach(function(b){ b.classList.remove("show"); });
+      var b = document.getElementById("board-" + v.dataset.view);
+      if(b){ b.classList.add("show"); }
+      viewTitle.textContent = v.dataset.title;
+      viewMeta.textContent = v.dataset.meta;
+    });
+  });
+
+  /* refresh: spin the leaf, breathe the meta */
+  var refreshBtn = document.getElementById("refreshBtn");
+  var refreshing = false;
+  refreshBtn.addEventListener("click", function(){
+    if(refreshing) return;
+    refreshing = true;
+    var prev = viewMeta.textContent;
+    refreshBtn.classList.add("spinning");
+    viewMeta.textContent = "refreshing…";
+    window.setTimeout(function(){
+      refreshBtn.classList.remove("spinning");
+      viewMeta.textContent = prev;
+      refreshing = false;
+    }, 950);
+  });
+
+  /* ---------- Playbooks: filter + search ---------- */
+  var pbPods = document.querySelectorAll("[data-pbfilter]");
+  var pbItems = document.querySelectorAll(".pb-item");
+  var pbSearch = document.getElementById("pbSearch");
+  var pbFilter = "all";
+
+  function applyPbFilters(){
+    var q = pbSearch.value.trim().toLowerCase();
+    pbItems.forEach(function(item){
+      var typeOk = (pbFilter === "all" || item.dataset.type === pbFilter);
+      var textOk = (q === "" || item.textContent.toLowerCase().indexOf(q) !== -1);
+      item.classList.toggle("hidden", !(typeOk && textOk));
+    });
+  }
+  pbPods.forEach(function(pod){
+    pod.addEventListener("click", function(){
+      pbPods.forEach(function(p){ p.classList.remove("sel"); });
+      pod.classList.add("sel");
+      pbFilter = pod.dataset.pbfilter;
+      applyPbFilters();
+    });
+  });
+  pbSearch.addEventListener("input", applyPbFilters);
+
+  /* ---------- Email: living toggles ---------- */
+  document.querySelectorAll(".switch").forEach(function(sw){
+    sw.addEventListener("click", function(){
+      sw.classList.toggle("on");
+      sw.setAttribute("aria-checked", String(sw.classList.contains("on")));
+    });
+  });
+
+  /* ---------- Skills: selection ---------- */
+  var skItems = document.querySelectorAll(".sk-item");
+  var skDetails = document.querySelectorAll(".sk-detail");
+  skItems.forEach(function(s){
+    s.addEventListener("click", function(){
+      skItems.forEach(function(x){ x.classList.remove("sel"); });
+      s.classList.add("sel");
+      skDetails.forEach(function(d){ d.classList.remove("show"); });
+      var d = document.getElementById("skill-" + s.dataset.skill);
+      if(d){ d.classList.add("show"); }
+    });
+  });
+
+})();
+</script>
+</body>
+</html>

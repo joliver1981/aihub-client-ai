@@ -1,0 +1,1339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Agent · Concrete concept</title>
+<style>
+/* ============================================================
+   #07 CONCRETE — unapologetic brutalism.
+   White ground. Black 2px rules. Zero radius. No shadows.
+   Acid chartreuse = selection, active nav, primary buttons. Only.
+   Motion identity: none. State snaps. Only the marquee moves.
+   ============================================================ */
+:root{
+  --ink:#000000;
+  --paper:#FFFFFF;
+  --acid:#C8FF00;
+  --sans:"Segoe UI","Helvetica Neue",Helvetica,Arial,sans-serif;
+  --mono:"Cascadia Mono",Consolas,"Courier New",monospace;
+}
+*{box-sizing:border-box;border-radius:0!important;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--paper);color:var(--ink);
+  font-family:var(--sans);font-size:14px;line-height:1.45;
+  -webkit-font-smoothing:antialiased;overflow:hidden;
+}
+::selection{background:var(--acid);color:var(--ink)}
+:focus{outline:none}
+:focus-visible{outline:3px solid var(--acid);outline-offset:-3px}
+::-webkit-scrollbar{width:12px;height:12px}
+::-webkit-scrollbar-track{background:var(--paper);border-left:2px solid var(--ink)}
+::-webkit-scrollbar-thumb{background:var(--ink);border:3px solid var(--paper)}
+::-webkit-scrollbar-corner{background:var(--paper)}
+
+/* ---------- shell ---------- */
+.app{
+  display:grid;height:100vh;
+  grid-template-columns:296px minmax(0,1fr);
+  grid-template-rows:58px minmax(0,1fr) 42px;
+}
+/* ---------- header ---------- */
+header{
+  grid-column:1/3;display:flex;align-items:stretch;
+  border-bottom:2px solid var(--ink);
+}
+.brand{
+  display:flex;align-items:center;gap:14px;padding:0 20px;
+  border-right:2px solid var(--ink);min-width:296px;
+}
+.brand .block{width:22px;height:22px;background:var(--ink);position:relative;flex:none}
+.brand .block::after{content:"";position:absolute;right:-2px;bottom:-2px;width:9px;height:9px;background:var(--acid);border:2px solid var(--ink)}
+.brand .name{font-weight:900;font-size:19px;letter-spacing:-.02em;text-transform:uppercase;white-space:nowrap}
+.brand .sub{font-family:var(--mono);font-size:9px;letter-spacing:.22em;text-transform:uppercase;border:2px solid var(--ink);padding:2px 6px;white-space:nowrap}
+.head-meta{
+  display:flex;align-items:center;gap:0;margin-left:auto;
+  font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+}
+.head-meta>div{padding:0 18px;border-left:2px solid var(--ink);display:flex;align-items:center;gap:8px;height:100%}
+.head-meta b{font-weight:700}
+.head-meta .sq{width:8px;height:8px;background:var(--ink);flex:none}
+
+/* ---------- nav ---------- */
+nav{
+  border-right:2px solid var(--ink);display:flex;flex-direction:column;
+  overflow-y:auto;background:var(--paper);
+}
+.nav-btn{
+  display:flex;align-items:baseline;gap:12px;width:100%;
+  padding:15px 18px;border:0;border-bottom:2px solid var(--ink);
+  background:var(--paper);color:var(--ink);cursor:pointer;text-align:left;
+  font-family:var(--sans);font-weight:800;font-size:15px;
+  letter-spacing:.01em;text-transform:uppercase;
+}
+.nav-btn .idx{font-family:var(--mono);font-weight:400;font-size:10px;letter-spacing:.1em}
+.nav-btn:hover{background:var(--ink);color:var(--paper)}
+.nav-btn.active,.nav-btn.active:hover{background:var(--acid);color:var(--ink)}
+.nav-btn.tall{align-items:center;padding-top:6px;padding-bottom:6px}
+.nav-btn.tall .lab-wrap{display:flex;align-items:baseline;gap:12px}
+.nav-btn .bignum{
+  margin-left:auto;font-size:64px;font-weight:900;line-height:.82;
+  letter-spacing:-.05em;font-variant-numeric:tabular-nums;
+}
+.plat{border-bottom:2px solid var(--ink)}
+.plat-head{
+  font-family:var(--mono);font-size:9px;letter-spacing:.24em;text-transform:uppercase;
+  padding:12px 18px 8px;display:flex;justify-content:space-between;align-items:baseline;
+}
+.plat a{
+  display:block;padding:6px 18px;color:var(--ink);text-decoration:none;
+  font-family:var(--mono);font-size:11px;letter-spacing:.05em;text-transform:uppercase;
+}
+.plat a:hover{background:var(--ink);color:var(--paper)}
+.plat a span{opacity:.55}
+.nav-foot{
+  margin-top:auto;border-top:2px solid var(--ink);padding:14px 18px;
+  font-family:var(--mono);font-size:10px;letter-spacing:.05em;line-height:1.9;
+  text-transform:uppercase;
+}
+.nav-foot .row2{border-top:2px solid var(--ink);margin-top:8px;padding-top:8px}
+
+/* ---------- main / sections ---------- */
+main{overflow-y:auto;overflow-x:hidden;min-width:0;background:var(--paper)}
+.panel{display:none}
+.panel.active{display:block}
+.sec-head{
+  display:flex;align-items:flex-end;justify-content:space-between;gap:24px;
+  padding:26px 32px 18px;border-bottom:2px solid var(--ink);
+}
+.sec-kicker{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;margin-bottom:10px}
+.sec-kicker .sq{display:inline-block;width:8px;height:8px;background:var(--ink);margin-right:8px;vertical-align:baseline}
+h1.sec-title{
+  font-size:clamp(52px,6.4vw,96px);font-weight:900;line-height:.86;
+  letter-spacing:-.04em;text-transform:uppercase;
+}
+.sec-ghost{
+  font-size:clamp(64px,7.5vw,120px);font-weight:900;line-height:.8;letter-spacing:-.04em;
+  color:var(--paper);-webkit-text-stroke:2px var(--ink);flex:none;
+  font-variant-numeric:tabular-nums;user-select:none;
+}
+
+/* ---------- shared atoms ---------- */
+.stamp{
+  display:inline-block;font-family:var(--mono);font-size:10px;font-weight:700;
+  letter-spacing:.12em;text-transform:uppercase;
+  background:var(--ink);color:var(--paper);padding:4px 8px;white-space:nowrap;
+}
+.stamp.outline{background:var(--paper);color:var(--ink);border:2px solid var(--ink);padding:2px 6px}
+.mono{font-family:var(--mono)}
+.meta{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+.btn{
+  font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  border:2px solid var(--ink);background:var(--ink);color:var(--paper);
+  padding:10px 16px;cursor:pointer;white-space:nowrap;
+}
+.btn:hover{background:var(--paper);color:var(--ink)}
+.btn.primary{background:var(--acid);color:var(--ink)}
+.btn.primary:hover{background:var(--ink);color:var(--acid)}
+.btn.ghost{background:var(--paper);color:var(--ink)}
+.btn.ghost:hover{background:var(--ink);color:var(--paper)}
+.btn.sm{padding:6px 10px;font-size:10px}
+.btn[disabled]{cursor:default}
+.chip{
+  font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  border:2px solid var(--ink);background:var(--paper);color:var(--ink);
+  padding:7px 12px;cursor:pointer;
+}
+.chip:hover{background:var(--ink);color:var(--paper)}
+.chip.active,.chip.active:hover{background:var(--acid);color:var(--ink)}
+input[type=text],input[type=number],textarea{
+  font-family:var(--mono);font-size:12.5px;line-height:1.6;
+  border:2px solid var(--ink);background:var(--paper);color:var(--ink);
+  padding:10px 12px;width:100%;
+}
+textarea{resize:vertical}
+::placeholder{color:var(--ink);opacity:.45}
+table{border-collapse:collapse;width:100%}
+th{
+  font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  background:var(--ink);color:var(--paper);padding:7px 10px;text-align:left;border:2px solid var(--ink);
+}
+td{border:2px solid var(--ink);padding:8px 10px;font-size:12.5px}
+td.num{font-family:var(--mono);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td.mono{font-size:11.5px}
+
+/* ---------- assistant ---------- */
+.asst-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px}
+.asst-rail{border-left:2px solid var(--ink)}
+.chatlog{height:min(56vh,560px);overflow-y:auto;border-bottom:2px solid var(--ink)}
+.hello{padding:30px 28px;border-bottom:2px solid var(--ink)}
+.hello h2{font-size:26px;font-weight:900;letter-spacing:-.02em;text-transform:uppercase;line-height:1.05}
+.hello p{margin-top:8px;font-size:13px;max-width:52ch}
+.hello .starters{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+.divider-row{
+  font-family:var(--mono);font-size:9px;letter-spacing:.2em;text-transform:uppercase;
+  padding:8px 28px;border-bottom:2px solid var(--ink);display:flex;align-items:center;gap:12px;
+}
+.divider-row::after{content:"";flex:1;height:2px;background:var(--ink)}
+.msg{display:grid;grid-template-columns:118px minmax(0,1fr);gap:18px;padding:20px 28px;border-bottom:2px solid var(--ink)}
+.msg:last-child{border-bottom:0}
+.msg .who{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.msg .t{font-family:var(--mono);font-size:9px;letter-spacing:.14em}
+.msg .body{font-size:14.5px;line-height:1.55;max-width:72ch;min-width:0}
+.msg .body p+p{margin-top:10px}
+.msg .body strong{font-weight:800}
+.tools{border:2px solid var(--ink);margin:4px 0 2px;max-width:640px}
+.tool{
+  display:flex;align-items:center;gap:14px;justify-content:space-between;
+  font-family:var(--mono);font-size:11.5px;padding:8px 12px;border-bottom:2px solid var(--ink);
+  min-width:0;
+}
+.tool:last-child{border-bottom:0}
+.tool .fn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.tool .fn::before{content:"▸ ";font-weight:700}
+.tool .st{white-space:nowrap;letter-spacing:.08em}
+.tool .st::before{content:"■ ";font-size:9px;vertical-align:1px}
+.msg table{max-width:600px;margin:12px 0 4px}
+.cursor{
+  display:inline-block;width:9px;height:15px;background:var(--ink);
+  margin-left:5px;vertical-align:-2px;
+}
+.chat-input{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;border-bottom:2px solid var(--ink)}
+.chat-input textarea{border:0;border-right:2px solid var(--ink);height:64px;padding:14px 16px}
+.chat-input .btn{border:0;border-right:2px solid var(--ink);padding:0 22px}
+.chat-input .btn:last-child{border-right:0}
+.rail-block{border-bottom:2px solid var(--ink);padding:18px 20px}
+.rail-block h3{font-family:var(--mono);font-size:9px;letter-spacing:.22em;text-transform:uppercase;margin-bottom:12px}
+.starter{
+  display:block;width:100%;text-align:left;font-family:var(--sans);font-weight:700;font-size:12.5px;
+  border:2px solid var(--ink);background:var(--paper);color:var(--ink);padding:10px 12px;cursor:pointer;
+}
+.starter:hover{background:var(--ink);color:var(--paper)}
+.rail-block .starter+.starter{margin-top:8px}
+.kv{display:flex;justify-content:space-between;gap:10px;font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;padding:5px 0}
+.kv b{font-weight:700}
+.kv+.kv{border-top:2px solid var(--ink)}
+
+/* ---------- my work ---------- */
+.work-grid{display:grid;grid-template-columns:390px minmax(0,1fr)}
+.work-queue{border-right:2px solid var(--ink)}
+.filters{display:flex;flex-wrap:wrap;gap:8px;padding:14px 18px;border-bottom:2px solid var(--ink)}
+.qitem{padding:14px 18px;border-bottom:2px solid var(--ink);cursor:pointer;background:var(--paper)}
+.qitem:hover{background:var(--ink);color:var(--paper)}
+.qitem:hover .stamp{background:var(--paper);color:var(--ink)}
+.qitem:hover .stamp.outline{border-color:var(--paper);background:transparent;color:var(--paper)}
+.qitem.sel,.qitem.sel:hover{background:var(--acid);color:var(--ink)}
+.qitem.sel .stamp,.qitem.sel:hover .stamp{background:var(--ink);color:var(--paper)}
+.qitem.sel .stamp.outline,.qitem.sel:hover .stamp.outline{background:transparent;border-color:var(--ink);color:var(--ink)}
+.qitem .top{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.qitem .top .t{margin-left:auto;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em}
+.qitem h4{font-size:13.5px;font-weight:800;line-height:1.35}
+.qitem .src{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;margin-top:6px}
+.work-detail{padding:0;min-width:0}
+.wd{display:none}
+.wd.active{display:block}
+.wd-label{
+  display:flex;align-items:center;gap:12px;padding:12px 26px;border-bottom:2px solid var(--ink);
+  font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+}
+.wd-label .sq{width:8px;height:8px;background:var(--ink);flex:none}
+.wd-body{padding:22px 26px}
+.mailrows{border:2px solid var(--ink);margin-bottom:16px}
+.mailrow{display:grid;grid-template-columns:96px minmax(0,1fr);border-bottom:2px solid var(--ink)}
+.mailrow:last-child{border-bottom:0}
+.mailrow .k{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;background:var(--ink);color:var(--paper);padding:8px 10px;display:flex;align-items:center}
+.mailrow .v{font-family:var(--mono);font-size:12px;padding:8px 12px;display:flex;align-items:center;min-width:0;overflow-wrap:anywhere}
+.wd-actions{display:flex;align-items:center;gap:12px;margin-top:16px;flex-wrap:wrap}
+.hint{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase}
+.hint::before{content:"■ ";font-size:8px;vertical-align:1px}
+.thread{border-top:2px solid var(--ink);margin-top:24px}
+.thread h3{font-family:var(--mono);font-size:9px;letter-spacing:.22em;text-transform:uppercase;padding:12px 0 10px}
+.trow{display:grid;grid-template-columns:96px minmax(0,1fr);gap:14px;padding:10px 0;border-top:2px solid var(--ink)}
+.trow .body{font-size:13px;line-height:1.5;padding-top:1px}
+.thread-input{display:grid;grid-template-columns:minmax(0,1fr) auto;border:2px solid var(--ink);margin-top:12px}
+.thread-input input{border:0;border-right:2px solid var(--ink)}
+.thread-input .btn{border:0}
+.wd .fyi-stats{border:2px solid var(--ink);margin:4px 0 16px}
+.wd .fyi-stats .kv{padding:9px 14px}
+.wd .fyi-stats .kv+.kv{border-top:2px solid var(--ink)}
+
+/* ---------- views ---------- */
+.views-grid{display:grid;grid-template-columns:330px minmax(0,1fr)}
+.views-list{border-right:2px solid var(--ink)}
+.vitem{padding:16px 18px;border-bottom:2px solid var(--ink);cursor:pointer}
+.vitem:hover{background:var(--ink);color:var(--paper)}
+.vitem:hover .stamp{background:var(--paper);color:var(--ink)}
+.vitem.sel,.vitem.sel:hover{background:var(--acid);color:var(--ink)}
+.vitem.sel .stamp,.vitem.sel:hover .stamp{background:var(--ink);color:var(--paper)}
+.vitem h4{font-size:14.5px;font-weight:900;letter-spacing:-.01em;text-transform:uppercase;line-height:1.2}
+.vitem .vm{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;margin-top:7px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.board{display:none}
+.board.active{display:block}
+.board-head{
+  display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  padding:16px 24px;border-bottom:2px solid var(--ink);
+}
+.board-head h2{font-size:20px;font-weight:900;letter-spacing:-.01em;text-transform:uppercase;margin-right:4px}
+.board-head .meta{margin-right:auto}
+.tile-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.tile{border-right:2px solid var(--ink);border-bottom:2px solid var(--ink);min-width:0}
+.tile:nth-child(2n){border-right:0}
+.tile.wide{grid-column:1/3;border-right:0}
+.tile-head{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:2px solid var(--ink)}
+.tile-head h5{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin-right:auto}
+.tile-body{padding:18px 16px}
+.bignumber{font-size:clamp(44px,4.2vw,76px);font-weight:900;letter-spacing:-.045em;line-height:.9;font-variant-numeric:tabular-nums}
+.bignumber-sub{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;margin-top:12px}
+.barrow{display:grid;grid-template-columns:92px minmax(0,1fr) 70px;align-items:center;gap:10px}
+.barrow+.barrow{margin-top:9px}
+.barrow .bl{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.barrow .track{height:16px;position:relative}
+.barrow .bar{height:16px;background:var(--ink)}
+.barrow .bv{font-family:var(--mono);font-size:10px;text-align:right;font-variant-numeric:tabular-nums}
+.tile table td{font-size:11.5px;padding:6px 9px}
+.tile table td.num{font-size:11px}
+.tile-ticker{background:var(--ink);color:var(--paper);overflow:hidden;padding:9px 0}
+.tile-ticker .tk-in{display:inline-flex;white-space:nowrap;font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase}
+.stub-grid .tile{position:relative;height:150px}
+.stub-x{
+  position:absolute;inset:0;
+  background:
+    linear-gradient(to top right,transparent calc(50% - 1px),var(--ink) calc(50% - 1px),var(--ink) calc(50% + 1px),transparent calc(50% + 1px)),
+    linear-gradient(to bottom right,transparent calc(50% - 1px),var(--ink) calc(50% - 1px),var(--ink) calc(50% + 1px),transparent calc(50% + 1px));
+}
+.stub-cap{position:absolute;left:12px;bottom:10px;background:var(--paper);padding:2px 6px;border:2px solid var(--ink);font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase}
+.board-note{padding:12px 24px;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;border-bottom:2px solid var(--ink)}
+
+/* ---------- playbooks ---------- */
+.pb-tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:16px 32px;border-bottom:2px solid var(--ink)}
+.pb-tools .search{max-width:280px;margin-left:auto}
+.pb-tools .search input{padding:8px 12px;font-size:11.5px}
+.pb-links{display:flex;gap:0;border-bottom:2px solid var(--ink)}
+.pb-links a{
+  font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink);text-decoration:none;padding:10px 32px;border-right:2px solid var(--ink);
+}
+.pb-links a:hover{background:var(--ink);color:var(--paper)}
+.pbrow{
+  display:grid;grid-template-columns:minmax(0,1fr) 130px 210px auto;gap:16px;align-items:center;
+  padding:16px 32px;border-bottom:2px solid var(--ink);
+}
+.pbrow:hover{background:var(--ink);color:var(--paper)}
+.pbrow:hover .stamp{background:var(--paper);color:var(--ink)}
+.pbrow:hover .btn.ghost{border-color:var(--paper);background:transparent;color:var(--paper)}
+.pbrow h4{font-size:15px;font-weight:800;letter-spacing:-.005em}
+.pbrow h4 .mono-name{font-family:var(--mono);font-weight:700;font-size:13.5px}
+.pbrow .pm{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap}
+.pbrow.hide{display:none}
+
+/* ---------- email ---------- */
+.email-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.card{border-bottom:2px solid var(--ink);min-width:0}
+.card.left{border-right:2px solid var(--ink)}
+.card-head{display:flex;align-items:center;gap:12px;padding:12px 24px;border-bottom:2px solid var(--ink)}
+.card-head h3{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;margin-right:auto}
+.card-body{padding:20px 24px}
+.addr-row{display:flex;align-items:stretch;margin-bottom:8px}
+.addr-row input{max-width:180px;border-right:0}
+.addr-row .suffix{
+  display:flex;align-items:center;font-family:var(--mono);font-size:12.5px;
+  border:2px solid var(--ink);padding:0 12px;background:var(--ink);color:var(--paper);white-space:nowrap;
+}
+.subcopy{font-size:12px;max-width:46ch;margin:12px 0 16px}
+.tog{
+  display:flex;align-items:center;gap:12px;width:100%;
+  background:var(--paper);border:0;cursor:pointer;padding:11px 0;text-align:left;
+  font-family:var(--mono);color:var(--ink);
+}
+.tog+.tog,.tog+.tognote{border-top:2px solid var(--ink)}
+.tognote+.tog{border-top:2px solid var(--ink)}
+.tog .box{width:42px;height:22px;border:2px solid var(--ink);position:relative;flex:none}
+.tog .box::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border:2px solid var(--ink);background:var(--paper)}
+.tog.on .box::after{left:auto;right:2px;background:var(--ink)}
+.tog .lab{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+.tog .state{margin-left:auto;font-size:10px;letter-spacing:.14em}
+.tog.on .state::before{content:"ON"}
+.tog:not(.on) .state::before{content:"OFF"}
+.tognote{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;padding:0 0 10px 54px}
+.field-row{display:flex;align-items:center;gap:14px;border-top:2px solid var(--ink);padding:12px 0}
+.field-row label{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+.field-row input{max-width:90px;text-align:right}
+.standing{border-top:2px solid var(--ink);padding-top:12px}
+.standing label{display:block;font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px}
+.activity{border-bottom:2px solid var(--ink)}
+.activity-head{padding:12px 32px;border-bottom:2px solid var(--ink);font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.2em;text-transform:uppercase}
+.actrow{display:grid;grid-template-columns:150px 140px minmax(0,1fr);gap:14px;align-items:center;padding:11px 32px;border-bottom:2px solid var(--ink)}
+.actrow:last-child{border-bottom:0}
+.actrow .at{font-family:var(--mono);font-size:11px;letter-spacing:.06em}
+.actrow .am{font-family:var(--mono);font-size:11.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ---------- skills ---------- */
+.skills-grid{display:grid;grid-template-columns:330px minmax(0,1fr)}
+.skills-list{border-right:2px solid var(--ink)}
+.skitem{padding:16px 18px;border-bottom:2px solid var(--ink);cursor:pointer}
+.skitem:hover{background:var(--ink);color:var(--paper)}
+.skitem:hover .stamp{background:var(--paper);color:var(--ink)}
+.skitem.sel,.skitem.sel:hover{background:var(--acid);color:var(--ink)}
+.skitem.sel .stamp,.skitem.sel:hover .stamp{background:var(--ink);color:var(--paper)}
+.skitem h4{font-family:var(--mono);font-size:13px;font-weight:700;letter-spacing:-.01em}
+.skitem .sm-row{display:flex;align-items:center;gap:8px;margin-top:8px;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase}
+.skill-detail{padding:24px 28px;min-width:0}
+.skill-detail h2{font-family:var(--mono);font-size:26px;font-weight:700;letter-spacing:-.02em;line-height:1.1;overflow-wrap:anywhere}
+.skill-meta{display:flex;align-items:center;gap:10px;margin:12px 0 18px;flex-wrap:wrap}
+.skill-body{
+  border:2px solid var(--ink);padding:18px 20px;font-family:var(--mono);
+  font-size:12.5px;line-height:1.8;white-space:pre-wrap;max-width:72ch;
+}
+.skill-foot{display:flex;align-items:center;gap:14px;margin-top:18px;flex-wrap:wrap}
+.danger-note{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase}
+
+/* ---------- ticker / badge ---------- */
+.ticker{
+  grid-column:1/3;background:var(--ink);color:var(--paper);
+  overflow:hidden;display:flex;align-items:center;border-top:2px solid var(--ink);
+}
+.tk-track{display:inline-flex;white-space:nowrap;will-change:transform;animation:marq 32s linear infinite}
+.tk-track span{
+  font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;
+  padding-right:0;
+}
+.tk-track .arr{color:var(--acid)}
+.tk-track .sep{opacity:.5;padding:0 26px}
+@keyframes marq{to{transform:translateX(-50%)}}
+.tile-ticker .tk-in{animation:marq2 24s linear infinite}
+@keyframes marq2{to{transform:translateX(-50%)}}
+.badge{
+  position:fixed;right:0;bottom:42px;z-index:60;
+  display:block;background:var(--ink);color:var(--paper);text-decoration:none;
+  font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  padding:8px 14px;border:2px solid var(--ink);border-right:0;border-bottom:0;
+}
+.badge b{color:var(--acid);font-weight:700}
+.badge:hover{background:var(--paper);color:var(--ink)}
+.badge:hover b{color:var(--ink)}
+
+/* ---------- motion off ---------- */
+@keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+.cursor{animation:blink 1.1s steps(1) infinite}
+@media (prefers-reduced-motion: reduce){
+  .tk-track,.tile-ticker .tk-in{animation:none}
+  .cursor{animation:none}
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ================= HEADER ================= -->
+  <header>
+    <div class="brand">
+      <span class="block" aria-hidden="true"></span>
+      <span class="name">The&nbsp;Agent</span>
+      <span class="sub">AI&nbsp;Hub</span>
+    </div>
+    <div class="head-meta">
+      <div><span class="sq" aria-hidden="true"></span>Signed in — <b>James · Admin</b></div>
+      <div>brain: <b>claude-fable-5</b></div>
+      <div>2026-08-09 · SAT</div>
+    </div>
+  </header>
+
+  <!-- ================= NAV ================= -->
+  <nav aria-label="Sections">
+    <button class="nav-btn active" data-sec="assistant" type="button"><span class="idx">01</span>Assistant</button>
+    <button class="nav-btn tall" data-sec="mywork" type="button">
+      <span class="lab-wrap"><span class="idx">02</span>My&nbsp;Work</span>
+      <span class="bignum" id="workCount">4</span>
+    </button>
+    <button class="nav-btn" data-sec="views" type="button"><span class="idx">03</span>Views</button>
+    <button class="nav-btn" data-sec="playbooks" type="button"><span class="idx">04</span>Playbooks</button>
+    <button class="nav-btn" data-sec="email" type="button"><span class="idx">05</span>Email</button>
+    <button class="nav-btn" data-sec="skills" type="button"><span class="idx">06</span>Skills</button>
+
+    <div class="plat">
+      <div class="plat-head"><span>Platform</span><span>↗</span></div>
+      <a href="#" class="dead">Data Explorer <span>↗</span></a>
+      <a href="#" class="dead">Workflow Designer <span>↗</span></a>
+      <a href="#" class="dead">Mission Control <span>↗</span></a>
+      <a href="#" class="dead">Command Center <span>↗</span></a>
+      <a href="#" class="dead">Documents <span>↗</span></a>
+      <a href="#" class="dead">Classic app <span>↗</span></a>
+    </div>
+
+    <div class="nav-foot">
+      <div>draft → dry-run →<br>promote → schedule</div>
+      <div class="row2">humans stay in the loop<br>· My&nbsp;Work</div>
+    </div>
+  </nav>
+
+  <!-- ================= MAIN ================= -->
+  <main id="main">
+
+    <!-- ========== 01 ASSISTANT ========== -->
+    <section class="panel active" id="sec-assistant" aria-label="Assistant">
+      <div class="sec-head">
+        <div>
+          <div class="sec-kicker"><span class="sq"></span>Section 01/06 — conversation is the interface</div>
+          <h1 class="sec-title">Assistant</h1>
+        </div>
+        <div class="sec-ghost" aria-hidden="true">01</div>
+      </div>
+
+      <div class="asst-grid">
+        <div class="asst-col">
+          <div class="chatlog" id="chatlog">
+
+            <div class="hello">
+              <h2>Hi James — what do you need?</h2>
+              <p>Explore your data, build automations through conversation, and keep humans in the loop with My&nbsp;Work.</p>
+              <div class="starters">
+                <button class="starter st-fill" type="button">What data connections do we have?</button>
+                <button class="starter st-fill" type="button">Build me an automation that checks ERPDB daily</button>
+                <button class="starter st-fill" type="button">What's waiting in My Work?</button>
+              </div>
+            </div>
+
+            <div class="divider-row">Session · 2026-08-09 · 09:02</div>
+
+            <div class="msg">
+              <div class="who"><span class="stamp outline">You</span><span class="t">09:02</span></div>
+              <div class="body"><p>Which vendors drove August invoice spend, and are any invoices stuck?</p></div>
+            </div>
+
+            <div class="msg">
+              <div class="who"><span class="stamp">The Agent</span><span class="t">09:02</span></div>
+              <div class="body">
+                <div class="tools">
+                  <div class="tool"><span class="fn">list_connections {}</span><span class="st">OK · 0.4s</span></div>
+                  <div class="tool"><span class="fn">query_database {"connection":"ERPDB","sql":"SELECT vendor, SUM(total)…"}</span><span class="st">OK · 1.8s</span></div>
+                </div>
+                <p>August invoice spend is <strong>$482,910</strong> across 41 vendors. The top five drive 68% of it:</p>
+                <table>
+                  <thead><tr><th>Vendor</th><th>Invoices</th><th>August total</th><th>vs July</th></tr></thead>
+                  <tbody>
+                    <tr><td>Meridian Supply Co</td><td class="num">14</td><td class="num">$128,400</td><td class="num">+22%</td></tr>
+                    <tr><td>Northgate Logistics</td><td class="num">9</td><td class="num">$96,150</td><td class="num">+4%</td></tr>
+                    <tr><td>Corvid Materials</td><td class="num">11</td><td class="num">$64,020</td><td class="num">−8%</td></tr>
+                    <tr><td>Atlas Packaging</td><td class="num">7</td><td class="num">$41,310</td><td class="num">+13%</td></tr>
+                    <tr><td>Helix Industrial</td><td class="num">5</td><td class="num">$38,900</td><td class="num">+2%</td></tr>
+                  </tbody>
+                </table>
+                <p>Two Meridian invoices (<strong>INV-20841</strong>, <strong>INV-20857</strong>) are pending approval past 14 days — $61,200 combined. Want me to raise them in My&nbsp;Work?</p>
+              </div>
+            </div>
+
+            <div class="msg">
+              <div class="who"><span class="stamp outline">You</span><span class="t">09:03</span></div>
+              <div class="body"><p>Yes — raise them and save this as a view.</p></div>
+            </div>
+
+            <div class="msg">
+              <div class="who"><span class="stamp">The Agent</span><span class="t">09:03</span></div>
+              <div class="body">
+                <div class="tools">
+                  <div class="tool"><span class="fn">create_work_item</span><span class="st">OK · 0.6s</span></div>
+                  <div class="tool"><span class="fn">save_view {"name":"Vendor Spend — August"}</span><span class="st">OK · 0.9s</span></div>
+                </div>
+                <p>Done. Two approval items are in <strong>My&nbsp;Work</strong>, and I saved <strong>Vendor Spend — August</strong> as a view with 4 tiles — it refreshes with zero AI.<span class="cursor" aria-hidden="true"></span></p>
+              </div>
+            </div>
+
+          </div><!-- /chatlog -->
+
+          <div class="chat-input">
+            <textarea id="chatText" placeholder="TYPE. THE AGENT DOES THE REST." aria-label="Message the agent"></textarea>
+            <button class="btn primary" id="sendBtn" type="button">Send&nbsp;→</button>
+            <button class="btn ghost" id="newBtn" type="button">New</button>
+            <button class="btn ghost" id="histBtn" type="button">History</button>
+          </div>
+        </div>
+
+        <div class="asst-rail">
+          <div class="rail-block">
+            <h3>Starters</h3>
+            <button class="starter st-fill" type="button">What data connections do we have?</button>
+            <button class="starter st-fill" type="button">Build me an automation that checks ERPDB daily</button>
+            <button class="starter st-fill" type="button">What's waiting in My Work?</button>
+          </div>
+          <div class="rail-block">
+            <h3>This session</h3>
+            <div class="kv"><span>Tool calls</span><b>4 / 4 OK</b></div>
+            <div class="kv"><span>Work items raised</span><b>+2</b></div>
+            <div class="kv"><span>View saved</span><b>Vendor Spend — Aug</b></div>
+            <div class="kv"><span>Brain</span><b>claude-fable-5</b></div>
+          </div>
+          <div class="rail-block">
+            <h3>Doctrine</h3>
+            <div class="kv"><span>Draft</span><b>→ Dry-run</b></div>
+            <div class="kv"><span>Promote</span><b>→ Schedule</b></div>
+            <div class="kv"><span>Humans</span><b>In the loop</b></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== 02 MY WORK ========== -->
+    <section class="panel" id="sec-mywork" aria-label="My Work">
+      <div class="sec-head">
+        <div>
+          <div class="sec-kicker"><span class="sq"></span>Section 02/06 — nothing ships without a human</div>
+          <h1 class="sec-title">My&nbsp;Work</h1>
+        </div>
+        <div class="sec-ghost" aria-hidden="true">4</div>
+      </div>
+
+      <div class="work-grid">
+        <div class="work-queue">
+          <div class="filters" id="workFilters">
+            <button class="chip active" data-f="all" type="button">All 4</button>
+            <button class="chip" data-f="approval" type="button">Approval 1</button>
+            <button class="chip" data-f="email" type="button">Email / Edit 1</button>
+            <button class="chip" data-f="question" type="button">Question 1</button>
+            <button class="chip" data-f="fyi" type="button">FYI 1</button>
+          </div>
+
+          <div class="qitem" data-item="1" data-verb="approval">
+            <div class="top"><span class="stamp">Approval</span><span class="stamp outline">Dry-run</span><span class="t">09:14</span></div>
+            <h4>Approve payment run — 2 overdue Meridian invoices ($61,200)</h4>
+            <div class="src">From automation · invoice-chaser</div>
+          </div>
+          <div class="qitem sel" data-item="2" data-verb="email">
+            <div class="top"><span class="stamp">Email / Edit</span><span class="t">08:47</span></div>
+            <h4>Re: Q3 renewal pricing — reply to Dana Whitfield</h4>
+            <div class="src">From email</div>
+          </div>
+          <div class="qitem" data-item="3" data-verb="question">
+            <div class="top"><span class="stamp">Question</span><span class="t">—</span></div>
+            <h4>Which fiscal calendar should the vendor report use — 4-4-5 or calendar month?</h4>
+            <div class="src">From agent · shared · unclaimed</div>
+          </div>
+          <div class="qitem" data-item="4" data-verb="fyi">
+            <div class="top"><span class="stamp">FYI</span><span class="t">06:00</span></div>
+            <h4>Nightly ERPDB health check completed — 0 anomalies, 312k rows scanned</h4>
+            <div class="src">From automation · erpdb-daily-health</div>
+          </div>
+        </div>
+
+        <div class="work-detail">
+
+          <!-- detail 1: approval -->
+          <div class="wd" id="wd1">
+            <div class="wd-label"><span class="sq"></span>Dry-run complete — what you approve is what pays</div>
+            <div class="wd-body">
+              <table style="max-width:560px">
+                <thead><tr><th>Invoice</th><th>Vendor</th><th>Amount</th><th>Age</th></tr></thead>
+                <tbody>
+                  <tr><td class="mono">INV-20841</td><td>Meridian Supply Co</td><td class="num">$38,700</td><td class="num">21d</td></tr>
+                  <tr><td class="mono">INV-20857</td><td>Meridian Supply Co</td><td class="num">$22,500</td><td class="num">17d</td></tr>
+                  <tr><td class="mono" colspan="2"><strong>PAYMENT RUN TOTAL</strong></td><td class="num"><strong>$61,200</strong></td><td class="num">—</td></tr>
+                </tbody>
+              </table>
+              <div style="margin-top:16px;max-width:560px">
+                <input type="text" placeholder="ADD A COMMENT (OPTIONAL)…" aria-label="Comment">
+              </div>
+              <div class="wd-actions">
+                <button class="btn primary ack" data-ack="APPROVED ✓" type="button">Approve payment run</button>
+                <button class="btn ack" data-ack="DENIED ✓" type="button">Deny</button>
+                <span class="hint">Nothing pays without you</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- detail 2: email/edit (default) -->
+          <div class="wd active" id="wd2">
+            <div class="wd-label"><span class="sq"></span>Draft — body is editable; what you approve is what sends</div>
+            <div class="wd-body">
+              <div class="mailrows" style="max-width:640px">
+                <div class="mailrow"><span class="k">To</span><span class="v">dana@meridiansupply.com</span></div>
+                <div class="mailrow"><span class="k">From</span><span class="v">james-agent@mail.aihub.dev</span></div>
+                <div class="mailrow"><span class="k">Subject</span><span class="v">Re: Q3 renewal pricing</span></div>
+              </div>
+              <div style="max-width:640px">
+                <textarea rows="7" aria-label="Draft body">Hi Dana — thanks for sending the Q3 renewal proposal. We'd like to hold at current pricing while we complete our August vendor-spend review; I expect a decision by end of week. Separately, invoices INV-20841 and INV-20857 are pending approval on our side past 14 days — I've flagged both and will confirm as soon as they clear.
+
+— James</textarea>
+              </div>
+              <div style="margin-top:12px;max-width:640px">
+                <input type="text" placeholder="ADD A COMMENT (OPTIONAL)…" aria-label="Comment">
+              </div>
+              <div class="wd-actions">
+                <button class="btn primary ack" data-ack="APPROVED ✓" type="button">Approve &amp; send</button>
+                <button class="btn ack" data-ack="DENIED ✓" type="button">Deny</button>
+                <span class="hint">Nothing sends without you</span>
+              </div>
+
+              <div class="thread" style="max-width:640px">
+                <h3>Thread with the agent</h3>
+                <div class="trow">
+                  <div><span class="stamp outline">You</span></div>
+                  <div class="body">Is Dana on the approved vendor contact list?</div>
+                </div>
+                <div class="trow">
+                  <div><span class="stamp">The Agent</span></div>
+                  <div class="body">Yes — primary commercial contact for Meridian Supply Co since March.</div>
+                </div>
+                <div class="thread-input">
+                  <input type="text" id="threadText" placeholder="Ask the agent about this item…" aria-label="Ask the agent about this item">
+                  <button class="btn" id="threadAsk" type="button">Ask</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- detail 3: question -->
+          <div class="wd" id="wd3">
+            <div class="wd-label"><span class="sq"></span>Question from the agent — shared · first answer releases the run</div>
+            <div class="wd-body">
+              <p style="font-size:17px;font-weight:800;max-width:56ch;line-height:1.4">Which fiscal calendar should the vendor report use — 4-4-5 or calendar month?</p>
+              <p class="meta" style="margin-top:10px">Blocking · vendor-report build · asked by the agent</p>
+              <div style="margin-top:16px;max-width:560px">
+                <textarea rows="3" placeholder="TYPE YOUR ANSWER…" aria-label="Answer"></textarea>
+              </div>
+              <div class="wd-actions">
+                <button class="btn primary ack" data-ack="RELEASED ✓" type="button">Answer &amp; release</button>
+                <button class="btn ghost ack" data-ack="CLAIMED ✓" type="button">Claim item</button>
+                <span class="hint">Shared — unclaimed</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- detail 4: FYI -->
+          <div class="wd" id="wd4">
+            <div class="wd-label"><span class="sq"></span>FYI — no action required</div>
+            <div class="wd-body">
+              <p style="font-size:15px;font-weight:800;max-width:60ch">Nightly ERPDB health check completed — 0 anomalies, 312k rows scanned.</p>
+              <div class="fyi-stats" style="max-width:420px;margin-top:16px">
+                <div class="kv"><span>Rows scanned</span><b>312,000</b></div>
+                <div class="kv"><span>Anomalies</span><b>0</b></div>
+                <div class="kv"><span>Window</span><b>05:52 – 06:00</b></div>
+                <div class="kv"><span>Automation</span><b>erpdb-daily-health · v12</b></div>
+              </div>
+              <div class="wd-actions">
+                <button class="btn ack" data-ack="READ ✓" type="button">Mark read</button>
+                <span class="hint">Auto-clears in 7 days</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== 03 VIEWS ========== -->
+    <section class="panel" id="sec-views" aria-label="Views">
+      <div class="sec-head">
+        <div>
+          <div class="sec-kicker"><span class="sq"></span>Section 03/06 — deterministic dashboards · zero AI on refresh</div>
+          <h1 class="sec-title">Views</h1>
+        </div>
+        <div class="sec-ghost" aria-hidden="true">03</div>
+      </div>
+
+      <div class="views-grid">
+        <div class="views-list">
+          <div class="vitem sel" data-view="1">
+            <h4>Vendor Spend — August</h4>
+            <div class="vm"><span class="stamp">User</span><span>4 tiles · v3</span></div>
+          </div>
+          <div class="vitem" data-view="2">
+            <h4>Ops Pulse</h4>
+            <div class="vm"><span class="stamp">Group</span><span>6 tiles · v11 · automation tiles</span></div>
+          </div>
+          <div class="vitem" data-view="3">
+            <h4>Warehouse Throughput</h4>
+            <div class="vm"><span class="stamp">Tenant</span><span>5 tiles · v2</span></div>
+          </div>
+        </div>
+
+        <div class="views-board">
+
+          <!-- board 1: Vendor Spend — August -->
+          <div class="board active" id="board1">
+            <div class="board-head">
+              <h2>Vendor Spend — August</h2>
+              <span class="meta">user · v3 · refreshed 16:42</span>
+              <button class="btn ghost sm ack" data-ack="ARRANGE — MOCKUP" type="button">Arrange</button>
+              <button class="btn ghost sm ack" data-ack="RENAME — MOCKUP" type="button">Rename</button>
+              <button class="btn ghost sm ack" data-ack="OPENING CHAT…" type="button">✎ Edit with AI</button>
+              <button class="btn sm ack" data-ack="REFRESHED ✓" type="button">↻ Refresh</button>
+            </div>
+
+            <div class="tile-grid">
+              <div class="tile">
+                <div class="tile-head"><h5>August invoice total</h5><span class="stamp outline">Stat</span></div>
+                <div class="tile-body">
+                  <div class="bignumber">$482,910</div>
+                  <div class="bignumber-sub">SUM(total) · as of 16:42</div>
+                </div>
+              </div>
+
+              <div class="tile">
+                <div class="tile-head"><h5>Spend by vendor (top 5)</h5><span class="stamp outline">Bar</span></div>
+                <div class="tile-body">
+                  <div class="barrow"><span class="bl">Meridian</span><span class="track"><span class="bar" style="width:100%"></span></span><span class="bv">$128,400</span></div>
+                  <div class="barrow"><span class="bl">Northgate</span><span class="track"><span class="bar" style="width:75%"></span></span><span class="bv">$96,150</span></div>
+                  <div class="barrow"><span class="bl">Corvid</span><span class="track"><span class="bar" style="width:50%"></span></span><span class="bv">$64,020</span></div>
+                  <div class="barrow"><span class="bl">Atlas</span><span class="track"><span class="bar" style="width:32%"></span></span><span class="bv">$41,310</span></div>
+                  <div class="barrow"><span class="bl">Helix</span><span class="track"><span class="bar" style="width:30%"></span></span><span class="bv">$38,900</span></div>
+                </div>
+              </div>
+
+              <div class="tile">
+                <div class="tile-head"><h5>Daily invoice volume</h5><span class="stamp outline">Line</span></div>
+                <div class="tile-body">
+                  <svg viewBox="0 0 560 168" width="100%" height="auto" role="img" aria-label="Daily invoice volume, gently rising over 14 days">
+                    <line x1="0" y1="10"  x2="560" y2="10"  stroke="#000" stroke-width="1" stroke-dasharray="2 8" opacity=".35"/>
+                    <line x1="0" y1="60"  x2="560" y2="60"  stroke="#000" stroke-width="1" stroke-dasharray="2 8" opacity=".35"/>
+                    <line x1="0" y1="110" x2="560" y2="110" stroke="#000" stroke-width="1" stroke-dasharray="2 8" opacity=".35"/>
+                    <line x1="0" y1="160" x2="560" y2="160" stroke="#000" stroke-width="2"/>
+                    <polyline fill="none" stroke="#000" stroke-width="2"
+                      points="20,120 60,112 100,116 140,103 180,107 220,94 260,85 300,90 340,76 380,68 420,72 460,54 500,41 540,24"/>
+                    <g fill="#000">
+                      <rect x="16" y="116" width="8" height="8"/><rect x="56" y="108" width="8" height="8"/>
+                      <rect x="96" y="112" width="8" height="8"/><rect x="136" y="99" width="8" height="8"/>
+                      <rect x="176" y="103" width="8" height="8"/><rect x="216" y="90" width="8" height="8"/>
+                      <rect x="256" y="81" width="8" height="8"/><rect x="296" y="86" width="8" height="8"/>
+                      <rect x="336" y="72" width="8" height="8"/><rect x="376" y="64" width="8" height="8"/>
+                      <rect x="416" y="68" width="8" height="8"/><rect x="456" y="50" width="8" height="8"/>
+                      <rect x="496" y="37" width="8" height="8"/><rect x="536" y="20" width="8" height="8"/>
+                    </g>
+                  </svg>
+                  <div class="bignumber-sub" style="margin-top:8px">14 days · count of invoices · deterministic query</div>
+                </div>
+              </div>
+
+              <div class="tile">
+                <div class="tile-head"><h5>Open invoices &gt; 14 days</h5><span class="stamp outline">Table</span></div>
+                <div class="tile-body" style="padding:0">
+                  <table>
+                    <thead><tr><th>Invoice</th><th>Vendor</th><th>Amount</th><th>Age</th></tr></thead>
+                    <tbody>
+                      <tr><td class="mono">INV-20841</td><td>Meridian</td><td class="num">$38,700</td><td class="num">21d</td></tr>
+                      <tr><td class="mono">INV-20857</td><td>Meridian</td><td class="num">$22,500</td><td class="num">17d</td></tr>
+                      <tr><td class="mono">INV-20872</td><td>Corvid</td><td class="num">$9,340</td><td class="num">16d</td></tr>
+                      <tr><td class="mono">INV-20881</td><td>Atlas</td><td class="num">$7,120</td><td class="num">15d</td></tr>
+                      <tr><td class="mono">INV-20889</td><td>Northgate</td><td class="num">$5,480</td><td class="num">15d</td></tr>
+                      <tr><td class="mono">INV-20896</td><td>Helix</td><td class="num">$4,210</td><td class="num">14d</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="tile wide">
+                <div class="tile-head"><h5>Latest invoices</h5><span class="stamp outline">Ticker</span></div>
+                <div class="tile-ticker" aria-hidden="true">
+                  <div class="tk-in">
+                    <span>INV-20896 HELIX $4,210&nbsp;&nbsp;▪&nbsp;&nbsp;INV-20889 NORTHGATE $5,480&nbsp;&nbsp;▪&nbsp;&nbsp;INV-20881 ATLAS $7,120&nbsp;&nbsp;▪&nbsp;&nbsp;INV-20872 CORVID $9,340&nbsp;&nbsp;▪&nbsp;&nbsp;INV-20857 MERIDIAN $22,500&nbsp;&nbsp;▪&nbsp;&nbsp;INV-20841 MERIDIAN $38,700&nbsp;&nbsp;▪&nbsp;&nbsp;</span>
+                    <span>INV-20896 HELIX $4,210&nbsp;&nbsp;▪&nbsp;&nbsp;INV-20889 NORTHGATE $5,480&nbsp;&nbsp;▪&nbsp;&nbsp;INV-20881 ATLAS $7,120&nbsp;&nbsp;▪&nbsp;&nbsp;INV-20872 CORVID $9,340&nbsp;&nbsp;▪&nbsp;&nbsp;INV-20857 MERIDIAN $22,500&nbsp;&nbsp;▪&nbsp;&nbsp;INV-20841 MERIDIAN $38,700&nbsp;&nbsp;▪&nbsp;&nbsp;</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- board 2: Ops Pulse (snapshot stubs) -->
+          <div class="board" id="board2">
+            <div class="board-head">
+              <h2>Ops Pulse</h2>
+              <span class="meta">group · v11 · automation tiles</span>
+              <button class="btn sm ack" data-ack="REFRESHED ✓" type="button">↻ Refresh</button>
+            </div>
+            <div class="board-note">Snapshot not rendered in this concept — six tiles registered</div>
+            <div class="tile-grid stub-grid">
+              <div class="tile"><div class="stub-x"></div><span class="stub-cap">Stat · Open approvals</span></div>
+              <div class="tile"><div class="stub-x"></div><span class="stub-cap">Automation · invoice-chaser runs</span></div>
+              <div class="tile"><div class="stub-x"></div><span class="stub-cap">Line · queue depth</span></div>
+              <div class="tile"><div class="stub-x"></div><span class="stub-cap">Table · failed runs</span></div>
+              <div class="tile"><div class="stub-x"></div><span class="stub-cap">Stat · email drafts waiting</span></div>
+              <div class="tile"><div class="stub-x"></div><span class="stub-cap">Bar · runtime by playbook</span></div>
+            </div>
+          </div>
+
+          <!-- board 3: Warehouse Throughput (snapshot stubs) -->
+          <div class="board" id="board3">
+            <div class="board-head">
+              <h2>Warehouse Throughput</h2>
+              <span class="meta">tenant · v2</span>
+              <button class="btn sm ack" data-ack="REFRESHED ✓" type="button">↻ Refresh</button>
+            </div>
+            <div class="board-note">Snapshot not rendered in this concept — five tiles registered</div>
+            <div class="tile-grid stub-grid">
+              <div class="tile"><div class="stub-x"></div><span class="stub-cap">Stat · units shipped</span></div>
+              <div class="tile"><div class="stub-x"></div><span class="stub-cap">Line · dock-to-stock hours</span></div>
+              <div class="tile"><div class="stub-x"></div><span class="stub-cap">Bar · picks per station</span></div>
+              <div class="tile"><div class="stub-x"></div><span class="stub-cap">Table · exceptions</span></div>
+              <div class="tile"><div class="stub-x"></div><span class="stub-cap">Stat · on-time %</span></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== 04 PLAYBOOKS ========== -->
+    <section class="panel" id="sec-playbooks" aria-label="Playbooks">
+      <div class="sec-head">
+        <div>
+          <div class="sec-kicker"><span class="sq"></span>Section 04/06 — workflows · code flows · automations</div>
+          <h1 class="sec-title">Playbooks</h1>
+        </div>
+        <div class="sec-ghost" aria-hidden="true">04</div>
+      </div>
+
+      <div class="pb-tools">
+        <button class="chip active" data-pf="all" type="button">All 6</button>
+        <button class="chip" data-pf="workflow" type="button">Workflows 2</button>
+        <button class="chip" data-pf="codeflow" type="button">Code Flows 1</button>
+        <button class="chip" data-pf="automation" type="button">Automations 3</button>
+        <div class="search"><input type="text" id="pbSearch" placeholder="SEARCH PLAYBOOKS…" aria-label="Search playbooks"></div>
+      </div>
+      <div class="pb-links">
+        <a href="#" class="dead">Open Workflow Designer ↗</a>
+        <a href="#" class="dead">Open Mission Control ↗</a>
+      </div>
+
+      <div id="pbList">
+        <div class="pbrow" data-t="workflow">
+          <h4>Invoice Intake — OCR + 3-way match</h4>
+          <span><span class="stamp">Workflow</span></span>
+          <span class="pm">id 1218</span>
+          <button class="btn ghost sm ack" data-ack="MOCKUP" type="button">Open ↗</button>
+        </div>
+        <div class="pbrow" data-t="workflow">
+          <h4>Vendor Onboarding Checks</h4>
+          <span><span class="stamp">Workflow</span></span>
+          <span class="pm">id 1327</span>
+          <button class="btn ghost sm ack" data-ack="MOCKUP" type="button">Open ↗</button>
+        </div>
+        <div class="pbrow" data-t="codeflow">
+          <h4>Monthly Close Journal Prep</h4>
+          <span><span class="stamp">Code Flow</span></span>
+          <span class="pm">id 214</span>
+          <button class="btn ghost sm ack" data-ack="MOCKUP" type="button">Open ↗</button>
+        </div>
+        <div class="pbrow" data-t="automation">
+          <h4><span class="mono-name">invoice-chaser</span></h4>
+          <span><span class="stamp">Automation</span></span>
+          <span class="pm">v7 · pinned v6</span>
+          <button class="btn ghost sm ack" data-ack="MOCKUP" type="button">Open ↗</button>
+        </div>
+        <div class="pbrow" data-t="automation">
+          <h4><span class="mono-name">dayforce-doc-upload</span></h4>
+          <span><span class="stamp">Automation</span></span>
+          <span class="pm">v3</span>
+          <button class="btn ghost sm ack" data-ack="MOCKUP" type="button">Open ↗</button>
+        </div>
+        <div class="pbrow" data-t="automation">
+          <h4><span class="mono-name">erpdb-daily-health</span></h4>
+          <span><span class="stamp">Automation</span></span>
+          <span class="pm">v12</span>
+          <button class="btn ghost sm ack" data-ack="MOCKUP" type="button">Open ↗</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== 05 EMAIL ========== -->
+    <section class="panel" id="sec-email" aria-label="Email">
+      <div class="sec-head">
+        <div>
+          <div class="sec-kicker"><span class="sq"></span>Section 05/06 — the agent's personal address</div>
+          <h1 class="sec-title">Email</h1>
+        </div>
+        <div class="sec-ghost" aria-hidden="true">05</div>
+      </div>
+
+      <div class="email-grid">
+        <div class="card left">
+          <div class="card-head"><h3>Your address</h3><span class="stamp">Active</span></div>
+          <div class="card-body">
+            <div class="addr-row">
+              <input type="text" value="james-agent" aria-label="Address prefix">
+              <span class="suffix">@mail.aihub.dev</span>
+            </div>
+            <p class="subcopy">Mail sent to this address runs a headless agent session as you and lands its result in My&nbsp;Work.</p>
+            <button class="tog on" type="button" aria-pressed="true">
+              <span class="box" aria-hidden="true"></span>
+              <span class="lab">Inbound enabled</span>
+              <span class="state" aria-hidden="true"></span>
+            </button>
+            <div class="wd-actions" style="margin-top:14px">
+              <button class="btn primary ack" data-ack="SAVED ✓" type="button">Save</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>Sending &amp; behavior</h3></div>
+          <div class="card-body">
+            <button class="tog on" type="button" aria-pressed="true">
+              <span class="box" aria-hidden="true"></span>
+              <span class="lab">Outbound enabled</span>
+              <span class="state" aria-hidden="true"></span>
+            </button>
+            <button class="tog" type="button" aria-pressed="false">
+              <span class="box" aria-hidden="true"></span>
+              <span class="lab">Auto-send replies</span>
+              <span class="state" aria-hidden="true"></span>
+            </button>
+            <div class="tognote">Every reply waits for your approval in My Work</div>
+            <button class="tog" type="button" aria-pressed="false">
+              <span class="box" aria-hidden="true"></span>
+              <span class="lab">Notify on inbound</span>
+              <span class="state" aria-hidden="true"></span>
+            </button>
+            <div class="field-row">
+              <label for="cooldown">Cooldown minutes</label>
+              <input type="number" id="cooldown" value="30" min="0">
+            </div>
+            <div class="standing">
+              <label for="standing">Standing instructions</label>
+              <textarea id="standing" rows="3" placeholder="e.g. Always cc procurement on vendor pricing threads. Never commit to delivery dates."></textarea>
+            </div>
+            <div class="wd-actions" style="margin-top:14px">
+              <button class="btn primary ack" data-ack="SAVED ✓" type="button">Save</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="activity">
+        <div class="activity-head">Recent inbound activity</div>
+        <div class="actrow">
+          <span class="at">08-09 08:47</span>
+          <span><span class="stamp">reply_drafted</span></span>
+          <span class="am">dana@meridiansupply.com — Re: Q3 renewal pricing</span>
+        </div>
+        <div class="actrow">
+          <span class="at">08-08 16:02</span>
+          <span><span class="stamp outline">processed</span></span>
+          <span class="am">alerts@dayforce.com — Document batch ready</span>
+        </div>
+        <div class="actrow">
+          <span class="at">08-08 09:15</span>
+          <span><span class="stamp outline">processed</span></span>
+          <span class="am">noreply@erpdb — Weekly digest</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== 06 SKILLS ========== -->
+    <section class="panel" id="sec-skills" aria-label="Skills">
+      <div class="sec-head">
+        <div>
+          <div class="sec-kicker"><span class="sq"></span>Section 06/06 — procedural memory</div>
+          <h1 class="sec-title">Skills</h1>
+        </div>
+        <div class="sec-ghost" aria-hidden="true">06</div>
+      </div>
+
+      <div class="skills-grid">
+        <div class="skills-list">
+          <div class="skitem" data-skill="1">
+            <h4>erpdb-reconciliation-recipes</h4>
+            <div class="sm-row"><span class="stamp">Product</span><span>4.2 KB</span></div>
+          </div>
+          <div class="skitem" data-skill="2">
+            <h4>vendor-naming-conventions</h4>
+            <div class="sm-row"><span class="stamp">Tenant</span><span>1.1 KB</span></div>
+          </div>
+          <div class="skitem sel" data-skill="3">
+            <h4>james-report-format</h4>
+            <div class="sm-row"><span class="stamp">User</span><span>0.8 KB</span></div>
+          </div>
+        </div>
+
+        <div class="skill-detail">
+          <h2 id="skTitle">james-report-format</h2>
+          <div class="skill-meta">
+            <span class="stamp" id="skScope">User</span>
+            <span class="meta" id="skSize">0.8 KB · loaded into every session for James</span>
+          </div>
+          <div class="skill-body" id="skBody">Reports for James: lead with the number, then the table. Currency to the dollar, no cents. Always note the as-of time. Vendor short names once introduced. Flag any variance beyond ±10% vs prior month…</div>
+          <div class="skill-foot">
+            <button class="btn" id="delSkill" type="button">Delete skill</button>
+            <span class="danger-note">▲ Danger — removed from every future session</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ================= TICKER ================= -->
+  <div class="ticker" aria-hidden="true">
+    <div class="tk-track">
+      <span>
+        DRAFT <span class="arr">→</span> DRY-RUN <span class="arr">→</span> PROMOTE <span class="arr">→</span> SCHEDULE <span class="arr">→</span> HUMANS STAY IN THE LOOP<span class="sep">///</span>
+        DRAFT <span class="arr">→</span> DRY-RUN <span class="arr">→</span> PROMOTE <span class="arr">→</span> SCHEDULE <span class="arr">→</span> HUMANS STAY IN THE LOOP<span class="sep">///</span>
+        DRAFT <span class="arr">→</span> DRY-RUN <span class="arr">→</span> PROMOTE <span class="arr">→</span> SCHEDULE <span class="arr">→</span> HUMANS STAY IN THE LOOP<span class="sep">///</span>
+      </span>
+      <span>
+        DRAFT <span class="arr">→</span> DRY-RUN <span class="arr">→</span> PROMOTE <span class="arr">→</span> SCHEDULE <span class="arr">→</span> HUMANS STAY IN THE LOOP<span class="sep">///</span>
+        DRAFT <span class="arr">→</span> DRY-RUN <span class="arr">→</span> PROMOTE <span class="arr">→</span> SCHEDULE <span class="arr">→</span> HUMANS STAY IN THE LOOP<span class="sep">///</span>
+        DRAFT <span class="arr">→</span> DRY-RUN <span class="arr">→</span> PROMOTE <span class="arr">→</span> SCHEDULE <span class="arr">→</span> HUMANS STAY IN THE LOOP<span class="sep">///</span>
+      </span>
+    </div>
+  </div>
+
+</div><!-- /app -->
+
+<a class="badge" href="./index.html"><b>#07</b>&nbsp;·&nbsp;Concrete</a>
+
+<script>
+(function(){
+  'use strict';
+
+  /* ---------- section navigation ---------- */
+  var navBtns = document.querySelectorAll('.nav-btn[data-sec]');
+  var panels = document.querySelectorAll('.panel');
+  var main = document.getElementById('main');
+  var chatlog = document.getElementById('chatlog');
+
+  function show(sec){
+    for(var i=0;i<panels.length;i++){ panels[i].classList.remove('active'); }
+    for(var j=0;j<navBtns.length;j++){
+      navBtns[j].classList.toggle('active', navBtns[j].getAttribute('data-sec')===sec);
+      if(navBtns[j].getAttribute('data-sec')===sec){ navBtns[j].setAttribute('aria-current','page'); }
+      else { navBtns[j].removeAttribute('aria-current'); }
+    }
+    var p = document.getElementById('sec-'+sec);
+    if(p){ p.classList.add('active'); }
+    main.scrollTop = 0;
+    if(sec==='assistant' && chatlog){ chatlog.scrollTop = chatlog.scrollHeight; }
+  }
+  for(var n=0;n<navBtns.length;n++){
+    (function(btn){
+      btn.addEventListener('click', function(){ show(btn.getAttribute('data-sec')); });
+    })(navBtns[n]);
+  }
+
+  /* ---------- decorative links ---------- */
+  var deads = document.querySelectorAll('a.dead');
+  for(var d=0;d<deads.length;d++){
+    deads[d].addEventListener('click', function(e){ e.preventDefault(); });
+  }
+
+  /* ---------- generic snap acknowledgment ---------- */
+  function wireAcks(root){
+    var acks = (root||document).querySelectorAll('.ack');
+    for(var i=0;i<acks.length;i++){
+      (function(b){
+        if(b.__acked){ return; } b.__acked = true;
+        b.addEventListener('click', function(){
+          if(b.disabled){ return; }
+          var orig = b.textContent;
+          b.textContent = b.getAttribute('data-ack') || 'OK ✓';
+          b.disabled = true;
+          setTimeout(function(){ b.textContent = orig; b.disabled = false; }, 1400);
+        });
+      })(acks[i]);
+    }
+  }
+  wireAcks(document);
+
+  /* ---------- assistant: starters fill the input ---------- */
+  var chatText = document.getElementById('chatText');
+  var starters = document.querySelectorAll('.st-fill');
+  for(var s=0;s<starters.length;s++){
+    (function(st){
+      st.addEventListener('click', function(){
+        if(chatText){ chatText.value = st.textContent; chatText.focus(); show('assistant'); }
+      });
+    })(starters[s]);
+  }
+
+  /* ---------- assistant: send appends a static mock exchange ---------- */
+  function esc(t){
+    return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  function nowHM(){
+    var d = new Date();
+    var h = String(d.getHours()); if(h.length<2){ h='0'+h; }
+    var m = String(d.getMinutes()); if(m.length<2){ m='0'+m; }
+    return h+':'+m;
+  }
+  var sendBtn = document.getElementById('sendBtn');
+  if(sendBtn && chatText && chatlog){
+    var sendMock = function(){
+      var t = chatText.value.replace(/^\s+|\s+$/g,'');
+      if(!t){ return; }
+      chatText.value = '';
+      var u = document.createElement('div');
+      u.className = 'msg';
+      u.innerHTML = '<div class="who"><span class="stamp outline">You</span><span class="t">'+nowHM()+'</span></div>'+
+                    '<div class="body"><p>'+esc(t)+'</p></div>';
+      chatlog.appendChild(u);
+      var a = document.createElement('div');
+      a.className = 'msg';
+      a.innerHTML = '<div class="who"><span class="stamp">The Agent</span><span class="t">'+nowHM()+'</span></div>'+
+                    '<div class="body"><p><span class="cursor" aria-hidden="true"></span></p></div>';
+      chatlog.appendChild(a);
+      chatlog.scrollTop = chatlog.scrollHeight;
+      setTimeout(function(){
+        a.querySelector('.body').innerHTML =
+          '<p class="mono" style="font-size:11.5px;letter-spacing:.06em">STATIC CONCEPT — NO BRAIN ATTACHED. THE TRANSCRIPT ABOVE IS DEMO DATA.</p>';
+        chatlog.scrollTop = chatlog.scrollHeight;
+      }, 900);
+    };
+    sendBtn.addEventListener('click', sendMock);
+    chatText.addEventListener('keydown', function(e){
+      if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendMock(); }
+    });
+  }
+
+  /* ---------- my work: queue select + filters ---------- */
+  var qitems = document.querySelectorAll('.qitem');
+  for(var q=0;q<qitems.length;q++){
+    (function(item){
+      item.addEventListener('click', function(){
+        for(var i=0;i<qitems.length;i++){ qitems[i].classList.remove('sel'); }
+        item.classList.add('sel');
+        var wds = document.querySelectorAll('.wd');
+        for(var w=0;w<wds.length;w++){ wds[w].classList.remove('active'); }
+        var wd = document.getElementById('wd'+item.getAttribute('data-item'));
+        if(wd){ wd.classList.add('active'); }
+      });
+    })(qitems[q]);
+  }
+  var wchips = document.querySelectorAll('#workFilters .chip');
+  for(var wc=0;wc<wchips.length;wc++){
+    (function(chip){
+      chip.addEventListener('click', function(){
+        for(var i=0;i<wchips.length;i++){ wchips[i].classList.remove('active'); }
+        chip.classList.add('active');
+        var f = chip.getAttribute('data-f');
+        for(var k=0;k<qitems.length;k++){
+          var v = qitems[k].getAttribute('data-verb');
+          qitems[k].style.display = (f==='all' || f===v) ? '' : 'none';
+        }
+      });
+    })(wchips[wc]);
+  }
+
+  /* ---------- my work: thread ask ---------- */
+  var threadAsk = document.getElementById('threadAsk');
+  var threadText = document.getElementById('threadText');
+  if(threadAsk && threadText){
+    var askMock = function(){
+      var t = threadText.value.replace(/^\s+|\s+$/g,'');
+      if(!t){ return; }
+      threadText.value = '';
+      var wrap = threadAsk.parentNode.parentNode; /* .thread */
+      var inputRow = threadAsk.parentNode;
+      var u = document.createElement('div');
+      u.className = 'trow';
+      u.innerHTML = '<div><span class="stamp outline">You</span></div><div class="body">'+esc(t)+'</div>';
+      wrap.insertBefore(u, inputRow);
+      var a = document.createElement('div');
+      a.className = 'trow';
+      a.innerHTML = '<div><span class="stamp">The Agent</span></div><div class="body mono" style="font-size:11px;letter-spacing:.06em">STATIC CONCEPT — THREAD NOT WIRED.</div>';
+      wrap.insertBefore(a, inputRow);
+    };
+    threadAsk.addEventListener('click', askMock);
+    threadText.addEventListener('keydown', function(e){
+      if(e.key==='Enter'){ e.preventDefault(); askMock(); }
+    });
+  }
+
+  /* ---------- views: list select ---------- */
+  var vitems = document.querySelectorAll('.vitem');
+  for(var v=0;v<vitems.length;v++){
+    (function(item){
+      item.addEventListener('click', function(){
+        for(var i=0;i<vitems.length;i++){ vitems[i].classList.remove('sel'); }
+        item.classList.add('sel');
+        var boards = document.querySelectorAll('.board');
+        for(var b=0;b<boards.length;b++){ boards[b].classList.remove('active'); }
+        var bd = document.getElementById('board'+item.getAttribute('data-view'));
+        if(bd){ bd.classList.add('active'); }
+      });
+    })(vitems[v]);
+  }
+
+  /* ---------- playbooks: chips + search ---------- */
+  var pchips = document.querySelectorAll('.pb-tools .chip');
+  var pbrows = document.querySelectorAll('.pbrow');
+  var pbSearch = document.getElementById('pbSearch');
+  var pbFilter = 'all';
+  function applyPb(){
+    var term = pbSearch ? pbSearch.value.toLowerCase() : '';
+    for(var i=0;i<pbrows.length;i++){
+      var row = pbrows[i];
+      var okType = (pbFilter==='all' || row.getAttribute('data-t')===pbFilter);
+      var okTerm = !term || row.textContent.toLowerCase().indexOf(term) !== -1;
+      row.classList.toggle('hide', !(okType && okTerm));
+    }
+  }
+  for(var pc=0;pc<pchips.length;pc++){
+    (function(chip){
+      chip.addEventListener('click', function(){
+        for(var i=0;i<pchips.length;i++){ pchips[i].classList.remove('active'); }
+        chip.classList.add('active');
+        pbFilter = chip.getAttribute('data-pf');
+        applyPb();
+      });
+    })(pchips[pc]);
+  }
+  if(pbSearch){ pbSearch.addEventListener('input', applyPb); }
+
+  /* ---------- email: toggles snap ---------- */
+  var togs = document.querySelectorAll('.tog');
+  for(var tg=0;tg<togs.length;tg++){
+    (function(t){
+      t.addEventListener('click', function(){
+        t.classList.toggle('on');
+        t.setAttribute('aria-pressed', t.classList.contains('on') ? 'true' : 'false');
+      });
+    })(togs[tg]);
+  }
+
+  /* ---------- skills: list select + two-step delete ---------- */
+  var skdata = {
+    '1': { title:'erpdb-reconciliation-recipes', scope:'Product', size:'4.2 KB · ships with the platform',
+           body:'When reconciling ERPDB invoices to payments: match on vendor_id + amount within ±$1, then a 5-day date window. Escalate unmatched items over $10,000 to an Approval in My Work. Never write back — reconciliation is read-only…' },
+    '2': { title:'vendor-naming-conventions', scope:'Tenant', size:'1.1 KB · shared across the tenant',
+           body:'Canonical vendor names: "Meridian Supply Co", never "Meridian Inc". Strip legal suffixes in prose; keep them in ledger exports. Codes are UPPERCASE-KEBAB (MERIDIAN-SUPPLY). New vendors require an onboarding check before first payment…' },
+    '3': { title:'james-report-format', scope:'User', size:'0.8 KB · loaded into every session for James',
+           body:'Reports for James: lead with the number, then the table. Currency to the dollar, no cents. Always note the as-of time. Vendor short names once introduced. Flag any variance beyond ±10% vs prior month…' }
+  };
+  var skitems = document.querySelectorAll('.skitem');
+  var skTitle = document.getElementById('skTitle');
+  var skScope = document.getElementById('skScope');
+  var skSize = document.getElementById('skSize');
+  var skBody = document.getElementById('skBody');
+  for(var sk=0;sk<skitems.length;sk++){
+    (function(item){
+      item.addEventListener('click', function(){
+        for(var i=0;i<skitems.length;i++){ skitems[i].classList.remove('sel'); }
+        item.classList.add('sel');
+        var dta = skdata[item.getAttribute('data-skill')];
+        if(dta && skTitle){ skTitle.textContent = dta.title; skScope.textContent = dta.scope; skSize.textContent = dta.size; skBody.textContent = dta.body; }
+      });
+    })(skitems[sk]);
+  }
+  var delBtn = document.getElementById('delSkill');
+  if(delBtn){
+    var armed = false, armTimer = null;
+    delBtn.addEventListener('click', function(){
+      if(delBtn.disabled){ return; }
+      if(!armed){
+        armed = true;
+        delBtn.textContent = 'Confirm delete?';
+        armTimer = setTimeout(function(){ armed = false; delBtn.textContent = 'Delete skill'; }, 2600);
+      } else {
+        armed = false;
+        if(armTimer){ clearTimeout(armTimer); }
+        delBtn.textContent = 'MOCKUP — nothing deleted';
+        delBtn.disabled = true;
+        setTimeout(function(){ delBtn.textContent = 'Delete skill'; delBtn.disabled = false; }, 1600);
+      }
+    });
+  }
+
+  /* ---------- boot: hello starts scrolled away ---------- */
+  if(chatlog){ chatlog.scrollTop = chatlog.scrollHeight; }
+})();
+</script>
+</body>
+</html>
