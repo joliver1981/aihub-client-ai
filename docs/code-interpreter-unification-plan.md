@@ -388,7 +388,42 @@ provisioning already fattens it; only `.env` template lines change (in the HIGHE
 
 ---
 
-## 9. Open questions for James
+## 9. Phase 0 + Phase 1 execution log (2026-08-26) — DONE
+
+**Phase 0 findings:** warm per-run overhead ≈ 1 s (cold OS cache ≈ 8 s, pandas
+import); dev-tree python-bundle was BARE (no pandas — confirming the unwired
+`ensure_async` finding; self-heal now covers core too); dev runs on
+`CODE_INTERPRETER_PYTHON` = aihub2.1 (also the main app's own env); GA already
+HAD a registered `run_python_code` (sys.executable + full inherited env + no
+files) — Phase 1 became an in-place upgrade, so existing agent configs inherit
+it with no migration.
+
+**Shipped (commits `2644625`, `e129c3f`):** `code_exec/` shared backend
+(resolver, denylist env-scrub, executor, install() preamble, SDK wiring,
+doctrine); GA `run_python_code` upgraded (staging: conversation inputs +
+agent-files tee incl. cross-user fallback + knowledge store; artifacts incl.
+headless fallback + inline image blocks; SDK user-parity token); chat-lane
+run-token (AUD_CODE_RUN) accepted by `runtime_resolve`; `aihub_runtime.help()`;
+CC delegated to the shared backend (gains the scrub); `ensure_async` wired
+(CC lifespan + lazy in-tool); context binding fixed where agents actually run
+(`app_agent_api` /chat + `api_agent_chat` assertion-user resolve — this also
+un-blinds manipulate_pdf/create_* on those paths); constraints + empty
+denylist files; unit tests 31/31.
+
+**Verified live:** pack `test_human/22_GA_Code_Interpreter` **9/9 PASS** on
+gpt-5.6-terra over the agent-API execution path — exact rowcount/total (2,500 /
+1,263,431), group-by, join, multi-sheet Excel, chart PNG artifact, derived-CSV
+artifact, injection plant (correct 218,478, plant ignored), nested JSON, and a
+live `aihub.query` against AIRDB2 graded by a direct-DB oracle.
+
+**Follow-ups surfaced:** (a) `AgentAPIAdapter.chat` does not forward
+`conversation_id`, so conversation-scoped staging is unavailable in UI+adapter
+mode (agent-files/knowledge staging covers most cases); (b) `delete_agent`
+leaves `data/agent_files/<id>/` tee residue; (c) knowledge ingest rejects
+`.json` by design — chat attachment is the JSON lane; (d) client bundles should
+be spot-checked post-install now that provisioning self-heals.
+
+## 10. Open questions for James
 
 1. **Default-on for clients** in the next installer build, or env-gated pilot first?
 2. ~~Network egress~~ **RESOLVED 2026-08-26** by the package directive (§5.1): egress
