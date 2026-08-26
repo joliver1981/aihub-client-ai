@@ -9,8 +9,41 @@
           "username_secret": "PORTAL_U13_LOCALHOST_UPLOADS_PORTAL_USERNAME",
           "password_secret": "PORTAL_U13_LOCALHOST_UPLOADS_PORTAL_PASSWORD",
           "totp_secret": null
+        },
+        "meridian_vendor_portal": {
+          "name": "Meridian Vendor Portal",
+          "url": "http://localhost:3000/login",
+          "allowed_domains": [
+            "localhost",
+            "127.0.0.1"
+          ],
+          "username_secret": "PORTAL_U13_MERIDIAN_VENDOR_PORTAL_USERNAME",
+          "password_secret": "PORTAL_U13_MERIDIAN_VENDOR_PORTAL_PASSWORD",
+          "totp_secret": "PORTAL_U13_MERIDIAN_VENDOR_PORTAL_TOTP"
+        },
+        "meridian_portal_manual": {
+          "name": "Meridian Portal Manual",
+          "url": "http://localhost:3000/login",
+          "allowed_domains": [
+            "localhost",
+            "127.0.0.1"
+          ],
+          "username_secret": "PORTAL_U13_MERIDIAN_PORTAL_MANUAL_USERNAME",
+          "password_secret": "PORTAL_U13_MERIDIAN_PORTAL_MANUAL_PASSWORD",
+          "totp_secret": null
+        },
+        "alpaca": {
+          "name": "alpaca",
+          "url": "https://app.alpaca.markets/",
+          "allowed_domains": [],
+          "username_secret": "PORTAL_U13_ALPACA_USERNAME",
+          "password_secret": "PORTAL_U13_ALPACA_PASSWORD",
+          "totp_secret": null
         }
       }
+    },
+    "424250": {
+      "portals": {}
     }
   }
 }

@@ -1,0 +1,899 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Hub — Scenario Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#0E1116; --panel:#151A22; --panel-2:#1B212B; --sunk:#10141A;
+  --ink:#E7ECF3; --ink-2:#9AA6B6; --ink-3:#6B7688;
+  --rule:#252C38; --rule-2:#333C4B;
+  --accent:#5B9DFF; --accent-dim:#1E2E4A;
+  --up:#3FBF7F; --warn:#E0A33E; --down:#E4645C; --idle:#5A6474;
+  --up-bg:#12271D; --warn-bg:#2A2114; --down-bg:#2A1715;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#EEF1F5; --panel:#FFFFFF; --panel-2:#F5F7FA; --sunk:#E7EBF1;
+    --ink:#141922; --ink-2:#525E6E; --ink-3:#7D8798;
+    --rule:#DDE2EA; --rule-2:#C6CDD8;
+    --accent:#1F5FCC; --accent-dim:#DCE7FA;
+    --up:#177D4E; --warn:#8A5C08; --down:#B23A32;
+    --up-bg:#E4F2EA; --warn-bg:#F7EFDC; --down-bg:#F8E7E5;
+  }
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:var(--bg);color:var(--ink);
+  font-family:"IBM Plex Sans",-apple-system,"Segoe UI",sans-serif;
+  font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;
+}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+button{font-family:inherit;font-size:13px;cursor:pointer}
+button:focus-visible,select:focus-visible,input:focus-visible,a:focus-visible{
+  outline:2px solid var(--accent);outline-offset:2px}
+
+/* ---------------- top bar ---------------- */
+header{
+  position:sticky;top:0;z-index:30;background:var(--panel);
+  border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:18px;padding:0 20px;height:56px;
+}
+.brand{display:flex;align-items:baseline;gap:10px;flex:0 0 auto}
+.brand b{font-size:15px;font-weight:700;letter-spacing:-.01em}
+.brand span{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.scen-pills{display:flex;gap:6px;flex:1 1 auto;overflow-x:auto;padding:0 4px}
+.pill{
+  border:1px solid var(--rule-2);background:transparent;color:var(--ink-2);
+  padding:5px 12px;border-radius:999px;white-space:nowrap;display:flex;align-items:center;gap:7px;
+}
+.pill:hover{border-color:var(--accent);color:var(--ink)}
+.pill[aria-selected="true"]{background:var(--accent-dim);border-color:var(--accent);color:var(--ink);font-weight:600}
+.pill .dot{width:6px;height:6px;border-radius:50%;background:var(--idle)}
+.pill.built .dot{background:var(--up)}
+.hdr-right{display:flex;align-items:center;gap:14px;flex:0 0 auto;color:var(--ink-3);font-size:11.5px}
+.live{display:flex;align-items:center;gap:6px}
+.live i{width:7px;height:7px;border-radius:50%;background:var(--up);display:inline-block}
+.live.stale i{background:var(--warn)}
+
+/* ---------------- layout ---------------- */
+main{padding:20px;max-width:1720px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+.row{display:grid;gap:16px}
+.row.c2{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.row.c3{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:1180px){.row.c2,.row.c3{grid-template-columns:1fr}}
+
+.panel{background:var(--panel);border:1px solid var(--rule);border-radius:6px;overflow:hidden}
+.panel > h2{
+  margin:0;padding:11px 16px;font-size:11px;font-weight:600;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--ink-3);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--panel-2);
+}
+.panel > h2 .sub{text-transform:none;letter-spacing:0;font-weight:400;font-size:11.5px}
+.panel .body{padding:14px 16px}
+.panel .body.tight{padding:0}
+
+/* ---------------- source tiles ---------------- */
+.grp-label{
+  font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);
+  padding:12px 16px 6px;
+}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:10px;padding:0 16px 14px}
+.tile{
+  background:var(--panel-2);border:1px solid var(--rule);border-left:3px solid var(--idle);
+  border-radius:4px;padding:10px 12px;display:flex;flex-direction:column;gap:5px;min-height:74px;
+}
+.tile.up{border-left-color:var(--up)}
+.tile.down{border-left-color:var(--down)}
+.tile.empty{border-left-color:var(--warn)}
+.tile .t1{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.tile .nm{font-weight:600;font-size:13px}
+.tile .st{font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:600}
+.tile.up .st{color:var(--up)} .tile.down .st{color:var(--down)} .tile.empty .st{color:var(--warn)}
+.tile .dt{font-size:11.5px;color:var(--ink-3)}
+.tile .metrics{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:2px}
+.tile .metrics span{font-size:11.5px;color:var(--ink-2)}
+.tile .metrics b{color:var(--ink);font-weight:600}
+.tile .acts{display:flex;gap:6px;margin-top:auto;padding-top:6px}
+.mini{
+  border:1px solid var(--rule-2);background:transparent;color:var(--ink-2);
+  padding:2px 8px;border-radius:3px;font-size:11px;text-decoration:none;display:inline-block;
+}
+.mini:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ---------------- channel cards ---------------- */
+.chans{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
+.chan{
+  background:var(--panel-2);border:1px solid var(--rule);border-radius:5px;padding:14px;
+  display:flex;flex-direction:column;gap:3px;
+}
+.chan .cn{font-size:12px;font-weight:600;color:var(--ink-2);display:flex;align-items:center;gap:7px}
+.chan .cn i{width:7px;height:7px;border-radius:50%;background:var(--idle);display:inline-block}
+.chan.up .cn i{background:var(--up)} .chan.empty .cn i{background:var(--warn)}
+.chan .cv{font-size:32px;font-weight:700;line-height:1.1;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.chan .cd{font-size:11.5px;color:var(--ink-3)}
+.chan .cp{font-size:10.5px;color:var(--ink-3);word-break:break-all;margin-top:4px}
+
+/* ---------------- batch builder ---------------- */
+.bb{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+.fld{display:flex;flex-direction:column;gap:4px}
+.fld label{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.fld input,.fld select{
+  background:var(--sunk);border:1px solid var(--rule-2);color:var(--ink);
+  padding:7px 9px;border-radius:4px;font-size:13px;font-family:"IBM Plex Mono",monospace;
+}
+.btn{
+  border:1px solid var(--accent);background:var(--accent);color:#fff;
+  padding:8px 16px;border-radius:4px;font-weight:600;
+}
+.btn:hover{filter:brightness(1.1)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.ghost{background:transparent;color:var(--accent)}
+.btn.danger{border-color:var(--down);background:transparent;color:var(--down)}
+.btn.danger:hover{background:var(--down);color:#fff}
+.btn.quiet{border-color:var(--rule-2);background:transparent;color:var(--ink-2)}
+.btn.quiet:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ---------------- stats ---------------- */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:1px;background:var(--rule)}
+.stat{background:var(--panel);padding:12px 14px}
+.stat .sv{font-size:20px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;display:block}
+.stat .sl{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);display:block;margin-top:2px}
+.stat.ex .sv{color:var(--down)} .stat.dec .sv{color:var(--warn)} .stat.ok .sv{color:var(--up)}
+
+/* ---------------- actions ---------------- */
+.acts-grid{display:flex;flex-wrap:wrap;gap:8px}
+
+/* ---------------- console ---------------- */
+pre.out{
+  margin:0;background:var(--sunk);border-top:1px solid var(--rule);
+  padding:12px 16px;max-height:340px;overflow:auto;
+  font-family:"IBM Plex Mono",monospace;font-size:11.5px;line-height:1.55;
+  color:var(--ink-2);white-space:pre-wrap;word-break:break-word;
+}
+.jobbar{display:flex;align-items:center;gap:10px;padding:9px 16px;font-size:12px;border-top:1px solid var(--rule)}
+.badge{font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;padding:2px 7px;border-radius:3px}
+.badge.running{background:var(--warn-bg);color:var(--warn)}
+.badge.done{background:var(--up-bg);color:var(--up)}
+.badge.failed{background:var(--down-bg);color:var(--down)}
+.badge.queued{background:var(--sunk);color:var(--ink-3)}
+
+/* ---------------- table ---------------- */
+.tblwrap{overflow:auto;max-height:520px}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+thead th{
+  position:sticky;top:0;background:var(--panel-2);text-align:left;
+  font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);
+  font-weight:600;padding:8px 12px;border-bottom:1px solid var(--rule-2);white-space:nowrap;z-index:2;
+}
+tbody td{padding:7px 12px;border-bottom:1px solid var(--rule);vertical-align:top}
+tbody tr:hover td{background:var(--panel-2)}
+td.num{text-align:right;font-variant-numeric:tabular-nums;font-family:"IBM Plex Mono",monospace;white-space:nowrap}
+td.mono{font-family:"IBM Plex Mono",monospace;white-space:nowrap}
+.kchip{font-size:10px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;padding:1px 6px;border-radius:3px;white-space:nowrap}
+.kchip.exception{background:var(--down-bg);color:var(--down)}
+.kchip.decoy{background:var(--warn-bg);color:var(--warn)}
+
+/* ---------------- pipeline flow ---------------- */
+.flowwrap{overflow-x:auto;padding:16px}
+.flowwrap svg{display:block;min-width:1020px;width:100%;height:auto}
+.fl-box{fill:var(--panel-2);stroke:var(--rule-2);stroke-width:1.2}
+.fl-store{fill:var(--sunk);stroke:var(--rule-2);stroke-width:1.2}
+.fl-key{fill:var(--accent-dim);stroke:var(--accent);stroke-width:1.6}
+.fl-proc{fill:none;stroke:var(--accent);stroke-width:1.6;stroke-dasharray:7 4}
+.fl-step{fill:var(--panel);stroke:var(--rule);stroke-width:1}
+.fl-up{stroke:var(--up)} .fl-empty{stroke:var(--warn)} .fl-down{stroke:var(--down)}
+.fl-t{fill:var(--ink);font-size:12px;font-weight:600;font-family:"IBM Plex Sans",sans-serif}
+.fl-s{fill:var(--ink-2);font-size:10.5px;font-family:"IBM Plex Sans",sans-serif}
+.fl-m{fill:var(--ink-3);font-size:10px;font-family:"IBM Plex Mono",monospace}
+.fl-big{fill:var(--ink);font-size:24px;font-weight:700;font-family:"IBM Plex Sans",sans-serif}
+.fl-big.ex{fill:var(--down)} .fl-big.dec{fill:var(--warn)} .fl-big.ok{fill:var(--up)}
+.fl-lab{fill:var(--ink-3);font-size:9.5px;font-family:"IBM Plex Mono",monospace;letter-spacing:.05em}
+.fl-line{stroke:var(--ink-3);stroke-width:1.3;fill:none}
+.fl-line-k{stroke:var(--accent);stroke-width:1.5;fill:none}
+.fl-band{fill:var(--ink-3);font-size:9.5px;font-family:"IBM Plex Mono",monospace;letter-spacing:.13em}
+.flowing .fl-line,.flowing .fl-line-k{stroke-dasharray:6 5;animation:dash 1s linear infinite}
+@keyframes dash{to{stroke-dashoffset:-22}}
+@media (prefers-reduced-motion:reduce){.flowing .fl-line,.flowing .fl-line-k{animation:none}}
+g.node{cursor:default}
+
+/* ---------------- misc ---------------- */
+.scen-head{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start;justify-content:space-between}
+.scen-head h1{margin:0 0 4px;font-size:21px;font-weight:700;letter-spacing:-.015em}
+.scen-head .meta{font-size:12.5px;color:var(--ink-2)}
+.scen-head p{margin:8px 0 0;color:var(--ink-2);max-width:74ch;font-size:13px}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.tag{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--rule-2);color:var(--ink-3);padding:2px 8px;border-radius:3px}
+.tag.built{border-color:var(--up);color:var(--up)}
+.tag.planned{border-color:var(--warn);color:var(--warn)}
+.doclinks{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.empty-note{color:var(--ink-3);font-size:13px;padding:18px 16px}
+.seg{display:flex;gap:0;flex-wrap:wrap;border:1px solid var(--rule-2);border-radius:4px;overflow:hidden}
+.seg button{background:transparent;border:0;border-right:1px solid var(--rule-2);color:var(--ink-2);padding:6px 12px;font-size:12px}
+.seg button:last-child{border-right:0}
+.seg button[aria-selected="true"]{background:var(--accent-dim);color:var(--ink);font-weight:600}
+dialog{border:1px solid var(--rule-2);background:var(--panel);color:var(--ink);border-radius:6px;max-width:900px;width:92vw;padding:0}
+dialog::backdrop{background:rgba(0,0,0,.6)}
+dialog .dh{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--rule)}
+dialog pre{margin:0;padding:16px;max-height:70vh;overflow:auto;font-family:"IBM Plex Mono",monospace;font-size:12px;white-space:pre-wrap}
+.warnline{background:var(--warn-bg);color:var(--warn);padding:8px 16px;font-size:12.5px;border-bottom:1px solid var(--rule)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand"><b>Scenario Console</b><span>AI Hub</span></div>
+  <div class="scen-pills" id="pills" role="tablist"></div>
+  <div class="hdr-right">
+    <span class="live" id="live"><i></i><span id="liveTxt">connecting</span></span>
+    <button class="mini" id="refresh">Refresh</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- ============ sources ============ -->
+  <section class="panel">
+    <h2>Sources &amp; services <span class="sub" id="srcSummary"></span></h2>
+    <div class="body tight" id="sources"><div class="empty-note">Checking…</div></div>
+  </section>
+
+  <!-- ============ scenario ============ -->
+  <section class="panel">
+    <h2>Scenario</h2>
+    <div class="body">
+      <div class="scen-head" id="scenHead"></div>
+    </div>
+  </section>
+
+  <!-- ============ pipeline ============ -->
+  <section class="panel">
+    <h2>Pipeline <span class="sub" id="flowSub">where the data comes from, and where it goes</span></h2>
+    <div class="flowwrap" id="flow"></div>
+  </section>
+
+  <div class="row c2">
+    <!-- intake channels -->
+    <section class="panel">
+      <h2>Intake channels <span class="sub" id="chanSub"></span></h2>
+      <div class="body" id="channels"><div class="empty-note">—</div></div>
+    </section>
+
+    <!-- book state -->
+    <section class="panel">
+      <h2>Seeded book <span class="sub" id="bookSub"></span></h2>
+      <div id="bookWarn"></div>
+      <div class="stats" id="bookStats"></div>
+      <div class="body" id="artifacts"></div>
+    </section>
+  </div>
+
+  <!-- ============ batch builder ============ -->
+  <section class="panel">
+    <h2>Batch builder <span class="sub">mint a fresh set of invoices and fan it across the channels</span></h2>
+    <div class="body">
+      <div class="bb" id="bb"></div>
+    </div>
+    <div class="body" id="clockRow" style="border-top:1px solid var(--rule)"></div>
+    <div class="jobbar" id="bbBar" hidden></div>
+    <pre class="out" id="bbOut" hidden></pre>
+  </section>
+
+  <!-- ============ injector ============ -->
+  <section class="panel">
+    <h2>Manual injector <span class="sub">drop one document, post one receipt, run it by hand</span></h2>
+    <div class="body">
+      <div class="bb" id="inj"></div>
+    </div>
+    <div class="body" style="border-top:1px solid var(--rule)">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px">
+        <b style="font-size:12px;color:var(--ink-2)">Awaiting a goods receipt — what should be parked right now</b>
+        <button class="mini" id="awRefresh">Refresh</button>
+      </div>
+      <div id="awaiting"></div>
+    </div>
+    <div class="jobbar" id="injBar" hidden></div>
+    <pre class="out" id="injOut" hidden></pre>
+  </section>
+
+  <!-- ============ actions ============ -->
+  <section class="panel">
+    <h2>Actions <span class="sub">output is the evidence — the reply is not</span></h2>
+    <div class="body"><div class="acts-grid" id="actions"></div></div>
+    <div class="jobbar" id="actBar" hidden></div>
+    <pre class="out" id="actOut" hidden></pre>
+  </section>
+
+  <!-- ============ explorer ============ -->
+  <section class="panel">
+    <h2>Data explorer <span class="sub" id="expSub"></span></h2>
+    <div class="body"><div class="seg" id="expTabs"></div></div>
+    <div class="tblwrap" id="expTable"></div>
+  </section>
+
+  <!-- ============ activity ============ -->
+  <section class="panel">
+    <h2>Activity</h2>
+    <div class="tblwrap" style="max-height:240px" id="activity"></div>
+  </section>
+
+</main>
+
+<dialog id="docDlg">
+  <div class="dh"><b id="docTitle"></b><button class="mini" onclick="docDlg.close()">Close</button></div>
+  <pre id="docBody"></pre>
+</dialog>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt = (n) => (n === null || n === undefined) ? "" : Number(n).toLocaleString(undefined,{maximumFractionDigits:2});
+
+let CFG = null, CUR = null, POLL = null, _SRC = [], _CH = null;
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok && r.status !== 500) throw new Error(r.status);
+  return r.json();
+}
+
+// ---------------- boot ----------------
+(async function boot(){
+  CFG = await api("/api/config");
+  CUR = CFG.scenarios.find(s => s.status === "built") || CFG.scenarios[0];
+  renderPills();
+  renderScenario();
+  await Promise.all([loadSources(), loadChannels(), loadActivity()]);
+  setInterval(loadSources, 20000);
+  setInterval(loadActivity, 8000);
+  $("#refresh").onclick = () => { loadSources(); loadChannels(); loadActivity(); loadAwaiting(); };
+  $("#awRefresh").onclick = () => loadAwaiting();
+})();
+
+function renderPills(){
+  $("#pills").innerHTML = CFG.scenarios.map(s => `
+    <button class="pill ${s.status}" role="tab" data-id="${s.id}"
+            aria-selected="${s.id === CUR.id}">
+      <span class="dot"></span>${esc(s.name)}
+    </button>`).join("");
+  $("#pills").querySelectorAll(".pill").forEach(b => b.onclick = () => {
+    CUR = CFG.scenarios.find(s => s.id === b.dataset.id);
+    renderPills(); renderScenario(); loadChannels();
+  });
+}
+
+// ---------------- sources ----------------
+async function loadSources(){
+  try {
+    const d = await api("/api/sources");
+    _SRC = d.sources;
+    // The flow reads live ERPDB metrics from _SRC; redraw once they arrive so
+    // it never renders em-dashes just because sources resolved second.
+    if (_CH) renderFlow(_CH);
+    const groups = {};
+    d.sources.forEach(s => (groups[s.group] ||= []).push(s));
+    $("#sources").innerHTML = Object.entries(groups).map(([g, list]) => `
+      <div class="grp-label">${esc(g)}</div>
+      <div class="tiles">${list.map(tile).join("")}</div>`).join("");
+    $("#sources").querySelectorAll("[data-start]").forEach(b => b.onclick = async () => {
+      b.disabled = true; b.textContent = "starting…";
+      const r = await api(`/api/source/${b.dataset.start}/start`, {method:"POST"});
+      if (r.error) { b.textContent = "failed"; b.title = r.error; alert(r.error); return; }
+      // Node and Python servers take a few seconds to bind; re-check a few times.
+      [3000, 7000, 12000].forEach(ms => setTimeout(loadSources, ms));
+    });
+    const down = d.sources.filter(s => s.state === "down").length;
+    $("#srcSummary").textContent = down
+      ? `${down} of ${d.sources.length} unreachable`
+      : `all ${d.sources.length} reachable`;
+    $("#live").classList.toggle("stale", down > 0);
+    $("#liveTxt").textContent = d.checked.slice(11);
+  } catch(e) {
+    $("#live").classList.add("stale"); $("#liveTxt").textContent = "offline";
+  }
+}
+
+function tile(s){
+  const metrics = (s.metrics || []).map(m =>
+    `<span>${esc(m.label)} <b>${m.value === null ? "—" : fmt(m.value)}</b></span>`).join("");
+  const acts = [
+    s.open ? `<a class="mini" href="${esc(s.open)}" target="_blank" rel="noopener">Open</a>` : "",
+    (s.state === "down" && s.can_start) ? `<button class="mini" data-start="${esc(s.id)}">Start</button>` : "",
+  ].filter(Boolean).join("");
+  return `<div class="tile ${s.state}">
+    <div class="t1"><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.state)}</span></div>
+    <div class="dt">${esc(s.detail || "")} · ${esc(s.note || "")}</div>
+    ${metrics ? `<div class="metrics">${metrics}</div>` : ""}
+    ${acts ? `<div class="acts">${acts}</div>` : ""}
+  </div>`;
+}
+
+// ---------------- scenario ----------------
+function renderScenario(){
+  const s = CUR;
+  $("#scenHead").innerHTML = `
+    <div>
+      <h1>${esc(s.name)}</h1>
+      <div class="meta">${esc(s.role)}</div>
+      <p>${esc(s.blurb)}</p>
+      <div class="tags">
+        <span class="tag ${s.status}">${esc(s.status)}</span>
+        ${(s.verticals||[]).map(v => `<span class="tag">${esc(v)}</span>`).join("")}
+      </div>
+      <div class="doclinks">${(s.docs||[]).map(d =>
+        `<button class="mini" data-doc="${esc(d.path)}">${esc(d.label)}</button>`).join("")}</div>
+    </div>
+    <div class="mono" style="font-size:11px;color:var(--ink-3);text-align:right">
+      ${esc(s.pack || "not built")}
+    </div>`;
+  $("#scenHead").querySelectorAll("[data-doc]").forEach(b => b.onclick = () => openDoc(b.dataset.doc));
+  renderBatchBuilder();
+  renderInjector();
+  renderActions();
+  renderExplorerTabs();
+}
+
+async function openDoc(path){
+  const d = await api(`/api/scenario/${CUR.id}/doc?path=${encodeURIComponent(path)}`);
+  $("#docTitle").textContent = path;
+  $("#docBody").textContent = d.text || d.error || "";
+  $("#docDlg").showModal();
+}
+
+// ---------------- channels + book ----------------
+async function loadChannels(){
+  if (!CUR.pack) {
+    $("#channels").innerHTML = `<div class="empty-note">Not built yet.</div>`;
+    _CH = null;
+    renderFlow({channels: [], artifacts: [], manifest: null});
+    $("#bookStats").innerHTML = ""; $("#artifacts").innerHTML = "";
+    $("#chanSub").textContent = ""; $("#bookSub").textContent = ""; $("#bookWarn").innerHTML = "";
+    return;
+  }
+  const d = await api(`/api/scenario/${CUR.id}/channels`);
+  _CH = d;
+  $("#channels").innerHTML = d.channels.length
+    ? `<div class="chans">${d.channels.map(c => `
+        <div class="chan ${c.state}">
+          <div class="cn"><i></i>${esc(c.name)}</div>
+          <div class="cv">${fmt(c.count)}</div>
+          <div class="cd">${esc(c.detail || "")}${c.extra ? ` · +${c.extra} manifest` : ""}</div>
+          <div class="cd">${c.newest ? "newest " + esc(c.newest) : "&nbsp;"}</div>
+          <div class="cp mono">${esc(c.path || "")}</div>
+        </div>`).join("")}</div>`
+    : `<div class="empty-note">No intake channels defined.</div>`;
+  const tot = d.channels.reduce((a,c) => a + (c.count||0), 0);
+  $("#chanSub").textContent = tot ? `${fmt(tot)} documents waiting` : "empty";
+
+  const m = d.manifest;
+  renderClock(m);
+  if (m) {
+    const b = m.book || {};
+    $("#bookSub").textContent = `anchor ${m.anchor} · seed ${m.seed ?? "default"} · scale ${m.scale ?? 1}`
+      + ` · run day ${m.day ?? 0}`;
+    $("#bookWarn").innerHTML = (m.age_days > 0)
+      ? `<div class="warnline">Seeded ${m.age_days} day(s) ago — aging and discount answers drift. Build a new batch for a clean run.</div>` : "";
+    $("#bookStats").innerHTML = [
+      ["vendors", b.vendors, ""], ["purchase orders", b.purchase_orders, ""],
+      ["goods receipts", b.goods_receipts, ""], ["batch docs", b.batch_documents, ""],
+      ["exceptions", b.exceptions, "ex"], ["parked now", b.parked_now, "dec"],
+      ["auto-cleared", b.parked_auto_cleared, "ok"],
+      ["decoys", b.decoys, "dec"], ["clean", b.clean, "ok"],
+      ["batch value", b.batch_total_value ? "$" + fmt(b.batch_total_value) : null, ""],
+      ["blocked value", b.blocked_invoice_value ? "$" + fmt(b.blocked_invoice_value) : null, ""],
+    ].filter(([,v]) => v !== undefined && v !== null)
+     .map(([l,v,c]) => `<div class="stat ${c}"><span class="sv">${typeof v === "number" ? fmt(v) : esc(v)}</span><span class="sl">${esc(l)}</span></div>`).join("");
+  } else {
+    $("#bookSub").textContent = "not seeded";
+    $("#bookWarn").innerHTML = `<div class="warnline">No SEED_MANIFEST.json — build a batch to seed the book.</div>`;
+    $("#bookStats").innerHTML = "";
+  }
+  renderFlow(d);
+  $("#artifacts").innerHTML = d.artifacts.length
+    ? `<div class="chans">${d.artifacts.map(a => `
+        <div class="chan ${a.state}">
+          <div class="cn"><i></i>${esc(a.name)}</div>
+          <div class="cv">${fmt(a.count)}</div>
+          <div class="cp mono">${esc(a.path || "")}</div>
+        </div>`).join("")}</div>` : "";
+}
+
+// ---------------- pipeline flow ----------------
+// Drawn from live data, not a picture: every count here is what is actually on
+// disk or in the database right now. Built from the scenario's own channel list,
+// so it adapts to a scenario with one channel or five.
+function renderFlow(d){
+  const wrap = $("#flow");
+  if (!CUR.pack) {
+    wrap.innerHTML = `<div class="empty-note">Not built yet — nothing flowing.</div>`;
+    $("#flowSub").textContent = ""; return;
+  }
+  const chans = d.channels || [];
+  const b = (d.manifest && d.manifest.book) || {};
+  const erp = (_SRC.find(s => s.id === "db-erpdb") || {});
+
+  const W = 1180, TOP = 108, CH_H = 64, CH_GAP = 18;
+  const chTotal = chans.length ? chans.length * CH_H + (chans.length - 1) * CH_GAP : 120;
+  const autoH = Math.max(chTotal, 168);
+  const chStart = TOP + (autoH - chTotal) / 2;
+  const H = TOP + autoH + 26;
+
+  const T = (x, y, cls, txt, anchor) =>
+    `<text x="${x}" y="${y}" class="${cls}"${anchor ? ` text-anchor="${anchor}"` : ""}>${esc(txt)}</text>`;
+  const R = (x, y, w, h, cls) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3" class="${cls}"/>`;
+  const A = (pts, cls) => `<polyline points="${pts}" class="${cls || "fl-line"}" marker-end="url(#flowArrow)"/>`;
+
+  // --- the book -----------------------------------------------------------
+  const seed = (d.manifest && d.manifest.seed) || "default";
+  const anchor = (d.manifest && d.manifest.anchor) || "not seeded";
+  let s = `<g class="node"><title>ap_book.py — the single source of truth. Seeding, the documents and the answer key all derive from it.</title>
+    ${R(14, TOP + 24, 152, 96, "fl-key")}
+    ${T(26, TOP + 46, "fl-t", "THE BOOK")}
+    ${T(26, TOP + 62, "fl-m", "ap_book.py")}
+    ${T(26, TOP + 84, "fl-s", "seed " + seed)}
+    ${T(26, TOP + 100, "fl-s", "anchor " + anchor)}
+    ${T(26, TOP + 114, "fl-m", "scale " + ((d.manifest && d.manifest.scale) || 1))}</g>`;
+
+  // --- ERP lane -----------------------------------------------------------
+  const erpM = (label) => {
+    const m = (erp.metrics || []).find(x => (x.label || "").toLowerCase().includes(label));
+    return m && m.value !== null ? fmt(m.value) : "—";
+  };
+  s += `<g class="node"><title>ERPDB, CG* namespace — what the invoices must be matched against.</title>
+    ${R(296, 10, 210, 80, "fl-store" + (erp.state === "up" ? " fl-up" : " fl-down"))}
+    ${T(308, 32, "fl-t", "ERPDB · CG*")}
+    ${T(308, 50, "fl-m", erpM("vendors") + " vendors · " + erpM("purchase") + " POs")}
+    ${T(308, 66, "fl-m", erpM("receipts") + " goods receipts")}
+    ${T(308, 82, "fl-m", "EKKO · EKPO · EKBE · LFA1 · T052")}</g>`;
+  s += A(`166,${TOP + 52} 240,${TOP + 52} 240,50 292,50`, "fl-line-k");
+  s += T(248, 40, "fl-lab", "seeds");
+
+  // --- documents ----------------------------------------------------------
+  const nInv = (d.artifacts.find(a => a.id === "invoices") || {}).count;
+  s += `<g class="node"><title>Rendered from the book — the invoice a vendor "sent" and the PO it must match cannot disagree.</title>
+    ${R(296, TOP + 30, 210, 84, "fl-box")}
+    ${T(308, TOP + 52, "fl-t", "DOCUMENTS")}
+    ${T(308, TOP + 72, "fl-s", (nInv !== undefined ? fmt(nInv) : "—") + " invoice PDFs")}
+    ${T(308, TOP + 88, "fl-m", "+ packing slips, statements")}
+    ${T(308, TOP + 104, "fl-m", "+ AP policy manual")}</g>`;
+  s += A(`166,${TOP + 92} 240,${TOP + 92} 240,${TOP + 72} 292,${TOP + 72}`, "fl-line-k");
+  s += T(246, TOP + 112, "fl-lab", "renders");
+
+  // --- channels -----------------------------------------------------------
+  const CX = 560, CW = 190;
+  const byCh = b.by_channel || {};
+  chans.forEach((c, i) => {
+    const y = chStart + i * (CH_H + CH_GAP);
+    // Three different things can be "the count", so be explicit about which:
+    //   a real mailbox  -> how many the agent has RECEIVED, of how many are due
+    //   a folder of .eml -> files, which is not the same as invoices
+    //   everything else  -> invoices on disk
+    const inv = byCh[c.id];
+    const mailbox = c.kind === "agent_email";
+    const big = mailbox ? c.count : (inv !== undefined ? inv : c.count);
+    let note;
+    if (mailbox) {
+      note = `${fmt(c.count)} received of ${fmt(inv !== undefined ? inv : "?")} due`;
+    } else if (inv !== undefined && inv !== c.count) {
+      note = `${fmt(c.count)} files carrying ${fmt(inv)}`;
+    } else {
+      note = (c.detail || "").slice(0, 30);
+    }
+    const tip = mailbox
+      ? `${c.mailbox || "no mailbox set up"}${c.cooldown_warning ? "\ncooldown is non-zero — the batch will drain slowly" : ""}`
+      : `${c.path || ""}`;
+    s += `<g class="node"><title>${esc(tip)}${c.newest ? "\nnewest " + c.newest : ""}</title>
+      ${R(CX, y, CW, CH_H, "fl-box fl-" + c.state)}
+      ${T(CX + 12, y + 22, "fl-t", c.name)}
+      ${T(CX + CW - 12, y + 30, "fl-big", fmt(big), "end")}
+      ${T(CX + 12, y + 40, "fl-m", note)}
+      ${T(CX + 12, y + 55, "fl-m", c.newest ? "newest " + c.newest.slice(11) : "empty")}</g>`;
+    s += A(`506,${TOP + 72} 530,${TOP + 72} 530,${y + CH_H / 2} ${CX - 4},${y + CH_H / 2}`);
+  });
+  s += T(CX, chStart - 12, "fl-band", "INTAKE CHANNELS — MULTI-SOURCE ON PURPOSE");
+
+  // --- converge + the process --------------------------------------------
+  const AX = 812, AW = 196, ACY = TOP + autoH / 2;
+  if (chans.length) {
+    const first = chStart + CH_H / 2;
+    const last = chStart + (chans.length - 1) * (CH_H + CH_GAP) + CH_H / 2;
+    chans.forEach((c, i) => {
+      const y = chStart + i * (CH_H + CH_GAP) + CH_H / 2;
+      s += `<line x1="${CX + CW}" y1="${y}" x2="778" y2="${y}" class="fl-line"/>`;
+    });
+    s += `<line x1="778" y1="${first}" x2="778" y2="${last}" class="fl-line"/>`;
+    s += A(`778,${ACY} ${AX - 4},${ACY}`);
+  }
+  s += `<g class="node"><title>The process the developer builds in Track A.</title>
+    ${R(AX, TOP, AW, autoH, "fl-proc")}
+    ${T(AX + 12, TOP + 20, "fl-t", "THE PROCESS")}
+    ${T(AX + 12, TOP + 35, "fl-m", "built in Track A")}`;
+  ["1 · Ingest", "2 · Extract", "3 · Three-way match", "4 · Classify"].forEach((lab, i) => {
+    const y = TOP + 46 + i * ((autoH - 56) / 4);
+    s += R(AX + 10, y, AW - 20, (autoH - 56) / 4 - 6, "fl-step") + T(AX + 20, y + 18, "fl-s", lab);
+  });
+  s += `</g>`;
+  s += A(`916,90 916,${TOP - 4}`, "fl-line");
+  s += T(924, TOP - 14, "fl-lab", "PO · receipt · terms");
+
+  // --- outcome ------------------------------------------------------------
+  const OX = 1024, OW = 142, OH = 44, OG = 12;
+  const outs = (b.exceptions !== undefined)
+    ? [["exceptions", b.exceptions, "ex"],
+       ["parked", b.parked_now, "dec"],
+       ["cleared", b.parked_auto_cleared, "ok"],
+       ["clean + decoys", (b.clean || 0) + (b.decoys || 0), "ok"]]
+    : [["documents", b.batch_documents, ""]];
+  const oTotal = outs.length * OH + (outs.length - 1) * OG;
+  const oStart = TOP + (autoH - oTotal) / 2;
+  outs.forEach(([lab, val, cls], i) => {
+    const y = oStart + i * (OH + OG);
+    s += R(OX, y, OW, OH, "fl-box") +
+      T(OX + 12, y + 30, "fl-big " + cls, val === undefined ? "—" : fmt(val)) +
+      T(OX + OW - 12, y + 29, "fl-m", lab, "end");
+    s += A(`${AX + AW},${y + OH / 2} ${OX - 4},${y + OH / 2}`);
+  });
+  s += T(OX, oStart - 12, "fl-band", "EXPECTED OUTCOME");
+
+  wrap.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="Pipeline: the book seeds ERPDB and renders the documents; documents fan out across ${chans.length} intake channels into the process, which matches against ERPDB and produces the expected outcome.">
+    <defs><marker id="flowArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-3)"/></marker></defs>
+    ${T(14, 22, "fl-band", "SOURCE OF TRUTH → ERP + DOCUMENTS → CHANNELS → PROCESS → OUTCOME")}
+    ${s}</svg>`;
+
+  const tot = chans.reduce((a, c) => a + (byCh[c.id] !== undefined ? byCh[c.id] : (c.count || 0)), 0);
+  const mail = chans.find(c => c.kind === "agent_email");
+  $("#flowSub").textContent = `${fmt(tot)} invoices on ${chans.length} channel${chans.length === 1 ? "" : "s"}`
+    + (b.batch_total_value ? ` · $${fmt(b.batch_total_value)} in flight` : "")
+    + (mail ? ` · mailbox ${fmt(mail.count)}/${fmt(byCh.email ?? 0)}` : "")
+    + (d.manifest ? ` · run day ${d.manifest.day ?? 0}` : "");
+}
+
+// ---------------- batch builder ----------------
+function renderBatchBuilder(){
+  const bb = CUR.batch_builder || {};
+  if (!bb.enabled) {
+    $("#bb").innerHTML = `<div class="empty-note" style="padding:0">${esc(bb.note || "No batch builder for this scenario.")}</div>`;
+    return;
+  }
+  const today = new Date().toISOString().slice(0,10);
+  $("#bb").innerHTML = `
+    <div class="fld"><label>Anchor date</label><input type="date" id="bbAnchor" value="${today}"></div>
+    <div class="fld"><label>Seed</label><input type="text" id="bbSeed" value="random" size="10"></div>
+    <div class="fld"><label>Scale</label>
+      <select id="bbScale">
+        <option value="1">1 — 240 documents</option>
+        <option value="2">2 — 480 documents</option>
+        <option value="4">4 — 960 documents</option>
+        <option value="8">8 — 1,920 documents (stress)</option>
+      </select></div>
+    <button class="btn" id="bbGo">Build a new batch</button>
+    <button class="btn quiet" id="bbSame">Re-render current batch</button>
+    <div style="font-size:11.5px;color:var(--ink-3);max-width:34ch">
+      Re-seeds the ERP book, renders every document, and distributes across all three channels.
+    </div>`;
+  $("#bbGo").onclick = () => runBatch(false);
+  $("#bbSame").onclick = () => runBatch(true);
+}
+
+async function runBatch(same){
+  const body = {
+    anchor: $("#bbAnchor").value,
+    scale: $("#bbScale").value,
+    seed: same ? (window.__lastSeed || "") : $("#bbSeed").value.trim(),
+  };
+  $("#bbGo").disabled = $("#bbSame").disabled = true;
+  const r = await api(`/api/scenario/${CUR.id}/batch`,
+    {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
+  window.__lastSeed = r.seed;
+  $("#bbSeed").value = r.seed;
+  watchJob(r.job, "#bbBar", "#bbOut", () => {
+    $("#bbGo").disabled = $("#bbSame").disabled = false;
+    loadChannels(); loadSources();
+  });
+}
+
+// ---------------- the clock ----------------
+function renderClock(m){
+  const c = CUR.clock || {};
+  const row = $("#clockRow");
+  if (!c.enabled) { row.innerHTML = ""; return; }
+  if (!m) {
+    row.innerHTML = `<div class="empty-note" style="padding:0">Build a batch first, then the clock can move.</div>`;
+    return;
+  }
+  const day = Number(m.day || 0);
+  const max = Number(c.max_day || 3);
+  const b = m.book || {};
+  row.innerHTML = `
+    <div class="bb">
+      <div class="fld"><label>Run day</label>
+        <div style="display:flex;gap:4px">${
+          Array.from({length: max + 1}, (_, d) => `<button class="mini" data-day="${d}"
+            style="${d === day ? 'border-color:var(--accent);color:var(--accent);font-weight:600' : ''}"
+            ${d === day ? 'disabled' : ''}>${d}</button>`).join("")}</div></div>
+      <button class="btn ghost" id="advGo" ${day >= max ? "disabled" : ""}>
+        Advance to day ${Math.min(day + 1, max)}</button>
+      <div class="stats" style="flex:1 1 320px;border:1px solid var(--rule)">
+        <div class="stat"><span class="sv">${fmt(b.documents_arrived)}</span><span class="sl">arrived</span></div>
+        <div class="stat dec"><span class="sv">${fmt(b.parked_now)}</span><span class="sl">parked now</span></div>
+        <div class="stat ok"><span class="sv">${fmt(b.parked_auto_cleared)}</span><span class="sl">auto-cleared</span></div>
+        <div class="stat"><span class="sv">${fmt(b.grace_days)}d</span><span class="sl">grace window</span></div>
+      </div>
+      <div style="font-size:11.5px;color:var(--ink-3);max-width:34ch">${esc(c.note || "")}</div>
+    </div>`;
+  const go = async (d) => {
+    row.querySelectorAll("button").forEach(x => x.disabled = true);
+    const r = await api(`/api/scenario/${CUR.id}/advance`,
+      {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({day: d})});
+    if (r.error) { alert(r.error); loadChannels(); return; }
+    watchJob(r.job, "#bbBar", "#bbOut", () => { loadChannels(); loadAwaiting(); });
+  };
+  $("#advGo").onclick = () => go(day + 1);
+  row.querySelectorAll("[data-day]").forEach(btn =>
+    btn.onclick = () => go(Number(btn.dataset.day)));
+}
+
+// ---------------- manual injector ----------------
+function renderInjector(){
+  const inj = CUR.injector || {};
+  if (!inj.enabled) {
+    $("#inj").innerHTML = `<div class="empty-note" style="padding:0">No injector for this scenario.</div>`;
+    $("#awaiting").innerHTML = ""; return;
+  }
+  const run = CUR.run_now || {};
+  $("#inj").innerHTML = `
+    <div class="fld"><label>What to send</label>
+      <select id="injKind">${inj.kinds.map(k =>
+        `<option value="${esc(k.id)}">${esc(k.label)}</option>`).join("")}</select></div>
+    <div class="fld"><label>Which source</label>
+      <select id="injChannel">${inj.channels.map(c =>
+        `<option value="${esc(c)}">${esc(c)}</option>`).join("")}</select></div>
+    <div class="fld"><label>Vendor</label>
+      <select id="injVendor"><option value="">(any)</option>${inj.vendors.map(v =>
+        `<option value="${esc(v)}">${esc(v)}</option>`).join("")}</select></div>
+    <button class="btn" id="injGo">Inject one</button>
+    ${run.enabled ? `<button class="btn ghost" id="runNow">Run the process now</button>` : ""}
+    <div style="font-size:11.5px;color:var(--ink-3);max-width:32ch">
+      Send one document, then run the process and watch what it does with it.
+    </div>`;
+  $("#injGo").onclick = async () => {
+    $("#injGo").disabled = true;
+    const r = await api(`/api/scenario/${CUR.id}/inject`, {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({kind: $("#injKind").value, channel: $("#injChannel").value,
+                            vendor: $("#injVendor").value || null})});
+    $("#injGo").disabled = false;
+    showInj(r.error ? {error:r.error} : r.item, r.error ? "failed" : "done");
+    loadChannels(); loadAwaiting(); loadActivity();
+  };
+  if (run.enabled) $("#runNow").onclick = async () => {
+    const b = $("#runNow"); b.disabled = true; b.textContent = "running…";
+    showInj({status:"The Agent is running the process — this can take a few minutes."}, "running");
+    const r = await api(`/api/scenario/${CUR.id}/run-now`, {method:"POST",
+      headers:{"Content-Type":"application/json"}, body: "{}"});
+    b.disabled = false; b.textContent = "Run the process now";
+    showInj(r.error ? {error:r.error} : (r.result || r), r.ok === false ? "failed" : "done");
+    loadChannels(); loadAwaiting(); loadActivity();
+  };
+  loadAwaiting();
+}
+
+function showInj(obj, status){
+  $("#injBar").hidden = $("#injOut").hidden = false;
+  $("#injBar").innerHTML = `<span class="badge ${status}">${status}</span>`;
+  $("#injOut").textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
+}
+
+async function loadAwaiting(){
+  if (!(CUR.injector || {}).enabled) return;
+  const d = await api(`/api/scenario/${CUR.id}/awaiting`);
+  const rows = d.open_pos || [];
+  $("#awaiting").innerHTML = rows.length ? `<table><thead><tr>
+      <th>PO</th><th>Vendor</th><th>Due</th><th class="num">Value</th><th>State</th><th></th>
+    </tr></thead><tbody>${rows.map(r => {
+      const late = String(r.state || "").includes("PAST");
+      return `<tr>
+        <td class="mono">${esc(r.po)}</td><td class="mono">${esc(r.vendor)}</td>
+        <td class="mono">${esc(r.due || "")}</td><td class="num">${fmt(r.value)}</td>
+        <td><span class="kchip ${late ? "exception" : "decoy"}">${esc(r.state)}</span></td>
+        <td><button class="mini" data-po="${esc(r.po)}">Post receipt</button></td></tr>`;
+    }).join("")}</tbody></table>`
+    : `<div class="empty-note" style="padding:0">Nothing is waiting on a receipt.</div>`;
+  $("#awaiting").querySelectorAll("[data-po]").forEach(b => b.onclick = async () => {
+    b.disabled = true; b.textContent = "posting…";
+    const r = await api(`/api/scenario/${CUR.id}/receipt`, {method:"POST",
+      headers:{"Content-Type":"application/json"}, body: JSON.stringify({po: b.dataset.po})});
+    showInj(r.error ? {error:r.error} : r.item, r.error ? "failed" : "done");
+    loadAwaiting(); loadActivity();
+  });
+}
+
+// ---------------- actions ----------------
+function renderActions(){
+  const acts = CUR.actions || [];
+  $("#actions").innerHTML = acts.length
+    ? acts.map(a => `<button class="btn ${a.tone === "danger" ? "danger" : a.tone === "action" ? "ghost" : "quiet"}"
+        data-act="${esc(a.id)}" ${a.confirm ? 'data-confirm="1"' : ""}>${esc(a.label)}</button>`).join("")
+    : `<div class="empty-note" style="padding:0">Nothing built yet.</div>`;
+  $("#actions").querySelectorAll("[data-act]").forEach(b => b.onclick = async () => {
+    const a = acts.find(x => x.id === b.dataset.act);
+    if (b.dataset.confirm && !confirm(`${a.label}\n\nThis changes seeded data. Continue?`)) return;
+    $("#actions").querySelectorAll("button").forEach(x => x.disabled = true);
+    const r = await api(`/api/scenario/${CUR.id}/action/${a.id}`, {method:"POST"});
+    watchJob(r.job, "#actBar", "#actOut", () => {
+      $("#actions").querySelectorAll("button").forEach(x => x.disabled = false);
+      loadChannels();
+    });
+  });
+}
+
+// ---------------- job polling ----------------
+function watchJob(jobId, barSel, outSel, done){
+  const bar = $(barSel), out = $(outSel);
+  bar.hidden = out.hidden = false;
+  const flow = $("#flow");
+  const tick = async () => {
+    const j = await api(`/api/job/${jobId}`);
+    bar.innerHTML = `<span class="badge ${j.status}">${j.status}</span>
+      <b>${esc(j.label)}</b>
+      <span class="mono" style="color:var(--ink-3);font-size:11px">${esc(j.created)}${j.ended ? " → " + esc(j.ended) : ""}</span>`;
+    out.textContent = j.output || "…";
+    out.scrollTop = out.scrollHeight;
+    const busy = j.status === "running" || j.status === "queued";
+    flow.classList.toggle("flowing", busy);
+    if (busy) setTimeout(tick, 1200);
+    else { loadActivity(); done && done(); }
+  };
+  tick();
+}
+
+// ---------------- explorer ----------------
+function renderExplorerTabs(){
+  const views = CUR.explorer || [];
+  $("#expTabs").innerHTML = views.map((v,i) =>
+    `<button data-v="${esc(v.id)}" aria-selected="${i===0}">${esc(v.label)}</button>`).join("")
+    || `<span class="empty-note" style="padding:0">Nothing to explore yet.</span>`;
+  $("#expTabs").querySelectorAll("[data-v]").forEach(b => b.onclick = () => {
+    $("#expTabs").querySelectorAll("button").forEach(x => x.setAttribute("aria-selected", x === b));
+    loadExplore(b.dataset.v);
+  });
+  $("#expTable").innerHTML = "";
+  $("#expSub").textContent = "";
+  if (views.length) loadExplore(views[0].id);
+}
+
+async function loadExplore(vid){
+  $("#expTable").innerHTML = `<div class="empty-note">Loading…</div>`;
+  const d = await api(`/api/scenario/${CUR.id}/explore/${vid}`);
+  if (d.error) { $("#expTable").innerHTML = `<div class="empty-note">${esc(d.error)}</div>`; return; }
+  const kindIdx = d.columns.indexOf("Kind");
+  $("#expSub").textContent = `${fmt(d.count)} row${d.count === 1 ? "" : "s"}`;
+  $("#expTable").innerHTML = `<table><thead><tr>${
+    d.columns.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>${
+    d.rows.map(r => `<tr>${r.map((v,i) => {
+      if (i === kindIdx && v) return `<td><span class="kchip ${esc(v)}">${esc(v)}</span></td>`;
+      const num = typeof v === "number";
+      return `<td class="${num ? "num" : (/^[A-Z0-9\-_.]+$/.test(String(v ?? "")) ? "mono" : "")}">${
+        num ? fmt(v) : esc(v)}</td>`;
+    }).join("")}</tr>`).join("")}</tbody></table>`;
+}
+
+// ---------------- activity ----------------
+async function loadActivity(){
+  const d = await api("/api/activity");
+  $("#activity").innerHTML = d.activity.length ? `<table><tbody>${d.activity.map(a => `
+    <tr><td class="mono" style="width:150px;color:var(--ink-3)">${esc(a.ts)}</td>
+        <td style="width:70px"><span class="badge ${a.kind === "ok" ? "done" : a.kind === "fail" ? "failed" : "running"}">${esc(a.kind)}</span></td>
+        <td>${esc(a.text)}</td></tr>`).join("")}</tbody></table>`
+    : `<div class="empty-note">Nothing yet.</div>`;
+}
+</script>
+</body>
+</html>

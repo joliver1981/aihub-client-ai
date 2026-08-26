@@ -2,11 +2,139 @@
   "users": {
     "13": {
       "workflows": {
-        "recorded_workflow": {
-          "name": "Recorded workflow",
+        "nodereg_portal_probe": {
+          "name": "NODEREG-portal-probe",
+          "portal_slug": null,
+          "start_url": "http://localhost:5001/login",
+          "goal": "Open the AI Hub login page (deterministic regression probe)",
+          "agent_oversight": true,
+          "takeover_timeout": null,
+          "steps": [
+            {
+              "type": "goto",
+              "url": "http://localhost:5001/login"
+            }
+          ],
+          "created_at": "2026-07-30T23:34:13+00:00",
+          "updated_at": "2026-08-19T22:47:53+00:00",
+          "success_count": 25,
+          "last_run_status": "ok"
+        },
+        "vendor_invoice_download_2fa": {
+          "name": "Vendor Invoice Download - 2FA",
+          "portal_slug": "meridian_vendor_portal",
+          "start_url": "http://localhost:3000/login",
+          "goal": "Log in to the Meridian vendor portal (including the two-factor verification code), open Documents, and download the latest invoice.",
+          "agent_oversight": true,
+          "takeover_timeout": null,
+          "steps": [
+            {
+              "type": "goto",
+              "url": "http://localhost:3000/login"
+            },
+            {
+              "type": "login",
+              "username_anchor": {
+                "text": "Username",
+                "css": "#username"
+              },
+              "password_anchor": {
+                "text": "Password",
+                "css": "#password"
+              },
+              "submit_anchor": {
+                "role": "button",
+                "text": "Sign in",
+                "css": "#signin"
+              }
+            },
+            {
+              "type": "verify_code",
+              "reason": "Enter the 2FA verification code from the authenticator",
+              "timeout": 180
+            },
+            {
+              "type": "goto",
+              "url": "http://localhost:3000/documents"
+            },
+            {
+              "type": "click",
+              "anchor": {
+                "role": "link",
+                "text": "Download",
+                "css": "#dl-latest"
+              }
+            },
+            {
+              "type": "wait",
+              "timeout": 4
+            }
+          ],
+          "created_at": "2026-07-31T22:28:51+00:00",
+          "updated_at": "2026-08-23T01:59:05+00:00",
+          "success_count": 33,
+          "last_run_status": "ok"
+        },
+        "vendor_invoice_download_manual_2fa": {
+          "name": "Vendor Invoice Download - Manual 2FA",
+          "portal_slug": "meridian_portal_manual",
+          "start_url": "http://localhost:3000/login",
+          "goal": "Log in (manual 2FA takeover) and download the latest invoice.",
+          "agent_oversight": false,
+          "takeover_timeout": 300,
+          "steps": [
+            {
+              "type": "goto",
+              "url": "http://localhost:3000/login"
+            },
+            {
+              "type": "login",
+              "username_anchor": {
+                "text": "Username",
+                "css": "#username"
+              },
+              "password_anchor": {
+                "text": "Password",
+                "css": "#password"
+              },
+              "submit_anchor": {
+                "role": "button",
+                "text": "Sign in",
+                "css": "#signin"
+              }
+            },
+            {
+              "type": "verify_code",
+              "reason": "Enter the 2FA code from your authenticator",
+              "timeout": 300
+            },
+            {
+              "type": "goto",
+              "url": "http://localhost:3000/documents"
+            },
+            {
+              "type": "click",
+              "anchor": {
+                "role": "link",
+                "text": "Download",
+                "css": "#dl-latest"
+              }
+            },
+            {
+              "type": "wait",
+              "timeout": 3
+            }
+          ],
+          "created_at": "2026-08-01T01:02:06+00:00",
+          "updated_at": "2026-08-01T13:45:30+00:00",
+          "success_count": 1,
+          "last_run_status": "ok"
+        },
+        "master_price_list_download": {
+          "name": "Master Price List Download",
           "portal_slug": null,
           "start_url": "http://localhost:3000/login-2fa",
-          "goal": "Log in and download the master price list file.",
+          "goal": "Download the master price list",
           "agent_oversight": true,
           "takeover_timeout": null,
           "steps": [
@@ -63,11 +191,88 @@
               }
             },
             {
+              "type": "goto",
+              "url": "http://localhost:3000/downloads"
+            },
+            {
               "type": "click",
               "anchor": {
+                "role": "link",
+                "text": "\u2b07 Download",
+                "xpath": "html/body/main/div[2]/div[3]/div[3]/a[1]"
+              }
+            }
+          ],
+          "created_at": "2026-08-24T17:25:02+00:00",
+          "updated_at": "2026-08-24T17:25:02+00:00",
+          "success_count": 0,
+          "last_run_status": null
+        }
+      }
+    },
+    "424250": {
+      "workflows": {}
+    },
+    "1": {
+      "workflows": {
+        "recorded_workflow": {
+          "name": "Recorded workflow",
+          "portal_slug": null,
+          "start_url": "http://localhost:3000/login-2fa",
+          "goal": "Log in, then open the Download Center and download the master price list (price-list.xlsx). Stop right after that one download.",
+          "agent_oversight": true,
+          "takeover_timeout": null,
+          "steps": [
+            {
+              "type": "goto",
+              "url": "http://localhost:3000/login-2fa"
+            },
+            {
+              "type": "login",
+              "username_anchor": {
+                "text": "Username or email",
+                "css": "#username",
+                "xpath": "html/body/main/div/form/div[1]/input"
+              },
+              "password_anchor": {
+                "text": "Password",
+                "css": "#password",
+                "xpath": "html/body/main/div/form/div[2]/input"
+              },
+              "submit_anchor": {
                 "role": "button",
-                "text": "Documents \u25be",
-                "xpath": "html/body/header/div/nav/ul[1]/li[4]/button"
+                "text": "Continue to verification",
+                "css": "#continue",
+                "xpath": "html/body/main/div/form/button"
+              }
+            },
+            {
+              "type": "verify_code",
+              "reason": "Enter the verification / 2-step (2FA) code",
+              "timeout": 900
+            },
+            {
+              "type": "click",
+              "anchor": {
+                "role": "link",
+                "text": "Download Center PDF / Word / Excel / CSV / ZIP downloads Documents",
+                "xpath": "html/body/main/div[4]/div[2]/div/a[5]"
+              }
+            },
+            {
+              "type": "click",
+              "anchor": {
+                "role": "link",
+                "text": "Download Center PDF / Word / Excel / CSV / ZIP downloads Documents",
+                "xpath": "html/body/main/div[4]/div[2]/div/a[5]"
+              }
+            },
+            {
+              "type": "click",
+              "anchor": {
+                "role": "link",
+                "text": "Download Center PDF / Word / Excel / CSV / ZIP downloads Documents",
+                "xpath": "html/body/main/div[4]/div[2]/div/a[5]"
               }
             },
             {
@@ -83,10 +288,10 @@
               }
             }
           ],
-          "created_at": "2026-06-29T17:04:05+00:00",
-          "updated_at": "2026-07-13T16:16:33+00:00",
+          "created_at": "2026-08-23T18:13:21+00:00",
+          "updated_at": "2026-08-25T01:26:03+00:00",
           "success_count": 0,
-          "last_run_status": "error"
+          "last_run_status": null
         }
       }
     }

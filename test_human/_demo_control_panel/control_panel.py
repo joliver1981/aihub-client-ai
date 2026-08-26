@@ -480,9 +480,21 @@ def do_action(jid, aid):
             os.makedirs(LOGS, exist_ok=True)
             logf = open(os.path.join(LOGS, f"{aid}.log"), "ab")
             flags = 0x00000008 | 0x00000200 | 0x08000000  # DETACHED | NEW_PROCESS_GROUP | NO_WINDOW
-            subprocess.Popen([_py(a["python"]), a["script"]], cwd=a.get("cwd") or HERE,
-                             stdout=logf, stderr=subprocess.STDOUT, creationflags=flags)
-            time.sleep(3)
+            # Two forms: a "command" launcher (.cmd/.bat/.exe — e.g. a Node server)
+            # or the original "python" + "script" pair.
+            if a.get("command"):
+                target = a["command"]
+                if not os.path.exists(target):
+                    raise FileNotFoundError(f"launcher not found: {target}")
+                cmd = ([os.environ.get("COMSPEC", "cmd.exe"), "/c", target]
+                       if target.lower().endswith((".cmd", ".bat")) else [target])
+                cwd = a.get("cwd") or os.path.dirname(target)
+            else:
+                cmd = [_py(a["python"]), a["script"]]
+                cwd = a.get("cwd") or HERE
+            subprocess.Popen(cmd, cwd=cwd, stdout=logf, stderr=subprocess.STDOUT,
+                             creationflags=flags)
+            time.sleep(a.get("settle", 3))
             out = f"started (log: logs/{aid}.log)"
             status = "done"
         elif kind == "run":
