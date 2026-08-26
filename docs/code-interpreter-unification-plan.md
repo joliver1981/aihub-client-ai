@@ -427,6 +427,20 @@ run_python_code when it is bound (tools stay functional as fallbacks). Re-run:
 **9/9 PASS, all nine attributed**. Legacy tools are NOT retired — that remains
 Phase 4, pending §10 Q3.
 
+**Phase 2 (same day, commit `6b31eba`) — DONE.** `agent_service/code_tools.py`:
+one `@tool` binding the shared backend into The Agent (sonnet-5). Adaptations:
+workdir under `{APP_ROOT}\temp\agent_runpy` (stage_offer containment), chat
+uploads staged by original filename + optional `files` param for server paths,
+produced files delivered as native `/api/files/` download links, token scope
+via the service's own main-app connections index (the AppUtils path doesn't
+import in that env — first live-fire produced an empty scope and an honest
+403), ledger `surface:"the-agent"`, kill switches `AGENT_RUN_PYTHON_TOOL` /
+`AGENT_RUN_PYTHON_SDK`. Brain doctrine contrasts immediate analysis vs the
+automations lifecycle. **Live 3/3 on :5111** (SSE tool events + ledger): exact
+2,500/1,264,003 over an uploaded CSV; PNG chart as a working download link;
+`aihub.query` == direct-DB oracle. The "free ride" held: ~150 lines of surface
+adapter, zero model-specific work.
+
 **Follow-ups surfaced:** (a) `AgentAPIAdapter.chat` does not forward
 `conversation_id`, so conversation-scoped staging is unavailable in UI+adapter
 mode (agent-files/knowledge staging covers most cases); (b) `delete_agent`
