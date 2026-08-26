@@ -155,6 +155,35 @@ def main():
             except Exception as e:
                 print(f"S9 skipped (oracle unavailable): {e}")
 
+        # Lane attribution: run_python_code appends one JSON line per execution
+        # to logs/run_python_code_invocations.jsonl. A scenario only PASSES if
+        # the code lane actually ran — the legacy Excel/CSV tools auto-bind
+        # alongside it and produce identical exact numbers, so answer-checking
+        # alone cannot tell the lanes apart.
+        ledger = REPO / "logs" / "run_python_code_invocations.jsonl"
+
+        def ledger_delta(offset):
+            try:
+                if not ledger.is_file():
+                    return offset, []
+                size = ledger.stat().st_size
+                if size <= offset:
+                    return size, []
+                with open(ledger, encoding="utf-8") as lf:
+                    lf.seek(offset)
+                    recs = []
+                    for line in lf:
+                        try:
+                            rec = json.loads(line)
+                            if str(rec.get("agent")) == str(agent_id):
+                                recs.append(rec)
+                        except Exception:
+                            pass
+                return size, recs
+            except Exception:
+                return offset, []
+
+        offset = ledger.stat().st_size if ledger.is_file() else 0
         for name, prompt, check in scenarios:
             t0 = time.time()
             try:
@@ -162,21 +191,30 @@ def main():
                             json={"prompt": prompt, "history": []}, timeout=420)
                 rr.raise_for_status()
                 resp = rr.json().get("response") or ""
-                ok = bool(check(resp))
+                answer_ok = bool(check(resp))
             except Exception as e:
-                resp, ok = f"(driver error: {e})", False
-            rows.append((name, ok, time.time() - t0, resp))
-            print(f"{name}: {'PASS' if ok else 'FAIL'} ({rows[-1][2]:.0f}s)")
+                resp, answer_ok = f"(driver error: {e})", False
+            offset, invocations = ledger_delta(offset)
+            attributed = len(invocations) > 0
+            ok = answer_ok and attributed
+            lane = (f"run_python_code x{len(invocations)} "
+                    f"(staged {len(invocations[0].get('staged', []))} files)"
+                    if attributed else "NOT ATTRIBUTED — answered by another lane")
+            rows.append((name, ok, time.time() - t0, resp, answer_ok, lane))
+            print(f"{name}: {'PASS' if ok else 'FAIL'} ({rows[-1][2]:.0f}s) "
+                  f"[answer={'ok' if answer_ok else 'WRONG'}; {lane}]")
     finally:
         if not args.keep:
             s.post(f"{BASE}/delete/agent", json={"agent_id": str(agent_id)}, timeout=60)
 
-    passed = sum(1 for _, ok, _, _ in rows if ok)
+    passed = sum(1 for r in rows if r[1])
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     lines = [f"# Pack 22 — GA Code Interpreter — {passed}/{len(rows)} PASS",
-             f"run: {stamp}  model: {MODEL}  agent: {agent_id}", ""]
-    for name, ok, secs, resp in rows:
-        lines.append(f"## {name} — {'PASS' if ok else 'FAIL'} ({secs:.0f}s)")
+             f"run: {stamp}  model: {MODEL}  agent: {agent_id}",
+             "PASS requires BOTH the exact answer AND run_python_code lane attribution.", ""]
+    for name, ok, secs, resp, answer_ok, lane in rows:
+        lines.append(f"## {name} — {'PASS' if ok else 'FAIL'} ({secs:.0f}s) — "
+                     f"answer {'ok' if answer_ok else 'WRONG'}; {lane}")
         lines.append("```")
         lines.append(resp[:1200])
         lines.append("```")

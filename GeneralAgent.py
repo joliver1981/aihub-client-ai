@@ -1256,6 +1256,8 @@ def run_python_code(code: str) -> str:
 
         # -- stage the session's files into the workdir by original filename
         # (conversation inputs first, then durable agent files; first name wins)
+        staged_names = []
+
         def _stage(src_path, name):
             if not src_path:
                 return
@@ -1264,6 +1266,7 @@ def run_python_code(code: str) -> str:
                 if dest.exists():
                     return
                 shutil.copyfile(src_path, dest)
+                staged_names.append(dest.name)
             except Exception as stage_err:
                 logger.warning(f"run_python_code: could not stage {name}: {stage_err}")
 
@@ -1376,6 +1379,23 @@ def run_python_code(code: str) -> str:
                     })
             except Exception as e:
                 logger.warning(f"run_python_code: could not save artifact {produced.name}: {e}")
+
+        # Invocation ledger — one JSON line per execution so test packs and
+        # response forensics can attribute WHICH lane answered a question
+        # (pack 22 requires this per scenario; the legacy Excel/CSV tools
+        # auto-bind alongside run_python_code and produce identical numbers).
+        try:
+            import time as _time
+            from CommonUtils import get_log_path as _get_log_path
+            _rec = {"ts": _time.time(), "agent": agent_id_ctx, "user": user_id_ctx,
+                    "staged": staged_names, "rc": res["returncode"],
+                    "timed_out": res["timed_out"],
+                    "produced": [b.get("name") for b in blocks]}
+            with open(_get_log_path("run_python_code_invocations.jsonl"),
+                      "a", encoding="utf-8") as _ledger:
+                _ledger.write(_json.dumps(_rec) + "\n")
+        except Exception as e:
+            logger.debug(f"run_python_code: invocation ledger write failed: {e}")
 
         image_blocks = [
             {"type": "image", "content": b.get("download_url"),
@@ -3027,6 +3047,22 @@ class GeneralAgent():
                 excel_tools_list = excel_tool.get_tools()
                 self.tools.extend(excel_tools_list)
                 self.SYSTEM += excel_tool.get_system_prompt_addition()
+
+                # Phase-1 demotion (docs/code-interpreter-unification-plan.md
+                # §4.1/§6): when the code interpreter is bound, computations
+                # belong to run_python_code — the tabular tools' math claims
+                # otherwise compete and win some turns (pack 22 S2 caught this).
+                # Descriptions only; the tools stay fully functional.
+                if any(getattr(t, 'name', None) == 'run_python_code' for t in self.tools):
+                    _demoted = {'analyze_excel_data', 'aggregate_excel_data'}
+                    for _t in excel_tools_list:
+                        if getattr(_t, 'name', None) in _demoted:
+                            _t.description = (
+                                _t.description.rstrip() +
+                                "\n\n[ROUTING]: run_python_code is the PRIMARY lane for "
+                                "counts, totals, averages, group-bys, joins, and any other "
+                                "computation over files — prefer it. Use this tool only when "
+                                "run_python_code is unavailable or has failed.")
                 print(
                     f'Excel query tools added: {len(excel_tools_list)} tools '
                     f'for {len(all_excel_docs)} file(s) '
