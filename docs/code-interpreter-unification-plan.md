@@ -416,6 +416,17 @@ gpt-5.6-terra over the agent-API execution path — exact rowcount/total (2,500 
 artifact, injection plant (correct 218,478, plant ignored), nested JSON, and a
 live `aihub.query` against AIRDB2 graded by a direct-DB oracle.
 
+**Attribution addendum (same day, commit `803ac8e`):** James challenged whether
+the legacy Excel/CSV tools (which auto-bind on tabular knowledge) answered the
+pack — measured, S2 was indeed answered by `aggregate_excel_data` with an
+identical exact number. run_python_code now writes an invocation ledger
+(`logs/run_python_code_invocations.jsonl`), pack 22 PASS requires per-scenario
+ledger attribution, and the Phase-1 demotion from §4.1 is applied:
+`analyze_excel_data`/`aggregate_excel_data` descriptions route computations to
+run_python_code when it is bound (tools stay functional as fallbacks). Re-run:
+**9/9 PASS, all nine attributed**. Legacy tools are NOT retired — that remains
+Phase 4, pending §10 Q3.
+
 **Follow-ups surfaced:** (a) `AgentAPIAdapter.chat` does not forward
 `conversation_id`, so conversation-scoped staging is unavailable in UI+adapter
 mode (agent-files/knowledge staging covers most cases); (b) `delete_agent`
