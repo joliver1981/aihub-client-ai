@@ -360,6 +360,34 @@ def c_agent_artifact(ctx):
     return ok, f"http={r.status_code}, file={'yes' if hits else 'NO'}, content={content[:60]!r}"
 
 
+@check("code_interpreter_pack22", "Agents",
+       "GA code-interpreter competency gate (pack 22) is fully green with lane attribution",
+       llm=True)
+def c_code_interpreter(ctx):
+    """Pre-build gate for the code-interpreter lane
+    (docs/code-interpreter-unification-plan.md): runs pack 22's live-oracle
+    runner as a subprocess — 9 scenarios over real uploads, each required to
+    BOTH answer exactly AND be ledger-attributed to run_python_code (the
+    legacy tabular tools produce identical numbers, so attribution is the only
+    honest signal). ~90 s of live model turns. The runner degrades to 8/8 when
+    the AIRDB2 oracle is unreachable, so a full 'N/N PASS' line is the
+    contract either way."""
+    if ctx["host"] not in ("127.0.0.1", "localhost"):
+        return None, "pack 22 drives the local stack only (remote target)"
+    runner = os.path.join(REPO, "test_human", "22_GA_Code_Interpreter", "runner.py")
+    p = subprocess.run(
+        [sys.executable, runner], capture_output=True, text=True,
+        encoding="utf-8", errors="replace", timeout=900,
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+    lines = [ln.strip() for ln in (p.stdout or "").splitlines() if ln.strip()]
+    verdict = next((ln for ln in reversed(lines) if "PASS" in ln and "/" in ln), "")
+    full = bool(re.search(r"\b(\d+)/\1 PASS\b", verdict))
+    fails = [ln for ln in lines if ": FAIL" in ln]
+    ok = p.returncode == 0 and full
+    return ok, (f"rc={p.returncode}, {verdict or 'no verdict line'}"
+                + (f"; failing: {'; '.join(fails)[:150]}" if fails else ""))
+
+
 @check("knowledge_ingest_delete", "Knowledge/Docs",
        "docx ingest pipeline (extract+classify+index) + delete")
 def c_knowledge(ctx):

@@ -273,6 +273,15 @@ if %ERRORLEVEL% GEQ 8 ( echo ERROR: browser_use_env copy failed! & pause & exit 
 echo [14] Copying bundled Chromium (chromium-1223)...
 robocopy "%LOCALAPPDATA%\ms-playwright\chromium-1223" "%PROJECT_PATH%\dist\browser_use_chromium\chromium-1223" /MIR /NFL /NDL /NJH /NJS /NP
 if %ERRORLEVEL% GEQ 8 ( echo ERROR: browser_use_chromium copy failed! & pause & exit /b 1 )
+
+:: The v5 .iss installs {app}\agent_environments\python-bundle-requirements from
+:: dist\python-bundle-requirements (wildcard). That staging copy used to be a
+:: MANUAL one and went stale (June->August drift: code-interpreter constraints/
+:: denylist files missing). Mirror it from source every build so the installer
+:: always ships the current requirements + policy files.
+echo [15] Refreshing python-bundle-requirements staging...
+robocopy "%PROJECT_PATH%\agent_environments\python-bundle-requirements" "%PROJECT_PATH%\dist\python-bundle-requirements" /MIR /NFL /NDL /NJH /NJS /NP
+if %ERRORLEVEL% GEQ 8 ( echo ERROR: python-bundle-requirements copy failed! & pause & exit /b 1 )
 :: robocopy returns 1-7 on success; reset ERRORLEVEL so the clean-exit path isn't tripped
 cmd /c exit 0
 echo [14] Complete - Output: dist\browser_use_service\, dist\browser_use_env\, dist\browser_use_chromium\
