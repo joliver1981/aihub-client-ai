@@ -46,6 +46,7 @@ CRITICAL RULES:
 2. For text content, extract and structure normally
 3. For code, identify language and structure
 4. Keep your response minimal - the actual data rendering happens separately
+5. NEVER emit a table, list, chart, or metrics block with empty or placeholder data. If the content only announces or promises data ("I'll then compare and return: ..."), keep it as plain text blocks
 
 Content types:
 - text: Regular paragraphs
@@ -547,16 +548,39 @@ Provide brief insights about this data. Do NOT recreate the table."""
             logger.warning(f"Fast string analysis failed: {e}")
             return self._create_text_block(content)
     
+    # Block types whose entire value is their data payload. When the mini-model
+    # emits one of these with no rows/items (typically because the reply only
+    # PROMISED data: "...I'll then compare and return:"), the frontend renders
+    # a bare "No data to display" bubble.
+    DATA_BEARING_BLOCK_TYPES = {'table', 'html_table', 'list', 'chart', 'metrics', 'json'}
+
+    def _block_has_no_data(self, block: Dict) -> bool:
+        """True when a data-bearing block carries nothing renderable."""
+        if block.get('type') not in self.DATA_BEARING_BLOCK_TYPES:
+            return False
+        content = block.get('content')
+        if content is None or content == '' or content == [] or content == {}:
+            return True
+        if isinstance(content, dict):
+            # Table format: {headers: [...], rows: [[...]]}
+            if 'rows' in content or 'headers' in content:
+                return not content.get('rows')
+            # Chart.js format: {labels: [...], datasets: [{data: [...]}]}
+            if 'datasets' in content or 'labels' in content:
+                datasets = content.get('datasets') or []
+                return not any(ds.get('data') for ds in datasets if isinstance(ds, dict))
+        return False
+
     def _process_ai_analysis(self, analysis: Dict, original_content: str) -> Dict[str, Any]:
         """
         Process AI analysis, handling table_reference types specially.
         """
         blocks = analysis.get('blocks', [])
         processed_blocks = []
-        
+
         for block in blocks:
             block_type = block.get('type', 'text')
-            
+
             # Handle table_reference - the AI didn't output table data
             if block_type == 'table_reference':
                 # If there's embedded table data, we would have already extracted it
@@ -566,9 +590,19 @@ Provide brief insights about this data. Do NOT recreate the table."""
                     "content": block.get('content', {}).get('description', 'Data table'),
                     "metadata": {"style": "table_header"}
                 })
+            elif self._block_has_no_data(block):
+                logger.info(
+                    f"Dropping empty '{block_type}' block from AI structuring "
+                    "(no data rows - reply likely only promised data)"
+                )
             else:
                 processed_blocks.append(block)
-        
+
+        # If every block was dropped, fall back to the raw text rather than
+        # returning an empty rich_content envelope.
+        if not processed_blocks:
+            return self._create_text_block(original_content)
+
         return {
             "type": "rich_content",
             "blocks": processed_blocks,

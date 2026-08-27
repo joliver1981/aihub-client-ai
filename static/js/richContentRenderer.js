@@ -105,10 +105,19 @@ class RichContentRenderer {
         container.className = 'rich-content-container';
         
         blocks.forEach((block, index) => {
+            // Render the block content first; a renderer returning an empty
+            // string means "nothing to show" (e.g. an AI-authored data block
+            // with zero rows) - skip it entirely so no empty bubble appears.
+            const renderer = this.renderers[block.type] || this.renderText.bind(this);
+            const content = renderer(block);
+            if (typeof content === 'string' && content.trim() === '') {
+                return;
+            }
+
             const blockElement = document.createElement('div');
             blockElement.className = `rich-content-block block-${block.type}`;
             blockElement.dataset.blockIndex = index;
-            
+
             // Add type indicator if specified
             if (block.metadata?.show_type_indicator) {
                 const indicator = document.createElement('span');
@@ -116,10 +125,6 @@ class RichContentRenderer {
                 indicator.textContent = block.type.toUpperCase();
                 blockElement.appendChild(indicator);
             }
-            
-            // Render the block content
-            const renderer = this.renderers[block.type] || this.renderText.bind(this);
-            const content = renderer(block);
             
             if (typeof content === 'string') {
                 blockElement.innerHTML += content;
@@ -200,6 +205,19 @@ class RichContentRenderer {
     }
     
     /**
+     * Fallback for a table block with no rows. Deterministic backend tables
+     * always carry row-count metadata, so an empty one is a real "query
+     * returned 0 rows" answer and keeps its message. An empty table WITHOUT
+     * that metadata came from the AI restructuring prose (a reply that only
+     * promised a table) - render nothing so no bare bubble appears.
+     */
+    emptyTableFallback(metadata) {
+        const isDeterministic = typeof metadata?.total_rows === 'number' ||
+                                typeof metadata?.displayed_rows === 'number';
+        return isDeterministic ? '<div class="content-text">No data to display</div>' : '';
+    }
+
+    /**
      * Render table block with interactive features
      */
     renderTable(block) {
@@ -220,7 +238,7 @@ class RichContentRenderer {
                 // Original format: array of objects
                 const data = block.content;
                 if (data.length === 0) {
-                    return '<div class="content-text">No data to display</div>';
+                    return this.emptyTableFallback(metadata);
                 }
                 headers = metadata.columns || Object.keys(data[0]);
                 rows = data.map(row => headers.map(col => row[col]));
@@ -234,11 +252,11 @@ class RichContentRenderer {
                 return '<div class="content-text">Unable to render table</div>';
             }
         } else {
-            return '<div class="content-text">No data to display</div>';
+            return this.emptyTableFallback(metadata);
         }
-        
+
         if (headers.length === 0 || rows.length === 0) {
-            return '<div class="content-text">No data to display</div>';
+            return this.emptyTableFallback(metadata);
         }
 
         // Set button text and icon based on current mode
@@ -356,9 +374,9 @@ class RichContentRenderer {
         const metadata = block.metadata || {};
         
         if (data.length === 0) {
-            return '<div class="content-text">No data to display</div>';
+            return this.emptyTableFallback(metadata);
         }
-        
+
         // Get columns from metadata or derive from data
         const columns = metadata.columns || (data[0] ? Object.keys(data[0]) : []);
         
