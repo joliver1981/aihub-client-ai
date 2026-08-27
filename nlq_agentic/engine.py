@@ -317,6 +317,18 @@ class AgenticNLQEngine:
             trace=trace, max_iterations=max_iters, deadline=deadline,
         )
 
+        # run_loop returns transport/API failures as LoopResult.error instead of
+        # raising them. Without this check they reached contract.build_result and
+        # were rendered as an ordinary answer (the friendly DATA_AGENT_FALLBACK_
+        # RESPONSE), while get_answer() went on to record breaker SUCCESS and the
+        # legacy fallback never fired — a gpt-5.6-terra 400 hid a week-long NL->SQL
+        # outage exactly that way. Raise so a genuine failure takes the same
+        # exception -> record_failure() -> _fallback path the chaos drill documents.
+        # NOTE: timed_out is deliberately NOT an error — contract.py answers that
+        # honestly ("couldn't finish in time") and it is not a fallback condition.
+        if loop_result.error:
+            raise RuntimeError(f"agentic loop failed: {loop_result.error}")
+
         result = contract.build_result(loop_result, self.state, input_question, self)
         trace.final_answer_type = self._answer_type_of(result)
 

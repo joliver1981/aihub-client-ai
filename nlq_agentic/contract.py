@@ -35,8 +35,15 @@ def _resolve_core(loop_result, state, input_question):
 
     terminal = loop_result.terminal
 
-    # Unresolved: timed out or hit the iteration cap without a final answer.
+    # Unresolved: errored, timed out, or hit the iteration cap without an answer.
     if terminal is None:
+        if loop_result.error:
+            # Defence in depth. engine._run_agentic now RAISES on loop_result.error
+            # so a hard failure reaches the breaker and the legacy fallback; if some
+            # future caller bypasses that, at least name the real cause in `explain`
+            # instead of letting a transport/API failure read as a normal answer.
+            return (fallback, "string", f"Agentic loop failed: {loop_result.error}",
+                    clarify, special_message, return_query)
         if loop_result.timed_out:
             answer = ("I wasn't able to finish answering that in time. Please try again or "
                       "narrow the question.")
