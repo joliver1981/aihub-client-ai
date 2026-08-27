@@ -1084,6 +1084,49 @@ def delete_agent(agent_id):
         conn.close()
 
 
+def get_agent_binding_signature(agent_id):
+    """Cheap fingerprint of everything a cached agent instance bakes in at
+    construction from the Agents/AgentTools tables: objective (system prompt),
+    enabled, personal-connection allowance, and the full tool set.
+
+    Used by app.get_agent_for_user so a cached user-specific agent is evicted
+    when an admin edits the agent (tools OR prompt) — previously only doc-count
+    and MCP changes evicted, so users with personal docs kept chatting with the
+    pre-edit toolset until an app restart (live-confirmed 2026-08-26, agent 916).
+
+    Returns a hash string, or None on any error — callers treat None as
+    "cannot judge" and keep the cached instance (a DB hiccup must not
+    stampede rebuilds).
+    """
+    try:
+        import hashlib
+        conn = pyodbc.connect(
+            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+        )
+        try:
+            cursor = conn.cursor()
+            cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
+            cursor.execute("""
+                SELECT a.objective, a.enabled, a.allow_personal_connections,
+                       t.tool_name, t.custom_tool, t.enabled
+                FROM [dbo].[Agents] a
+                LEFT JOIN [dbo].[AgentTools] t ON t.agent_id = a.id
+                WHERE a.id = ?
+                ORDER BY t.tool_name, t.custom_tool
+                """, agent_id)
+            rows = cursor.fetchall()
+        finally:
+            conn.close()
+        if not rows:
+            return None
+        payload = "\n".join("|".join("" if v is None else str(v) for v in row)
+                            for row in rows)
+        return hashlib.sha1(payload.encode("utf-8", errors="replace")).hexdigest()
+    except Exception as e:
+        print(f"get_agent_binding_signature error for agent {agent_id}: {e}")
+        return None
+
+
 def update_agent_with_tools(agent_id, agent_description, agent_objective, agent_enabled, tool_names, core_tool_names,
                             allow_personal_connections=1):
     try:

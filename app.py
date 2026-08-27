@@ -674,6 +674,13 @@ def get_agent_for_user(agent_id, user_id):
     user_knowledge = get_agent_knowledge_for_user(agent_id, user_id)
     current_doc_count = len(user_knowledge) if user_knowledge else 0
     mcp_signature = _get_user_mcp_signature(user_id)
+    # Fingerprint of the agent's OWN definition (tools + objective + enabled):
+    # an admin editing the agent must reach users with cached personalized
+    # instances too — doc/MCP checks alone left them on the pre-edit toolset
+    # until an app restart (live-confirmed 2026-08-26, agent 916 / user 13).
+    # None means "could not compute" and is treated as no-evidence-of-change.
+    from DataUtils import get_agent_binding_signature
+    binding_signature = get_agent_binding_signature(agent_id)
 
     needs_user_specific = bool(user_knowledge) or bool(mcp_signature)
     agent_key = (agent_id, str(user_id))
@@ -687,16 +694,21 @@ def get_agent_for_user(agent_id, user_id):
             del user_specific_agents[agent_key]
         return active_agents.get(agent_id)
 
-    # Validate cache against BOTH doc count and MCP signature
+    # Validate cache against doc count, MCP signature, AND the agent definition
     if agent_key in user_specific_agents:
         cached = user_specific_agents[agent_key]
+        binding_fresh = (binding_signature is None
+                         or getattr(cached, '_agent_binding_signature', None) == binding_signature)
         if (getattr(cached, '_user_doc_count', None) == current_doc_count
-                and getattr(cached, '_user_mcp_signature', None) == mcp_signature):
+                and getattr(cached, '_user_mcp_signature', None) == mcp_signature
+                and binding_fresh):
             logger.info(f"Reusing user-specific agent {agent_id} for user {user_id} "
                         f"(docs={current_doc_count}, mcp={len(mcp_signature)})")
             return cached
+        reason = ("docs/MCP signature changed" if binding_fresh
+                  else "agent definition changed (tools/objective)")
         logger.info(f"Evicting stale user-specific agent {agent_id} for user {user_id} "
-                    f"(docs/MCP signature changed)")
+                    f"({reason})")
         del user_specific_agents[agent_key]
 
     logger.info(f"Creating user-specific agent {agent_id} for user {user_id} "
@@ -705,6 +717,8 @@ def get_agent_for_user(agent_id, user_id):
         new_agent = GeneralAgent(agent_id, user_id=str(user_id))
         new_agent._user_doc_count = current_doc_count
         new_agent._user_mcp_signature = mcp_signature
+        new_agent._agent_binding_signature = (binding_signature
+                                              or get_agent_binding_signature(agent_id))
         user_specific_agents[agent_key] = new_agent
     except Exception as e:
         logger.error(f"Failed to create user-specific agent: {str(e)}")
@@ -2954,6 +2968,19 @@ def add_agent():
             #global active_agents
             #active_agents = load_agents()
             load_agents(agent_id=agent_id)
+
+            # Also purge any per-user personalized instances of this agent —
+            # they bake in the toolset/objective at construction and would
+            # otherwise serve the pre-edit binding until an app restart
+            # (belt-and-braces alongside the signature check in
+            # get_agent_for_user, which also covers edits made outside this
+            # route).
+            stale_keys = [k for k in user_specific_agents if str(k[0]) == str(agent_id)]
+            for k in stale_keys:
+                del user_specific_agents[k]
+            if stale_keys:
+                logger.info(f"Purged {len(stale_keys)} cached user-specific instance(s) "
+                            f"of agent {agent_id} after edit")
 
             try:
                 track_agent_created(agent_id, 'general')  # telemetry
