@@ -27,21 +27,34 @@ from .telemetry import RequestTrace
 logger = logging.getLogger("nlq_agentic.engine")
 
 
+# The renderer is stateless (its methods only read config + arguments), so one
+# shared instance serves every engine. Without this cache, __setstate__ built a
+# fresh renderer on EVERY session unpickle - thousands of init log lines per day
+# (logs/smart_content_render_log.txt showed bursts of pairs every few seconds).
+_renderer_singleton = None
+_renderer_loaded = False
+
+
 def _load_renderer():
     """Lazy, defensive load of the same renderer the legacy engine uses."""
+    global _renderer_singleton, _renderer_loaded
+    if _renderer_loaded:
+        return _renderer_singleton
     try:
         if getattr(cfg, "SMART_RENDER_HYBRID_ENABLED", False):
             from SmartContentRenderer_hybrid import SmartContentRendererHybrid as _R
         else:
             from SmartContentRenderer import SmartContentRenderer as _R
-        return _R()
+        _renderer_singleton = _R()
     except Exception:
         try:
             from SmartContentRenderer import SmartContentRenderer as _R
-            return _R()
+            _renderer_singleton = _R()
         except Exception as e:
             logger.warning(f"[engine] SmartContentRenderer unavailable: {e}")
-            return None
+            _renderer_singleton = None
+    _renderer_loaded = True
+    return _renderer_singleton
 
 
 class AgenticNLQEngine:
@@ -150,12 +163,18 @@ class AgenticNLQEngine:
         return self._client
 
     def _base_kwargs(self):
+        from api_keys_config import reasoning_effort_for_tools
         config = self._config
         default_model = config["model"] if config["api_type"] == "open_ai" else config["deployment_id"]
         model = getattr(cfg, "NLQ_AGENTIC_MODEL", "") or default_model
         kwargs = {"model": model}
-        if config.get("reasoning_effort"):
-            kwargs["reasoning_effort"] = config["reasoning_effort"]
+        # This engine ALWAYS binds function tools (loop.py sets tools/tool_choice on
+        # every iteration); gpt-5.6-terra rejects tools + reasoning_effort on
+        # chat/completions (400) unless effort is 'none'. Same chokepoint the
+        # GeneralAgent/WorkflowAgent fix goes through.
+        reasoning_effort = reasoning_effort_for_tools(config.get("reasoning_effort"))
+        if reasoning_effort:
+            kwargs["reasoning_effort"] = reasoning_effort
             kwargs["temperature"] = 1.0
         else:
             kwargs["temperature"] = 0.0
