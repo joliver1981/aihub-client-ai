@@ -1666,6 +1666,16 @@ def _named_uploaded_file(user_text: str, upload_names: list):
     return None
 
 
+def _artifact_link_lines(blocks) -> str:
+    """One markdown download link per artifact block — deterministic delivery:
+    the file's location must never depend on an LLM echoing it."""
+    lines = [f"[{b.get('name') or 'download'}]({b.get('download_url')})"
+             for b in (blocks or [])
+             if isinstance(b, dict) and b.get("type") == "artifact"
+             and b.get("download_url")]
+    return "\n".join(lines)
+
+
 async def classify_intent(state: CommandCenterState) -> dict:
     """Classify the user's intent using a mini LLM call.
 
@@ -7352,11 +7362,15 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 )
 
                 all_blocks = []
-                # run_python's printed output for this turn (side channel): when
-                # the code both PRINTS an answer and produces files, the block
-                # list wins the render but the text must still reach the user.
+                # Deterministic text lead: run_python's printed output for this
+                # turn (side channel — when code both PRINTS an answer and
+                # produces files, the block list wins the render but the text
+                # must still reach the user) plus a markdown link per artifact.
                 _rp_txt = "\n\n".join(
                     t for t in _runpy_printed_texts if t and t.strip())
+                _rp_links = _artifact_link_lines(direct_blocks)
+                _rp_lead = _rp_txt + (("\n\n" if _rp_txt and _rp_links else "")
+                                      + _rp_links)
                 if not has_large_data:
                     # Send back to LLM with tools — the LLM may need to chain
                     # another tool call (e.g. export_data → send_email)
@@ -7398,14 +7412,14 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                             all_blocks.append({"type": "text", "content": intro_text})
                     except Exception as e:
                         logger.warning(f"[converse] LLM follow-up failed (skipping intro): {e}")
-                    if _rp_txt:
-                        all_blocks.append({"type": "text", "content": _rp_txt})
+                    if _rp_lead:
+                        all_blocks.append({"type": "text", "content": _rp_lead})
                 else:
                     # For images/large data, no LLM follow-up (token overflow) —
-                    # the deterministic text is run_python's captured printed
-                    # output when there is one, else the canned intro.
-                    if _rp_txt:
-                        all_blocks.append({"type": "text", "content": _rp_txt})
+                    # the deterministic lead (printed output + artifact links)
+                    # is the text when there is one, else the canned intro.
+                    if _rp_lead:
+                        all_blocks.append({"type": "text", "content": _rp_lead})
                     else:
                         block_types = [b.get("type") for b in direct_blocks]
                         if "image" in block_types:
@@ -7570,9 +7584,22 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
 
                 if direct_blocks:
                     all_blocks = []
-                    block_types = [b.get("type") for b in direct_blocks]
-                    if "map" in block_types:
-                        all_blocks.append({"type": "text", "content": "Here's the map:"})
+                    # Deterministic text lead — same contract as the round-1
+                    # branch: printed run_python output + a markdown link per
+                    # artifact. This return used to ship the blocks ALONE, so a
+                    # round-2+ chart/report answered with zero text (Q38/Q39:
+                    # chart delivered, printed answer dropped).
+                    _rp_txt = "\n\n".join(
+                        t for t in _runpy_printed_texts if t and t.strip())
+                    _rp_links = _artifact_link_lines(direct_blocks)
+                    _rp_lead = _rp_txt + (("\n\n" if _rp_txt and _rp_links else "")
+                                          + _rp_links)
+                    if _rp_lead:
+                        all_blocks.append({"type": "text", "content": _rp_lead})
+                    else:
+                        block_types = [b.get("type") for b in direct_blocks]
+                        if "map" in block_types:
+                            all_blocks.append({"type": "text", "content": "Here's the map:"})
                     all_blocks.extend(direct_blocks)
                     content = json.dumps(all_blocks)
                     result = {"messages": [AIMessage(content=content)]}
