@@ -5,7 +5,30 @@ One source of truth so every surface teaches the same rules (CC's converse
 graph carries an equivalent block today; The Agent picks this up in its phase).
 """
 
-RUN_PYTHON_DOCTRINE_GA = """
+# Clauses shared verbatim across surfaces (GA embeds them below; CC's converse
+# prompt block appends them) so all three surfaces teach the same rules without
+# a third hand-maintained copy.
+INSTALL_CLAUSE = """\
+- Missing a package? Call install("package_name") inside your code, then
+  import it. Installs count toward the execution timeout, so prefer the
+  preinstalled stack when it suffices."""
+
+HIDDEN_SHEETS_CLAUSE = """\
+- HIDDEN SHEETS: Excel workbooks can carry sheets marked hidden/veryHidden
+  (openpyxl: sheet_state != 'visible'), and pandas/openpyxl read them like any
+  other sheet. Their data stays usable, but any answer that draws on a hidden
+  sheet MUST disclose that the sheet was hidden in the workbook."""
+
+SDK_CLAUSE = """\
+- Platform data: `import aihub_runtime as aihub` then
+  aihub.query("CONNECTION_NAME", "SELECT ...", [params]) for SQL against a
+  platform Connection, aihub.send_email(...), aihub.checkpoint("msg") to pause
+  for human approval, aihub.llm(prompt) / aihub.ai_extract(...) for in-script
+  AI. Call aihub.help() to print the full verb list and the connection names
+  available to this run. NEVER print credential values; use the SDK so
+  credentials stay out of your code entirely."""
+
+RUN_PYTHON_DOCTRINE_GA = f"""
 
 ## CODE INTERPRETER (run_python_code)
 You have a run_python_code tool that executes real Python (pandas, numpy,
@@ -26,19 +49,8 @@ files. PREFER computing real numbers over estimating them.
   save charts as .png. When the tool result contains artifact JSON blocks,
   include that JSON verbatim in your reply so the user gets the download/image
   cards.
-- Missing a package? Call install("package_name") inside your code, then
-  import it. Installs count toward the execution timeout, so prefer the
-  preinstalled stack when it suffices.
-- HIDDEN SHEETS: Excel workbooks can carry sheets marked hidden/veryHidden
-  (openpyxl: sheet_state != 'visible'), and pandas/openpyxl read them like any
-  other sheet. Their data stays usable, but any answer that draws on a hidden
-  sheet MUST disclose that the sheet was hidden in the workbook.
-- Platform data: `import aihub_runtime as aihub` then
-  aihub.query("CONNECTION_NAME", "SELECT ...", [params]) for SQL against a
-  platform Connection, aihub.send_email(...), aihub.checkpoint("msg") to pause
-  for human approval, aihub.llm(prompt) / aihub.ai_extract(...) for in-script
-  AI. Call aihub.help() to print the full verb list and the connection names
-  available to this run. NEVER print credential values; use the SDK so
-  credentials stay out of your code entirely.
+{INSTALL_CLAUSE}
+{HIDDEN_SHEETS_CLAUSE}
+{SDK_CLAUSE}
 - print() everything you want to see; the tool returns stdout/stderr.
 """

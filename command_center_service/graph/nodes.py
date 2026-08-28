@@ -159,6 +159,17 @@ def _build_allowed(state) -> bool:
 _CODE_INTERPRETER_ENABLED = os.getenv("CODE_INTERPRETER_ENABLED", "true").lower() == "true"
 _CODE_INTERPRETER_ALLOW_ALL = os.getenv("CODE_INTERPRETER_ALLOW_ALL_USERS", "true").lower() == "true"
 
+# Shared code-interpreter doctrine clauses (code_exec.doctrine) appended to
+# CC's own run_python prompt block so all three surfaces teach the same
+# install()/hidden-sheet/aihub_runtime rules from ONE source of truth.
+try:
+    from code_exec.doctrine import (HIDDEN_SHEETS_CLAUSE as _CI_HIDDEN_SHEETS,
+                                    INSTALL_CLAUSE as _CI_INSTALL,
+                                    SDK_CLAUSE as _CI_SDK)
+    _CI_SHARED_CLAUSES = f"\n{_CI_INSTALL}\n{_CI_HIDDEN_SHEETS}\n{_CI_SDK}"
+except Exception:  # never let a doctrine import take the graph down
+    _CI_SHARED_CLAUSES = ""
+
 
 def _code_interpreter_allowed(state) -> bool:
     """True if this user may run code via the interpreter."""
@@ -2907,7 +2918,7 @@ If the user asks to use a tool that was previously created, use run_generated_to
 - Files the user uploaded to this chat are already in the working directory — read them by filename (e.g. pd.read_csv('data.csv')).
 - CRITICAL for uploaded CSV/Excel files: the table you see in the chat context is a PREVIEW that may show only the first rows of a larger file. For ANY row count, total, sum, average, group-by, or other computation over an uploaded tabular file, ALWAYS run_python against the actual file — NEVER count or compute from the preview table.
 - ANY file your code writes (plt.savefig('chart.png'), df.to_excel('out.xlsx'), etc.) is automatically returned to the user as a downloadable artifact; images also display inline. Use print() for text results.
-- Write complete, self-contained scripts. You cannot ask the user mid-execution.''' if _CODE_INTERPRETER_ENABLED else "Code execution is not available on this instance."}
+- Write complete, self-contained scripts. You cannot ask the user mid-execution.''' + _CI_SHARED_CLAUSES if _CODE_INTERPRETER_ENABLED else "Code execution is not available on this instance."}
 {_portal_prompt}
 {_schedule_prompt}
 {_sftp_prompt}
@@ -4050,7 +4061,11 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         writes to the working directory (e.g. plt.savefig('chart.png'),
         df.to_excel('out.xlsx')) is automatically returned to the user as a
         downloadable artifact, and images are shown inline. Use print() for text
-        results.
+        results. Missing a package? Call install('pkg') inside the code, then
+        import it. Platform data is reachable via the aihub_runtime SDK:
+        `import aihub_runtime as aihub` then aihub.query('CONNECTION',
+        'SELECT ...'); aihub.help() prints the verb list and reachable
+        connection names.
 
         Args:
             code: The Python source to execute.
@@ -4076,6 +4091,9 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         stdout = (res.get("stdout") or "").strip()
         stderr = (res.get("stderr") or "").strip()
         out_blocks = res.get("blocks") or []  # image/artifact blocks from generated files
+        # Hidden-sheet manifest: the model is TOLD which staged workbooks carry
+        # hidden sheets so disclosure never depends on it inferring that.
+        manifest = res.get("visibility_manifest") or ""
 
         # Failure paths (no output files) → return a plain string so the LLM
         # relays it as normal assistant text.
@@ -4094,15 +4112,19 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         # type ("image"/"artifact"/...), so we must NOT mix in a "text" block —
         # the converse layer auto-prepends a short intro for images. Any stdout
         # is logged but not shown when files are produced (the file IS the answer).
+        # The manifest can't ride along on this branch either (same contract) —
+        # logged here; the prompt's HIDDEN SHEETS clause still governs.
         if out_blocks:
             if stdout:
                 logger.info(f"[converse/tool] run_python stdout (with {len(out_blocks)} output block(s)): {stdout[:200]}")
+            if manifest:
+                logger.info(f"[converse/tool] run_python hidden-sheet manifest suppressed by block-only result: {manifest.strip()[:200]}")
             return json.dumps(out_blocks)
 
         # Success, no files → plain stdout (or a friendly note) as a string.
         if stdout:
-            return f"```\n{stdout}\n```"
-        return "Code ran successfully (no output)."
+            return f"```\n{stdout}\n```" + manifest
+        return "Code ran successfully (no output)." + manifest
 
     @lc_tool
     async def read_artifact(artifact_id: str, max_rows: int = 200) -> str:

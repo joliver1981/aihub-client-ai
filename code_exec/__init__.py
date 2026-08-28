@@ -26,3 +26,4 @@ from code_exec.preamble import (  # noqa: F401
     build_preamble,
     policy_files,
 )
+from code_exec.workbooks import hidden_sheet_manifest  # noqa: F401

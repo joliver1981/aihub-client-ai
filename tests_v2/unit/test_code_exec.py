@@ -266,3 +266,34 @@ def test_guard_is_transparent_on_the_happy_path(tmp_path, monkeypatch):
                               sys.executable, timeout=30, env=env)
     assert res["returncode"] == 0
     assert "guarded fine" in res["stdout"]
+
+
+def test_hidden_sheet_manifest_reports_hidden_and_skips_clean(tmp_path):
+    """The shared workbook manifest (code_exec.workbooks) names hidden and
+    veryHidden sheets and stays silent for all-visible workbooks — the same
+    helper all three surfaces now use (CC port 2026-08-28)."""
+    openpyxl = pytest.importorskip("openpyxl")
+    from code_exec.workbooks import hidden_sheet_manifest
+
+    wb = openpyxl.Workbook()
+    wb.active.title = "Summary"
+    hidden = wb.create_sheet("Internal_Margins")
+    hidden.sheet_state = "hidden"
+    very = wb.create_sheet("Secrets")
+    very.sheet_state = "veryHidden"
+    wb.save(tmp_path / "margins.xlsx")
+
+    clean = openpyxl.Workbook()
+    clean.save(tmp_path / "clean.xlsx")
+    (tmp_path / "notes.csv").write_text("a,b\n1,2\n")
+
+    note = hidden_sheet_manifest(str(tmp_path),
+                                 ["margins.xlsx", "clean.xlsx", "notes.csv"])
+    assert "Internal_Margins" in note and "(hidden)" in note
+    assert "Secrets" in note and "(veryHidden)" in note
+    assert "margins.xlsx" in note and "clean.xlsx" not in note
+    assert "MUST disclose" in note
+
+    assert hidden_sheet_manifest(str(tmp_path), ["clean.xlsx", "notes.csv"]) == ""
+    # missing / non-zip files never raise
+    assert hidden_sheet_manifest(str(tmp_path), ["nope.xlsx"]) == ""

@@ -2050,10 +2050,24 @@ def cc_generate_token():
         user = user_df.iloc[0]
         cleanup_expired_cc_tokens()
 
+        def _safe_int(v, default=None):
+            # pandas reads a NULL TenantId as NaN — int(NaN) raised here, which
+            # 500'd every token refresh on tenantless installs; and the old
+            # hardcoded default of 1 disagreed with every other mint site (the
+            # login/redirect mints carry the raw DB TenantId, None included),
+            # flipping the tenant stamp between refreshes so files uploaded
+            # under one stamp went silently invisible under the other.
+            try:
+                if v is None or (isinstance(v, float) and v != v):
+                    return default
+                return int(v)
+            except (TypeError, ValueError):
+                return default
+
         user_context = {
             'user_id': int(user_id),
-            'role': int(user.get('role', 1)),
-            'tenant_id': int(user.get('TenantId', 1)),
+            'role': _safe_int(user.get('role'), 1),
+            'tenant_id': _safe_int(user.get('TenantId')),
             'username': str(user.get('user_name', '')),
             'name': str(user.get('name', '')),
         }

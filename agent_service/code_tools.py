@@ -40,35 +40,11 @@ def _workdir_root() -> str:
 
 
 def _hidden_sheet_manifest(workdir: str, staged_names: list) -> str:
-    """Sheet-visibility manifest for staged Excel workbooks: pandas/openpyxl
-    read hidden sheets like any other, so the model is TOLD which sheets are
-    hidden instead of having to infer it — warn-don't-skip doctrine (James,
-    2026-08-27). Reads xl/workbook.xml with the stdlib (this service's env has
-    no openpyxl). Best-effort: any inspection error skips that file; legacy
-    .xls (BIFF, not a zip) is skipped."""
-    import zipfile
-    import xml.etree.ElementTree as ET
-    notes = []
-    for name in staged_names:
-        if not str(name).lower().endswith((".xlsx", ".xlsm")):
-            continue
-        try:
-            with zipfile.ZipFile(os.path.join(workdir, name)) as zf:
-                root = ET.fromstring(zf.read("xl/workbook.xml"))
-            hidden = [(el.get("name"), el.get("state")) for el in root.iter()
-                      if el.tag.split("}")[-1] == "sheet"
-                      and el.get("state") in ("hidden", "veryHidden")]
-        except Exception:
-            continue
-        if hidden:
-            listing = ", ".join(f"\"{s}\" ({st})" for s, st in hidden)
-            notes.append(f"{name}: {listing}")
-    if not notes:
-        return ""
-    return ("\n\n[Workbook sheet visibility] These staged workbooks contain "
-            "HIDDEN sheet(s), which pandas/openpyxl read like any other. If "
-            "the answer uses their data, it MUST disclose that it came from a "
-            "hidden sheet:\n  " + "\n  ".join(notes))
+    """Sheet-visibility manifest for staged Excel workbooks — delegates to the
+    shared code_exec helper (one implementation for all three surfaces; the
+    stdlib-only reader started here and moved when CC picked it up)."""
+    from code_exec.workbooks import hidden_sheet_manifest
+    return hidden_sheet_manifest(workdir, staged_names)
 
 
 async def _connection_names() -> list:

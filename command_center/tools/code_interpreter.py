@@ -26,6 +26,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -49,6 +50,10 @@ _IMAGE_EXTS = {".png", ".jpg", ".jpeg"}
 
 # Name of the script file we write the user's code into, inside the workdir.
 _SCRIPT_NAME = "_cc_run.py"
+
+# Kill switch for the aihub_runtime SDK in CC runs (parity with GA's
+# GENERAL_AGENT_SDK_IN_CODE and The Agent's AGENT_RUN_PYTHON_SDK).
+_SDK_ENV = "CC_RUN_PYTHON_SDK"
 
 # Default cap on streamed stdout/stderr characters returned to the model.
 # 0 disables truncation. Overridable via CODE_INTERPRETER_MAX_OUTPUT_CHARS.
@@ -169,6 +174,14 @@ def prepare_workdir(session_id: str,
         try:
             # Respect per-user ownership when we have an identity to check against.
             if uid is not None and not _file_is_accessible_to(meta, uid, tid, role):
+                # Loud skip: a tenant/owner stamp mismatch otherwise surfaces
+                # only as the agent saying "file not available" with no trace
+                # anywhere (same warning build_attachment_context emits).
+                logger.warning(
+                    "[code_interpreter] NOT staging file_id=%s (%s): owner %s/%s "
+                    "vs requester %s/%s role=%s",
+                    meta.get("file_id"), meta.get("filename"),
+                    meta.get("user_id"), meta.get("tenant_id"), uid, tid, role)
                 continue
             fid = meta.get("file_id")
             src = get_file_path(fid) if fid else None
@@ -216,10 +229,13 @@ def _safe_name(name: str) -> str:
 
 
 async def run_python(code: str, workdir: str, python_exe: Optional[str] = None,
-                     timeout: Optional[int] = None) -> Dict[str, Any]:
+                     timeout: Optional[int] = None,
+                     extra_env: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     """Execute `code` as a script in `workdir` via a subprocess.
 
-    Returns {stdout, stderr, returncode, timed_out}. Never raises.
+    `extra_env` (e.g. the aihub_runtime run token from code_exec.sdkwire) is
+    granted to the child AFTER the secret-scrub. Returns {stdout, stderr,
+    returncode, timed_out}. Never raises.
     """
     python_exe = _resolve_interpreter(python_exe)
     timeout = timeout or _default_timeout()
@@ -238,18 +254,28 @@ async def run_python(code: str, workdir: str, python_exe: Optional[str] = None,
 
     script_path = Path(workdir) / _SCRIPT_NAME
     try:
-        # Preamble: keep matplotlib headless and expose the bundle's native DLLs
-        # so compiled extensions (numpy/scipy/...) load when run under the bundle.
-        preamble = (
-            "import os as _os, sys as _sys\n"
-            "_os.environ.setdefault('MPLBACKEND', 'Agg')\n"
-            "try:\n"
-            "    _libbin = _os.path.join(_os.path.dirname(_sys.executable), 'Library', 'bin')\n"
-            "    if hasattr(_os, 'add_dll_directory') and _os.path.isdir(_libbin):\n"
-            "        _os.add_dll_directory(_libbin)\n"
-            "except Exception:\n"
-            "    pass\n"
-        )
+        # Shared preamble (code_exec.preamble): matplotlib headless + bundle
+        # DLL dir, PLUS the aihub_runtime SDK on sys.path and the default-open
+        # install() helper — the same preamble GA and The Agent inject. The SDK
+        # path honors the kill switch; install()/pkg cache do not (they are
+        # independent of the run token).
+        from code_exec import adhoc_package_dir, build_preamble, policy_files
+        sdk_path = None
+        if os.environ.get(_SDK_ENV, "true").strip().lower() != "false":
+            try:
+                from code_exec import sdkwire
+                sdk_path = sdkwire.sdk_dir()
+            except Exception as e:
+                logger.warning("[code_interpreter] sdk_dir unavailable: " + f"{e}")
+        try:
+            pkg_dir = adhoc_package_dir(python_exe)
+        except Exception as e:
+            logger.warning("[code_interpreter] adhoc package dir unavailable: " + f"{e}")
+            pkg_dir = None
+        denylist_path, constraints_path = policy_files()
+        preamble = build_preamble(sdk_dir=sdk_path, pkg_dir=pkg_dir,
+                                  denylist_path=denylist_path,
+                                  constraints_path=constraints_path)
         script_path.write_text(preamble + (code or ""), encoding="utf-8")
     except Exception as e:
         return {"stdout": "", "stderr": f"Could not write script: {e}", "returncode": -1, "timed_out": False}
@@ -268,7 +294,7 @@ async def run_python(code: str, workdir: str, python_exe: Optional[str] = None,
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
-            env=build_child_env(workdir),
+            env=build_child_env(workdir, extra=extra_env),
         )
 
     try:
@@ -388,19 +414,91 @@ def cleanup_workdir(workdir: str) -> None:
         return None
 
 
+def _connection_names() -> List[str]:
+    """Platform connection names for the run token's user-parity scope — via
+    the same /get/connections HTTP index the workflow tools use (identity
+    fields only, credentials never enter the process). Empty on any failure:
+    the SDK then fails closed with its own honest 403 when code actually
+    calls aihub.query."""
+    try:
+        from graph import workflow_tools as _wt
+        res = _wt.list_connections()
+        if res.get("ok"):
+            return sorted({str(c.get("name") or "").strip()
+                           for c in (res.get("connections") or [])
+                           if str(c.get("name") or "").strip()})
+        logger.warning("[code_interpreter] connection listing failed: " + f"{res.get('error')}")
+    except Exception as e:
+        logger.warning("[code_interpreter] connection listing unavailable: " + f"{e}")
+    return []
+
+
 async def execute(code: str, session_id: str, user_context: Optional[Dict[str, Any]],
                   python_exe: Optional[str] = None, timeout: Optional[int] = None) -> Dict[str, Any]:
     """High-level entry: prepare workdir (with inputs) → run → harvest outputs.
 
-    Returns {stdout, stderr, returncode, timed_out, blocks, inputs}.
-    `blocks` is the list of image/artifact content blocks for new outputs.
-    Always cleans up the working directory.
+    Returns {stdout, stderr, returncode, timed_out, blocks, inputs,
+    visibility_manifest}. `blocks` is the list of image/artifact content
+    blocks for new outputs; `visibility_manifest` is the hidden-sheet note the
+    caller must surface to the model (may be ""). Always cleans up the
+    working directory.
     """
     workdir, inputs = prepare_workdir(session_id, user_context)
-    baseline = _snapshot(workdir)
+
+    # Sheet-visibility manifest — computed NOW, before the user's code can
+    # rewrite the staged files (warn-don't-skip: hidden-sheet data stays
+    # usable, disclosure becomes mandatory).
+    visibility_manifest = ""
     try:
-        run = await run_python(code, workdir, python_exe=python_exe, timeout=timeout)
+        from code_exec.workbooks import hidden_sheet_manifest
+        visibility_manifest = hidden_sheet_manifest(workdir, inputs)
+    except Exception as e:
+        logger.warning("[code_interpreter] hidden-sheet manifest unavailable: " + f"{e}")
+
+    # aihub_runtime SDK run token (user parity; kill switch CC_RUN_PYTHON_SDK).
+    # Listed over HTTP, so off the event loop.
+    timeout_val = timeout or _default_timeout()
+    extra_env: Dict[str, str] = {}
+    if os.environ.get(_SDK_ENV, "true").strip().lower() != "false":
+        try:
+            from code_exec import sdkwire
+            uc = user_context or {}
+            conns = await asyncio.get_event_loop().run_in_executor(None, _connection_names)
+            extra_env = sdkwire.sdk_env(
+                "command-center",
+                connections=conns,
+                ttl_seconds=timeout_val + 180,
+                user_id=uc.get("user_id"),
+            )
+        except Exception as e:
+            logger.warning("[code_interpreter] SDK wiring unavailable: " + f"{e}")
+
+    baseline = _snapshot(workdir)
+    started = time.time()
+    try:
+        run = await run_python(code, workdir, python_exe=python_exe,
+                               timeout=timeout_val, extra_env=extra_env)
         blocks = harvest_outputs(workdir, baseline, session_id, user_context)
-        return {**run, "blocks": blocks, "inputs": inputs}
+
+        # Invocation ledger — shared with GA/The Agent's lane so test packs and
+        # response forensics can attribute WHICH lane answered.
+        try:
+            import json as _json
+            from CommonUtils import get_log_path
+            rec = {"ts": time.time(), "surface": "command-center", "agent": None,
+                   "user": (user_context or {}).get("user_id"),
+                   "staged": inputs, "rc": run.get("returncode"),
+                   "timed_out": run.get("timed_out"),
+                   "duration_s": round(time.time() - started, 1),
+                   "produced": [b.get("name") or b.get("alt") for b in blocks
+                                if isinstance(b, dict) and (b.get("name") or b.get("alt"))]}
+            with open(get_log_path("run_python_code_invocations.jsonl"),
+                      "a", encoding="utf-8") as ledger:
+                ledger.write(_json.dumps(rec) + "\n")
+        except Exception as e:
+            logger.debug("[code_interpreter] ledger write failed: " + f"{e}")
+
+        return {**run, "blocks": blocks, "inputs": inputs,
+                "visibility_manifest": visibility_manifest}
     finally:
         cleanup_workdir(workdir)
