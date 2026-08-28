@@ -329,7 +329,11 @@ async def _existing_paths_for(basename: str) -> set:
     "re-running is safe and never creates duplicates (pass force=true to import "
     "anyway). Supported: PDF, Word, Excel, CSV, TXT, and common images. Report "
     "the per-file outcome it returns (imported / already-present / failed) — "
-    "don't claim success for files it didn't import.",
+    "don't claim success for files it didn't import. NOT for chat attachments: "
+    "to answer about an attached file use read_file / query_tabular_file — "
+    "importing publishes it into the shared searchable store, so attachments "
+    "are refused unless the user explicitly asked to import them (then pass "
+    "force=true).",
     {
         "type": "object",
         "properties": {
@@ -388,6 +392,32 @@ async def import_documents(args: dict[str, Any]) -> dict[str, Any]:
     recursive = bool(args.get("recursive"))
     force = bool(args.get("force"))
     force_ai = bool(args.get("force_ai_extraction"))
+
+    # Chat-attachment publication guard (2026-08-27): a file in the caller's
+    # PRIVATE chat-uploads area is a one-off read, not a publication. Importing
+    # it lands it in the shared document store, whose search ACLs are
+    # category(document_type)-based — NOT per-user — so other users' searches
+    # can surface it. Reading an attachment never requires an import
+    # (read_file / query_tabular_file), so this path only proceeds on an
+    # explicit force=true, which the model may pass only when the user
+    # explicitly asked to import/store the attachment.
+    if not force:
+        try:
+            from file_tools import uploads_dir
+            up = os.path.normcase(os.path.abspath(
+                uploads_dir(int(user.get("user_id") or 0))))
+        except Exception:
+            up = None
+        pcase = os.path.normcase(path)
+        if up and (pcase == up or pcase.startswith(up + os.sep)):
+            return _text(
+                "That file is a private chat attachment — to answer from it, "
+                "use read_file (documents) or query_tabular_file (CSV/Excel); "
+                "no import is needed for a one-off read. Importing would "
+                "publish it into the SHARED searchable document store, where "
+                "other users' searches can surface it. Only if the user has "
+                "EXPLICITLY asked to import/store this attachment, call "
+                "import_documents again with force=true.", is_error=True)
 
     # Resolve the candidate file list.
     candidates = []

@@ -170,9 +170,13 @@ def attachments_prompt_block(user_id: int, file_ids) -> str:
             rows.append(f"{hit[1]} ({size}) -> {hit[0]}")
     if not rows:
         return ""
-    return ("[Attached files from the user — server paths for YOUR tools "
-            "(upload_file, import_documents, list_server_files); never show "
-            "these paths back to the user:\n  " + "\n  ".join(rows) + "\n]")
+    return ("[Attached files from the user — server paths for YOUR tools. To "
+            "answer about their contents OPEN THEM FIRST: read_file for "
+            "documents, query_tabular_file for CSV/Excel numbers (they are NOT "
+            "in the document store, so search_documents won't find them). "
+            "upload_file / import_documents / list_server_files also accept "
+            "these paths when explicitly asked. Never show the paths back to "
+            "the user:\n  " + "\n  ".join(rows) + "\n]")
 
 
 _FID_RE = re.compile(

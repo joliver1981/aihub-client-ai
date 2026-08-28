@@ -29,6 +29,10 @@ files. PREFER computing real numbers over estimating them.
 - Missing a package? Call install("package_name") inside your code, then
   import it. Installs count toward the execution timeout, so prefer the
   preinstalled stack when it suffices.
+- HIDDEN SHEETS: Excel workbooks can carry sheets marked hidden/veryHidden
+  (openpyxl: sheet_state != 'visible'), and pandas/openpyxl read them like any
+  other sheet. Their data stays usable, but any answer that draws on a hidden
+  sheet MUST disclose that the sheet was hidden in the workbook.
 - Platform data: `import aihub_runtime as aihub` then
   aihub.query("CONNECTION_NAME", "SELECT ...", [params]) for SQL against a
   platform Connection, aihub.send_email(...), aihub.checkpoint("msg") to pause

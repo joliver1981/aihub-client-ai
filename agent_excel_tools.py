@@ -148,6 +148,16 @@ def generate_excel_metadata(file_path: str) -> dict:
         sheet_states = {name: wb[name].sheet_state for name in all_sheets}
         wb.close()
 
+        # Hidden sheets are NOT profiled (the stored profile stays visible-data
+        # only), but their existence IS recorded so summaries can say they are
+        # there — warn-don't-skip doctrine (James, 2026-08-27): hidden-sheet
+        # data stays readable via an explicit sheet_name, and answers using it
+        # must disclose the sheet was hidden.
+        metadata["hidden_sheets"] = [
+            {"name": name, "state": sheet_states[name]}
+            for name in all_sheets if sheet_states.get(name) != 'visible'
+        ]
+
         for sheet_name in all_sheets:
             if sheet_states.get(sheet_name) != 'visible':
                 continue
@@ -374,7 +384,44 @@ def format_tabular_summary(meta: dict, label: str) -> str:
                 lines.append(" | ".join(vals))
         lines.append("")
 
+    hidden = meta.get('hidden_sheets') or []
+    if hidden:
+        lines.append("⚠ HIDDEN sheets in this workbook (not visible to someone "
+                     "opening it in Excel; not profiled above):")
+        for h in hidden:
+            lines.append(f"  - \"{h.get('name')}\" ({h.get('state')})")
+        lines.append("They are readable with operation='read'/'aggregate' and "
+                     "an explicit sheet_name — but any answer using their data "
+                     "MUST disclose it came from a hidden sheet.")
+        lines.append("")
+
     return '\n'.join(lines)
+
+
+def _sheet_visibility_note(file_path: str, sheet_name: Optional[str]) -> str:
+    """A disclosure note when the sheet being read is hidden/veryHidden in the
+    workbook, else ''. Best-effort: any inspection error returns '' (the read
+    itself still proceeds — hidden sheets stay readable by decision, the answer
+    just has to say so). CSV/TSV have no hidden sheets."""
+    if _is_csv_file(file_path):
+        return ""
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(file_path, read_only=True)
+        try:
+            names = wb.sheetnames
+            target = sheet_name if sheet_name else (names[0] if names else None)
+            state = wb[target].sheet_state if target in names else None
+        finally:
+            wb.close()
+    except Exception:
+        return ""
+    if state in ("hidden", "veryHidden"):
+        return (f"⚠ Sheet \"{target}\" is {state.upper()} in this workbook — "
+                "not visible to someone opening the file in Excel. Its data "
+                "may be used, but the answer MUST disclose that it came from "
+                "a hidden sheet.\n\n")
+    return ""
 
 
 def read_tabular_slice(file_path: str, sheet_name: Optional[str] = None,
@@ -440,7 +487,8 @@ def read_tabular_slice(file_path: str, sheet_name: Optional[str] = None,
             "Use start_row/end_row to page through more data."
         )
 
-    return f"{' '.join(summary_parts)}\n\n{md_table}"
+    note = _sheet_visibility_note(file_path, sheet_name)
+    return f"{note}{' '.join(summary_parts)}\n\n{md_table}"
 
 
 def aggregate_tabular(file_path: str, sheet_name: Optional[str] = None,
@@ -535,7 +583,8 @@ def aggregate_tabular(file_path: str, sheet_name: Optional[str] = None,
     if filter_condition:
         summary_parts.append(f"(filtered from {source_rows})")
 
-    return f"{' '.join(summary_parts)}\n\n{md_table}"
+    note = _sheet_visibility_note(file_path, sheet_name)
+    return f"{note}{' '.join(summary_parts)}\n\n{md_table}"
 
 
 def run_tabular_query(path: str, operation: str, params: Optional[dict] = None) -> dict:
