@@ -473,8 +473,13 @@ def read_tabular_slice(file_path: str, sheet_name: Optional[str] = None,
 
     result_rows = len(df)
 
-    # Convert to markdown table
-    md_table = df.to_markdown(index=False)
+    # Convert to markdown table. floatfmt: tabulate's default is 'g' (6
+    # significant figures), which renders any value over ~1e6 in scientific
+    # notation — an agent reading "1.79628e+06" reports "$1,796,280
+    # (approximately)" where the file holds 1796283.17. '.15g' is float64's
+    # round-trip sweet spot: full currency precision, no 0.30000000000000004
+    # noise (handoff B, 2026-08-28).
+    md_table = df.to_markdown(index=False, floatfmt=".15g")
 
     # Build summary line
     summary_parts = [f"Showing {result_rows} of {filtered_rows} rows"]
@@ -574,7 +579,10 @@ def aggregate_tabular(file_path: str, sheet_name: Optional[str] = None,
         else:
             result_df = pd.DataFrame([result_series])
 
-    md_table = result_df.to_markdown(index=False)
+    # '.15g': see read_tabular_slice — the default 6-sig-fig 'g' float format
+    # destroyed precision on aggregate sums over ~1e6 (the lane the prompt
+    # tells the agent to TRUST for exact totals).
+    md_table = result_df.to_markdown(index=False, floatfmt=".15g")
 
     summary_parts = [f"Aggregation result: {len(result_df)} row(s)"]
     if group_by:

@@ -249,6 +249,28 @@ class TestRunTabularQuery:
         assert r["ok"] is True
         assert "grouped by: Banner" in r["text"]
 
+    def test_aggregate_sum_keeps_full_precision(self, tmp_path):
+        """Handoff B (2026-08-28): to_markdown's default 6-sig-fig 'g' float
+        format rendered sums over ~1e6 as scientific notation (1.79628e+06),
+        so the agent reported '$1,796,280 (approximately)' where the file
+        holds an exact figure. floatfmt='.15g' must keep the cents."""
+        p = tmp_path / "revenue.csv"
+        p.write_text("region,net_revenue\n"
+                     "North,896141.58\nSouth,900141.59\n", encoding="utf-8")
+        r = aet.run_tabular_query(str(p), "aggregate",
+                                  {"aggregations": '{"net_revenue": "sum"}'})
+        assert r["ok"] is True
+        assert "1796283.17" in r["text"]
+        assert "e+06" not in r["text"]
+
+    def test_read_slice_keeps_full_precision(self, tmp_path):
+        p = tmp_path / "revenue.csv"
+        p.write_text("region,net_revenue\nNorth,1796283.17\n", encoding="utf-8")
+        r = aet.run_tabular_query(str(p), "read", {})
+        assert r["ok"] is True
+        assert "1796283.17" in r["text"]
+        assert "e+06" not in r["text"]
+
     def test_missing_file(self, tmp_path):
         r = aet.run_tabular_query(str(tmp_path / "ghost.csv"), "summary")
         assert r["ok"] is False
