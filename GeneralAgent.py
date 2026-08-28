@@ -1387,7 +1387,8 @@ def run_python_code(code: str) -> str:
         try:
             import time as _time
             from CommonUtils import get_log_path as _get_log_path
-            _rec = {"ts": _time.time(), "agent": agent_id_ctx, "user": user_id_ctx,
+            _rec = {"ts": _time.time(), "surface": "general-agent",
+                    "lane": "run_python", "agent": agent_id_ctx, "user": user_id_ctx,
                     "staged": staged_names, "rc": res["returncode"],
                     "timed_out": res["timed_out"],
                     "produced": [b.get("name") for b in blocks]}

@@ -12,6 +12,7 @@ Standalone (aihub-agent python test_agent_query_tabular_file.py) or pytest;
 self-skips without claude_agent_sdk.
 """
 import asyncio
+import json
 import os
 import sys
 import uuid
@@ -146,6 +147,58 @@ def test_missing_file_refused_by_resolver():
     _as_user()
     out = _run({"path": os.path.join(APP_ROOT, "temp", "nope-does-not-exist.csv")})
     assert out.get("is_error")
+
+
+def _ledger_lines_since(offset):
+    from CommonUtils import get_log_path
+    path = get_log_path("run_python_code_invocations.jsonl")
+    if not os.path.isfile(path):
+        return []
+    with open(path, encoding="utf-8") as fh:
+        fh.seek(offset)
+        return [json.loads(l) for l in fh if l.strip()]
+
+
+def _ledger_offset():
+    from CommonUtils import get_log_path
+    path = get_log_path("run_python_code_invocations.jsonl")
+    return os.path.getsize(path) if os.path.isfile(path) else 0
+
+
+def test_invocation_ledger_written_with_lane():
+    """Handoff 2026-08-28 Task 1: a question answered by the tabular lane must
+    be as observable as one answered by run_python — same ledger file, same
+    shape, lane discriminator."""
+    _as_user()
+    p = _tmp("inv.csv")
+    reply = {"status": "success",
+             "result": {"ok": True, "text": "sum=52"}}
+    before = _ledger_offset()
+    with patched(dt, _post_main=_fake_post(reply, {})):
+        _run({"path": p, "operation": "aggregate",
+              "aggregations": '{"Pieces": "sum"}'})
+    recs = [r for r in _ledger_lines_since(before)
+            if r.get("lane") == "query_tabular_file"]
+    assert recs, "no query_tabular_file ledger line written"
+    rec = recs[-1]
+    assert rec["surface"] == "the-agent"
+    assert rec["operation"] == "aggregate"
+    assert rec["rc"] == 0
+    assert rec["file"].endswith("inv.csv")
+    assert "duration_s" in rec and "ts" in rec and "user" in rec
+
+
+def test_invocation_ledger_rc1_on_backend_failure():
+    _as_user()
+    p = _tmp("inv.csv")
+    reply = {"status": "success", "result": {"ok": False, "error": "boom"}}
+    before = _ledger_offset()
+    with patched(dt, _post_main=_fake_post(reply, {})):
+        out = _run({"path": p})
+    assert out.get("is_error")
+    recs = [r for r in _ledger_lines_since(before)
+            if r.get("lane") == "query_tabular_file"]
+    assert recs and recs[-1]["rc"] == 1
 
 
 def test_backend_error_relayed_honestly():

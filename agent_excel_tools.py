@@ -595,6 +595,36 @@ def aggregate_tabular(file_path: str, sheet_name: Optional[str] = None,
     return f"{note}{' '.join(summary_parts)}\n\n{md_table}"
 
 
+def _lane_ledger(lane: str, document_id, started: float, out,
+                 operation: Optional[str] = None):
+    """One line in the shared invocation ledger (same file the run_python
+    writers use) so test packs and forensics can attribute WHICH lane answered
+    a question — GA's legacy tabular tools had the same blind spot The Agent's
+    query_tabular_file did: a correct answer with no trace looks like a guess.
+    rc derives from the tool's string contract ("Error..." prefix = failure).
+    Best-effort; never raises. NOT called from the shared cores
+    (read_tabular_slice etc.) — those also serve The Agent's HTTP path, which
+    writes its own ledger line and must not double-log."""
+    try:
+        try:
+            from GeneralAgent import _current_agent_context as _ctx
+            agent_id = getattr(_ctx, 'agent_id', None)
+            user_id = getattr(_ctx, 'user_id', None)
+        except Exception:
+            agent_id = user_id = None
+        rc = 1 if (out is None or (isinstance(out, str)
+                                   and out.startswith("Error"))) else 0
+        rec = {"ts": time.time(), "surface": "general-agent", "lane": lane,
+               "agent": agent_id, "user": user_id, "file": str(document_id),
+               "operation": operation, "rc": rc,
+               "duration_s": round(time.time() - started, 1)}
+        with open(get_log_path("run_python_code_invocations.jsonl"),
+                  "a", encoding="utf-8") as ledger:
+            ledger.write(json.dumps(rec, default=str) + "\n")
+    except Exception as e:
+        logger.debug(f"{lane}: ledger write failed: {e}")
+
+
 def run_tabular_query(path: str, operation: str, params: Optional[dict] = None) -> dict:
     """
     Path-based entry point for structured tabular queries — the backend of
@@ -777,6 +807,7 @@ class ExcelTool:
             Returns:
                 Formatted text summary of file structure and content
             """
+            started = time.time()
             try:
                 # Try cached metadata first
                 meta = get_excel_metadata(document_id)
@@ -792,10 +823,15 @@ class ExcelTool:
                     meta = generate_excel_metadata(file_path)
                     _update_excel_metadata(document_id, meta)
 
-                return format_tabular_summary(meta, f"document_id: {document_id}")
+                out = format_tabular_summary(meta, f"document_id: {document_id}")
+                _lane_ledger("get_excel_summary", document_id, started, out,
+                             operation="summary")
+                return out
 
             except Exception as e:
                 logger.error(f"Error in get_excel_summary: {e}")
+                _lane_ledger("get_excel_summary", document_id, started, None,
+                             operation="summary")
                 return f"Error getting Excel summary: {str(e)}"
 
         return get_excel_summary
@@ -833,6 +869,7 @@ class ExcelTool:
             Returns:
                 Markdown table with row count summary
             """
+            started = time.time()
             try:
                 file_path = get_excel_file_path(document_id)
                 if not file_path:
@@ -842,13 +879,18 @@ class ExcelTool:
                         f"available documents."
                     )
 
-                return read_tabular_slice(
+                out = read_tabular_slice(
                     file_path, sheet_name=sheet_name, columns=columns,
                     start_row=start_row, end_row=end_row,
                     filter_condition=filter_condition)
+                _lane_ledger("read_excel_data", document_id, started, out,
+                             operation="read")
+                return out
 
             except Exception as e:
                 logger.error(f"Error in read_excel_data: {e}")
+                _lane_ledger("read_excel_data", document_id, started, None,
+                             operation="read")
                 return f"Error reading Excel data: {str(e)}"
 
         return read_excel_data
@@ -887,17 +929,23 @@ class ExcelTool:
             Returns:
                 Markdown table of aggregated results
             """
+            started = time.time()
             try:
                 file_path = get_excel_file_path(document_id)
                 if not file_path:
                     return f"Error: Excel file not found for document {document_id}"
 
-                return aggregate_tabular(
+                out = aggregate_tabular(
                     file_path, sheet_name=sheet_name, group_by=group_by,
                     aggregations=aggregations, filter_condition=filter_condition)
+                _lane_ledger("aggregate_excel_data", document_id, started, out,
+                             operation="aggregate")
+                return out
 
             except Exception as e:
                 logger.error(f"Error in aggregate_excel_data: {e}")
+                _lane_ledger("aggregate_excel_data", document_id, started, None,
+                             operation="aggregate")
                 return f"Error aggregating Excel data: {str(e)}"
 
         return aggregate_excel_data
@@ -941,6 +989,7 @@ class ExcelTool:
             Returns:
                 Chart data for rendering plus a text description
             """
+            started = time.time()
             try:
                 file_path = get_excel_file_path(document_id)
                 if not file_path:
@@ -1081,10 +1130,14 @@ class ExcelTool:
                     f"The chart is now displayed in the chat."
                 )
 
+                _lane_ledger("create_excel_chart", document_id, started,
+                             description, operation="chart")
                 return description
 
             except Exception as e:
                 logger.error(f"Error in create_excel_chart: {e}")
+                _lane_ledger("create_excel_chart", document_id, started, None,
+                             operation="chart")
                 return f"Error creating chart: {str(e)}"
 
         return create_excel_chart
@@ -1331,6 +1384,7 @@ class ExcelTool:
             Returns:
                 The analytical result as text or a formatted table
             """
+            started = time.time()
             try:
                 file_path = get_excel_file_path(document_id)
                 if not file_path:
@@ -1428,6 +1482,8 @@ class ExcelTool:
                     )
                     result = pandas_agent.chat(processed_question)
                     if isinstance(result, ErrorResponse):
+                        _lane_ledger("analyze_excel_data", document_id,
+                                     started, None, operation="analyze")
                         return (
                             "Unable to analyze the data for this question. "
                             "Try rephrasing your question or use the "
@@ -1435,34 +1491,43 @@ class ExcelTool:
                             "aggregate_excel_data) as a fallback."
                         )
 
-                # Format the result
+                # Format the result ('.15g': same precision fix as the
+                # structured lanes — the default 6-sig-fig float format turned
+                # large sums into scientific notation, see e5874e6)
                 if isinstance(result, pd.DataFrame):
                     if result.empty:
-                        return (
+                        out = (
                             "The analysis returned no matching results. "
                             "Try a different question or broader criteria."
                         )
-                    total = len(result)
-                    if total > 100:
-                        truncated = result.head(100)
-                        return (
-                            f"Result ({total} rows, showing first 100):"
-                            f"\n\n{truncated.to_markdown(index=False)}"
-                        )
-                    return (
-                        f"Result ({total} rows):"
-                        f"\n\n{result.to_markdown(index=False)}"
-                    )
+                    else:
+                        total = len(result)
+                        if total > 100:
+                            truncated = result.head(100)
+                            out = (
+                                f"Result ({total} rows, showing first 100):"
+                                f"\n\n{truncated.to_markdown(index=False, floatfmt='.15g')}"
+                            )
+                        else:
+                            out = (
+                                f"Result ({total} rows):"
+                                f"\n\n{result.to_markdown(index=False, floatfmt='.15g')}"
+                            )
                 elif result is None:
-                    return (
+                    out = (
                         "The analysis completed but returned no result. "
                         "Try rephrasing the question."
                     )
                 else:
-                    return str(result)
+                    out = str(result)
+                _lane_ledger("analyze_excel_data", document_id, started, out,
+                             operation="analyze")
+                return out
 
             except Exception as e:
                 logger.error(f"Error in analyze_excel_data: {e}")
+                _lane_ledger("analyze_excel_data", document_id, started, None,
+                             operation="analyze")
                 return f"Error analyzing Excel data: {str(e)}"
 
         return analyze_excel_data

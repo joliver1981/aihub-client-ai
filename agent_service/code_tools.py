@@ -205,7 +205,8 @@ async def run_python(args: dict[str, Any]) -> dict[str, Any]:
         # attribute WHICH lane answered (surface marks this one)
         try:
             from CommonUtils import get_log_path
-            rec = {"ts": time.time(), "surface": "the-agent", "agent": None,
+            rec = {"ts": time.time(), "surface": "the-agent",
+                   "lane": "run_python", "agent": None,
                    "user": uid, "staged": staged_names,
                    "rc": res["returncode"], "timed_out": res["timed_out"],
                    "duration_s": round(time.time() - started, 1),

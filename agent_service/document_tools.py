@@ -1098,21 +1098,47 @@ async def query_tabular_file(args: dict[str, Any]) -> dict[str, Any]:
         if args.get(key) not in (None, ""):
             body[key] = args[key]
 
+    # Invocation ledger (2026-08-28): this lane answers real computations, so
+    # it must be as observable as run_python — a turn answered here was
+    # previously indistinguishable from one answered with no computation at
+    # all (that blind spot produced a retracted "fabricates answers" finding
+    # and helped the sci-notation precision bug go unnoticed). Same file and
+    # record shape as the run_python writers, discriminated by "lane".
+    import time as _time
+    started = _time.time()
+    rc = 1
     try:
-        j, code = await _post_main("/api/internal/tabular/query", body,
-                                   internal=True)
-    except Exception as e:
-        return _text(f"Could not query {name}: {type(e).__name__}: {e}",
-                     is_error=True)
-    if code != 200 or not isinstance(j, dict):
-        detail = j.get("message") if isinstance(j, dict) else str(j)[:300]
-        return _text(f"Could not query {name} (HTTP {code}: {detail}).",
-                     is_error=True)
-    result = j.get("result") or {}
-    if not result.get("ok"):
-        return _text(f"Tabular query failed for {name}: "
-                     f"{result.get('error') or 'unknown error'}", is_error=True)
-    return _text(result.get("text") or "No output.")
+        try:
+            j, code = await _post_main("/api/internal/tabular/query", body,
+                                       internal=True)
+        except Exception as e:
+            return _text(f"Could not query {name}: {type(e).__name__}: {e}",
+                         is_error=True)
+        if code != 200 or not isinstance(j, dict):
+            detail = j.get("message") if isinstance(j, dict) else str(j)[:300]
+            return _text(f"Could not query {name} (HTTP {code}: {detail}).",
+                         is_error=True)
+        result = j.get("result") or {}
+        if not result.get("ok"):
+            return _text(f"Tabular query failed for {name}: "
+                         f"{result.get('error') or 'unknown error'}",
+                         is_error=True)
+        rc = 0
+        return _text(result.get("text") or "No output.")
+    finally:
+        try:
+            import json as _json
+            from CommonUtils import get_log_path
+            rec = {"ts": _time.time(), "surface": "the-agent",
+                   "lane": "query_tabular_file", "agent": None,
+                   "user": int((CURRENT_USER.get() or {}).get("user_id") or 0),
+                   "file": name, "operation": body["operation"], "rc": rc,
+                   "duration_s": round(_time.time() - started, 1)}
+            with open(get_log_path("run_python_code_invocations.jsonl"),
+                      "a", encoding="utf-8") as ledger:
+                ledger.write(_json.dumps(rec) + "\n")
+        except Exception as e:
+            logger.debug(f"query_tabular_file: ledger write failed: {e}")
 
 
 DOCUMENT_TOOLS = [

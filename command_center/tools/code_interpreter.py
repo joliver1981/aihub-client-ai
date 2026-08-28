@@ -485,7 +485,8 @@ async def execute(code: str, session_id: str, user_context: Optional[Dict[str, A
         try:
             import json as _json
             from CommonUtils import get_log_path
-            rec = {"ts": time.time(), "surface": "command-center", "agent": None,
+            rec = {"ts": time.time(), "surface": "command-center",
+                   "lane": "run_python", "agent": None,
                    "user": (user_context or {}).get("user_id"),
                    "staged": inputs, "rc": run.get("returncode"),
                    "timed_out": run.get("timed_out"),
