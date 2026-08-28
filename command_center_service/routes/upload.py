@@ -13,9 +13,9 @@ import os
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Request
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +107,46 @@ def _reconstruct_file_store():
 
 # Run on import to restore state after restart
 _reconstruct_file_store()
+
+# ─── Caller identity (signed CC session JWT) ─────────────────────────────
+# The upload routes used to trust client-supplied Form fields for the owner
+# stamp — any caller who could reach the port could stamp any identity, and a
+# stamp that disagreed with the caller's later chat JWT made the file silently
+# invisible (tenant-invisibility analysis 2026-08-28). Identity now comes from
+# the same Authorization: Bearer CC JWT /api/chat trusts; the same
+# CC_REQUIRE_JWT flag governs both (default enforce, =0 for shadow-mode
+# fallback to the legacy form fields during a phased rollout).
+
+
+def _jwt_enforced() -> bool:
+    return os.environ.get("CC_REQUIRE_JWT", "1") == "1"
+
+
+def _identity_from_request(request: Optional[Request]) -> Tuple[Optional[dict], Optional[str]]:
+    """Resolve the caller's identity from the CC session JWT.
+
+    Returns (user_context, None) on a verified token carrying a user_id, else
+    (None, reason). Mirrors routes/chat.py — the signed token is the identity
+    source; body/form identity can be forged (BUG-CC-SESSION-ID-FORGERY family).
+    """
+    if request is None:
+        return None, "no request"
+    try:
+        import shared_auth
+    except Exception as e:
+        return None, f"shared_auth unavailable: {e}"
+    auth = request.headers.get("authorization") or ""
+    bearer = auth[7:].strip() if auth[:7].lower() == "bearer " else ""
+    if not bearer:
+        return None, "no bearer token"
+    claims, err = shared_auth.verify_token(bearer, shared_auth.AUD_CC)
+    if claims is None:
+        return None, err or "invalid token"
+    ident = shared_auth.cc_user_context_from_claims(claims)
+    if ident.get("user_id") is None:
+        return None, "token carries no user_id"
+    return ident, None
+
 
 # Max file size: 50MB
 MAX_FILE_SIZE = 50 * 1024 * 1024
@@ -488,6 +528,7 @@ def get_attachment_refs(file_ids: List[str]) -> str:
 
 @router.post("/upload")
 async def upload_files(
+    request: Request,
     files: List[UploadFile] = File(...),
     session_id: Optional[str] = Form(None),
     user_id: Optional[int] = Form(None),
@@ -497,8 +538,31 @@ async def upload_files(
     Upload one or more files. Returns metadata for each uploaded file.
     Files are stored locally and can be referenced in chat.
     The uploader's user_id/tenant_id are recorded so cross-user access can
-    be blocked (BUG-R3-005 fix).
+    be blocked (BUG-R3-005 fix); they come from the verified CC JWT — the
+    legacy form fields are honored only in CC_REQUIRE_JWT=0 shadow mode.
     """
+    ident, ident_err = _identity_from_request(request)
+    if ident is not None:
+        jwt_uid, jwt_tid = ident.get("user_id"), ident.get("tenant_id")
+        try:
+            if user_id is not None and int(user_id) != int(jwt_uid):
+                logger.warning(
+                    f"[upload] form user_id={user_id} ignored — JWT identity is {jwt_uid}")
+            if tenant_id is not None and int(tenant_id or 0) != int(jwt_tid or 0):
+                logger.warning(
+                    f"[upload] form tenant_id={tenant_id} ignored — JWT tenant is {jwt_tid}")
+        except (TypeError, ValueError):
+            logger.warning(
+                f"[upload] unparseable form identity {user_id}/{tenant_id} ignored — "
+                f"JWT identity is {jwt_uid}/{jwt_tid}")
+        user_id, tenant_id = jwt_uid, jwt_tid
+    elif _jwt_enforced():
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    else:
+        logger.warning(
+            f"[upload] no valid CC JWT ({ident_err}); shadow mode — trusting form "
+            f"identity user_id={user_id}/tenant_id={tenant_id}. CC_REQUIRE_JWT=1 enforces.")
+
     results = []
 
     for upload_file in files:
@@ -638,12 +702,31 @@ def _file_is_accessible_to(meta: dict, user_id: Optional[int], tenant_id: Option
 
 
 @router.get("/uploads")
-async def list_uploads(session_id: Optional[str] = None):
-    """List uploaded files, optionally filtered by session."""
+async def list_uploads(request: Request, session_id: Optional[str] = None):
+    """List uploaded files, optionally filtered by session. Scoped to what the
+    JWT-identified caller may access (legacy unscoped listing only in
+    CC_REQUIRE_JWT=0 shadow mode)."""
+    ident, ident_err = _identity_from_request(request)
+    if ident is None:
+        if _jwt_enforced():
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        logger.warning(
+            f"[upload] unscoped /uploads listing without valid CC JWT ({ident_err}); "
+            f"shadow mode. CC_REQUIRE_JWT=1 enforces.")
+
     if session_id:
         files = get_files_for_session(session_id)
     else:
         files = list(_file_store.values())
+
+    if ident is not None:
+        try:
+            role = int(ident.get("role") or 0)
+        except (TypeError, ValueError):
+            role = 0
+        files = [f for f in files
+                 if _file_is_accessible_to(f, ident.get("user_id"),
+                                           ident.get("tenant_id"), role)]
 
     return {
         "files": [
@@ -660,11 +743,36 @@ async def list_uploads(session_id: Optional[str] = None):
 
 
 @router.delete("/uploads/{file_id}")
-async def delete_upload(file_id: str):
-    """Delete an uploaded file."""
-    meta = _file_store.pop(file_id, None)
+async def delete_upload(file_id: str, request: Request):
+    """Delete an uploaded file the JWT-identified caller can access (same
+    _file_is_accessible_to gate as staging; denial is a 404 so existence is
+    never leaked). Legacy ungated delete only in CC_REQUIRE_JWT=0 shadow mode."""
+    ident, ident_err = _identity_from_request(request)
+    if ident is None and _jwt_enforced():
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    meta = _file_store.get(file_id)
     if not meta:
         raise HTTPException(status_code=404, detail="File not found")
+
+    if ident is not None:
+        try:
+            role = int(ident.get("role") or 0)
+        except (TypeError, ValueError):
+            role = 0
+        if not _file_is_accessible_to(meta, ident.get("user_id"),
+                                      ident.get("tenant_id"), role):
+            logger.warning(
+                f"[upload] DELETE denied: file {file_id} owner "
+                f"{meta.get('user_id')}/{meta.get('tenant_id')} vs requester "
+                f"{ident.get('user_id')}/{ident.get('tenant_id')} role={role}")
+            raise HTTPException(status_code=404, detail="File not found")
+    else:
+        logger.warning(
+            f"[upload] DELETE of {file_id} without valid CC JWT ({ident_err}); "
+            f"shadow mode allows legacy delete. CC_REQUIRE_JWT=1 enforces.")
+
+    _file_store.pop(file_id, None)
 
     # Remove from filesystem (bytes + analysis cache + meta sidecar)
     file_path = Path(meta["path"])

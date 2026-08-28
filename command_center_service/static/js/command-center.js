@@ -938,8 +938,11 @@ const CC = {
                 formData.append('tenant_id', String(uctx.tenant_id));
             }
 
+            // The server stamps ownership from this JWT (the form fields above
+            // are shadow-mode fallback only) — same trust anchor as /api/chat.
             const resp = await fetch('/api/upload', {
                 method: 'POST',
+                headers: this.token ? { 'Authorization': `Bearer ${this.token}` } : {},
                 body: formData,
             });
 
@@ -1005,9 +1008,12 @@ const CC = {
         this._stagedFiles = this._stagedFiles.filter(f => f.file_id !== fileId);
         this._renderStagedFiles();
 
-        // Delete from server
+        // Delete from server (JWT identifies the caller; ownership enforced server-side)
         try {
-            await fetch(`/api/uploads/${fileId}`, { method: 'DELETE' });
+            await fetch(`/api/uploads/${fileId}`, {
+                method: 'DELETE',
+                headers: this.token ? { 'Authorization': `Bearer ${this.token}` } : {},
+            });
         } catch (err) {
             console.error('Failed to delete file:', err);
         }

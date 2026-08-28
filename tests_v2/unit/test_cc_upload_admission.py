@@ -13,6 +13,9 @@ Covers, on a fresh FastAPI app with the upload router and a tmp uploads dir:
 - meta sidecars: ownership survives _reconstruct_file_store
 - run_python availability mirror + the tabular honesty note when the
   interpreter is off for the user's role
+- upload identity hardening (2026-08-28): CC_REQUIRE_JWT enforcement on
+  upload/list/delete, JWT claims overriding forged form identity, and
+  ownership-gated deletes
 """
 from __future__ import annotations
 
@@ -38,7 +41,12 @@ from routes import upload as up  # noqa: E402
 
 @pytest.fixture
 def app_client(tmp_path, monkeypatch):
-    """Fresh app + isolated uploads dir + cleared store + fake extractor."""
+    """Fresh app + isolated uploads dir + cleared store + fake extractor.
+
+    Runs in CC_REQUIRE_JWT=0 shadow mode so the admission tests keep driving
+    identity through the legacy form fields; TestUploadIdentity flips
+    enforcement back on per-test."""
+    monkeypatch.setenv("CC_REQUIRE_JWT", "0")
     monkeypatch.setattr(up, "UPLOAD_DIR", tmp_path)
     monkeypatch.setattr(up, "_file_store", {})
 
@@ -156,6 +164,80 @@ class TestSidecarReconstruction:
         up._reconstruct_file_store()
         assert up._file_store[fid]["user_id"] == 42        # was None pre-fix
         assert up._file_store[fid]["session_id"] == "sess-1"
+
+
+def _token(monkeypatch, user_id, role=1, tenant_id=0):
+    """Mint a real CC session JWT against a test secret."""
+    pytest.importorskip("jwt")
+    monkeypatch.setenv("CC_JWT_SECRET", "unit-test-secret-abcdef0123456789")
+    import shared_auth
+    return shared_auth.sign_cc_token({
+        "user_id": user_id, "role": role, "tenant_id": tenant_id,
+        "username": f"u{user_id}", "name": f"User {user_id}"})
+
+
+class TestUploadIdentity:
+    def test_enforced_routes_401_without_token(self, app_client, monkeypatch):
+        client, _ = app_client
+        monkeypatch.setenv("CC_REQUIRE_JWT", "1")
+        r = _post(client, "denied.txt", b"data")
+        assert r.status_code == 401
+        assert up._file_store == {}
+        assert client.get("/api/uploads").status_code == 401
+        assert client.delete("/api/uploads/whatever-000").status_code == 401
+
+    def test_jwt_claims_override_forged_form_identity(self, app_client, monkeypatch):
+        client, _ = app_client
+        monkeypatch.setenv("CC_REQUIRE_JWT", "1")
+        tok = _token(monkeypatch, user_id=7, role=1, tenant_id=0)
+        r = client.post(
+            "/api/upload",
+            files=[("files", ("mine.txt", b"payload", "text/plain"))],
+            data={"session_id": "sess-1", "user_id": "999", "tenant_id": "5"},
+            headers={"Authorization": f"Bearer {tok}"},
+        )
+        assert r.status_code == 200
+        fid = r.json()["files"][0]["file_id"]
+        assert up._file_store[fid]["user_id"] == 7          # claims win
+        assert up._file_store[fid]["tenant_id"] == 0
+
+    def test_delete_is_ownership_gated(self, app_client, monkeypatch):
+        client, tmp = app_client
+        monkeypatch.setenv("CC_REQUIRE_JWT", "1")
+        tok7 = _token(monkeypatch, user_id=7)
+        r = client.post(
+            "/api/upload",
+            files=[("files", ("keep.txt", b"data", "text/plain"))],
+            data={"session_id": "sess-1"},
+            headers={"Authorization": f"Bearer {tok7}"},
+        )
+        fid = r.json()["files"][0]["file_id"]
+        tok8 = _token(monkeypatch, user_id=8)
+        r = client.delete(f"/api/uploads/{fid}",
+                          headers={"Authorization": f"Bearer {tok8}"})
+        assert r.status_code == 404                         # denied, not leaked
+        assert fid in up._file_store                        # still there
+        r = client.delete(f"/api/uploads/{fid}",
+                          headers={"Authorization": f"Bearer {tok7}"})
+        assert r.status_code == 200
+        assert fid not in up._file_store
+
+    def test_listing_scoped_to_caller(self, app_client, monkeypatch):
+        client, _ = app_client
+        monkeypatch.setenv("CC_REQUIRE_JWT", "1")
+        for uid, name in ((7, "seven.txt"), (8, "eight.txt")):
+            tok = _token(monkeypatch, user_id=uid)
+            client.post(
+                "/api/upload",
+                files=[("files", (name, b"data", "text/plain"))],
+                data={"session_id": "sess-1"},
+                headers={"Authorization": f"Bearer {tok}"},
+            )
+        tok7 = _token(monkeypatch, user_id=7)
+        names = {f["filename"] for f in client.get(
+            "/api/uploads", headers={"Authorization": f"Bearer {tok7}"}
+        ).json()["files"]}
+        assert names == {"seven.txt"}
 
 
 class TestRunPythonHonesty:
