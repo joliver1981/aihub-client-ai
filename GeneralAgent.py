@@ -1405,6 +1405,32 @@ def run_python_code(code: str) -> str:
             and b.get("download_url")
         ]
 
+        # Deterministic delivery (2026-08-27): tee every image/artifact block
+        # into the rich-content side channel — the same lane create_excel_chart
+        # moved to after in-band markers proved unreliable ("bypasses LLM
+        # output which strips markers"). run() harvests these after the turn
+        # and prepends them to the structured response, so inline charts and
+        # download cards no longer depend on the model echoing the JSON below
+        # verbatim. The echo instruction stays for headless/API callers, whose
+        # contract is the JSON-in-text; the interactive lane strips it back
+        # out deterministically (see _extract_embedded_artifact_blocks).
+        if blocks or image_blocks:
+            try:
+                from RichContentManager import rich_content_manager as _rcm
+                _tee_uid = user_id_ctx
+                if _tee_uid is None:
+                    _tee_uid = getattr(_current_agent_context, 'user_id', None)
+                _tee_uid = str(_tee_uid if _tee_uid is not None else "0")
+                # block_id: ms-timestamp + index so a sorted load renders
+                # multiple executions in one turn in order, without a second
+                # call overwriting the first call's files.
+                import time as _t
+                _stamp = int(_t.time() * 1000) % 10**10
+                for _i, _b in enumerate(image_blocks + blocks):
+                    _rcm.save(_b, _tee_uid, block_id=f"runpy{_stamp:010d}{_i:02d}")
+            except Exception as e:
+                logger.warning(f"run_python_code: rich-content tee failed: {e}")
+
         result = out.strip()
         if not result and not blocks:
             result = "(no output)"
@@ -1511,6 +1537,65 @@ def manipulate_pdf(
     if not blocks:
         return "PDF operation produced no artifacts (write failed)."
     return _json.dumps(blocks)
+
+
+def _extract_embedded_artifact_blocks(text: str):
+    """Deterministically pull run_python_code's "include this artifact JSON
+    verbatim" arrays back out of a model reply.
+
+    Returns (cleaned_text, blocks). The tool tees the same blocks into the
+    rich-content side channel, so on the interactive lane the echoed JSON is
+    redundant — parse it out so raw JSON never reaches the user (and so a
+    prose-only remainder can skip the mini-model structuring hop). The parsed
+    blocks are returned only as a fallback for a failed tee; run() dedups
+    against the side-channel harvest. This is machine-planted JSON, not
+    natural language, so a strict parse (json.JSONDecoder.raw_decode +
+    type-field validation) is the right tool: anything that doesn't parse as
+    an array of artifact/image dicts is left in the text untouched.
+    """
+    import json as _json
+    import re as _re
+
+    if not text or '"type"' not in text or (
+            '"artifact"' not in text and '"image"' not in text):
+        return text, []
+
+    decoder = _json.JSONDecoder()
+    blocks, spans = [], []
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] != '[':
+            i += 1
+            continue
+        try:
+            val, end = decoder.raw_decode(text, i)
+        except ValueError:
+            i += 1
+            continue
+        if (isinstance(val, list) and val
+                and all(isinstance(b, dict)
+                        and b.get('type') in ('artifact', 'image')
+                        for b in val)):
+            blocks.extend(val)
+            spans.append((i, end))
+            i = end
+        else:
+            i += 1
+
+    if not spans:
+        return text, []
+
+    parts, last = [], 0
+    for s, e in spans:
+        parts.append(text[last:s])
+        last = e
+    parts.append(text[last:])
+    cleaned = "".join(parts)
+    # Remove code fences the model may have wrapped the (now removed) JSON in,
+    # then collapse the whitespace the removal left behind.
+    cleaned = _re.sub(r"```(?:json)?\s*```", "", cleaned)
+    cleaned = _re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned, blocks
 
 
 def _save_artifact_and_block(name: str, fbytes: bytes, artifact_type: str) -> str:
@@ -4316,6 +4401,21 @@ class GeneralAgent():
                 except Exception as _e:
                     logger.debug(f"link sanitizer failed (non-fatal): {_e}")
 
+                # Deterministic inline-render path (2026-08-27): if the model
+                # echoed run_python_code's artifact JSON, parse it back out of
+                # the reply. The tool already teed the same blocks into the
+                # rich-content side channel (harvested below), so the echo is
+                # redundant here — stripping it keeps raw JSON out of the chat
+                # and lets a prose-only remainder skip the mini-model
+                # structuring hop. The parsed blocks survive only as a
+                # fallback when the tee failed (dedup below).
+                echoed_artifact_blocks = []
+                try:
+                    output, echoed_artifact_blocks = \
+                        _extract_embedded_artifact_blocks(output)
+                except Exception as _e:
+                    logger.debug(f"artifact-echo extraction failed (non-fatal): {_e}")
+
                 print('RAW OUTPUT TYPE:', type(output))
                 print('RAW OUTPUT:', output)
                 print('USER ID:', user_id)
@@ -4331,6 +4431,27 @@ class GeneralAgent():
                 rich_content_blocks = []
                 if user_id:
                     rich_content_blocks = rich_content_manager.load_all_and_delete(str(user_id))
+
+                # Fallback merge: blocks the model echoed but the side channel
+                # doesn't hold (tee failed, or no user_id to harvest under).
+                # Keyed on artifact_id for artifact cards and the download URL
+                # for image blocks — the teed and echoed dicts are identical,
+                # so the normal case dedups to nothing.
+                if echoed_artifact_blocks:
+                    def _dedup_key(b):
+                        # artifact blocks: artifact_id; image blocks: the
+                        # download URL in content. Non-string content (e.g. a
+                        # chart block's data dict) has no comparable identity.
+                        v = b.get('artifact_id') or b.get('download_url')
+                        if not v and isinstance(b.get('content'), str):
+                            v = b.get('content')
+                        return (b.get('type'), v) if v else None
+                    _seen = {k for k in (_dedup_key(b) for b in rich_content_blocks) if k}
+                    for _b in echoed_artifact_blocks:
+                        _key = _dedup_key(_b)
+                        if _key and _key not in _seen:
+                            rich_content_blocks.append(_b)
+                            _seen.add(_key)
 
                 # Analyze and structure the response using SmartContentRenderer
                 context = {

@@ -73,7 +73,10 @@ class RichContentManager:
             user_id = "0"
 
         blocks = []
-        for filepath in glob.glob(self._get_pattern(user_id)):
+        # Sorted so producers can order their blocks via block_id (e.g.
+        # run_python_code's timestamp+index ids put a chart above its
+        # download card); glob alone returns directory order.
+        for filepath in sorted(glob.glob(self._get_pattern(user_id))):
             try:
                 with open(filepath, 'r', encoding='utf-8') as f:
                     block = json.load(f)
