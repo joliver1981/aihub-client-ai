@@ -4270,6 +4270,10 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 if (meta.get("filename") or "").strip().lower() != want:
                     continue
                 if uid is not None and not _file_is_accessible_to(meta, uid, tid, role):
+                    logger.warning(
+                        f"[portal upload] ownership mismatch for {f!r}: owner "
+                        f"{meta.get('user_id')}/{meta.get('tenant_id')} vs requester "
+                        f"{uid}/{tid} role={role}")
                     continue
                 fid = meta.get("file_id")
                 path = get_file_path(fid) if fid else None
@@ -5175,6 +5179,10 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 if (meta.get("filename") or "").strip().lower() != want:
                     continue
                 if uid is not None and not _file_is_accessible_to(meta, uid, tid, role):
+                    logger.warning(
+                        f"[converse/tool] sftp_upload ownership mismatch for {filename!r}: "
+                        f"owner {meta.get('user_id')}/{meta.get('tenant_id')} vs requester "
+                        f"{uid}/{tid} role={role}")
                     continue
                 fid = meta.get("file_id")
                 path = get_file_path(fid) if fid else None
