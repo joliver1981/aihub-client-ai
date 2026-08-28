@@ -186,7 +186,7 @@ def initialize_agent_environments(app):
         from agent_environments.cloud_config_manager import CloudConfigManager
 
         # Build connection string
-        connection_string = f"DRIVER={{SQL Server}};SERVER={cfg.DATABASE_SERVER};DATABASE={cfg.DATABASE_NAME};UID={cfg.DATABASE_UID};PWD={cfg.DATABASE_PWD}"
+        connection_string = cfg.build_connection_string(cfg.DATABASE_SERVER, cfg.DATABASE_NAME, cfg.DATABASE_UID, cfg.DATABASE_PWD)
         
         # Get tenant ID (from config or environment)
         tenant_id = os.getenv('API_KEY')
@@ -403,13 +403,7 @@ if _BEHIND_PROXY:
 # We pass it via SQLAlchemy's `creator` parameter (below) instead of embedding it
 # in the URI, because URI-based passwords get mangled by URL parsing when they
 # contain '%' or other special characters (root cause of on-prem login failures).
-_odbc_raw = (
-    f"DRIVER={{{cfg.DB_DRIVER or 'SQL Server'}}};"
-    f"SERVER={cfg.DB_SERVER};"
-    f"DATABASE={cfg.DB_NAME};"
-    f"UID={cfg.DB_USER};"
-    f"PWD={cfg.DB_PWD}"
-)
+_odbc_raw = cfg.build_connection_string(cfg.DB_SERVER, cfg.DB_NAME, cfg.DB_USER, cfg.DB_PWD)
 # Placeholder URI — required by Flask-SQLAlchemy for dialect detection only.
 # The actual connection is created by the `creator` callable in SQLALCHEMY_ENGINE_OPTIONS.
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mssql+pyodbc://'
@@ -14917,7 +14911,7 @@ def find_agent_knowledge_documents(agent_id, user_id=None):
         import pyodbc
         
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={cfg.DATABASE_SERVER};DATABASE={cfg.DATABASE_NAME};UID={cfg.DATABASE_UID};PWD={cfg.DATABASE_PWD}"
+            cfg.build_connection_string(cfg.DATABASE_SERVER, cfg.DATABASE_NAME, cfg.DATABASE_UID, cfg.DATABASE_PWD)
         )
         cursor = conn.cursor()
         

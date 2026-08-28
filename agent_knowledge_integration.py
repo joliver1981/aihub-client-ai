@@ -2437,7 +2437,7 @@ def _measure_agent_knowledge_size(agent_id, user_id=None):
     try:
         import pyodbc
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={cfg.DATABASE_SERVER};DATABASE={cfg.DATABASE_NAME};UID={cfg.DATABASE_UID};PWD={cfg.DATABASE_PWD}"
+            cfg.build_connection_string(cfg.DATABASE_SERVER, cfg.DATABASE_NAME, cfg.DATABASE_UID, cfg.DATABASE_PWD)
         )
         cursor = conn.cursor()
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
@@ -2473,7 +2473,7 @@ def _count_agent_knowledge_pages(agent_id, user_id=None) -> int:
     try:
         import pyodbc
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={cfg.DATABASE_SERVER};DATABASE={cfg.DATABASE_NAME};UID={cfg.DATABASE_UID};PWD={cfg.DATABASE_PWD}"
+            cfg.build_connection_string(cfg.DATABASE_SERVER, cfg.DATABASE_NAME, cfg.DATABASE_UID, cfg.DATABASE_PWD)
         )
         cursor = conn.cursor()
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
@@ -2512,7 +2512,7 @@ def _load_agent_knowledge_contents(document_ids, documents):
     try:
         import pyodbc
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={cfg.DATABASE_SERVER};DATABASE={cfg.DATABASE_NAME};UID={cfg.DATABASE_UID};PWD={cfg.DATABASE_PWD}"
+            cfg.build_connection_string(cfg.DATABASE_SERVER, cfg.DATABASE_NAME, cfg.DATABASE_UID, cfg.DATABASE_PWD)
         )
         cursor = conn.cursor()
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
@@ -3053,7 +3053,7 @@ def get_agent_knowledge_documents(agent_id, user_id=None):
         import pyodbc
             
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={cfg.DATABASE_SERVER};DATABASE={cfg.DATABASE_NAME};UID={cfg.DATABASE_UID};PWD={cfg.DATABASE_PWD}"
+            cfg.build_connection_string(cfg.DATABASE_SERVER, cfg.DATABASE_NAME, cfg.DATABASE_UID, cfg.DATABASE_PWD)
         )
         cursor = conn.cursor()
         

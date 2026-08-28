@@ -26,7 +26,7 @@ def _execute_sql_no_results(sql_query):
         #logging.debug('SQL Statement: ' + str(sql_query))
         # Establish a connection to SQL Server
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+            cfg.build_connection_string(database_server, database_name, username, password)
         )
 
         # Create a cursor object to interact with the database
@@ -51,7 +51,7 @@ def _execute_sql(sql_query):
     try:
         # Establish a connection to SQL Server
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+            cfg.build_connection_string(database_server, database_name, username, password)
         )
 
         conn.cursor().execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
@@ -658,7 +658,7 @@ def select_user_agents_and_tools(user_id, user_role=None):
     try:
         # Establish the connection
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+            cfg.build_connection_string(database_server, database_name, username, password)
         )
         cursor = conn.cursor()
 
@@ -745,7 +745,7 @@ def select_all_agents_and_tools():
     try:
         # Establish the connection
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+            cfg.build_connection_string(database_server, database_name, username, password)
         )
         cursor = conn.cursor()
 
@@ -907,7 +907,7 @@ def get_agent_ids():
     try:
         # Establish the connection
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+            cfg.build_connection_string(database_server, database_name, username, password)
         )
         cursor = conn.cursor()
 
@@ -942,7 +942,7 @@ def get_agent_config(agent_id):
     try:
         # Establish the connection
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+            cfg.build_connection_string(database_server, database_name, username, password)
         )
         cursor = conn.cursor()
 
@@ -1005,7 +1005,7 @@ def insert_agent_with_tools(agent_description, agent_objective, agent_enabled, t
     try:
         # Establish the connection
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+            cfg.build_connection_string(database_server, database_name, username, password)
         )
 
         cursor = conn.cursor()
@@ -1058,7 +1058,7 @@ def delete_agent(agent_id):
     try:
         # Establish the connection
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+            cfg.build_connection_string(database_server, database_name, username, password)
         )
 
         cursor = conn.cursor()
@@ -1101,7 +1101,7 @@ def get_agent_binding_signature(agent_id):
     try:
         import hashlib
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+            cfg.build_connection_string(database_server, database_name, username, password)
         )
         try:
             cursor = conn.cursor()
@@ -1132,7 +1132,7 @@ def update_agent_with_tools(agent_id, agent_description, agent_objective, agent_
     try:
         # Establish the connection
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+            cfg.build_connection_string(database_server, database_name, username, password)
         )
 
         cursor = conn.cursor()
@@ -1203,7 +1203,7 @@ def get_agent_doc_type_allow_list(agent_id):
     cursor = None
     try:
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+            cfg.build_connection_string(database_server, database_name, username, password)
         )
         cursor = conn.cursor()
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
@@ -1251,7 +1251,7 @@ def set_agent_doc_type_allow_list(agent_id, doc_types):
     cursor = None
     try:
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+            cfg.build_connection_string(database_server, database_name, username, password)
         )
         cursor = conn.cursor()
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
@@ -1293,7 +1293,7 @@ def insert_agent_with_connection(agent_description, agent_objective, agent_enabl
     try:
         # Establish the connection
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+            cfg.build_connection_string(database_server, database_name, username, password)
         )
 
         cursor = conn.cursor()
@@ -1334,7 +1334,7 @@ def update_agent_with_connection(agent_id, agent_description, agent_objective, a
     try:
         # Establish the connection
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+            cfg.build_connection_string(database_server, database_name, username, password)
         )
 
         cursor = conn.cursor()
@@ -1451,7 +1451,7 @@ def get_user_group_assigned_unassigned(group_id):
     try:
         # Establish the connection
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+            cfg.build_connection_string(database_server, database_name, username, password)
         )
 
         cursor = conn.cursor()
@@ -1480,7 +1480,7 @@ def get_user_group_assigned_unassigned(group_id):
 def get_agent_info():
     try:
         conn = pyodbc.connect(
-                f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+                cfg.build_connection_string(database_server, database_name, username, password)
             )
         cursor = conn.cursor()
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
@@ -1504,7 +1504,7 @@ def is_data_agent(agent_id):
     """
     try:
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+            cfg.build_connection_string(database_server, database_name, username, password)
         )
         cursor = conn.cursor()
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
@@ -1524,7 +1524,7 @@ def is_data_agent(agent_id):
 def save_permissions(group_id, assigned_users, permissions):
     try:
         conn = pyodbc.connect(
-                    f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+                    cfg.build_connection_string(database_server, database_name, username, password)
                 )
         
         cursor = conn.cursor()
@@ -1553,7 +1553,7 @@ def save_permissions(group_id, assigned_users, permissions):
 def get_group_permissions(group_id):
     try:
         conn = pyodbc.connect(
-                        f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+                        cfg.build_connection_string(database_server, database_name, username, password)
                     )
         cursor = conn.cursor()
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
@@ -1750,7 +1750,7 @@ def Get_Max_Column_ID():
 def fetch_user_agents(user_id, user_role=None):
     try:
         conn = pyodbc.connect(
-                f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+                cfg.build_connection_string(database_server, database_name, username, password)
             )
         
         cursor = conn.cursor()
@@ -1805,7 +1805,7 @@ def accessible_agent_ids(user_id, user_role=None):
     conn = None
     try:
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+            cfg.build_connection_string(database_server, database_name, username, password)
         )
         cursor = conn.cursor()
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
@@ -1836,7 +1836,7 @@ def accessible_agent_ids(user_id, user_role=None):
 def fetch_user_agents_by_email(user_email):
     try:
         conn = pyodbc.connect(
-                f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+                cfg.build_connection_string(database_server, database_name, username, password)
             )
         
         cursor = conn.cursor()
@@ -1868,7 +1868,7 @@ def execute_sql_query_as_df(query):
     # per query and accumulating half-open connections against SQL Server.
     try:
         with pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+            cfg.build_connection_string(database_server, database_name, username, password)
         ) as conn:
             conn.cursor().execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
             # Execute the SQL query and fetch the results into a Pandas DataFrame
@@ -2066,14 +2066,14 @@ def script_create_table_statements(table_names, server_creds=None):
     if server_creds is None:
         # Create a cursor object to interact with the default AI database
         conn_data = pyodbc.connect(
-                f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+                cfg.build_connection_string(database_server, database_name, username, password)
             )
         conn_temp = conn_data
     else:
         # Create a new server connection
         # Establish a connection to SQL Server
         conn_temp = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={server_creds['DB_SERVER']};DATABASE={server_creds['DB_NAME']};UID={server_creds['DB_USER']};PWD={server_creds['DB_PWD']}"
+            cfg.build_connection_string(server_creds['DB_SERVER'], server_creds['DB_NAME'], server_creds['DB_USER'], server_creds['DB_PWD'])
         )
     
     # Convert string to list of necessary
@@ -2111,7 +2111,7 @@ def script_create_table_statements(table_names, server_creds=None):
 def get_connection_string_DEPRECATED(agent_id):
     # Define the connection to the database
     conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+            cfg.build_connection_string(database_server, database_name, username, password)
         )
     
     cursor = conn.cursor()
@@ -2155,7 +2155,7 @@ def get_connection_string_DEPRECATED(agent_id):
 def get_connection_string_by_name(connection_name):
     # Define the connection to the database (assuming SQL Server for the main database)
     main_conn = pyodbc.connect(
-        f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+        cfg.build_connection_string(database_server, database_name, username, password)
     )
 
     cursor = main_conn.cursor()
@@ -2266,7 +2266,7 @@ def replace_connection_placeholders(text):
 def get_connection_string(agent_id):
     # Define the connection to the database (assuming SQL Server for the main database)
     main_conn = pyodbc.connect(
-        f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+        cfg.build_connection_string(database_server, database_name, username, password)
     )
 
     cursor = main_conn.cursor()
@@ -2398,7 +2398,7 @@ def get_database_connection_string(connection_id):
 def get_database_connection_string_legacy(connection_id):
     # Define the connection to the database (assuming SQL Server for the main database)
     main_conn = pyodbc.connect(
-        f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+        cfg.build_connection_string(database_server, database_name, username, password)
     )
 
     cursor = main_conn.cursor()
@@ -2484,7 +2484,7 @@ def execute_sql_no_results(connection_string, sql_query):
         #logging.debug('SQL Statement: ' + str(sql_query))
         # Establish a connection to SQL Server
         # conn = pyodbc.connect(
-        #     f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+        #     cfg.build_connection_string(database_server, database_name, username, password)
         # )
         conn = pyodbc.connect(connection_string)
 
@@ -2604,12 +2604,8 @@ def get_agent_environment(agent_id: int) -> Optional[str]:
     if not connection_string:
         try:
             import config as cfg
-            connection_string = (
-                f"DRIVER={{SQL Server}};"
-                f"SERVER={cfg.DATABASE_SERVER};"
-                f"DATABASE={cfg.DATABASE_NAME};"
-                f"UID={cfg.DATABASE_UID};"
-                f"PWD={cfg.DATABASE_PWD}"
+            connection_string = cfg.build_connection_string(
+                cfg.DATABASE_SERVER, cfg.DATABASE_NAME, cfg.DATABASE_UID, cfg.DATABASE_PWD
             )
         except ImportError:
             print("Could not build connection string")

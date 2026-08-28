@@ -7,7 +7,7 @@ all of them without changing any of them:
 1. Workflow approvals — ApprovalRequests rows (Azure/on-prem SQL). Listed here
    by replicating the /api/workflow/user-approvals visibility SQL read-only
    (that endpoint is session-cookie-only, so a service can't call it), using
-   the platform's own service DB pattern: {SQL Server} driver + DATABASE_* env
+   the platform's own service DB pattern: platform ODBC driver + DATABASE_* env
    + EXEC tenant.sp_setTenantContext once per connection. Decisions go through
    the EXISTING generic endpoint POST /api/workflow/approvals/<request_id>,
    which updates the row the paused engine polls.
@@ -40,6 +40,32 @@ _HEADERS = {"X-API-Key": AI_HUB_API_KEY, "Connection": "close"}
 # SQL (read-only) — workflow ApprovalRequests + UserGroups membership
 # ---------------------------------------------------------------------------
 
+_DB_DRIVER = None
+
+
+def _driver(pyodbc):
+    """Same driver-selection rule as the platform's config.py (this service
+    deploys standalone, so it can't import it): DATABASE_DRIVER when that
+    driver is installed ('+' and {braces} tolerated), else ODBC Driver 17 for
+    SQL Server when installed — the legacy driver's WRITETEXT path is rejected
+    on RLS-protected tables — else the legacy 'SQL Server' driver."""
+    global _DB_DRIVER
+    if _DB_DRIVER is None:
+        configured = ' '.join(
+            os.getenv("DATABASE_DRIVER", "").strip().strip('{}').replace('+', ' ').split())
+        try:
+            installed = {d.strip().lower(): d for d in pyodbc.drivers()}
+        except Exception:
+            installed = {}
+        if configured and installed and configured.lower() not in installed:
+            logger.warning("DATABASE_DRIVER '%s' is not an installed ODBC driver; "
+                           "auto-selecting instead", configured)
+        _DB_DRIVER = (installed.get(configured.lower())
+                      or installed.get("odbc driver 17 for sql server")
+                      or "SQL Server")
+    return _DB_DRIVER
+
+
 def _db():
     import pyodbc  # optional dependency; failures degrade gracefully
     server = os.getenv("DATABASE_SERVER", "localhost")
@@ -47,7 +73,7 @@ def _db():
     uid = os.getenv("DATABASE_UID", "")
     pwd = os.getenv("DATABASE_PWD", "")
     conn = pyodbc.connect(
-        f"DRIVER={{SQL Server}};SERVER={server};DATABASE={name};UID={uid};PWD={pwd}")
+        f"DRIVER={{{_driver(pyodbc)}}};SERVER={server};DATABASE={name};UID={uid};PWD={pwd}")
     cur = conn.cursor()
     api_key = os.getenv("API_KEY", "")
     if api_key:

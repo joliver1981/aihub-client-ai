@@ -202,16 +202,16 @@ def set_user_request_id(module_name, request_id=None):
 
 def get_db_connection():
     """Create and return a connection to the database"""
-    return pyodbc.connect(f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}")
+    return pyodbc.connect(cfg.build_connection_string(database_server, database_name, username, password))
 
 def get_db_connection_string():
     """Create and return a connection to the database"""
-    return f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+    return cfg.build_connection_string(database_server, database_name, username, password)
 
 class CloudDatabaseConnection:
     def __init__(self):
         self.conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+            cfg.build_connection_string(database_server, database_name, username, password)
         )
 
     def execute_query(self, query, params=None):
@@ -618,11 +618,11 @@ def azureQuickPromptMini(prompt, system="You are an assistant."):
 
 # Establish a connection to SQL Server
 conn = pyodbc.connect(
-    f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+    cfg.build_connection_string(database_server, database_name, username, password)
 )
 
 connLLMDB = pyodbc.connect(
-    f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={db_name};UID={username};PWD={password}"
+    cfg.build_connection_string(database_server, db_name, username, password)
 )
 
 # llm = AzureChatOpenAI(openai_api_base=AZURE_OPENAI_BASE_URL,
@@ -858,7 +858,7 @@ def ExecuteSQLServerQueryWithNoResults(sql_query, server_creds=None):
             # Create a new server connection
             # Establish a connection to SQL Server
             conn_temp = pyodbc.connect(
-                f"DRIVER={{SQL Server}};SERVER={server_creds['DB_SERVER']};DATABASE={server_creds['DB_NAME']};UID={server_creds['DB_USER']};PWD={server_creds['DB_PWD']}"
+                cfg.build_connection_string(server_creds['DB_SERVER'], server_creds['DB_NAME'], server_creds['DB_USER'], server_creds['DB_PWD'])
             )
 
             cursor = conn_temp.cursor()

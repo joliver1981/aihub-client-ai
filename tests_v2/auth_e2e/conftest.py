@@ -70,9 +70,8 @@ def _get_db_conn():
     import pyodbc  # noqa: WPS433  (local import keeps collection cheap when DB absent)
     import config as cfg
 
-    conn_str = (
-        f"DRIVER={{SQL Server}};SERVER={cfg.DATABASE_SERVER};"
-        f"DATABASE={cfg.DATABASE_NAME};UID={cfg.DATABASE_UID};PWD={cfg.DATABASE_PWD}"
+    conn_str = cfg.build_connection_string(
+        cfg.DATABASE_SERVER, cfg.DATABASE_NAME, cfg.DATABASE_UID, cfg.DATABASE_PWD
     )
     conn = pyodbc.connect(conn_str, autocommit=True)
     api_key = os.getenv("API_KEY") or "DB27D555-03A8-446E-9C23-8DAAA95EAD21"

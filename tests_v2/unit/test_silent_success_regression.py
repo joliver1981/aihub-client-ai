@@ -931,10 +931,19 @@ def test_residual11_dispatcher_routes_through_chokepoint():
 _DATAUTILS_PY = os.path.join(_REPO, "DataUtils.py")
 
 
+class _FakeCfg:
+    # DataUtils builds connection strings via config.build_connection_string
+    # (the single ODBC-driver-selection helper); the stub only has to let the
+    # call resolve — _FakePyodbc.connect ignores the string entirely.
+    @staticmethod
+    def build_connection_string(server, database, uid, pwd):
+        return f"DRIVER={{stub}};SERVER={server};DATABASE={database};UID={uid};PWD={pwd}"
+
+
 def _load_accessible(pyodbc_stub):
     return _load_functions(
         _DATAUTILS_PY, ["accessible_agent_ids"],
-        {"pyodbc": pyodbc_stub, "os": os,
+        {"pyodbc": pyodbc_stub, "os": os, "cfg": _FakeCfg,
          "database_server": "s", "database_name": "d", "username": "u", "password": "p"},
     )["accessible_agent_ids"]
 

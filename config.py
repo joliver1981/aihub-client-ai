@@ -197,8 +197,64 @@ DB_USER = DATABASE_UID
 DB_PWD = DATABASE_PWD
 DB_SERVER = DATABASE_SERVER
 DB_NAME = DATABASE_NAME
-DB_DRIVER = os.getenv('DATABASE_DRIVER', 'SQL Server')
-CONNECTION_STRING = f"DRIVER={{SQL Server}};SERVER={DB_SERVER};DATABASE={DB_NAME};UID={DB_USER};PWD={DB_PWD}"
+
+# ODBC driver selection.
+# The legacy 'SQL Server' driver (SQL Server 2000 era) streams large values
+# through the WRITETEXT/SQLPutData path, which SQL Server rejects on tables
+# protected by Row-Level Security (error 7152, surfacing to callers as 7125
+# "partial insert" — e.g. large Excel ingests into DocumentPages.full_text).
+# 'ODBC Driver 17 for SQL Server' binds nvarchar(max) as a normal parameter,
+# so it is preferred whenever installed. Driver 18 is deliberately NOT
+# auto-selected: it defaults to Encrypt=yes and breaks non-TLS servers.
+_DB_DRIVER_PREFERRED = 'ODBC Driver 17 for SQL Server'
+_DB_DRIVER_LEGACY = 'SQL Server'
+
+
+def _normalize_db_driver(value):
+    """Bare ODBC driver name from a configured value: strips {braces} and
+    converts '+' to spaces ('ODBC+Driver+17+for+SQL+Server' shipped in old
+    .env templates; ODBC needs literal spaces or the name never resolves)."""
+    if not value:
+        return ''
+    return ' '.join(value.strip().strip('{}').replace('+', ' ').split())
+
+
+def _resolve_db_driver():
+    """DATABASE_DRIVER (normalized) if that driver is installed; otherwise the
+    preferred modern driver when installed, else the legacy driver. A wrong or
+    missing configured value must never brick a machine — fall back loudly."""
+    configured = _normalize_db_driver(os.getenv('DATABASE_DRIVER', ''))
+    try:
+        import pyodbc
+        installed = {d.strip().lower(): d for d in pyodbc.drivers()}
+    except Exception:
+        # No usable pyodbc in this environment — nothing in this process can
+        # open a DB connection anyway; keep the configured/legacy name.
+        return configured or _DB_DRIVER_LEGACY
+    if configured:
+        if configured.lower() in installed:
+            return installed[configured.lower()]
+        print(f"[config] WARNING: DATABASE_DRIVER '{configured}' is not an installed "
+              f"ODBC driver; auto-selecting instead.", file=sys.stderr)
+    if _DB_DRIVER_PREFERRED.lower() in installed:
+        return installed[_DB_DRIVER_PREFERRED.lower()]
+    if configured:
+        print(f"[config] WARNING: falling back to legacy '{_DB_DRIVER_LEGACY}' ODBC driver.",
+              file=sys.stderr)
+    return _DB_DRIVER_LEGACY
+
+
+DB_DRIVER = _resolve_db_driver()
+
+
+def build_connection_string(server, database, uid, pwd):
+    """The single builder for SQL Server ODBC connection strings. Every
+    connection in the app goes through here so the driver choice above
+    (DB_DRIVER) is applied consistently."""
+    return f"DRIVER={{{DB_DRIVER}}};SERVER={server};DATABASE={database};UID={uid};PWD={pwd}"
+
+
+CONNECTION_STRING = build_connection_string(DB_SERVER, DB_NAME, DB_USER, DB_PWD)
 
 # WinRM Credentials
 WINRM_USER = os.getenv('WINRM_USER')

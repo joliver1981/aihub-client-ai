@@ -97,12 +97,12 @@ def set_user_request_id(module_name, request_id=None):
 
 def get_db_connection():
     """Create and return a connection to the database"""
-    return pyodbc.connect(f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}")
+    return pyodbc.connect(cfg.build_connection_string(database_server, database_name, username, password))
 
 
 def get_db_connection_string():
     """Create and return a connection to the database"""
-    return f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+    return cfg.build_connection_string(database_server, database_name, username, password)
 
 
 def get_document_types():

@@ -256,8 +256,7 @@ def get_excel_file_path(document_id: str) -> Optional[str]:
     try:
         import pyodbc
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={cfg.DATABASE_SERVER};"
-            f"DATABASE={cfg.DATABASE_NAME};UID={cfg.DATABASE_UID};PWD={cfg.DATABASE_PWD}"
+            cfg.build_connection_string(cfg.DATABASE_SERVER, cfg.DATABASE_NAME, cfg.DATABASE_UID, cfg.DATABASE_PWD)
         )
         cursor = conn.cursor()
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))
@@ -295,8 +294,7 @@ def get_excel_metadata(document_id: str) -> Optional[dict]:
     try:
         import pyodbc
         conn = pyodbc.connect(
-            f"DRIVER={{SQL Server}};SERVER={cfg.DATABASE_SERVER};"
-            f"DATABASE={cfg.DATABASE_NAME};UID={cfg.DATABASE_UID};PWD={cfg.DATABASE_PWD}"
+            cfg.build_connection_string(cfg.DATABASE_SERVER, cfg.DATABASE_NAME, cfg.DATABASE_UID, cfg.DATABASE_PWD)
         )
         cursor = conn.cursor()
         cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))

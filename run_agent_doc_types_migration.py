@@ -10,8 +10,7 @@ import config as cfg
 import pyodbc
 
 conn = pyodbc.connect(
-    f"DRIVER={{SQL Server}};SERVER={cfg.DATABASE_SERVER};"
-    f"DATABASE={cfg.DATABASE_NAME};UID={cfg.DATABASE_UID};PWD={cfg.DATABASE_PWD}"
+    cfg.build_connection_string(cfg.DATABASE_SERVER, cfg.DATABASE_NAME, cfg.DATABASE_UID, cfg.DATABASE_PWD)
 )
 cursor = conn.cursor()
 

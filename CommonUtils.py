@@ -46,19 +46,19 @@ def get_env_version():
 
 def get_db_connection():
     """Create and return a connection to the database"""
-    return pyodbc.connect(f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}")
+    return pyodbc.connect(cfg.build_connection_string(database_server, database_name, username, password))
 
 def get_db_connection_string():
     """Create and return a connection to the database"""
-    return f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+    return cfg.build_connection_string(database_server, database_name, username, password)
 
 def get_cloud_db_connection():
     """Create and return a connection to the database"""
-    return pyodbc.connect(f"DRIVER={{SQL Server}};SERVER={cfg.CLOUD_DATABASE_SERVER};DATABASE={cfg.CLOUD_DATABASE_NAME};UID={cfg.CLOUD_DATABASE_UID};PWD={cfg.CLOUD_DATABASE_PWD}")
+    return pyodbc.connect(cfg.build_connection_string(cfg.CLOUD_DATABASE_SERVER, cfg.CLOUD_DATABASE_NAME, cfg.CLOUD_DATABASE_UID, cfg.CLOUD_DATABASE_PWD))
 
 def get_cloud_db_connection_string():
     """Create and return a connection to the database"""
-    return f"DRIVER={{SQL Server}};SERVER={cfg.CLOUD_DATABASE_SERVER};DATABASE={cfg.CLOUD_DATABASE_NAME};UID={cfg.CLOUD_DATABASE_UID};PWD={cfg.CLOUD_DATABASE_PWD}"
+    return cfg.build_connection_string(cfg.CLOUD_DATABASE_SERVER, cfg.CLOUD_DATABASE_NAME, cfg.CLOUD_DATABASE_UID, cfg.CLOUD_DATABASE_PWD)
 
 def estimate_token_count(text: str) -> int:
     """Simple token estimation"""

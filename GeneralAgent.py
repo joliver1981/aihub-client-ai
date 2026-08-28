@@ -3404,7 +3404,7 @@ class GeneralAgent():
         try:
             # Establish the connection
             conn = pyodbc.connect(
-                f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}"
+                cfg.build_connection_string(database_server, database_name, username, password)
             )
             cursor = conn.cursor()
             cursor.execute("EXEC tenant.sp_setTenantContext ?", os.getenv('API_KEY'))

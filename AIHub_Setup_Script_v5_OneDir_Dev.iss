@@ -512,12 +512,34 @@ begin
   Log('========================================');
 end;
 
+function IsOdbcDriver17Installed(): Boolean;
+begin
+  // 64-bit install mode, so HKLM is the 64-bit registry view.
+  Result := RegKeyExists(HKLM, 'SOFTWARE\ODBC\ODBCINST.INI\ODBC Driver 17 for SQL Server');
+end;
+
 function InitializeSetup(): Boolean;
 var
   OldVersion: String;
   EnvFilePath: String;
 begin
   Result := True;
+
+  // ODBC Driver 17 advisory — deliberately NOT a blocker. The app auto-selects
+  // Driver 17 when present; without it, it falls back to the legacy
+  // {SQL Server} driver, whose WRITETEXT streaming path fails on
+  // RLS-protected tables (error 7125 on large document/Excel uploads).
+  if not IsOdbcDriver17Installed() then
+  begin
+    Log('WARNING: ODBC Driver 17 for SQL Server not found - AI Hub will fall back to the legacy SQL Server ODBC driver');
+    MsgBox('Microsoft ODBC Driver 17 for SQL Server was not found on this machine.' + #13#10#13#10 +
+           'AI Hub will still work using the legacy "SQL Server" ODBC driver, but uploading large documents (for example big Excel workbooks) can fail with a database error.' + #13#10#13#10 +
+           'Recommended: install "Microsoft ODBC Driver 17 for SQL Server" (free download from microsoft.com), then restart the AI Hub services.',
+           mbInformation, MB_OK);
+  end
+  else
+    Log('ODBC Driver 17 for SQL Server detected');
+
   OldVersion := GetInstalledVersion();
   IsUpgrade := (OldVersion <> '');
 

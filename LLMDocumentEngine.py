@@ -702,7 +702,7 @@ class LLMDocumentProcessor:
         self, 
         vector_db_path: str = "./chroma_db",
         schema_dir: str = "./schemas",
-        sql_connection_string: Optional[str] = f"DRIVER={{SQL Server}};SERVER={database_server};DATABASE={database_name};UID={username};PWD={password}",
+        sql_connection_string: Optional[str] = cfg.build_connection_string(database_server, database_name, username, password),
         log_level: str = "DEBUG"
     ):
         """

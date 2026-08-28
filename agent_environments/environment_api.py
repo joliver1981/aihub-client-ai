@@ -60,7 +60,7 @@ def get_connection_string():
         # Build connection string from your config
         try:
             import config as cfg
-            connection_string = f"DRIVER={{SQL Server}};SERVER={cfg.DATABASE_SERVER};DATABASE={cfg.DATABASE_NAME};UID={cfg.DATABASE_UID};PWD={cfg.DATABASE_PWD}"
+            connection_string = cfg.build_connection_string(cfg.DATABASE_SERVER, cfg.DATABASE_NAME, cfg.DATABASE_UID, cfg.DATABASE_PWD)
         except ImportError:
             # Fallback to environment variables
             connection_string = (
