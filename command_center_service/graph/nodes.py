@@ -1616,9 +1616,59 @@ def _builder_in_flight(active) -> bool:
     return str((active or {}).get("build_status") or "in_progress").lower() == "in_progress"
 
 
+def _session_upload_names(state) -> list:
+    """Filenames of this session's chat uploads the current user can access.
+
+    Same ownership gate the attachment/staging paths use. Fail open: any
+    error returns [] (the routing guards below simply don't engage)."""
+    try:
+        sid = state.get("session_id") or ""
+        if not sid:
+            return []
+        from routes.upload import get_files_for_session, _file_is_accessible_to
+        uc = state.get("user_context") or {}
+        uid = uc.get("user_id")
+        tid = uc.get("tenant_id")
+        try:
+            role = int(uc.get("role") or 0)
+        except (TypeError, ValueError):
+            role = 0
+        names = []
+        for meta in (get_files_for_session(sid) or []):
+            if uid is not None and not _file_is_accessible_to(meta, uid, tid, role):
+                continue
+            name = str(meta.get("filename") or "").strip()
+            if name:
+                names.append(name)
+        return names
+    except Exception as e:
+        logger.debug(f"[classify_intent] session upload listing unavailable: {e}")
+        return []
+
+
+def _named_uploaded_file(user_text: str, upload_names: list):
+    """The staged uploaded filename the message literally names, or None.
+
+    Deterministic fail-closed guard (no NL interpretation): full filename as a
+    case-insensitive substring, or the stem when it is filename-shaped enough
+    (>=5 chars with a separator/digit) to not collide with ordinary prose."""
+    text = (user_text or "").lower()
+    if not text:
+        return None
+    for name in upload_names:
+        low = name.lower()
+        if low in text:
+            return name
+        stem = low.rsplit(".", 1)[0]
+        if (len(stem) >= 5 and any(c in stem for c in "_-0123456789")
+                and stem in text):
+            return name
+    return None
+
+
 async def classify_intent(state: CommandCenterState) -> dict:
     """Classify the user's intent using a mini LLM call.
-    
+
     If there's an active delegation (mid-conversation with an agent),
     route directly to continue that conversation unless the user
     explicitly wants to change topic.
@@ -1688,6 +1738,28 @@ async def classify_intent(state: CommandCenterState) -> dict:
         if active:
             _cd_out["active_delegation"] = None
         return _cd_out
+
+    # ── Uploaded-file shortcut (2026-08-28) ─────────────────────────────
+    # A question that names a file uploaded to THIS session must stay in
+    # converse, whose run_python lane has the file staged. Data agents query
+    # configured connections and can NEVER see a chat upload — delegating such
+    # a question is always a dead end (live: Q34/Q48 delegated to agents
+    # #299/#352, which answered they can't reach the workbook, while converse
+    # answered 45/48 in the same session). Deterministic literal-filename
+    # guard; fires ahead of the active-delegation routers so a mid-delegation
+    # follow-up naming the file breaks out too. Fails open on any error.
+    _upload_names = _session_upload_names(state)
+    if _upload_names and not _builder_in_flight(active):
+        _up_hit = _named_uploaded_file(user_text, _upload_names)
+        if _up_hit:
+            logger.info(
+                f"[classify_intent] uploaded-file shortcut → intent=chat "
+                f"(question names staged upload {_up_hit!r}; delegated agents "
+                f"cannot see chat uploads)")
+            _up_out = {"intent": "chat", "pending_agent_selection": False}
+            if active:
+                _up_out["active_delegation"] = None
+            return _up_out
 
     # ── Code-flow authoring continuity (AIHUB-0035) ─────────────────────
     # Once a code flow is being authored in this session (marker set by
@@ -1971,6 +2043,9 @@ Classify the user's intent:
   maps, images, web search, file exports, email, or multi-agent coordination.
   IMPORTANT: searching for documents, files, contracts, leases, invoices, or
   policies is ALWAYS CC_CAPABLE — data agents cannot search the document repository.
+  IMPORTANT: questions about a file UPLOADED TO THIS CHAT (a spreadsheet or CSV
+  the user attached) are ALWAYS CC_CAPABLE — the orchestrator's code interpreter
+  has the file; delegated agents can NEVER access chat uploads.
 
 Reply with ONLY one word: CONTINUE, CC_CAPABLE, or REROUTE."""
 
@@ -2038,6 +2113,7 @@ WHAT THE CURRENT AGENT CAN DO:
 
 WHAT THE CC ORCHESTRATOR CAN DO (that delegated agents CANNOT):
 - Search the DOCUMENT REPOSITORY for files, contracts, leases, invoices, policies, reports
+- Compute over files UPLOADED TO THIS CHAT (spreadsheets, CSVs) with its code interpreter — delegated agents can NEVER access chat uploads
 - Generate interactive maps (choropleth, markers, geographic visualization)
 - Generate images (DALL-E)
 - Search the web for real-time information (news, weather, prices, events)
@@ -2326,6 +2402,21 @@ Reply with ONLY one word: CONTINUE, CC_CAPABLE, or REROUTE."""
             'overdue", "show me the sales data") → "query".'
         )
     prompt += _preferences_block(state)
+
+    # Softer net behind the literal-filename shortcut above: the classifier is
+    # TOLD which files are staged so paraphrases ("the budget file", "the
+    # spreadsheet I uploaded") also stay in converse instead of delegating to
+    # an agent that cannot see chat uploads.
+    if _upload_names:
+        _up_list = ", ".join(sorted(_upload_names)[:20])
+        prompt += (
+            "\n\nFILES UPLOADED TO THIS CHAT: " + _up_list + "\n"
+            "Any question that computes over, summarizes, or otherwise asks "
+            "about one of these uploaded files → \"chat\". The chat handler's "
+            "code interpreter has these files staged; data/general agents can "
+            "NEVER access chat uploads, so \"query\"/\"delegate\" for such a "
+            "question always dead-ends."
+        )
 
     _ic_conv = _format_conversation_for_prompt(messages)
     if _ic_conv:
@@ -4110,15 +4201,21 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
         # block types (image/artifact) as a JSON list so converse renders them
         # inline. converse requires EVERY element of a list to be a direct-block
         # type ("image"/"artifact"/...), so we must NOT mix in a "text" block —
-        # the converse layer auto-prepends a short intro for images. Any stdout
-        # is logged but not shown when files are produced (the file IS the answer).
-        # The manifest can't ride along on this branch either (same contract) —
-        # logged here; the prompt's HIDDEN SHEETS clause still governs.
+        # the converse layer auto-prepends a short intro for images. Printed
+        # output + the hidden-sheet manifest therefore ride the turn-local side
+        # channel instead: the direct-block branch renders them as the leading
+        # text block, so code that both PRINTS an answer and saves a chart no
+        # longer loses the answer (Q38: charted "which months were over
+        # budget?" and never answered it).
         if out_blocks:
+            captured = ""
             if stdout:
                 logger.info(f"[converse/tool] run_python stdout (with {len(out_blocks)} output block(s)): {stdout[:200]}")
+                captured = f"```\n{stdout[:8000]}\n```"
             if manifest:
-                logger.info(f"[converse/tool] run_python hidden-sheet manifest suppressed by block-only result: {manifest.strip()[:200]}")
+                captured += manifest
+            if captured:
+                _runpy_printed_texts.append(captured)
             return json.dumps(out_blocks)
 
         # Success, no files → plain stdout (or a friendly note) as a string.
@@ -6907,6 +7004,10 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
             _used_automation_tool = False  # AIHUB-0057: automation marker twin
             _automation_name = None
             _paused_pin = None             # AIHUB-0058 A: (run_id, checkpoint_id)
+            # run_python side channel: printed output captured when the result
+            # is a direct-render block list (which cannot carry text) — the
+            # direct-block branch renders it as the leading text block.
+            _runpy_printed_texts = []
 
             def _auto_display_name():
                 """Automation name for footers/markers. Tools like
@@ -7251,6 +7352,11 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                 )
 
                 all_blocks = []
+                # run_python's printed output for this turn (side channel): when
+                # the code both PRINTS an answer and produces files, the block
+                # list wins the render but the text must still reach the user.
+                _rp_txt = "\n\n".join(
+                    t for t in _runpy_printed_texts if t and t.strip())
                 if not has_large_data:
                     # Send back to LLM with tools — the LLM may need to chain
                     # another tool call (e.g. export_data → send_email)
@@ -7292,13 +7398,20 @@ DO NOT try to answer real-time questions from memory alone — call search_web f
                             all_blocks.append({"type": "text", "content": intro_text})
                     except Exception as e:
                         logger.warning(f"[converse] LLM follow-up failed (skipping intro): {e}")
+                    if _rp_txt:
+                        all_blocks.append({"type": "text", "content": _rp_txt})
                 else:
-                    # For images/large data, generate a simple intro without LLM
-                    block_types = [b.get("type") for b in direct_blocks]
-                    if "image" in block_types:
-                        all_blocks.append({"type": "text", "content": "Here's the generated image:"})
-                    elif "map" in block_types:
-                        all_blocks.append({"type": "text", "content": "Here's the map:"})
+                    # For images/large data, no LLM follow-up (token overflow) —
+                    # the deterministic text is run_python's captured printed
+                    # output when there is one, else the canned intro.
+                    if _rp_txt:
+                        all_blocks.append({"type": "text", "content": _rp_txt})
+                    else:
+                        block_types = [b.get("type") for b in direct_blocks]
+                        if "image" in block_types:
+                            all_blocks.append({"type": "text", "content": "Here's the generated image:"})
+                        elif "map" in block_types:
+                            all_blocks.append({"type": "text", "content": "Here's the map:"})
 
                 all_blocks.extend(direct_blocks)
                 content = json.dumps(all_blocks)
