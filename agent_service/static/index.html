@@ -260,17 +260,32 @@
   .histitem .ht{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .histitem .hm{font-family:var(--mono);font-size:10.5px;color:var(--text3)}
 
-  /* platform links (rail) */
-  .plat{padding:8px 12px 4px;border-top:1px solid var(--line-soft);margin-top:8px;
-        flex:0 1 auto;overflow-y:auto;max-height:46vh}
-  .plat .plabel{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
-                color:var(--text3);margin-bottom:2px}
-  .plat .pgroup{font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;
-                color:var(--text3);opacity:.75;margin:9px 6px 3px}
-  .plat a{display:block;color:var(--text2);text-decoration:none;font-size:11.5px;
-          padding:3px 6px;border-radius:6px}
-  .plat a:hover{color:var(--text);background:var(--hover)}
-  .plat .classic{margin-top:8px;border-top:1px solid var(--line-soft);padding-top:6px}
+  /* platform directory (rail row + flyout over the content area) */
+  .plat{border-top:1px solid var(--line-soft);margin-top:8px;padding-top:6px;flex:none}
+  .platbtn{display:flex;align-items:center;gap:9px;width:100%;text-align:left;
+           padding:8px 10px;border-radius:8px;color:var(--text2);font-size:13px;
+           font-weight:520}
+  .platbtn:hover,.platbtn.open{background:var(--hover);color:var(--text)}
+  .platbtn .chev{margin-left:auto;font-size:9px;color:var(--text3);
+                 transition:transform .15s ease}
+  .platbtn.open .chev{transform:rotate(90deg)}
+  @media (prefers-reduced-motion:reduce){.platbtn .chev{transition:none}}
+  .platfly{position:fixed;left:206px;bottom:14px;z-index:55;
+           width:min(340px,calc(100vw - 214px));max-height:calc(100vh - 40px);
+           overflow-y:auto;background:var(--raised);border:1px solid var(--line);
+           border-radius:12px;padding:12px 14px;box-shadow:0 12px 34px rgba(0,0,0,.5);
+           scrollbar-width:thin;scrollbar-color:transparent transparent}
+  .platfly:hover{scrollbar-color:#2A3947 transparent}
+  .platcols{columns:2;column-gap:18px}
+  .platcols .pgrp{break-inside:avoid}
+  .platfly .pgroup{font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;
+                   color:var(--text3);opacity:.75;margin:9px 2px 3px}
+  .platcols .pgrp:first-child .pgroup{margin-top:0}
+  .platfly a{display:block;color:var(--text2);text-decoration:none;font-size:11.5px;
+             padding:3px 6px;border-radius:6px;white-space:nowrap;
+             overflow:hidden;text-overflow:ellipsis}
+  .platfly a:hover{color:var(--text);background:var(--hover)}
+  .platfly .classic{margin-top:8px;border-top:1px solid var(--line-soft);padding-top:6px}
 
   /* views (deterministic dashboards) */
   .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));
@@ -328,11 +343,16 @@
   <button class="navlink" id="nav-skills">◆ Skills</button>
   <div class="spacer"></div>
   <div class="plat" id="plat" style="display:none">
-    <div class="plabel">Platform</div>
+    <button class="platbtn" id="plat-btn" aria-haspopup="true" aria-expanded="false">⌗ Platform <span class="chev">▸</span></button>
   </div>
   <div class="model-note" id="model"></div>
   <div class="who" id="who"></div>
 </nav>
+<!-- fixed-position flyout lives OUTSIDE the sticky rail: sticky creates a
+     stacking context that would trap its z-index under the chat footer -->
+<div class="platfly" id="plat-fly" hidden>
+  <div class="platcols" id="plat-cols"></div>
+</div>
 
 <!-- ===================== ASSISTANT ===================== -->
 <section class="view on" id="view-chat">
@@ -1008,7 +1028,6 @@
   const PLATFORM_GROUPS = [
     { label: "Data", minRole: 2, links: [
       ["Data Explorer", "/data_explorer"],
-      ["Data Assistants", "/data_assistants"],
       ["Data Dictionary", "/data_dictionary"],
       ["Connections", "/connections"],
       ["My Connections", "/my-connections"],
@@ -1046,21 +1065,47 @@
     ]},
   ];
   function buildPlatformLinks(role) {
-    const box = document.getElementById("plat");
-    box.querySelectorAll(".pgroup, a").forEach(n => n.remove());
+    const fly = document.getElementById("plat-fly");
+    const cols = document.getElementById("plat-cols");
+    cols.innerHTML = "";
+    fly.querySelectorAll(".classic").forEach(n => n.remove());
     const mk = (label, path, cls) => {
       const a = el("a", cls || "", label + " ↗");
       a.href = platUrl(path); a.target = "_blank"; a.rel = "noopener";
-      box.appendChild(a);
+      return a;
     };
     PLATFORM_GROUPS.forEach(g => {
       if ((role || 0) < g.minRole) return;
-      box.appendChild(el("div", "pgroup", g.label));
-      g.links.forEach(([label, path]) => mk(label, path));
+      // one wrapper per group: break-inside:avoid keeps a group in one column
+      const grp = el("div", "pgrp");
+      grp.appendChild(el("div", "pgroup", g.label));
+      g.links.forEach(([label, path]) => grp.appendChild(mk(label, path)));
+      cols.appendChild(grp);
     });
-    mk("Classic app", "/?classic=1", "classic");
-    box.style.display = "";
+    fly.appendChild(mk("Classic app", "/?classic=1", "classic"));
+    document.getElementById("plat").style.display = "";
   }
+  const platBtn = document.getElementById("plat-btn");
+  const platFly = document.getElementById("plat-fly");
+  function setPlatOpen(open) {
+    platFly.hidden = !open;
+    platBtn.classList.toggle("open", open);
+    platBtn.setAttribute("aria-expanded", String(open));
+  }
+  platBtn.onclick = () => setPlatOpen(platFly.hidden);
+  // any pointer press outside the flyout closes it; links close it too, since
+  // they open in a new tab and the panel shouldn't be left hanging
+  document.addEventListener("pointerdown", e => {
+    if (platFly.hidden) return;
+    if (platFly.contains(e.target) || platBtn.contains(e.target)) return;
+    setPlatOpen(false);
+  });
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && !platFly.hidden) setPlatOpen(false);
+  });
+  platFly.addEventListener("click", e => {
+    if (e.target.closest("a")) setPlatOpen(false);
+  });
 
   // ---------- views (deterministic dashboards) ----------
   const VIEW_SCOPE_STYLE = { user: "t-review", group: "t-edit_and_return",
