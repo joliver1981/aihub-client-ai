@@ -348,7 +348,71 @@ def set_turn_cap(value) -> int:
     return n
 
 
+# Where the LAST ensure_anthropic_key() call resolved the key from. The bare
+# anthropic_key_present bool can't answer "is this client on their own key?"
+# — relay mode stuffs the tenant LicenseKey into ANTHROPIC_API_KEY, so it is
+# always true. "none" until the first call (or when nothing resolved).
+_anthropic_key_source = "none"
+
+
+def anthropic_key_source() -> str:
+    return _anthropic_key_source
+
+
+def _byok_anthropic_key():
+    """BYOK reads, reimplemented from api_keys_config (which imports Flask —
+    absent from the isolated aihub-agent env): the data/byok_config.json gate
+    plus USER_ANTHROPIC_API_KEY (api_keys_config.ANTHROPIC_API_KEY_SECRET)
+    from the encrypted local store. api_keys_config._get_config_file_path()
+    falls back to a RELATIVE './data', which only works from the Flask app's
+    cwd — The Agent runs from data/agent/workspace, so anchor on APP_ROOT.
+    Returns (byok_enabled, key_or_empty); never raises.
+    """
+    try:
+        path = os.path.join(
+            os.getenv("AIHUB_DATA_DIR") or os.path.join(APP_ROOT, "data"),
+            "byok_config.json")
+        with open(path, "r", encoding="utf-8") as fh:
+            enabled = bool(json.load(fh).get("byok_enabled", False))
+    except Exception:
+        return False, ""
+    if not enabled:
+        return False, ""
+    try:
+        from local_secrets import get_local_secret
+        return True, (get_local_secret("USER_ANTHROPIC_API_KEY") or "").strip()
+    except Exception as e:
+        logger.error(f"BYOK is enabled but the local secret store could not "
+                     f"be read: {e}")
+        return True, ""
+
+
 def ensure_anthropic_key() -> bool:
+    global _anthropic_key_source
+    # BYOK (highest precedence): the client's OWN Anthropic key, saved in
+    # Settings -> API Keys. When present it beats every other source — the
+    # relay AND a hand-pinned ANTHROPIC_API_KEY — because the client's
+    # explicit choice to run on their own key/bill wins. A key that is
+    # configured but rejected upstream must surface Anthropic's 401, never
+    # silently fall back onto the relay (that would bill us while the client
+    # believes they are on their own key); only an EMPTY key slot falls
+    # through to the sources below.
+    byok_on, byok_key = _byok_anthropic_key()
+    if byok_key:
+        os.environ["ANTHROPIC_API_KEY"] = byok_key
+        # This runs per turn, so a mid-process flip from relay mode would
+        # otherwise leave the relay base URL in the env — and a real
+        # sk-ant-... key posted to the relay fails the tenant-LicenseKey
+        # lookup with a 401. Clear it: BYOK talks to api.anthropic.com.
+        os.environ.pop("ANTHROPIC_BASE_URL", None)
+        _anthropic_key_source = "byok"
+        logger.info("Anthropic key source: BYOK (client's own key from the "
+                    "local secret store; direct api.anthropic.com)")
+        return True
+    if byok_on:
+        logger.warning("BYOK is enabled but no Anthropic key is saved in "
+                       "Settings -> API Keys — falling back to the next "
+                       "configured source (relay/env/encrypted)")
     # RELAY MODE (production posture): route the SDK through the aihub-api
     # Anthropic relay instead of holding a raw Anthropic key on this box.
     # The tenant LicenseKey authenticates; the cloud swaps in the real key
@@ -366,24 +430,29 @@ def ensure_anthropic_key() -> bool:
         else:
             os.environ["ANTHROPIC_BASE_URL"] = f"{relay_base}/api/agent-llm"
             os.environ["ANTHROPIC_API_KEY"] = tenant_key
+            _anthropic_key_source = "relay"
             logger.info(f"Anthropic RELAY mode: base {relay_base}/api/agent-llm "
                         "(tenant-key auth; no raw Anthropic key on this box)")
             return True
     if os.getenv("ANTHROPIC_API_KEY"):
+        _anthropic_key_source = "env"
         return True
     enc = os.getenv("ANTHROPIC_API_KEY_ENCRYPTED")
     if not enc:
         logger.warning("No ANTHROPIC_API_KEY or ANTHROPIC_API_KEY_ENCRYPTED configured")
+        _anthropic_key_source = "none"
         return False
     try:
         from encrypt import decrypt_value, ENCRYPTION_KEY
         plain = decrypt_value(enc, ENCRYPTION_KEY)
         if plain:
             os.environ["ANTHROPIC_API_KEY"] = plain
+            _anthropic_key_source = "encrypted"
             logger.info("ANTHROPIC_API_KEY decrypted and exported for the SDK")
             return True
     except Exception as e:
         logger.error(f"Failed to decrypt ANTHROPIC_API_KEY_ENCRYPTED: {e}")
+    _anthropic_key_source = "none"
     return False
 
 
@@ -404,6 +473,9 @@ def summary() -> dict:
         "allow_all_users": AGENT_ALLOW_ALL_USERS,
         "anthropic_key_present": bool(os.getenv("ANTHROPIC_API_KEY")
                                       or os.getenv("ANTHROPIC_API_KEY_ENCRYPTED")),
+        # byok | relay | env | encrypted | none — reflects the LAST
+        # ensure_anthropic_key() call ("none" until the first turn).
+        "anthropic_key_source": anthropic_key_source(),
     }
 
 
